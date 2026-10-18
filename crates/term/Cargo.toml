@@ -1,0 +1,25 @@
+[package]
+name = "adroit-term"
+description = "Sessions kept in a felis daemon, their screens as styled runs, and keys as felis input"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+felis-vt.workspace = true
+felis-grid.workspace = true
+felis-protocol.workspace = true
+felis-transport.workspace = true
+felis-client-core.workspace = true
+felis-daemon.workspace = true
+base64.workspace = true
+png.workspace = true
+libc.workspace = true
+tokio.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+serde_json.workspace = true

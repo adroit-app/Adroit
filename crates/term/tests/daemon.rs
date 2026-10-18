@@ -1,0 +1,344 @@
+//! Sessions run in a felis daemon served from the test itself.
+
+use std::path::PathBuf;
+use std::time::Duration;
+
+use adroit_term::{Daemon, Key, Palette, Pane, Size, Spawn, tags};
+
+/// A daemon on a socket of its own, served until the test ends.
+async fn daemon() -> (Daemon, tempfile::TempDir) {
+    // A socket path has to be short, so not under the usual temp folder.
+    let dir = tempfile::Builder::new()
+        .prefix("adroit-")
+        .tempdir_in("/tmp")
+        .unwrap();
+    // The daemon listens only in a folder open to no one else.
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let socket = dir.path().join("d.sock");
+    let serving = socket.clone();
+    let served = tokio::spawn(async move { Daemon::serve(&serving).await });
+    let d = Daemon::new(socket);
+    let mut last = None;
+    for _ in 0..100 {
+        match d.sessions().await {
+            Ok(_) => return (d, dir),
+            Err(e) => last = Some(e),
+        }
+        if served.is_finished() {
+            panic!("the daemon stopped: {:?}", served.await);
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("the daemon did not answer: {last:?}");
+}
+
+fn sh(script: &str) -> Spawn {
+    Spawn {
+        program: "/bin/sh".into(),
+        args: vec!["-c".into(), script.into()],
+        cwd: PathBuf::from("/tmp"),
+        cols: 40,
+        rows: 6,
+        ..Spawn::default()
+    }
+}
+
+/// Wait until `pane`'s screen satisfies `ok`, or fail after a while.
+async fn until(pane: &Pane, ok: impl Fn(&[String]) -> bool) -> Vec<String> {
+    for _ in 0..200 {
+        let text = pane.screen().text();
+        if ok(&text) {
+            return text;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("never shown; the screen has {:?}", pane.screen().text());
+}
+
+async fn attach(d: &Daemon, id: u128) -> Pane {
+    Pane::attach(d, id, Size::new(40, 6), &Palette::default(), || {})
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn a_session_s_screen_shows_what_its_program_wrote() {
+    let (d, _dir) = daemon().await;
+    let id = d.spawn(sh("printf hello; sleep 5")).await.unwrap();
+    let pane = attach(&d, id).await;
+    until(&pane, |t| t[0] == "hello").await;
+}
+
+#[tokio::test]
+async fn a_session_is_listed_with_its_tags_and_keeps_running_without_a_window() {
+    let (d, _dir) = daemon().await;
+    let mut spawn = sh("printf kept; sleep 5");
+    spawn.tags = tags::tagged("adroit.kind", "shell");
+    let id = d.spawn(spawn).await.unwrap();
+    let listed = d.sessions().await.unwrap();
+    let s = listed.iter().find(|s| s.id == id).unwrap();
+    assert_eq!(
+        tags::value(&s.tags, "adroit.kind").as_deref(),
+        Some("shell")
+    );
+    drop(attach(&d, id).await);
+    let pane = attach(&d, id).await;
+    until(&pane, |t| t[0] == "kept").await;
+}
+
+#[tokio::test]
+async fn keys_reach_the_program_as_its_modes_ask() {
+    let (d, _dir) = daemon().await;
+    let id = d
+        .spawn(sh(
+            "stty raw -echo; printf ready; head -c 3 | od -An -tx1; sleep 5",
+        ))
+        .await
+        .unwrap();
+    let pane = attach(&d, id).await;
+    until(&pane, |t| t[0].starts_with("ready")).await;
+    pane.key(&Key::new("c").ctrl());
+    pane.key(&Key::new(" ").ctrl());
+    pane.key(&Key::new("a"));
+    until(&pane, |t| t.iter().any(|l| l.contains("03 00 61"))).await;
+}
+
+#[tokio::test]
+async fn a_paste_is_bracketed_when_the_program_asks() {
+    let (d, _dir) = daemon().await;
+    let id = d
+        .spawn(sh(r"stty raw -echo; printf '\033[?2004hready'; head -c 13 | od -An -c | tr -d ' \n'; sleep 5"))
+        .await
+        .unwrap();
+    let pane = attach(&d, id).await;
+    until(&pane, |t| t[0].starts_with("ready")).await;
+    assert!(pane.bracketed_paste());
+    pane.paste("x");
+    until(&pane, |t| t.iter().any(|l| l.contains("033[200~x033[201~"))).await;
+}
+
+#[tokio::test]
+async fn a_status_the_program_reports_is_listed() {
+    let (d, _dir) = daemon().await;
+    let id = d
+        .spawn(sh(
+            r"printf '\033]7501;state=blocked:kind=permission\033\\'; sleep 5",
+        ))
+        .await
+        .unwrap();
+    for _ in 0..100 {
+        let listed = d.sessions().await.unwrap();
+        if let Some(status) = listed
+            .iter()
+            .find(|s| s.id == id)
+            .and_then(|s| s.status.clone())
+        {
+            assert_eq!(status.state, "blocked");
+            assert_eq!(status.kind.as_deref(), Some("permission"));
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("no status listed");
+}
+
+#[tokio::test]
+async fn everything_a_session_keeps_is_read_with_its_colours() {
+    let (d, _dir) = daemon().await;
+    let id = d
+        .spawn(sh(
+            r"for i in 1 2 3 4 5 6 7 8 9 10; do echo line$i; done; printf '\033[31mred'; sleep 5",
+        ))
+        .await
+        .unwrap();
+    let pane = attach(&d, id).await;
+    until(&pane, |t| t.iter().any(|l| l == "red")).await;
+    let all = d.everything(id, 40, &Palette::default()).await.unwrap();
+    let text = all.text();
+    assert_eq!(text[0], "line1");
+    let red = text.iter().position(|l| l == "red").unwrap();
+    assert_eq!(all.lines[red].runs[0].style.fg, Palette::default().ansi[1]);
+}
+
+#[tokio::test]
+async fn everything_a_pane_reads_is_in_the_colours_its_program_set() {
+    let (d, _dir) = daemon().await;
+    let blue = adroit_term::Rgb::new(0, 0, 255);
+    let id = d
+        .spawn(sh(
+            r"printf '\033]4;1;rgb:00/00/ff\033\\\033[31mred'; sleep 5",
+        ))
+        .await
+        .unwrap();
+    let pane = attach(&d, id).await;
+    until(&pane, |t| t.iter().any(|l| l == "red")).await;
+    for _ in 0..200 {
+        if pane.screen().lines[0].runs[0].style.fg == blue {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let all = pane.everything(&d, 40).await.unwrap();
+    let red = all.text().iter().position(|l| l == "red").unwrap();
+    assert_eq!(all.lines[red].runs[0].style.fg, blue);
+}
+
+#[tokio::test]
+async fn a_session_whose_program_exits_says_so() {
+    let (d, _dir) = daemon().await;
+    let id = d.spawn(sh("sleep 0.3")).await.unwrap();
+    let pane = attach(&d, id).await;
+    for _ in 0..200 {
+        if pane.exited() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("never exited");
+}
+
+#[tokio::test]
+async fn an_ended_session_is_listed_no_more() {
+    let (d, _dir) = daemon().await;
+    let id = d.spawn(sh("sleep 5")).await.unwrap();
+    d.end(id).await.unwrap();
+    for _ in 0..200 {
+        if !d
+            .sessions()
+            .await
+            .unwrap()
+            .iter()
+            .any(|s| s.id == id && !s.exited)
+        {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("still listed");
+}
+
+#[tokio::test]
+async fn a_resize_reaches_the_program() {
+    let (d, _dir) = daemon().await;
+    let id = d.spawn(sh("sleep 0.5; stty size; sleep 5")).await.unwrap();
+    let pane = attach(&d, id).await;
+    pane.resize(Size::new(30, 5));
+    until(&pane, |t| t.iter().any(|l| l == "5 30")).await;
+}
+
+#[tokio::test]
+async fn a_click_goes_to_a_program_that_asked_for_the_mouse() {
+    let (d, _dir) = daemon().await;
+    let id = d
+        .spawn(sh(r"stty raw -echo; printf '\033[?1000h\033[?1006hready'; head -c 18 | tr '\033' 'E'; sleep 5"))
+        .await
+        .unwrap();
+    let pane = attach(&d, id).await;
+    until(&pane, |t| t[0].starts_with("ready")).await;
+    assert!(pane.takes_mouse());
+    pane.click(2, 1);
+    until(&pane, |t| {
+        t.iter().any(|l| l.contains("E[<0;3;2ME[<0;3;2m"))
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn an_image_the_program_shows_is_drawn_over_the_cells_it_covers() {
+    let (d, _dir) = daemon().await;
+    // One red pixel, put two cells wide and one high.
+    let id = d
+        .spawn(sh(
+            r"printf '\033_Ga=T,f=24,s=1,v=1,c=2,r=1;/wAA\033\\'; sleep 5",
+        ))
+        .await
+        .unwrap();
+    let pane = attach(&d, id).await;
+    for _ in 0..200 {
+        let pictures = pane.pictures();
+        if let Some(p) = pictures.first() {
+            assert_eq!(p.dst, [0.0, 0.0, 2.0, 1.0]);
+            assert_eq!(p.size, [1, 1]);
+            assert!(p.url.starts_with("data:image/png;base64,"));
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("no image drawn");
+}
+
+#[tokio::test]
+async fn an_image_given_only_its_width_keeps_its_shape_in_cells_taller_than_wide() {
+    let (d, _dir) = daemon().await;
+    // Two by two pixels, put four cells wide and as tall as its shape asks.
+    let id = d
+        .spawn(sh(
+            r"printf '\033_Ga=T,f=24,s=2,v=2,c=4;/wAA/wAA/wAA/wAA\033\\'; sleep 5",
+        ))
+        .await
+        .unwrap();
+    // Cells half as wide as they are tall: a square four cells wide is two
+    // rows high.
+    let size = Size {
+        cell_width: 8.0,
+        cell_height: 16.0,
+        ..Size::new(40, 6)
+    };
+    let pane = Pane::attach(&d, id, size, &Palette::default(), || {})
+        .await
+        .unwrap();
+    for _ in 0..200 {
+        if let Some(p) = pane.pictures().first() {
+            assert_eq!(p.dst, [0.0, 0.0, 4.0, 2.0]);
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("no image drawn");
+}
+
+#[tokio::test]
+async fn an_image_stays_within_the_rows_the_program_was_moved_past() {
+    let (d, _dir) = daemon().await;
+    let id = d
+        .spawn(sh(
+            r"sleep 0.5; printf '\033_Ga=T,f=24,s=2,v=2,c=4;/wAA/wAA/wAA/wAA\033\\'; printf '\nafter'; sleep 5",
+        ))
+        .await
+        .unwrap();
+    // Cells of a fraction of a pixel, as a measured font gives.
+    let size = Size {
+        cell_width: 8.6,
+        cell_height: 17.0,
+        ..Size::new(40, 6)
+    };
+    let pane = Pane::attach(&d, id, size, &Palette::default(), || {})
+        .await
+        .unwrap();
+    let text = until(&pane, |t| t.iter().any(|l| l == "after")).await;
+    let after = text.iter().position(|l| l == "after").unwrap() as f32;
+    let p = pane.pictures().into_iter().next().expect("no image drawn");
+    assert!(
+        p.dst[1] + p.dst[3] <= after,
+        "{:?} runs into row {after}",
+        p.dst
+    );
+}
+
+#[tokio::test]
+async fn tags_are_changed_on_a_running_session() {
+    let (d, _dir) = daemon().await;
+    let id = d.spawn(sh("sleep 5")).await.unwrap();
+    d.tag(id, tags::tagged("adroit.name", "renamed"), vec![])
+        .await
+        .unwrap();
+    let listed = d.sessions().await.unwrap();
+    let s = listed.iter().find(|s| s.id == id).unwrap();
+    assert_eq!(
+        tags::value(&s.tags, "adroit.name").as_deref(),
+        Some("renamed")
+    );
+}
