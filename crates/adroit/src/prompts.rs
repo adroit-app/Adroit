@@ -1,8 +1,10 @@
 //! What is written in the prompt for each tab. The prompt holds the shown
 //! tab's text; the others' is kept aside until their tab is shown again.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use adroit_model::Session;
 use adroit_nvim::Embedded;
@@ -12,7 +14,11 @@ use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use tokio::sync::oneshot;
 
 use crate::nav;
-use crate::tabs::Tab;
+use crate::paths::state_dir;
+use crate::tabs::{self, Tab};
+
+/// The name the text written with nothing open is kept by.
+const NOTHING_OPEN: &str = "nothing";
 
 /// The text kept for the tabs not shown, and which tab the prompt is for.
 #[derive(Debug, Default)]
@@ -62,6 +68,54 @@ impl Drafts {
             text.push_str(line);
         }
         false
+    }
+
+    /// What is written for each tab, by the name the tab is kept by, the
+    /// shown one's being `shown_text`. A draft's tab names nothing that
+    /// outlives the window, so its text is not among them.
+    pub fn saved(&self, shown_text: &str) -> BTreeMap<String, String> {
+        let name = |tab: &Option<Tab>| match tab {
+            None => Some(NOTHING_OPEN.to_string()),
+            Some(tab) => tabs::kept_name(tab),
+        };
+        self.kept
+            .iter()
+            .map(|(tab, text)| (tab, text.as_str()))
+            .chain(Some((&self.shown, shown_text)))
+            .filter(|(_, text)| !text.trim().is_empty())
+            .filter_map(|(tab, text)| Some((name(tab)?, text.to_string())))
+            .collect()
+    }
+
+    /// The text [`Drafts::saved`] gave, kept aside for each tab, with nothing
+    /// shown yet.
+    pub fn restored(saved: BTreeMap<String, String>) -> Self {
+        let kept = saved
+            .into_iter()
+            .filter_map(|(name, text)| match name.as_str() {
+                NOTHING_OPEN => Some((None, text)),
+                _ => tabs::from_kept(&name).map(|tab| (Some(tab), text)),
+            })
+            .collect();
+        Self { shown: None, kept }
+    }
+
+    /// The text for the window shown with nothing open, which a window just
+    /// opened is.
+    pub fn first(&mut self) -> Option<String> {
+        if self.shown.is_some() {
+            return None;
+        }
+        self.kept.remove(&None)
+    }
+
+    /// The tabs not shown that have text kept aside.
+    pub fn holding(&self) -> HashSet<Tab> {
+        self.kept
+            .iter()
+            .filter(|(_, text)| !text.trim().is_empty())
+            .filter_map(|(tab, _)| tab.clone())
+            .collect()
     }
 
     /// Keep each session's text under the id it goes by now.
@@ -148,7 +202,18 @@ pub enum Op {
     /// given oldest first, in the prompt, if it still shows the tab they were
     /// read for.
     Recall(Option<Tab>, bool, Vec<String>),
+    /// Keep what is written, the shown tab's too, past the window.
+    Save,
 }
+
+/// Where what is written is kept past the window.
+fn drafts_path() -> PathBuf {
+    state_dir().join("adroit").join("drafts.json")
+}
+
+/// How often what is written is kept, so a window that ends however it ends
+/// loses little of it.
+const SAVE_EVERY: Duration = Duration::from_secs(2);
 
 /// Where ops for the prompt are sent; cheap to copy into every handler.
 #[derive(Clone, Copy)]
@@ -162,10 +227,29 @@ impl Prompts {
 
 /// Run the ops sent to the returned sender on the prompt Neovim holds, one
 /// at a time, so that taking a tab's text and putting another's never cross.
-pub fn keeper(nvim: Signal<Option<Arc<Embedded>>>) -> Prompts {
+/// `drafted` follows the tabs that have text kept aside, for the window to
+/// mark.
+pub fn keeper(nvim: Signal<Option<Arc<Embedded>>>, mut drafted: Signal<HashSet<Tab>>) -> Prompts {
     let (tx, mut ops) = unbounded_channel();
+    {
+        let tx = tx.clone();
+        spawn(async move {
+            loop {
+                tokio::time::sleep(SAVE_EVERY).await;
+                if tx.send(Op::Save).is_err() {
+                    break;
+                }
+            }
+        });
+    }
     spawn(async move {
-        let mut drafts = Drafts::default();
+        let mut drafts = std::fs::read_to_string(drafts_path())
+            .ok()
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .map(Drafts::restored)
+            .unwrap_or_default();
+        let mut saved = None::<BTreeMap<String, String>>;
+        let mut opened = false;
         let mut history = History::default();
         while let Some(op) = ops.recv().await {
             let nv = nvim.peek().clone();
@@ -226,6 +310,26 @@ pub fn keeper(nvim: Signal<Option<Arc<Embedded>>>) -> Prompts {
                     };
                     let _ = reply.send((drafts.shown.clone(), text));
                 }
+                Op::Save => {
+                    let Some(nv) = &nv else { continue };
+                    if !opened {
+                        opened = true;
+                        if let Some(text) = drafts.first() {
+                            put(text).await;
+                        }
+                    }
+                    let now = drafts.saved(&nv.text().await.unwrap_or_default());
+                    if saved.as_ref() != Some(&now) {
+                        if let Ok(json) = serde_json::to_string(&now) {
+                            let _ = std::fs::write(drafts_path(), json);
+                        }
+                        saved = Some(now);
+                    }
+                }
+            }
+            let holding = drafts.holding();
+            if *drafted.peek() != holding {
+                drafted.set(holding);
             }
         }
     });
@@ -300,6 +404,47 @@ mod tests {
         let mut d = Drafts::default();
         assert_eq!(d.show(session("a"), "add a readme".into()), None);
         assert_eq!(d.show(None, String::new()), Some("add a readme".into()));
+    }
+
+    #[test]
+    fn what_is_written_survives_the_window_and_comes_back_to_its_tab() {
+        let mut d = Drafts::default();
+        d.show(session("a"), String::new());
+        d.show(Some(Tab::Shell(1)), "for a".into());
+        let saved = d.saved("in the shell's prompt");
+        let mut back = Drafts::restored(saved);
+        assert_eq!(back.show(session("a"), String::new()), Some("for a".into()));
+        assert_eq!(
+            back.show(Some(Tab::Shell(1)), String::new()),
+            Some("in the shell's prompt".into())
+        );
+    }
+
+    #[test]
+    fn a_draft_tab_s_text_is_not_kept_past_the_window_but_nothing_open_s_is() {
+        let draft = Some(Tab::Draft {
+            worktree: "/src".into(),
+            role: crate::tabs::Role::Worker,
+        });
+        let mut d = Drafts::default();
+        d.show(draft, String::new());
+        d.show(None, "for the draft".into());
+        let mut back = Drafts::restored(d.saved("with nothing open"));
+        assert!(back.holding().is_empty());
+        // The window opens with nothing shown: its text comes back first.
+        assert_eq!(back.first(), Some("with nothing open".into()));
+        assert_eq!(back.first(), None);
+    }
+
+    #[test]
+    fn the_tabs_holding_text_aside_are_known_until_shown_again() {
+        let mut d = Drafts::default();
+        d.show(session("a"), String::new());
+        d.show(session("b"), "for a".into());
+        d.show(None, String::new());
+        assert_eq!(d.holding(), HashSet::from([Tab::Session("a".into())]));
+        d.show(session("a"), String::new());
+        assert!(d.holding().is_empty());
     }
 
     #[test]

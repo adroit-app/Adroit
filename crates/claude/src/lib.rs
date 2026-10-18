@@ -12,7 +12,6 @@ pub mod commands;
 pub mod dialog;
 pub mod git;
 pub mod history;
-pub mod hook;
 pub mod jj;
 pub mod links;
 pub mod places;
@@ -154,14 +153,20 @@ pub enum Access {
     Read,
 }
 
-/// The arguments that start Claude Code named `name`, running `settings`,
-/// with a first prompt.
-pub fn start_args(name: &str, settings: &str, access: Access, prompt: &str) -> Vec<String> {
+/// A fresh id for a conversation adroit starts, chosen before Claude Code
+/// runs so the session can carry it from the start.
+pub fn new_session_id() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+
+/// The arguments that start Claude Code named `name`, holding the
+/// conversation `session_id`, with a first prompt.
+pub fn start_args(name: &str, session_id: &str, access: Access, prompt: &str) -> Vec<String> {
     let mut args: Vec<String> = vec![
         "--name".into(),
         name.into(),
-        "--settings".into(),
-        settings.into(),
+        "--session-id".into(),
+        session_id.into(),
     ];
     if access == Access::Read {
         args.extend(
@@ -179,12 +184,9 @@ pub fn start_args(name: &str, settings: &str, access: Access, prompt: &str) -> V
     args
 }
 
-/// The arguments that continue the conversation `session_id`, running
-/// `settings`.
-pub fn resume_args(session_id: &str, settings: &str) -> Vec<String> {
-    ["--resume", session_id, "--settings", settings]
-        .map(String::from)
-        .to_vec()
+/// The arguments that continue the conversation `session_id`.
+pub fn resume_args(session_id: &str) -> Vec<String> {
+    ["--resume", session_id].map(String::from).to_vec()
 }
 
 /// The command of a prompt that is a shell line for Claude Code: one whose
@@ -319,22 +321,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_session_starts_named_with_its_settings_and_first_prompt() {
+    fn a_session_starts_named_with_its_conversation_and_first_prompt() {
         assert_eq!(
-            start_args("fix", "{}", Access::Edit, "-h is a flag"),
-            ["--name", "fix", "--settings", "{}", "--", "-h is a flag"]
+            start_args("fix", "a08bbcf2-2cbf", Access::Edit, "-h is a flag"),
+            [
+                "--name",
+                "fix",
+                "--session-id",
+                "a08bbcf2-2cbf",
+                "--",
+                "-h is a flag"
+            ]
         );
     }
 
     #[test]
     fn a_reader_starts_in_plan_mode_without_the_editing_tools() {
         assert_eq!(
-            start_args("look", "{}", Access::Read, "b"),
+            start_args("look", "a08bbcf2-2cbf", Access::Read, "b"),
             [
                 "--name",
                 "look",
-                "--settings",
-                "{}",
+                "--session-id",
+                "a08bbcf2-2cbf",
                 "--permission-mode",
                 "plan",
                 "--disallowedTools",
@@ -346,11 +355,30 @@ mod tests {
     }
 
     #[test]
-    fn a_taken_over_session_resumes_its_conversation_with_the_settings() {
-        assert_eq!(
-            resume_args("a08bbcf2-2cbf", "{}"),
-            ["--resume", "a08bbcf2-2cbf", "--settings", "{}"]
+    fn a_taken_over_session_resumes_its_conversation() {
+        assert_eq!(resume_args("a08bbcf2-2cbf"), ["--resume", "a08bbcf2-2cbf"]);
+    }
+
+    #[test]
+    fn a_new_conversation_id_is_a_random_uuid_v4() {
+        let id = new_session_id();
+        let groups: Vec<usize> = id.split('-').map(str::len).collect();
+        assert_eq!(groups, [8, 4, 4, 4, 12], "{id}");
+        assert!(
+            id.chars()
+                .all(|c| c == '-' || matches!(c, '0'..='9' | 'a'..='f')),
+            "{id}"
         );
+        assert_eq!(id.as_bytes()[14], b'4', "version nibble of {id}");
+        assert!(
+            matches!(id.as_bytes()[19], b'8' | b'9' | b'a' | b'b'),
+            "variant nibble of {id}"
+        );
+    }
+
+    #[test]
+    fn each_new_conversation_id_differs() {
+        assert_ne!(new_session_id(), new_session_id());
     }
 
     #[test]

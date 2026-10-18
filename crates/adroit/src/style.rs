@@ -115,7 +115,6 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .state-glyph.idle { color: var(--text-3); }
 .state-glyph.fail { color: var(--fail); }
 .state-glyph.run .icon svg { animation: spin 1.8s linear infinite; }
-.state-glyph.run.still .icon svg { animation: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .state-glyph.run .icon svg { animation: none; } }
 .reads-only-mark { flex: none; color: var(--text-3); display: inline-flex; }
@@ -167,6 +166,10 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .mode-chip.pass { background: rgba(232,180,94,0.14); color: var(--wait); }
 .mode-chip.cmd { background: rgba(185,162,236,0.14); color: var(--coord); }
 .prompt-grid { position: relative; padding: 10px 14px 4px; }
+.draft-mark { color: var(--coord); font-size: 11px; flex: none; }
+.prompt.answering { border-color: var(--wait); }
+.prompt.answering .prompt-grid { opacity: 0.4; }
+.prompt-foot-answering { color: var(--wait); white-space: nowrap; }
 .prompt-scroll { position: absolute; top: 10px; bottom: 4px; right: 4px; width: 4px; border-radius: 2px; background: rgba(255,255,255,0.05); }
 .prompt-scroll-thumb { position: absolute; left: 0; right: 0; border-radius: 2px; background: #4a5566; }
 .vim-cmdline { font-family: var(--term-font); font-size: var(--term-size); font-weight: var(--term-weight); color: var(--text); padding: 2px 14px; }
@@ -236,8 +239,8 @@ kbd { font-family: var(--mono); font-size: 10.5px; color: #c9ccd2; background: v
   border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; line-height: 16px; display: inline-block; }
 .kbd-list { display: flex; align-items: center; gap: 5px; }
 .direct-banner { position: absolute; top: 10px; left: 14px; right: 14px; z-index: 5; display: flex; gap: 8px; align-items: center;
-  padding: 8px 12px; border-radius: 8px; border: 2px solid var(--wait); background: rgba(29,33,38,0.95); color: var(--text-2); font-size: 12px; }
-.direct-banner-title { color: var(--wait); font-weight: 600; }
+  padding: 8px 12px; border-radius: 8px; border: 2px solid var(--wait); background: var(--raised); color: var(--text-2); font-size: 12px; }
+.direct-banner-title { color: var(--wait); font-weight: 600; white-space: nowrap; flex: none; }
 .dialog-scrim { position: fixed; inset: 0; z-index: 20; background: rgba(8,9,11,0.6); display: flex; align-items: center; justify-content: center; }
 .dialog { width: 420px; max-width: calc(100% - 32px); background: var(--raised); border: 1px solid var(--line-strong); border-radius: 10px;
   box-shadow: 0 12px 40px rgba(0,0,0,0.55); padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; color: var(--text-2); line-height: 1.6; }

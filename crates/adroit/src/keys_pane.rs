@@ -39,7 +39,7 @@ fn area_hint(ctx: Context) -> &'static str {
         Context::Sidebar => "The list of workspaces and sessions.",
         Context::Details => "The panel on the right.",
         Context::Console => "The console while it shows a session.",
-        Context::Prompt => "The prompt, while Neovim is not writing.",
+        Context::Prompt => "The prompt, before Neovim takes the key.",
     }
 }
 
@@ -102,6 +102,10 @@ pub fn KeysPane() -> Element {
             input {
                 class: "keys-bar-search",
                 placeholder: "Filter by key or action",
+                autocomplete: "off",
+                spellcheck: "false",
+                "autocorrect": "off",
+                "autocapitalize": "off",
                 value: "{filter}",
                 oninput: move |e| filter.set(e.value()),
             }
@@ -144,8 +148,10 @@ pub fn KeysPane() -> Element {
                             .map(|(_, k)| k.clone())
                             .collect();
                         let adding = open() == Some(Open { area, keys: None });
+                        // Filtering, an area with nothing that matches is noise.
+                        let hidden = !filter.read().is_empty() && rows.is_empty() && gone.is_empty() && !adding;
                         rsx! {
-                            section { key: "{area}", class: "settings-group keys-area",
+                            section { key: "{area}", class: "settings-group keys-area", hidden,
                                 div { class: "keys-area-head",
                                     h2 { "{area_title(ctx)}" }
                                     div { class: "settings-hint", "{area_hint(ctx)}" }

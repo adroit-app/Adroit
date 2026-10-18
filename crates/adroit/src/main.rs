@@ -8,7 +8,6 @@ fn main() {
         Some("shell") => std::process::exit(adroit::shell_cli(&args[1..])),
         Some("editor") => std::process::exit(adroit::editor::cli(&args[1..])),
         Some("daemon") => std::process::exit(adroit::daemon_cli()),
-        Some("hook") => std::process::exit(adroit::hook_cli()),
         _ => {}
     }
     // Opened from the Finder, there is no terminal and no PATH of the user's

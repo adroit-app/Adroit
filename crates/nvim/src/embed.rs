@@ -458,6 +458,7 @@ impl Embedded {
 
     /// Type keys in Neovim's notation.
     pub async fn input(&self, keys: &str) -> Result<(), Error> {
+        self.state().forget_message();
         self.nvim.input(keys).await?;
         Ok(())
     }
@@ -485,6 +486,7 @@ impl Embedded {
 
     /// Put text into the prompt as text, whatever mode it is in.
     pub async fn paste(&self, text: &str) -> Result<(), Error> {
+        self.state().forget_message();
         self.nvim.paste(text, false, -1).await?;
         Ok(())
     }
@@ -530,12 +532,14 @@ impl Embedded {
     /// empty, with the cursor at their end.
     pub async fn append(&self, lines: &[String]) -> Result<(), Error> {
         let list = lines.iter().map(|l| Value::from(l.as_str())).collect();
+        self.state().forget_message();
         self.nvim.exec_lua(APPEND, vec![Value::Array(list)]).await?;
         Ok(())
     }
 
     /// The prompt's text, leaving the prompt empty for the next one.
     pub async fn take_text(&self) -> Result<String, Error> {
+        self.state().forget_message();
         Ok(self
             .nvim
             .exec_lua(TAKE_TEXT, vec![])

@@ -41,5 +41,5 @@ mod view;
 pub mod zoom;
 
 pub use app::launch;
-pub use daemon::{cli as daemon_cli, hook_cli};
+pub use daemon::cli as daemon_cli;
 pub use shells::cli as shell_cli;

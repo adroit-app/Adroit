@@ -13,8 +13,9 @@ pub const NAME: &str = "adroit.name";
 const CWD: &str = "adroit.cwd";
 const STARTED: &str = "adroit.started";
 const READER: &str = "adroit.reader";
-/// The conversation a Claude Code session holds, told by its hooks.
-pub const CONVERSATION: &str = "adroit.claude";
+/// The conversation a Claude Code session holds, chosen by adroit when it
+/// starts or resumes the session.
+const CONVERSATION: &str = "adroit.claude";
 
 /// A session the daemon holds, as what it runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,10 +71,12 @@ pub fn read(session: &adroit_term::Session) -> Option<Kept> {
     }
 }
 
-/// The tags a Claude Code session adroit starts carries.
+/// The tags a Claude Code session adroit starts or resumes carries, holding
+/// the conversation `conversation` from the moment it is spawned.
 pub fn claude_tags(
     name: &str,
     cwd: &std::path::Path,
+    conversation: &str,
     reader: bool,
     started_ms: u64,
 ) -> Vec<String> {
@@ -81,23 +84,10 @@ pub fn claude_tags(
     out.extend(tags::tagged(NAME, name));
     out.extend(tags::tagged(CWD, &cwd.to_string_lossy()));
     out.extend(tags::tagged(STARTED, &started_ms.to_string()));
+    out.extend(tags::tagged(CONVERSATION, conversation));
     if reader {
         out.extend(tags::tagged(READER, "1"));
     }
-    out
-}
-
-/// The tags of a session resuming the conversation `conversation`: it goes
-/// by it from the start, so the tab of the session it takes over follows it
-/// before it reports the conversation itself.
-pub fn resumed_tags(
-    name: &str,
-    cwd: &std::path::Path,
-    conversation: &str,
-    started_ms: u64,
-) -> Vec<String> {
-    let mut out = claude_tags(name, cwd, false, started_ms);
-    out.extend(tags::tagged(CONVERSATION, conversation));
     out
 }
 
@@ -131,9 +121,8 @@ mod tests {
     fn a_claude_session_is_read_back_from_its_tags_and_status() {
         let mut s = kept(
             7,
-            claude_tags("fix", std::path::Path::new("/api"), true, 42),
+            claude_tags("fix", std::path::Path::new("/api"), "uuid", true, 42),
         );
-        s.tags.extend(tags::tagged(CONVERSATION, "uuid"));
         s.status = Some(Status {
             state: "blocked".into(),
             kind: Some("permission".into()),
@@ -154,10 +143,10 @@ mod tests {
     }
 
     #[test]
-    fn a_resumed_session_goes_by_its_conversation_before_it_reports_one() {
+    fn a_session_goes_by_its_conversation_before_it_reports_anything() {
         let s = kept(
             7,
-            resumed_tags("fix", std::path::Path::new("/api"), "uuid", 0),
+            claude_tags("fix", std::path::Path::new("/api"), "uuid", false, 0),
         );
         let Some(Kept::Claude(c)) = read(&s) else {
             panic!("not a session");
@@ -170,7 +159,7 @@ mod tests {
     fn a_session_that_reported_nothing_is_idle() {
         let s = kept(
             7,
-            claude_tags("fix", std::path::Path::new("/api"), false, 0),
+            claude_tags("fix", std::path::Path::new("/api"), "uuid", false, 0),
         );
         let Some(Kept::Claude(c)) = read(&s) else {
             panic!("not a session");

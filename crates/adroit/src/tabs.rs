@@ -116,6 +116,26 @@ pub fn fresh_name(label: &str, taken: &[&str]) -> String {
     name
 }
 
+/// How a tab is kept for the next run of the window. A draft holds nothing
+/// to come back to, so it is not kept.
+pub fn kept_name(tab: &Tab) -> Option<String> {
+    match tab {
+        Tab::Session(id) => Some(format!("session:{id}")),
+        Tab::Shell(id) => Some(format!("shell:{id:x}")),
+        Tab::Draft { .. } => None,
+    }
+}
+
+/// The tab a name [`kept_name`] gave stands for.
+pub fn from_kept(name: &str) -> Option<Tab> {
+    let name = name.trim();
+    if let Some(id) = name.strip_prefix("session:") {
+        return Some(Tab::Session(id.to_string()));
+    }
+    let id = name.strip_prefix("shell:")?;
+    u128::from_str_radix(id, 16).ok().map(Tab::Shell)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,6 +150,21 @@ mod tests {
         assert!(shows_prompt(Some(&Tab::Session("a".into()))));
         assert!(shows_prompt(Some(&draft)));
         assert!(shows_prompt(None));
+    }
+
+    #[test]
+    fn a_session_s_or_a_shell_s_tab_is_kept_by_name_and_a_draft_s_is_not() {
+        for tab in [Tab::Session("ab12".into()), Tab::Shell(0xff)] {
+            let name = kept_name(&tab).unwrap();
+            assert_eq!(from_kept(&name), Some(tab), "{name}");
+        }
+        let draft = Tab::Draft {
+            worktree: "/src".into(),
+            role: Role::Worker,
+        };
+        assert_eq!(kept_name(&draft), None);
+        assert_eq!(from_kept("shell:not hex"), None);
+        assert_eq!(from_kept("something else"), None);
     }
 
     #[test]

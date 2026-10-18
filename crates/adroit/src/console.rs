@@ -261,6 +261,8 @@ pub fn Composer(
     rows: usize,
     /// Whether what is written is a shell line for the session.
     shell: bool,
+    /// Whether the keys typed here answer the session waiting above instead.
+    answering: bool,
 ) -> Element {
     let ch = use_cell_height();
     let thumb = scroll_thumb(view.0, rows, view.1);
@@ -288,12 +290,12 @@ pub fn Composer(
         .map(|pm| menu_span(14.0 + pm.col as f64 * cw, prompt_width() + 28.0));
     rsx! {
         div {
-            class: match (focused, shell) {
-                (true, true) => "prompt focused shell",
-                (true, false) => "prompt focused",
-                (false, true) => "prompt shell",
-                (false, false) => "prompt",
-            },
+            class: format!(
+                "prompt{}{}{}",
+                if focused { " focused" } else { "" },
+                if shell { " shell" } else { "" },
+                if answering { " answering" } else { "" },
+            ),
             // Stopped here, or the console around the card takes the keys back.
             onmousedown: move |e: Event<MouseData>| {
                 e.stop_propagation();
@@ -324,7 +326,7 @@ pub fn Composer(
                     }
                 }
                 if let Some((screen, popup, cmd, _)) = &prompt {
-                    ScreenView { screen: screen.clone(), cell_width: cw, show_cursor: focused && cmd.is_none() }
+                    ScreenView { screen: screen.clone(), cell_width: cw, show_cursor: focused && cmd.is_none() && !answering }
                     if let (Some(pm), Some((left, least, most))) = (popup, menu) {
                         div {
                             class: "vim-menu",
@@ -357,7 +359,9 @@ pub fn Composer(
                     span { class: "prompt-foot-message", "{msg}" }
                 }
                 span { class: "flex-spacer" }
-                if let Some(k) = send_keys {
+                if answering {
+                    span { class: "prompt-foot-answering", "keys answer above" }
+                } else if let Some(k) = send_keys {
                     span { class: "kbd-list", Keys { keys: k } " send" }
                 }
             }

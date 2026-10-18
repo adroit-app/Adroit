@@ -3,7 +3,8 @@
 Every session adroit starts, and every shell, runs in a felis daemon of
 adroit's own, not in the window. Closing the window leaves them running, their
 scrollback kept; opening it again lists them as they are and shows each one
-from where it stands.
+from where it stands, starting with the session or shell it showed when it
+closed, if that still runs.
 
 ## The daemon
 
@@ -33,6 +34,5 @@ sleeps when idle again.
 The state a session shows, working, waiting on you and for what, done or
 failed, is what its program reports with the
 [OSC 7501 program status protocol](https://www.superlogical.com/rex/docs/build/program-status),
-as the daemon keeps it. Claude Code does not report it itself, so the sessions
-adroit starts run hooks that report it for Claude Code. A session whose
-program reports nothing shows as idle.
+as the daemon keeps it. Claude Code reports it itself. A session whose program
+reports nothing shows as idle.

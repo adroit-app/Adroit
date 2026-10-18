@@ -9,8 +9,10 @@ use crate::paths::state_dir;
 
 /// The narrowest a side panel is dragged to.
 pub const MIN_SIDE: f64 = 160.0;
-/// The narrowest the console is left by a side panel dragged wide.
-pub const MIN_CENTER: f64 = 280.0;
+/// The narrowest the console is left by a side panel dragged wide, or by a
+/// window too small for both panels: some sixty columns, as a program's
+/// interface needs more than the panels beside it.
+pub const MIN_CENTER: f64 = 480.0;
 /// A side panel's width as designed, which a double-click on its edge brings back.
 pub const SIDE: f64 = 300.0;
 
@@ -45,10 +47,13 @@ impl Layout {
     /// The layout with `side` dragged to `want` pixels wide, in a window
     /// `body` pixels wide: no narrower than [`MIN_SIDE`], and leaving the
     /// console at least [`MIN_CENTER`] beside the other panel.
+    /// The other panel keeps the width it is drawn at, so the room one edge
+    /// gives up goes to the console, not to the other panel growing back.
     pub fn dragged(self, side: Side, want: f64, body: f64) -> Self {
+        let (sidebar, details) = self.drawn(body);
         let other = match side {
-            Side::Sidebar if self.show_details => self.details,
-            Side::Details if self.show_sidebar => self.sidebar,
+            Side::Sidebar if self.show_details => details,
+            Side::Details if self.show_sidebar => sidebar,
             _ => 0.0,
         };
         let most = (body - other - MIN_CENTER).max(MIN_SIDE);
@@ -56,10 +61,20 @@ impl Layout {
         match side {
             Side::Sidebar => Self {
                 sidebar: width,
+                details: if self.show_details {
+                    details
+                } else {
+                    self.details
+                },
                 ..self
             },
             Side::Details => Self {
                 details: width,
+                sidebar: if self.show_sidebar {
+                    sidebar
+                } else {
+                    self.sidebar
+                },
                 ..self
             },
         }
@@ -137,6 +152,15 @@ mod tests {
     }
 
     #[test]
+    fn narrowing_one_panel_in_a_narrow_window_gives_its_room_to_the_console() {
+        let body = 944.0;
+        let l = Layout::default();
+        let (_, details) = l.drawn(body);
+        let after = l.dragged(Side::Sidebar, 180.0, body);
+        assert_eq!(after.drawn(body), (180.0, details));
+    }
+
+    #[test]
     fn a_narrow_window_narrows_the_panels_before_the_console() {
         let l = Layout {
             sidebar: 300.0,
@@ -144,8 +168,12 @@ mod tests {
             ..Layout::default()
         };
         assert_eq!(l.drawn(1400.0), (300.0, 500.0));
-        // 760 wide leaves the panels 480, shared as they were.
-        assert_eq!(l.drawn(760.0), (180.0, 300.0));
+        // 1080 wide leaves the panels 600 beside a console of 480, shared as
+        // they were.
+        assert_eq!(l.drawn(1080.0), (225.0, 375.0));
+        // A small screen's window still gives the console room for a
+        // program's interface.
+        assert_eq!(Layout::default().drawn(944.0), (232.0, 232.0));
         // Too narrow even for that, they stay at their floor.
         assert_eq!(l.drawn(400.0), (MIN_SIDE, MIN_SIDE));
         let one = l.toggled(Side::Sidebar);

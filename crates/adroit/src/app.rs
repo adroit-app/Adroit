@@ -45,7 +45,7 @@ use crate::settings_window;
 use crate::shells::{Request, Response, answer, bind, serve, socket_path};
 use crate::status;
 use crate::style::{CSS, CellHeight, DEFAULT_CELL_HEIGHT};
-use crate::tabs::{Role, Tab, fresh_name, label_from, named, shows_prompt};
+use crate::tabs::{self, Role, Tab, fresh_name, label_from, named, shows_prompt};
 use crate::themes;
 use crate::view::Keys;
 use crate::zoom;
@@ -487,6 +487,11 @@ fn now_ms() -> u64 {
         .map_or(0, |d| d.as_millis() as u64)
 }
 
+/// Where the tab shown is kept for the next run of the window.
+fn shown_path() -> PathBuf {
+    state_dir().join("adroit").join("shown")
+}
+
 fn shell_program() -> String {
     crate::env::login_shell().unwrap_or_else(|| "/bin/sh".into())
 }
@@ -912,7 +917,9 @@ fn App() -> Element {
             focus.set(Area::Console);
         }
     };
-    let prompts = use_hook(|| prompts::keeper(nvim));
+    // The tabs with something written for them kept aside.
+    let drafted = use_signal(HashSet::<Tab>::new);
+    let prompts = use_hook(|| prompts::keeper(nvim, drafted));
     let mut status = use_signal(|| None::<String>);
     let notices = use_signal(|| 0u64);
     let notify = Status {
@@ -951,6 +958,25 @@ fn App() -> Element {
     let mut stale = use_signal(HashSet::<Tab>::new);
     // The sessions being taken over: stopped, and not yet resumed here.
     let mut moving = use_signal(HashSet::<String>::new);
+    // Whether the tab kept from the last run had its chance to come back;
+    // until then, the empty window is not kept over it.
+    let mut restored = use_signal(|| false);
+    use_effect(move || {
+        let shown = active.read().clone();
+        if !restored() {
+            return;
+        }
+        match shown {
+            Some(tab) => {
+                if let Some(name) = tabs::kept_name(&tab) {
+                    let _ = std::fs::write(shown_path(), name);
+                }
+            }
+            None => {
+                let _ = std::fs::remove_file(shown_path());
+            }
+        }
+    });
     // Keys meant for one area do not carry over to another: a sequence begun
     // in the sidebar would otherwise complete as a console binding after a
     // click there.
@@ -1035,6 +1061,9 @@ fn App() -> Element {
                 let mut cache: HashMap<PathBuf, (Instant, Option<Worktree>)> = HashMap::new();
                 let mut lists: HashMap<PathBuf, (Instant, Vec<Worktree>)> = HashMap::new();
                 let mut keys_read = None::<Option<String>>;
+                let mut restore = std::fs::read_to_string(shown_path())
+                    .ok()
+                    .and_then(|name| tabs::from_kept(&name));
                 // What each source last failed with, to take back once it reads.
                 let (mut keys_err, mut list_err) = (None, None);
                 loop {
@@ -1169,6 +1198,10 @@ fn App() -> Element {
                                         .collect();
                                     nav::tab_after_closing(&next, p, &left)
                                 });
+                                // Said, or the tab would vanish unexplained.
+                                if let Some((_, s)) = nav::find(&tree.peek(), id) {
+                                    notify.notice(format!("{} ended", s.name));
+                                }
                                 let _ = prompts.send(Op::Close(after.clone()));
                                 active.set(after);
                             }
@@ -1202,6 +1235,32 @@ fn App() -> Element {
                                 Tab::Shell(id) => shells.peek().iter().any(|s| s.id == *id),
                                 Tab::Draft { .. } => true,
                             });
+                            // The tab shown when the window last closed comes
+                            // back once what it shows is listed, unless
+                            // another was opened meanwhile.
+                            if let Some(kept) = restore.take()
+                                && active.peek().is_none()
+                            {
+                                let at = match &kept {
+                                    Tab::Session(id) => nav::find(&next, id).map(|(p, _)| p),
+                                    Tab::Shell(id) => {
+                                        shells.peek().iter().find(|s| s.id == *id).map(|s| Place {
+                                            worktree: s.worktree.clone(),
+                                        })
+                                    }
+                                    Tab::Draft { .. } => None,
+                                };
+                                if let Some(p) = at {
+                                    if let Tab::Session(id) = &kept {
+                                        selected.set(Some(Item::Session(id.clone())));
+                                    }
+                                    place.set(Some(p));
+                                    active.set(Some(kept));
+                                }
+                            }
+                            if !*restored.peek() {
+                                restored.set(true);
+                            }
                             if *tree.peek() != next {
                                 tree.set(next);
                             }
@@ -1975,17 +2034,21 @@ fn App() -> Element {
                         let started =
                             match scratch::start_dir(&worktree, &scratch_dir(), Moment::now()) {
                                 Ok(worktree) => {
-                                    let settings = adroit_claude::hook::settings(&adroit_program());
+                                    let conversation = adroit_claude::new_session_id();
                                     let spawn = Spawn {
                                         program: adroit_claude::claude_program(),
                                         args: adroit_claude::start_args(
-                                            &name, &settings, access, &text,
+                                            &name,
+                                            &conversation,
+                                            access,
+                                            &text,
                                         ),
                                         cwd: worktree.clone(),
                                         env: session_env(),
                                         tags: sessions::claude_tags(
                                             &name,
                                             &worktree,
+                                            &conversation,
                                             reader,
                                             now_ms(),
                                         ),
@@ -2065,14 +2128,19 @@ fn App() -> Element {
                     status.set(Some(format!("cannot take over {}: {e}", asked.name)));
                     return;
                 }
-                let settings = adroit_claude::hook::settings(&adroit_program());
                 let size = *console_size.peek();
                 let spawn = Spawn {
                     program: adroit_claude::claude_program(),
-                    args: adroit_claude::resume_args(&now.session_id, &settings),
+                    args: adroit_claude::resume_args(&now.session_id),
                     cwd: now.cwd.clone(),
                     env: session_env(),
-                    tags: sessions::resumed_tags(&now.name, &now.cwd, &now.session_id, now_ms()),
+                    tags: sessions::claude_tags(
+                        &now.name,
+                        &now.cwd,
+                        &now.session_id,
+                        false,
+                        now_ms(),
+                    ),
                     cols: size.cols,
                     rows: size.rows,
                 };
@@ -2107,7 +2175,11 @@ fn App() -> Element {
             .map(|w| w.worktree.path.clone())
             .collect();
         offers.set(picker::candidates(&running, &[], &[]));
-        picking.set(Some(Picker::new(Filer::new([home()]))));
+        // The home folder starts open: nearly every pick in the tree begins
+        // inside it.
+        let mut filer = Filer::new([home()]);
+        filer.open(read_dirs);
+        picking.set(Some(Picker::new(filer)));
         spawn(async move {
             // Claude Code's state file can run to megabytes, and every
             // directory it names is looked at: not on the window's thread.
@@ -3577,6 +3649,12 @@ fn App() -> Element {
         .as_ref()
         .and_then(|p| t.workspace_of(&p.worktree))
         .map(|w| (w.name.clone(), w.root.clone(), w.scratch));
+    // A workspace outside git may still be a jj repository, which the details
+    // panel reads through jj.
+    let outside_git = current.as_ref().is_some_and(|p| {
+        t.workspace_of(&p.worktree).is_some_and(|w| !w.git)
+            && !adroit_claude::jj::is_jj(&p.worktree)
+    });
     let waiting = ib.read().len();
     let working = t
         .sessions()
@@ -3795,7 +3873,9 @@ fn App() -> Element {
                 if waiting > 0 {
                     span { class: "header-chip wait", span { class: "state-glyph wait", IconView { icon: Icon::Bell, size: 12 } } "{waiting} waiting" }
                 }
-                span { class: "header-chip", span { class: if working > 0 { "state-glyph run" } else { "state-glyph run still" }, IconView { icon: Icon::Loader, size: 12 } } "{working} working" }
+                if working > 0 {
+                    span { class: "header-chip", span { class: "state-glyph run", IconView { icon: Icon::Loader, size: 12 } } "{working} working" }
+                }
                 span {
                     class: if layout().show_details { "pane-toggle on" } else { "pane-toggle" },
                     title: "Show or hide the details panel (⌥⌘B)",
@@ -4028,6 +4108,12 @@ fn App() -> Element {
                                 let target = Target::Row(it.clone());
                                 // Where a session can start, a button starts one there.
                                 let starts = matches!(it, Item::Workspace(_) | Item::Worktree(_));
+                                let has_draft = match &it {
+                                    Item::Session(id) | Item::Waiting(id) => {
+                                        drafted.read().contains(&Tab::Session(id.clone()))
+                                    }
+                                    _ => false,
+                                };
                                 let here = target.clone();
                                 rsx! {
                                     div {
@@ -4050,6 +4136,9 @@ fn App() -> Element {
                                         if terminal { Terminal {} }
                                         span { class: "list-row-name", "{text}" }
                                         if reader { Book {} }
+                                        if has_draft {
+                                            span { class: "draft-mark", title: "Something is written for it in the prompt", "✎" }
+                                        }
                                         span { class: "list-row-meta", "{meta}" }
                                         if starts {
                                             span {
@@ -4090,8 +4179,12 @@ fn App() -> Element {
                 div { class: if matches!(area, Area::Console | Area::Prompt) { "app-panel center-panel focused" } else { "app-panel center-panel" },
                     onmousedown: move |_| focus.set(Area::Console),
                     div { class: "tabs",
+                        // The worktree by name only: the header above holds its
+                        // whole path, and here it would crowd the tabs out.
                         if let Some(p) = &current {
-                            span { class: "tabs-where", "{short(&p.worktree)}" }
+                            span { class: "tabs-where", title: "{short(&p.worktree)}",
+                                "{p.worktree.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| short(&p.worktree))}"
+                            }
                         }
                         for (tab , name , state , reader) in tabs().into_iter() {
                             {
@@ -4108,6 +4201,7 @@ fn App() -> Element {
                                 let target = Target::Tab(tab.clone());
                                 let closing = Target::Tab(tab.clone());
                                 let closes = !matches!(tab, Tab::Draft { .. });
+                                let has_draft = drafted.read().contains(&tab);
                                 rsx! {
                                     span {
                                         key: "{tab:?}",
@@ -4125,6 +4219,9 @@ fn App() -> Element {
                                         if matches!(tab, Tab::Draft { role: Role::Worker, .. }) { span { class: "place-mark", IconView { icon: Icon::MessagePlus, size: 13 } } }
                                         "{name}"
                                         if reader { Book {} }
+                                        if has_draft {
+                                            span { class: "draft-mark", title: "Something is written for it in the prompt", "✎" }
+                                        }
                                         if closes {
                                             span {
                                                 class: "tab-close",
@@ -4158,6 +4255,9 @@ fn App() -> Element {
                                 div { class: "console-empty",
                                     IconView { icon: if *role == Role::Reader { Icon::Book } else { Icon::MessagePlus }, size: 28 }
                                     div { class: "console-empty-title", "{role.draft_heading()}" }
+                                    if *role == Role::Reader {
+                                        div { "A reader reads and reports: it plans, and edits no files." }
+                                    }
                                     if let Some(k) = k_send.clone() {
                                         div { "Write the first prompt below and press " Keys { keys: k } "." }
                                     }
@@ -4200,7 +4300,7 @@ fn App() -> Element {
                                         if let Some(k) = k_up.clone() { Keys { keys: k } }
                                         ", open with "
                                         if let Some(k) = k_open.clone() { Keys { keys: k } }
-                                        ", start a session by opening a worktree row such as main, or with "
+                                        ". On a workspace's row, start a session with "
                                         if let Some(k) = k_new.clone() { Keys { keys: k } }
                                         ", a reader with "
                                         if let Some(k) = k_reader.clone() { Keys { keys: k } }
@@ -4251,6 +4351,7 @@ fn App() -> Element {
                                 view: prompt_view(),
                                 rows: prompt_rows(),
                                 shell: prompt_shell(),
+                                answering,
                             }
                         }
                     }
@@ -4369,6 +4470,7 @@ fn App() -> Element {
                             }
                             match (&current, &git_now) {
                                 (None, _) => rsx! { div { class: "list-row dim", "Open a worktree to see it here" } },
+                                (Some(_), _) if outside_git => rsx! { div { class: "list-row dim", "Not a git or jj repository" } },
                                 (Some(_), None) => rsx! { div { class: "list-row dim", "Reading…" } },
                                 (Some(_), Some(Listing::Error(e))) => rsx! { div { class: "git-error", "{e}" } },
                                 (Some(_), Some(Listing::Files(files))) if files.is_empty() => rsx! { div { class: "list-row dim", "No changes" } },
@@ -4606,8 +4708,12 @@ fn App() -> Element {
                                         spellcheck: "false",
                                         "autocorrect": "off",
                                         "autocapitalize": "off",
+                                        // Selected, so a new name is typed over the old one.
                                         onmounted: move |e: MountedEvent| async move {
                                             let _ = e.data().set_focus(true).await;
+                                            document::eval(
+                                                "document.querySelector('.rename-dialog .filter-field-input')?.select()",
+                                            );
                                         },
                                         oninput: move |e: Event<FormData>| {
                                             if let Some(r) = renaming.write().as_mut() {

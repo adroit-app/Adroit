@@ -412,6 +412,12 @@ impl UiState {
     pub fn message(&self) -> Option<&str> {
         self.message.as_deref()
     }
+
+    /// Forget the last message. Neovim clears it only by showing another, so
+    /// without this one would outlive the keys and the text it was about.
+    pub fn forget_message(&mut self) {
+        self.message = None;
+    }
 }
 
 #[cfg(test)]
@@ -600,5 +606,12 @@ mod tests {
     fn the_last_message_is_kept_until_cleared() {
         let u = ui(r#"[["msg_show",["echo",[[0,"hello"]],false]]]"#);
         assert_eq!(u.message(), Some("hello"));
+    }
+
+    #[test]
+    fn a_message_is_forgotten_once_the_prompt_is_touched_again() {
+        let mut u = ui(r#"[["msg_show",["echo",[[0,"--No lines in buffer--"]],false]]]"#);
+        u.forget_message();
+        assert_eq!(u.message(), None);
     }
 }

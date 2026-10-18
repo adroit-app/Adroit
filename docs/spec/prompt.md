@@ -13,6 +13,9 @@ the keys that would go to the prompt stay with the shell.
 What is written in the prompt belongs to the tab shown while it was written.
 Showing another tab puts it aside and brings back what was written for that
 one; nothing written for one session is sent to another by switching tabs.
+A tab with something set aside for it is marked, and so is its session's row.
+What is written outlives the window: opened again, each tab gets back what
+was written for it, all but a new session's that was never started.
 What is written with nothing open becomes the first prompt of a new session
 opened next. Sent with nothing open, it starts a session in the worktree
 last opened, or in the only one declared; with more to choose from, adroit asks

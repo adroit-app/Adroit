@@ -1,15 +1,11 @@
-//! The felis daemon adroit's sessions run in: `adroit daemon`, which
-//! serves it, and `adroit hook`, which Claude Code's hooks run in a session
-//! to tell the daemon how it stands.
+//! The felis daemon adroit's sessions run in, which `adroit daemon` serves.
 
-use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-use adroit_term::{Daemon, tags};
+use adroit_term::Daemon;
 
 use crate::awake::{self, Assertion, Keeper};
 use crate::paths::state_dir;
-use crate::sessions::{CONVERSATION, id_of};
 use crate::settings::Settings;
 
 /// `$ADROIT_DAEMON`, or `adroit/felis/daemon.sock` under the state directory.
@@ -103,50 +99,6 @@ pub fn cli() -> i32 {
             1
         }
     }
-}
-
-/// `adroit hook`: what Claude Code's hook says on stdin, told to the
-/// session's terminal and to the daemon. It never fails the hook, as a
-/// session must not stop for want of a status.
-pub fn hook_cli() -> i32 {
-    let mut input = String::new();
-    if std::io::stdin().read_to_string(&mut input).is_err() {
-        return 0;
-    }
-    let Ok(event) = serde_json::from_str(&input) else {
-        return 0;
-    };
-    let report = adroit_claude::hook::report(&event);
-    // Written to the terminal the session runs on, where the daemon reads it
-    // as the program's own report, until the daemon takes one over its
-    // socket (felis-terminal/felis#6).
-    if let Some(status) = report.status
-        && let Ok(mut tty) = std::fs::OpenOptions::new().write(true).open("/dev/tty")
-    {
-        let _ = tty.write_all(&status);
-    }
-    if let Some(conversation) = report.session_id {
-        let at = std::env::var_os("FELIS_SOCKET");
-        let id = std::env::var("FELIS_SESSION_ID")
-            .ok()
-            .and_then(|h| id_of(&h));
-        if let (Some(at), Some(id), Ok(rt)) = (at, id, runtime()) {
-            let d = Daemon::new(at);
-            rt.block_on(async {
-                let held = d
-                    .sessions()
-                    .await
-                    .ok()
-                    .and_then(|all| all.into_iter().find(|s| s.id == id))
-                    .map(|s| tags::holding(&s.tags, CONVERSATION))
-                    .unwrap_or_default();
-                let _ = d
-                    .tag(id, tags::tagged(CONVERSATION, &conversation), held)
-                    .await;
-            });
-        }
-    }
-    0
 }
 
 #[cfg(test)]
