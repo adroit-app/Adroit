@@ -1,0 +1,40 @@
+//! The adroit window.
+
+mod app;
+mod complete;
+mod console;
+pub mod console_keys;
+mod console_read;
+mod daemon;
+mod details;
+pub mod editor;
+pub mod env;
+pub mod filer;
+pub mod focus;
+mod fuzzy;
+pub mod keymap;
+mod keys;
+mod keys_edit;
+mod keys_pane;
+mod layout;
+pub mod menu;
+pub mod nav;
+mod paths;
+pub mod picker;
+mod picker_view;
+pub mod prompts;
+pub mod rename;
+mod sessions;
+pub mod settings;
+mod settings_window;
+pub mod shells;
+pub mod status;
+mod style;
+pub mod tabs;
+pub mod themes;
+mod view;
+pub mod zoom;
+
+pub use app::launch;
+pub use daemon::{cli as daemon_cli, hook_cli};
+pub use shells::cli as shell_cli;

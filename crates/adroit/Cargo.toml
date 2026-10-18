@@ -1,0 +1,24 @@
+[package]
+name = "adroit"
+description = "A workspace where you work with many Claude Code sessions by hand: the Claude TUI as it is, prompts in your own Neovim, Vim-style moves."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+adroit-claude.workspace = true
+adroit-model.workspace = true
+adroit-nvim.workspace = true
+adroit-term.workspace = true
+dioxus = { version = "0.7.10", features = ["desktop"] }
+libc.workspace = true
+nucleo-matcher.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+toml_edit.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
