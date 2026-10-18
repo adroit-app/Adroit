@@ -1,0 +1,13 @@
+[package]
+name = "adroit-model"
+description = "Claude Code sessions, the workspaces and worktrees they run in, and the tree and inbox derived from them"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
