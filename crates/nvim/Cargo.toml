@@ -1,0 +1,18 @@
+[package]
+name = "adroit-nvim"
+description = "Neovim embedded for writing prompts, its grid read as a terminal-like screen"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+adroit-term.workspace = true
+async-trait.workspace = true
+nvim-rs.workspace = true
+rmpv.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
