@@ -74,15 +74,22 @@ impl Query {
     /// its own and added, so `adroit` finds `~/src/adroit` above
     /// `~/src/adroit/docs`.
     pub fn rank_path(&self, path: &Path) -> Option<Rank> {
+        let name = path.file_name().map(|n| n.to_string_lossy());
+        self.rank(&path.to_string_lossy(), name.as_deref())
+    }
+
+    /// How well `text` answers, or [`None`] if it does not, with `name`, a
+    /// part of it, scored again on its own and added.
+    pub fn rank_named(&self, text: &str, name: &str) -> Option<Rank> {
+        self.rank(text, Some(name))
+    }
+
+    fn rank(&self, whole: &str, name: Option<&str>) -> Option<Rank> {
         if self.is_empty() {
             return Some(Rank::UNASKED);
         }
-        let whole = path.to_string_lossy();
-        let score = self.score(&whole)?;
-        let named = path
-            .file_name()
-            .and_then(|name| self.score(&name.to_string_lossy()))
-            .unwrap_or(0);
+        let score = self.score(whole)?;
+        let named = name.and_then(|n| self.score(n)).unwrap_or(0);
         Some(Rank {
             score: score + named,
             length: whole.chars().count(),
@@ -221,6 +228,16 @@ mod tests {
         let named = score("adroit", "/w/src/adroit");
         let buried = score("adroit", "/w/adroit/src");
         assert!(named > buried, "{named} should beat {buried}");
+    }
+
+    #[test]
+    fn a_name_scores_above_the_same_letters_elsewhere_in_the_text() {
+        let query = Query::new("docs");
+        let named = query.rank_named("docs scratch", "docs").unwrap();
+        let elsewhere = query.rank_named("scratch docs", "scratch").unwrap();
+        assert!(named.score > elsewhere.score);
+        assert!(query.rank_named("scratch", "scratch").is_none());
+        assert!(Query::new("").rank_named("any", "any").is_some());
     }
 
     #[test]

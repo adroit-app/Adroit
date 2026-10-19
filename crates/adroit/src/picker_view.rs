@@ -9,13 +9,29 @@ use crate::filer::Row;
 use crate::fuzzy::Query;
 use crate::keys;
 use crate::paths::home;
-use crate::picker::{Candidate, Mode, Picker, short};
+use crate::picker::{Line, Mode, Pick, Picker, short};
+
+/// `text` with what `query` marked in it drawn as matched.
+fn marked(query: &Query, text: &str) -> Element {
+    rsx! {
+        for (j, s) in query.highlight_path(text).into_iter().enumerate() {
+            if s.matched {
+                span { key: "{j}", class: "picker-match", "{s.text}" }
+            } else {
+                span { key: "{j}", "{s.text}" }
+            }
+        }
+    }
+}
 
 #[component]
 pub fn PickerView(
     picker: Picker,
-    rows: Vec<Candidate>,
+    rows: Vec<Line>,
     tree: Vec<Row>,
+    /// Told the row of the list chosen, by its place in `rows`.
+    onchoose: EventHandler<usize>,
+    /// Told the directory chosen in the tree.
     onpick: EventHandler<PathBuf>,
     /// Told what the query field holds as it is typed in.
     onquery: EventHandler<String>,
@@ -23,14 +39,15 @@ pub fn PickerView(
     onkey: EventHandler<adroit_term::Key>,
 ) -> Element {
     let home = home();
-    let keys: &[(&str, &str)] = match picker.mode {
-        Mode::List => &[
+    let keys: &[(&str, &str)] = match (picker.pick, picker.mode) {
+        (Pick::Session, _) => &[("Ctrl+n/p", "move"), ("Enter", "open"), ("Esc", "close")],
+        (Pick::Directory, Mode::List) => &[
             ("Ctrl+n/p", "move"),
             ("Enter", "choose"),
             ("Ctrl+f", "file tree"),
             ("Esc", "close"),
         ],
-        Mode::Tree => &[
+        (Pick::Directory, Mode::Tree) => &[
             ("j/k", "move"),
             ("l", "open"),
             ("h", "close"),
@@ -40,12 +57,20 @@ pub fn PickerView(
             ("Esc", "close"),
         ],
     };
+    let (title, none, row_class) = match picker.pick {
+        Pick::Directory => (
+            "Where does the session work?",
+            "No directory matches",
+            "list-row mono",
+        ),
+        Pick::Session => ("Which session?", "No session matches", "list-row"),
+    };
     rsx! {
         div { class: "dialog-scrim",
             div { class: "dialog picker-dialog",
                 // A click inside is not one on the shade around it, which closes.
                 onclick: move |e| e.stop_propagation(),
-                div { class: "dialog-title", "Where does the session work?" }
+                div { class: "dialog-title", "{title}" }
                 match picker.mode {
                     Mode::List => {
                         let query = Query::new(&picker.query);
@@ -74,26 +99,20 @@ pub fn PickerView(
                             }
                             div { class: "list-rows",
                                 if rows.is_empty() {
-                                    div { class: "list-row dim", "No directory matches" }
+                                    div { class: "list-row dim", "{none}" }
                                 }
-                                for (i, c) in rows.iter().enumerate() {
+                                for (i, line) in rows.iter().enumerate() {
                                     div {
-                                        key: "{c.path.display()}",
-                                        class: if i == picker.cursor { "list-row mono selected" } else { "list-row mono" },
-                                        onclick: {
-                                            let path = c.path.clone();
-                                            move |_| onpick.call(path.clone())
-                                        },
+                                        key: "{i}:{line.name}",
+                                        class: if i == picker.cursor { "{row_class} selected" } else { "{row_class}" },
+                                        onclick: move |_| onchoose.call(i),
                                         span { class: "list-row-name",
-                                            for (j, s) in query.highlight_path(&short(&c.path, &home)).into_iter().enumerate() {
-                                                if s.matched {
-                                                    span { key: "{j}", class: "picker-match", "{s.text}" }
-                                                } else {
-                                                    span { key: "{j}", "{s.text}" }
-                                                }
+                                            {marked(&query, &line.name)}
+                                            if let Some(place) = &line.place {
+                                                span { class: "picker-place", {marked(&query, place)} }
                                             }
                                         }
-                                        span { class: "list-row-meta", "{c.source.label()}" }
+                                        span { class: "list-row-meta", "{line.badge}" }
                                     }
                                 }
                             }

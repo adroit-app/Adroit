@@ -94,6 +94,42 @@ pub fn next_waiting(inbox: &[InboxItem], current: Option<&str>, forward: bool) -
     Some(inbox[i].session.id.clone())
 }
 
+/// The session after (or before) the one `shown`, over every session in the
+/// sidebar's order, folded away or not, wrapping around. A tab that shows no
+/// session stands after the sessions of its worktree, `place`; with nothing
+/// shown, the first session is next and the last one before.
+pub fn next_session(
+    tree: &Tree,
+    shown: Option<&Tab>,
+    place: Option<&Place>,
+    forward: bool,
+) -> Option<String> {
+    let all: Vec<(usize, &Session)> = tree
+        .worktrees()
+        .enumerate()
+        .flat_map(|(w, node)| node.sessions.iter().map(move |s| (w, s)))
+        .collect();
+    if all.is_empty() {
+        return None;
+    }
+    let n = all.len();
+    let at = match shown {
+        Some(Tab::Session(id)) => all.iter().position(|(_, s)| &s.id == id),
+        _ => None,
+    };
+    let i = match at {
+        Some(i) if forward => i + 1,
+        Some(i) => i + n - 1,
+        None => {
+            let worktree =
+                place.and_then(|p| tree.worktrees().position(|w| w.worktree.path == p.worktree));
+            let after = worktree.map_or(0, |wt| all.iter().filter(|(w, _)| *w <= wt).count());
+            if forward { after } else { after + n - 1 }
+        }
+    };
+    Some(all[i % n].1.id.clone())
+}
+
 /// Where the middle of the window is: the worktree, or the directory outside
 /// git, its tabs are of.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -620,6 +656,51 @@ mod tests {
         assert_eq!(next_waiting(&ib, Some("b"), true).as_deref(), Some("z"));
         assert_eq!(next_waiting(&ib, Some("z"), true).as_deref(), Some("b"));
         assert_eq!(next_waiting(&ib, Some("b"), false).as_deref(), Some("z"));
+    }
+
+    #[test]
+    fn the_next_session_goes_down_the_tree_and_wraps_around() {
+        let t = tree();
+        let shown = |id: &str| Some(Tab::Session(id.into()));
+        let next = |id: &str, forward| next_session(&t, shown(id).as_ref(), None, forward);
+        for (from, forward, to) in [
+            ("a", true, "b"),
+            ("b", true, "o"),
+            ("o", true, "z"),
+            ("z", true, "c"),
+            ("c", true, "a"),
+            ("a", false, "c"),
+            ("o", false, "b"),
+        ] {
+            assert_eq!(next(from, forward).as_deref(), Some(to), "{from} {forward}");
+        }
+    }
+
+    #[test]
+    fn a_tab_without_a_session_stands_after_the_sessions_of_its_worktree() {
+        let t = tree();
+        let shell = Some(Tab::Shell(1));
+        let next = |path: &str, forward| next_session(&t, shell.as_ref(), Some(&at(path)), forward);
+        assert_eq!(next("/api", true).as_deref(), Some("o"));
+        assert_eq!(next("/api", false).as_deref(), Some("b"));
+        assert_eq!(next(OAUTH, true).as_deref(), Some("z"));
+        assert_eq!(next("/web", true).as_deref(), Some("a"));
+        // A session gone stands where its tab is, as a shell's does.
+        let gone = Some(Tab::Session("gone".into()));
+        let after = next_session(&t, gone.as_ref(), Some(&at("/api")), true);
+        assert_eq!(after.as_deref(), Some("o"));
+    }
+
+    #[test]
+    fn with_nothing_shown_the_next_session_is_the_first_and_the_previous_the_last() {
+        let t = tree();
+        assert_eq!(next_session(&t, None, None, true).as_deref(), Some("a"));
+        assert_eq!(next_session(&t, None, None, false).as_deref(), Some("c"));
+        // So it is from a place no session runs in.
+        let nowhere = Some(at("/nowhere"));
+        let draft = next_session(&t, None, nowhere.as_ref(), true);
+        assert_eq!(draft.as_deref(), Some("a"));
+        assert_eq!(next_session(&Tree::default(), None, None, true), None);
     }
 
     #[test]

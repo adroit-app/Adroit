@@ -1,12 +1,33 @@
-//! The picker that asks which directory a new session works in: one list of
-//! candidates narrowed by a fuzzy query, or a directory tree for one the list
-//! does not offer.
+//! The picker that asks which directory a new session works in, or which
+//! session to open: one list of candidates narrowed by a fuzzy query, or, for a
+//! directory the list does not offer, a directory tree.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+use adroit_model::{Session, Tree};
+
 use crate::filer::Filer;
 use crate::fuzzy::{Query, best};
+
+/// What the picker asks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Pick {
+    /// Where a new session works.
+    #[default]
+    Directory,
+    /// Which session to open.
+    Session,
+}
+
+/// One row of the list as drawn: what the query marks, where it is, and a
+/// badge beside it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Line {
+    pub name: String,
+    pub place: Option<String>,
+    pub badge: String,
+}
 
 /// Where a candidate came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,6 +54,82 @@ impl Source {
 pub struct Candidate {
     pub path: PathBuf,
     pub source: Source,
+}
+
+impl Candidate {
+    pub fn line(&self, home: &Path) -> Line {
+        Line {
+            name: short(&self.path, home),
+            place: None,
+            badge: self.source.label().into(),
+        }
+    }
+}
+
+/// A session the picker offers, with where it runs and how it stands.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionOffer {
+    pub id: String,
+    pub name: String,
+    /// The workspace, and the worktree when the sidebar shows one.
+    pub place: String,
+    pub state: &'static str,
+}
+
+impl SessionOffer {
+    pub fn line(&self) -> Line {
+        Line {
+            name: self.name.clone(),
+            place: Some(self.place.clone()),
+            badge: self.state.into(),
+        }
+    }
+}
+
+/// Every session in the sidebar's order.
+pub fn sessions(tree: &Tree) -> Vec<SessionOffer> {
+    let offer = |s: &Session, place: String| SessionOffer {
+        id: s.id.clone(),
+        name: s.name.clone(),
+        place,
+        state: s.state.word(),
+    };
+    tree.workspaces
+        .iter()
+        .flat_map(|ws| {
+            ws.worktrees.iter().flat_map(move |w| {
+                let place = if ws.flat() {
+                    ws.name.clone()
+                } else {
+                    let label = w.worktree.branch.clone().unwrap_or_else(|| {
+                        w.worktree
+                            .path
+                            .file_name()
+                            .map(|f| f.to_string_lossy().into_owned())
+                            .unwrap_or_default()
+                    });
+                    format!("{} › {label}", ws.name)
+                };
+                w.sessions.iter().map(move |s| offer(s, place.clone()))
+            })
+        })
+        .collect()
+}
+
+/// The best `cap` sessions for `query`, best first, each matched by its name
+/// and where it runs, its name counting for more; with nothing typed, the
+/// first `cap` as given.
+pub fn matching_sessions(offers: &[SessionOffer], query: &str, cap: usize) -> Vec<SessionOffer> {
+    let query = Query::new(query);
+    best(
+        offers.iter().filter_map(|s| {
+            let text = format!("{} {}", s.name, s.place);
+            query
+                .rank_named(&text, &s.name)
+                .map(|rank| (rank, s.clone()))
+        }),
+        cap,
+    )
 }
 
 /// The sources as one list, in the order given, each path once: the first
@@ -98,6 +195,7 @@ pub enum Mode {
 /// What the picker holds while it is open.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Picker {
+    pub pick: Pick,
     pub query: String,
     pub cursor: usize,
     pub mode: Mode,
@@ -105,9 +203,18 @@ pub struct Picker {
 }
 
 impl Picker {
+    /// Asking where a new session works.
     pub fn new(filer: Filer) -> Self {
         Self {
             filer,
+            ..Self::default()
+        }
+    }
+
+    /// Asking which session to open.
+    pub fn sessions() -> Self {
+        Self {
+            pick: Pick::Session,
             ..Self::default()
         }
     }
@@ -121,7 +228,11 @@ impl Picker {
         }
     }
 
+    /// Only a directory has a tree to choose it from.
     pub fn toggle_mode(&mut self) {
+        if self.pick == Pick::Session {
+            return;
+        }
         self.mode = match self.mode {
             Mode::List => Mode::Tree,
             Mode::Tree => Mode::List,
@@ -131,6 +242,10 @@ impl Picker {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
+    use adroit_model::{State, Wait, Worktree, build};
+
     use super::*;
 
     fn paths(ps: &[&str]) -> Vec<PathBuf> {
@@ -278,6 +393,132 @@ mod tests {
         assert_eq!(p.mode, Mode::Tree);
         p.toggle_mode();
         assert_eq!(p.mode, Mode::List);
+    }
+
+    fn session(id: &str, name: &str, cwd: &str, state: State) -> Session {
+        Session {
+            id: id.into(),
+            name: name.into(),
+            cwd: cwd.into(),
+            state,
+            ..Default::default()
+        }
+    }
+
+    const OAUTH: &str = "/w/api/.claude/worktrees/oauth";
+
+    /// `api` runs a session in its main checkout and one in a worktree; `tmp`
+    /// is outside git.
+    fn tree() -> Tree {
+        let wt = |path: &str, branch: &str| Worktree {
+            path: path.into(),
+            repo: "/w/api".into(),
+            branch: Some(branch.into()),
+        };
+        let found: HashMap<PathBuf, Option<Worktree>> = [
+            ("/w/api", Some(wt("/w/api", "main"))),
+            (OAUTH, Some(wt(OAUTH, "oauth"))),
+            ("/tmp", None),
+        ]
+        .into_iter()
+        .map(|(p, w)| (PathBuf::from(p), w))
+        .collect();
+        build(
+            &[
+                session("a", "fix login", "/w/api", State::Working),
+                session("o", "add tokens", OAUTH, State::Waiting(Wait::Input)),
+                session("z", "scratch", "/tmp", State::Idle),
+            ],
+            &found,
+            &[],
+        )
+    }
+
+    fn offered(found: &[SessionOffer]) -> Vec<(&str, &str, &str)> {
+        found
+            .iter()
+            .map(|s| (s.id.as_str(), s.place.as_str(), s.state))
+            .collect()
+    }
+
+    #[test]
+    fn every_session_is_offered_in_the_sidebar_s_order_with_where_it_runs_and_how_it_stands() {
+        assert_eq!(
+            offered(&sessions(&tree())),
+            vec![
+                ("a", "api › main", "working"),
+                ("o", "api › oauth", "waiting"),
+                ("z", "tmp", "idle"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_session_is_found_by_its_name_or_by_where_it_runs() {
+        let all = sessions(&tree());
+        let ids = |q: &str| -> Vec<String> {
+            matching_sessions(&all, q, 10)
+                .into_iter()
+                .map(|s| s.id)
+                .collect()
+        };
+        assert_eq!(ids("login"), ["a"]);
+        assert_eq!(ids("oauth"), ["o"]);
+        assert_eq!(ids("api"), ["a", "o"]);
+        assert_eq!(ids(""), ["a", "o", "z"]);
+        assert!(ids("nothing").is_empty());
+    }
+
+    #[test]
+    fn a_session_named_by_the_query_comes_before_one_that_only_runs_where_it_says() {
+        let found: HashMap<PathBuf, Option<Worktree>> = HashMap::new();
+        let t = build(
+            &[
+                session("x", "docs", "/w/scratch", State::Idle),
+                session("s", "scratch", "/w/docs", State::Idle),
+            ],
+            &found,
+            &[],
+        );
+        let ids: Vec<String> = matching_sessions(&sessions(&t), "scratch", 10)
+            .into_iter()
+            .map(|s| s.id)
+            .collect();
+        assert_eq!(ids, ["s", "x"]);
+    }
+
+    #[test]
+    fn the_session_picker_has_no_file_tree_to_toggle_to() {
+        let mut p = Picker::sessions();
+        assert_eq!(p.pick, Pick::Session);
+        p.toggle_mode();
+        assert_eq!(p.mode, Mode::List);
+        assert_eq!(Picker::new(Filer::default()).pick, Pick::Directory);
+    }
+
+    #[test]
+    fn a_row_draws_a_directory_by_its_short_path_and_a_session_by_its_name_and_place() {
+        let dir = Candidate {
+            path: "/Users/me/src/x".into(),
+            source: Source::Ghq,
+        };
+        assert_eq!(
+            dir.line(Path::new(HOME)),
+            Line {
+                name: "~/src/x".into(),
+                place: None,
+                badge: "ghq".into(),
+            }
+        );
+        let all = sessions(&tree());
+        assert_eq!(
+            all[1].line(),
+            Line {
+                name: "add tokens".into(),
+                place: Some("api › oauth".into()),
+                badge: "waiting".into(),
+            }
+        );
     }
 
     #[test]

@@ -50,6 +50,16 @@ Choosing a directory opens a new session there: the first prompt sent starts
 it, named from its first words or from a first line `name: <label>`. `n` on a row starts one in that row's worktree or
 directory without the picker, and `N` starts a reader there.
 
+## Going to another session
+
+`Cmd+p` opens the picker on every session instead, each with where it runs
+and how it stands. Typing narrows the list by a fuzzy match on a session's
+name and where it runs, the same keys move and close, and `Enter` opens the
+session chosen as its row in the sidebar would, leaving the keys where they
+were. This picker has no file tree.
+
+`Cmd+}` and `Cmd+{` open the next and the previous session without asking.
+
 ## Sessions that only read
 
 A session started as a reader runs in Claude Code's plan mode with the tools that

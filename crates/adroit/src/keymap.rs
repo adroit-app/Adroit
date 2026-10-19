@@ -26,6 +26,11 @@ pub const DEFAULTS: &str = r#"
 "Cmd+4" = "details.diff"
 "Ctrl+w ]" = "waiting.next"
 "Ctrl+w [" = "waiting.prev"
+"Ctrl+w N" = "session.next"
+"Ctrl+w P" = "session.prev"
+"Cmd+}" = "session.next"
+"Cmd+{" = "session.prev"
+"Cmd+p" = "session.pick"
 "Ctrl+w ." = "console.send Ctrl+w"
 "Cmd+o" = "workspace.pick"
 "Cmd+n" = "session.new"
@@ -425,6 +430,9 @@ actions! {
     CursorFold => "cursor.fold",
     WaitingNext => "waiting.next",
     WaitingPrev => "waiting.prev",
+    SessionNext => "session.next",
+    SessionPrev => "session.prev",
+    SessionPick => "session.pick",
     SessionNew => "session.new",
     SessionNewReader => "session.new_reader",
     SessionTakeOver => "session.take_over",
@@ -882,6 +890,40 @@ mod tests {
             assert_eq!(resolve(Key::new("]").meta()), Step::Run(Action::TabNext));
             assert_eq!(resolve(Key::new("[").meta()), Step::Run(Action::TabPrev));
         }
+    }
+
+    #[test]
+    fn any_session_is_a_key_away_from_every_area() {
+        let map = Keymap::defaults();
+        for ctx in [
+            Context::Sidebar,
+            Context::Details,
+            Context::Console,
+            Context::Prompt,
+        ] {
+            let areas = [ctx, Context::Global];
+            // Command with Shift and a bracket arrives as the brace it types.
+            let resolve = |k: Key| map.resolve(&areas, &[], &k);
+            let brace = |b: &str| Key::new(b).meta().shift();
+            assert_eq!(resolve(brace("}")), Step::Run(Action::SessionNext));
+            assert_eq!(resolve(brace("{")), Step::Run(Action::SessionPrev));
+            assert_eq!(
+                resolve(Key::new("p").meta()),
+                Step::Run(Action::SessionPick)
+            );
+            assert_eq!(
+                step(&map, &areas, &["Ctrl+w"], "N"),
+                Step::Run(Action::SessionNext)
+            );
+            assert_eq!(
+                step(&map, &areas, &["Ctrl+w"], "P"),
+                Step::Run(Action::SessionPrev)
+            );
+        }
+        assert_eq!(
+            Chord::pressed("}", false, false, true, true),
+            Some("Cmd+}".into())
+        );
     }
 
     #[test]

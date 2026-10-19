@@ -119,6 +119,8 @@ another, the complete one runs.
 | `cursor.open` | open the selected session or worktree and move to its console, or to the prompt of a session not started yet; fold or unfold a workspace |
 | `cursor.fold` | fold the selected node |
 | `waiting.next`, `waiting.prev` | open the next or previous session waiting on you |
+| `session.next`, `session.prev` | open the session after or before the one shown, in the sidebar's order over every session, folded away or filtered out too, going round at the ends; the keys stay in the area they are in |
+| `session.pick` | open the picker on every session, to choose one to open ([details](workspaces.md#going-to-another-session)) |
 | `session.new` | start a session, with the prompt ready to write its first message: in the selected row's worktree or directory from the sidebar, in the one the console shows from elsewhere |
 | `session.new_reader` | start a session that only reads, as `session.new` does |
 | `session.take_over` | take over an interactive session ([details](interactive-sessions.md)) |
@@ -166,6 +168,11 @@ another, the complete one runs.
 "Cmd+4" = "details.diff"
 "Ctrl+w ]" = "waiting.next"
 "Ctrl+w [" = "waiting.prev"
+"Ctrl+w N" = "session.next"
+"Ctrl+w P" = "session.prev"
+"Cmd+}" = "session.next"
+"Cmd+{" = "session.prev"
+"Cmd+p" = "session.pick"
 "Ctrl+w ." = "console.send Ctrl+w"
 "Cmd+o" = "workspace.pick"
 "Cmd+n" = "session.new"

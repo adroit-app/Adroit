@@ -30,7 +30,7 @@ use crate::layout::{self, Layout, Side};
 use crate::menu::{self, Target};
 use crate::nav::{self, Item, Place};
 use crate::paths::{home, keys_path, state_dir};
-use crate::picker::{self, Candidate, Mode, Picker};
+use crate::picker::{self, Candidate, Mode, Pick, Picker, SessionOffer};
 use crate::picker_view::PickerView;
 use crate::prompts::{self, Op, Prompts};
 use crate::rename::Rename;
@@ -733,8 +733,8 @@ fn App() -> Element {
     let mut focus = use_signal(|| Area::Sidebar);
     // Whether every worktree git knows is listed, those without sessions too.
     let mut all_worktrees = use_signal(|| false);
-    // The picker asking where a new session works, while it is open, and the
-    // directories it offers.
+    // The picker asking where a new session works, or which session to open,
+    // while it is open, and the directories it offers.
     let mut picking = use_signal(|| None::<Picker>);
     let mut offers = use_signal(Vec::<Candidate>::new);
     // What the open picker draws, worked out again only when the picker or
@@ -742,7 +742,7 @@ fn App() -> Element {
     // and the tree reads the disk.
     // Moving the cursor changes neither what was typed nor what the tree has
     // open, so neither the ranking nor the disk is gone over again for it.
-    let picked_query = use_memo(move || picking.read().as_ref().map(|p| p.query.clone()));
+    let picked_query = use_memo(move || picking.read().as_ref().map(|p| (p.pick, p.query.clone())));
     let picked_layout = use_memo(move || {
         picking
             .read()
@@ -750,12 +750,16 @@ fn App() -> Element {
             .filter(|p| p.mode == Mode::Tree)
             .map(|p| p.filer.layout())
     });
-    let picked_rows = use_memo(move || {
-        picked_query
-            .read()
-            .as_ref()
-            .map(|q| picker::matching(&offers.read(), q, &home(), PICKS))
-            .unwrap_or_default()
+    let picked_rows = use_memo(move || match &*picked_query.read() {
+        Some((Pick::Directory, q)) => picker::matching(&offers.read(), q, &home(), PICKS),
+        _ => Vec::new(),
+    });
+    // The sessions are offered as they stand now, their states kept current.
+    let picked_sessions = use_memo(move || match &*picked_query.read() {
+        Some((Pick::Session, q)) => {
+            picker::matching_sessions(&picker::sessions(&tree.read()), q, PICKS)
+        }
+        _ => Vec::new(),
     });
     let picked_tree = use_memo(move || {
         picked_layout
@@ -1581,6 +1585,16 @@ fn App() -> Element {
         active.set(Some(tab));
     };
 
+    // Show a session wherever it runs, as opening its row does, but leave the
+    // keys where they are.
+    let mut show_session = move |id: String| {
+        let Some((p, _)) = nav::find(&tree.peek(), &id) else {
+            return;
+        };
+        place.set(Some(p));
+        show_tab(Tab::Session(id));
+    };
+
     let mut cycle_tab = move |delta: isize| {
         let next = {
             let list = tabs.peek();
@@ -1873,6 +1887,27 @@ fn App() -> Element {
         }));
         focus.set(Area::Prompt);
         start_writing(nvim);
+    };
+
+    // A row of the picker's list chosen, by its place among those drawn.
+    let mut choose_row = move |at: usize| {
+        let ask = picking.peek().as_ref().map(|p| p.pick);
+        match ask {
+            Some(Pick::Directory) => {
+                let dir = picked_rows.peek().get(at).map(|c| c.path.clone());
+                if let Some(dir) = dir {
+                    choose(dir);
+                }
+            }
+            Some(Pick::Session) => {
+                let id = picked_sessions.peek().get(at).map(|s| s.id.clone());
+                if let Some(id) = id {
+                    picking.set(None);
+                    show_session(id);
+                }
+            }
+            None => {}
+        }
     };
 
     // The settings the Settings window changes are applied as they change.
@@ -2564,6 +2599,18 @@ fn App() -> Element {
                         focus.set(Area::Console);
                     }
                 }
+                Action::SessionNext | Action::SessionPrev => {
+                    let next = nav::next_session(
+                        &tree.peek(),
+                        active.peek().as_ref(),
+                        place.peek().as_ref(),
+                        action == Action::SessionNext,
+                    );
+                    if let Some(id) = next {
+                        show_session(id);
+                    }
+                }
+                Action::SessionPick => picking.set(Some(Picker::sessions())),
                 Action::SessionNew | Action::SessionNewReader => {
                     let p = cur
                         .as_ref()
@@ -2741,6 +2788,7 @@ fn App() -> Element {
     // key in its file tree.
     let picker_key = {
         let mut choose = choose;
+        let mut choose_row = choose_row;
         move |key: Key| {
             let plain = !key.ctrl && !key.alt && !key.meta;
             let ctrl = key.ctrl && !key.alt && !key.meta;
@@ -2759,7 +2807,8 @@ fn App() -> Element {
             if mode == Some(Mode::List) {
                 // Read before the picker is borrowed to change it: a memo
                 // out of date reads the picker to work itself out again.
-                let rows = picked_rows.peek().clone();
+                // Only the list of what the picker asks for has rows.
+                let rows = picked_rows.peek().len() + picked_sessions.peek().len();
                 let delta = match k {
                     "ArrowDown" | "Tab" if !key.shift => Some(1),
                     "Tab" => Some(-1),
@@ -2771,13 +2820,11 @@ fn App() -> Element {
                 let mut open = picking.write();
                 let Some(p) = open.as_mut() else { return };
                 if let Some(d) = delta {
-                    p.cursor = picker::step(p.cursor, rows.len(), d);
+                    p.cursor = picker::step(p.cursor, rows, d);
                 } else if k == "Enter" {
-                    let dir = rows.get(p.cursor).map(|c| c.path.clone());
+                    let at = p.cursor;
                     drop(open);
-                    if let Some(dir) = dir {
-                        choose(dir);
-                    }
+                    choose_row(at);
                 }
                 return;
             }
@@ -3843,7 +3890,13 @@ fn App() -> Element {
             }
             if let Some(p) = picking() {
                 {
-                    let rows = picked_rows();
+                    let rows = match p.pick {
+                        Pick::Directory => {
+                            let home = home();
+                            picked_rows().iter().map(|c| c.line(&home)).collect()
+                        }
+                        Pick::Session => picked_sessions().iter().map(SessionOffer::line).collect(),
+                    };
                     let tree_rows = picked_tree();
                     rsx! {
                         div {
@@ -3852,6 +3905,7 @@ fn App() -> Element {
                                 picker: p,
                                 rows,
                                 tree: tree_rows,
+                                onchoose: move |at: usize| choose_row(at),
                                 onpick: move |dir: PathBuf| choose(dir),
                                 onquery: move |q: String| {
                                     if let Some(p) = picking.write().as_mut() {
