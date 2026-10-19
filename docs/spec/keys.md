@@ -137,6 +137,7 @@ another, the complete one runs.
 | `tab.close` | close the current tab; a shell ends, a session runs on and stays in the sidebar. On a shell's row in the sidebar, that shell ends |
 | `cursor.down`, `cursor.up`, `cursor.first`, `cursor.last` | move the selection in the sidebar; in the details panel, in the list it shows, or scroll what else it shows |
 | `cursor.open` | open the selected session, shell or worktree and move to its console, or to the prompt of a session not started yet; fold or unfold a workspace; in the details panel, open the selected row |
+| `cursor.show` | show the selected session, shell or worktree in the console, as `cursor.open` does, with the keys staying in the sidebar; fold or unfold a workspace; in the details panel, open the selected row |
 | `cursor.fold` | fold the selected node; in the details panel, go back out to the list what it shows was opened from |
 | `waiting.next`, `waiting.prev` | open the next or previous session waiting on you |
 | `session.next`, `session.prev` | open the session after or before the one shown, in the sidebar's order over every session, folded away or filtered out too, going round at the ends; the keys stay in the area they are in |
@@ -218,6 +219,9 @@ another, the complete one runs.
 "Enter" = "cursor.open"
 "l" = "cursor.open"
 "o" = "cursor.open"
+"L" = "cursor.show"
+"Shift+Enter" = "cursor.show"
+"Ctrl+Enter" = "cursor.show"
 "h" = "cursor.fold"
 "] w" = "waiting.next"
 "[ w" = "waiting.prev"

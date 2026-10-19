@@ -31,21 +31,25 @@ pub fn entries(target: &Target, session: Option<&Session>) -> Vec<(Action, &'sta
         .filter(|s| s.kind == Kind::Own)
         .map(|_| (Action::SessionRename, "Rename…"));
     match target {
-        Target::Row(Item::Session(_) | Item::Waiting(_)) => [(Action::CursorOpen, "Open")]
-            .into_iter()
-            .chain(rename)
-            .chain(here)
-            .chain(ending)
-            .collect(),
-        Target::Row(Item::Shell(_)) => [(Action::CursorOpen, "Open")]
+        Target::Row(Item::Session(_) | Item::Waiting(_)) => {
+            [(Action::CursorOpen, "Open"), (Action::CursorShow, "Show")]
+                .into_iter()
+                .chain(rename)
+                .chain(here)
+                .chain(ending)
+                .collect()
+        }
+        Target::Row(Item::Shell(_)) => [(Action::CursorOpen, "Open"), (Action::CursorShow, "Show")]
             .into_iter()
             .chain(here)
             .chain([(Action::TabClose, "Close shell")])
             .collect(),
-        Target::Row(Item::Worktree(_)) => [(Action::CursorOpen, "Open")]
-            .into_iter()
-            .chain(here)
-            .collect(),
+        Target::Row(Item::Worktree(_)) => {
+            [(Action::CursorOpen, "Open"), (Action::CursorShow, "Show")]
+                .into_iter()
+                .chain(here)
+                .collect()
+        }
         Target::Row(Item::Workspace(_)) => [(Action::CursorOpen, "Fold or unfold")]
             .into_iter()
             .chain(here)
@@ -119,7 +123,11 @@ mod tests {
         assert_eq!(
             grouped(Target::Row(Item::Session("a".into())), Some(&s)),
             [
-                vec![Action::CursorOpen, Action::SessionRename],
+                vec![
+                    Action::CursorOpen,
+                    Action::CursorShow,
+                    Action::SessionRename
+                ],
                 vec![
                     Action::SessionNew,
                     Action::SessionNewReader,
@@ -158,6 +166,7 @@ mod tests {
             actions(Target::Row(Item::Session("a".into())), Some(&s)),
             [
                 Action::CursorOpen,
+                Action::CursorShow,
                 Action::SessionRename,
                 Action::SessionNew,
                 Action::SessionNewReader,
@@ -179,20 +188,19 @@ mod tests {
 
     #[test]
     fn a_workspace_or_worktree_starts_sessions_and_shells_in_it() {
-        for row in [
-            Item::Workspace("/api".into()),
-            Item::Worktree("/api".into()),
-        ] {
-            assert_eq!(
-                actions(Target::Row(row), None),
-                [
-                    Action::CursorOpen,
-                    Action::SessionNew,
-                    Action::SessionNewReader,
-                    Action::ShellOpen,
-                ]
-            );
-        }
+        let here = [
+            Action::SessionNew,
+            Action::SessionNewReader,
+            Action::ShellOpen,
+        ];
+        assert_eq!(
+            actions(Target::Row(Item::Workspace("/api".into())), None),
+            [&[Action::CursorOpen][..], &here].concat()
+        );
+        assert_eq!(
+            actions(Target::Row(Item::Worktree("/api".into())), None),
+            [&[Action::CursorOpen, Action::CursorShow][..], &here].concat()
+        );
     }
 
     #[test]
@@ -201,6 +209,7 @@ mod tests {
             actions(Target::Row(Item::Shell(1)), None),
             [
                 Action::CursorOpen,
+                Action::CursorShow,
                 Action::SessionNew,
                 Action::SessionNewReader,
                 Action::ShellOpen,

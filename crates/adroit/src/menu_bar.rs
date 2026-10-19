@@ -359,6 +359,7 @@ mod tests {
         "cursor.first",
         "cursor.last",
         "cursor.open",
+        "cursor.show",
         "cursor.fold",
         "scroll.down",
         "scroll.up",

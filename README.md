@@ -78,6 +78,7 @@ worktree, `Cmd-r` refreshes, `Cmd-t` takes over a session and
 | --- | --- |
 | `j` `k`, `gg` `G` | move |
 | `Enter` `l` `o` | open a session or worktree; fold a workspace |
+| `L` `Shift-Enter` `Ctrl-Enter` | show a session or worktree in the console, with the keys staying in the sidebar |
 | `h` | fold |
 | `]w` `[w` | the next or previous session waiting on you, with the console ready to answer it; `Ctrl-w ]` `Ctrl-w [` from anywhere |
 | `w` | choose where a new session works |

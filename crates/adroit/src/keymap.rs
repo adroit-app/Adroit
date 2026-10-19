@@ -57,6 +57,9 @@ pub const DEFAULTS: &str = r#"
 "Enter" = "cursor.open"
 "l" = "cursor.open"
 "o" = "cursor.open"
+"L" = "cursor.show"
+"Shift+Enter" = "cursor.show"
+"Ctrl+Enter" = "cursor.show"
 "h" = "cursor.fold"
 "] w" = "waiting.next"
 "[ w" = "waiting.prev"
@@ -429,6 +432,7 @@ actions! {
     CursorFirst => "cursor.first",
     CursorLast => "cursor.last",
     CursorOpen => "cursor.open",
+    CursorShow => "cursor.show",
     CursorFold => "cursor.fold",
     WaitingNext => "waiting.next",
     WaitingPrev => "waiting.prev",
@@ -905,6 +909,7 @@ mod tests {
             ("G", Action::CursorLast),
             ("Enter", Action::CursorOpen),
             ("l", Action::CursorOpen),
+            ("Shift+Enter", Action::CursorShow),
             ("h", Action::CursorFold),
             ("Escape", Action::CursorFold),
             ("Backspace", Action::CursorFold),
@@ -1159,6 +1164,32 @@ mod tests {
         assert_eq!(
             step(&Keymap::defaults(), &sidebar, &[], "/"),
             Step::Run(Action::Filter)
+        );
+    }
+
+    #[test]
+    fn in_the_sidebar_capital_l_and_enter_with_shift_or_ctrl_show_the_row_and_keep_the_keys() {
+        let map = Keymap::defaults();
+        let sidebar = [Context::Sidebar, Context::Global];
+        for k in ["L", "Shift+Enter", "Ctrl+Enter"] {
+            assert_eq!(
+                step(&map, &sidebar, &[], k),
+                Step::Run(Action::CursorShow),
+                "{k}"
+            );
+        }
+        // As the window reports them.
+        assert_eq!(
+            Chord::pressed("Enter", false, false, true, false),
+            Some("Shift+Enter".into())
+        );
+        assert_eq!(
+            Chord::pressed("L", false, false, true, false),
+            Some("L".into())
+        );
+        assert_eq!(
+            step(&map, &sidebar, &[], "Enter"),
+            Step::Run(Action::CursorOpen)
         );
     }
 

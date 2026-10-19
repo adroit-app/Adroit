@@ -55,6 +55,7 @@ icons! {
     ChevronRight => "chevron-right",
     Circle => "circle",
     CursorText => "cursor-text",
+    Eye => "eye",
     FileDiff => "file-diff",
     Filter => "filter",
     Folder => "folder",
@@ -133,6 +134,7 @@ impl Icon {
             A::WindowRight => Icon::SquareArrowRight,
             A::PromptFocus => Icon::CursorText,
             A::CursorOpen => Icon::ArrowRight,
+            A::CursorShow => Icon::Eye,
             _ => return None,
         })
     }

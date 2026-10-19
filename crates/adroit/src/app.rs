@@ -2688,6 +2688,7 @@ fn App() -> Element {
                 | Action::CursorFirst
                 | Action::CursorLast
                 | Action::CursorOpen
+                | Action::CursorShow
                 | Action::CursorFold
                     if area == Area::Details =>
                 {
@@ -2696,7 +2697,7 @@ fn App() -> Element {
                         (Action::CursorFold, _) => {
                             d.back();
                         }
-                        (Action::CursorOpen, Some(l)) => {
+                        (Action::CursorOpen | Action::CursorShow, Some(l)) => {
                             d.open(l);
                         }
                         (Action::CursorDown, Some(l)) => d.step(l, 1),
@@ -2730,6 +2731,11 @@ fn App() -> Element {
                             Some(_) => focus.set(Area::Console),
                             None => {}
                         }
+                    }
+                }
+                Action::CursorShow => {
+                    if let Some(item) = cur {
+                        open(item);
                     }
                 }
                 Action::CursorFold => {
