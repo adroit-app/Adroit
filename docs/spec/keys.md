@@ -84,7 +84,9 @@ takes the keys away, so they do nothing there.
 A key that reaches a program in the console is sent as the program asked,
 as felis sends it: with the Kitty keyboard protocol once it asks for it, as
 xterm sends it otherwise.
-A shell in the console takes every key that is not a `global` binding. A
+A shell in the console takes every key that is not a `global` binding, and
+shows no prompt below it: a window move does not stop there, and the `prompt`
+actions do nothing. A
 session waiting on a permission prompt or a question does too, as its answer,
 from the prompt as well as the console; the prompt is Neovim's again once it
 is answered. So does a session showing a dialog of Claude Code's own in place

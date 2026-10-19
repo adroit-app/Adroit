@@ -31,19 +31,29 @@ impl Dir {
     }
 }
 
-/// The area a window motion from `from` lands in. A motion with nothing in
-/// that direction stays where it is.
-pub fn moved(from: Area, dir: Dir) -> Area {
+/// The area a window motion from `from` lands in, `prompt` telling whether
+/// the prompt is shown below the console. A motion with nothing in that
+/// direction stays where it is.
+pub fn moved(from: Area, dir: Dir, prompt: bool) -> Area {
     use Area::*;
     use Dir::*;
-    match (from, dir) {
+    match (settled(from, prompt), dir) {
         (Sidebar, Right) => Console,
         (Console, Left) | (Prompt, Left) => Sidebar,
         (Console, Right) | (Prompt, Right) => Details,
-        (Console, Down) => Prompt,
+        (Console, Down) if prompt => Prompt,
         (Prompt, Up) => Console,
         (Details, Left) => Console,
         (area, _) => area,
+    }
+}
+
+/// Where the keys are, `prompt` telling whether the prompt is shown: never in
+/// a prompt that is not, which leaves them to the console above it.
+pub fn settled(area: Area, prompt: bool) -> Area {
+    match area {
+        Area::Prompt if !prompt => Area::Console,
+        area => area,
     }
 }
 
@@ -55,27 +65,65 @@ mod tests {
 
     #[test]
     fn the_console_sits_above_the_prompt() {
-        assert_eq!(moved(Console, Down), Prompt);
-        assert_eq!(moved(Prompt, Up), Console);
+        assert_eq!(moved(Console, Down, true), Prompt);
+        assert_eq!(moved(Prompt, Up, true), Console);
     }
 
     #[test]
     fn the_sidebar_is_left_of_both_and_the_details_right_of_both() {
         for middle in [Console, Prompt] {
-            assert_eq!(moved(middle, Left), Sidebar);
-            assert_eq!(moved(middle, Right), Details);
+            assert_eq!(moved(middle, Left, true), Sidebar);
+            assert_eq!(moved(middle, Right, true), Details);
         }
-        assert_eq!(moved(Sidebar, Right), Console);
-        assert_eq!(moved(Details, Left), Console);
+        assert_eq!(moved(Sidebar, Right, true), Console);
+        assert_eq!(moved(Details, Left, true), Console);
     }
 
     #[test]
     fn a_motion_toward_the_edge_stays_put() {
-        assert_eq!(moved(Sidebar, Left), Sidebar);
-        assert_eq!(moved(Details, Right), Details);
-        assert_eq!(moved(Console, Up), Console);
-        assert_eq!(moved(Prompt, Down), Prompt);
-        assert_eq!(moved(Sidebar, Down), Sidebar);
+        assert_eq!(moved(Sidebar, Left, true), Sidebar);
+        assert_eq!(moved(Details, Right, true), Details);
+        assert_eq!(moved(Console, Up, true), Console);
+        assert_eq!(moved(Prompt, Down, true), Prompt);
+        assert_eq!(moved(Sidebar, Down, true), Sidebar);
+    }
+
+    #[test]
+    fn with_no_prompt_shown_the_console_has_nothing_below_it() {
+        assert_eq!(moved(Console, Down, false), Console);
+        assert_eq!(moved(Console, Up, false), Console);
+    }
+
+    #[test]
+    fn with_no_prompt_shown_the_sides_still_lead_to_the_console() {
+        assert_eq!(moved(Sidebar, Right, false), Console);
+        assert_eq!(moved(Details, Left, false), Console);
+        assert_eq!(moved(Console, Left, false), Sidebar);
+        assert_eq!(moved(Console, Right, false), Details);
+    }
+
+    #[test]
+    fn no_motion_lands_in_a_prompt_that_is_not_shown() {
+        for from in [Sidebar, Console, Prompt, Details] {
+            for dir in [Left, Down, Up, Right] {
+                assert_ne!(moved(from, dir, false), Prompt, "{from:?} {dir:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_keys_in_a_prompt_that_goes_away_go_to_the_console_above_it() {
+        // (area, the prompt shown) -> where the keys are
+        let table = [
+            (Prompt, false, Console),
+            (Prompt, true, Prompt),
+            (Console, false, Console),
+            (Sidebar, false, Sidebar),
+            (Details, false, Details),
+        ];
+        for (area, prompt, want) in table {
+            assert_eq!(settled(area, prompt), want, "{area:?} {prompt}");
+        }
     }
 
     #[test]

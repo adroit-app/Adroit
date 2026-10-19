@@ -23,7 +23,7 @@ use crate::daemon;
 use crate::details::{Drill, Listing, Sheet, View, facts, load};
 use crate::editor;
 use crate::filer::{Filer, read_dirs};
-use crate::focus::{Area, Dir, moved};
+use crate::focus::{Area, Dir, moved, settled};
 use crate::icons::{Icon, IconView};
 use crate::keymap::{Action, Chord, Context, Keymap, MENU_KEYS, Step};
 use crate::keys;
@@ -42,7 +42,7 @@ use crate::settings_window;
 use crate::shells::{Request, Response, answer, bind, serve, socket_path};
 use crate::status;
 use crate::style::{CSS, CellHeight, DEFAULT_CELL_HEIGHT};
-use crate::tabs::{Role, Tab, fresh_name, label_from, named};
+use crate::tabs::{Role, Tab, fresh_name, label_from, named, shows_prompt};
 use crate::themes;
 use crate::view::Keys;
 use crate::zoom;
@@ -169,9 +169,21 @@ impl Status {
     }
 }
 
+/// The console screen's top padding.
+const SCREEN_TOP: f64 = 10.0;
+
 /// The console's height kept clear besides the prompt card: the screen's top
 /// padding and the card's margin below and above.
-const CONSOLE_GAP: f64 = 10.0 + 14.0 + 8.0;
+const CONSOLE_GAP: f64 = SCREEN_TOP + 14.0 + 8.0;
+
+/// The console's height left to its terminal, with the prompt card of this
+/// height under it, if one is shown.
+fn console_room(height: f64, card: Option<f64>) -> f64 {
+    match card {
+        Some(card) => height - card - CONSOLE_GAP,
+        None => height - SCREEN_TOP,
+    }
+}
 
 /// How long, in 50 ms steps, a prompt waits for a session pane that has just
 /// attached.
@@ -1403,7 +1415,7 @@ fn App() -> Element {
     });
 
     // The console's terminal fills what the prompt card leaves of the console,
-    // in cells of the measured width.
+    // in cells of the measured width; all of it when no card is shown.
     use_effect(move || {
         let (width, height) = console_box();
         let cw = cell_width();
@@ -1411,7 +1423,8 @@ fn App() -> Element {
         if width <= 0.0 {
             return;
         }
-        let free = height - composer_height() - CONSOLE_GAP;
+        let card = shows_prompt(active().as_ref()).then_some(composer_height());
+        let free = console_room(height, card);
         let next = Size {
             cell_width: cw,
             cell_height: cell_height_now(),
@@ -1698,7 +1711,7 @@ fn App() -> Element {
         let hub = hub.clone();
         move || {
             let hub = hub.clone();
-            if *sending.peek() {
+            if *sending.peek() || !shows_prompt(active.peek().as_ref()) {
                 return;
             }
             sending.set(true);
@@ -1788,13 +1801,7 @@ fn App() -> Element {
                             false
                         }
                     },
-                    Some(tab @ Tab::Shell(_)) => match pane_for(&hub, &tab, size).await {
-                        Some(p) => {
-                            p.type_text(&format!("{text}\r"));
-                            true
-                        }
-                        None => false,
-                    },
+                    Some(Tab::Shell(_)) => false,
                     Some(Tab::Draft { .. })
                         if named(&text).0.is_some() && named(&text).1.trim().is_empty() =>
                     {
@@ -2428,6 +2435,15 @@ fn App() -> Element {
             }
         }
     });
+    // A shell shown takes the keys from a prompt that goes away with it.
+    use_effect(move || {
+        let prompt = shows_prompt(active.read().as_ref());
+        let area = *focus.peek();
+        let to = settled(area, prompt);
+        if to != area {
+            focus.set(to);
+        }
+    });
     let mut last_area = use_signal(|| Area::Sidebar);
     use_effect({
         let mut request_pull = request_pull.clone();
@@ -2548,8 +2564,9 @@ fn App() -> Element {
                     *frame.write() += 1;
                 }
             };
+            let prompt = shows_prompt(active.peek().as_ref());
             let mut window = |d: Dir| {
-                let to = moved(area, d);
+                let to = moved(area, d, prompt);
                 let l = *layout.peek();
                 let hidden = (to == Area::Sidebar && !l.show_sidebar)
                     || (to == Area::Details && !l.show_details);
@@ -2590,6 +2607,12 @@ fn App() -> Element {
                         direct.set(true);
                     }
                 }
+                Action::PromptFocus
+                | Action::PromptWrite
+                | Action::PromptSend
+                | Action::HistoryPrev
+                | Action::HistoryNext
+                    if !prompt => {}
                 Action::PromptFocus => focus.set(Area::Prompt),
                 Action::PromptWrite => {
                     focus.set(Area::Prompt);
@@ -3393,6 +3416,12 @@ fn App() -> Element {
         (None, Some(_)) => "new session".to_string(),
         _ => target.clone(),
     };
+    let prompt_shown = shows_prompt(active_tab.as_ref());
+    let composer_room = if prompt_shown {
+        composer_height() + 22.0
+    } else {
+        0.0
+    };
     let mode = prompt_mode();
     // Whether what has the keys takes text, which an input method may compose.
     let passing = direct();
@@ -3869,7 +3898,7 @@ fn App() -> Element {
                     }
                     div {
                         class: "console",
-                        style: "--composer:{composer_height() + 22.0}px;--console-bg:{console_background};background:{console_background}",
+                        style: "--composer:{composer_room}px;--console-bg:{console_background};background:{console_background}",
                         onresize: move |e: Event<ResizeData>| {
                             e.stop_propagation();
                             if let Ok(sz) = e.data().get_content_box_size() {
@@ -3949,30 +3978,32 @@ fn App() -> Element {
                                 span { "to Claude Code. " kbd { "Esc" } " stops, " kbd { "Ctrl-c" } " sends Esc." }
                             }
                         }
-                        Composer {
-                            nvim,
-                            prompt_frame,
-                            cell_width: cw,
-                            focused: area == Area::Prompt,
-                            target: target.clone(),
-                            composer_height,
-                            prompt_width,
-                            onpick: move |_| {
-                                focus.set(Area::Prompt);
-                                // A click on the prompt is to write there; the
-                                // first key typed would otherwise run as a command.
-                                let writing = nvim
-                                    .peek()
-                                    .as_ref()
-                                    .is_some_and(|n| n.state().mode().starts_with("insert"));
-                                if !writing {
-                                    start_writing(nvim);
-                                }
-                            },
-                            send_keys: k_send.clone(),
-                            view: prompt_view(),
-                            rows: prompt_rows(),
-                            shell: prompt_shell() && !matches!(active(), Some(Tab::Shell(_))),
+                        if prompt_shown {
+                            Composer {
+                                nvim,
+                                prompt_frame,
+                                cell_width: cw,
+                                focused: area == Area::Prompt,
+                                target: target.clone(),
+                                composer_height,
+                                prompt_width,
+                                onpick: move |_| {
+                                    focus.set(Area::Prompt);
+                                    // A click on the prompt is to write there; the
+                                    // first key typed would otherwise run as a command.
+                                    let writing = nvim
+                                        .peek()
+                                        .as_ref()
+                                        .is_some_and(|n| n.state().mode().starts_with("insert"));
+                                    if !writing {
+                                        start_writing(nvim);
+                                    }
+                                },
+                                send_keys: k_send.clone(),
+                                view: prompt_view(),
+                                rows: prompt_rows(),
+                                shell: prompt_shell(),
+                            }
                         }
                     }
                 }
@@ -4439,6 +4470,15 @@ mod tests {
                 "{area:?} {session} {waits}"
             );
         }
+    }
+
+    #[test]
+    fn the_console_s_terminal_takes_the_prompt_card_s_room_when_no_card_is_shown() {
+        let with_card = console_room(600.0, Some(120.0));
+        let without = console_room(600.0, None);
+        assert_eq!(with_card, 600.0 - 120.0 - CONSOLE_GAP);
+        assert_eq!(without, 600.0 - SCREEN_TOP);
+        assert!(without > with_card + 120.0);
     }
 
     #[test]

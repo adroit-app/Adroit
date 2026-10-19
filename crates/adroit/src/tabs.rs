@@ -13,6 +13,12 @@ pub enum Tab {
     Draft { worktree: PathBuf, role: Role },
 }
 
+/// Whether the prompt is shown under the console while `tab` is: a shell
+/// takes every key in the console itself.
+pub fn shows_prompt(tab: Option<&Tab>) -> bool {
+    !matches!(tab, Some(Tab::Shell(_)))
+}
+
 /// What a session started from a draft is for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Role {
@@ -113,6 +119,18 @@ pub fn fresh_name(label: &str, taken: &[&str]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_shell_shows_no_prompt_and_a_session_a_draft_or_nothing_open_does() {
+        let draft = Tab::Draft {
+            worktree: PathBuf::from("/w"),
+            role: Role::Worker,
+        };
+        assert!(!shows_prompt(Some(&Tab::Shell(1))));
+        assert!(shows_prompt(Some(&Tab::Session("a".into()))));
+        assert!(shows_prompt(Some(&draft)));
+        assert!(shows_prompt(None));
+    }
 
     #[test]
     fn a_draft_is_headed_with_what_it_starts() {

@@ -1,9 +1,12 @@
 # The prompt
 
-The prompt under the console is where messages to the shown tab are written,
-in Neovim. Ctrl+Enter sends what it holds to that tab: a session gets it as
-its next message, a shell as a line, and a draft starts its session with it.
+The prompt under the console is where messages to the shown session or
+draft are written, in Neovim. Ctrl+Enter sends what it holds to that tab: a
+session gets it as its next message, and a draft starts its session with it.
 The prompt is left empty, in Neovim's normal mode.
+
+A shell's tab shows no prompt: its console takes the room and every key, and
+the keys that would go to the prompt stay with the shell.
 
 ## What is written stays with its tab
 
@@ -16,9 +19,8 @@ last opened, or in the only one declared; with more to choose from, adroit asks
 for one to be opened.
 
 What a session's tab kept follows the session when it goes by another id,
-as after a take-over. When the shown tab closes, a shell closed or a session
-gone, what the prompt holds stays, for the tab shown next, before what that
-tab kept.
+as after a take-over. When the shown tab closes or its session is gone, what
+the prompt holds stays, for the tab shown next, before what that tab kept.
 
 Text taken from Claude Code's input goes to the tab it was taken for, even
 when another tab is shown by the time it arrives. A message that cannot be
@@ -40,13 +42,11 @@ can be typed.
 skills and plugins among them, as Claude Code lists them for where the shown
 session runs or a draft would start, narrowed by what follows the `/`. Until
 Claude Code has answered there, or when it cannot, `/` offers nothing. The list
-is asked for again once it is a minute old, the older one offered meanwhile. A
-shell's tab offers no commands.
+is asked for again once it is a minute old, the older one offered meanwhile.
 
 ## A shell line
 
 A prompt whose first character is `!` is a shell line for Claude Code, and the
-card shows it as one, except on a shell's tab, where a `!` is text like any
-other. Sent to a session, it runs in Claude Code's bash mode, as if typed there,
-and its output joins the conversation. A draft does not take a shell line; its
-session is started with a message first.
+card shows it as one. Sent to a session, it runs in Claude Code's bash mode,
+as if typed there, and its output joins the conversation. A draft does not
+take a shell line; its session is started with a message first.
