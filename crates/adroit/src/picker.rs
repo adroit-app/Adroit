@@ -53,6 +53,8 @@ pub enum Source {
     Recent,
     /// `ghq list` names it.
     Ghq,
+    /// A folder in one of the roots the settings list.
+    Listed,
 }
 
 impl Source {
@@ -61,6 +63,7 @@ impl Source {
             Source::Running => "running",
             Source::Recent => "recent",
             Source::Ghq => "ghq",
+            Source::Listed => "listed",
         }
     }
 }
@@ -129,12 +132,18 @@ pub fn matching_sessions(offers: &[SessionOffer], query: &str, cap: usize) -> Ve
 
 /// The sources as one list, in the order given, each path once: the first
 /// source that offers a path is the one it is listed under.
-pub fn candidates(running: &[PathBuf], recent: &[PathBuf], ghq: &[PathBuf]) -> Vec<Candidate> {
+pub fn candidates(
+    running: &[PathBuf],
+    recent: &[PathBuf],
+    ghq: &[PathBuf],
+    listed: &[PathBuf],
+) -> Vec<Candidate> {
     let mut seen = HashSet::new();
     [
         (running, Source::Running),
         (recent, Source::Recent),
         (ghq, Source::Ghq),
+        (listed, Source::Listed),
     ]
     .into_iter()
     .flat_map(|(paths, source)| paths.iter().map(move |path| (path, source)))
@@ -144,6 +153,26 @@ pub fn candidates(running: &[PathBuf], recent: &[PathBuf], ghq: &[PathBuf]) -> V
         source,
     })
     .collect()
+}
+
+/// The folders in `roots`, each root's in name order, leaving out hidden ones
+/// and a root that cannot be read.
+pub fn folders_in(roots: &[PathBuf]) -> Vec<PathBuf> {
+    roots
+        .iter()
+        .flat_map(|root| {
+            let mut found: Vec<PathBuf> = std::fs::read_dir(root)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
+                .filter(|e| e.path().is_dir())
+                .map(|e| e.path())
+                .collect();
+            found.sort();
+            found
+        })
+        .collect()
 }
 
 /// The best `cap` candidates for `query`, best first; with nothing typed, the
@@ -318,6 +347,7 @@ mod tests {
             &paths(&["/r2", "/r1"]),
             &paths(&["/c"]),
             &paths(&["/g2", "/g1"]),
+            &[],
         );
         assert_eq!(
             listed(&cs),
@@ -337,6 +367,7 @@ mod tests {
             &paths(&["/a"]),
             &paths(&["/b", "/a", "/b"]),
             &paths(&["/a", "/b", "/g"]),
+            &[],
         );
         assert_eq!(
             listed(&cs),
@@ -350,7 +381,7 @@ mod tests {
 
     #[test]
     fn nothing_typed_keeps_the_list_in_order_up_to_the_cap() {
-        let cs = candidates(&[], &paths(&["/z/long/path", "/a", "/m"]), &[]);
+        let cs = candidates(&[], &paths(&["/z/long/path", "/a", "/m"]), &[], &[]);
         assert_eq!(
             listed(&matching(&cs, "", 2)),
             vec![("/z/long/path", Source::Recent), ("/a", Source::Recent)]
@@ -362,6 +393,7 @@ mod tests {
         let cs = candidates(
             &[],
             &paths(&["/w/adroit/docs", "/w/arto", "/w/src/adroit"]),
+            &[],
             &[],
         );
         let found = matching(&cs, "adroit", 10);
@@ -375,8 +407,34 @@ mod tests {
     }
 
     #[test]
+    fn folders_under_the_listed_roots_come_last_and_once() {
+        let cs = candidates(&paths(&["/a"]), &[], &paths(&["/g"]), &paths(&["/g", "/l"]));
+        assert_eq!(
+            cs.iter()
+                .map(|c| (c.path.to_str().unwrap(), c.source))
+                .collect::<Vec<_>>(),
+            vec![
+                ("/a", Source::Running),
+                ("/g", Source::Ghq),
+                ("/l", Source::Listed)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_root_lists_the_folders_in_it_but_hidden_ones_and_files() {
+        let root = tempfile::tempdir().unwrap();
+        for d in ["b", "a", ".git"] {
+            std::fs::create_dir(root.path().join(d)).unwrap();
+        }
+        std::fs::write(root.path().join("file"), "").unwrap();
+        let got = folders_in(&[root.path().to_path_buf(), PathBuf::from("/no/such")]);
+        assert_eq!(got, [root.path().join("a"), root.path().join("b")]);
+    }
+
+    #[test]
     fn candidates_that_answer_equally_keep_the_order_they_were_listed_in() {
-        let cs = candidates(&paths(&["/b/x"]), &paths(&["/a/x"]), &[]);
+        let cs = candidates(&paths(&["/b/x"]), &paths(&["/a/x"]), &[], &[]);
         assert_eq!(
             listed(&matching(&cs, "x", 10)),
             vec![("/b/x", Source::Running), ("/a/x", Source::Recent)]
@@ -385,7 +443,12 @@ mod tests {
 
     #[test]
     fn a_query_is_matched_against_the_path_as_drawn_with_home_as_a_tilde() {
-        let cs = candidates(&[], &paths(&["/Users/me/src/adroit", "/opt/adroit"]), &[]);
+        let cs = candidates(
+            &[],
+            &paths(&["/Users/me/src/adroit", "/opt/adroit"]),
+            &[],
+            &[],
+        );
         assert_eq!(
             listed(&matching(&cs, "^~/src", 10)),
             vec![("/Users/me/src/adroit", Source::Recent)]
@@ -540,7 +603,7 @@ mod tests {
     }
 
     fn dirs(ps: &[&str]) -> Vec<Candidate> {
-        candidates(&[], &paths(ps), &[])
+        candidates(&[], &paths(ps), &[], &[])
     }
 
     fn chosen(found: &[Choice]) -> Vec<String> {

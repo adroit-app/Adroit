@@ -149,6 +149,8 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .screen-picture { position: absolute; overflow: hidden; pointer-events: none; }
 .screen-picture img { position: absolute; max-width: none; image-rendering: auto; }
 .screen-cursor { position: absolute; background: rgba(231,232,235,0.85); mix-blend-mode: difference; pointer-events: none; }
+.screen-cursor.blink { animation: cursor-blink 1.2s step-end infinite; }
+@keyframes cursor-blink { 50% { opacity: 0; } }
 .cell-probe { position: absolute; visibility: hidden; font-family: var(--term-font); font-size: var(--term-size); font-weight: var(--term-weight); line-height: var(--cell-h); white-space: pre; }
 .prompt { position: absolute; left: 14px; right: 14px; bottom: 14px; background: var(--raised); border: 1px solid var(--line-strong);
   border-radius: 10px; box-shadow: 0 -6px 30px rgba(0,0,0,0.45); }
@@ -230,9 +232,24 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .details-links { gap: 2px; }
 .details-links .list-row { margin: 0 -8px; }
 .details-link .icon { flex: none; color: var(--text-2); }
+.details-link .state-glyph .icon { color: inherit; }
 .details-link-heading { gap: 4px; height: 22px; }
 .details-link-heading .icon { flex: none; color: var(--text-3); }
 .details-link-tag { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; font-size: 11px; color: var(--text-3); }
+.details-link-badge { flex: 0 1 auto; min-width: 0; max-width: 28%; margin-right: 0; line-height: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.details-more, .details-more .icon { color: var(--text-3); }
+.details-link.details-image { height: 46px; }
+.details-thumb { flex: none; width: 56px; height: 40px; object-fit: contain; border-radius: 4px; background: var(--raised); }
+.details-usage { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 10px 16px 12px; border-top: 1px solid var(--line); cursor: default; }
+.usage-gauge { display: flex; flex-direction: column; gap: 3px; }
+.usage-gauge-head { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+.usage-gauge-label { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.usage-gauge-left { flex: none; color: var(--text); font-variant-numeric: tabular-nums; }
+.usage-gauge-track { height: 5px; border-radius: 3px; background: var(--raised); overflow: hidden; }
+.usage-gauge-fill { height: 100%; border-radius: 3px; background: var(--run); }
+.usage-gauge-fill.warning { background: var(--wait); }
+.usage-gauge-fill.critical { background: var(--fail); }
+.usage-gauge-note { font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
 .footer { height: 30px; display: flex; align-items: center; gap: 14px; padding: 0 16px; font-size: 11.5px; color: var(--text-3); flex: none; }
 .footer { overflow: hidden; }
 .footer-status { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 0 0 auto; max-width: 70%; }
@@ -328,11 +345,13 @@ h2 { font-size: 12px; font-weight: 500; color: var(--text-2); margin: 0 0 4px; p
 .settings-hint { color: var(--text-3); font-size: 12px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; }
 .settings-mono { font-family: var(--mono); font-size: 12px; }
 .settings-row-control { flex: none; display: flex; gap: 8px; align-items: center; }
-select, input, button { font: inherit; font-size: 13px; color: var(--text); background: var(--ground);
+select, input, button, textarea { font: inherit; font-size: 13px; color: var(--text); background: var(--ground);
   border: 1px solid var(--line-strong); border-radius: 6px; padding: 4px 8px; outline: none; }
 input[type=number] { width: 72px; }
+input.settings-command { width: 260px; font-family: var(--mono); font-size: 12px; }
+textarea.settings-env { width: 260px; height: 64px; resize: vertical; font-family: var(--mono); font-size: 12px; }
 input[type=checkbox] { width: 16px; height: 16px; margin: 0; padding: 0; accent-color: var(--run); }
-select:focus, input:focus { border-color: var(--run); }
+select:focus, input:focus, textarea:focus { border-color: var(--run); }
 button { background: var(--select); border-color: transparent; padding: 5px 12px; }
 button:hover { background: #2d333b; }
 button.primary { background: rgba(232,180,94,0.16); color: var(--wait); font-weight: 500; }

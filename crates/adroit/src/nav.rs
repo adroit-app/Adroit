@@ -777,6 +777,7 @@ mod tests {
 
     fn sh(id: u128, name: &str, dir: &str) -> Shell {
         Shell {
+            runs: Default::default(),
             id,
             name: name.into(),
             worktree: dir.into(),

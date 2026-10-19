@@ -3,8 +3,10 @@
 Adroit's settings are changed in its Settings window, opened with Command
 comma or the gear in the window's header. Each change applies at once, to
 every window, and is kept for the next run; there is nothing to save. The
-window also lists the key bindings in force, each of which can be changed there
-([keys](keys.md#changing-them-in-the-settings-window)).
+file they are kept in can be edited by hand as well: a change saved there
+applies within a second, while one that does not read leaves the settings as
+they were. The window also lists the key bindings in force, each of which
+can be changed there ([keys](keys.md#changing-them-in-the-settings-window)).
 
 ## settings.toml
 
@@ -38,7 +40,84 @@ theme = "Adroit"
 # Keep the Mac from idle sleep while a session or a shell runs, the window
 # open or not; the display still sleeps.
 keep_awake = true
+
+# Show a notification when a session starts waiting on you while the window
+# is not in front.
+notify_waiting = false
+
+# Where scratch sessions run, `~` standing for your home folder; empty for
+# adroit's own folder.
+scratch_dir = ""
+
+# How a shell tab's shell starts: the shell and its arguments, empty for your
+# account's login shell started as a login shell, and variables set for it.
+[shell]
+command = []
+
+[shell.env]
+
+# How Claude Code starts for every session adroit runs: the program and the
+# arguments it always gets ahead of adroit's own, empty for `claude`; whether
+# your shell starts it, as an interactive login shell so that what its startup
+# files set reaches it; and variables set for it.
+[claude]
+command = []
+via_shell = false
+
+[claude.env]
+
+# How a Neovim tab's Neovim starts, as Claude Code does: empty for `nvim`.
+[neovim]
+command = []
+via_shell = false
+
+[neovim.env]
+
+# How every session runs, and how a reader runs: the model it starts with, as
+# Claude Code's `--model` takes it; its permission mode, one of `default`,
+# `acceptEdits`, `plan` and `bypassPermissions`; and the tools denied it.
+# What is left empty is Claude Code's own choice; a reader plans and edits
+# nothing unless told otherwise.
+[sessions]
+model = ""
+permission_mode = ""
+disallowed_tools = []
+
+[readers]
+model = ""
+permission_mode = "plan"
+disallowed_tools = ["Edit", "Write", "NotebookEdit"]
+
+# Where the picker looks for directories to start a session in: the
+# repositories ghq keeps, and the folders in each of `roots`, `~` standing for
+# your home folder.
+[picker]
+ghq = true
+roots = []
+
+# How much the details panel reads and shows: the changes Log lists, the
+# lines of a diff before it is cut, the links of each kind the overview keeps,
+# the newest, up to 1000, and how many of them it shows before a row that
+# shows them all.
+[details]
+log_commits = 50
+diff_lines = 2000
+links_kept = 100
+links_shown = 5
+
+# How the console takes keys and draws its cursor: which Option keys send Alt
+# to what runs there, `both`, `left`, `right` or `none`, the others typing what
+# macOS makes of the key; and whether the cursor blinks when the program lets
+# it.
+[console]
+option_as_alt = "both"
+cursor_blink = false
 ```
+
+A program started through the shell is started by the shell `[shell]` names,
+or your login shell, with the program and its arguments handed over as they
+are; a POSIX shell or fish can do so. The Sessions and Programs panes of the
+Settings window change the same settings, a command written there as a shell would split it.
 
 A theme is adroit's own, one of those it comes with (Nightfox, TokyoNight,
 Catppuccin, Gruvbox, Dracula, Nord, Kanagawa, Rose Pine and GitHub Light among
@@ -47,7 +126,10 @@ as the theme, in Ghostty's theme format, so a theme file from Ghostty works as
 it is. Of it, adroit reads the sixteen colours, the background, the
 foreground and the cursor's colour. Your file of the same name as one adroit
 comes with is used in its place. The whole window is drawn in the theme's
-colours, and a new theme reaches the consoles already open.
+colours, and a new theme reaches the consoles already open. A program started
+in a console is told the theme's colours from the first time it asks, so one
+that picks its look by the background as it starts, as Neovim does, picks
+the theme's.
 
 An unknown setting makes the file unreadable, so a misspelt one is not
 silently ignored. `naming_model` and `projects_dir`, which earlier versions

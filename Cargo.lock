@@ -16,8 +16,10 @@ dependencies = [
  "adroit-model",
  "adroit-nvim",
  "adroit-term",
+ "base64 0.23.1",
  "core-foundation",
  "dioxus",
+ "image",
  "libc",
  "nucleo-matcher",
  "objc2",
@@ -25,6 +27,7 @@ dependencies = [
  "resvg",
  "serde",
  "serde_json",
+ "shell-words",
  "tempfile",
  "tokio",
  "toml 1.1.8+spec-1.1.0",
@@ -4470,6 +4473,12 @@ checksum = "f40ca3c46823713e0d4209592e8d6e826aa57e928f09752619fc696c499637f6"
 dependencies = [
  "lazy_static",
 ]
+
+[[package]]
+name = "shell-words"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc6fe69c597f9c37bfeeeeeb33da3530379845f10be461a66d16d03eca2ded77"
 
 [[package]]
 name = "shlex"

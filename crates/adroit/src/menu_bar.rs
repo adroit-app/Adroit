@@ -79,6 +79,7 @@ pub fn sections() -> Vec<Section> {
                 Run(Action::PromptSend, "Send Prompt"),
                 Separator,
                 Run(Action::ShellOpen, "Open Shell"),
+                Run(Action::NeovimOpen, "Open Neovim"),
                 Run(Action::ShellClose, "Close Shell"),
                 Run(Action::TabClose, "Close Tab"),
                 Run(Action::WindowClose, "Close Window"),
@@ -448,6 +449,7 @@ mod tests {
             Some("Cmd+Backspace".into())
         );
         assert_eq!(shown(&map, Action::TabClose), Some("Cmd+w".into()));
+        assert_eq!(shown(&map, Action::NeovimOpen), Some("Cmd+Alt+e".into()));
         assert_eq!(shown(&map, Action::WindowClose), Some("Cmd+W".into()));
     }
 

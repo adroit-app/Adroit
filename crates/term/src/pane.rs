@@ -1,24 +1,25 @@
 //! A window onto one session in the daemon: the screen and images it sends,
 //! mirrored as they change, and the input sent to it.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use base64::Engine;
 use felis_client_core::renderer_effect::{RendererEffect, renderer_effect};
 use felis_client_core::{
-    AttachIntent, ImageId, ImageLayout, ImageShadow, OutgoingFrame, ShadowScreen,
+    AttachIntent, Connection, ImageId, ImageLayout, ImageShadow, OutgoingFrame, ShadowScreen,
 };
 use felis_grid::image_layout::ImageDraw;
 use felis_protocol::MessageKind;
 use felis_protocol::messages::{
-    ConnToClientMsg, GridMsg, ImageMsg, InputMods, InputMsg, MouseAction, MouseButton, MouseEvent,
-    PushMsg, RequestedDims, SessionToDaemonMsg, ThemeChannel,
+    ConnToClientMsg, GridMsg, ImageMsg, ImageTarget, InputMods, InputMsg, MouseAction, MouseButton,
+    MouseEvent, PushMsg, RequestedDims, SessionInfo, SessionToDaemonMsg, ThemeChannel,
 };
+use felis_transport::local::{ReadHalf, WriteHalf};
 use felis_transport::{Delivery, Incoming};
 use tokio::sync::mpsc;
 
-use crate::daemon::{Daemon, Result};
+use crate::daemon::{Daemon, Error, Result, Spawn, spawn_args};
 use crate::screen::{Overrides, screen_of};
 use crate::{Key, Palette, Rgb, Screen};
 
@@ -75,6 +76,19 @@ pub struct Picture {
     pub dst: [f32; 4],
 }
 
+/// An image a program sent, as it first came in whole: straight RGBA8
+/// pixels, `width` by `height`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Drawn {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
+}
+
+/// The most images waiting to be taken; past it the oldest give way, so a
+/// pane nobody takes from holds no more.
+const WAITING: usize = 8;
+
 type Waker = Arc<dyn Fn() + Send + Sync>;
 
 struct State {
@@ -83,6 +97,10 @@ struct State {
     layout: ImageLayout,
     overrides: Overrides,
     palette: Palette,
+    /// Images begun anew, not yet in whole.
+    fresh: HashSet<ImageId>,
+    /// Images in whole since they were last taken, oldest first.
+    drawn: VecDeque<Drawn>,
     /// Each image as a `data:` URL, made once for what it shows.
     urls: HashMap<ImageId, (u64, Arc<str>)>,
     exited: bool,
@@ -118,6 +136,50 @@ fn theme(palette: &Palette) -> SessionToDaemonMsg {
     }
 }
 
+/// Holds a program back until a line comes in. felis runs a session's
+/// program the moment it makes the session, before a window can tell the
+/// session its colours, so a program asking for them at once would race the
+/// window; held, it cannot ask before the line, which is sent after them.
+/// The line's echo moves the cursor down, and is taken back.
+const GATE: &str = r#"IFS= read -r _; printf '\033[H'; exec "$0" "$@""#;
+
+/// What lets a [`gated`] program go.
+const RELEASE: &[u8] = b"\r";
+
+/// `spawn`, its program held back until [`RELEASE`] comes in.
+fn gated(spawn: Spawn) -> Spawn {
+    let args = ["-c".to_string(), GATE.to_string(), spawn.program]
+        .into_iter()
+        .chain(spawn.args)
+        .collect();
+    Spawn {
+        program: "/bin/sh".into(),
+        args,
+        ..spawn
+    }
+}
+
+/// Whether `spawn`'s program is one that can run, looked up on the `PATH`
+/// it is started with.
+fn found(spawn: &Spawn) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    let runs = |p: &std::path::Path| {
+        std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    };
+    if spawn.program.contains('/') {
+        return runs(&spawn.cwd.join(&spawn.program));
+    }
+    let path = spawn
+        .env
+        .iter()
+        .rev()
+        .find(|(k, _)| k == "PATH")
+        .map(|(_, v)| v.clone())
+        .or_else(|| std::env::var("PATH").ok())
+        .unwrap_or_default();
+    std::env::split_paths(&path).any(|dir| runs(&dir.join(&spawn.program)))
+}
+
 fn dark(palette: &Palette) -> bool {
     let lum = |c: Rgb| 0.2126 * f64::from(c.r) + 0.7152 * f64::from(c.g) + 0.0722 * f64::from(c.b);
     lum(palette.background) < lum(palette.foreground)
@@ -135,12 +197,56 @@ impl Pane {
     ) -> Result<Self> {
         let mut conn = daemon.window().await?;
         let info = conn.attach(id, AttachIntent::Deliberate).await?;
+        Ok(Self::over(conn, &info, size, palette, waker))
+    }
+
+    /// Start a session as `spawn` says, at `size` rather than the size it
+    /// names, and attach to it, drawn in `palette`. `waker_for` makes the
+    /// waker [`Pane::attach`] takes, given the session's id. The program
+    /// runs only once the session has the palette, so the first colour it
+    /// asks for is the palette's.
+    pub async fn start<W>(
+        daemon: &Daemon,
+        spawn: Spawn,
+        size: Size,
+        palette: &Palette,
+        waker_for: impl FnOnce(u128) -> W,
+    ) -> Result<Self>
+    where
+        W: Fn() + Send + Sync + 'static,
+    {
+        // Behind the gate the daemon starts a shell, which is always there,
+        // so a program missing is told here, as the daemon would have.
+        if !found(&spawn) {
+            return Err(Error::NotFound(spawn.program));
+        }
+        let mut args = spawn_args(gated(spawn));
+        args.dims = Some(size.dims());
+        let mut conn = daemon.window().await?;
+        let info = conn.create_with(args).await?;
+        let waker = waker_for(info.id);
+        let pane = Self::over(conn, &info, size, palette, waker);
+        pane.send(InputMsg::KeyBytes(RELEASE.to_vec()));
+        Ok(pane)
+    }
+
+    /// The pane over `conn`, attached to the session `info` lists.
+    fn over(
+        conn: Connection<ReadHalf, WriteHalf>,
+        info: &SessionInfo,
+        size: Size,
+        palette: &Palette,
+        waker: impl Fn() + Send + Sync + 'static,
+    ) -> Self {
+        let id = info.id;
         let state = Arc::new(Mutex::new(State {
             shadow: ShadowScreen::new(info.dims.rows, info.dims.cols),
             images: ImageShadow::new(),
             layout: ImageLayout::new(),
             overrides: Overrides::default(),
             palette: palette.clone(),
+            fresh: HashSet::new(),
+            drawn: VecDeque::new(),
             urls: HashMap::new(),
             exited: info.exited,
             cell: {
@@ -185,7 +291,7 @@ impl Pane {
                         Err(_) => false,
                     },
                     MessageKind::Image => match driver.decode::<ImageMsg>(&p) {
-                        Ok(Delivery::Deliver(d)) => s.images.apply(&d.msg).is_ok(),
+                        Ok(Delivery::Deliver(d)) => s.image(&d.msg),
                         Ok(_) => true,
                         Err(_) => false,
                     },
@@ -224,7 +330,7 @@ impl Pane {
             dark: dark(palette),
         });
         pane.resize(size);
-        Ok(pane)
+        pane
     }
 
     pub fn id(&self) -> u128 {
@@ -301,6 +407,12 @@ impl Pane {
         let live: Vec<ImageId> = s.layout.live_images().to_vec();
         s.urls.retain(|id, _| live.contains(id));
         out
+    }
+
+    /// The images the program sent since they were last taken, oldest
+    /// first, each once, whether still shown or not.
+    pub fn take_drawn(&self) -> Vec<Drawn> {
+        self.state.lock().unwrap().drawn.drain(..).collect()
     }
 
     /// Send a key, as the program's modes ask; `false` when the key never
@@ -478,6 +590,43 @@ impl State {
         true
     }
 
+    /// Take one image message in, keeping an image as it comes in whole;
+    /// `false` when it cannot be, and the connection has to end.
+    fn image(&mut self, msg: &ImageMsg) -> bool {
+        if self.images.apply(msg).is_err() {
+            return false;
+        }
+        match msg {
+            ImageMsg::Header {
+                id,
+                target: ImageTarget::New { .. },
+            } => {
+                self.fresh.insert(*id);
+            }
+            ImageMsg::Delete { id } => {
+                self.fresh.remove(id);
+            }
+            ImageMsg::Complete { id } if self.fresh.remove(id) => {
+                if let Some(image) = self.images.image(*id)
+                    && image.is_complete()
+                {
+                    let mut rgba = Vec::new();
+                    image.write_rgba8(&mut rgba);
+                    if self.drawn.len() == WAITING {
+                        self.drawn.pop_front();
+                    }
+                    self.drawn.push_back(Drawn {
+                        width: image.width,
+                        height: image.height,
+                        rgba,
+                    });
+                }
+            }
+            _ => {}
+        }
+        true
+    }
+
     fn url(&mut self, id: ImageId) -> Option<Arc<str>> {
         let image = self.images.image(id)?;
         let generation = image.generation();
@@ -589,6 +738,60 @@ mod tests {
         };
         let dims = size.dims();
         assert_eq!((dims.pixel_w, dims.pixel_h), (800, 540));
+    }
+
+    async fn daemon(dir: &std::path::Path) -> Daemon {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let socket = dir.join("d.sock");
+        let serving = socket.clone();
+        tokio::spawn(async move {
+            Daemon::serve(&serving, std::time::Duration::from_secs(1), |_| {}).await
+        });
+        let d = Daemon::new(socket);
+        for _ in 0..100 {
+            if d.sessions().await.is_ok() {
+                return d;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        panic!("the daemon did not answer");
+    }
+
+    #[tokio::test]
+    async fn a_gated_program_runs_only_once_released_and_draws_from_the_top() {
+        let dir = tempfile::Builder::new()
+            .prefix("adroit-")
+            .tempdir_in("/tmp")
+            .unwrap();
+        let d = daemon(dir.path()).await;
+        let id = d
+            .spawn(gated(Spawn {
+                program: "/bin/sh".into(),
+                args: vec!["-c".into(), "printf started; sleep 5".into()],
+                cwd: "/tmp".into(),
+                cols: 40,
+                rows: 6,
+                ..Spawn::default()
+            }))
+            .await
+            .unwrap();
+        let pane = Pane::attach(&d, id, Size::new(40, 6), &Palette::default(), || {})
+            .await
+            .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        assert!(
+            pane.screen().text().iter().all(|l| !l.contains("started")),
+            "ran before it was released"
+        );
+        pane.send(InputMsg::KeyBytes(RELEASE.to_vec()));
+        for _ in 0..200 {
+            if pane.screen().text()[0] == "started" {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        panic!("never drawn at the top: {:?}", pane.screen().text());
     }
 
     #[test]

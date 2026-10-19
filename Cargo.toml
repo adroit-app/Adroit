@@ -24,6 +24,7 @@ felis-transport = { git = "https://github.com/felis-terminal/felis", rev = "6ee7
 felis-client-core = { git = "https://github.com/felis-terminal/felis", rev = "6ee73ba9f3db5b0febfef89e6b1d23e102b573d4" }
 base64 = "0.23.1"
 core-foundation = "0.10.1"
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 libc = "0.2.190"
 png = "0.18.1"
 async-trait = "0.1.92"
@@ -37,6 +38,7 @@ tokio = { version = "1.53.3", features = ["rt-multi-thread", "macros", "process"
 
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+shell-words = "1.1.1"
 thiserror = "2.0.21"
 toml = { version = "1.1.8", features = ["preserve_order"] }
 toml_edit = "0.25.17"

@@ -18,3 +18,7 @@ them away. A program asking whether images work is answered.
 
 Images are drawn over the text, the later ones above the earlier, and an
 animation shows the frame the program last showed.
+
+The images a session's console drew are listed in the overview of the
+details panel, and stay listed after the console lets them go
+([details](details.md)).

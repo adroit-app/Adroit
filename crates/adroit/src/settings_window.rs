@@ -13,7 +13,10 @@ use dioxus::prelude::*;
 use crate::icons::{Icon, IconView};
 use crate::keys_pane::KeysPane;
 use crate::paths::{home, keys_path};
-use crate::settings::{self, Settings};
+use crate::programs::{
+    Launch, SessionOptions, format_command, format_env, parse_command, parse_env,
+};
+use crate::settings::{self, OptionAsAlt, Settings};
 use crate::style::SETTINGS_CSS;
 use crate::zoom::LEVELS;
 
@@ -67,17 +70,28 @@ enum Pane {
     General,
     Console,
     Prompt,
+    Sessions,
+    Programs,
     Keys,
 }
 
 impl Pane {
-    const ALL: [Pane; 4] = [Pane::General, Pane::Console, Pane::Prompt, Pane::Keys];
+    const ALL: [Pane; 6] = [
+        Pane::General,
+        Pane::Console,
+        Pane::Prompt,
+        Pane::Sessions,
+        Pane::Programs,
+        Pane::Keys,
+    ];
 
     fn title(self) -> &'static str {
         match self {
             Pane::General => "General",
             Pane::Console => "Console",
             Pane::Prompt => "Prompt",
+            Pane::Sessions => "Sessions",
+            Pane::Programs => "Programs",
             Pane::Keys => "Keys",
         }
     }
@@ -87,6 +101,8 @@ impl Pane {
             Pane::General => Icon::AdjustmentsHorizontal,
             Pane::Console => Icon::Terminal,
             Pane::Prompt => Icon::Pencil,
+            Pane::Sessions => Icon::Message,
+            Pane::Programs => Icon::Terminal2,
             Pane::Keys => Icon::Keyboard,
         }
     }
@@ -169,6 +185,8 @@ fn SettingsWindow() -> Element {
                     Pane::General => rsx! { General { now: now(), change } },
                     Pane::Console => rsx! { ConsolePane { now: now(), change } },
                     Pane::Prompt => rsx! { PromptPane { now: now(), change } },
+                    Pane::Sessions => rsx! { SessionsPane { now: now(), change } },
+                    Pane::Programs => rsx! { ProgramsPane { now: now(), change } },
                     Pane::Keys => rsx! { KeysPane {} },
                 }
             }
@@ -222,6 +240,91 @@ fn General(now: Settings, change: Callback<Change>) -> Element {
                     onchange: move |e| {
                         let on = e.checked();
                         change(Box::new(move |s: &mut Settings| s.keep_awake = on));
+                    },
+                }
+            }
+            Row { label: "Notify when a session waits", hint: "A notification when a session starts waiting on you while the window is not in front.",
+                input {
+                    r#type: "checkbox",
+                    checked: now.notify_waiting,
+                    onchange: move |e| {
+                        let on = e.checked();
+                        change(Box::new(move |s: &mut Settings| s.notify_waiting = on));
+                    },
+                }
+            }
+        }
+        section { class: "settings-group",
+            h2 { "Starting sessions" }
+            Row { label: "Scratch folder", hint: "Where scratch sessions run, each in a folder of its own; empty for adroit's own.",
+                input {
+                    class: "settings-command",
+                    r#type: "text",
+                    value: "{now.scratch_dir}",
+                    placeholder: "~/.local/share/adroit/scratch",
+                    onchange: move |e| {
+                        let dir = e.value().trim().to_string();
+                        change(Box::new(move |s: &mut Settings| s.scratch_dir = dir));
+                    },
+                }
+            }
+            Row { label: "Offer ghq's repositories", hint: "The picker lists the repositories ghq keeps, and its file tree ghq's roots.",
+                input {
+                    r#type: "checkbox",
+                    checked: now.picker.ghq,
+                    onchange: move |e| {
+                        let on = e.checked();
+                        change(Box::new(move |s: &mut Settings| s.picker.ghq = on));
+                    },
+                }
+            }
+            Row { label: "Folders to offer", hint: "One a line: the picker lists the folders in each, and its file tree each one.",
+                textarea {
+                    class: "settings-env",
+                    value: "{now.picker.roots.join(\"\\n\")}",
+                    placeholder: "~/src",
+                    onchange: move |e| {
+                        let roots = e.value().lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect();
+                        change(Box::new(move |s: &mut Settings| s.picker.roots = roots));
+                    },
+                }
+            }
+        }
+        section { class: "settings-group",
+            h2 { "Details panel" }
+            Row { label: "Changes in Log", hint: "How many changes the Log sheet lists.",
+                input {
+                    r#type: "number", min: "1", max: "1000",
+                    value: "{now.details.log_commits}",
+                    onchange: move |e| if let Ok(n) = e.value().parse::<usize>() {
+                        change(Box::new(move |s: &mut Settings| s.details.log_commits = n));
+                    },
+                }
+            }
+            Row { label: "Lines of a diff", hint: "How much of a diff is shown before it is cut.",
+                input {
+                    r#type: "number", min: "1", max: "100000",
+                    value: "{now.details.diff_lines}",
+                    onchange: move |e| if let Ok(n) = e.value().parse::<usize>() {
+                        change(Box::new(move |s: &mut Settings| s.details.diff_lines = n));
+                    },
+                }
+            }
+            Row { label: "Links shown", hint: "How many links of each kind the overview shows before a row that shows them all.",
+                input {
+                    r#type: "number", min: "1", max: "1000",
+                    value: "{now.details.links_shown}",
+                    onchange: move |e| if let Ok(n) = e.value().parse::<usize>() {
+                        change(Box::new(move |s: &mut Settings| s.details.links_shown = n));
+                    },
+                }
+            }
+            Row { label: "Links kept", hint: "How many links of each kind the overview shows, the newest.",
+                input {
+                    r#type: "number", min: "1", max: "1000",
+                    value: "{now.details.links_kept}",
+                    onchange: move |e| if let Ok(n) = e.value().parse::<usize>() {
+                        change(Box::new(move |s: &mut Settings| s.details.links_kept = n));
                     },
                 }
             }
@@ -305,6 +408,32 @@ fn ConsolePane(now: Settings, change: Callback<Change>) -> Element {
                     },
                 }
             }
+            Row { label: "Option as Alt", hint: "Which Option keys send Alt (Meta) to what runs in the console; the others type what macOS makes of the key.",
+                select {
+                    onchange: move |e| {
+                        let as_alt = match e.value().as_str() {
+                            "left" => OptionAsAlt::Left,
+                            "right" => OptionAsAlt::Right,
+                            "none" => OptionAsAlt::None,
+                            _ => OptionAsAlt::Both,
+                        };
+                        change(Box::new(move |s: &mut Settings| s.console.option_as_alt = as_alt));
+                    },
+                    for (value , name) in [("both", "Both"), ("left", "Left only"), ("right", "Right only"), ("none", "Neither")] {
+                        option { key: "{value}", value: "{value}", selected: now.console.option_as_alt.name() == value, "{name}" }
+                    }
+                }
+            }
+            Row { label: "Blinking cursor", hint: "The console's cursor blinks when the program lets it.",
+                input {
+                    r#type: "checkbox",
+                    checked: now.console.cursor_blink,
+                    onchange: move |e| {
+                        let on = e.checked();
+                        change(Box::new(move |s: &mut Settings| s.console.cursor_blink = on));
+                    },
+                }
+            }
             Row { label: "Weight", hint: "Bold text is drawn heavier than this.",
                 select {
                     onchange: move |e| {
@@ -348,6 +477,176 @@ fn PromptPane(now: Settings, change: Callback<Change>) -> Element {
                         if let Ok(n) = e.value().parse::<usize>() {
                             change(Box::new(move |s: &mut Settings| s.prompt_max_rows = n));
                         }
+                    },
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn ProgramsPane(now: Settings, change: Callback<Change>) -> Element {
+    let login = crate::programs::login_shell();
+    rsx! {
+        section { class: "settings-group",
+            h2 { "Shell" }
+            Row { label: "Command", hint: "The shell a shell tab runs, with its arguments; empty for your login shell, started as a login shell.",
+                input {
+                    class: "settings-command",
+                    r#type: "text",
+                    value: "{format_command(&now.shell.command)}",
+                    placeholder: "{login} -l",
+                    onchange: move |e| {
+                        if let Some(c) = parse_command(&e.value()) {
+                            change(Box::new(move |s: &mut Settings| s.shell.command = c));
+                        }
+                    },
+                }
+            }
+            Row { label: "Environment", hint: "Variables set for it, one a line as NAME=value.",
+                textarea {
+                    class: "settings-env",
+                    value: "{format_env(&now.shell.env)}",
+                    placeholder: "LANG=en_US.UTF-8",
+                    onchange: move |e| {
+                        let env = parse_env(&e.value());
+                        change(Box::new(move |s: &mut Settings| s.shell.env = env));
+                    },
+                }
+            }
+        }
+        LaunchGroup {
+            title: "Claude Code",
+            hint: "The program every session runs, with the arguments it always gets ahead of adroit's own; empty for claude.",
+            placeholder: "claude",
+            launch: now.claude.clone(),
+            set: move |l: Launch| change(Box::new(move |s: &mut Settings| s.claude = l)),
+        }
+        LaunchGroup {
+            title: "Neovim",
+            hint: "The Neovim a Neovim tab runs, with its arguments; empty for nvim. It reads your own configuration.",
+            placeholder: "nvim",
+            launch: now.neovim.clone(),
+            set: move |l: Launch| change(Box::new(move |s: &mut Settings| s.neovim = l)),
+        }
+    }
+}
+
+/// How one program other than the shell is started: its command, whether
+/// through the shell, and its variables.
+#[component]
+fn LaunchGroup(
+    title: String,
+    hint: String,
+    placeholder: String,
+    launch: Launch,
+    set: Callback<Launch>,
+) -> Element {
+    let (a, b, c) = (launch.clone(), launch.clone(), launch.clone());
+    rsx! {
+        section { class: "settings-group",
+            h2 { "{title}" }
+            Row { label: "Command", hint,
+                input {
+                    class: "settings-command",
+                    r#type: "text",
+                    value: "{format_command(&launch.command)}",
+                    placeholder,
+                    onchange: move |e| {
+                        if let Some(command) = parse_command(&e.value()) {
+                            set(Launch { command, ..a.clone() });
+                        }
+                    },
+                }
+            }
+            Row { label: "Start through the shell", hint: "Run by your shell as an interactive login shell, so what its startup files set reaches it.",
+                input {
+                    r#type: "checkbox",
+                    checked: launch.via_shell,
+                    onchange: move |e| set(Launch { via_shell: e.checked(), ..b.clone() }),
+                }
+            }
+            Row { label: "Environment", hint: "Variables set for it, one a line as NAME=value.",
+                textarea {
+                    class: "settings-env",
+                    value: "{format_env(&launch.env)}",
+                    onchange: move |e| set(Launch { env: parse_env(&e.value()), ..c.clone() }),
+                }
+            }
+        }
+    }
+}
+
+/// The permission modes Claude Code takes, as it names them, with what the
+/// Settings window calls each; empty leaves it to Claude Code.
+const MODES: [(&str, &str); 5] = [
+    ("", "Claude Code's own"),
+    ("default", "Ask before acting"),
+    ("acceptEdits", "Accept edits"),
+    ("plan", "Plan only"),
+    ("bypassPermissions", "Bypass permissions"),
+];
+
+/// The models offered to choose from; another can be typed.
+const MODELS: [&str; 3] = ["opus", "sonnet", "haiku"];
+
+#[component]
+fn SessionsPane(now: Settings, change: Callback<Change>) -> Element {
+    rsx! {
+        SessionGroup {
+            title: "Sessions",
+            options: now.sessions.clone(),
+            set: move |o: SessionOptions| change(Box::new(move |s: &mut Settings| s.sessions = o)),
+        }
+        SessionGroup {
+            title: "Readers",
+            options: SessionOptions::from(now.readers.clone()),
+            set: move |o: SessionOptions| change(Box::new(move |s: &mut Settings| s.readers = o.into())),
+        }
+    }
+}
+
+/// How sessions of one kind run: their model, permission mode and the tools
+/// denied them.
+#[component]
+fn SessionGroup(title: String, options: SessionOptions, set: Callback<SessionOptions>) -> Element {
+    let (a, b, c) = (options.clone(), options.clone(), options.clone());
+    let list = format!("models-{title}");
+    rsx! {
+        section { class: "settings-group",
+            h2 { "{title}" }
+            Row { label: "Model", hint: "The model they start with, as Claude Code's --model takes it; empty for Claude Code's own.",
+                input {
+                    class: "settings-command",
+                    r#type: "text",
+                    list: "{list}",
+                    value: "{options.model}",
+                    placeholder: "Claude Code's own",
+                    onchange: move |e| set(SessionOptions { model: e.value().trim().to_string(), ..a.clone() }),
+                }
+                datalist { id: "{list}",
+                    for m in MODELS {
+                        option { key: "{m}", value: "{m}" }
+                    }
+                }
+            }
+            Row { label: "Permission mode", hint: "How they ask before they act.",
+                select {
+                    onchange: move |e| set(SessionOptions { permission_mode: e.value(), ..b.clone() }),
+                    for (mode , name) in MODES {
+                        option { key: "{mode}", value: "{mode}", selected: options.permission_mode == mode, "{name}" }
+                    }
+                }
+            }
+            Row { label: "Tools denied", hint: "Tools they may not use, separated by commas.",
+                input {
+                    class: "settings-command",
+                    r#type: "text",
+                    value: "{options.disallowed_tools.join(\", \")}",
+                    placeholder: "Edit, Write",
+                    onchange: move |e| {
+                        let tools = e.value().split(',').map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect();
+                        set(SessionOptions { disallowed_tools: tools, ..c.clone() })
                     },
                 }
             }

@@ -2,9 +2,12 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use adroit_claude::git::{Change, Commit, DiffLine};
 use adroit_claude::links::{Kind as LinkKind, Link, Peer, Touch};
+use adroit_claude::subagents::{Agent, Standing};
+use adroit_claude::usage::{Limit, Severity, Window};
 use adroit_model::{Kind, Session, State};
 
 /// What the details panel says about a session, as label and value, at
@@ -38,6 +41,69 @@ fn ago(ms: u64) -> String {
             1 => "1 day ago".into(),
             d => format!("{d} days ago"),
         },
+    }
+}
+
+/// A usage limit as the foot of the overview draws it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Gauge {
+    pub label: String,
+    /// How much of the bar is filled, from 0 to 100.
+    pub used: u32,
+    pub left: String,
+    pub note: String,
+    pub severity: Severity,
+}
+
+/// The gauges for `limits`, at `now_ms` since the Unix epoch.
+pub fn gauges(limits: &[Limit], now_ms: u64) -> Vec<Gauge> {
+    limits
+        .iter()
+        .map(|l| {
+            let label = match &l.window {
+                Window::Session => "Session".to_string(),
+                Window::Week => "Week".to_string(),
+                Window::WeekOf(name) => format!("Week · {name}"),
+                Window::Other(kind) => kind.replace('_', " "),
+            };
+            let (percent, note) = match l.resets_ms {
+                Some(at) if at <= now_ms => (0, "reset".to_string()),
+                resets => {
+                    let percent = l.percent.max(0.0).round() as u32;
+                    let mut note = format!("{percent}% used");
+                    if let Some(at) = resets {
+                        note.push_str(&format!(" · resets {}", until(at - now_ms)));
+                    }
+                    (percent, note)
+                }
+            };
+            Gauge {
+                label,
+                used: percent.min(100),
+                left: format!("{}% left", 100u32.saturating_sub(percent)),
+                note,
+                severity: l.severity,
+            }
+        })
+        .collect()
+}
+
+/// `ms` milliseconds ahead, in the two largest whole units.
+fn until(ms: u64) -> String {
+    let min = ms / 60_000;
+    let (h, m) = (min / 60, min % 60);
+    let (d, dh) = (h / 24, h % 24);
+    let days = match d {
+        1 => "1 day".to_string(),
+        d => format!("{d} days"),
+    };
+    match (d, h, m) {
+        (0, 0, 0) => "in under a minute".into(),
+        (0, 0, m) => format!("in {m} min"),
+        (0, h, 0) => format!("in {h} h"),
+        (0, h, m) => format!("in {h} h {m} min"),
+        (_, _, _) if dh == 0 => format!("in {days}"),
+        _ => format!("in {days} {dh} h"),
     }
 }
 
@@ -75,6 +141,119 @@ pub fn shown_link(link: &Link, worktree: &Path, home: &Path) -> (String, String)
             };
             (label, word.to_string())
         }
+    }
+}
+
+/// Where an image of the overview came from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Source {
+    /// The console drew it: kept by its id, `width` by `height` pixels.
+    Console { id: u64, width: u32, height: u32 },
+    /// The session came across the file at `path`.
+    File { path: String, touch: Touch },
+}
+
+/// An image of the overview.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Shot {
+    /// What tells it apart from every other row.
+    pub key: String,
+    pub source: Source,
+    /// When it came up, in milliseconds since the Unix epoch.
+    pub at_ms: Option<u64>,
+    /// A small copy as a `data:` URL, when one could be made.
+    pub thumb: Option<Arc<str>>,
+}
+
+impl Shot {
+    pub fn console(id: u64, width: u32, height: u32, at_ms: u64, thumb: Option<Arc<str>>) -> Shot {
+        Shot {
+            // No path or address starts with a NUL, so no other row takes a
+            // drawn image's place.
+            key: format!("\0drawn {id:016x}"),
+            source: Source::Console { id, width, height },
+            at_ms: Some(at_ms),
+            thumb,
+        }
+    }
+
+    pub fn file(path: &str, touch: Touch, at_ms: Option<u64>, thumb: Option<Arc<str>>) -> Shot {
+        Shot {
+            key: path.to_string(),
+            source: Source::File {
+                path: path.to_string(),
+                touch,
+            },
+            at_ms,
+            thumb,
+        }
+    }
+}
+
+/// `shots` newest first; those of an unknown time keep their order last.
+pub fn newest_first(mut shots: Vec<Shot>) -> Vec<Shot> {
+    shots.sort_by_key(|s| (s.at_ms.is_none(), std::cmp::Reverse(s.at_ms)));
+    shots
+}
+
+/// What an image of the overview shows: what it is called, and a word on
+/// how the session came by it.
+pub fn shown_shot(shot: &Shot, worktree: &Path, home: &Path) -> (String, String) {
+    match &shot.source {
+        Source::Console { width, height, .. } => {
+            (format!("Image {width} × {height}"), "drawn".to_string())
+        }
+        Source::File { path, touch } => shown_link(
+            &Link {
+                kind: LinkKind::File(*touch),
+                target: path.clone(),
+                title: None,
+                line: None,
+            },
+            worktree,
+            home,
+        ),
+    }
+}
+
+/// What a subagent of the overview shows: what it is called now, and how it
+/// stands, how long it ran told at `now_ms`.
+pub fn shown_agent(a: &Agent, now_ms: u64) -> (String, String) {
+    let label = match (&a.title, a.description.as_str()) {
+        (Some(title), _) => title.clone(),
+        (None, "") => "subagent".to_string(),
+        (None, description) => description.to_string(),
+    };
+    let took = a
+        .started_ms
+        .map(|start| lasted(a.ended_ms.unwrap_or(now_ms).saturating_sub(start)));
+    let tag = match (a.standing, took) {
+        (Standing::Running, Some(t)) => format!("running {t}"),
+        (Standing::Done, Some(t)) => format!("done in {t}"),
+        (Standing::Failed, Some(t)) => format!("failed after {t}"),
+        (Standing::Stopped, Some(t)) => format!("stopped after {t}"),
+        (s, None) => standing_word(s).to_string(),
+    };
+    (label, tag)
+}
+
+pub fn standing_word(s: Standing) -> &'static str {
+    match s {
+        Standing::Running => "running",
+        Standing::Done => "done",
+        Standing::Failed => "failed",
+        Standing::Stopped => "stopped",
+    }
+}
+
+/// `ms` milliseconds as seconds, minutes, or hours and minutes.
+fn lasted(ms: u64) -> String {
+    let s = ms / 1000;
+    match (s / 3600, s / 60 % 60) {
+        (0, 0) => format!("{s} s"),
+        (0, m) => format!("{m} min"),
+        (h, 0) => format!("{h} h"),
+        (h, m) => format!("{h} h {m} min"),
     }
 }
 
@@ -170,7 +349,9 @@ impl Listing {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Group {
     Sessions,
+    Agents,
     Artifacts,
+    Images,
     Links,
     Files,
 }
@@ -187,7 +368,9 @@ impl Group {
     pub fn title(self) -> &'static str {
         match self {
             Group::Sessions => "Sessions",
+            Group::Agents => "Subagents",
             Group::Artifacts => "Artifacts",
+            Group::Images => "Images",
             Group::Links => "Links",
             Group::Files => "Files",
         }
@@ -203,7 +386,14 @@ pub enum Entry {
         folded: bool,
     },
     Session(Related),
+    Agent(Agent),
     Link(Link),
+    Image(Shot),
+    /// The row standing for a group's links not shown, which shows them all.
+    More {
+        group: Group,
+        hidden: usize,
+    },
 }
 
 impl Entry {
@@ -213,12 +403,24 @@ impl Entry {
             // takes a heading's place.
             Entry::Heading { group, .. } => match group {
                 Group::Sessions => "\0sessions",
+                Group::Agents => "\0agents",
                 Group::Artifacts => "\0artifacts",
+                Group::Images => "\0images",
                 Group::Links => "\0links",
                 Group::Files => "\0files",
             },
             Entry::Session(r) => r.name.as_str(),
+            Entry::Agent(a) => a.call.as_str(),
             Entry::Link(l) => l.target.as_str(),
+            Entry::Image(s) => s.key.as_str(),
+            Entry::More { group, .. } => match group {
+                Group::Sessions => "\0more sessions",
+                Group::Agents => "\0more agents",
+                Group::Artifacts => "\0more artifacts",
+                Group::Images => "\0more images",
+                Group::Links => "\0more links",
+                Group::Files => "\0more files",
+            },
         }
     }
 
@@ -227,7 +429,10 @@ impl Entry {
         match self {
             Entry::Heading { group, .. } => *group,
             Entry::Session(_) => Group::Sessions,
+            Entry::Agent(_) => Group::Agents,
             Entry::Link(l) => Group::of(&l.kind),
+            Entry::Image(_) => Group::Images,
+            Entry::More { group, .. } => *group,
         }
     }
 }
@@ -307,10 +512,32 @@ pub fn related(shown: &Session, sessions: &[&Session], peers: &[Peer]) -> Vec<Re
     out
 }
 
+/// `links`, which come grouped and newest first, keeping up to `kept` of each
+/// group.
+pub fn capped(links: &[Link], kept: usize) -> Vec<Link> {
+    links
+        .chunk_by(|a, b| Group::of(&a.kind) == Group::of(&b.kind))
+        .flat_map(|run| run.iter().take(kept).cloned())
+        .collect()
+}
+
 /// The overview's rows: the `related` sessions under their heading, then
 /// `links`, which come grouped, each group's heading followed by its links;
 /// a `folded` group shows its heading alone.
+#[cfg(test)]
 pub fn overview(related: &[Related], links: &[Link], folded: &HashSet<Group>) -> Vec<Entry> {
+    overview_shown(related, links, folded, &HashSet::new(), usize::MAX)
+}
+
+/// [`overview`], each group of links showing its `first` links and a row for
+/// the rest, unless it is among those `opened` to show them all.
+pub fn overview_shown(
+    related: &[Related],
+    links: &[Link],
+    folded: &HashSet<Group>,
+    opened: &HashSet<Group>,
+    first: usize,
+) -> Vec<Entry> {
     let mut out = Vec::new();
     if !related.is_empty() {
         let shut = folded.contains(&Group::Sessions);
@@ -332,10 +559,89 @@ pub fn overview(related: &[Related], links: &[Link], folded: &HashSet<Group>) ->
             folded: shut,
         });
         if !shut {
-            out.extend(run.iter().cloned().map(Entry::Link));
+            let shown = if opened.contains(&group) {
+                run.len()
+            } else {
+                first.min(run.len())
+            };
+            out.extend(run[..shown].iter().cloned().map(Entry::Link));
+            if shown < run.len() {
+                out.push(Entry::More {
+                    group,
+                    hidden: run.len() - shown,
+                });
+            }
         }
     }
     out
+}
+
+/// The overview's `entries` with `agents` under their heading after the
+/// sessions; a `folded` group shows its heading alone.
+pub fn with_agents(
+    mut entries: Vec<Entry>,
+    agents: &[Agent],
+    folded: &HashSet<Group>,
+) -> Vec<Entry> {
+    if agents.is_empty() {
+        return entries;
+    }
+    let at = entries
+        .iter()
+        .position(|e| e.group() != Group::Sessions)
+        .unwrap_or(entries.len());
+    let shut = folded.contains(&Group::Agents);
+    let mut rows = vec![Entry::Heading {
+        group: Group::Agents,
+        count: agents.len(),
+        folded: shut,
+    }];
+    if !shut {
+        rows.extend(agents.iter().cloned().map(Entry::Agent));
+    }
+    entries.splice(at..at, rows);
+    entries
+}
+
+/// The overview's `entries` with `shots` under their heading after the
+/// artifacts, showing their `first` and a row for the rest unless the group
+/// is among those `opened`; a `folded` group shows its heading alone.
+pub fn with_images(
+    mut entries: Vec<Entry>,
+    shots: &[Shot],
+    folded: &HashSet<Group>,
+    opened: &HashSet<Group>,
+    first: usize,
+) -> Vec<Entry> {
+    if shots.is_empty() {
+        return entries;
+    }
+    let at = entries
+        .iter()
+        .position(|e| matches!(e.group(), Group::Links | Group::Files))
+        .unwrap_or(entries.len());
+    let shut = folded.contains(&Group::Images);
+    let mut rows = vec![Entry::Heading {
+        group: Group::Images,
+        count: shots.len(),
+        folded: shut,
+    }];
+    if !shut {
+        let shown = if opened.contains(&Group::Images) {
+            shots.len()
+        } else {
+            first.min(shots.len())
+        };
+        rows.extend(shots[..shown].iter().cloned().map(Entry::Image));
+        if shown < shots.len() {
+            rows.push(Entry::More {
+                group: Group::Images,
+                hidden: shots.len() - shown,
+            });
+        }
+    }
+    entries.splice(at..at, rows);
+    entries
 }
 
 /// What was read for a spot, and which worktree it was about.
@@ -350,6 +656,8 @@ pub struct View {
 enum Opened {
     Commit(Commit),
     File(Change),
+    /// A subagent of the overview, by its call, and its description.
+    Agent(String, String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -380,6 +688,14 @@ impl Drill {
         self.sheet
     }
 
+    /// The subagent of the overview opened, by its call.
+    pub fn agent(&self) -> Option<&str> {
+        match self.opened.last() {
+            Some(Opened::Agent(call, _)) => Some(call),
+            _ => None,
+        }
+    }
+
     /// What to read for what is shown; the overview is not read.
     pub fn spot(&self) -> Option<Spot> {
         let rev = |c: &Commit| Rev::Commit(c.id.clone());
@@ -404,6 +720,7 @@ impl Drill {
                 }
                 Opened::Commit(c) => format!("{} {}", c.short, c.subject),
                 Opened::File(f) => f.shown(),
+                Opened::Agent(_, description) => description.clone(),
             })
             .collect()
     }
@@ -457,7 +774,11 @@ impl Drill {
         let opened = match listing {
             Listing::Files(files) => Opened::File(files[at].clone()),
             Listing::Log(commits) => Opened::Commit(commits[at].clone()),
-            Listing::Diff(_) | Listing::Error(_) | Listing::Links(_) => return false,
+            Listing::Links(entries) => match &entries[at] {
+                Entry::Agent(a) => Opened::Agent(a.call.clone(), shown_agent(a, 0).0),
+                _ => return false,
+            },
+            Listing::Diff(_) | Listing::Error(_) => return false,
         };
         self.opened.push(opened);
         self.cursor = None;
@@ -482,6 +803,7 @@ impl Drill {
         let key = match opened {
             Opened::Commit(c) => c.id,
             Opened::File(f) => f.path,
+            Opened::Agent(call, _) => call,
         };
         // Where it was is not kept; should it be gone meanwhile, the list's
         // first row stands in.
@@ -511,13 +833,11 @@ impl Drill {
     }
 }
 
-/// How many commits the log sheet shows.
-pub const LOG_COMMITS: usize = 50;
-
 /// Read what `spot` shows of `worktree`: through jj in a jj repository,
 /// through git otherwise or when jj cannot be run.
 pub async fn load(spot: Spot, worktree: PathBuf) -> View {
     use adroit_claude::{Error, git, jj};
+    let diff_lines = crate::settings::current().details.diff_lines;
     let mut listing = None;
     if jj::is_jj(&worktree) {
         let rev = |r: &Rev| match r {
@@ -526,10 +846,12 @@ pub async fn load(spot: Spot, worktree: PathBuf) -> View {
         };
         let read = match &spot {
             Spot::Files(r) => jj::files(&worktree, &rev(r)).await.map(Listing::Files),
-            Spot::Diff(r, c) => jj::file_diff(&worktree, &rev(r), c)
+            Spot::Diff(r, c) => jj::file_diff(&worktree, &rev(r), c, diff_lines)
                 .await
                 .map(Listing::Diff),
-            Spot::Log => jj::history(&worktree, LOG_COMMITS).await.map(Listing::Log),
+            Spot::Log => jj::history(&worktree, crate::settings::current().details.log_commits)
+                .await
+                .map(Listing::Log),
         };
         // Without jj, a colocated repository still reads through git.
         if !matches!(read, Err(Error::Spawn { .. })) {
@@ -548,10 +870,14 @@ pub async fn load(spot: Spot, worktree: PathBuf) -> View {
                 Spot::Files(Rev::Commit(id)) => {
                     git::commit_files(&worktree, id).await.map(Listing::Files)
                 }
-                Spot::Diff(r, c) => git::file_diff(&worktree, rev(r).as_deref(), c)
+                Spot::Diff(r, c) => git::file_diff(&worktree, rev(r).as_deref(), c, diff_lines)
                     .await
                     .map(Listing::Diff),
-                Spot::Log => git::history(&worktree, LOG_COMMITS).await.map(Listing::Log),
+                Spot::Log => {
+                    git::history(&worktree, crate::settings::current().details.log_commits)
+                        .await
+                        .map(Listing::Log)
+                }
             }
         }
     };
@@ -615,6 +941,82 @@ mod tests {
         assert_eq!(ago(90_000), "1 min ago");
         assert_eq!(ago(3 * 3_600_000 + 1), "3 h ago");
         assert_eq!(ago(2 * 86_400_000), "2 days ago");
+    }
+
+    fn limit(window: Window, percent: f64, resets_ms: Option<u64>) -> Limit {
+        Limit {
+            window,
+            percent,
+            resets_ms,
+            severity: Severity::Normal,
+        }
+    }
+
+    const MIN: u64 = 60_000;
+
+    #[test]
+    fn a_limit_reads_as_what_is_left_with_what_is_used_and_when_it_resets() {
+        let now = 1_000 * MIN;
+        let got = gauges(
+            &[limit(
+                Window::Session,
+                3.4,
+                Some(now + 4 * 60 * MIN + 13 * MIN),
+            )],
+            now,
+        );
+        assert_eq!(
+            got,
+            [Gauge {
+                label: "Session".into(),
+                used: 3,
+                left: "97% left".into(),
+                note: "3% used · resets in 4 h 13 min".into(),
+                severity: Severity::Normal,
+            }]
+        );
+    }
+
+    #[test]
+    fn each_window_is_named_for_its_span_and_scope() {
+        let got = gauges(
+            &[
+                limit(Window::Session, 0.0, None),
+                limit(Window::Week, 0.0, None),
+                limit(Window::WeekOf("Fable".into()), 0.0, None),
+                limit(Window::Other("monthly_all".into()), 0.0, None),
+            ],
+            0,
+        );
+        let labels: Vec<_> = got.iter().map(|g| g.label.as_str()).collect();
+        assert_eq!(labels, ["Session", "Week", "Week · Fable", "monthly all"]);
+    }
+
+    #[test]
+    fn a_passed_limit_fills_the_bar_and_leaves_nothing() {
+        let got = gauges(&[limit(Window::Week, 104.0, None)], 0);
+        assert_eq!(got[0].used, 100);
+        assert_eq!(got[0].left, "0% left");
+        assert_eq!(got[0].note, "104% used");
+    }
+
+    #[test]
+    fn a_window_whose_reset_has_passed_since_it_was_asked_is_unused() {
+        let got = gauges(&[limit(Window::Session, 80.0, Some(5 * MIN))], 6 * MIN);
+        assert_eq!(got[0].used, 0);
+        assert_eq!(got[0].left, "100% left");
+        assert_eq!(got[0].note, "reset");
+    }
+
+    #[test]
+    fn the_time_to_a_reset_reads_in_its_two_largest_units() {
+        assert_eq!(until(30_000), "in under a minute");
+        assert_eq!(until(MIN), "in 1 min");
+        assert_eq!(until(59 * MIN + 59_000), "in 59 min");
+        assert_eq!(until(3 * 60 * MIN), "in 3 h");
+        assert_eq!(until(3 * 60 * MIN + 5 * MIN), "in 3 h 5 min");
+        assert_eq!(until(24 * 60 * MIN), "in 1 day");
+        assert_eq!(until(2 * 24 * 60 * MIN + 23 * 60 * MIN), "in 2 days 23 h");
     }
 
     #[test]
@@ -1025,5 +1427,292 @@ mod tests {
             overview(&r, &[], &HashSet::from([Group::Sessions])),
             [heading(Group::Sessions, 1, true)]
         );
+    }
+
+    #[test]
+    fn each_group_of_the_overview_keeps_its_newest_links_up_to_the_cap() {
+        let all = [
+            link(LinkKind::Url, "https://a.dev", None, None),
+            link(LinkKind::Url, "https://b.dev", None, None),
+            link(LinkKind::Url, "https://c.dev", None, None),
+            link(LinkKind::File(Touch::Read), "/w/a.rs", None, None),
+        ];
+        let kept = capped(&all, 2);
+        let kept: Vec<&str> = kept.iter().map(|l| l.target.as_str()).collect();
+        assert_eq!(kept, ["https://a.dev", "https://b.dev", "/w/a.rs"]);
+    }
+
+    #[test]
+    fn a_group_of_links_shows_its_first_few_and_a_row_for_the_rest_until_opened() {
+        let all: Vec<Link> = (0..7)
+            .map(|i| link(LinkKind::Url, &format!("https://{i}.dev"), None, None))
+            .collect();
+        let rows = overview_shown(&[], &all, &HashSet::new(), &HashSet::new(), 5);
+        assert_eq!(rows.len(), 1 + 5 + 1);
+        assert_eq!(
+            rows[6],
+            Entry::More {
+                group: Group::Links,
+                hidden: 2
+            }
+        );
+        let opened = overview_shown(
+            &[],
+            &all,
+            &HashSet::new(),
+            &HashSet::from([Group::Links]),
+            5,
+        );
+        assert_eq!(opened.len(), 1 + 7);
+        // No row for none left over, nor under a folded heading.
+        assert_eq!(
+            overview_shown(&[], &all[..5], &HashSet::new(), &HashSet::new(), 5).len(),
+            6
+        );
+        assert_eq!(
+            overview_shown(
+                &[],
+                &all,
+                &HashSet::from([Group::Links]),
+                &HashSet::new(),
+                5
+            )
+            .len(),
+            1
+        );
+        // The row is selected apart from the links and the heading.
+        let listing = Listing::Links(rows);
+        let mut d = Drill::new(Sheet::Overview);
+        d.select(&listing, 6);
+        assert_eq!(d.selected(&listing), Some(6));
+    }
+
+    fn agent(call: &str, description: &str, standing: Standing) -> Agent {
+        Agent {
+            call: call.into(),
+            id: Some(format!("a-{call}")),
+            description: description.into(),
+            title: None,
+            kind: Some("Explore".into()),
+            prompt: "Look around.".into(),
+            standing,
+            started_ms: Some(1_000_000),
+            ended_ms: None,
+            steps: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn the_subagents_follow_the_sessions_and_fold_as_a_group() {
+        let r = [tied("tests", Some("3"), &[Tie::Started])];
+        let l = [link(LinkKind::Url, "https://a.dev", None, None)];
+        let a = [
+            agent("toolu_1", "Survey", Standing::Running),
+            agent("toolu_2", "Fix", Standing::Done),
+        ];
+        let folded = HashSet::new();
+        assert_eq!(
+            with_agents(overview(&r, &l, &folded), &a, &folded),
+            [
+                heading(Group::Sessions, 1, false),
+                Entry::Session(r[0].clone()),
+                heading(Group::Agents, 2, false),
+                Entry::Agent(a[0].clone()),
+                Entry::Agent(a[1].clone()),
+                heading(Group::Links, 1, false),
+                Entry::Link(l[0].clone()),
+            ]
+        );
+        let shut = HashSet::from([Group::Agents]);
+        assert_eq!(
+            with_agents(overview(&[], &l, &shut), &a, &shut),
+            [
+                heading(Group::Agents, 2, true),
+                heading(Group::Links, 1, false),
+                Entry::Link(l[0].clone()),
+            ]
+        );
+        assert_eq!(
+            with_agents(overview(&[], &l, &folded), &[], &folded),
+            overview(&[], &l, &folded)
+        );
+    }
+
+    #[test]
+    fn a_subagent_shows_its_description_and_how_long_it_ran() {
+        let start = 1_000_000;
+        let mut a = agent("toolu_1", "Survey", Standing::Running);
+        assert_eq!(
+            shown_agent(&a, start + 3 * 60_000 + 5_000),
+            ("Survey".to_string(), "running 3 min".to_string())
+        );
+        a.standing = Standing::Done;
+        a.ended_ms = Some(start + 75 * 60_000);
+        assert_eq!(shown_agent(&a, 0).1, "done in 1 h 15 min");
+        a.standing = Standing::Failed;
+        a.ended_ms = Some(start + 40_000);
+        assert_eq!(shown_agent(&a, 0).1, "failed after 40 s");
+        a.standing = Standing::Stopped;
+        a.started_ms = None;
+        assert_eq!(shown_agent(&a, 0).1, "stopped");
+        a.description = String::new();
+        assert_eq!(shown_agent(&a, 0).0, "subagent");
+    }
+
+    #[test]
+    fn a_subagent_titled_by_a_later_message_goes_by_that_title_also_when_opened() {
+        let mut a = agent("toolu_1", "Persistent hover panel", Standing::Running);
+        a.title = Some("Rename hover to detail".into());
+        assert_eq!(shown_agent(&a, 0).0, "Rename hover to detail");
+        let none = HashSet::new();
+        let list = Listing::Links(with_agents(Vec::new(), &[a], &none));
+        let mut d = Drill::new(Sheet::Overview);
+        assert!(d.open_at(&list, 1));
+        assert_eq!(d.crumbs(), ["Rename hover to detail"]);
+    }
+
+    #[test]
+    fn how_long_reads_in_seconds_minutes_or_hours_and_minutes() {
+        assert_eq!(lasted(9_400), "9 s");
+        assert_eq!(lasted(60_000), "1 min");
+        assert_eq!(lasted(59 * 60_000 + 59_000), "59 min");
+        assert_eq!(lasted(2 * 3_600_000), "2 h");
+        assert_eq!(lasted(2 * 3_600_000 + 5 * 60_000), "2 h 5 min");
+    }
+
+    #[test]
+    fn a_subagent_of_the_overview_opens_to_its_own_level_and_back_selects_it() {
+        let a = [
+            agent("toolu_1", "Survey", Standing::Running),
+            agent("toolu_2", "Fix", Standing::Done),
+        ];
+        let none = HashSet::new();
+        let list = Listing::Links(with_agents(Vec::new(), &a, &none));
+        let mut d = Drill::new(Sheet::Overview);
+        assert_eq!(d.agent(), None);
+        assert!(!d.open(&list), "its heading opens nothing");
+        d.step(&list, 2);
+        assert!(d.open(&list));
+        assert_eq!(d.agent(), Some("toolu_2"));
+        assert_eq!(d.crumbs(), ["Fix"]);
+        assert_eq!(d.spot(), None, "the overview is not read through git");
+        assert!(d.back());
+        assert_eq!(d.agent(), None);
+        assert_eq!(d.selected(&list), Some(2));
+        assert!(d.open_at(&list, 1));
+        assert_eq!(d.agent(), Some("toolu_1"));
+    }
+
+    fn drawn(id: u64, at_ms: u64) -> Shot {
+        Shot::console(id, 64, 32, at_ms, None)
+    }
+
+    fn image_file(path: &str, at_ms: Option<u64>) -> Shot {
+        Shot::file(path, Touch::Read, at_ms, None)
+    }
+
+    #[test]
+    fn images_run_newest_first_and_those_of_unknown_time_last() {
+        let got = newest_first(vec![
+            image_file("/w/old.png", Some(1)),
+            image_file("/w/when.png", None),
+            drawn(7, 5),
+            image_file("/w/new.png", Some(9)),
+        ]);
+        let keys: Vec<_> = got.iter().map(|s| s.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            [
+                "/w/new.png",
+                drawn(7, 0).key.as_str(),
+                "/w/old.png",
+                "/w/when.png"
+            ]
+        );
+    }
+
+    #[test]
+    fn an_image_shows_its_path_or_its_size_and_how_it_came_up() {
+        let row = |s: &Shot| shown_shot(s, Path::new("/w"), Path::new("/home/me"));
+        assert_eq!(
+            row(&Shot::file("/w/out/plot.png", Touch::Edited, None, None)),
+            ("out/plot.png".to_string(), "edited".to_string())
+        );
+        assert_eq!(
+            row(&Shot::file("/home/me/a.jpg", Touch::Mentioned, None, None)),
+            ("~/a.jpg".to_string(), "mentioned".to_string())
+        );
+        assert_eq!(
+            row(&drawn(1, 0)),
+            ("Image 64 × 32".to_string(), "drawn".to_string())
+        );
+    }
+
+    #[test]
+    fn the_images_follow_the_artifacts_and_show_their_first_few_until_opened() {
+        let l = [
+            link(
+                LinkKind::Artifact,
+                "https://claude.ai/artifact/a",
+                None,
+                None,
+            ),
+            link(LinkKind::Url, "https://a.dev", None, None),
+        ];
+        let shots: Vec<Shot> = (0..3).map(|i| drawn(i, 10 - i)).collect();
+        let none = HashSet::new();
+        let entries = overview(&[], &l, &none);
+        assert_eq!(
+            with_images(entries.clone(), &shots, &none, &none, 2),
+            [
+                heading(Group::Artifacts, 1, false),
+                Entry::Link(l[0].clone()),
+                heading(Group::Images, 3, false),
+                Entry::Image(shots[0].clone()),
+                Entry::Image(shots[1].clone()),
+                Entry::More {
+                    group: Group::Images,
+                    hidden: 1
+                },
+                heading(Group::Links, 1, false),
+                Entry::Link(l[1].clone()),
+            ]
+        );
+        let opened = HashSet::from([Group::Images]);
+        let shown = with_images(entries.clone(), &shots, &none, &opened, 2);
+        assert_eq!(
+            shown
+                .iter()
+                .filter(|e| matches!(e, Entry::Image(_)))
+                .count(),
+            3
+        );
+        let shut = HashSet::from([Group::Images]);
+        assert_eq!(
+            with_images(Vec::new(), &shots, &shut, &none, 2),
+            [heading(Group::Images, 3, true)]
+        );
+        assert_eq!(with_images(entries.clone(), &[], &none, &none, 2), entries);
+    }
+
+    #[test]
+    fn an_image_is_selected_apart_from_its_heading_and_opens_nothing_inside() {
+        let shots = [drawn(1, 2), image_file("/w/a.png", Some(1))];
+        let none = HashSet::new();
+        let list = Listing::Links(with_images(Vec::new(), &shots, &none, &none, 5));
+        assert_eq!(list.heading(Group::Images), Some(0));
+        let mut d = Drill::new(Sheet::Overview);
+        d.step(&list, 2);
+        assert_eq!(d.selected(&list), Some(2));
+        assert!(!d.open(&list));
+        assert_eq!(d.spot(), None);
+        let moved = Listing::Links(with_images(
+            Vec::new(),
+            &[drawn(9, 3), shots[0].clone(), shots[1].clone()],
+            &none,
+            &none,
+            5,
+        ));
+        assert_eq!(d.selected(&moved), Some(3));
     }
 }

@@ -8,4 +8,13 @@ pub struct Shell {
     pub name: String,
     /// The directory it was started in.
     pub worktree: PathBuf,
+    pub runs: Runs,
+}
+
+/// What a shell's console runs.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Runs {
+    #[default]
+    Shell,
+    Neovim,
 }

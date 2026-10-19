@@ -37,6 +37,7 @@ pub const DEFAULTS: &str = r#"
 "Cmd+N" = "session.new_reader"
 "Cmd+Alt+n" = "session.scratch"
 "Cmd+s" = "shell.open"
+"Cmd+Alt+e" = "neovim.open"
 "Cmd+t" = "session.take_over"
 "Cmd+Backspace" = "session.stop"
 "Cmd+f" = "filter"
@@ -69,6 +70,7 @@ pub const DEFAULTS: &str = r#"
 "n" = "session.new"
 "N" = "session.new_reader"
 "s" = "shell.open"
+"v" = "neovim.open"
 "x" = "tab.close"
 "X" = "session.stop"
 "R" = "session.rename"
@@ -453,6 +455,7 @@ actions! {
     SessionRename => "session.rename",
     ShellOpen => "shell.open",
     ShellClose => "shell.close",
+    NeovimOpen => "neovim.open",
     TabClose => "tab.close",
     WindowClose => "window.close",
     Refresh => "refresh",
@@ -768,6 +771,10 @@ mod tests {
     fn the_window_s_own_command_keys_are_global_bindings() {
         let map = Keymap::defaults();
         let run = |key: Key| map.resolve(&[Context::Sidebar], &[], &key);
+        assert_eq!(
+            run(Key::new("e").meta().alt()),
+            Step::Run(Action::NeovimOpen)
+        );
         assert_eq!(run(Key::new(",").meta()), Step::Run(Action::SettingsOpen));
         assert_eq!(run(Key::new("=").meta()), Step::Run(Action::ZoomIn));
         assert_eq!(run(Key::new("+").meta().shift()), Step::Run(Action::ZoomIn));
@@ -1236,6 +1243,10 @@ mod tests {
         let sidebar = [Context::Sidebar, Context::Global];
         let console = [Context::Console, Context::Global];
         assert_eq!(step(&map, &sidebar, &[], "x"), Step::Run(Action::TabClose));
+        assert_eq!(
+            step(&map, &sidebar, &[], "v"),
+            Step::Run(Action::NeovimOpen)
+        );
         assert_eq!(
             step(&map, &sidebar, &[], "X"),
             Step::Run(Action::SessionStop)

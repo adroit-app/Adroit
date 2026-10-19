@@ -1,11 +1,13 @@
 //! The artifacts, links and files a session's conversation brought up, read
 //! from the transcript Claude Code writes of it.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::path::{Component, Path, PathBuf};
 
 use serde_json::Value;
+
+use crate::subagents::{Agent, Subagents};
 
 /// How a session came across a file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -51,13 +53,42 @@ pub struct Peer {
     pub received: bool,
 }
 
-/// What a session brought up, each group newest first.
+/// An image file a session came across.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImageFile {
+    /// The file's absolute path.
+    pub path: String,
+    pub touch: Touch,
+    /// When the session last came across it, in milliseconds since the Unix
+    /// epoch, as the transcript tells.
+    pub at_ms: Option<u64>,
+}
+
+/// Whether `path` names an image, told by its extension.
+pub fn is_image(path: &str) -> bool {
+    const IMAGES: &[&str] = &[
+        "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "heic", "heif", "tif", "tiff", "ico",
+        "avif",
+    ];
+    let p = Path::new(path);
+    !path.ends_with('/')
+        && p.file_stem().is_some()
+        && p.extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| IMAGES.iter().any(|i| e.eq_ignore_ascii_case(i)))
+}
+
+/// What a session brought up, each group newest first, and the subagents
+/// it runs.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Links {
     pub artifacts: Vec<Link>,
     pub urls: Vec<Link>,
     pub files: Vec<Link>,
+    /// The image files, apart from the other files.
+    pub images: Vec<ImageFile>,
     pub peers: Vec<Peer>,
+    pub agents: Vec<Agent>,
 }
 
 impl Links {
@@ -65,7 +96,9 @@ impl Links {
         self.artifacts.is_empty()
             && self.urls.is_empty()
             && self.files.is_empty()
+            && self.images.is_empty()
             && self.peers.is_empty()
+            && self.agents.is_empty()
     }
 
     /// Every link, artifacts first, then the other addresses, then files.
@@ -74,8 +107,9 @@ impl Links {
     }
 }
 
-/// The most links each group keeps: the newest.
-pub const KEPT: usize = 100;
+/// The most links each group keeps: the newest. The window shows fewer, as
+/// its settings say.
+pub const KEPT: usize = 1000;
 
 /// The most of a tool's result or input read for addresses: past it lies
 /// output too long to be worth reading for them.
@@ -98,8 +132,15 @@ pub struct Collector {
     found: HashMap<(Group, String), (u64, Link)>,
     /// What each artifact publish called its page, by the tool call's id.
     publishing: HashMap<String, String>,
+    /// When each file was last brought up, by its path.
+    stamps: HashMap<String, u64>,
+    /// When the line being taken in was written.
+    now_ms: Option<u64>,
     /// Who each message not yet delivered is to, by the tool call's id.
     sending: HashMap<String, String>,
+    /// The tool calls whose result is a file's or a page's contents, by id:
+    /// what they hold was not brought up by the conversation.
+    reading: HashSet<String>,
     /// The sessions messaged or heard from, by name, with when last.
     peers: HashMap<String, (u64, Peer)>,
 }
@@ -112,8 +153,11 @@ impl Collector {
             home: home.into(),
             count: 0,
             found: HashMap::new(),
+            stamps: HashMap::new(),
+            now_ms: None,
             publishing: HashMap::new(),
             sending: HashMap::new(),
+            reading: HashSet::new(),
             peers: HashMap::new(),
         }
     }
@@ -121,14 +165,18 @@ impl Collector {
     /// Take in one line of the transcript; `exists` tells whether a path
     /// named in a reply is there.
     pub fn feed(&mut self, line: &str, exists: &dyn Fn(&Path) -> bool) {
-        let Ok(v) = serde_json::from_str::<Value>(line) else {
-            return;
-        };
+        if let Ok(v) = serde_json::from_str::<Value>(line) {
+            self.take(&v, exists);
+        }
+    }
+
+    fn take(&mut self, v: &Value, exists: &dyn Fn(&Path) -> bool) {
         let assistant = match v["type"].as_str() {
             Some("assistant") => true,
             Some("user") => false,
             _ => return,
         };
+        self.now_ms = v["timestamp"].as_str().and_then(crate::subagents::epoch_ms);
         let origin = &v["origin"];
         if origin["kind"].as_str() == Some("peer")
             && let Some(name) = origin["name"].as_str()
@@ -171,6 +219,16 @@ impl Collector {
             let group = match link.kind {
                 Kind::Artifact => &mut out.artifacts,
                 Kind::Url => &mut out.urls,
+                Kind::File(touch) if is_image(&link.target) => {
+                    if out.images.len() < KEPT {
+                        out.images.push(ImageFile {
+                            path: link.target.clone(),
+                            touch,
+                            at_ms: self.stamps.get(&link.target).copied(),
+                        });
+                    }
+                    continue;
+                }
                 Kind::File(_) => &mut out.files,
             };
             if group.len() < KEPT {
@@ -232,6 +290,17 @@ impl Collector {
         {
             self.sending.insert(id.to_string(), to.to_string());
         }
+        // An address inside a file the session writes is the file's, not the
+        // conversation's; so is one in what it reads or searches for. A page
+        // fetched comes back summarised for the conversation, so its stay.
+        if matches!(name, "Read" | "Grep" | "Glob")
+            && let Some(id) = item["id"].as_str()
+        {
+            self.reading.insert(id.to_string());
+        }
+        if touch.is_some() {
+            return;
+        }
         let mut texts = Vec::new();
         strings(input, &mut texts);
         for text in texts {
@@ -240,6 +309,12 @@ impl Collector {
     }
 
     fn tool_result(&mut self, item: &Value) {
+        if item["tool_use_id"]
+            .as_str()
+            .is_some_and(|id| self.reading.remove(id))
+        {
+            return;
+        }
         let text = match &item["content"] {
             Value::String(s) => s.clone(),
             Value::Array(parts) => parts
@@ -379,6 +454,9 @@ impl Collector {
 
     fn note(&mut self, link: Link) {
         self.count += 1;
+        if let (Kind::File(_), Some(at)) = (link.kind, self.now_ms) {
+            self.stamps.insert(link.target.clone(), at);
+        }
         let (group, key) = match link.kind {
             Kind::Artifact => (
                 Group::Artifact,
@@ -415,6 +493,7 @@ pub struct Transcript {
     /// The start of a line not written to its end yet.
     rest: Vec<u8>,
     found: Collector,
+    agents: Subagents,
 }
 
 impl Transcript {
@@ -424,8 +503,10 @@ impl Transcript {
         cwd: impl Into<PathBuf>,
         home: impl Into<PathBuf>,
     ) -> Self {
+        let path = path.into();
         Transcript {
-            path: path.into(),
+            agents: Subagents::new(&path),
+            path,
             read_to: 0,
             file: None,
             rest: Vec::new(),
@@ -439,8 +520,13 @@ impl Transcript {
 
     /// Take in what was written since the last read; whether what it brings
     /// up may have changed. One that shrank, was replaced or is gone is read
-    /// from its start.
+    /// from its start. The transcripts of its subagents are read too.
     pub fn read(&mut self, exists: &dyn Fn(&Path) -> bool) -> bool {
+        let changed = self.read_own(exists);
+        self.agents.look() || changed
+    }
+
+    fn read_own(&mut self, exists: &dyn Fn(&Path) -> bool) -> bool {
         use std::io::{Read, Seek, SeekFrom};
         use std::os::unix::fs::MetadataExt;
         let opened = std::fs::File::open(&self.path).and_then(|f| Ok((f.metadata()?, f)));
@@ -473,19 +559,26 @@ impl Transcript {
         };
         let done: Vec<u8> = self.rest.drain(..=end).collect();
         for line in String::from_utf8_lossy(&done).lines() {
-            self.found.feed(line, exists);
+            if let Ok(v) = serde_json::from_str::<Value>(line) {
+                self.found.take(&v, exists);
+                self.agents.feed(&v);
+            }
         }
         true
     }
 
     pub fn links(&self) -> Links {
-        self.found.links()
+        Links {
+            agents: self.agents.agents(),
+            ..self.found.links()
+        }
     }
 
     fn restart(&mut self) {
         self.read_to = 0;
         self.file = None;
         self.rest.clear();
+        self.agents = Subagents::new(&self.path);
         self.found = Collector::new(
             std::mem::take(&mut self.found.cwd),
             std::mem::take(&mut self.found.home),
@@ -727,6 +820,49 @@ mod tests {
             title: None,
             line,
         }
+    }
+
+    #[test]
+    fn an_address_inside_a_file_written_read_or_searched_is_not_brought_up() {
+        let got = read(
+            &[
+                tool(
+                    "t1",
+                    "Edit",
+                    json!({"file_path": "/w/a.rs", "old_string": "x", "new_string": "see https://claude.ai/artifact/fake"}),
+                ),
+                tool(
+                    "t2",
+                    "Write",
+                    json!({"file_path": "/w/b.md", "content": "https://written.dev"}),
+                ),
+                tool("t3", "Read", json!({"file_path": "/w/c.md"})),
+                result("t3", json!("1\thttps://read.dev")),
+                tool("t4", "Grep", json!({"pattern": "http"})),
+                result("t4", json!("c.md:1:https://grepped.dev")),
+                // What a command printed, a page summarised for the conversation and
+                // what the session said are brought up.
+                tool(
+                    "t5",
+                    "WebFetch",
+                    json!({"url": "https://fetched.dev/page", "prompt": "links"}),
+                ),
+                result("t5", json!("The page links https://inside.dev")),
+                tool("t6", "Bash", json!({"command": "gh pr create"})),
+                result("t6", json!("https://github.com/o/r/pull/1")),
+                said("Published https://claude.ai/artifact/real"),
+            ],
+            &[],
+        );
+        assert_eq!(targets(&got.artifacts), ["https://claude.ai/artifact/real"]);
+        assert_eq!(
+            targets(&got.urls),
+            [
+                "https://github.com/o/r/pull/1",
+                "https://inside.dev",
+                "https://fetched.dev/page"
+            ]
+        );
     }
 
     #[test]
@@ -1007,6 +1143,46 @@ mod tests {
         assert!(t.links().is_empty());
     }
 
+    #[test]
+    fn a_transcript_lists_the_subagents_it_runs_with_their_steps() {
+        use crate::subagents::{Standing, Step};
+        let path = scratch("agents");
+        let own = path.with_extension("").join("subagents");
+        std::fs::create_dir_all(&own).unwrap();
+        append(
+            &path,
+            &format!(
+                "{}\n{}\n",
+                tool(
+                    "toolu_a",
+                    "Agent",
+                    json!({"description": "Survey", "subagent_type": "Explore", "prompt": "Look."})
+                ),
+                json!({
+                    "type": "user",
+                    "message": {"role": "user", "content": [
+                        {"type": "tool_result", "tool_use_id": "toolu_a", "content": "launched"}
+                    ]},
+                    "toolUseResult": {"isAsync": true, "status": "async_launched", "agentId": "a7cd"},
+                }),
+            ),
+        );
+        let mut t = Transcript::new(&path, "/w", "/home/me");
+        assert!(t.read(NOWHERE));
+        assert_eq!(t.links().agents[0].standing, Standing::Running);
+        assert!(t.links().agents[0].steps.is_empty());
+        assert!(!t.links().is_empty());
+        append(
+            &own.join("agent-a7cd.jsonl"),
+            &format!("{}\n", said("Reading the code.")),
+        );
+        assert!(t.read(NOWHERE), "its own transcript grew");
+        assert_eq!(
+            t.links().agents[0].steps,
+            [Step::Said("Reading the code.".into())]
+        );
+    }
+
     fn sent(id: &str, to: &str) -> String {
         tool(
             id,
@@ -1105,5 +1281,77 @@ mod tests {
             &[],
         );
         assert!(links.peers.is_empty());
+    }
+
+    fn stamped(line: String, at: &str) -> String {
+        let mut v: serde_json::Value = serde_json::from_str(&line).unwrap();
+        v["timestamp"] = json!(at);
+        v.to_string()
+    }
+
+    fn image(path: &str, touch: Touch, at_ms: Option<u64>) -> ImageFile {
+        ImageFile {
+            path: path.into(),
+            touch,
+            at_ms,
+        }
+    }
+
+    #[test]
+    fn an_image_file_read_or_written_is_listed_apart_from_the_files_with_when() {
+        let got = read(
+            &[
+                stamped(
+                    tool("t1", "Read", json!({"file_path": "/w/shot.png"})),
+                    "2026-10-20T00:00:01.000Z",
+                ),
+                tool("t2", "Read", json!({"file_path": "/w/a.rs"})),
+                stamped(
+                    tool("t3", "Write", json!({"file_path": "plot.SVG"})),
+                    "2026-10-20T00:00:02.500Z",
+                ),
+            ],
+            &[],
+        );
+        let at = |ms: u64| Some(1_792_454_400_000 + ms);
+        assert_eq!(
+            got.images,
+            [
+                image("/w/plot.SVG", Touch::Edited, at(2_500)),
+                image("/w/shot.png", Touch::Read, at(1_000)),
+            ]
+        );
+        assert_eq!(got.files, [file("/w/a.rs", Touch::Read, None)]);
+        assert!(got.rows().all(|l| l.target != "/w/shot.png"));
+    }
+
+    #[test]
+    fn an_image_named_in_a_reply_is_listed_when_it_is_there_and_last_brought_up_counts() {
+        let got = read(
+            &[
+                stamped(
+                    tool("t1", "Read", json!({"file_path": "/w/a.jpg"})),
+                    "2026-10-20T00:00:01.000Z",
+                ),
+                stamped(said("See a.jpg and gone.png"), "2026-10-20T00:00:09.000Z"),
+            ],
+            &["/w/a.jpg"],
+        );
+        assert_eq!(
+            got.images,
+            [image("/w/a.jpg", Touch::Read, Some(1_792_454_409_000))]
+        );
+    }
+
+    #[test]
+    fn an_image_is_told_by_its_extension_in_any_case() {
+        for yes in [
+            "a.png", "b.JPG", "c.jpeg", "d.gif", "e.webp", "f.bmp", "g.svg", "h.heic", "i.tiff",
+        ] {
+            assert!(is_image(yes), "{yes}");
+        }
+        for no in ["a.rs", "png", "/w/.png", "notes.md", "/w/dir.png/x"] {
+            assert!(!is_image(no), "{no}");
+        }
     }
 }

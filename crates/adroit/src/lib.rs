@@ -1,5 +1,6 @@
 //! The adroit window.
 
+mod alerts;
 mod app;
 mod awake;
 pub mod cli;
@@ -16,6 +17,7 @@ pub mod focus;
 mod fuzzy;
 mod graph;
 mod icons;
+mod image_window;
 pub mod keymap;
 mod keys;
 mod keys_edit;
@@ -27,7 +29,9 @@ pub mod nav;
 mod paths;
 pub mod picker;
 mod picker_view;
+mod pictures;
 mod plugin;
+mod programs;
 pub mod prompts;
 pub mod rename;
 pub mod scratch;
@@ -38,6 +42,7 @@ pub mod shells;
 mod start;
 pub mod status;
 mod style;
+mod subagent_view;
 pub mod tabs;
 pub mod themes;
 mod view;

@@ -390,6 +390,32 @@ async fn an_image_stays_within_the_rows_the_program_was_moved_past() {
 }
 
 #[tokio::test]
+async fn each_image_the_program_sends_is_handed_over_once_whole() {
+    let (d, _dir) = daemon().await;
+    // A red pixel, then a two by one image of a red and a green pixel.
+    let id = d
+        .spawn(sh(
+            r"printf '_Ga=T,f=24,s=1,v=1;/wAA\'; printf '_Ga=T,f=24,s=2,v=1;/wAAAP8A\'; sleep 5",
+        ))
+        .await
+        .unwrap();
+    let pane = attach(&d, id).await;
+    let mut got = Vec::new();
+    for _ in 0..200 {
+        got.extend(pane.take_drawn());
+        if got.len() >= 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let shapes: Vec<_> = got.iter().map(|i| (i.width, i.height)).collect();
+    assert_eq!(shapes, [(1, 1), (2, 1)]);
+    assert_eq!(got[1].rgba, [255, 0, 0, 255, 0, 255, 0, 255]);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(pane.take_drawn().is_empty(), "handed over again");
+}
+
+#[tokio::test]
 async fn tags_are_changed_on_a_running_session() {
     let (d, _dir) = daemon().await;
     let id = d.spawn(sh("sleep 5")).await.unwrap();
@@ -402,4 +428,76 @@ async fn tags_are_changed_on_a_running_session() {
         tags::value(&s.tags, "adroit.name").as_deref(),
         Some("renamed")
     );
+}
+
+/// A palette no terminal draws with by default.
+fn themed(background: adroit_term::Rgb) -> Palette {
+    Palette {
+        background,
+        ..Palette::default()
+    }
+}
+
+async fn start(d: &Daemon, spawn: Spawn, palette: &Palette) -> Pane {
+    Pane::start(d, spawn, Size::new(40, 6), palette, |_| || {})
+        .await
+        .unwrap()
+}
+
+/// Ask for the background as the terminal's reply, its escape shown as `E`.
+const ASK_BACKGROUND: &str = r"stty raw -echo; printf '\033]11;?\033\\'; head -c 23 | tr '\033' E";
+
+#[tokio::test]
+async fn a_program_asking_for_the_background_as_it_starts_is_told_the_theme_s() {
+    let (d, _dir) = daemon().await;
+    let palette = themed(adroit_term::Rgb::new(0x12, 0x34, 0x56));
+    // The reply is shown as the terminal echoes it, the program asking before
+    // it does anything else.
+    let pane = start(&d, sh(r"printf '\033]11;?\033\\'; sleep 5"), &palette).await;
+    let text = until(&pane, |t| t.iter().any(|l| l.contains("rgb:"))).await;
+    assert!(
+        text.iter().any(|l| l.contains("rgb:1212/3434/5656")),
+        "{text:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_program_started_in_a_pane_draws_from_the_top_of_its_screen() {
+    let (d, _dir) = daemon().await;
+    let pane = start(&d, sh("printf hello; sleep 5"), &Palette::default()).await;
+    until(&pane, |t| t[0] == "hello").await;
+}
+
+#[tokio::test]
+async fn a_program_started_in_a_pane_is_told_a_new_theme_once_it_changes() {
+    let (d, _dir) = daemon().await;
+    let first = themed(adroit_term::Rgb::new(0x12, 0x34, 0x56));
+    let pane = start(
+        &d,
+        sh(&format!(
+            "stty raw -echo; printf ready; head -c 1 >/dev/null; {ASK_BACKGROUND}; sleep 5"
+        )),
+        &first,
+    )
+    .await;
+    until(&pane, |t| t[0].starts_with("ready")).await;
+    pane.set_palette(&themed(adroit_term::Rgb::new(0xab, 0xcd, 0xef)));
+    pane.type_text("x");
+    let text = until(&pane, |t| t.iter().any(|l| l.contains("rgb:"))).await;
+    assert!(
+        text.iter().any(|l| l.contains("rgb:abab/cdcd/efef")),
+        "{text:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_program_that_cannot_be_found_is_not_started() {
+    let (d, _dir) = daemon().await;
+    let spawn = Spawn {
+        program: "/no/such/program".into(),
+        ..sh("")
+    };
+    let started = Pane::start(&d, spawn, Size::new(40, 6), &Palette::default(), |_| || {}).await;
+    assert!(started.is_err());
+    assert!(d.sessions().await.unwrap().is_empty());
 }

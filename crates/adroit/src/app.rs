@@ -6,30 +6,32 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use adroit_claude::Access;
 use adroit_claude::git::DiffKind;
 use adroit_claude::links::{Kind as LinkKind, Link, Links, Touch, Transcript};
+use adroit_claude::usage::{self, Severity};
 use adroit_claude::{commands, places};
-use adroit_model::{InboxItem, Kind, Session, Shell, State, Tree, Worktree, build, inbox};
+use adroit_model::{InboxItem, Kind, Runs, Session, Shell, State, Tree, Worktree, build, inbox};
 use adroit_nvim::{Embedded, Event as NvimEvent, notation};
 use adroit_term::{Daemon, Key, Palette, Pane, Size, Spawn};
 use dioxus::prelude::*;
 use tokio::sync::{Notify, mpsc, oneshot};
 
+use crate::alerts;
 use crate::complete::{self, candidates};
 use crate::console::{Composer, ConsoleScreen, Hub, Panes, ReaderScreen, mode_of};
 use crate::console_keys::direct_key;
 use crate::console_read;
 use crate::daemon;
 use crate::details::{
-    Drill, Entry, Group, Listing, Related, Sheet, Tie, View, facts, load, overview, related,
-    shown_link,
+    Drill, Entry, Group, Listing, Related, Sheet, Shot, Source, Tie, View, capped, facts, gauges,
+    load, overview_shown, related, shown_agent, shown_link, shown_shot, with_agents, with_images,
 };
 use crate::editor;
 use crate::filer::{Filer, read_dirs};
 use crate::focus::{Area, Dir, moved, settled};
 use crate::graph;
 use crate::icons::{Icon, IconView};
+use crate::image_window;
 use crate::keymap::{Action, Chord, Context, Keymap, MENU_KEYS, Step};
 use crate::keys;
 use crate::layout::{self, Layout, Side};
@@ -39,7 +41,9 @@ use crate::nav::{self, Item, Place};
 use crate::paths::{home, instance_state, keys_path, scratch_dir};
 use crate::picker::{self, Candidate, Choice, Mode, Picker};
 use crate::picker_view::PickerView;
+use crate::pictures::{self, Gallery};
 use crate::plugin;
+use crate::programs;
 use crate::prompts::{self, Op, Prompts};
 use crate::rename::Rename;
 use crate::scratch::{self, Moment};
@@ -49,6 +53,7 @@ use crate::settings_window;
 use crate::shells::{Request, Response, answer, ask, bind, serve, socket_path};
 use crate::status;
 use crate::style::{CSS, CellHeight, DEFAULT_CELL_HEIGHT};
+use crate::subagent_view::{SubagentView, agent_glyph};
 use crate::tabs::{self, Role, Tab, fresh_name, label_from, named, shows_prompt};
 use crate::themes;
 use crate::view::Keys;
@@ -79,6 +84,7 @@ fn title(described: Option<&str>) -> String {
 /// Open the window.
 pub fn launch() {
     use dioxus::desktop::{Config as Desktop, LogicalSize, WindowBuilder};
+    settings::watch(Duration::from_secs(1));
     let cfg = Desktop::new()
         .with_window(
             WindowBuilder::new()
@@ -128,12 +134,14 @@ fn copy_to_clipboard(text: &str) -> std::io::Result<()> {
 
 /// The overview's rows for the session `shown`, when its links were read for
 /// it, the `folded` groups showing only their headings; the sessions it
-/// worked with are found in `tree`.
+/// worked with are found in `tree`, its images in `gallery`.
 fn overview_listing(
     read: Option<&(String, Links)>,
     shown: Option<&Tab>,
     folded: &HashSet<Group>,
+    opened: &HashSet<Group>,
     tree: &Tree,
+    gallery: &Gallery,
 ) -> Option<Listing> {
     match (read, shown) {
         (Some((id, links)), Some(Tab::Session(s))) if id == s => {
@@ -143,8 +151,34 @@ fn overview_listing(
                 Some((_, shown)) => related(shown, &sessions, &links.peers),
                 None => Vec::new(),
             };
-            Some(Listing::Links(overview(&ties, &rows, folded)))
+            let d = settings::current().details;
+            let entries = overview_shown(
+                &ties,
+                &capped(&rows, d.links_kept),
+                folded,
+                opened,
+                d.links_shown,
+            );
+            let mut shots = pictures::shots(&gallery.store, s, &links.images, &gallery.thumbs);
+            shots.truncate(d.links_kept);
+            let entries = with_agents(entries, &links.agents, folded);
+            Some(Listing::Links(with_images(
+                entries,
+                &shots,
+                folded,
+                opened,
+                d.links_shown,
+            )))
         }
+        _ => None,
+    }
+}
+
+/// The session an empty prompt sent passes Ctrl+Enter to: the one whose tab
+/// it was written for; a draft or a shell gets nothing from an empty one.
+fn passes_enter(taken: Option<&(Option<Tab>, String)>) -> Option<String> {
+    match taken {
+        Some((Some(Tab::Session(id)), text)) if text.trim().is_empty() => Some(id.clone()),
         _ => None,
     }
 }
@@ -160,16 +194,32 @@ fn refold(folded: &HashSet<Group>, group: Group, shut: bool) -> HashSet<Group> {
     f
 }
 
+/// `opened` once `group` is folded, when `shut`, or unfolded: a folded group
+/// forgets it was shown whole, so it shows its first few when it opens again.
+fn reopened(opened: &HashSet<Group>, group: Group, shut: bool) -> HashSet<Group> {
+    let mut o = opened.clone();
+    if shut {
+        o.remove(&group);
+    }
+    o
+}
+
 /// A link as the overview draws it.
 #[derive(Debug, Clone, PartialEq)]
 struct LinkRow {
     /// Its place among the overview's rows.
     at: usize,
     icon: Icon,
+    /// The class that colours its icon; empty for the panel's own colour.
+    tone: &'static str,
     label: String,
+    /// A chip after its label, as a subagent's kind.
+    badge: Option<String>,
     tag: String,
     target: String,
     file: bool,
+    /// A small copy of an image, drawn in place of the icon.
+    thumb: Option<Arc<str>>,
 }
 
 /// A group of the overview's links as drawn: its heading, at its place among
@@ -181,6 +231,8 @@ struct LinkSection {
     count: usize,
     folded: bool,
     rows: Vec<LinkRow>,
+    /// The row for the links not shown: its place and how many they are.
+    more: Option<(usize, usize)>,
 }
 
 /// The overview's `entries` as groups under their headings, paths shown
@@ -189,6 +241,11 @@ fn link_sections(entries: &[Entry], worktree: &Path, home: &Path) -> Vec<LinkSec
     let mut out: Vec<LinkSection> = Vec::new();
     for (at, entry) in entries.iter().enumerate() {
         match entry {
+            Entry::More { hidden, .. } => {
+                if let Some(section) = out.last_mut() {
+                    section.more = Some((at, *hidden));
+                }
+            }
             Entry::Heading {
                 group,
                 count,
@@ -199,6 +256,7 @@ fn link_sections(entries: &[Entry], worktree: &Path, home: &Path) -> Vec<LinkSec
                 count: *count,
                 folded: *folded,
                 rows: Vec::new(),
+                more: None,
             }),
             Entry::Session(r) => {
                 let icon = if r
@@ -218,10 +276,49 @@ fn link_sections(entries: &[Entry], worktree: &Path, home: &Path) -> Vec<LinkSec
                     section.rows.push(LinkRow {
                         at,
                         icon,
+                        tone: "",
                         label: r.name.clone(),
+                        badge: None,
                         tag: tag.join(" · "),
                         target: r.name.clone(),
                         file: false,
+                        thumb: None,
+                    });
+                }
+            }
+            Entry::Image(shot) => {
+                let (label, tag) = shown_shot(shot, worktree, home);
+                let (target, file) = match &shot.source {
+                    Source::File { path, .. } => (path.clone(), true),
+                    Source::Console { .. } => (label.clone(), false),
+                };
+                if let Some(section) = out.last_mut() {
+                    section.rows.push(LinkRow {
+                        at,
+                        icon: Icon::Photo,
+                        tone: "",
+                        label,
+                        badge: None,
+                        tag,
+                        target,
+                        file,
+                        thumb: shot.thumb.clone(),
+                    });
+                }
+            }
+            Entry::Agent(a) => {
+                let (label, tag) = shown_agent(a, now_ms());
+                if let Some(section) = out.last_mut() {
+                    section.rows.push(LinkRow {
+                        at,
+                        icon: agent_glyph(a.standing).1,
+                        tone: agent_glyph(a.standing).0,
+                        label,
+                        badge: a.kind.clone(),
+                        tag,
+                        target: a.call.clone(),
+                        file: false,
+                        thumb: None,
                     });
                 }
             }
@@ -237,10 +334,13 @@ fn link_sections(entries: &[Entry], worktree: &Path, home: &Path) -> Vec<LinkSec
                     section.rows.push(LinkRow {
                         at,
                         icon,
+                        tone: "",
                         label,
+                        badge: None,
                         tag,
                         target: link.target.clone(),
                         file: matches!(link.kind, LinkKind::File(_)),
+                        thumb: None,
                     });
                 }
             }
@@ -305,6 +405,102 @@ fn use_related(related: &Related, how: Use) -> Went {
         }),
         (Use::Reveal, _) => Went::Nowhere,
     }
+}
+
+/// Show `shot` in a window of its own, or copy or reveal its file as a file
+/// of the overview is; what to tell of it. A drawn image is found among those
+/// `gallery` keeps for `session`.
+fn use_shot(shot: &Shot, how: Use, session: &str, gallery: &Gallery) -> Option<String> {
+    match (&shot.source, how) {
+        (
+            Source::Console {
+                id, width, height, ..
+            },
+            Use::Open,
+        ) => {
+            let kept = gallery.store.find(session, *id)?;
+            image_window::open(
+                &shot.key,
+                &format!("Image {width} × {height}"),
+                pictures::kept_shown(kept),
+                Some((*width, *height)),
+            );
+            None
+        }
+        (Source::Console { .. }, Use::Copy) => Some("A drawn image has no file to copy".into()),
+        (Source::Console { .. }, Use::Reveal) => None,
+        (Source::File { path, .. }, Use::Open) => {
+            let (key, path) = (shot.key.clone(), PathBuf::from(path));
+            spawn(async move {
+                let read = path.clone();
+                let shown = tokio::task::spawn_blocking(move || pictures::file_shown(&read))
+                    .await
+                    .ok()
+                    .flatten();
+                match shown {
+                    Some(src) => {
+                        let title = path.file_name().map_or_else(
+                            || path.display().to_string(),
+                            |n| n.to_string_lossy().into_owned(),
+                        );
+                        image_window::open(&key, &title, src, None);
+                    }
+                    // Too large to read here: macOS's own viewer shows it.
+                    None => {
+                        let _ = tokio::process::Command::new("/usr/bin/open")
+                            .arg(&path)
+                            .status()
+                            .await;
+                    }
+                }
+            });
+            None
+        }
+        (Source::File { path, touch }, how) => use_link(
+            &Link {
+                kind: LinkKind::File(*touch),
+                target: path.clone(),
+                title: None,
+                line: None,
+            },
+            how,
+        ),
+    }
+}
+
+/// Keep the images `drawn` in `session`'s console, encoded away from the
+/// window's thread.
+fn keep_drawn(mut gallery: Signal<Gallery>, session: String, drawn: Vec<adroit_term::Drawn>) {
+    // A program may send the same image again as it redraws; it is kept
+    // already, and encoding it again would be for nothing.
+    let drawn: Vec<_> = {
+        let g = gallery.peek();
+        drawn
+            .into_iter()
+            .filter(|d| g.store.find(&session, pictures::id_of(d)).is_none())
+            .collect()
+    };
+    if drawn.is_empty() {
+        return;
+    }
+    spawn(async move {
+        let at = now_ms();
+        let kept = tokio::task::spawn_blocking(move || {
+            drawn
+                .into_iter()
+                .filter_map(|d| pictures::Kept::of(d, at))
+                .collect::<Vec<_>>()
+        })
+        .await
+        .unwrap_or_default();
+        if kept.is_empty() {
+            return;
+        }
+        let mut g = gallery.write();
+        for k in kept {
+            g.store.keep(&session, k);
+        }
+    });
 }
 
 /// How long the prompt's Neovim has to live to be started again once it
@@ -405,6 +601,16 @@ const held = (e, name, fromCode) => {
   const shown = name === ' ' ? 'Space' : name === '+' ? 'Plus' : name;
   return keys.includes('Cmd+' + (e.ctrlKey ? 'Ctrl+' : '') + (e.altKey ? 'Alt+' : '') + (shift ? 'Shift+' : '') + shown);
 };
+// The Option key held, `AltLeft` or `AltRight`, and whether the settings
+// count it as Alt: `window.adroitOptionAsAlt` names which do.
+let option = '';
+t.addEventListener('keyup', (e) => {
+  if (e.code === option) option = '';
+});
+const optionIsAlt = () => {
+  const as = window.adroitOptionAsAlt || 'both';
+  return as === 'both' || (as === 'left' && option === 'AltLeft') || (as === 'right' && option === 'AltRight');
+};
 const take = () => {
   const a = document.activeElement;
   if (a !== t && !(a instanceof HTMLInputElement)) t.focus();
@@ -429,8 +635,12 @@ t.addEventListener('keydown', (e) => {
     return;
   }
   if (e.isComposing || e.keyCode === 229 || e.metaKey) return;
+  if (e.code === 'AltLeft' || e.code === 'AltRight') option = e.code;
   const printable = [...e.key].length === 1;
-  if (printable && !e.ctrlKey && !e.altKey) {
+  // On a grid, an Option key that does not count as Alt types what macOS
+  // makes of the key, as a terminal set so would.
+  const alt = e.altKey && (!onGrid || optionIsAlt());
+  if (printable && !e.ctrlKey && !alt) {
     // Read-only, the text area takes no text: the key is a command.
     if (t.readOnly) {
       e.preventDefault();
@@ -590,10 +800,6 @@ fn now_ms() -> u64 {
 /// Where the tab shown is kept for the next run of the window.
 fn shown_path() -> PathBuf {
     instance_state().join("shown")
-}
-
-fn shell_program() -> String {
-    crate::env::login_shell().unwrap_or_else(|| "/bin/sh".into())
 }
 
 fn short(path: &Path) -> String {
@@ -838,6 +1044,33 @@ fn ensure_pane(
     None
 }
 
+/// Start a session as `spawn` says, with the pane of the tab `tab_of` its id
+/// names, so that its program starts in the theme's colours.
+async fn start(
+    hub: &Hub,
+    spawn: Spawn,
+    size: Size,
+    tab_of: impl Fn(u128) -> Tab,
+) -> adroit_term::Result<u128> {
+    let palette = hub.palette.peek().clone();
+    let wake = hub.wake.clone();
+    let pane = Pane::start(&hub.daemon, spawn, size, &palette, |id| {
+        let tab = tab_of(id);
+        move || {
+            let _ = wake.send(tab.clone());
+        }
+    })
+    .await?;
+    // A theme chosen while the session was being started passed it by.
+    let now = hub.palette.peek().clone();
+    if now != palette {
+        pane.set_palette(&now);
+    }
+    let id = pane.id();
+    hub.panes.borrow_mut().insert(tab_of(id), Arc::new(pane));
+    Ok(id)
+}
+
 /// Every session to list: those the daemon runs for adroit, with the shells,
 /// and those Claude Code lists in other terminals, but for adroit's own,
 /// which Claude Code lists too.
@@ -900,12 +1133,25 @@ fn Book() -> Element {
     }
 }
 
-/// The mark of a shell's row.
+/// What the shell `id` runs; a shell when it is not among `shells`.
+fn runs_of(shells: &[Shell], id: u128) -> Runs {
+    shells
+        .iter()
+        .find(|s| s.id == id)
+        .map(|s| s.runs)
+        .unwrap_or_default()
+}
+
+/// The mark of a shell's row or tab, by what it runs.
 #[component]
-fn Terminal() -> Element {
+fn Terminal(runs: Runs) -> Element {
+    let (icon, title) = match runs {
+        Runs::Shell => (Icon::Terminal2, "shell"),
+        Runs::Neovim => (Icon::Code, "Neovim"),
+    };
     rsx! {
-        span { class: "shell-mark", title: "shell",
-            IconView { icon: Icon::Terminal2, size: 14 }
+        span { class: "shell-mark", title,
+            IconView { icon }
         }
     }
 }
@@ -1038,8 +1284,12 @@ fn App() -> Element {
     let mut git_view = use_signal(|| None::<View>);
     // What the conversation of a session brought up, by the session's id.
     let mut overview_links = use_signal(|| None::<(String, Links)>);
+    // The images the consoles drew, and the small copies of image files.
+    let mut gallery = use_signal(Gallery::default);
     // The overview's groups of links shown by their headings alone.
     let mut folded_groups = use_signal(HashSet::<Group>::new);
+    // The overview's groups of links shown whole, past their first few.
+    let mut opened_groups = use_signal(HashSet::<Group>::new);
     // The interactive session the dialog asks to take over.
     let mut confirm = use_signal(|| None::<Ask>);
     // The session being given a new name, and the name typed so far.
@@ -1110,6 +1360,16 @@ fn App() -> Element {
                     woke.push(t);
                 }
                 for tab in &woke {
+                    if let Tab::Session(id) = tab {
+                        let drawn = watched
+                            .borrow()
+                            .get(tab)
+                            .map(|p| p.take_drawn())
+                            .unwrap_or_default();
+                        if !drawn.is_empty() {
+                            keep_drawn(gallery, id.clone(), drawn);
+                        }
+                    }
                     let gone = watched.borrow().get(tab).is_some_and(|p| p.exited());
                     if let (Tab::Shell(id), true) = (tab, gone) {
                         close_shell(*id, &watched, shells, active, place, tree, prompts);
@@ -1337,6 +1597,18 @@ fn App() -> Element {
                                 Tab::Shell(id) => shells.peek().iter().any(|s| s.id == *id),
                                 Tab::Draft { .. } => true,
                             });
+                            // Nor are the images its console drew kept.
+                            let gone = gallery
+                                .peek()
+                                .store
+                                .sessions()
+                                .any(|id| !sessions.iter().any(|s| s.id == id));
+                            if gone {
+                                gallery
+                                    .write()
+                                    .store
+                                    .retain(|id| sessions.iter().any(|s| s.id == id));
+                            }
                             // The tab shown when the window last closed comes
                             // back once what it shows is listed, unless
                             // another was opened meanwhile.
@@ -1358,6 +1630,16 @@ fn App() -> Element {
                                     }
                                     place.set(Some(p));
                                     active.set(Some(kept));
+                                }
+                            }
+                            // Told only of what changed since the window first read the
+                            // sessions, and only while it is not in front.
+                            if *restored.peek()
+                                && settings::current().notify_waiting
+                                && !dioxus::desktop::window().is_focused()
+                            {
+                                for (name, why) in alerts::newly_waiting(&tree.peek(), &next) {
+                                    alerts::notify_waiting(&name, &why);
                                 }
                             }
                             if !*restored.peek() {
@@ -1431,7 +1713,7 @@ fn App() -> Element {
             return;
         }
         spawn(async move {
-            let program = adroit_claude::claude_program();
+            let program = programs::claude_program();
             let got = commands::probe(&program, &dir, commands::PROBE_TIMEOUT).await;
             command_cache.write().settle(&dir, Instant::now(), got);
         });
@@ -1501,6 +1783,38 @@ fn App() -> Element {
             wake.notify_one();
         }
     });
+    // How much of the account's usage limits is left, for the foot of the
+    // overview: asked of Claude Code while the overview is in sight, again
+    // once the answer has aged.
+    let mut usage_limits = use_signal(usage::Fresh::default);
+    let usage_wake = use_hook(|| Arc::new(Notify::new()));
+    use_hook({
+        let wake = usage_wake.clone();
+        move || {
+            spawn(async move {
+                loop {
+                    let in_sight =
+                        drill.peek().sheet() == Sheet::Overview && layout.peek().show_details;
+                    if in_sight && usage_limits.write().want(Instant::now()) {
+                        let program = programs::claude_program();
+                        let got = usage::probe(&program, &home(), usage::PROBE_TIMEOUT).await;
+                        usage_limits.write().settle(Instant::now(), got);
+                    }
+                    tokio::select! {
+                        _ = tokio::time::sleep(Duration::from_secs(30)) => {}
+                        _ = wake.notified() => {}
+                    }
+                }
+            });
+        }
+    });
+    use_effect({
+        let wake = usage_wake.clone();
+        move || {
+            let _ = (drill().sheet(), layout().show_details);
+            wake.notify_one();
+        }
+    });
     // What the shown session's conversation brought up, for the overview:
     // read while the overview shows it, each time only what its transcript
     // gained since.
@@ -1524,15 +1838,21 @@ fn App() -> Element {
                             Some(t) if t.path() == path => t,
                             _ => Transcript::new(path, &s.cwd, home()),
                         };
+                        let thumbs = gallery.peek().thumbs.clone();
                         let read = tokio::task::spawn_blocking(move || {
                             let mut t = t;
                             t.read(&|p: &Path| p.is_file());
-                            let links = t.links();
-                            (t, links)
+                            let mut links = t.links();
+                            let mut thumbs = thumbs;
+                            pictures::refresh_thumbs(&mut links.images, &mut thumbs);
+                            (t, links, thumbs)
                         })
                         .await;
-                        if let Ok((t, links)) = read {
+                        if let Ok((t, links, thumbs)) = read {
                             held = Some(t);
+                            if gallery.peek().thumbs != thumbs {
+                                gallery.write().thumbs = thumbs;
+                            }
                             let next = Some((s.id, links));
                             if *overview_links.peek() != next {
                                 overview_links.set(next);
@@ -1554,6 +1874,19 @@ fn App() -> Element {
         move || {
             let _ = (drill().sheet(), active());
             wake.notify_one();
+        }
+    });
+    // A subagent opened that the overview no longer lists is gone back from.
+    use_effect(move || {
+        let mut d = drill();
+        let gone = d.agent().is_some_and(|call| {
+            let read = overview_links();
+            !read
+                .as_ref()
+                .is_some_and(|(_, l)| l.agents.iter().any(|a| a.call == call))
+        });
+        if gone && d.back() {
+            drill.set(d);
         }
     });
     // What was opened in one worktree means nothing in another.
@@ -2048,6 +2381,14 @@ fn App() -> Element {
                     Ok(()) => given.await.ok(),
                     Err(_) => None,
                 };
+                // Sent empty, the key itself goes to the session, as it would in
+                // Claude Code's own input.
+                if let Some(id) = passes_enter(taken.as_ref()) {
+                    let size = *console_size.peek();
+                    if let Some(p) = pane_for(&hub, &Tab::Session(id), size).await {
+                        p.key(&Key::new("Enter").ctrl());
+                    }
+                }
                 let Some((shown, text)) = taken.filter(|(_, text)| !text.trim().is_empty()) else {
                     sending.set(false);
                     return;
@@ -2146,7 +2487,7 @@ fn App() -> Element {
                         let taken: Vec<&str> = t.sessions().map(|(_, s)| s.name.as_str()).collect();
                         let name = fresh_name(&label, &taken);
                         let reader = role == Role::Reader;
-                        let access = if reader { Access::Read } else { Access::Edit };
+                        let options = programs::session_options(reader);
                         // Made only now, so a draft left unsent leaves no
                         // empty directory behind.
                         let started =
@@ -2157,14 +2498,16 @@ fn App() -> Element {
                                     args.extend(adroit_claude::start_args(
                                         &name,
                                         &conversation,
-                                        access,
+                                        &options,
                                         &text,
                                     ));
+                                    let (program, args, env) =
+                                        programs::claude(args, session_env());
                                     let spawn = Spawn {
-                                        program: adroit_claude::claude_program(),
+                                        program,
                                         args,
                                         cwd: worktree.clone(),
-                                        env: session_env(),
+                                        env,
                                         tags: sessions::claude_tags(
                                             &name,
                                             &worktree,
@@ -2176,8 +2519,7 @@ fn App() -> Element {
                                         cols: size.cols,
                                         rows: size.rows,
                                     };
-                                    hub.daemon
-                                        .spawn(spawn)
+                                    start(&hub, spawn, size, |id| Tab::Session(sessions::hex(id)))
                                         .await
                                         .map_err(|e| format!("cannot start {name}: {e}"))
                                 }
@@ -2245,12 +2587,16 @@ fn App() -> Element {
                 }
                 let size = *console_size.peek();
                 let mut args = plugin::args(&adroit_program());
-                args.extend(adroit_claude::resume_args(&now.session_id));
+                args.extend(adroit_claude::resume_args(
+                    &now.session_id,
+                    &programs::session_options(false),
+                ));
+                let (program, args, env) = programs::claude(args, session_env());
                 let spawn = Spawn {
-                    program: adroit_claude::claude_program(),
+                    program,
                     args,
                     cwd: now.cwd.clone(),
-                    env: session_env(),
+                    env,
                     tags: sessions::claude_tags(
                         &now.name,
                         &now.cwd,
@@ -2262,7 +2608,7 @@ fn App() -> Element {
                     cols: size.cols,
                     rows: size.rows,
                 };
-                match hub.daemon.spawn(spawn).await {
+                match start(&hub, spawn, size, |id| Tab::Session(sessions::hex(id))).await {
                     Ok(id) => {
                         status.set(None);
                         let id = sessions::hex(id);
@@ -2292,7 +2638,7 @@ fn App() -> Element {
             .filter(|w| !w.sessions.is_empty())
             .map(|w| w.worktree.path.clone())
             .collect();
-        offers.set(picker::candidates(&running, &[], &[]));
+        offers.set(picker::candidates(&running, &[], &[], &[]));
         // The home folder starts open: nearly every pick in the tree begins
         // inside it.
         let mut filer = Filer::new([home()]);
@@ -2302,16 +2648,29 @@ fn App() -> Element {
             // Claude Code's state file can run to megabytes, and every
             // directory it names is looked at: not on the window's thread.
             let home = home();
-            let (recent, (ghq, roots)) = tokio::join!(
+            let asked = settings::current().picker;
+            let listed_roots = asked.root_paths(&home);
+            let (recent, (ghq, ghq_roots), listed) = tokio::join!(
                 tokio::task::spawn_blocking(move || places::recent(&home)),
-                async { tokio::join!(places::ghq_list(), places::ghq_roots()) },
+                async {
+                    if asked.ghq {
+                        tokio::join!(places::ghq_list(), places::ghq_roots())
+                    } else {
+                        (Vec::new(), Vec::new())
+                    }
+                },
+                tokio::task::spawn_blocking({
+                    let roots = listed_roots.clone();
+                    move || picker::folders_in(&roots)
+                }),
             );
+            let roots: Vec<PathBuf> = ghq_roots.into_iter().chain(listed_roots).collect();
             // Closed while they were read, the picker wants them no more.
             if picking.peek().is_none() {
                 return;
             }
             let recent = recent.unwrap_or_default();
-            let next = picker::candidates(&running, &recent, &ghq);
+            let next = picker::candidates(&running, &recent, &ghq, &listed.unwrap_or_default());
             // The rows rank anew with more to rank: the cursor stays on the
             // row it was on, not on whatever comes to sit at its place.
             let (query, on) = {
@@ -2415,6 +2774,7 @@ fn App() -> Element {
         }
     });
     use_drop(settings_window::close);
+    use_drop(image_window::close_all);
 
     // End a session adroit runs; Claude Code keeps its conversation.
     let stop = {
@@ -2911,7 +3271,9 @@ fn App() -> Element {
                             overview_links.peek().as_ref(),
                             active.peek().as_ref(),
                             &folded_groups.peek(),
+                            &opened_groups.peek(),
                             &tree.peek(),
+                            &gallery.peek(),
                         );
                     }
                     git_view
@@ -3086,6 +3448,18 @@ fn App() -> Element {
                 {
                     let mut d = drill.peek().clone();
                     match (&action, &details_list) {
+                        // A subagent opened shows no list: the keys scroll,
+                        // and those that fold go back to the overview.
+                        (_, Some(Listing::Links(_))) if d.agent().is_some() => match action {
+                            Action::CursorFold => {
+                                d.back();
+                            }
+                            Action::CursorDown => scroll("17"),
+                            Action::CursorUp => scroll("-17"),
+                            Action::CursorFirst => scroll("-b.scrollHeight"),
+                            Action::CursorLast => scroll("b.scrollHeight"),
+                            _ => {}
+                        },
                         (_, Some(l @ Listing::Links(entries))) => {
                             let chosen = d.selected(l).map(|at| &entries[at]);
                             // A heading folds and unfolds as a workspace's row
@@ -3110,11 +3484,15 @@ fn App() -> Element {
                             match (fold, how, chosen) {
                                 (Some((group, shut)), ..) => {
                                     let f = refold(&folded_groups.peek(), group, shut);
+                                    let o = reopened(&opened_groups.peek(), group, shut);
+                                    opened_groups.set(o);
                                     let now = overview_listing(
                                         overview_links.peek().as_ref(),
                                         active.peek().as_ref(),
                                         &f,
+                                        &opened_groups.peek(),
                                         &tree.peek(),
+                                        &gallery.peek(),
                                     );
                                     if let Some(now) = now
                                         && let Some(at) = now.heading(group)
@@ -3128,6 +3506,18 @@ fn App() -> Element {
                                         notify.notice(told);
                                     }
                                 }
+                                (None, Some(how), Some(Entry::Image(shot))) => {
+                                    let session = overview_links
+                                        .peek()
+                                        .as_ref()
+                                        .map(|(id, _)| id.clone())
+                                        .unwrap_or_default();
+                                    if let Some(told) =
+                                        use_shot(shot, how, &session, &gallery.peek())
+                                    {
+                                        notify.notice(told);
+                                    }
+                                }
                                 (None, Some(how), Some(Entry::Session(r))) => {
                                     match use_related(r, how) {
                                         Went::Show(id) => show_session(id),
@@ -3135,6 +3525,23 @@ fn App() -> Element {
                                         Went::Nowhere => {}
                                     }
                                 }
+                                (None, Some(Use::Open), Some(Entry::More { group, .. })) => {
+                                    opened_groups.write().insert(*group);
+                                }
+                                (None, Some(how), Some(Entry::Agent(a))) => match how {
+                                    Use::Open => {
+                                        d.open(l);
+                                    }
+                                    Use::Copy => {
+                                        notify.notice(match copy_to_clipboard(&a.prompt) {
+                                            Ok(()) => {
+                                                format!("Copied the prompt of {}", a.description)
+                                            }
+                                            Err(e) => format!("cannot copy: {e}"),
+                                        })
+                                    }
+                                    Use::Reveal => {}
+                                },
                                 (None, Some(_), _) => {}
                                 _ => match action {
                                     Action::CursorDown => d.step(l, 1),
@@ -3242,7 +3649,12 @@ fn App() -> Element {
                         start_writing(nvim);
                     }
                 }
-                Action::ShellOpen => {
+                Action::ShellOpen | Action::NeovimOpen => {
+                    let runs = if action == Action::NeovimOpen {
+                        Runs::Neovim
+                    } else {
+                        Runs::Shell
+                    };
                     let p = cur
                         .as_ref()
                         .filter(|_| on_list)
@@ -3256,36 +3668,36 @@ fn App() -> Element {
                             .map(|s| s.name.clone())
                             .collect();
                         let taken: Vec<&str> = names.iter().map(String::as_str).collect();
-                        let name = fresh_name("shell", &taken);
-                        let shell = shell_program();
+                        let (base, (program, args, env)) = match runs {
+                            Runs::Shell => ("shell", programs::shell()),
+                            Runs::Neovim => ("nvim", programs::neovim()),
+                        };
+                        let name = fresh_name(base, &taken);
                         let size = *console_size.peek();
                         let spawn_shell = Spawn {
-                            program: shell.clone(),
-                            args: vec!["-l".into()],
+                            program,
+                            args,
                             cwd: p.worktree.clone(),
-                            // What runs in it reads the shell it runs in from here.
-                            env: [("SHELL".into(), shell)]
-                                .into_iter()
-                                .chain(daemon::terminal_env())
-                                .collect(),
-                            tags: sessions::shell_tags(&name, &p.worktree),
+                            env: env.into_iter().chain(daemon::terminal_env()).collect(),
+                            tags: sessions::shell_tags(&name, &p.worktree, runs),
                             cols: size.cols,
                             rows: size.rows,
                         };
                         let hub = hub.clone();
                         spawn(async move {
-                            match hub.daemon.spawn(spawn_shell).await {
+                            match start(&hub, spawn_shell, size, Tab::Shell).await {
                                 Ok(id) => {
                                     shells.write().push(Shell {
                                         id,
                                         name,
                                         worktree: p.worktree.clone(),
+                                        runs,
                                     });
                                     place.set(Some(p));
                                     active.set(Some(Tab::Shell(id)));
                                     focus.set(Area::Console);
                                 }
-                                Err(e) => status.set(Some(format!("cannot start a shell: {e}"))),
+                                Err(e) => status.set(Some(format!("cannot start {base}: {e}"))),
                             }
                         });
                     }
@@ -3396,7 +3808,9 @@ fn App() -> Element {
                         overview_links.peek().as_ref(),
                         active.peek().as_ref(),
                         &folded_groups.peek(),
+                        &opened_groups.peek(),
                         &tree.peek(),
+                        &gallery.peek(),
                     );
                     if let Some(l) = listing {
                         let mut d = drill.peek().clone();
@@ -3425,6 +3839,20 @@ fn App() -> Element {
         let held = serde_json::to_string(&menu_bar::left_to_menu(&map)).unwrap_or_default();
         document::eval(&format!("window.adroitHeld = {held};"));
     });
+    // The page learns which Option keys count as Alt, now and as the settings
+    // change.
+    use_hook(|| {
+        spawn(async move {
+            let mut changed = settings::CHANGED.subscribe();
+            loop {
+                let as_alt = settings::current().console.option_as_alt.name();
+                document::eval(&format!("window.adroitOptionAsAlt = '{as_alt}';"));
+                if changed.recv().await.is_err() {
+                    break;
+                }
+            }
+        });
+    });
     // Run what a menu bar entry names where the keys are now, as its key
     // would: not behind the picker, a dialog or a name being typed, which hold
     // the keys. The entries act on this window whichever of adroit's is in
@@ -3439,7 +3867,7 @@ fn App() -> Element {
             // Closing acts on the window in front, as macOS's own Close does,
             // so it does not reach behind Settings to a tab.
             if matches!(action, Action::TabClose | Action::WindowClose)
-                && settings_window::close_in_front()
+                && (settings_window::close_in_front() || image_window::close_in_front())
             {
                 return;
             }
@@ -3834,6 +4262,10 @@ fn App() -> Element {
     let active_tab = active();
     let drill_now = drill();
     let sheet_now = drill_now.sheet();
+    let usage_now = match (sheet_now, usage_limits.read().get()) {
+        (Sheet::Overview, Some(limits)) => gauges(limits, now_ms()),
+        _ => Vec::new(),
+    };
     let spot_now = spot();
     let git_now = git_view()
         .filter(|v| {
@@ -3906,15 +4338,27 @@ fn App() -> Element {
             overview_links().as_ref(),
             active_tab.as_ref(),
             &folded_groups(),
+            &opened_groups(),
             &t,
+            &gallery.read(),
         )
     } else {
         None
     };
     let link_selected = overview_now.as_ref().and_then(|l| drill_now.selected(l));
+    let opened_agent = drill_now.agent().and_then(|call| {
+        let read = overview_links();
+        read.as_ref()?
+            .1
+            .agents
+            .iter()
+            .find(|a| a.call == call)
+            .cloned()
+    });
     let link_sections = {
         let entries = match &overview_now {
-            Some(Listing::Links(entries)) => entries.as_slice(),
+            // A subagent opened stands in for the rows.
+            Some(Listing::Links(entries)) if drill_now.agent().is_none() => entries.as_slice(),
             _ => &[],
         };
         let worktree = current
@@ -3931,7 +4375,9 @@ fn App() -> Element {
             overview_links.peek().as_ref(),
             active.peek().as_ref(),
             &folded_groups.peek(),
+            &opened_groups.peek(),
             &tree.peek(),
+            &gallery.peek(),
         ) else {
             return;
         };
@@ -3947,14 +4393,35 @@ fn App() -> Element {
                     notify.notice(told);
                 }
             }
+            Some(Entry::Image(shot)) => {
+                let session = overview_links
+                    .peek()
+                    .as_ref()
+                    .map(|(id, _)| id.clone())
+                    .unwrap_or_default();
+                if let Some(told) = use_shot(shot, Use::Open, &session, &gallery.peek()) {
+                    notify.notice(told);
+                }
+            }
             Some(Entry::Session(r)) => match use_related(r, Use::Open) {
                 Went::Show(id) => show_session(id),
                 Went::Told(told) => notify.notice(told),
                 Went::Nowhere => {}
             },
+            Some(Entry::Agent(_)) => {
+                let mut d = drill.peek().clone();
+                if d.open(&l) {
+                    drill.set(d);
+                }
+            }
             Some(Entry::Heading { group, folded, .. }) => {
                 let f = refold(&folded_groups.peek(), *group, !folded);
+                let o = reopened(&opened_groups.peek(), *group, !folded);
+                opened_groups.set(o);
                 folded_groups.set(f);
+            }
+            Some(Entry::More { group, .. }) => {
+                opened_groups.write().insert(*group);
             }
             None => {}
         }
@@ -4290,7 +4757,10 @@ fn App() -> Element {
                                     }
                                     Item::Waiting(_) => (0, "list-row", String::new(), String::new(), None),
                                 };
-                                let terminal = matches!(it, Item::Shell(_));
+                                let terminal = match &it {
+                                    Item::Shell(id) => Some(runs_of(&shells.read(), *id)),
+                                    _ => None,
+                                };
                                 let place_icon = match &it {
                                     Item::Workspace(root) if t.workspace_of(root).is_some_and(|w| w.scratch) => Some(Icon::Notes),
                                     Item::Workspace(_) if it.fold_key().is_some_and(|k| collapsed.read().contains(&k)) => Some(Icon::Folder),
@@ -4333,7 +4803,7 @@ fn App() -> Element {
                                         if let Some(icon) = place_icon {
                                             span { class: "place-mark", IconView { icon } }
                                         }
-                                        if terminal { Terminal {} }
+                                        if let Some(runs) = terminal { Terminal { runs } }
                                         span { class: "list-row-name", "{text}" }
                                         if reader { Book {} }
                                         if has_draft {
@@ -4389,8 +4859,11 @@ fn App() -> Element {
                         for (tab , name , state , reader) in tabs().into_iter() {
                             {
                                 let is_active = active_tab.as_ref() == Some(&tab);
-                                let shell = matches!(tab, Tab::Shell(_));
-                                let class = match (is_active, shell) {
+                                let shell = match &tab {
+                                    Tab::Shell(id) => Some(runs_of(&shells.read(), *id)),
+                                    _ => None,
+                                };
+                                let class = match (is_active, shell.is_some()) {
                                     (true, true) => "tab active shell",
                                     (true, false) => "tab active",
                                     (false, true) => "tab shell",
@@ -4415,7 +4888,7 @@ fn App() -> Element {
                                         if let Some((g, icon, tip)) = glyph_class {
                                             span { class: "{g}", title: "{tip}", IconView { icon, size: 13 } }
                                         }
-                                        if shell { span { class: "shell-mark", IconView { icon: Icon::Terminal2 } } }
+                                        if let Some(runs) = shell { Terminal { runs } }
                                         if matches!(tab, Tab::Draft { role: Role::Worker, .. }) { span { class: "place-mark", IconView { icon: Icon::MessagePlus, size: 13 } } }
                                         "{name}"
                                         if reader { Book {} }
@@ -4425,7 +4898,11 @@ fn App() -> Element {
                                         if closes {
                                             span {
                                                 class: "tab-close",
-                                                title: if shell { "Close the shell" } else { "Close the tab; the session runs on" },
+                                                title: match shell {
+                                                    Some(Runs::Shell) => "Close the shell",
+                                                    Some(Runs::Neovim) => "Close Neovim",
+                                                    None => "Close the tab; the session runs on",
+                                                },
                                                 onclick: {
                                                     let mut run = run_menu.clone();
                                                     move |e: Event<MouseData>| {
@@ -4620,6 +5097,19 @@ fn App() -> Element {
                             span { class: "details-path", "{p.worktree.display()}" }
                         }
                     }
+                    if let Some(agent) = opened_agent {
+                        SubagentView {
+                            agent,
+                            now_ms: now_ms(),
+                            back_keys: k_back.clone(),
+                            on_back: move |_| {
+                                let mut d = drill.peek().clone();
+                                if d.back() {
+                                    drill.set(d);
+                                }
+                            },
+                        }
+                    }
                     for section in link_sections.into_iter() {
                         div { key: "{section.group.title()}", class: "details-block details-links",
                             {
@@ -4639,9 +5129,15 @@ fn App() -> Element {
                             for r in section.rows.into_iter() {
                                 {
                                     let (at, file) = (r.at, r.file);
+                                    let class = match (link_selected == Some(at), r.thumb.is_some()) {
+                                        (true, true) => "list-row details-link details-image selected",
+                                        (true, false) => "list-row details-link selected",
+                                        (false, true) => "list-row details-link details-image",
+                                        (false, false) => "list-row details-link",
+                                    };
                                     rsx! {
                                         div { key: "{r.target}",
-                                            class: if link_selected == Some(at) { "list-row details-link selected" } else { "list-row details-link" },
+                                            class,
                                             title: "{r.target}",
                                             onclick: move |_| click_link(at),
                                             oncontextmenu: move |e: Event<MouseData>| {
@@ -4649,13 +5145,31 @@ fn App() -> Element {
                                                 let p = e.client_coordinates();
                                                 menu.set(Some((p.x, p.y, Target::Link { at, file })));
                                             },
-                                            IconView { icon: r.icon, size: 13 }
+                                            if let Some(thumb) = &r.thumb {
+                                                img { class: "details-thumb", src: "{thumb}", alt: "" }
+                                            } else if r.tone.is_empty() {
+                                                IconView { icon: r.icon, size: 13 }
+                                            } else {
+                                                span { class: "{r.tone}", IconView { icon: r.icon, size: 13 } }
+                                            }
                                             span { class: "list-row-name", "{r.label}" }
+                                            if let Some(b) = &r.badge {
+                                                span { class: "commit-mark details-link-badge", "{b}" }
+                                            }
                                             if !r.tag.is_empty() {
                                                 span { class: "details-link-tag", "{r.tag}" }
                                             }
                                         }
                                     }
+                                }
+                            }
+                            if let Some((at, hidden)) = section.more {
+                                div { key: "more-{at}",
+                                    class: if link_selected == Some(at) { "list-row details-link details-more selected" } else { "list-row details-link details-more" },
+                                    onclick: move |_| click_link(at),
+                                    IconView { icon: Icon::Dots, size: 13 }
+                                    span { class: "list-row-name", "Show all" }
+                                    span { class: "details-link-tag", "{hidden} more" }
                                 }
                             }
                         }
@@ -4749,6 +5263,31 @@ fn App() -> Element {
                             }
                         }
                     }
+                    }
+                    if !usage_now.is_empty() {
+                        div { class: "details-usage",
+                            title: "Usage limits, as Claude Code's /usage reports them",
+                            span { class: "details-label", "Usage" }
+                            for g in usage_now.into_iter() {
+                                div { key: "{g.label}", class: "usage-gauge",
+                                    div { class: "usage-gauge-head",
+                                        span { class: "usage-gauge-label", "{g.label}" }
+                                        span { class: "usage-gauge-left", "{g.left}" }
+                                    }
+                                    div { class: "usage-gauge-track",
+                                        div {
+                                            class: match g.severity {
+                                                Severity::Normal => "usage-gauge-fill",
+                                                Severity::Warning => "usage-gauge-fill warning",
+                                                Severity::Critical => "usage-gauge-fill critical",
+                                            },
+                                            style: "width:{g.used}%",
+                                        }
+                                    }
+                                    span { class: "usage-gauge-note", "{g.note}" }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -5020,6 +5559,36 @@ fn App() -> Element {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::details::overview;
+
+    #[test]
+    fn an_empty_prompt_passes_ctrl_enter_to_its_session_alone() {
+        let session = (Some(Tab::Session("s1".into())), "  \n".to_string());
+        assert_eq!(passes_enter(Some(&session)), Some("s1".to_string()));
+        let written = (Some(Tab::Session("s1".into())), "hi".to_string());
+        assert_eq!(passes_enter(Some(&written)), None);
+        let draft = (
+            Some(Tab::Draft {
+                worktree: "/w".into(),
+                role: Role::Worker,
+            }),
+            String::new(),
+        );
+        assert_eq!(passes_enter(Some(&draft)), None);
+        assert_eq!(passes_enter(Some(&(None, String::new()))), None);
+        assert_eq!(passes_enter(None), None);
+    }
+
+    #[test]
+    fn a_group_folded_shows_its_first_few_again_once_unfolded() {
+        let opened = HashSet::from([Group::Files, Group::Links]);
+        assert_eq!(
+            reopened(&opened, Group::Files, true),
+            HashSet::from([Group::Links])
+        );
+        // Unfolding leaves it as it was.
+        assert_eq!(reopened(&opened, Group::Artifacts, false), opened);
+    }
 
     #[test]
     fn the_clipboard_reads_the_text_as_utf_8_whatever_the_app_s_locale() {
@@ -5099,6 +5668,75 @@ mod tests {
     }
 
     #[test]
+    fn an_image_row_shows_its_small_copy_in_place_of_the_icon() {
+        let thumb: Arc<str> = "data:image/png;base64,AA==".into();
+        let shots = [
+            Shot::console(7, 64, 32, 2, Some(thumb.clone())),
+            Shot::file("/w/a.heic", Touch::Read, Some(1), None),
+        ];
+        let none = HashSet::new();
+        let drawn = link_sections(
+            &with_images(Vec::new(), &shots, &none, &none, 5),
+            Path::new("/w"),
+            Path::new("/h"),
+        );
+        assert_eq!(drawn[0].group, Group::Images);
+        let rows: Vec<_> = drawn[0]
+            .rows
+            .iter()
+            .map(|r| (r.label.as_str(), r.tag.as_str(), r.file, r.thumb.clone()))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("Image 64 × 32", "drawn", false, Some(thumb)),
+                ("a.heic", "read", true, None),
+            ]
+        );
+        assert_eq!(drawn[0].rows[1].icon, Icon::Photo);
+    }
+
+    #[test]
+    fn the_overview_lists_drawn_images_of_the_session_shown_after_its_artifacts() {
+        let read = (
+            "s1".to_string(),
+            Links {
+                artifacts: vec![link(LinkKind::Artifact, "https://claude.ai/artifact/a")],
+                urls: vec![link(LinkKind::Url, "https://a.dev")],
+                ..Default::default()
+            },
+        );
+        let mut gallery = Gallery::default();
+        let drawn = adroit_term::Drawn {
+            width: 1,
+            height: 1,
+            rgba: vec![255, 0, 0, 255],
+        };
+        gallery
+            .store
+            .keep("s1", pictures::Kept::of(drawn, 5).unwrap());
+        let open = HashSet::new();
+        let Some(Listing::Links(entries)) = overview_listing(
+            Some(&read),
+            Some(&Tab::Session("s1".into())),
+            &open,
+            &open,
+            &Tree::default(),
+            &gallery,
+        ) else {
+            panic!("no overview");
+        };
+        let groups: Vec<_> = entries
+            .iter()
+            .filter_map(|e| match e {
+                Entry::Heading { group, .. } => Some(*group),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(groups, [Group::Artifacts, Group::Images, Group::Links]);
+    }
+
+    #[test]
     fn the_overview_lists_links_only_for_the_session_they_were_read_for() {
         let read = (
             "s1".to_string(),
@@ -5110,9 +5748,39 @@ mod tests {
         let shown = |id: &str| Tab::Session(id.into());
         let open = HashSet::new();
         let t = Tree::default();
-        assert!(overview_listing(Some(&read), Some(&shown("s1")), &open, &t).is_some());
-        assert!(overview_listing(Some(&read), Some(&shown("s2")), &open, &t).is_none());
-        assert!(overview_listing(Some(&read), Some(&Tab::Shell(1)), &open, &t).is_none());
+        assert!(
+            overview_listing(
+                Some(&read),
+                Some(&shown("s1")),
+                &open,
+                &open,
+                &t,
+                &Gallery::default()
+            )
+            .is_some()
+        );
+        assert!(
+            overview_listing(
+                Some(&read),
+                Some(&shown("s2")),
+                &open,
+                &open,
+                &t,
+                &Gallery::default()
+            )
+            .is_none()
+        );
+        assert!(
+            overview_listing(
+                Some(&read),
+                Some(&Tab::Shell(1)),
+                &open,
+                &open,
+                &t,
+                &Gallery::default()
+            )
+            .is_none()
+        );
     }
 
     fn related_to(name: &str, id: Option<&str>, ties: &[Tie]) -> Related {
@@ -5121,6 +5789,45 @@ mod tests {
             id: id.map(str::to_string),
             ties: ties.to_vec(),
         }
+    }
+
+    #[test]
+    fn a_subagent_row_goes_by_its_title_with_its_kind_as_a_badge() {
+        use adroit_claude::subagents::{Agent, Standing};
+        let agent = |title: Option<&str>, kind: Option<&str>| Agent {
+            call: format!("toolu_{}", kind.unwrap_or("none")),
+            id: None,
+            description: "Persistent hover panel".into(),
+            title: title.map(str::to_string),
+            kind: kind.map(str::to_string),
+            prompt: String::new(),
+            standing: Standing::Stopped,
+            started_ms: None,
+            ended_ms: None,
+            steps: Vec::new(),
+        };
+        let agents = [
+            agent(Some("Rename hover to detail"), Some("code-writer")),
+            agent(None, None),
+        ];
+        let none = HashSet::new();
+        let drawn = link_sections(
+            &with_agents(Vec::new(), &agents, &none),
+            Path::new("/w"),
+            Path::new("/h"),
+        );
+        let shown: Vec<_> = drawn[0]
+            .rows
+            .iter()
+            .map(|r| (r.label.as_str(), r.badge.as_deref(), r.tag.as_str()))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                ("Rename hover to detail", Some("code-writer"), "stopped"),
+                ("Persistent hover panel", None, "stopped"),
+            ]
+        );
     }
 
     #[test]

@@ -9,12 +9,15 @@ use adroit_model::{ParseError, Session, Worktree};
 use tokio::process::Command;
 
 pub mod commands;
+mod control;
 pub mod dialog;
 pub mod git;
 pub mod history;
 pub mod jj;
 pub mod links;
 pub mod places;
+pub mod subagents;
+pub mod usage;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -144,13 +147,30 @@ pub async fn list_sessions() -> Result<Vec<Session>, Error> {
     Ok(adroit_model::parse_agents(&out)?)
 }
 
-/// How a session is let loose on its worktree.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Access {
-    /// Claude Code's own permission settings apply.
-    Edit,
-    /// Plan mode, with the tools that edit files denied.
-    Read,
+/// How a session runs: the model, the permission mode and the tools denied
+/// it; what is left empty is Claude Code's own choice.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Options {
+    pub model: String,
+    pub permission_mode: String,
+    pub disallowed_tools: Vec<String>,
+}
+
+impl Options {
+    /// The arguments that say so to Claude Code.
+    pub fn args(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        for (flag, value) in [
+            ("--model", self.model.clone()),
+            ("--permission-mode", self.permission_mode.clone()),
+            ("--disallowedTools", self.disallowed_tools.join(",")),
+        ] {
+            if !value.is_empty() {
+                out.extend([flag.to_string(), value]);
+            }
+        }
+        out
+    }
 }
 
 /// A fresh id for a conversation adroit starts, chosen before Claude Code
@@ -161,24 +181,14 @@ pub fn new_session_id() -> String {
 
 /// The arguments that start Claude Code named `name`, holding the
 /// conversation `session_id`, with a first prompt.
-pub fn start_args(name: &str, session_id: &str, access: Access, prompt: &str) -> Vec<String> {
+pub fn start_args(name: &str, session_id: &str, options: &Options, prompt: &str) -> Vec<String> {
     let mut args: Vec<String> = vec![
         "--name".into(),
         name.into(),
         "--session-id".into(),
         session_id.into(),
     ];
-    if access == Access::Read {
-        args.extend(
-            [
-                "--permission-mode",
-                "plan",
-                "--disallowedTools",
-                "Edit,Write,NotebookEdit",
-            ]
-            .map(String::from),
-        );
-    }
+    args.extend(options.args());
     // The prompt follows `--`, so one starting with `-` is not read as a flag.
     args.extend(["--".into(), prompt.into()]);
     args
@@ -193,9 +203,12 @@ pub fn plugin_args(dir: impl AsRef<Path>) -> Vec<String> {
     ]
 }
 
-/// The arguments that continue the conversation `session_id`.
-pub fn resume_args(session_id: &str) -> Vec<String> {
-    ["--resume", session_id].map(String::from).to_vec()
+/// The arguments that continue the conversation `session_id`, run as
+/// `options` say.
+pub fn resume_args(session_id: &str, options: &Options) -> Vec<String> {
+    let mut args: Vec<String> = ["--resume", session_id].map(String::from).to_vec();
+    args.extend(options.args());
+    args
 }
 
 /// The command of a prompt that is a shell line for Claude Code: one whose
@@ -332,7 +345,7 @@ mod tests {
     #[test]
     fn a_session_starts_named_with_its_conversation_and_first_prompt() {
         assert_eq!(
-            start_args("fix", "a08bbcf2-2cbf", Access::Edit, "-h is a flag"),
+            start_args("fix", "a08bbcf2-2cbf", &Options::default(), "-h is a flag"),
             [
                 "--name",
                 "fix",
@@ -345,14 +358,21 @@ mod tests {
     }
 
     #[test]
-    fn a_reader_starts_in_plan_mode_without_the_editing_tools() {
+    fn a_session_runs_with_the_model_mode_and_tools_its_options_name() {
+        let reader = Options {
+            model: "opus".into(),
+            permission_mode: "plan".into(),
+            disallowed_tools: vec!["Edit".into(), "Write".into(), "NotebookEdit".into()],
+        };
         assert_eq!(
-            start_args("look", "a08bbcf2-2cbf", Access::Read, "b"),
+            start_args("look", "a08bbcf2-2cbf", &reader, "b"),
             [
                 "--name",
                 "look",
                 "--session-id",
                 "a08bbcf2-2cbf",
+                "--model",
+                "opus",
                 "--permission-mode",
                 "plan",
                 "--disallowedTools",
@@ -373,7 +393,23 @@ mod tests {
 
     #[test]
     fn a_taken_over_session_resumes_its_conversation() {
-        assert_eq!(resume_args("a08bbcf2-2cbf"), ["--resume", "a08bbcf2-2cbf"]);
+        assert_eq!(
+            resume_args("a08bbcf2-2cbf", &Options::default()),
+            ["--resume", "a08bbcf2-2cbf"]
+        );
+        let mode = Options {
+            permission_mode: "acceptEdits".into(),
+            ..Options::default()
+        };
+        assert_eq!(
+            resume_args("a08bbcf2-2cbf", &mode),
+            [
+                "--resume",
+                "a08bbcf2-2cbf",
+                "--permission-mode",
+                "acceptEdits"
+            ]
+        );
     }
 
     #[test]

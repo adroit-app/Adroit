@@ -155,6 +155,7 @@ another, the complete one runs.
 | `session.stop` | end a session adroit runs after asking; Claude Code keeps its conversation, for `/resume` in a session started later |
 | `session.rename` | ask for a new name for a session adroit runs, with its name to change; the sidebar shows it, and the session is sent Claude Code's `/rename` so its own interface says it too |
 | `shell.open`, `shell.close` | open a shell in the worktree, close the current one: the one selected in the sidebar, or else the one shown |
+| `neovim.open` | open Neovim, with your own configuration, in the worktree as `shell.open` opens a shell ([shells](shells.md)) |
 | `scroll.down`, `scroll.up`, `scroll.half_down`, `scroll.half_up`, `scroll.top`, `scroll.bottom` | scroll the details panel; bound in the console, scroll it: Claude Code and other programs that read the mouse are sent the wheel, others are scrolled back through what scrolled off |
 | `refresh` | read the sessions, and what git says of where they run, again now |
 | `sidebar.toggle`, `details.toggle` | show or hide the sidebar, the details panel |
@@ -206,6 +207,7 @@ another, the complete one runs.
 "Cmd+N" = "session.new_reader"
 "Cmd+Alt+n" = "session.scratch"
 "Cmd+s" = "shell.open"
+"Cmd+Alt+e" = "neovim.open"
 "Cmd+t" = "session.take_over"
 "Cmd+Backspace" = "session.stop"
 "Cmd+f" = "filter"
@@ -238,6 +240,7 @@ another, the complete one runs.
 "n" = "session.new"
 "N" = "session.new_reader"
 "s" = "shell.open"
+"v" = "neovim.open"
 "x" = "tab.close"
 "X" = "session.stop"
 "R" = "session.rename"

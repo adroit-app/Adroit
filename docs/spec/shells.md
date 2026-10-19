@@ -1,11 +1,16 @@
 # Reading the user's shells
 
 The shells you open in adroit are your account's login shell, started as a
-login shell, whatever shell adroit itself was started from. They keep running
-when the window closes, as sessions do, and the sidebar lists each under the
-worktree it runs in ([workspaces](workspaces.md#the-tree)), so a shell whose
-tab is out of view is a row away. Closing a shell's tab, or closing it from
-its row, ends it.
+login shell, whatever shell adroit itself was started from, unless the
+settings name another ([settings](settings.md#settingstoml)). They keep
+running when the window closes, as sessions do, and the sidebar lists each
+under the worktree it runs in ([workspaces](workspaces.md#the-tree)), so a
+shell whose tab is out of view is a row away. Closing a shell's tab, or
+closing it from its row, ends it.
+
+A Neovim tab is a shell that runs Neovim, with your own configuration, in
+place of the shell: opened, listed and read as a shell is, and ended by
+closing it or by quitting Neovim.
 
 The shells you open in adroit belong to a worktree. A session working in that
 worktree can read them, so it can see a dev server's log or a failing command

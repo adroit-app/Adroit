@@ -8,6 +8,64 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 
 use crate::paths::config_dir;
+pub use crate::programs::{Launch, ReaderOptions, SessionOptions, ShellLaunch};
+
+/// Which Option keys count as Alt, sending Meta, in a console; the others type
+/// what macOS makes of the key with Option, as `Option-2` typing `™`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OptionAsAlt {
+    #[default]
+    Both,
+    Left,
+    Right,
+    None,
+}
+
+impl OptionAsAlt {
+    pub fn name(self) -> &'static str {
+        match self {
+            OptionAsAlt::Both => "both",
+            OptionAsAlt::Left => "left",
+            OptionAsAlt::Right => "right",
+            OptionAsAlt::None => "none",
+        }
+    }
+}
+
+/// How much the details panel reads and shows.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct DetailsSettings {
+    /// The changes Log lists.
+    pub log_commits: usize,
+    /// The lines of a diff shown before it is cut.
+    pub diff_lines: usize,
+    /// The links of each kind the overview keeps, the newest.
+    pub links_kept: usize,
+    /// The links of each kind the overview shows before a row to show all.
+    pub links_shown: usize,
+}
+
+impl Default for DetailsSettings {
+    fn default() -> Self {
+        Self {
+            log_commits: 50,
+            diff_lines: 2000,
+            links_kept: 100,
+            links_shown: 5,
+        }
+    }
+}
+
+/// How the console takes keys and draws its cursor.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ConsoleSettings {
+    pub option_as_alt: OptionAsAlt,
+    /// Let the cursor blink when the program lets it.
+    pub cursor_blink: bool,
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -30,6 +88,27 @@ pub struct Settings {
     pub theme: String,
     /// Keep the Mac from idle sleep while a session or a shell runs.
     pub keep_awake: bool,
+    /// Tell, by a notification, of a session that starts waiting while the
+    /// window is not in front.
+    pub notify_waiting: bool,
+    /// How a shell tab's shell is started.
+    pub shell: ShellLaunch,
+    /// How Claude Code is started.
+    pub claude: Launch,
+    /// How a Neovim tab's Neovim is started.
+    pub neovim: Launch,
+    /// How every session but a reader runs.
+    pub sessions: SessionOptions,
+    /// How a reader runs.
+    pub readers: ReaderOptions,
+    /// Where scratch sessions run; empty for adroit's own folder.
+    pub scratch_dir: String,
+    /// Where the picker looks for directories to start a session in.
+    pub picker: PickerSettings,
+    /// How the console takes keys and draws its cursor.
+    pub console: ConsoleSettings,
+    /// How much the details panel reads and shows.
+    pub details: DetailsSettings,
 }
 
 /// The fonts the console falls back to, a Japanese one among them for what a
@@ -47,7 +126,57 @@ impl Default for Settings {
             font_weight: 400,
             theme: crate::themes::DEFAULT.into(),
             keep_awake: true,
+            notify_waiting: false,
+            shell: ShellLaunch::default(),
+            claude: Launch::default(),
+            neovim: Launch::default(),
+            sessions: SessionOptions::default(),
+            readers: ReaderOptions::default(),
+            scratch_dir: String::new(),
+            picker: PickerSettings::default(),
+            console: ConsoleSettings::default(),
+            details: DetailsSettings::default(),
         }
+    }
+}
+
+/// Where the picker looks for directories to start a session in, beside where
+/// sessions run and Claude Code has been used.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PickerSettings {
+    /// Offer the repositories ghq keeps, and its roots in the file tree.
+    pub ghq: bool,
+    /// Folders whose folders are offered, and which the file tree lists.
+    pub roots: Vec<String>,
+}
+
+impl Default for PickerSettings {
+    fn default() -> Self {
+        Self {
+            ghq: true,
+            roots: Vec::new(),
+        }
+    }
+}
+
+impl PickerSettings {
+    /// The roots as paths, `~` standing for `home`.
+    pub fn root_paths(&self, home: &std::path::Path) -> Vec<PathBuf> {
+        self.roots
+            .iter()
+            .map(|r| r.trim())
+            .filter(|r| !r.is_empty())
+            .map(|r| expand(r, home))
+            .collect()
+    }
+}
+
+/// `path` with a leading `~` standing for `home`.
+fn expand(path: &str, home: &std::path::Path) -> PathBuf {
+    match path.strip_prefix('~') {
+        Some(rest) => home.join(rest.trim_start_matches('/')),
+        None => PathBuf::from(path),
     }
 }
 
@@ -73,7 +202,29 @@ impl Settings {
         }
         self.font_size = self.font_size.clamp(8.0, 32.0);
         self.font_weight = (self.font_weight.clamp(100, 900) + 50) / 100 * 100;
+        let words = |c: Vec<String>| -> Vec<String> {
+            c.into_iter()
+                .map(|w| w.trim().to_string())
+                .filter(|w| !w.is_empty())
+                .collect()
+        };
+        self.shell.command = words(self.shell.command);
+        self.claude.command = words(self.claude.command);
+        self.neovim.command = words(self.neovim.command);
+        let d = &mut self.details;
+        d.log_commits = d.log_commits.clamp(1, 1000);
+        d.diff_lines = d.diff_lines.clamp(1, 100_000);
+        d.links_kept = d.links_kept.clamp(1, adroit_claude::links::KEPT);
+        d.links_shown = d.links_shown.max(1);
         self
+    }
+
+    /// Where scratch sessions run, `~` standing for `home`.
+    pub fn scratch_folder(&self, home: &std::path::Path) -> PathBuf {
+        match self.scratch_dir.trim() {
+            "" => crate::paths::data_dir().join("adroit").join("scratch"),
+            dir => expand(dir, home),
+        }
     }
 
     /// The console's fonts as CSS names them: the chosen one first.
@@ -132,6 +283,43 @@ pub fn current() -> Settings {
     SETTINGS.read().map(|s| s.clone()).unwrap_or_default()
 }
 
+/// The settings `text`, the file read again, holds when it reads and differs
+/// from `current`; `None` otherwise, so a file half written or one adroit just
+/// wrote itself changes nothing.
+pub fn reread(current: &Settings, text: &str) -> Option<Settings> {
+    Settings::parse(text).ok().filter(|s| s != current)
+}
+
+/// Take in the file's settings whenever it changes on disk, edited by hand or
+/// by another program, looking every `every`.
+pub fn watch(every: std::time::Duration) {
+    let modified = || {
+        std::fs::metadata(Settings::path())
+            .and_then(|m| m.modified())
+            .ok()
+    };
+    std::thread::spawn(move || {
+        let mut seen = modified();
+        loop {
+            std::thread::sleep(every);
+            let now = modified();
+            if now == seen {
+                continue;
+            }
+            seen = now;
+            let Ok(text) = std::fs::read_to_string(Settings::path()) else {
+                continue;
+            };
+            if let Some(next) = reread(&current(), &text) {
+                if let Ok(mut s) = SETTINGS.write() {
+                    *s = next;
+                }
+                let _ = CHANGED.send(());
+            }
+        }
+    });
+}
+
 /// Make `next` the settings: keep them for the next run and tell every window.
 pub fn set(next: Settings) -> Result<(), String> {
     let next = next.sane();
@@ -146,6 +334,7 @@ pub fn set(next: Settings) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
 
     #[test]
     fn settings_not_named_are_as_designed() {
@@ -181,6 +370,7 @@ mod tests {
             font_weight: 1234,
             theme: " ".into(),
             keep_awake: true,
+            ..Settings::default()
         }
         .sane();
         assert_eq!(s.zoom, 1.75);
@@ -214,8 +404,205 @@ mod tests {
             font_weight: 300,
             theme: "Nightfox".into(),
             keep_awake: false,
+            notify_waiting: true,
+            shell: ShellLaunch {
+                command: vec!["/bin/bash".into(), "-l".into()],
+                env: BTreeMap::from([("LANG".into(), "C".into())]),
+            },
+            claude: Launch {
+                command: vec!["claude".into(), "--model".into(), "opus".into()],
+                via_shell: true,
+                env: BTreeMap::from([("FOO".into(), "1".into())]),
+            },
+            neovim: Launch {
+                command: vec!["nvim".into(), "--listen".into(), "/tmp/n".into()],
+                via_shell: false,
+                env: BTreeMap::new(),
+            },
+            sessions: SessionOptions {
+                model: "opus".into(),
+                ..SessionOptions::default()
+            },
+            readers: ReaderOptions::default(),
+            scratch_dir: "~/notes".into(),
+            picker: PickerSettings {
+                ghq: false,
+                roots: vec!["~/src".into()],
+            },
+            console: ConsoleSettings {
+                option_as_alt: OptionAsAlt::Right,
+                cursor_blink: true,
+            },
+            details: DetailsSettings {
+                log_commits: 10,
+                diff_lines: 300,
+                links_kept: 20,
+                links_shown: 3,
+            },
         };
         let text = toml::to_string_pretty(&s).unwrap();
         assert_eq!(Settings::parse(&text).unwrap(), s);
+    }
+
+    #[test]
+    fn how_shells_and_claude_code_start_is_read_from_tables_of_their_own() {
+        let s = Settings::parse(
+            "[shell]\ncommand = [\"/bin/bash\", \"-l\"]\n[claude]\nvia_shell = true\n[claude.env]\nFOO = \"1\"\n",
+        )
+        .unwrap();
+        assert_eq!(s.shell.command, ["/bin/bash", "-l"]);
+        assert!(s.claude.via_shell);
+        assert_eq!(s.claude.env.get("FOO").map(String::as_str), Some("1"));
+        assert_eq!(Settings::parse("").unwrap().claude, Launch::default());
+        let s = Settings::parse("[neovim]\ncommand = [\"/opt/nvim/bin/nvim\"]\nvia_shell = true\n")
+            .unwrap();
+        assert_eq!(s.neovim.command, ["/opt/nvim/bin/nvim"]);
+        assert!(s.neovim.via_shell);
+        assert!(Settings::parse("[claude]\nvia_shel = true\n").is_err());
+    }
+
+    #[test]
+    fn a_command_keeps_no_empty_words() {
+        let s = Settings {
+            shell: ShellLaunch {
+                command: vec!["  ".into(), " /bin/zsh ".into(), "".into()],
+                ..ShellLaunch::default()
+            },
+            claude: Launch {
+                command: vec![" ".into()],
+                ..Launch::default()
+            },
+            ..Settings::default()
+        }
+        .sane();
+        assert_eq!(s.shell.command, ["/bin/zsh"]);
+        assert!(s.claude.command.is_empty());
+    }
+
+    #[test]
+    fn the_file_read_again_is_taken_in_only_when_it_reads_and_says_something_new() {
+        let now = Settings::default();
+        let next = reread(&now, "zoom = 1.25\n").unwrap();
+        assert_eq!(next.zoom, 1.25);
+        // What adroit wrote itself, or a file caught half written, changes nothing.
+        assert_eq!(reread(&now, &toml::to_string_pretty(&now).unwrap()), None);
+        assert_eq!(reread(&now, "zoom = "), None);
+        assert_eq!(reread(&now, "colour = \"red\"\n"), None);
+    }
+
+    #[test]
+    fn sessions_and_readers_run_with_the_model_mode_and_tools_the_settings_name() {
+        let s = Settings::parse("").unwrap();
+        assert_eq!(s.sessions, SessionOptions::default());
+        // A reader plans and edits nothing unless told otherwise.
+        assert_eq!(s.readers.permission_mode, "plan");
+        assert_eq!(
+            s.readers.disallowed_tools,
+            ["Edit", "Write", "NotebookEdit"]
+        );
+        let s = Settings::parse(
+            "[sessions]\nmodel = \"opus\"\npermission_mode = \"acceptEdits\"\n[readers]\ndisallowed_tools = []\n",
+        )
+        .unwrap();
+        assert_eq!(
+            s.sessions.options().args(),
+            ["--model", "opus", "--permission-mode", "acceptEdits"]
+        );
+        assert_eq!(s.readers.options().args(), ["--permission-mode", "plan"]);
+    }
+
+    #[test]
+    fn scratch_sessions_run_in_the_folder_the_settings_name_or_adroit_s_own() {
+        let home = std::path::Path::new("/h");
+        let at = |text: &str| Settings::parse(text).unwrap().scratch_folder(home);
+        assert_eq!(
+            at(""),
+            crate::paths::data_dir().join("adroit").join("scratch")
+        );
+        assert_eq!(
+            at("scratch_dir = \"~/notes/scratch\"\n"),
+            PathBuf::from("/h/notes/scratch")
+        );
+        assert_eq!(at("scratch_dir = \"/tmp/s\"\n"), PathBuf::from("/tmp/s"));
+    }
+
+    #[test]
+    fn the_picker_asks_ghq_and_lists_the_folders_the_settings_name() {
+        let home = std::path::Path::new("/h");
+        let s = Settings::parse("").unwrap();
+        assert!(s.picker.ghq);
+        assert!(s.picker.root_paths(home).is_empty());
+        let s = Settings::parse("[picker]\nghq = false\nroots = [\"~/src\", \"/work\", \" \"]\n")
+            .unwrap();
+        assert!(!s.picker.ghq);
+        assert_eq!(
+            s.picker.root_paths(home),
+            [PathBuf::from("/h/src"), PathBuf::from("/work")]
+        );
+    }
+
+    #[test]
+    fn the_specification_s_settings_toml_reads_as_the_settings_as_designed() {
+        let spec = include_str!("../../../docs/spec/settings.md");
+        let block = spec
+            .split_once("```toml\n")
+            .and_then(|(_, rest)| rest.split_once("```"))
+            .map(|(toml, _)| toml)
+            .unwrap();
+        assert_eq!(Settings::parse(block).unwrap(), Settings::default());
+    }
+
+    #[test]
+    fn option_counts_as_alt_and_the_cursor_holds_still_unless_the_settings_say_otherwise() {
+        let s = Settings::parse("").unwrap();
+        assert_eq!(s.console, ConsoleSettings::default());
+        assert_eq!(s.console.option_as_alt, OptionAsAlt::Both);
+        assert!(!s.console.cursor_blink);
+        let s =
+            Settings::parse("[console]\noption_as_alt = \"left\"\ncursor_blink = true\n").unwrap();
+        assert_eq!(s.console.option_as_alt, OptionAsAlt::Left);
+        assert!(s.console.cursor_blink);
+        assert!(Settings::parse("[console]\noption_as_alt = \"up\"\n").is_err());
+    }
+
+    #[test]
+    fn a_session_starting_to_wait_is_told_of_only_when_the_settings_ask() {
+        assert!(!Settings::parse("").unwrap().notify_waiting);
+        assert!(
+            Settings::parse("notify_waiting = true\n")
+                .unwrap()
+                .notify_waiting
+        );
+    }
+
+    #[test]
+    fn the_details_panel_reads_as_much_as_the_settings_say_and_at_least_one() {
+        let s = Settings::parse("").unwrap();
+        assert_eq!(
+            (
+                s.details.log_commits,
+                s.details.diff_lines,
+                s.details.links_kept
+            ),
+            (50, 2000, 100)
+        );
+        assert_eq!(s.details.links_shown, 5);
+        assert_eq!(
+            Settings::parse("[details]\nlinks_shown = 0\n")
+                .unwrap()
+                .details
+                .links_shown,
+            1
+        );
+        let s = Settings::parse("[details]\nlog_commits = 0\ndiff_lines = 9\nlinks_kept = 5000\n")
+            .unwrap();
+        assert_eq!(
+            (
+                s.details.log_commits,
+                s.details.diff_lines,
+                s.details.links_kept
+            ),
+            (1, 9, 1000)
+        );
     }
 }

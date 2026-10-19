@@ -4,7 +4,6 @@
 use std::io::Read;
 use std::path::PathBuf;
 
-use adroit_claude::Access;
 use adroit_term::{Daemon, Spawn};
 
 use crate::scratch::{self, Moment};
@@ -90,28 +89,26 @@ async fn start(
     let taken: Vec<&str> = names.iter().map(String::as_str).collect();
     let name = name_for(asked.name.as_deref(), prompt, &taken);
     let conversation = adroit_claude::new_session_id();
-    let access = if asked.read_only {
-        Access::Read
-    } else {
-        Access::Edit
-    };
+    let options = crate::programs::session_options(asked.read_only);
     let program = std::env::current_exe().unwrap_or_else(|_| "adroit".into());
     let mut args = crate::plugin::args(&program);
     args.extend(adroit_claude::start_args(
         &name,
         &conversation,
-        access,
+        &options,
         prompt,
     ));
+    let env = adroit_claude::ENV
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .chain(crate::daemon::terminal_env())
+        .collect();
+    let (program, args, env) = crate::programs::claude(args, env);
     let spawn = Spawn {
-        program: adroit_claude::claude_program(),
+        program,
         args,
         cwd: dir.clone(),
-        env: adroit_claude::ENV
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .chain(crate::daemon::terminal_env())
-            .collect(),
+        env,
         tags: sessions::claude_tags(&name, &dir, &conversation, asked.read_only, now_ms(), from),
         cols: COLS,
         rows: ROWS,
