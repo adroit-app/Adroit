@@ -1,4 +1,12 @@
 use super::*;
+use serde::{Deserialize, Serialize};
+
+/// How Codex sessions start, apart from Claude Code's options.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CodexOptions {
+    pub model: String,
+}
 
 pub struct Codex;
 

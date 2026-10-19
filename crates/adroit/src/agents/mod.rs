@@ -3,17 +3,12 @@
 mod claude;
 mod codex;
 
+pub use codex::CodexOptions;
+
 use crate::programs::Launch;
 use crate::settings::Settings;
 use adroit_model::Agent;
-use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct CodexOptions {
-    pub model: String,
-}
 
 /// Optional integrations beyond the shared terminal and prompt.
 pub struct Capabilities {

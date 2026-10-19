@@ -126,7 +126,7 @@ impl Default for Settings {
         Self {
             agent: adroit_model::Agent::Claude,
             codex: Launch::default(),
-            codex_sessions: crate::agents::CodexOptions::default(),
+            codex_sessions: CodexOptions::default(),
             zoom: 1.0,
             prompt_min_rows: 3,
             prompt_max_rows: 12,
@@ -437,7 +437,7 @@ model = "chosen-model"
         let s = Settings {
             agent: adroit_model::Agent::Claude,
             codex: Launch::default(),
-            codex_sessions: crate::agents::CodexOptions::default(),
+            codex_sessions: CodexOptions::default(),
             zoom: 1.1,
             prompt_min_rows: 2,
             prompt_max_rows: 20,
