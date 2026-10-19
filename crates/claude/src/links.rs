@@ -40,17 +40,32 @@ pub struct Link {
     pub line: Option<u32>,
 }
 
+/// Another session a session exchanged messages with through Claude Code.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Peer {
+    /// The name Claude Code addresses it by.
+    pub name: String,
+    /// Whether this session messaged it.
+    pub sent: bool,
+    /// Whether it messaged this session.
+    pub received: bool,
+}
+
 /// What a session brought up, each group newest first.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Links {
     pub artifacts: Vec<Link>,
     pub urls: Vec<Link>,
     pub files: Vec<Link>,
+    pub peers: Vec<Peer>,
 }
 
 impl Links {
     pub fn is_empty(&self) -> bool {
-        self.artifacts.is_empty() && self.urls.is_empty() && self.files.is_empty()
+        self.artifacts.is_empty()
+            && self.urls.is_empty()
+            && self.files.is_empty()
+            && self.peers.is_empty()
     }
 
     /// Every link, artifacts first, then the other addresses, then files.
@@ -83,6 +98,10 @@ pub struct Collector {
     found: HashMap<(Group, String), (u64, Link)>,
     /// What each artifact publish called its page, by the tool call's id.
     publishing: HashMap<String, String>,
+    /// Who each message not yet delivered is to, by the tool call's id.
+    sending: HashMap<String, String>,
+    /// The sessions messaged or heard from, by name, with when last.
+    peers: HashMap<String, (u64, Peer)>,
 }
 
 impl Collector {
@@ -94,6 +113,8 @@ impl Collector {
             count: 0,
             found: HashMap::new(),
             publishing: HashMap::new(),
+            sending: HashMap::new(),
+            peers: HashMap::new(),
         }
     }
 
@@ -108,6 +129,12 @@ impl Collector {
             Some("user") => false,
             _ => return,
         };
+        let origin = &v["origin"];
+        if origin["kind"].as_str() == Some("peer")
+            && let Some(name) = origin["name"].as_str()
+        {
+            self.peer(name, false);
+        }
         // Text Claude Code put in the user's turn, as a skill's or a
         // command's, is not what was said.
         if v["isMeta"].as_bool() == Some(true) {
@@ -124,7 +151,10 @@ impl Collector {
                             }
                         }
                         Some("tool_use") => self.tool_use(item),
-                        Some("tool_result") => self.tool_result(item),
+                        Some("tool_result") => {
+                            self.delivered(item, &v["toolUseResult"]);
+                            self.tool_result(item);
+                        }
                         _ => {}
                     }
                 }
@@ -147,6 +177,9 @@ impl Collector {
                 group.push(link.clone());
             }
         }
+        let mut peers: Vec<&(u64, Peer)> = self.peers.values().collect();
+        peers.sort_by_key(|(at, _)| std::cmp::Reverse(*at));
+        out.peers = peers.into_iter().map(|(_, p)| p.clone()).collect();
         out
     }
 
@@ -194,6 +227,11 @@ impl Collector {
         if let (Some(title), Some(id)) = (&title, item["id"].as_str()) {
             self.publishing.insert(id.to_string(), title.clone());
         }
+        if name == "SendMessage"
+            && let (Some(to), Some(id)) = (input["to"].as_str(), item["id"].as_str())
+        {
+            self.sending.insert(id.to_string(), to.to_string());
+        }
         let mut texts = Vec::new();
         strings(input, &mut texts);
         for text in texts {
@@ -216,6 +254,44 @@ impl Collector {
             .and_then(|id| self.publishing.get(id))
             .cloned();
         self.addresses(head(&text), title.as_deref());
+    }
+
+    /// Note the session a message went to, once it was delivered to one. A
+    /// message to an agent inside this session is pinned to that agent.
+    fn delivered(&mut self, item: &Value, outcome: &Value) {
+        let Some(to) = item["tool_use_id"]
+            .as_str()
+            .and_then(|id| self.sending.remove(id))
+        else {
+            return;
+        };
+        if outcome["success"].as_bool() == Some(true) && outcome["pin"].is_null() {
+            self.peer(&to, true);
+        }
+    }
+
+    fn peer(&mut self, name: &str, sent: bool) {
+        let name = without_ref(name);
+        if name.is_empty() {
+            return;
+        }
+        self.count += 1;
+        let (at, peer) = self.peers.entry(name.to_string()).or_insert_with(|| {
+            (
+                0,
+                Peer {
+                    name: name.to_string(),
+                    sent: false,
+                    received: false,
+                },
+            )
+        });
+        *at = self.count;
+        if sent {
+            peer.sent = true;
+        } else {
+            peer.received = true;
+        }
     }
 
     /// Note every address in `text`, an artifact titled `title` when nothing
@@ -424,6 +500,21 @@ fn strings<'a>(v: &'a Value, out: &mut Vec<&'a str>) {
         Value::Array(items) => items.iter().for_each(|i| strings(i, out)),
         Value::Object(map) => map.values().for_each(|i| strings(i, out)),
         _ => {}
+    }
+}
+
+/// A session's name without the ` [ref]` Claude Code adds to tell apart
+/// sessions sharing it.
+fn without_ref(name: &str) -> &str {
+    let name = name.trim();
+    match name.rsplit_once(" [") {
+        Some((bare, r))
+            if r.strip_suffix(']')
+                .is_some_and(|r| !r.is_empty() && r.bytes().all(|b| b.is_ascii_hexdigit())) =>
+        {
+            bare.trim_end()
+        }
+        _ => name,
     }
 }
 
@@ -914,5 +1005,105 @@ mod tests {
         std::fs::remove_file(&path).unwrap();
         assert!(t.read(NOWHERE));
         assert!(t.links().is_empty());
+    }
+
+    fn sent(id: &str, to: &str) -> String {
+        tool(
+            id,
+            "SendMessage",
+            json!({"to": to, "summary": "s", "message": "m"}),
+        )
+    }
+
+    fn delivered(id: &str, outcome: serde_json::Value) -> String {
+        json!({
+            "type": "user",
+            "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": id, "content": "delivered"}
+            ]},
+            "toolUseResult": outcome,
+        })
+        .to_string()
+    }
+
+    fn arrived(from: &str) -> String {
+        json!({
+            "type": "user",
+            "isMeta": true,
+            "message": {"role": "user", "content": "Another Claude session sent a message: …"},
+            "origin": {"kind": "peer", "name": from, "body": "b"},
+        })
+        .to_string()
+    }
+
+    fn peer(name: &str, sent: bool, received: bool) -> Peer {
+        Peer {
+            name: name.into(),
+            sent,
+            received,
+        }
+    }
+
+    #[test]
+    fn a_session_messaged_and_one_heard_from_are_its_peers_newest_first() {
+        let links = read(
+            &[
+                sent("t1", "api-tests"),
+                delivered("t1", json!({"success": true, "msg_id": "m1"})),
+                arrived("review-api"),
+            ],
+            &[],
+        );
+        assert_eq!(
+            links.peers,
+            [
+                peer("review-api", false, true),
+                peer("api-tests", true, false)
+            ]
+        );
+        assert!(!links.is_empty());
+    }
+
+    #[test]
+    fn a_peer_messaged_both_ways_is_listed_once() {
+        let links = read(
+            &[
+                arrived("api-tests"),
+                sent("t1", "api-tests"),
+                delivered("t1", json!({"success": true, "msg_id": "m1"})),
+            ],
+            &[],
+        );
+        assert_eq!(links.peers, [peer("api-tests", true, true)]);
+    }
+
+    #[test]
+    fn a_peer_addressed_with_its_ref_goes_by_its_name() {
+        let links = read(
+            &[
+                sent("t1", "api-tests [17b2f1]"),
+                delivered("t1", json!({"success": true, "msg_id": "m1"})),
+            ],
+            &[],
+        );
+        assert_eq!(links.peers, [peer("api-tests", true, false)]);
+    }
+
+    #[test]
+    fn a_message_that_failed_or_went_to_an_agent_inside_the_session_makes_no_peer() {
+        let links = read(
+            &[
+                sent("t1", "nobody"),
+                delivered("t1", json!({"success": false})),
+                sent("t2", "a1b2c3"),
+                delivered(
+                    "t2",
+                    json!({"success": true, "pin": {"id": "a1b2c3", "name": "a1b2c3"}}),
+                ),
+                sent("t3", "never-answered"),
+            ],
+            &[],
+        );
+        assert!(links.peers.is_empty());
     }
 }

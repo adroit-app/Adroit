@@ -22,7 +22,8 @@ use crate::console_keys::direct_key;
 use crate::console_read;
 use crate::daemon;
 use crate::details::{
-    Drill, Entry, Group, Listing, Sheet, View, facts, load, overview, shown_link,
+    Drill, Entry, Group, Listing, Related, Sheet, Tie, View, facts, load, overview, related,
+    shown_link,
 };
 use crate::editor;
 use crate::filer::{Filer, read_dirs};
@@ -126,16 +127,23 @@ fn copy_to_clipboard(text: &str) -> std::io::Result<()> {
 }
 
 /// The overview's rows for the session `shown`, when its links were read for
-/// it, the `folded` groups showing only their headings.
+/// it, the `folded` groups showing only their headings; the sessions it
+/// worked with are found in `tree`.
 fn overview_listing(
     read: Option<&(String, Links)>,
     shown: Option<&Tab>,
     folded: &HashSet<Group>,
+    tree: &Tree,
 ) -> Option<Listing> {
     match (read, shown) {
         (Some((id, links)), Some(Tab::Session(s))) if id == s => {
             let rows: Vec<Link> = links.rows().cloned().collect();
-            Some(Listing::Links(overview(&rows, folded)))
+            let sessions: Vec<&Session> = tree.sessions().map(|(_, s)| s).collect();
+            let ties = match nav::find(tree, s) {
+                Some((_, shown)) => related(shown, &sessions, &links.peers),
+                None => Vec::new(),
+            };
+            Some(Listing::Links(overview(&ties, &rows, folded)))
         }
         _ => None,
     }
@@ -192,6 +200,31 @@ fn link_sections(entries: &[Entry], worktree: &Path, home: &Path) -> Vec<LinkSec
                 folded: *folded,
                 rows: Vec::new(),
             }),
+            Entry::Session(r) => {
+                let icon = if r
+                    .ties
+                    .iter()
+                    .any(|t| matches!(t, Tie::Started | Tie::StartedBy))
+                {
+                    Icon::MessagePlus
+                } else {
+                    Icon::Message
+                };
+                let mut tag: Vec<&str> = r.ties.iter().map(|t| t.word()).collect();
+                if r.id.is_none() {
+                    tag.push("not running");
+                }
+                if let Some(section) = out.last_mut() {
+                    section.rows.push(LinkRow {
+                        at,
+                        icon,
+                        label: r.name.clone(),
+                        tag: tag.join(" · "),
+                        target: r.name.clone(),
+                        file: false,
+                    });
+                }
+            }
             Entry::Link(link) => {
                 let icon = match link.kind {
                     LinkKind::Artifact => Icon::AppWindow,
@@ -248,6 +281,29 @@ fn use_link(link: &Link, how: Use) -> Option<String> {
             Ok(()) => format!("Copied {}", link.target),
             Err(e) => format!("cannot copy: {e}"),
         }),
+    }
+}
+
+/// What using a session of the overview comes to.
+#[derive(Debug, PartialEq, Eq)]
+enum Went {
+    /// Show the session by this id.
+    Show(String),
+    Told(String),
+    Nowhere,
+}
+
+/// Show `related`, or copy its name, which Claude Code's messaging
+/// addresses it by.
+fn use_related(related: &Related, how: Use) -> Went {
+    match (how, &related.id) {
+        (Use::Open, Some(id)) => Went::Show(id.clone()),
+        (Use::Open, None) => Went::Told(format!("{} is not running", related.name)),
+        (Use::Copy, _) => Went::Told(match copy_to_clipboard(&related.name) {
+            Ok(()) => format!("Copied {}", related.name),
+            Err(e) => format!("cannot copy: {e}"),
+        }),
+        (Use::Reveal, _) => Went::Nowhere,
     }
 }
 
@@ -2841,6 +2897,7 @@ fn App() -> Element {
                             overview_links.peek().as_ref(),
                             active.peek().as_ref(),
                             &folded_groups.peek(),
+                            &tree.peek(),
                         );
                     }
                     git_view
@@ -3027,9 +3084,7 @@ fn App() -> Element {
                                 (Some(Entry::Heading { group, .. }), Action::CursorFold) => {
                                     Some((*group, true))
                                 }
-                                (Some(Entry::Link(link)), Action::CursorFold) => {
-                                    Some((Group::of(&link.kind), true))
-                                }
+                                (Some(row), Action::CursorFold) => Some((row.group(), true)),
                                 _ => None,
                             };
                             let how = match action {
@@ -3045,6 +3100,7 @@ fn App() -> Element {
                                         overview_links.peek().as_ref(),
                                         active.peek().as_ref(),
                                         &f,
+                                        &tree.peek(),
                                     );
                                     if let Some(now) = now
                                         && let Some(at) = now.heading(group)
@@ -3056,6 +3112,13 @@ fn App() -> Element {
                                 (None, Some(how), Some(Entry::Link(link))) => {
                                     if let Some(told) = use_link(link, how) {
                                         notify.notice(told);
+                                    }
+                                }
+                                (None, Some(how), Some(Entry::Session(r))) => {
+                                    match use_related(r, how) {
+                                        Went::Show(id) => show_session(id),
+                                        Went::Told(told) => notify.notice(told),
+                                        Went::Nowhere => {}
                                     }
                                 }
                                 (None, Some(_), _) => {}
@@ -3319,6 +3382,7 @@ fn App() -> Element {
                         overview_links.peek().as_ref(),
                         active.peek().as_ref(),
                         &folded_groups.peek(),
+                        &tree.peek(),
                     );
                     if let Some(l) = listing {
                         let mut d = drill.peek().clone();
@@ -3828,6 +3892,7 @@ fn App() -> Element {
             overview_links().as_ref(),
             active_tab.as_ref(),
             &folded_groups(),
+            &t,
         )
     } else {
         None
@@ -3852,6 +3917,7 @@ fn App() -> Element {
             overview_links.peek().as_ref(),
             active.peek().as_ref(),
             &folded_groups.peek(),
+            &tree.peek(),
         ) else {
             return;
         };
@@ -3867,6 +3933,11 @@ fn App() -> Element {
                     notify.notice(told);
                 }
             }
+            Some(Entry::Session(r)) => match use_related(r, Use::Open) {
+                Went::Show(id) => show_session(id),
+                Went::Told(told) => notify.notice(told),
+                Went::Nowhere => {}
+            },
             Some(Entry::Heading { group, folded, .. }) => {
                 let f = refold(&folded_groups.peek(), *group, !folded);
                 folded_groups.set(f);
@@ -4965,13 +5036,17 @@ mod tests {
             link(LinkKind::File(Touch::Read), "/w/b.rs"),
         ];
         let drawn = |folded: &HashSet<Group>| -> Vec<_> {
-            link_sections(&overview(&rows, folded), Path::new("/w"), Path::new("/h"))
-                .into_iter()
-                .map(|s| {
-                    let rows: Vec<_> = s.rows.iter().map(|r| (r.at, r.icon)).collect();
-                    (s.group, s.at, s.count, s.folded, rows)
-                })
-                .collect()
+            link_sections(
+                &overview(&[], &rows, folded),
+                Path::new("/w"),
+                Path::new("/h"),
+            )
+            .into_iter()
+            .map(|s| {
+                let rows: Vec<_> = s.rows.iter().map(|r| (r.at, r.icon)).collect();
+                (s.group, s.at, s.count, s.folded, rows)
+            })
+            .collect()
         };
         assert_eq!(
             drawn(&HashSet::new()),
@@ -5020,9 +5095,60 @@ mod tests {
         );
         let shown = |id: &str| Tab::Session(id.into());
         let open = HashSet::new();
-        assert!(overview_listing(Some(&read), Some(&shown("s1")), &open).is_some());
-        assert!(overview_listing(Some(&read), Some(&shown("s2")), &open).is_none());
-        assert!(overview_listing(Some(&read), Some(&Tab::Shell(1)), &open).is_none());
+        let t = Tree::default();
+        assert!(overview_listing(Some(&read), Some(&shown("s1")), &open, &t).is_some());
+        assert!(overview_listing(Some(&read), Some(&shown("s2")), &open, &t).is_none());
+        assert!(overview_listing(Some(&read), Some(&Tab::Shell(1)), &open, &t).is_none());
+    }
+
+    fn related_to(name: &str, id: Option<&str>, ties: &[Tie]) -> Related {
+        Related {
+            name: name.into(),
+            id: id.map(str::to_string),
+            ties: ties.to_vec(),
+        }
+    }
+
+    #[test]
+    fn a_session_row_says_how_it_is_tied_and_whether_it_still_runs() {
+        let rows = [
+            related_to("tests", Some("3"), &[Tie::Started, Tie::Received]),
+            related_to("gone", None, &[Tie::Sent]),
+        ];
+        let drawn = link_sections(
+            &overview(&rows, &[], &HashSet::new()),
+            Path::new("/w"),
+            Path::new("/h"),
+        );
+        let shown: Vec<_> = drawn[0]
+            .rows
+            .iter()
+            .map(|r| (r.icon, r.label.as_str(), r.tag.as_str()))
+            .collect();
+        assert_eq!(drawn[0].group, Group::Sessions);
+        assert_eq!(
+            shown,
+            [
+                (Icon::MessagePlus, "tests", "started · heard from"),
+                (Icon::Message, "gone", "messaged · not running"),
+            ]
+        );
+    }
+
+    #[test]
+    fn opening_a_session_row_shows_it_while_it_runs() {
+        assert_eq!(
+            use_related(&related_to("tests", Some("3"), &[Tie::Started]), Use::Open),
+            Went::Show("3".into())
+        );
+        assert_eq!(
+            use_related(&related_to("gone", None, &[Tie::Sent]), Use::Open),
+            Went::Told("gone is not running".into())
+        );
+        assert_eq!(
+            use_related(&related_to("tests", Some("3"), &[]), Use::Reveal),
+            Went::Nowhere
+        );
     }
 
     #[test]

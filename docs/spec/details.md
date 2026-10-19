@@ -6,7 +6,11 @@ Overview, Changes and Log.
 ## Sheets
 
 - **Overview** names the session shown, how it stands, and the workspace and
-  worktree it works in. Below, it lists what the session's conversation
+  worktree it works in. Below, it lists the other sessions it worked with:
+  the one it was started from and those it started
+  ([sessions](sessions.md#started-by-a-session)) while they run, then those it
+  messaged or heard from through Claude Code, newest first, each saying how
+  the two are tied. After them it lists what the session's conversation
   brought up, newest first: the claude.ai artifacts, the other web addresses,
   and the files it wrote or edited, read, or named in a reply where such a
   file exists, each saying how the session came across it. A shell or a
@@ -18,6 +22,10 @@ Overview, Changes and Log.
   running off the end leads to a change not listed. Opening a change lists
   the files it changed, and opening one of those shows its diff in that
   change.
+
+Opening a session of the overview shows it, wherever it runs; one that runs
+no more is listed by its name and says so. Copying one copies its name, which
+Claude Code's messaging addresses it by.
 
 Opening a link of the overview hands it to macOS: an address opens in the
 default browser, a file in the app that opens it. A right click on a link

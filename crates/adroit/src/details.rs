@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use adroit_claude::git::{Change, Commit, DiffLine};
-use adroit_claude::links::{Kind as LinkKind, Link, Touch};
+use adroit_claude::links::{Kind as LinkKind, Link, Peer, Touch};
 use adroit_model::{Kind, Session, State};
 
 /// What the details panel says about a session, as label and value, at
@@ -169,6 +169,7 @@ impl Listing {
 /// A group of the overview's links, shown under a heading of its own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Group {
+    Sessions,
     Artifacts,
     Links,
     Files,
@@ -185,6 +186,7 @@ impl Group {
 
     pub fn title(self) -> &'static str {
         match self {
+            Group::Sessions => "Sessions",
             Group::Artifacts => "Artifacts",
             Group::Links => "Links",
             Group::Files => "Files",
@@ -200,28 +202,127 @@ pub enum Entry {
         count: usize,
         folded: bool,
     },
+    Session(Related),
     Link(Link),
 }
 
 impl Entry {
     fn key(&self) -> &str {
         match self {
-            // No address or path starts with a NUL, so no link takes a
-            // heading's place.
+            // No address, path or session name starts with a NUL, so no row
+            // takes a heading's place.
             Entry::Heading { group, .. } => match group {
+                Group::Sessions => "\0sessions",
                 Group::Artifacts => "\0artifacts",
                 Group::Links => "\0links",
                 Group::Files => "\0files",
             },
+            Entry::Session(r) => r.name.as_str(),
             Entry::Link(l) => l.target.as_str(),
+        }
+    }
+
+    /// The group the row is in.
+    pub fn group(&self) -> Group {
+        match self {
+            Entry::Heading { group, .. } => *group,
+            Entry::Session(_) => Group::Sessions,
+            Entry::Link(l) => Group::of(&l.kind),
         }
     }
 }
 
-/// The overview's rows for `links`, which come grouped: each group's
-/// heading, then its links unless the group is `folded`.
-pub fn overview(links: &[Link], folded: &HashSet<Group>) -> Vec<Entry> {
+/// How another session is tied to the one shown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tie {
+    /// It started the one shown.
+    StartedBy,
+    /// The one shown started it.
+    Started,
+    /// The one shown messaged it.
+    Sent,
+    /// It messaged the one shown.
+    Received,
+}
+
+impl Tie {
+    pub fn word(self) -> &'static str {
+        match self {
+            Tie::StartedBy => "started this",
+            Tie::Started => "started",
+            Tie::Sent => "messaged",
+            Tie::Received => "heard from",
+        }
+    }
+}
+
+/// Another session the one shown worked with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Related {
+    pub name: String,
+    /// Which session it is, while one runs under its name.
+    pub id: Option<String>,
+    pub ties: Vec<Tie>,
+}
+
+/// The sessions `shown` worked with, among `sessions`: the one it was started
+/// from, those it started, then those it messaged or heard from, newest
+/// first, as `peers` gives them.
+pub fn related(shown: &Session, sessions: &[&Session], peers: &[Peer]) -> Vec<Related> {
+    let mut out: Vec<Related> = Vec::new();
+    let mut tie = |name: &str, id: Option<&str>, tie: Tie| {
+        let at = out.iter().position(|r| match (&r.id, id) {
+            (Some(a), Some(b)) => a == b,
+            _ => r.name == name,
+        });
+        match at {
+            Some(at) => out[at].ties.push(tie),
+            None => out.push(Related {
+                name: name.to_string(),
+                id: id.map(str::to_string),
+                ties: vec![tie],
+            }),
+        }
+    };
+    let others = || sessions.iter().filter(|s| s.id != shown.id);
+    if !shown.started_from.is_empty()
+        && let Some(s) = others().find(|s| s.session_id == shown.started_from)
+    {
+        tie(&s.name, Some(&s.id), Tie::StartedBy);
+    }
+    if !shown.session_id.is_empty() {
+        for s in others().filter(|s| s.started_from == shown.session_id) {
+            tie(&s.name, Some(&s.id), Tie::Started);
+        }
+    }
+    for p in peers.iter().filter(|p| p.name != shown.name) {
+        let id = others().find(|s| s.name == p.name).map(|s| s.id.as_str());
+        if p.sent {
+            tie(&p.name, id, Tie::Sent);
+        }
+        if p.received {
+            tie(&p.name, id, Tie::Received);
+        }
+    }
+    out
+}
+
+/// The overview's rows: the `related` sessions under their heading, then
+/// `links`, which come grouped, each group's heading followed by its links;
+/// a `folded` group shows its heading alone.
+pub fn overview(related: &[Related], links: &[Link], folded: &HashSet<Group>) -> Vec<Entry> {
     let mut out = Vec::new();
+    if !related.is_empty() {
+        let shut = folded.contains(&Group::Sessions);
+        out.push(Entry::Heading {
+            group: Group::Sessions,
+            count: related.len(),
+            folded: shut,
+        });
+        if !shut {
+            out.extend(related.iter().cloned().map(Entry::Session));
+        }
+    }
     for run in links.chunk_by(|a, b| Group::of(&a.kind) == Group::of(&b.kind)) {
         let group = Group::of(&run[0].kind);
         let shut = folded.contains(&group);
@@ -786,7 +887,7 @@ mod tests {
             link(LinkKind::File(Touch::Edited), "/w/a.rs", None, None),
             link(LinkKind::File(Touch::Read), "/w/b.rs", None, None),
         ];
-        let open = overview(&all, &HashSet::new());
+        let open = overview(&[], &all, &HashSet::new());
         assert_eq!(
             open,
             [
@@ -800,7 +901,7 @@ mod tests {
                 Entry::Link(all[4].clone()),
             ]
         );
-        let folded = overview(&all, &HashSet::from([Group::Links, Group::Files]));
+        let folded = overview(&[], &all, &HashSet::from([Group::Links, Group::Files]));
         assert_eq!(
             folded,
             [
@@ -810,7 +911,7 @@ mod tests {
                 heading(Group::Files, 2, true),
             ]
         );
-        assert!(overview(&[], &HashSet::new()).is_empty());
+        assert!(overview(&[], &[], &HashSet::new()).is_empty());
     }
 
     #[test]
@@ -819,12 +920,110 @@ mod tests {
             link(LinkKind::Url, "https://a.dev", None, None),
             link(LinkKind::File(Touch::Read), "/w/a.rs", None, None),
         ];
-        let open = Listing::Links(overview(&all, &HashSet::new()));
+        let open = Listing::Links(overview(&[], &all, &HashSet::new()));
         assert_eq!(open.heading(Group::Files), Some(2));
         assert_eq!(open.heading(Group::Artifacts), None);
         let mut d = Drill::new(Sheet::Overview);
         d.select(&open, 2);
-        let folded = Listing::Links(overview(&all, &HashSet::from([Group::Links])));
+        let folded = Listing::Links(overview(&[], &all, &HashSet::from([Group::Links])));
         assert_eq!(d.selected(&folded), Some(1));
+    }
+
+    fn running(id: &str, name: &str, conversation: &str, from: &str) -> Session {
+        Session {
+            id: id.into(),
+            name: name.into(),
+            session_id: conversation.into(),
+            started_from: from.into(),
+            ..Default::default()
+        }
+    }
+
+    fn peer(name: &str, sent: bool, received: bool) -> Peer {
+        Peer {
+            name: name.into(),
+            sent,
+            received,
+        }
+    }
+
+    fn tied(name: &str, id: Option<&str>, ties: &[Tie]) -> Related {
+        Related {
+            name: name.into(),
+            id: id.map(str::to_string),
+            ties: ties.to_vec(),
+        }
+    }
+
+    #[test]
+    fn a_session_is_related_to_the_one_it_was_started_from_and_those_it_started() {
+        let lead = running("1", "lead", "c-lead", "");
+        let shown = running("2", "fix", "c-fix", "c-lead");
+        let child = running("3", "tests", "c-tests", "c-fix");
+        let other = running("4", "other", "c-other", "c-lead");
+        let all = [&lead, &shown, &child, &other];
+        assert_eq!(
+            related(&shown, &all, &[]),
+            [
+                tied("lead", Some("1"), &[Tie::StartedBy]),
+                tied("tests", Some("3"), &[Tie::Started]),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_peer_is_found_by_its_name_and_one_running_nowhere_is_kept_by_name() {
+        let shown = running("2", "fix", "c-fix", "");
+        let api = running("5", "api", "c-api", "");
+        let all = [&shown, &api];
+        assert_eq!(
+            related(
+                &shown,
+                &all,
+                &[peer("gone", true, false), peer("api", true, true)]
+            ),
+            [
+                tied("gone", None, &[Tie::Sent]),
+                tied("api", Some("5"), &[Tie::Sent, Tie::Received]),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_session_both_started_and_messaged_is_listed_once() {
+        let shown = running("2", "fix", "c-fix", "");
+        let child = running("3", "tests", "c-tests", "c-fix");
+        let all = [&shown, &child];
+        assert_eq!(
+            related(&shown, &all, &[peer("tests", false, true)]),
+            [tied("tests", Some("3"), &[Tie::Started, Tie::Received])]
+        );
+    }
+
+    #[test]
+    fn a_session_is_not_related_to_itself_and_one_without_a_conversation_to_none() {
+        let shown = running("2", "fix", "", "");
+        let stray = running("3", "stray", "c-stray", "");
+        let all = [&shown, &stray];
+        assert!(related(&shown, &all, &[peer("fix", true, false)]).is_empty());
+    }
+
+    #[test]
+    fn the_sessions_head_the_overview_and_fold_as_a_group() {
+        let r = [tied("tests", Some("3"), &[Tie::Started])];
+        let l = [link(LinkKind::Url, "https://a.dev", None, None)];
+        assert_eq!(
+            overview(&r, &l, &HashSet::new()),
+            [
+                heading(Group::Sessions, 1, false),
+                Entry::Session(r[0].clone()),
+                heading(Group::Links, 1, false),
+                Entry::Link(l[0].clone()),
+            ]
+        );
+        assert_eq!(
+            overview(&r, &[], &HashSet::from([Group::Sessions])),
+            [heading(Group::Sessions, 1, true)]
+        );
     }
 }
