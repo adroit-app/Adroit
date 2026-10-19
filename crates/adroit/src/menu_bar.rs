@@ -74,6 +74,7 @@ pub fn sections() -> Vec<Section> {
                 Run(Action::SessionNew, "New Session"),
                 Run(Action::SessionNewReader, "New Reader"),
                 Run(Action::SessionScratch, "New Scratch Session"),
+                Run(Action::SessionAgentNext, "Switch Agent of New Session"),
                 Run(Action::SessionPick, "Go to or Start Session…"),
                 Separator,
                 Run(Action::PromptSend, "Send Prompt"),

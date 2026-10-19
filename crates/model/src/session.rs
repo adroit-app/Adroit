@@ -20,6 +20,12 @@ impl Agent {
         }
     }
 
+    /// The agent after this one, going round to the first after the last.
+    pub fn next(self) -> Self {
+        let at = Self::ALL.iter().position(|a| *a == self).unwrap_or(0);
+        Self::ALL[(at + 1) % Self::ALL.len()]
+    }
+
     pub fn parse(key: &str) -> Option<Self> {
         match key {
             "claude" => Some(Self::Claude),
@@ -199,6 +205,16 @@ mod tests {
 
     fn one(json: &str) -> Session {
         parse_agents(json).unwrap().remove(0)
+    }
+
+    #[test]
+    fn switching_the_agent_goes_through_every_one_and_round_again() {
+        let mut seen = vec![Agent::Claude];
+        for _ in 1..Agent::ALL.len() {
+            seen.push(seen.last().unwrap().next());
+        }
+        assert_eq!(seen, Agent::ALL);
+        assert_eq!(seen.last().unwrap().next(), Agent::Claude);
     }
 
     #[test]

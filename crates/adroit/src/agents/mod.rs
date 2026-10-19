@@ -8,6 +8,7 @@ pub use codex::CodexOptions;
 use crate::programs::Launch;
 use crate::settings::Settings;
 use adroit_model::Agent;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// Optional integrations beyond the shared terminal and prompt.
@@ -97,15 +98,20 @@ pub fn adapter(agent: Agent) -> &'static dyn AgentAdapter {
     }
 }
 
-/// The open session keeps its own provider when the default changes.
+/// The open session keeps its own provider when the default changes; a
+/// session not started yet runs the one chosen for it, if any.
 pub fn for_tab(
     tree: &adroit_model::Tree,
     tab: Option<&crate::tabs::Tab>,
+    chosen: &HashMap<crate::tabs::Tab, Agent>,
     fallback: Agent,
 ) -> Agent {
     match tab {
         Some(crate::tabs::Tab::Session(id)) => {
             crate::nav::find(tree, id).map_or(fallback, |(_, s)| s.agent)
+        }
+        Some(draft @ crate::tabs::Tab::Draft { .. }) => {
+            chosen.get(draft).copied().unwrap_or(fallback)
         }
         _ => fallback,
     }
@@ -196,11 +202,34 @@ mod tests {
             for_tab(
                 &tree,
                 Some(&Tab::Session("codex-session".into())),
+                &HashMap::new(),
                 Agent::Claude
             ),
             Agent::Codex
         );
-        assert_eq!(for_tab(&tree, None, Agent::Claude), Agent::Claude);
+        assert_eq!(
+            for_tab(&tree, None, &HashMap::new(), Agent::Claude),
+            Agent::Claude
+        );
+    }
+
+    #[test]
+    fn a_draft_runs_the_agent_chosen_for_it_and_otherwise_the_default() {
+        use crate::tabs::{Role, Tab};
+        let draft = |dir: &str| Tab::Draft {
+            worktree: dir.into(),
+            role: Role::Worker,
+        };
+        let chosen = HashMap::from([(draft("/api"), Agent::Codex)]);
+        let tree = adroit_model::Tree::default();
+        assert_eq!(
+            for_tab(&tree, Some(&draft("/api")), &chosen, Agent::Claude),
+            Agent::Codex
+        );
+        assert_eq!(
+            for_tab(&tree, Some(&draft("/web")), &chosen, Agent::Claude),
+            Agent::Claude
+        );
     }
 
     #[tokio::test]

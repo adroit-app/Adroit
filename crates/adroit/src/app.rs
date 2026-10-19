@@ -1311,6 +1311,9 @@ fn App() -> Element {
             .unwrap_or_default()
     });
     let mut active = use_signal(|| None::<Tab>);
+    // The agent chosen for a session not started yet, by its draft; the
+    // default for new sessions otherwise.
+    let mut draft_agents = use_signal(HashMap::<Tab, adroit_model::Agent>::new);
     let mut place = use_signal(|| None::<Place>);
     let mut shells = use_signal(Vec::<Shell>::new);
     // The sessions opened in the window, which the tabs above the console
@@ -1819,7 +1822,7 @@ fn App() -> Element {
     let commands_here = use_memo(move || {
         let t = tree.read();
         let tab = active.read();
-        let agent = agents::for_tab(&t, tab.as_ref(), font.read().agent);
+        let agent = agents::for_tab(&t, tab.as_ref(), &draft_agents.read(), font.read().agent);
         agents::adapter(agent)
             .capabilities()
             .command_probe
@@ -1927,6 +1930,7 @@ fn App() -> Element {
                     let agent = agents::for_tab(
                         &tree.peek(),
                         active.peek().as_ref(),
+                        &draft_agents.peek(),
                         settings::current().agent,
                     );
                     let in_sight = drill.peek().sheet() == Sheet::Overview
@@ -2569,7 +2573,12 @@ fn App() -> Element {
                 let sent_to = Some(tab.clone());
                 let size = *console_size.peek();
                 let t = tree.peek().clone();
-                let agent = agents::for_tab(&t, Some(&tab), settings::current().agent);
+                let agent = agents::for_tab(
+                    &t,
+                    Some(&tab),
+                    &draft_agents.peek(),
+                    settings::current().agent,
+                );
                 let waiting = |id: &str| {
                     nav::find(&t, id).is_some_and(|(_, s)| matches!(s.state, State::Waiting(_)))
                 };
@@ -2645,7 +2654,10 @@ fn App() -> Element {
                         let taken: Vec<&str> = t.sessions().map(|(_, s)| s.name.as_str()).collect();
                         let name = fresh_name(&label, &taken);
                         let reader = role == Role::Reader;
-                        let agent = settings::current().agent;
+                        let draft = Tab::Draft {
+                            worktree: worktree.clone(),
+                            role,
+                        };
                         // Made only now, so a draft left unsent leaves no
                         // empty directory behind.
                         let started =
@@ -2679,6 +2691,7 @@ fn App() -> Element {
                         match started {
                             Ok(id) => {
                                 let id = sessions::hex(id);
+                                draft_agents.write().remove(&draft);
                                 hub.refresh.notify_one();
                                 selected.set(Some(Item::Session(id.clone())));
                                 active.set(Some(Tab::Session(id)));
@@ -2700,6 +2713,21 @@ fn App() -> Element {
                 sending.set(false);
             });
         }
+    };
+
+    // Switch the agent the draft shown is to run; a session started already
+    // keeps its own.
+    let mut switch_agent = move || match active.peek().clone() {
+        Some(draft @ Tab::Draft { .. }) => {
+            let now = agents::for_tab(
+                &tree.peek(),
+                Some(&draft),
+                &draft_agents.peek(),
+                settings::current().agent,
+            );
+            draft_agents.write().insert(draft, now.next());
+        }
+        _ => notify.notice("Only a session not started yet can change its agent".into()),
     };
 
     // Stop a session in its terminal and resume it here.
@@ -2986,6 +3014,7 @@ fn App() -> Element {
             let agent = agents::for_tab(
                 &tree.peek(),
                 Some(&Tab::Session(r.id.clone())),
+                &HashMap::new(),
                 settings::current().agent,
             );
             let hub = hub.clone();
@@ -3243,7 +3272,12 @@ fn App() -> Element {
             let _ = frame();
             let shows = match &*active.read() {
                 Some(tab @ Tab::Session(_)) => {
-                    let agent = agents::for_tab(&tree.read(), Some(tab), font.read().agent);
+                    let agent = agents::for_tab(
+                        &tree.read(),
+                        Some(tab),
+                        &draft_agents.read(),
+                        font.read().agent,
+                    );
                     active_pane()
                         .is_some_and(|p| agents::adapter(agent).dialog_open(&p.screen().text()))
                 }
@@ -3556,8 +3590,12 @@ fn App() -> Element {
                         Some(Tab::Draft { worktree, .. }) => Some(PathBuf::from(worktree)),
                         _ => None,
                     };
-                    let agent =
-                        agents::for_tab(&tree.peek(), tab.as_ref(), settings::current().agent);
+                    let agent = agents::for_tab(
+                        &tree.peek(),
+                        tab.as_ref(),
+                        &draft_agents.peek(),
+                        settings::current().agent,
+                    );
                     let back = action == Action::HistoryPrev;
                     spawn(async move {
                         let sent = match project {
@@ -3573,6 +3611,7 @@ fn App() -> Element {
                     focus.set(Area::Prompt);
                     start_writing(nvim);
                 }
+                Action::SessionAgentNext => switch_agent(),
                 Action::SessionTakeOver => ask_take_over(on_list),
                 Action::SessionStop => ask_stop(on_list),
                 Action::SessionRename => {
@@ -4519,8 +4558,12 @@ fn App() -> Element {
     let active_tab = active();
     let drill_now = drill();
     let sheet_now = drill_now.sheet();
-    let current_agent = agents::for_tab(&t, active_tab.as_ref(), font.read().agent);
-    let agent_label = agents::adapter(current_agent).label();
+    let current_agent = agents::for_tab(
+        &t,
+        active_tab.as_ref(),
+        &draft_agents.read(),
+        font.read().agent,
+    );
     let usage_now = match (
         sheet_now,
         usage_limits
@@ -4772,6 +4815,7 @@ fn App() -> Element {
     let k_pick = km.keys_for(Context::Sidebar, &Action::SessionPick);
     let k_take_over = km.keys_for(Context::Console, &Action::SessionTakeOver);
     let k_send = km.keys_for(Context::Prompt, &Action::PromptSend);
+    let k_agent = km.keys_for(Context::Global, &Action::SessionAgentNext);
     let k_write = km.keys_for(Context::Console, &Action::PromptWrite);
     let k_escape = km.keys_for(
         Context::Console,
@@ -5200,7 +5244,35 @@ fn App() -> Element {
                             (Some(Tab::Draft { worktree, role, .. }), _) => rsx! {
                                 div { class: "console-empty",
                                     IconView { icon: if *role == Role::Reader { Icon::Book } else { Icon::MessagePlus }, size: 28 }
-                                    div { class: "console-empty-title", "{role.draft_heading()} · {agent_label}" }
+                                    div { class: "console-empty-title", "{role.draft_heading()}" }
+                                    div { class: "console-agents",
+                                        for a in adroit_model::Agent::ALL {
+                                            button {
+                                                key: "{a.key()}",
+                                                class: if a == current_agent { "button primary" } else { "button" },
+                                                onclick: move |e| {
+                                                    // Chosen on the way to writing the first prompt,
+                                                    // so the keys go back to the prompt, not the console.
+                                                    e.stop_propagation();
+                                                    if let Some(d) = active.peek().clone() {
+                                                        draft_agents.write().insert(d, a);
+                                                    }
+                                                    focus.set(Area::Prompt);
+                                                    let writing = nvim
+                                                        .peek()
+                                                        .as_ref()
+                                                        .is_some_and(|n| n.state().mode().starts_with("insert"));
+                                                    if !writing {
+                                                        start_writing(nvim);
+                                                    }
+                                                },
+                                                "{agents::adapter(a).label()}"
+                                            }
+                                        }
+                                    }
+                                    if let Some(k) = k_agent.clone() {
+                                        div { class: "console-empty-hint", Keys { keys: k } " switches the agent it runs." }
+                                    }
                                     if *role == Role::Reader {
                                         div { "A reader reads and reports: it plans, and edits no files." }
                                     }

@@ -294,6 +294,7 @@ kbd { font-family: var(--mono); font-size: 10.5px; color: #c9ccd2; background: v
 .context-menu-keys { flex: none; display: inline-flex; gap: 3px; margin-left: 20px; }
 .context-menu-sep { height: 1px; margin: 4px 8px; background: var(--line-strong); }
 .console-empty-start { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 8px; max-width: 360px; }
+.console-agents { display: flex; gap: 6px; }
 .dialog.rename-dialog .filter-field { margin: 0; min-height: 26px; }
 .button:disabled { opacity: 0.5; }
 .dialog.picker-dialog { width: 640px; height: min(520px, calc(100% - 48px)); padding: 16px 12px 12px; gap: 8px; }

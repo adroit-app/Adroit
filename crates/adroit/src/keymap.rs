@@ -36,6 +36,7 @@ pub const DEFAULTS: &str = r#"
 "Cmd+n" = "session.new"
 "Cmd+N" = "session.new_reader"
 "Cmd+Alt+n" = "session.scratch"
+"Cmd+g" = "session.agent_next"
 "Cmd+s" = "shell.open"
 "Cmd+Alt+e" = "neovim.open"
 "Cmd+t" = "session.take_over"
@@ -453,6 +454,7 @@ actions! {
     SessionTakeOver => "session.take_over",
     SessionStop => "session.stop",
     SessionRename => "session.rename",
+    SessionAgentNext => "session.agent_next",
     ShellOpen => "shell.open",
     ShellClose => "shell.close",
     NeovimOpen => "neovim.open",
@@ -1283,6 +1285,15 @@ mod tests {
             );
             assert_eq!(got, Step::Run(Action::PromptWrite), "{k}");
         }
+    }
+
+    #[test]
+    fn cmd_g_switches_the_agent_of_a_session_not_started_yet_wherever_the_keys_are() {
+        for area in [Context::Prompt, Context::Console, Context::Sidebar] {
+            let got = step(&Keymap::defaults(), &[area, Context::Global], &[], "Cmd+g");
+            assert_eq!(got, Step::Run(Action::SessionAgentNext), "{area:?}");
+        }
+        assert_eq!("session.agent_next".parse(), Ok(Action::SessionAgentNext));
     }
 
     #[test]

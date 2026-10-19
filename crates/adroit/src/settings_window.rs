@@ -626,7 +626,7 @@ fn SessionsPane(now: Settings, change: Callback<Change>) -> Element {
     rsx! {
         section { class: "settings-group",
             h2 { "New sessions" }
-            Row { label: "Agent", hint: "The agent new sessions run. Sessions already running keep their agent.",
+            Row { label: "Agent", hint: "The agent a new session starts with; each can be switched before its first prompt. Sessions already running keep their agent.",
                 select {
                     onchange: move |e| {
                         if let Some(agent) = adroit_model::Agent::parse(&e.value()) {

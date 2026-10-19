@@ -8,10 +8,12 @@ closed, if that still runs.
 
 ## Agents
 
-A session runs Claude Code or Codex CLI in its own terminal interface. Choose
-which new sessions run in Settings under Sessions, or with `agent` in
-[settings.toml](settings.md). Sessions already running keep their agent when
-that default changes. Both kinds can run in the same workspace.
+A session runs Claude Code or Codex CLI in its own terminal interface. Each
+session is given its agent while it is still a draft, before its first prompt
+is sent: the draft names the choices, and `session.agent_next` switches
+between them. A draft starts with the default from Settings under Sessions,
+or `agent` in [settings.toml](settings.md). A session keeps its agent once it
+runs, whatever the default becomes. Both kinds can run in the same workspace.
 
 Codex sessions use the embedded prompt and report their working and waiting
 states through the terminal, including permission and question prompts. A
