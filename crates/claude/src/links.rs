@@ -1,7 +1,7 @@
 //! The artifacts, links and files a session's conversation brought up, read
 //! from the transcript Claude Code writes of it.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::path::{Component, Path, PathBuf};
 
@@ -106,6 +106,9 @@ pub struct Collector {
     publishing: HashMap<String, String>,
     /// Who each message not yet delivered is to, by the tool call's id.
     sending: HashMap<String, String>,
+    /// The tool calls whose result is a file's or a page's contents, by id:
+    /// what they hold was not brought up by the conversation.
+    reading: HashSet<String>,
     /// The sessions messaged or heard from, by name, with when last.
     peers: HashMap<String, (u64, Peer)>,
 }
@@ -120,6 +123,7 @@ impl Collector {
             found: HashMap::new(),
             publishing: HashMap::new(),
             sending: HashMap::new(),
+            reading: HashSet::new(),
             peers: HashMap::new(),
         }
     }
@@ -241,6 +245,17 @@ impl Collector {
         {
             self.sending.insert(id.to_string(), to.to_string());
         }
+        // An address inside a file the session writes is the file's, not the
+        // conversation's; so is one in what it reads or searches for. A page
+        // fetched comes back summarised for the conversation, so its stay.
+        if matches!(name, "Read" | "Grep" | "Glob")
+            && let Some(id) = item["id"].as_str()
+        {
+            self.reading.insert(id.to_string());
+        }
+        if touch.is_some() {
+            return;
+        }
         let mut texts = Vec::new();
         strings(input, &mut texts);
         for text in texts {
@@ -249,6 +264,12 @@ impl Collector {
     }
 
     fn tool_result(&mut self, item: &Value) {
+        if item["tool_use_id"]
+            .as_str()
+            .is_some_and(|id| self.reading.remove(id))
+        {
+            return;
+        }
         let text = match &item["content"] {
             Value::String(s) => s.clone(),
             Value::Array(parts) => parts
@@ -751,6 +772,49 @@ mod tests {
             title: None,
             line,
         }
+    }
+
+    #[test]
+    fn an_address_inside_a_file_written_read_or_searched_is_not_brought_up() {
+        let got = read(
+            &[
+                tool(
+                    "t1",
+                    "Edit",
+                    json!({"file_path": "/w/a.rs", "old_string": "x", "new_string": "see https://claude.ai/artifact/fake"}),
+                ),
+                tool(
+                    "t2",
+                    "Write",
+                    json!({"file_path": "/w/b.md", "content": "https://written.dev"}),
+                ),
+                tool("t3", "Read", json!({"file_path": "/w/c.md"})),
+                result("t3", json!("1\thttps://read.dev")),
+                tool("t4", "Grep", json!({"pattern": "http"})),
+                result("t4", json!("c.md:1:https://grepped.dev")),
+                // What a command printed, a page summarised for the conversation and
+                // what the session said are brought up.
+                tool(
+                    "t5",
+                    "WebFetch",
+                    json!({"url": "https://fetched.dev/page", "prompt": "links"}),
+                ),
+                result("t5", json!("The page links https://inside.dev")),
+                tool("t6", "Bash", json!({"command": "gh pr create"})),
+                result("t6", json!("https://github.com/o/r/pull/1")),
+                said("Published https://claude.ai/artifact/real"),
+            ],
+            &[],
+        );
+        assert_eq!(targets(&got.artifacts), ["https://claude.ai/artifact/real"]);
+        assert_eq!(
+            targets(&got.urls),
+            [
+                "https://github.com/o/r/pull/1",
+                "https://inside.dev",
+                "https://fetched.dev/page"
+            ]
+        );
     }
 
     #[test]

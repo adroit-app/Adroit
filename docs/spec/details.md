@@ -16,7 +16,8 @@ Overview, Changes and Log.
   long it has run or ran. After them it lists what the session's conversation
   brought up, newest first: the claude.ai artifacts, the other web addresses,
   and the files it wrote or edited, read, or named in a reply where such a
-  file exists, each saying how the session came across it. A shell or a
+  file exists, each saying how the session came across it. An address inside
+  a file it wrote, read or searched is the file's, not brought up. A shell or a
   draft has no conversation and lists none. At its foot, whatever is shown
   above, it tells how much of the account's usage limits is left: each limit
   Claude Code's `/usage` reports, such as the current session and the week,
