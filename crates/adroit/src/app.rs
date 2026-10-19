@@ -1986,24 +1986,23 @@ fn App() -> Element {
                     let _ = nv.stop_writing().await;
                 }
                 // Sent with nothing open, a prompt starts a session where it
-                // can only mean, as a draft there would.
+                // can only mean, or else a scratch session, as a draft there
+                // would.
                 let tab = match shown {
                     None => {
                         let last = place.peek().clone();
-                        let at = nav::start_place(&tree.peek(), last.as_ref());
-                        at.map(|p| {
-                            let draft = Tab::Draft {
-                                worktree: p.worktree.clone(),
-                                role: Role::Worker,
-                            };
-                            place.set(Some(p));
-                            active.set(Some(draft.clone()));
-                            draft
-                        })
+                        let p = nav::start_place(&tree.peek(), last.as_ref(), &scratch_dir());
+                        let draft = Tab::Draft {
+                            worktree: p.worktree.clone(),
+                            role: Role::Worker,
+                        };
+                        place.set(Some(p));
+                        active.set(Some(draft.clone()));
+                        draft
                     }
-                    shown => shown,
+                    Some(shown) => shown,
                 };
-                let sent_to = tab.clone();
+                let sent_to = Some(tab.clone());
                 let size = *console_size.peek();
                 let t = tree.peek().clone();
                 let waiting = |id: &str| {
@@ -2012,7 +2011,7 @@ fn App() -> Element {
                 let sent = match tab {
                     // The Enter that ends a prompt would pick the choice in
                     // front, usually Yes; the prompt waits for it to be answered.
-                    Some(Tab::Session(id)) if waiting(&id) => {
+                    Tab::Session(id) if waiting(&id) => {
                         // The keys go where the answer is given; what was written
                         // waits in the prompt for after.
                         focus.set(Area::Console);
@@ -2021,7 +2020,7 @@ fn App() -> Element {
                         );
                         false
                     }
-                    Some(tab @ Tab::Session(_)) => match pane_for(&hub, &tab, size).await {
+                    tab @ Tab::Session(_) => match pane_for(&hub, &tab, size).await {
                         Some(p) => {
                             // Claude Code turns on bracketed paste once it is
                             // ready for input.
@@ -2055,8 +2054,8 @@ fn App() -> Element {
                             false
                         }
                     },
-                    Some(Tab::Shell(_)) => false,
-                    Some(Tab::Draft { .. })
+                    Tab::Shell(_) => false,
+                    Tab::Draft { .. }
                         if named(&text).0.is_some() && named(&text).1.trim().is_empty() =>
                     {
                         notify.notice("Write what the session is to do below its name".into());
@@ -2064,13 +2063,13 @@ fn App() -> Element {
                     }
                     // Given as the first prompt, a shell line is not known to
                     // run as a command; it could reach the model as a message.
-                    Some(Tab::Draft { .. }) if adroit_claude::shell_line(&text).is_some() => {
+                    Tab::Draft { .. } if adroit_claude::shell_line(&text).is_some() => {
                         notify.notice(
                             "A shell line runs in a session: start it with a message first".into(),
                         );
                         false
                     }
-                    Some(Tab::Draft { worktree, role }) => {
+                    Tab::Draft { worktree, role } => {
                         let (given, text) = named(&text);
                         let label = given.unwrap_or_else(|| label_from(&text));
                         let taken: Vec<&str> = t.sessions().map(|(_, s)| s.name.as_str()).collect();
@@ -2123,12 +2122,6 @@ fn App() -> Element {
                                 false
                             }
                         }
-                    }
-                    None => {
-                        notify.notice(
-                            "Choose where the session works first: w opens the picker".into(),
-                        );
-                        false
                     }
                 };
                 if sent {
@@ -3788,11 +3781,17 @@ fn App() -> Element {
             .map(|s| s.name.clone())
             .unwrap_or_default(),
         Some(Tab::Draft { role, .. }) => role.draft_title().into(),
-        // A prompt sent now starts a session where it can only mean.
-        None => match nav::start_place(&t, current.as_ref()) {
-            Some(p) => format!("new session in {}", short(&p.worktree)),
-            None => "nothing selected".into(),
-        },
+        // A prompt sent now starts a session where it can only mean, or else
+        // a scratch session.
+        None => {
+            let scratch = scratch_dir();
+            let p = nav::start_place(&t, current.as_ref(), &scratch);
+            if p.worktree == scratch {
+                "new scratch session".into()
+            } else {
+                format!("new session in {}", short(&p.worktree))
+            }
+        }
     };
     // The crumbs already name the worktree.
     let crumb = match (&active_tab, target.strip_prefix("new session in ")) {

@@ -1,7 +1,7 @@
 //! The sidebar as one column of items: the inbox first, then the workspaces.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use adroit_model::{InboxItem, Session, State, Tree, WorktreeNode};
 
@@ -154,20 +154,22 @@ pub struct Place {
 }
 
 /// Where a prompt sent with nothing open starts its session: the worktree
-/// last opened, or else the one place sessions run. `None` when it could mean
-/// more than one place.
-pub fn start_place(tree: &Tree, last: Option<&Place>) -> Option<Place> {
+/// last opened, or else the one place sessions run; `scratch`, the scratch
+/// folder, when it could mean more than one place or none.
+pub fn start_place(tree: &Tree, last: Option<&Place>, scratch: &Path) -> Place {
     if let Some(p) = last {
-        return Some(p.clone());
+        return p.clone();
     }
     // A worktree listed for its shells alone, or only because every worktree
     // is shown, runs no session.
     let mut all = tree.worktrees().filter(|w| !w.sessions.is_empty());
     match (all.next(), all.next()) {
-        (Some(w), None) => Some(Place {
+        (Some(w), None) => Place {
             worktree: w.worktree.path.clone(),
-        }),
-        _ => None,
+        },
+        _ => Place {
+            worktree: scratch.to_path_buf(),
+        },
     }
 }
 
@@ -555,9 +557,10 @@ mod tests {
     }
 
     #[test]
-    fn a_prompt_sent_with_nothing_open_goes_where_it_can_only_mean() {
+    fn a_prompt_sent_with_nothing_open_goes_where_it_can_only_mean_or_to_scratch() {
+        let scratch = Path::new("/scratch");
         // The worktree last opened wins.
-        assert_eq!(start_place(&tree(), Some(&at("/w"))), Some(at("/w")));
+        assert_eq!(start_place(&tree(), Some(&at("/w")), scratch), at("/w"));
         // Else the only place sessions run.
         let one = build(
             &[s("a", "/x", State::Idle)],
@@ -566,7 +569,7 @@ mod tests {
             &[],
             None,
         );
-        assert_eq!(start_place(&one, None), Some(at("/x")));
+        assert_eq!(start_place(&one, None, scratch), at("/x"));
         // A worktree listed without sessions is no place sessions run.
         let found = HashMap::from([(PathBuf::from("/api"), Some(wt("/api", "/api", "main")))]);
         let listed = build(
@@ -577,9 +580,10 @@ mod tests {
             None,
         );
         assert_eq!(listed.worktrees().count(), 2);
-        assert_eq!(start_place(&listed, None), Some(at("/api")));
-        assert_eq!(start_place(&tree(), None), None);
-        assert_eq!(start_place(&Tree::default(), None), None);
+        assert_eq!(start_place(&listed, None, scratch), at("/api"));
+        // With more than one place to mean, or none, a scratch session starts.
+        assert_eq!(start_place(&tree(), None, scratch), at("/scratch"));
+        assert_eq!(start_place(&Tree::default(), None, scratch), at("/scratch"));
     }
 
     #[test]
@@ -929,7 +933,10 @@ mod tests {
         assert_eq!(next.as_deref(), Some("o"));
         // Nor is a worktree with only shells a place sessions run.
         let notes = build(&[], &[sh(1, "shell", "/notes")], &HashMap::new(), &[], None);
-        assert_eq!(start_place(&notes, None), None);
+        assert_eq!(
+            start_place(&notes, None, Path::new("/scratch")),
+            at("/scratch")
+        );
     }
 
     fn listed(id: &str, session_id: &str) -> Session {

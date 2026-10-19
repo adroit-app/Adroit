@@ -73,7 +73,9 @@ the previous session without asking.
 A **scratch session** is for talking to Claude about something no project
 holds, with no directory to choose. `Cmd+Alt+n`, the picker's first row or New
 Scratch Session in the Session menu opens one, with the prompt ready as for a
-new session. The first prompt sent starts it in a new directory of its own,
+new session, and so does a prompt sent with nothing open when it has no one
+worktree to go to ([prompt](prompt.md)). The first prompt sent starts it in
+a new directory of its own,
 named by the local date and time, in the scratch folder:
 `$XDG_DATA_HOME/adroit/scratch` (`~/.local/share/adroit/scratch` when
 `$XDG_DATA_HOME` is unset). One never sent makes no directory.
