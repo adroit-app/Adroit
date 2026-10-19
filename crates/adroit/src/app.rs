@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 use adroit_claude::Access;
 use adroit_claude::git::DiffKind;
+use adroit_claude::links::{Kind as LinkKind, Link, Links, Touch, Transcript};
 use adroit_claude::{commands, places};
 use adroit_model::{InboxItem, Kind, Session, Shell, State, Tree, Worktree, build, inbox};
 use adroit_nvim::{Embedded, Event as NvimEvent, notation};
@@ -20,7 +21,7 @@ use crate::console::{Composer, ConsoleScreen, Hub, Panes, ReaderScreen, mode_of}
 use crate::console_keys::direct_key;
 use crate::console_read;
 use crate::daemon;
-use crate::details::{Drill, Listing, Sheet, View, facts, load};
+use crate::details::{Drill, Listing, Sheet, View, facts, load, shown_link};
 use crate::editor;
 use crate::filer::{Filer, read_dirs};
 use crate::focus::{Area, Dir, moved, settled};
@@ -119,6 +120,91 @@ fn copy_to_clipboard(text: &str) -> std::io::Result<()> {
         .write_all(text.as_bytes())?;
     child.wait()?;
     Ok(())
+}
+
+/// The overview's links of the session `shown`, when they were read for it.
+fn overview_listing(read: Option<&(String, Links)>, shown: Option<&Tab>) -> Option<Listing> {
+    match (read, shown) {
+        (Some((id, links)), Some(Tab::Session(s))) if id == s => {
+            Some(Listing::Links(links.rows().cloned().collect()))
+        }
+        _ => None,
+    }
+}
+
+/// A link as the overview draws it.
+#[derive(Debug, Clone, PartialEq)]
+struct LinkRow {
+    /// Its place among the overview's links.
+    at: usize,
+    icon: Icon,
+    label: String,
+    tag: String,
+    target: String,
+    file: bool,
+}
+
+/// The overview's links under the heading of each group, paths shown from
+/// `worktree` or `home`.
+fn link_groups(rows: &[Link], worktree: &Path, home: &Path) -> Vec<(&'static str, Vec<LinkRow>)> {
+    let mut out: Vec<(&'static str, Vec<LinkRow>)> = Vec::new();
+    for (at, link) in rows.iter().enumerate() {
+        let (heading, icon) = match link.kind {
+            LinkKind::Artifact => ("Artifacts", Icon::AppWindow),
+            LinkKind::Url => ("Links", Icon::Link),
+            LinkKind::File(Touch::Edited) => ("Files", Icon::FilePencil),
+            LinkKind::File(_) => ("Files", Icon::File),
+        };
+        let (label, tag) = shown_link(link, worktree, home);
+        let row = LinkRow {
+            at,
+            icon,
+            label,
+            tag,
+            target: link.target.clone(),
+            file: matches!(link.kind, LinkKind::File(_)),
+        };
+        match out.last_mut() {
+            Some((h, group)) if *h == heading => group.push(row),
+            _ => out.push((heading, vec![row])),
+        }
+    }
+    out
+}
+
+/// What is done with a link of the overview.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Use {
+    Open,
+    Copy,
+    Reveal,
+}
+
+/// Open `link` in the app macOS opens it with, copy it, or show its file in
+/// the Finder; what to tell of it.
+fn use_link(link: &Link, how: Use) -> Option<String> {
+    let open = |args: Vec<String>| {
+        let mut cmd = tokio::process::Command::new("/usr/bin/open");
+        cmd.args(args);
+        spawn(async move {
+            let _ = cmd.status().await;
+        });
+    };
+    match how {
+        Use::Open => {
+            open(vec![link.target.clone()]);
+            None
+        }
+        Use::Reveal if matches!(link.kind, LinkKind::File(_)) => {
+            open(vec!["-R".into(), link.target.clone()]);
+            None
+        }
+        Use::Reveal => None,
+        Use::Copy => Some(match copy_to_clipboard(&link.target) {
+            Ok(()) => format!("Copied {}", link.target),
+            Err(e) => format!("cannot copy: {e}"),
+        }),
+    }
 }
 
 /// How long the prompt's Neovim has to live to be started again once it
@@ -843,6 +929,8 @@ fn App() -> Element {
     let mut drill = use_signal(|| Drill::new(Sheet::Overview));
     let spot = use_memo(move || drill().spot());
     let mut git_view = use_signal(|| None::<View>);
+    // What the conversation of a session brought up, by the session's id.
+    let mut overview_links = use_signal(|| None::<(String, Links)>);
     // The interactive session the dialog asks to take over.
     let mut confirm = use_signal(|| None::<Ask>);
     // The session being given a new name, and the name typed so far.
@@ -1248,6 +1336,61 @@ fn App() -> Element {
         let wake = hub.git.clone();
         move || {
             let _ = (spot(), place());
+            wake.notify_one();
+        }
+    });
+    // What the shown session's conversation brought up, for the overview:
+    // read while the overview shows it, each time only what its transcript
+    // gained since.
+    let links_wake = use_hook(|| Arc::new(Notify::new()));
+    use_hook({
+        let wake = links_wake.clone();
+        move || {
+            spawn(async move {
+                let mut held: Option<Transcript> = None;
+                loop {
+                    let shown = match (drill.peek().sheet(), &*active.peek()) {
+                        (Sheet::Overview, Some(Tab::Session(id))) => {
+                            nav::find(&tree.peek(), id).map(|(_, s)| s.clone())
+                        }
+                        _ => None,
+                    }
+                    .filter(|s| !s.session_id.is_empty());
+                    if let Some(s) = shown {
+                        let path = places::transcript(&home(), &s.cwd, &s.session_id);
+                        let t = match held.take() {
+                            Some(t) if t.path() == path => t,
+                            _ => Transcript::new(path, &s.cwd, home()),
+                        };
+                        let read = tokio::task::spawn_blocking(move || {
+                            let mut t = t;
+                            t.read(&|p: &Path| p.is_file());
+                            let links = t.links();
+                            (t, links)
+                        })
+                        .await;
+                        if let Ok((t, links)) = read {
+                            held = Some(t);
+                            let next = Some((s.id, links));
+                            if *overview_links.peek() != next {
+                                overview_links.set(next);
+                            }
+                        }
+                    } else {
+                        held = None;
+                    }
+                    tokio::select! {
+                        _ = tokio::time::sleep(Duration::from_secs(2)) => {}
+                        _ = wake.notified() => {}
+                    }
+                }
+            });
+        }
+    });
+    use_effect({
+        let wake = links_wake.clone();
+        move || {
+            let _ = (drill().sheet(), active());
             wake.notify_one();
         }
     });
@@ -2571,6 +2714,12 @@ fn App() -> Element {
             let details_list = (area == Area::Details)
                 .then(|| {
                     let d = drill.peek();
+                    if d.sheet() == Sheet::Overview {
+                        return overview_listing(
+                            overview_links.peek().as_ref(),
+                            active.peek().as_ref(),
+                        );
+                    }
                     git_view
                         .peek()
                         .as_ref()
@@ -2737,10 +2886,34 @@ fn App() -> Element {
                 | Action::CursorOpen
                 | Action::CursorShow
                 | Action::CursorFold
+                | Action::CursorCopy
+                | Action::CursorReveal
                     if area == Area::Details =>
                 {
                     let mut d = drill.peek().clone();
                     match (&action, &details_list) {
+                        (_, Some(l @ Listing::Links(rows))) => {
+                            let how = match action {
+                                Action::CursorOpen | Action::CursorShow => Some(Use::Open),
+                                Action::CursorCopy => Some(Use::Copy),
+                                Action::CursorReveal => Some(Use::Reveal),
+                                _ => None,
+                            };
+                            match (how, d.selected(l)) {
+                                (Some(how), Some(at)) => {
+                                    if let Some(told) = use_link(&rows[at], how) {
+                                        notify.notice(told);
+                                    }
+                                }
+                                _ => match action {
+                                    Action::CursorDown => d.step(l, 1),
+                                    Action::CursorUp => d.step(l, -1),
+                                    Action::CursorFirst => d.first(l),
+                                    Action::CursorLast => d.last(l),
+                                    _ => {}
+                                },
+                            }
+                        }
                         (Action::CursorFold, _) => {
                             d.back();
                         }
@@ -2790,6 +2963,8 @@ fn App() -> Element {
                         collapsed.write().insert(k);
                     }
                 }
+                // Only the overview's links are copied or revealed.
+                Action::CursorCopy | Action::CursorReveal => {}
                 Action::WaitingNext | Action::WaitingPrev => {
                     let current = match &cur {
                         Some(Item::Waiting(id)) | Some(Item::Session(id)) => Some(id.as_str()),
@@ -2983,6 +3158,18 @@ fn App() -> Element {
                 Target::Tab(tab) => {
                     show_tab(tab);
                     focus.set(Area::Console);
+                }
+                Target::Link { at, .. } => {
+                    let listing =
+                        overview_listing(overview_links.peek().as_ref(), active.peek().as_ref());
+                    if let Some(l) = listing {
+                        let mut d = drill.peek().clone();
+                        d.select(&l, at);
+                        if d != *drill.peek() {
+                            drill.set(d);
+                        }
+                    }
+                    focus.set(Area::Details);
                 }
             }
             perform(action, None);
@@ -3458,6 +3645,41 @@ fn App() -> Element {
     let shown_session = match &active_tab {
         Some(Tab::Session(id)) => nav::find(&t, id).map(|(_, s)| s.clone()),
         _ => None,
+    };
+    let overview_now = if sheet_now == Sheet::Overview {
+        overview_listing(overview_links().as_ref(), active_tab.as_ref())
+    } else {
+        None
+    };
+    let link_selected = overview_now.as_ref().and_then(|l| drill_now.selected(l));
+    let link_sections = {
+        let rows = match &overview_now {
+            Some(Listing::Links(rows)) => rows.as_slice(),
+            _ => &[],
+        };
+        let worktree = current
+            .as_ref()
+            .map(|p| p.worktree.clone())
+            .or_else(|| shown_session.as_ref().map(|s| s.cwd.clone()))
+            .unwrap_or_default();
+        link_groups(rows, &worktree, &home())
+    };
+    // A link clicked opens as `Enter` on it would.
+    let mut click_link = move |at: usize| {
+        let Some(l) = overview_listing(overview_links.peek().as_ref(), active.peek().as_ref())
+        else {
+            return;
+        };
+        let mut d = drill.peek().clone();
+        d.select(&l, at);
+        if d != *drill.peek() {
+            drill.set(d);
+        }
+        if let Listing::Links(rows) = &l
+            && let Some(told) = rows.get(at).and_then(|r| use_link(r, Use::Open))
+        {
+            notify.notice(told);
+        }
     };
     let in_dialog = session_shown && dialog();
     let answering = match &active_tab {
@@ -4097,6 +4319,33 @@ fn App() -> Element {
                             span { class: "details-path", "{p.worktree.display()}" }
                         }
                     }
+                    for (heading , rows) in link_sections.into_iter() {
+                        div { key: "{heading}", class: "details-block details-links",
+                            span { class: "details-label", "{heading}" }
+                            for r in rows.into_iter() {
+                                {
+                                    let (at, file) = (r.at, r.file);
+                                    rsx! {
+                                        div { key: "{r.target}",
+                                            class: if link_selected == Some(at) { "list-row details-link selected" } else { "list-row details-link" },
+                                            title: "{r.target}",
+                                            onclick: move |_| click_link(at),
+                                            oncontextmenu: move |e: Event<MouseData>| {
+                                                e.prevent_default();
+                                                let p = e.client_coordinates();
+                                                menu.set(Some((p.x, p.y, Target::Link { at, file })));
+                                            },
+                                            IconView { icon: r.icon, size: 13 }
+                                            span { class: "list-row-name", "{r.label}" }
+                                            if !r.tag.is_empty() {
+                                                span { class: "details-link-tag", "{r.tag}" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     }
                     if spot_now.is_some() {
                         div { class: "list-rows details-git",
@@ -4180,6 +4429,8 @@ fn App() -> Element {
                                         }
                                     }
                                 },
+                                // The git sheets never read the overview's links.
+                                (Some(_), Some(Listing::Links(_))) => rsx! {},
                             }
                         }
                     }
@@ -4280,6 +4531,7 @@ fn App() -> Element {
                     let contexts: &[Context] = match target {
                         Target::Row(_) => &[Context::Global, Context::Sidebar],
                         Target::Tab(_) => &[Context::Global, Context::Console, Context::Sidebar],
+                        Target::Link { .. } => &[Context::Details, Context::Sidebar, Context::Global],
                     };
                     // Each entry with whether a separator goes above it.
                     let entries: Vec<(Action, &str, Option<String>, bool)> = menu::groups(&target, session.as_ref())
@@ -4458,6 +4710,53 @@ mod tests {
             .find(|(k, _)| *k == "LC_ALL")
             .and_then(|(_, v)| v);
         assert_eq!(lc_all, Some(std::ffi::OsStr::new("en_US.UTF-8")));
+    }
+
+    fn link(kind: LinkKind, target: &str) -> Link {
+        Link {
+            kind,
+            target: target.into(),
+            title: None,
+            line: None,
+        }
+    }
+
+    #[test]
+    fn the_overview_heads_each_group_of_links_and_marks_a_file_edited() {
+        let rows = [
+            link(LinkKind::Artifact, "https://claude.ai/artifact/a"),
+            link(LinkKind::Url, "https://a.dev"),
+            link(LinkKind::Url, "https://b.dev"),
+            link(LinkKind::File(Touch::Edited), "/w/a.rs"),
+            link(LinkKind::File(Touch::Read), "/w/b.rs"),
+        ];
+        let got: Vec<_> = link_groups(&rows, Path::new("/w"), Path::new("/h"))
+            .into_iter()
+            .map(|(h, g)| (h, g.iter().map(|r| (r.at, r.icon)).collect::<Vec<_>>()))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("Artifacts", vec![(0, Icon::AppWindow)]),
+                ("Links", vec![(1, Icon::Link), (2, Icon::Link)]),
+                ("Files", vec![(3, Icon::FilePencil), (4, Icon::File)]),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_overview_lists_links_only_for_the_session_they_were_read_for() {
+        let read = (
+            "s1".to_string(),
+            Links {
+                urls: vec![link(LinkKind::Url, "https://a.dev")],
+                ..Default::default()
+            },
+        );
+        let shown = |id: &str| Tab::Session(id.into());
+        assert!(overview_listing(Some(&read), Some(&shown("s1"))).is_some());
+        assert!(overview_listing(Some(&read), Some(&shown("s2"))).is_none());
+        assert!(overview_listing(Some(&read), Some(&Tab::Shell(1))).is_none());
     }
 
     #[test]

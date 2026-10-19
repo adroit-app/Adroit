@@ -86,6 +86,7 @@ pub const DEFAULTS: &str = r#"
 "g g" = "cursor.first"
 "G" = "cursor.last"
 "Escape" = "cursor.fold"
+"y" = "cursor.copy"
 "Backspace" = "cursor.fold"
 "Ctrl+d" = "scroll.half_down"
 "Ctrl+u" = "scroll.half_up"
@@ -435,6 +436,8 @@ actions! {
     CursorOpen => "cursor.open",
     CursorShow => "cursor.show",
     CursorFold => "cursor.fold",
+    CursorCopy => "cursor.copy",
+    CursorReveal => "cursor.reveal",
     WaitingNext => "waiting.next",
     WaitingPrev => "waiting.prev",
     SessionNext => "session.next",

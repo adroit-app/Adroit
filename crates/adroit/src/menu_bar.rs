@@ -362,6 +362,8 @@ mod tests {
         "cursor.open",
         "cursor.show",
         "cursor.fold",
+        "cursor.copy",
+        "cursor.reveal",
         "scroll.down",
         "scroll.up",
         "scroll.half_down",

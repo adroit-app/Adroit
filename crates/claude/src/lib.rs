@@ -14,6 +14,7 @@ pub mod git;
 pub mod history;
 pub mod hook;
 pub mod jj;
+pub mod links;
 pub mod places;
 
 #[derive(Debug, thiserror::Error)]

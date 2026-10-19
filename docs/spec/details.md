@@ -6,7 +6,11 @@ Overview, Changes and Log.
 ## Sheets
 
 - **Overview** names the session shown, how it stands, and the workspace and
-  worktree it works in.
+  worktree it works in. Below, it lists what the session's conversation
+  brought up, newest first: the claude.ai artifacts, the other web addresses,
+  and the files it wrote or edited, read, or named in a reply where such a
+  file exists, each saying how the session came across it. A shell or a
+  draft has no conversation and lists none.
 - **Changes** lists the files the worktree changes. Opening one shows its
   diff.
 - **Log** lists the changes that lead to the worktree, drawn as a graph: each
@@ -14,6 +18,11 @@ Overview, Changes and Log.
   running off the end leads to a change not listed. Opening a change lists
   the files it changed, and opening one of those shows its diff in that
   change.
+
+Opening a link of the overview hands it to macOS: an address opens in the
+default browser, a file in the app that opens it. A right click on a link
+also offers to copy it, its address or its file's path, and on a file to
+reveal it in the Finder. The list follows the conversation as it goes on.
 
 Back goes out one level at a time, to the list the shown row was opened from,
 with that row selected. A row opens by its keys or a click; the line above a
@@ -49,6 +58,8 @@ cannot be run, the repository is read through git instead.
 
 In a list, `j` and `k` move, `gg` and `G` go to the first and the last row,
 `Enter` or `l` opens the selected row, and `h`, `Escape` or `Backspace` go
-back. In a diff or the overview, `j`, `k`, `gg` and `G` scroll, and in every
+back. In the overview, the same keys move over its links and open them, and
+`y` copies the selected one. In a diff or an overview without links, `j`, `k`,
+`gg` and `G` scroll, and in every
 sheet `Ctrl+d` and `Ctrl+u` scroll by half a page. `Cmd+1`, `Cmd+2` and
 `Cmd+3` show the sheets ([keys](keys.md)).

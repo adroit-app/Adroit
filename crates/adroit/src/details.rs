@@ -1,8 +1,9 @@
 //! The sheets of the details panel.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use adroit_claude::git::{Change, Commit, DiffLine};
+use adroit_claude::links::{Kind as LinkKind, Link, Touch};
 use adroit_model::{Kind, Session, State};
 
 /// What the details panel says about a session, as label and value, at
@@ -39,10 +40,48 @@ fn ago(ms: u64) -> String {
     }
 }
 
+/// What a link of the overview shows: what it is called, and a word on it.
+pub fn shown_link(link: &Link, worktree: &Path, home: &Path) -> (String, String) {
+    let id = || adroit_claude::links::artifact_id(&link.target).unwrap_or(&link.target);
+    match link.kind {
+        LinkKind::Artifact => match &link.title {
+            Some(t) => (t.clone(), id().to_string()),
+            None => (id().to_string(), String::new()),
+        },
+        LinkKind::Url => {
+            let bare = link
+                .target
+                .split_once("://")
+                .map_or(&*link.target, |(_, r)| r);
+            let host = bare.split(['/', '?', '#']).next().unwrap_or_default();
+            let label = link.title.clone().unwrap_or_else(|| bare.to_string());
+            (label, host.to_string())
+        }
+        LinkKind::File(touch) => {
+            let path = Path::new(&link.target);
+            let mut label = match (path.strip_prefix(worktree), path.strip_prefix(home)) {
+                (Ok(rel), _) => rel.display().to_string(),
+                (_, Ok(rel)) => format!("~/{}", rel.display()),
+                _ => link.target.clone(),
+            };
+            if let Some(line) = link.line {
+                label.push_str(&format!(":{line}"));
+            }
+            let word = match touch {
+                Touch::Edited => "edited",
+                Touch::Read => "read",
+                Touch::Mentioned => "mentioned",
+            };
+            (label, word.to_string())
+        }
+    }
+}
+
 /// What the details panel shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sheet {
-    /// The session shown, and where it works.
+    /// The session shown, where it works, and the artifacts, links and files
+    /// its conversation brought up, each opening outside adroit.
     Overview,
     /// The files the working copy changes, each opening its diff.
     Changes,
@@ -92,12 +131,17 @@ pub enum Listing {
     Log(Vec<Commit>),
     Diff(Vec<DiffLine>),
     Error(String),
+    /// The overview's links, in the order it shows them.
+    Links(Vec<Link>),
 }
 
 impl Listing {
     /// Whether it lists rows to select and open.
     pub fn is_list(&self) -> bool {
-        matches!(self, Listing::Files(_) | Listing::Log(_))
+        matches!(
+            self,
+            Listing::Files(_) | Listing::Log(_) | Listing::Links(_)
+        )
     }
 
     /// What tells each row apart, for a list; nothing for the rest.
@@ -105,6 +149,7 @@ impl Listing {
         match self {
             Listing::Files(files) => files.iter().map(|f| f.path.as_str()).collect(),
             Listing::Log(commits) => commits.iter().map(|c| c.id.as_str()).collect(),
+            Listing::Links(links) => links.iter().map(|l| l.target.as_str()).collect(),
             Listing::Diff(_) | Listing::Error(_) => Vec::new(),
         }
     }
@@ -195,7 +240,8 @@ impl Drill {
         })
     }
 
-    fn select(&mut self, listing: &Listing, at: usize) {
+    /// Select row `at` of `listing`.
+    pub fn select(&mut self, listing: &Listing, at: usize) {
         self.cursor = listing.keys().get(at).map(|k| Cursor {
             key: k.to_string(),
             at,
@@ -228,7 +274,7 @@ impl Drill {
         let opened = match listing {
             Listing::Files(files) => Opened::File(files[at].clone()),
             Listing::Log(commits) => Opened::Commit(commits[at].clone()),
-            Listing::Diff(_) | Listing::Error(_) => return false,
+            Listing::Diff(_) | Listing::Error(_) | Listing::Links(_) => return false,
         };
         self.opened.push(opened);
         self.cursor = None;
@@ -268,7 +314,7 @@ impl Drill {
         let gone = match listing {
             Listing::Error(_) => true,
             Listing::Diff(lines) => lines.is_empty(),
-            Listing::Files(_) | Listing::Log(_) => false,
+            Listing::Files(_) | Listing::Log(_) | Listing::Links(_) => false,
         };
         if gone && !self.opened.is_empty() {
             return self.back();
@@ -554,5 +600,86 @@ mod tests {
         let mut bare = Drill::new(Sheet::Log);
         assert!(bare.open(&Listing::Log(vec![commit("zzzz", "")])));
         assert_eq!(bare.crumbs(), ["zzzz (no description)"]);
+    }
+    fn link(kind: LinkKind, target: &str, title: Option<&str>, line: Option<u32>) -> Link {
+        Link {
+            kind,
+            target: target.into(),
+            title: title.map(str::to_string),
+            line,
+        }
+    }
+
+    #[test]
+    fn a_link_shows_its_title_or_address_and_its_host() {
+        let row = |l: &Link| shown_link(l, Path::new("/w"), Path::new("/home/me"));
+        assert_eq!(
+            row(&link(LinkKind::Url, "https://a.dev/x?q=1", None, None)),
+            ("a.dev/x?q=1".to_string(), "a.dev".to_string())
+        );
+        assert_eq!(
+            row(&link(
+                LinkKind::Url,
+                "http://a.dev/x",
+                Some("The guide"),
+                None
+            )),
+            ("The guide".to_string(), "a.dev".to_string())
+        );
+    }
+
+    #[test]
+    fn an_artifact_shows_its_title_or_else_its_id() {
+        let row = |l: &Link| shown_link(l, Path::new("/w"), Path::new("/home/me"));
+        let url = "https://claude.ai/code/artifact/abc-1";
+        assert_eq!(
+            row(&link(LinkKind::Artifact, url, Some("Report"), None)),
+            ("Report".to_string(), "abc-1".to_string())
+        );
+        assert_eq!(
+            row(&link(LinkKind::Artifact, url, None, None)),
+            ("abc-1".to_string(), String::new())
+        );
+    }
+
+    #[test]
+    fn a_file_shows_its_path_from_the_worktree_or_home_and_how_it_was_touched() {
+        let row = |l: &Link| shown_link(l, Path::new("/w"), Path::new("/home/me"));
+        let file = |t, p, line| link(LinkKind::File(t), p, None, line);
+        assert_eq!(
+            row(&file(Touch::Edited, "/w/src/a.rs", None)),
+            ("src/a.rs".to_string(), "edited".to_string())
+        );
+        assert_eq!(
+            row(&file(Touch::Mentioned, "/home/me/n.md", Some(3))),
+            ("~/n.md:3".to_string(), "mentioned".to_string())
+        );
+        assert_eq!(
+            row(&file(Touch::Read, "/etc/hosts", None)),
+            ("/etc/hosts".to_string(), "read".to_string())
+        );
+    }
+
+    fn links(targets: &[&str]) -> Listing {
+        Listing::Links(
+            targets
+                .iter()
+                .map(|t| link(LinkKind::Url, t, None, None))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn the_overview_s_links_are_selected_by_their_address_and_open_nothing_inside() {
+        let list = links(&["https://a.dev", "https://b.dev"]);
+        let mut d = Drill::new(Sheet::Overview);
+        assert!(list.is_list());
+        d.step(&list, 1);
+        let moved = links(&["https://new.dev", "https://a.dev", "https://b.dev"]);
+        assert_eq!(d.selected(&moved), Some(2));
+        assert!(!d.open(&moved));
+        assert_eq!(d.spot(), None);
+        d.select(&moved, 0);
+        assert_eq!(d.selected(&moved), Some(0));
     }
 }

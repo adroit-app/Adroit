@@ -1,5 +1,5 @@
-//! What a right click on a sidebar row or a tab offers: the actions its keys
-//! would run there.
+//! What a right click on a sidebar row, a tab or a link of the details
+//! panel's overview offers: the actions its keys would run there.
 
 use adroit_model::{Kind, Session};
 
@@ -12,6 +12,11 @@ use crate::tabs::Tab;
 pub enum Target {
     Row(Item),
     Tab(Tab),
+    /// Row `at` of the overview's links, and whether it is a file.
+    Link {
+        at: usize,
+        file: bool,
+    },
 }
 
 /// The actions offered on `target`, each with what the menu calls it.
@@ -61,6 +66,10 @@ pub fn entries(target: &Target, session: Option<&Session>) -> Vec<(Action, &'sta
             .collect(),
         Target::Tab(Tab::Shell(_)) => vec![(Action::TabClose, "Close shell")],
         Target::Tab(Tab::Draft { .. }) => Vec::new(),
+        Target::Link { file, .. } => [(Action::CursorOpen, "Open"), (Action::CursorCopy, "Copy")]
+            .into_iter()
+            .chain(file.then_some((Action::CursorReveal, "Reveal in Finder")))
+            .collect(),
     }
 }
 
@@ -107,6 +116,7 @@ mod tests {
             Target::Row(Item::Shell(1)),
             Target::Tab(Tab::Session("a".into())),
             Target::Tab(Tab::Shell(1)),
+            Target::Link { at: 0, file: true },
         ];
         for target in targets {
             for s in [None, Some(&own), Some(&elsewhere)] {
@@ -115,6 +125,18 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_link_of_the_overview_is_opened_or_copied_and_a_file_revealed_too() {
+        assert_eq!(
+            actions(Target::Link { at: 2, file: false }, None),
+            [Action::CursorOpen, Action::CursorCopy]
+        );
+        assert_eq!(
+            actions(Target::Link { at: 2, file: true }, None),
+            [Action::CursorOpen, Action::CursorCopy, Action::CursorReveal]
+        );
     }
 
     #[test]

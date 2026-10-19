@@ -141,6 +141,8 @@ another, the complete one runs.
 | `cursor.open` | open the selected session, shell or worktree and move to its console, or to the prompt of a session not started yet; fold or unfold a workspace; in the details panel, open the selected row |
 | `cursor.show` | show the selected session, shell or worktree in the console, as `cursor.open` does, with the keys staying in the sidebar; fold or unfold a workspace; in the details panel, open the selected row |
 | `cursor.fold` | fold the selected node; in the details panel, go back out to the list what it shows was opened from |
+| `cursor.copy` | in the details panel, copy the selected link of the overview: its address, or its file's path |
+| `cursor.reveal` | in the details panel, show the selected file of the overview in the Finder |
 | `waiting.next`, `waiting.prev` | open the next or previous session waiting on you |
 | `session.next`, `session.prev` | open the session after or before the one shown, in the sidebar's order over every session, folded away or filtered out too, going round at the ends; the keys stay in the area they are in |
 | `session.pick` | open the picker, to go to a session or choose where a new one works ([details](workspaces.md#going-to-a-session-or-starting-one)) |
@@ -251,6 +253,7 @@ another, the complete one runs.
 "g g" = "cursor.first"
 "G" = "cursor.last"
 "Escape" = "cursor.fold"
+"y" = "cursor.copy"
 "Backspace" = "cursor.fold"
 "Ctrl+d" = "scroll.half_down"
 "Ctrl+u" = "scroll.half_up"

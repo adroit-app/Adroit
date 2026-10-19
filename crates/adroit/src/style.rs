@@ -224,6 +224,10 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .details-facts { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; font-size: 12.5px; }
 .details-facts-key { color: var(--text-3); }
 .details-path { font-family: var(--mono); font-size: 11.5px; color: var(--text-3); word-break: break-all; user-select: text; }
+.details-links { gap: 2px; }
+.details-links .list-row { margin: 0 -8px; }
+.details-link .icon { flex: none; color: var(--text-2); }
+.details-link-tag { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; font-size: 11px; color: var(--text-3); }
 .footer { height: 30px; display: flex; align-items: center; gap: 14px; padding: 0 16px; font-size: 11.5px; color: var(--text-3); flex: none; }
 .footer { overflow: hidden; }
 .footer-status { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 0 0 auto; max-width: 70%; }

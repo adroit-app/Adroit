@@ -48,6 +48,18 @@ pub fn transcripts_name(dir: &Path) -> String {
         .collect()
 }
 
+/// Where Claude Code writes the conversation `session_id` of a session
+/// started in `cwd`.
+pub fn transcript(home: &Path, cwd: &Path, session_id: &str) -> PathBuf {
+    transcript_in(&claude_home(home).1, cwd, session_id)
+}
+
+fn transcript_in(projects: &Path, cwd: &Path, session_id: &str) -> PathBuf {
+    projects
+        .join(transcripts_name(cwd))
+        .join(format!("{session_id}.jsonl"))
+}
+
 /// `dirs` with the most recently used first, by when each was last talked in;
 /// those never talked in keep their order after the rest.
 pub fn by_recency(
@@ -135,6 +147,18 @@ mod tests {
                 "/Users/me/ghq/github.com/a-b/C/.claude/worktrees/x_y"
             )),
             "-Users-me-ghq-github-com-a-b-C--claude-worktrees-x-y"
+        );
+    }
+
+    #[test]
+    fn a_conversation_is_written_under_its_directory_s_folder_named_by_its_id() {
+        assert_eq!(
+            transcript_in(
+                Path::new("/h/.claude/projects"),
+                Path::new("/src/a_b"),
+                "uuid"
+            ),
+            PathBuf::from("/h/.claude/projects/-src-a-b/uuid.jsonl")
         );
     }
 
