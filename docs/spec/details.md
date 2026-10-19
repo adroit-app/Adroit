@@ -27,6 +27,10 @@ Opening a session of the overview shows it, wherever it runs; one that runs
 no more is listed by its name and says so. Copying one copies its name, which
 Claude Code's messaging addresses it by.
 
+Each kind of link shows its newest few, five unless the settings say
+otherwise ([settings](settings.md#settingstoml)), and a row that shows the
+rest; opened, it shows them all until adroit runs again.
+
 Opening a link of the overview hands it to macOS: an address opens in the
 default browser, a file in the app that opens it. A right click on a link
 also offers to copy it, its address or its file's path, and on a file to

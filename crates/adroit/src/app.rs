@@ -22,7 +22,7 @@ use crate::console_keys::direct_key;
 use crate::console_read;
 use crate::daemon;
 use crate::details::{
-    Drill, Entry, Group, Listing, Related, Sheet, Tie, View, capped, facts, load, overview,
+    Drill, Entry, Group, Listing, Related, Sheet, Tie, View, capped, facts, load, overview_shown,
     related, shown_link,
 };
 use crate::editor;
@@ -135,6 +135,7 @@ fn overview_listing(
     read: Option<&(String, Links)>,
     shown: Option<&Tab>,
     folded: &HashSet<Group>,
+    opened: &HashSet<Group>,
     tree: &Tree,
 ) -> Option<Listing> {
     match (read, shown) {
@@ -145,10 +146,13 @@ fn overview_listing(
                 Some((_, shown)) => related(shown, &sessions, &links.peers),
                 None => Vec::new(),
             };
-            Some(Listing::Links(overview(
+            let d = settings::current().details;
+            Some(Listing::Links(overview_shown(
                 &ties,
-                &capped(&rows, settings::current().details.links_kept),
+                &capped(&rows, d.links_kept),
                 folded,
+                opened,
+                d.links_shown,
             )))
         }
         _ => None,
@@ -187,6 +191,8 @@ struct LinkSection {
     count: usize,
     folded: bool,
     rows: Vec<LinkRow>,
+    /// The row for the links not shown: its place and how many they are.
+    more: Option<(usize, usize)>,
 }
 
 /// The overview's `entries` as groups under their headings, paths shown
@@ -195,6 +201,11 @@ fn link_sections(entries: &[Entry], worktree: &Path, home: &Path) -> Vec<LinkSec
     let mut out: Vec<LinkSection> = Vec::new();
     for (at, entry) in entries.iter().enumerate() {
         match entry {
+            Entry::More { hidden, .. } => {
+                if let Some(section) = out.last_mut() {
+                    section.more = Some((at, *hidden));
+                }
+            }
             Entry::Heading {
                 group,
                 count,
@@ -205,6 +216,7 @@ fn link_sections(entries: &[Entry], worktree: &Path, home: &Path) -> Vec<LinkSec
                 count: *count,
                 folded: *folded,
                 rows: Vec::new(),
+                more: None,
             }),
             Entry::Session(r) => {
                 let icon = if r
@@ -1069,6 +1081,8 @@ fn App() -> Element {
     let mut overview_links = use_signal(|| None::<(String, Links)>);
     // The overview's groups of links shown by their headings alone.
     let mut folded_groups = use_signal(HashSet::<Group>::new);
+    // The overview's groups of links shown whole, past their first few.
+    let mut opened_groups = use_signal(HashSet::<Group>::new);
     // The interactive session the dialog asks to take over.
     let mut confirm = use_signal(|| None::<Ask>);
     // The session being given a new name, and the name typed so far.
@@ -2955,6 +2969,7 @@ fn App() -> Element {
                             overview_links.peek().as_ref(),
                             active.peek().as_ref(),
                             &folded_groups.peek(),
+                            &opened_groups.peek(),
                             &tree.peek(),
                         );
                     }
@@ -3158,6 +3173,7 @@ fn App() -> Element {
                                         overview_links.peek().as_ref(),
                                         active.peek().as_ref(),
                                         &f,
+                                        &opened_groups.peek(),
                                         &tree.peek(),
                                     );
                                     if let Some(now) = now
@@ -3178,6 +3194,9 @@ fn App() -> Element {
                                         Went::Told(told) => notify.notice(told),
                                         Went::Nowhere => {}
                                     }
+                                }
+                                (None, Some(Use::Open), Some(Entry::More { group, .. })) => {
+                                    opened_groups.write().insert(*group);
                                 }
                                 (None, Some(_), _) => {}
                                 _ => match action {
@@ -3445,6 +3464,7 @@ fn App() -> Element {
                         overview_links.peek().as_ref(),
                         active.peek().as_ref(),
                         &folded_groups.peek(),
+                        &opened_groups.peek(),
                         &tree.peek(),
                     );
                     if let Some(l) = listing {
@@ -3969,6 +3989,7 @@ fn App() -> Element {
             overview_links().as_ref(),
             active_tab.as_ref(),
             &folded_groups(),
+            &opened_groups(),
             &t,
         )
     } else {
@@ -3994,6 +4015,7 @@ fn App() -> Element {
             overview_links.peek().as_ref(),
             active.peek().as_ref(),
             &folded_groups.peek(),
+            &opened_groups.peek(),
             &tree.peek(),
         ) else {
             return;
@@ -4018,6 +4040,9 @@ fn App() -> Element {
             Some(Entry::Heading { group, folded, .. }) => {
                 let f = refold(&folded_groups.peek(), *group, !folded);
                 folded_groups.set(f);
+            }
+            Some(Entry::More { group, .. }) => {
+                opened_groups.write().insert(*group);
             }
             None => {}
         }
@@ -4731,6 +4756,15 @@ fn App() -> Element {
                                     }
                                 }
                             }
+                            if let Some((at, hidden)) = section.more {
+                                div { key: "more-{at}",
+                                    class: if link_selected == Some(at) { "list-row details-link details-more selected" } else { "list-row details-link details-more" },
+                                    onclick: move |_| click_link(at),
+                                    IconView { icon: Icon::ChevronDown, size: 13 }
+                                    span { class: "list-row-name", "Show all" }
+                                    span { class: "details-link-tag", "{hidden} more" }
+                                }
+                            }
                         }
                     }
                     }
@@ -5093,6 +5127,7 @@ fn App() -> Element {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::details::overview;
 
     #[test]
     fn the_clipboard_reads_the_text_as_utf_8_whatever_the_app_s_locale() {
@@ -5183,9 +5218,9 @@ mod tests {
         let shown = |id: &str| Tab::Session(id.into());
         let open = HashSet::new();
         let t = Tree::default();
-        assert!(overview_listing(Some(&read), Some(&shown("s1")), &open, &t).is_some());
-        assert!(overview_listing(Some(&read), Some(&shown("s2")), &open, &t).is_none());
-        assert!(overview_listing(Some(&read), Some(&Tab::Shell(1)), &open, &t).is_none());
+        assert!(overview_listing(Some(&read), Some(&shown("s1")), &open, &open, &t).is_some());
+        assert!(overview_listing(Some(&read), Some(&shown("s2")), &open, &open, &t).is_none());
+        assert!(overview_listing(Some(&read), Some(&Tab::Shell(1)), &open, &open, &t).is_none());
     }
 
     fn related_to(name: &str, id: Option<&str>, ties: &[Tie]) -> Related {

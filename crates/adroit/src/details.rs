@@ -204,6 +204,11 @@ pub enum Entry {
     },
     Session(Related),
     Link(Link),
+    /// The row standing for a group's links not shown, which shows them all.
+    More {
+        group: Group,
+        hidden: usize,
+    },
 }
 
 impl Entry {
@@ -219,6 +224,12 @@ impl Entry {
             },
             Entry::Session(r) => r.name.as_str(),
             Entry::Link(l) => l.target.as_str(),
+            Entry::More { group, .. } => match group {
+                Group::Sessions => "\0more sessions",
+                Group::Artifacts => "\0more artifacts",
+                Group::Links => "\0more links",
+                Group::Files => "\0more files",
+            },
         }
     }
 
@@ -228,6 +239,7 @@ impl Entry {
             Entry::Heading { group, .. } => *group,
             Entry::Session(_) => Group::Sessions,
             Entry::Link(l) => Group::of(&l.kind),
+            Entry::More { group, .. } => *group,
         }
     }
 }
@@ -319,7 +331,20 @@ pub fn capped(links: &[Link], kept: usize) -> Vec<Link> {
 /// The overview's rows: the `related` sessions under their heading, then
 /// `links`, which come grouped, each group's heading followed by its links;
 /// a `folded` group shows its heading alone.
+#[cfg(test)]
 pub fn overview(related: &[Related], links: &[Link], folded: &HashSet<Group>) -> Vec<Entry> {
+    overview_shown(related, links, folded, &HashSet::new(), usize::MAX)
+}
+
+/// [`overview`], each group of links showing its `first` links and a row for
+/// the rest, unless it is among those `opened` to show them all.
+pub fn overview_shown(
+    related: &[Related],
+    links: &[Link],
+    folded: &HashSet<Group>,
+    opened: &HashSet<Group>,
+    first: usize,
+) -> Vec<Entry> {
     let mut out = Vec::new();
     if !related.is_empty() {
         let shut = folded.contains(&Group::Sessions);
@@ -341,7 +366,18 @@ pub fn overview(related: &[Related], links: &[Link], folded: &HashSet<Group>) ->
             folded: shut,
         });
         if !shut {
-            out.extend(run.iter().cloned().map(Entry::Link));
+            let shown = if opened.contains(&group) {
+                run.len()
+            } else {
+                first.min(run.len())
+            };
+            out.extend(run[..shown].iter().cloned().map(Entry::Link));
+            if shown < run.len() {
+                out.push(Entry::More {
+                    group,
+                    hidden: run.len() - shown,
+                });
+            }
         }
     }
     out
@@ -1051,5 +1087,50 @@ mod tests {
         let kept = capped(&all, 2);
         let kept: Vec<&str> = kept.iter().map(|l| l.target.as_str()).collect();
         assert_eq!(kept, ["https://a.dev", "https://b.dev", "/w/a.rs"]);
+    }
+
+    #[test]
+    fn a_group_of_links_shows_its_first_few_and_a_row_for_the_rest_until_opened() {
+        let all: Vec<Link> = (0..7)
+            .map(|i| link(LinkKind::Url, &format!("https://{i}.dev"), None, None))
+            .collect();
+        let rows = overview_shown(&[], &all, &HashSet::new(), &HashSet::new(), 5);
+        assert_eq!(rows.len(), 1 + 5 + 1);
+        assert_eq!(
+            rows[6],
+            Entry::More {
+                group: Group::Links,
+                hidden: 2
+            }
+        );
+        let opened = overview_shown(
+            &[],
+            &all,
+            &HashSet::new(),
+            &HashSet::from([Group::Links]),
+            5,
+        );
+        assert_eq!(opened.len(), 1 + 7);
+        // No row for none left over, nor under a folded heading.
+        assert_eq!(
+            overview_shown(&[], &all[..5], &HashSet::new(), &HashSet::new(), 5).len(),
+            6
+        );
+        assert_eq!(
+            overview_shown(
+                &[],
+                &all,
+                &HashSet::from([Group::Links]),
+                &HashSet::new(),
+                5
+            )
+            .len(),
+            1
+        );
+        // The row is selected apart from the links and the heading.
+        let listing = Listing::Links(rows);
+        let mut d = Drill::new(Sheet::Overview);
+        d.select(&listing, 6);
+        assert_eq!(d.selected(&listing), Some(6));
     }
 }

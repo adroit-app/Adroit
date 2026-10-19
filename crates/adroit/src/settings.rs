@@ -43,6 +43,8 @@ pub struct DetailsSettings {
     pub diff_lines: usize,
     /// The links of each kind the overview keeps, the newest.
     pub links_kept: usize,
+    /// The links of each kind the overview shows before a row to show all.
+    pub links_shown: usize,
 }
 
 impl Default for DetailsSettings {
@@ -51,6 +53,7 @@ impl Default for DetailsSettings {
             log_commits: 50,
             diff_lines: 2000,
             links_kept: 100,
+            links_shown: 5,
         }
     }
 }
@@ -212,6 +215,7 @@ impl Settings {
         d.log_commits = d.log_commits.clamp(1, 1000);
         d.diff_lines = d.diff_lines.clamp(1, 100_000);
         d.links_kept = d.links_kept.clamp(1, adroit_claude::links::KEPT);
+        d.links_shown = d.links_shown.max(1);
         self
     }
 
@@ -433,6 +437,7 @@ mod tests {
                 log_commits: 10,
                 diff_lines: 300,
                 links_kept: 20,
+                links_shown: 3,
             },
         };
         let text = toml::to_string_pretty(&s).unwrap();
@@ -580,6 +585,14 @@ mod tests {
                 s.details.links_kept
             ),
             (50, 2000, 100)
+        );
+        assert_eq!(s.details.links_shown, 5);
+        assert_eq!(
+            Settings::parse("[details]\nlinks_shown = 0\n")
+                .unwrap()
+                .details
+                .links_shown,
+            1
         );
         let s = Settings::parse("[details]\nlog_commits = 0\ndiff_lines = 9\nlinks_kept = 5000\n")
             .unwrap();
