@@ -429,6 +429,7 @@ fn row_tip(item: &Item) -> &'static str {
 fn glyph(state: &State) -> (&'static str, &'static str, &'static str) {
     let (class, ch) = match state {
         State::Waiting(_) => ("state-glyph wait", ""),
+        State::Starting => ("state-glyph idle", ""),
         State::Working => ("state-glyph run", ""),
         State::Idle => ("state-glyph idle", ""),
         State::Done => ("state-glyph done", "✓"),
@@ -1633,9 +1634,8 @@ fn App() -> Element {
                 let sent_to = tab.clone();
                 let size = *console_size.peek();
                 let t = tree.peek().clone();
-                let waiting = |id: &str| {
-                    nav::find(&t, id).is_some_and(|(_, s)| matches!(s.state, State::Waiting(_)))
-                };
+                let waiting =
+                    |id: &str| nav::find(&t, id).is_some_and(|(_, s)| s.state.takes_every_key());
                 let sent = match tab {
                     // The Enter that ends a prompt would pick the choice in
                     // front, usually Yes; the prompt waits for it to be answered.
@@ -2205,7 +2205,7 @@ fn App() -> Element {
     // Whether that session waits on a choice, which every key answers.
     let waits = move || match &*active.peek() {
         Some(Tab::Session(id)) => {
-            nav::find(&tree.peek(), id).is_some_and(|(_, s)| matches!(s.state, State::Waiting(_)))
+            nav::find(&tree.peek(), id).is_some_and(|(_, s)| s.state.takes_every_key())
         }
         _ => false,
     };
@@ -2254,7 +2254,7 @@ fn App() -> Element {
             let t = tree.read();
             let answering = match &*active.read() {
                 Some(Tab::Session(id)) => {
-                    nav::find(&t, id).is_some_and(|(_, s)| matches!(s.state, State::Waiting(_)))
+                    nav::find(&t, id).is_some_and(|(_, s)| s.state.takes_every_key())
                 }
                 _ => false,
             };
@@ -2492,7 +2492,7 @@ fn App() -> Element {
                         .and_then(|id| nav::find(&tree.peek(), id).map(|(_, s)| s.clone()));
                     match found {
                         // `/rename` typed while it asks would answer it.
-                        Some(s) if matches!(s.state, State::Waiting(_)) => {
+                        Some(s) if s.state.takes_every_key() => {
                             notify.notice(format!("Answer {} first, then rename it", s.name))
                         }
                         Some(s) if s.kind == Kind::Own => {
@@ -3138,9 +3138,7 @@ fn App() -> Element {
         _ => None,
     };
     let answering = match &active_tab {
-        Some(Tab::Session(id)) => {
-            nav::find(&t, id).is_some_and(|(_, s)| matches!(s.state, State::Waiting(_)))
-        }
+        Some(Tab::Session(id)) => nav::find(&t, id).is_some_and(|(_, s)| s.state.takes_every_key()),
         _ => false,
     };
     let takes_text = match area {

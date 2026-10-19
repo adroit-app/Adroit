@@ -59,7 +59,7 @@ pub fn read(session: &adroit_term::Session) -> Option<Kept> {
                 .status
                 .as_ref()
                 .map(|s| State::reported(&s.state, s.kind.as_deref()))
-                .unwrap_or_default(),
+                .unwrap_or(State::Starting),
             started_ms: tags::value(t, STARTED).and_then(|s| s.parse().ok()),
             reader: tags::value(t, READER).is_some(),
         })),
@@ -169,7 +169,7 @@ mod tests {
     }
 
     #[test]
-    fn a_session_that_reported_nothing_is_idle() {
+    fn a_session_that_reported_nothing_is_starting() {
         let s = kept(
             7,
             claude_tags("fix", std::path::Path::new("/api"), false, 0),
@@ -177,7 +177,7 @@ mod tests {
         let Some(Kept::Claude(c)) = read(&s) else {
             panic!("not a session");
         };
-        assert_eq!(c.state, State::Idle);
+        assert_eq!(c.state, State::Starting);
         assert!(!c.reads_only());
     }
 

@@ -24,5 +24,5 @@ The state a session shows, working, waiting on you and for what, done or
 failed, is what its program reports with the
 [OSC 7501 program status protocol](https://www.superlogical.com/rex/docs/build/program-status),
 as the daemon keeps it. Claude Code does not report it itself, so the sessions
-adroit starts run hooks that report it for Claude Code. A session whose
-program reports nothing shows as idle.
+adroit starts run hooks that report it for Claude Code. A session adroit
+started shows as starting until its program first reports.

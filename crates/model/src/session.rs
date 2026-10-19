@@ -55,6 +55,9 @@ pub enum Kind {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum State {
     Waiting(Wait),
+    /// Started by adroit and not yet reported on: Claude Code runs no hooks
+    /// before the folder is trusted, so it may be asking that.
+    Starting,
     Working,
     #[default]
     Idle,
@@ -63,10 +66,16 @@ pub enum State {
 }
 
 impl State {
+    /// Whether every key typed goes to the session as an answer.
+    pub fn takes_every_key(&self) -> bool {
+        matches!(self, State::Waiting(_) | State::Starting)
+    }
+
     /// The state in one word.
     pub fn word(&self) -> &'static str {
         match self {
             State::Waiting(_) => "waiting",
+            State::Starting => "starting",
             State::Working => "working",
             State::Idle => "idle",
             State::Done => "done",
@@ -242,6 +251,16 @@ mod tests {
         assert_eq!(State::reported("error", None), State::Failed);
         assert_eq!(State::reported("idle", None), State::Idle);
         assert_eq!(State::reported("pondering", None), State::Idle);
+    }
+
+    #[test]
+    fn keys_answer_a_session_waiting_on_a_choice_or_still_starting() {
+        assert!(State::Waiting(Wait::Input).takes_every_key());
+        assert!(State::Starting.takes_every_key());
+        assert!(!State::Idle.takes_every_key());
+        assert!(!State::Working.takes_every_key());
+        assert!(!State::Done.takes_every_key());
+        assert!(!State::Failed.takes_every_key());
     }
 
     #[test]

@@ -73,7 +73,8 @@ xterm sends it otherwise.
 A shell in the console takes every key that is not a `global` binding. A
 session waiting on a permission prompt or a question does too, as its answer,
 from the prompt as well as the console; the prompt is Neovim's again once it
-is answered.
+is answered. So does a session still starting, whose program has reported
+nothing yet, such as Claude Code asking whether to trust the folder.
 The mouse wheel scrolls the console back in either case, and what is sent to
 it shows the bottom again.
 A key the `console` area does not bind, in a session's console, starts
