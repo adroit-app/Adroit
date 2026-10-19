@@ -4,8 +4,11 @@
 use std::cell::RefCell;
 
 use dioxus::desktop::muda::accelerator::Accelerator;
-use dioxus::desktop::muda::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
+use dioxus::desktop::muda::{
+    AboutMetadata, Icon as MenuIcon, IconMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu,
+};
 
+use crate::icons::Icon;
 use crate::keymap::{Action, Chord, Context, Keymap, MENU_KEYS, Step};
 
 /// An entry macOS draws and runs itself.
@@ -223,7 +226,7 @@ pub fn action_of(id: &str) -> Option<Action> {
 
 thread_local! {
     /// The entries that run actions, to show the keys in force on.
-    static ITEMS: RefCell<Vec<(Action, MenuItem)>> = const { RefCell::new(Vec::new()) };
+    static ITEMS: RefCell<Vec<(Action, IconMenuItem)>> = const { RefCell::new(Vec::new()) };
 }
 
 /// The menu bar, its entries showing no keys until [`show_shortcuts`].
@@ -235,7 +238,8 @@ pub fn build() -> Menu {
         for entry in section.entries {
             let _ = match entry {
                 Entry::Action(action, label) => {
-                    let item = MenuItem::with_id(action.to_string(), label, true, None);
+                    let item =
+                        IconMenuItem::with_id(action.to_string(), label, true, icon(&action), None);
                     let appended = menu.append(&item);
                     items.push((action, item));
                     appended
@@ -263,7 +267,42 @@ pub fn build() -> Menu {
         let _ = bar.append(&develop);
     }
     ITEMS.with(|i| *i.borrow_mut() = items);
+    #[cfg(target_os = "macos")]
+    as_templates(&bar);
     bar
+}
+
+/// How many pixels square an entry's icon is drawn: macOS shows it 18
+/// points tall, twice that on a Retina display.
+pub const ICON_PX: u32 = 36;
+
+/// The icon an entry running `action` shows.
+pub fn icon(action: &Action) -> Option<MenuIcon> {
+    let icon = Icon::of(action)?;
+    MenuIcon::from_rgba(icon.rgba(ICON_PX)?, ICON_PX, ICON_PX).ok()
+}
+
+/// Mark every entry's icon a template image, which macOS draws in the menu's
+/// text colour, light or dark and highlighted; muda leaves them as drawn,
+/// black on a dark menu.
+#[cfg(target_os = "macos")]
+fn as_templates(bar: &Menu) {
+    use dioxus::desktop::muda::ContextMenu;
+    use objc2_app_kit::NSMenu;
+
+    fn mark(menu: &NSMenu) {
+        for item in menu.itemArray() {
+            if let Some(image) = item.image() {
+                image.setTemplate(true);
+            }
+            if let Some(sub) = item.submenu() {
+                mark(&sub);
+            }
+        }
+    }
+    // SAFETY: muda hands out the bar's NSMenu, alive as long as `bar`.
+    let menu = unsafe { &*(bar.ns_menu() as *const NSMenu) };
+    mark(menu);
 }
 
 fn system(s: System) -> PredefinedMenuItem {
@@ -360,6 +399,24 @@ mod tests {
                 assert_eq!(times, 0, "{name} is only a key");
             } else {
                 assert_eq!(times, 1, "{name}");
+            }
+        }
+    }
+
+    #[test]
+    fn every_entry_that_runs_an_action_shows_its_icon() {
+        for action in offered() {
+            assert!(icon(&action).is_some(), "{action}");
+        }
+    }
+
+    #[test]
+    fn no_two_entries_of_the_menu_bar_share_an_icon() {
+        let mut seen = std::collections::HashMap::new();
+        for action in offered() {
+            let icon = Icon::of(&action).unwrap();
+            if let Some(other) = seen.insert(icon, action.clone()) {
+                panic!("{action} and {other} both show {}", icon.name());
             }
         }
     }

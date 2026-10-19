@@ -10,6 +10,7 @@ use dioxus::desktop::{
 };
 use dioxus::prelude::*;
 
+use crate::icons::{Icon, IconView};
 use crate::keys_pane::KeysPane;
 use crate::paths::{home, keys_path};
 use crate::settings::{self, Settings};
@@ -66,6 +67,15 @@ impl Pane {
             Pane::Console => "Console",
             Pane::Prompt => "Prompt",
             Pane::Keys => "Keys",
+        }
+    }
+
+    fn icon(self) -> Icon {
+        match self {
+            Pane::General => Icon::AdjustmentsHorizontal,
+            Pane::Console => Icon::Terminal,
+            Pane::Prompt => Icon::Pencil,
+            Pane::Keys => Icon::Keyboard,
         }
     }
 }
@@ -133,6 +143,7 @@ fn SettingsWindow() -> Element {
                         key: "{p.title()}",
                         class: if pane() == p { "settings-nav-item on" } else { "settings-nav-item" },
                         onclick: move |_| pane.set(p),
+                        IconView { icon: p.icon(), size: 16 }
                         "{p.title()}"
                     }
                 }

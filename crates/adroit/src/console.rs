@@ -13,6 +13,7 @@ use dioxus::html::geometry::WheelDelta;
 use dioxus::prelude::*;
 use tokio::sync::{Notify, mpsc};
 
+use crate::icons::{Icon, IconView};
 use crate::style::use_cell_height;
 use crate::tabs::Tab;
 use crate::view::{Keys, ScreenView};
@@ -351,7 +352,7 @@ pub fn Composer(
                         "! shell"
                     }
                 }
-                span { class: "prompt-foot-target", "→ {target}" }
+                span { class: "prompt-foot-target", IconView { icon: Icon::ArrowRight, size: 12 } "{target}" }
                 if let Some((_, _, _, Some(msg))) = &prompt {
                     span { class: "prompt-foot-message", "{msg}" }
                 }

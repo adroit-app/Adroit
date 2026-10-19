@@ -39,6 +39,9 @@ pub const CSS: &str = r#"
   --sans: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
 }
 * { box-sizing: border-box; }
+.icon { display: inline-flex; flex: none; align-items: center; justify-content: center; }
+/* As thick as icons::STROKE, which the menu bar's icons are drawn with. */
+.icon svg { width: var(--icon, 14px); height: var(--icon, 14px); stroke-width: 1.75; }
 html, body { margin: 0; height: 100%; background: var(--ground); color: var(--text);
   font-family: var(--sans); font-size: 13px; overflow: hidden; user-select: none; }
 #main { height: 100%; }
@@ -56,7 +59,9 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .app { height: 100%; display: flex; flex-direction: column; }
 .header { height: 40px; display: flex; align-items: center; gap: 14px; padding: 0 16px; flex: none; }
 .header-crumbs { display: flex; gap: 6px; color: var(--text-2); align-items: center; min-width: 0; overflow: hidden; white-space: nowrap; }
-.header-crumbs-sep { color: #5d636c; }
+.header-crumbs-sep { color: #5d636c; display: inline-flex; }
+.header-crumbs-item { display: inline-flex; align-items: center; gap: 6px; }
+.header-crumbs-item .icon { color: var(--text-3); }
 .header-crumbs-path { font-family: var(--mono); font-size: 12px; }
 .flex-spacer { flex: 1; }
 .header-chip { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 10px; border-radius: 11px;
@@ -103,22 +108,28 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .sidebar-inbox-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
 .sidebar-inbox-sub { color: var(--text-2); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
 .sidebar-divider { height: 1px; background: var(--line); margin: 4px 16px; flex: none; }
-.state-glyph { flex: none; width: 8px; height: 8px; display: inline-block; }
-.state-glyph.wait { background: var(--wait); border-radius: 1.5px; transform: rotate(45deg); width: 7px; height: 7px; }
-.state-glyph.run { background: var(--run); border-radius: 50%; }
-.state-glyph.done { color: var(--done); width: auto; height: auto; font-size: 11px; }
-.state-glyph.idle { border: 1.5px solid var(--text-3); border-radius: 50%; }
-.state-glyph.fail { color: var(--fail); width: auto; height: auto; font-size: 11px; }
-.state-glyph.stop { background: var(--text-3); width: 7px; height: 7px; }
+.state-glyph { flex: none; display: inline-flex; }
+.state-glyph.wait { color: var(--wait); }
+.state-glyph.run { color: var(--run); }
+.state-glyph.done { color: var(--done); }
+.state-glyph.idle { color: var(--text-3); }
+.state-glyph.fail { color: var(--fail); }
+.state-glyph.run .icon svg { animation: spin 1.8s linear infinite; }
+.state-glyph.run.still .icon svg { animation: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .state-glyph.run .icon svg { animation: none; } }
 .reads-only-mark { flex: none; color: var(--text-3); display: inline-flex; }
-.shell-mark { flex: none; color: var(--text-3); display: inline-flex; margin: 0 -2px; }
-.sidebar-inbox .list-row-name .reads-only-mark { margin-left: 6px; vertical-align: -1px; }
+.shell-mark, .place-mark { flex: none; color: var(--text-3); display: inline-flex; }
+.list-row.head .place-mark { color: var(--text-2); }
+.list-row.shown .place-mark, .list-row.shown .shell-mark { color: var(--text-2); }
+.sidebar-inbox .list-row-name .reads-only-mark { margin-left: 6px; vertical-align: -2px; }
 /* One line however many tabs there are, so the console keeps its height; the rest scrolls sideways. */
 .tabs { display: flex; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; align-items: center; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--line); flex: none; }
 .tabs::-webkit-scrollbar { display: none; }
 .tabs > * { flex: none; }
 .tab { white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 12px; border-radius: 7px; color: var(--text-2); cursor: default; }
 .tab.active { background: var(--select); color: var(--text); font-weight: 500; }
+.tab.active .shell-mark, .tab.active .place-mark { color: var(--text-2); }
 .tab.shell { font-family: var(--mono); font-size: 12px; }
 .tabs-sep { width: 1px; height: 16px; background: #2a2f36; margin: 0 6px; }
 .tabs-where { color: var(--text-3); font-size: 11.5px; margin-right: 6px; font-family: var(--mono); }
@@ -129,6 +140,7 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .console-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
   color: var(--text-2); text-align: center; padding: 40px; line-height: 1.7; }
 .console-empty-title { color: var(--text); font-size: 15px; font-weight: 500; }
+.console-empty > .icon { color: var(--text-3); }
 .console > .console-empty { bottom: var(--composer, 0px); overflow-y: auto; justify-content: safe center; padding: 24px 32px; }
 .console-empty.detached { background: rgba(15,17,20,0.92); }
 .console-empty code, .console-empty-hint code { font-family: var(--mono); font-size: 12px; background: var(--raised); padding: 1px 6px; border-radius: 4px; }
@@ -147,6 +159,7 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .prompt-shell { display: inline-flex; align-items: center; flex: none; height: 18px; padding: 0 7px; border-radius: 5px; font-family: var(--mono); font-weight: 500; font-size: 11px; background: rgba(240,128,190,0.14); color: #f080be; }
 .prompt-foot { display: flex; align-items: center; gap: 10px; padding: 2px 12px 6px; font-size: 11.5px; color: var(--text-3); }
 .prompt-foot-target { color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.prompt-foot-target .icon { vertical-align: -2px; margin-right: 4px; }
 .prompt-foot-message { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .mode-chip { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 5px; font-family: var(--mono); font-weight: 500; font-size: 11px; }
 .mode-chip.insert { background: rgba(143,198,164,0.14); color: var(--done); }
@@ -165,8 +178,10 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .vim-menu-detail { color: var(--text-3); font-size: 11.5px; margin-left: auto; }
 .vim-menu-info { color: var(--text-2); font-size: 11.5px; padding: 0 12px 8px; white-space: pre-wrap; }
 .details-sheets { display: flex; gap: 2px; padding: 8px 10px; border-bottom: 1px solid var(--line); flex: none; margin-bottom: 8px; }
-.details-sheet { height: 24px; display: inline-flex; align-items: center; padding: 0 10px; border-radius: 6px; color: var(--text-2); font-size: 12px; cursor: default; }
+.details-sheet { height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 6px; color: var(--text-2); font-size: 12px; cursor: default; }
 .details-sheet.active { background: var(--select); color: var(--text); font-weight: 500; }
+.details-sheet .icon { color: var(--text-3); }
+.details-sheet.active .icon { color: var(--text-2); }
 .list-rows.details-git { flex: 1; user-select: text; }
 .details-file-status { color: var(--wait); white-space: pre; flex: none; }
 .commit { display: grid; grid-template-columns: auto 1fr; gap: 0 8px; padding: 5px 8px; font-size: 12.5px; border-radius: 6px; cursor: default; }
@@ -183,8 +198,8 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .details-crumbs { display: flex; align-items: center; gap: 6px; padding: 2px 8px 8px; font-size: 12px; color: var(--text-2); cursor: default; white-space: nowrap; overflow: hidden; }
 .details-crumbs:hover { color: var(--text); }
 .details-crumb { overflow: hidden; text-overflow: ellipsis; }
-.details-crumb-back { font-size: 14px; }
-.details-crumb-sep { color: var(--text-3); }
+.details-crumb-back { display: inline-flex; margin-left: -4px; }
+.details-crumb-sep { color: var(--text-3); display: inline-flex; }
 .diff { font-family: var(--mono); font-size: 11.5px; line-height: 16px; white-space: pre; overflow-x: auto; padding: 0 8px; }
 .diff-file { color: var(--text); font-weight: 600; margin-top: 10px; }
 .diff-hunk { color: var(--coord); }
@@ -210,7 +225,8 @@ kbd { font-family: var(--mono); font-size: 10.5px; color: #c9ccd2; background: v
 .dialog-scrim { position: fixed; inset: 0; z-index: 20; background: rgba(8,9,11,0.6); display: flex; align-items: center; justify-content: center; }
 .dialog { width: 420px; max-width: calc(100% - 32px); background: var(--raised); border: 1px solid var(--line-strong); border-radius: 10px;
   box-shadow: 0 12px 40px rgba(0,0,0,0.55); padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; color: var(--text-2); line-height: 1.6; }
-.dialog-title { color: var(--text); font-size: 15px; font-weight: 500; }
+.dialog-title { color: var(--text); font-size: 15px; font-weight: 500; display: flex; align-items: center; gap: 8px; }
+.dialog-title .icon { color: var(--text-2); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
 .button { display: inline-flex; border: 0; font: inherit; align-items: center; gap: 8px; height: 28px; padding: 0 12px; border-radius: 7px; background: var(--select); color: var(--text); cursor: default; }
 .button.primary { background: rgba(232,180,94,0.16); color: var(--wait); font-weight: 500; }
@@ -226,14 +242,19 @@ kbd { font-family: var(--mono); font-size: 10.5px; color: #c9ccd2; background: v
   flex: none; border-radius: 4px; color: var(--text-3); }
 .list-row-start:hover { background: var(--line-strong); color: var(--text); }
 .sidebar-tool.on { background: var(--select); color: var(--text); }
-.tab-close { color: var(--text-3); padding: 0 3px; border-radius: 4px; margin-right: -6px; }
+.tab-close { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; color: var(--text-3); border-radius: 4px; margin-right: -6px; }
 .tab-close:hover { background: var(--line-strong); color: var(--text); }
 .context-menu-shade { position: fixed; inset: 0; z-index: 30; }
-.context-menu { position: fixed; min-width: 200px; padding: 4px; border-radius: 8px; background: var(--raised);
+.context-menu { position: fixed; min-width: 220px; padding: 4px; border-radius: 8px; background: var(--raised);
   border: 1px solid var(--line-strong); box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
-.context-menu-item { display: flex; align-items: center; justify-content: space-between; gap: 16px; height: 26px;
-  padding: 0 10px; border-radius: 5px; color: var(--text); font-size: 12.5px; cursor: default; }
+.context-menu-item { display: flex; align-items: center; gap: 9px; height: 28px;
+  padding: 0 8px; border-radius: 5px; color: var(--text); font-size: 12.5px; cursor: default; }
 .context-menu-item:hover { background: var(--select); }
+.context-menu-icon { flex: none; display: inline-flex; width: 16px; color: var(--text-3); }
+.context-menu-item:hover .context-menu-icon { color: var(--text); }
+.context-menu-label { flex: 1; white-space: nowrap; }
+.context-menu-keys { flex: none; display: inline-flex; gap: 3px; margin-left: 20px; }
+.context-menu-sep { height: 1px; margin: 4px 8px; background: var(--line-strong); }
 .console-empty-start { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 8px; max-width: 360px; }
 .dialog.rename-dialog .filter-field { margin: 0; min-height: 26px; }
 .button:disabled { opacity: 0.5; }
@@ -244,7 +265,7 @@ kbd { font-family: var(--mono); font-size: 10.5px; color: #c9ccd2; background: v
 .dialog.picker-dialog .list-row { color: var(--text-2); }
 .dialog.picker-dialog .list-row.selected { color: var(--text); box-shadow: inset 0 0 0 1px #3a4352; }
 .dialog.picker-dialog .list-row-name { min-width: 0; }
-.picker-chevron { flex: none; width: 10px; color: var(--text-3); font-size: 10px; }
+.picker-chevron { flex: none; display: inline-flex; color: var(--text-3); }
 .picker-match { color: var(--wait); font-weight: 600; }
 .picker-heading { padding: 8px 8px 2px; color: var(--text-3); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
 .picker-heading:first-child { padding-top: 0; }
@@ -262,12 +283,17 @@ pub const SETTINGS_CSS: &str = r#"
   --sans: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
 }
 * { box-sizing: border-box; }
+.icon { display: inline-flex; flex: none; align-items: center; justify-content: center; }
+/* As thick as icons::STROKE, which the menu bar's icons are drawn with. */
+.icon svg { width: var(--icon, 14px); height: var(--icon, 14px); stroke-width: 1.75; }
 html, body { margin: 0; height: 100%; background: var(--ground); color: var(--text);
   font-family: var(--sans); font-size: 13px; overflow: hidden; user-select: none; cursor: default; }
 #main { height: 100%; }
 .settings { height: 100%; display: flex; }
 .settings-nav { flex: none; width: 188px; padding: 16px 10px; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 2px; }
-.settings-nav-item { padding: 6px 10px; border-radius: 6px; color: var(--text-2); }
+.settings-nav-item { display: flex; align-items: center; gap: 9px; padding: 6px 10px; border-radius: 6px; color: var(--text-2); }
+.settings-nav-item .icon { color: var(--text-3); }
+.settings-nav-item.on .icon { color: var(--text-2); }
 .settings-nav-item:hover { background: var(--raised); color: var(--text); }
 .settings-nav-item.on { background: var(--select); color: var(--text); font-weight: 500; }
 .settings-pane { flex: 1; min-width: 0; overflow-y: auto; padding: 20px 28px 28px; }

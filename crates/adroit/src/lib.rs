@@ -13,6 +13,7 @@ pub mod env;
 pub mod filer;
 pub mod focus;
 mod fuzzy;
+mod icons;
 pub mod keymap;
 mod keys;
 mod keys_edit;

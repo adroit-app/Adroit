@@ -24,6 +24,7 @@ use crate::details::{Drill, Listing, Sheet, View, facts, load};
 use crate::editor;
 use crate::filer::{Filer, read_dirs};
 use crate::focus::{Area, Dir, moved};
+use crate::icons::{Icon, IconView};
 use crate::keymap::{Action, Chord, Context, Keymap, MENU_KEYS, Step};
 use crate::keys;
 use crate::layout::{self, Layout, Side};
@@ -458,17 +459,17 @@ fn row_tip(item: &Item) -> &'static str {
     }
 }
 
-/// A state's mark: its class, the character drawn in it, and the word told
-/// when the pointer is over it.
-fn glyph(state: &State) -> (&'static str, &'static str, &'static str) {
-    let (class, ch) = match state {
-        State::Waiting(_) => ("state-glyph wait", ""),
-        State::Working => ("state-glyph run", ""),
-        State::Idle => ("state-glyph idle", ""),
-        State::Done => ("state-glyph done", "✓"),
-        State::Failed => ("state-glyph fail", "✕"),
+/// A state's mark: its class, its icon, and the word told when the pointer
+/// is over it.
+fn glyph(state: &State) -> (&'static str, Icon, &'static str) {
+    let (class, icon) = match state {
+        State::Waiting(_) => ("state-glyph wait", Icon::Bell),
+        State::Working => ("state-glyph run", Icon::Loader),
+        State::Idle => ("state-glyph idle", Icon::Circle),
+        State::Done => ("state-glyph done", Icon::Check),
+        State::Failed => ("state-glyph fail", Icon::AlertTriangle),
     };
-    (class, ch, state.word())
+    (class, icon, state.word())
 }
 
 /// Start writing in the prompt, whatever mode it was left in: a draft asks
@@ -671,60 +672,12 @@ async fn pane_for(hub: &Hub, tab: &Tab, size: Size) -> Option<Arc<Pane>> {
     None
 }
 
-/// A window with one side shaded: the side panel a toggle shows or hides.
-#[component]
-fn PaneIcon(right: bool) -> Element {
-    let x = if right { "10" } else { "2" };
-    rsx! {
-        svg { width: "14", height: "14", view_box: "0 0 16 16", fill: "none", stroke: "currentColor", stroke_width: "1.3",
-            rect { x: "1.5", y: "2.5", width: "13", height: "11", rx: "2" }
-            rect { x: "{x}", y: "3", width: "4", height: "10", fill: "currentColor", stroke: "none", opacity: "0.6" }
-        }
-    }
-}
-
-/// The mark of the settings.
-#[component]
-fn Gear() -> Element {
-    rsx! {
-        svg { width: "14", height: "14", view_box: "0 0 16 16", fill: "none", stroke: "currentColor", stroke_width: "1.3",
-            circle { cx: "8", cy: "8", r: "2.2" }
-            path { d: "M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" }
-            circle { cx: "8", cy: "8", r: "4.6" }
-        }
-    }
-}
-
-/// What a sidebar button's icon shows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Glyph {
-    Funnel,
-    /// Everything is listed, those without sessions too.
-    Shown,
-    /// What has nothing in it is left out.
-    Hidden,
-    Refresh,
-    Plus,
-}
-
-/// A small line icon for a sidebar button.
-#[component]
-fn Icon(glyph: Glyph) -> Element {
-    let d = match glyph {
-        Glyph::Funnel => "M2.5 3h11l-4.2 5v4.5l-2.6 1.2V8z",
-        Glyph::Shown => {
-            "M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8s-2.4 4.5-6.5 4.5S1.5 8 1.5 8zM8 6a2 2 0 1 0 0 4a2 2 0 1 0 0-4"
-        }
-        Glyph::Hidden => {
-            "M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8s-2.4 4.5-6.5 4.5S1.5 8 1.5 8zM8 6a2 2 0 1 0 0 4a2 2 0 1 0 0-4M2.5 13.5l11-11"
-        }
-        Glyph::Refresh => "M13 8a5 5 0 1 1-1.5-3.6M13 2.5v2.4h-2.4",
-        Glyph::Plus => "M8 3v10M3 8h10",
-    };
-    rsx! {
-        svg { width: "13", height: "13", view_box: "0 0 16 16", fill: "none", stroke: "currentColor", stroke_width: "1.4", stroke_linecap: "round", stroke_linejoin: "round",
-            path { d: "{d}" }
-        }
+/// The action that shows `sheet`.
+fn sheet_action(sheet: Sheet) -> Action {
+    match sheet {
+        Sheet::Overview => Action::DetailsOverview,
+        Sheet::Changes => Action::DetailsChanges,
+        Sheet::Log => Action::DetailsLog,
     }
 }
 
@@ -733,17 +686,7 @@ fn Icon(glyph: Glyph) -> Element {
 fn Book() -> Element {
     rsx! {
         span { class: "reads-only-mark", title: "only reads",
-            svg {
-                width: "12",
-                height: "12",
-                view_box: "0 0 16 16",
-                fill: "none",
-                stroke: "currentColor",
-                stroke_width: "1.4",
-                stroke_linejoin: "round",
-                path { d: "M1.5 3.5c2.2-1 4.4-1 6.5.6 2.1-1.6 4.3-1.6 6.5-.6v9.4c-2.2-1-4.4-1-6.5.6-2.1-1.6-4.3-1.6-6.5-.6z" }
-                path { d: "M8 4.1v9.4" }
-            }
+            IconView { icon: Icon::Book, size: 13 }
         }
     }
 }
@@ -753,18 +696,7 @@ fn Book() -> Element {
 fn Terminal() -> Element {
     rsx! {
         span { class: "shell-mark", title: "shell",
-            svg {
-                width: "12",
-                height: "12",
-                view_box: "0 0 16 16",
-                fill: "none",
-                stroke: "currentColor",
-                stroke_width: "1.4",
-                stroke_linecap: "round",
-                stroke_linejoin: "round",
-                path { d: "M2.5 4.5l4 3.5-4 3.5" }
-                path { d: "M8.5 12h5" }
-            }
+            IconView { icon: Icon::Terminal2, size: 14 }
         }
     }
 }
@@ -3537,35 +3469,35 @@ fn App() -> Element {
                     class: if layout().show_sidebar { "pane-toggle on" } else { "pane-toggle" },
                     title: "Show or hide the sidebar (⌘B)",
                     onclick: move |_| toggle_panel(Side::Sidebar),
-                    PaneIcon { right: false }
+                    IconView { icon: Icon::LayoutSidebar, size: 16 }
                 }
                 div { class: "header-crumbs",
                     if let Some(p) = &current {
                         if let Some((name, _)) = &workspace {
-                            span { "{name}" }
-                            span { class: "header-crumbs-sep", "›" }
+                            span { class: "header-crumbs-item", IconView { icon: Icon::Folder, size: 14 } "{name}" }
+                            span { class: "header-crumbs-sep", IconView { icon: Icon::ChevronRight, size: 12 } }
                         }
-                        span { class: "header-crumbs-path", "{short(&p.worktree)}" }
-                        span { class: "header-crumbs-sep", "›" }
+                        span { class: "header-crumbs-item header-crumbs-path", IconView { icon: Icon::GitBranch, size: 14 } "{short(&p.worktree)}" }
+                        span { class: "header-crumbs-sep", IconView { icon: Icon::ChevronRight, size: 12 } }
                         span { "{crumb}" }
                     }
                 }
                 div { class: "flex-spacer" }
                 if waiting > 0 {
-                    span { class: "header-chip wait", span { class: "state-glyph wait" } "{waiting} waiting" }
+                    span { class: "header-chip wait", span { class: "state-glyph wait", IconView { icon: Icon::Bell, size: 12 } } "{waiting} waiting" }
                 }
-                span { class: "header-chip", span { class: "state-glyph run" } "{working} working" }
+                span { class: "header-chip", span { class: if working > 0 { "state-glyph run" } else { "state-glyph run still" }, IconView { icon: Icon::Loader, size: 12 } } "{working} working" }
                 span {
                     class: if layout().show_details { "pane-toggle on" } else { "pane-toggle" },
                     title: "Show or hide the details panel (⌥⌘B)",
                     onclick: move |_| toggle_panel(Side::Details),
-                    PaneIcon { right: true }
+                    IconView { icon: Icon::LayoutSidebarRight, size: 16 }
                 }
                 span {
                     class: "pane-toggle",
                     title: "Settings (⌘,)",
                     onclick: move |_| settings_window::open(),
-                    Gear {}
+                    IconView { icon: Icon::Settings, size: 16 }
                 }
             }
             div {
@@ -3635,7 +3567,9 @@ fn App() -> Element {
                                                 let at = e.client_coordinates();
                                                 menu.set(Some((at.x, at.y, target.clone())));
                                             },
-                                            span { class: "state-glyph wait", title: "waiting", style: "margin-top:5px" }
+                                            span { class: "state-glyph wait", title: "waiting", style: "margin-top:2px",
+                                                IconView { icon: Icon::Bell, size: 13 }
+                                            }
                                             div { class: "sidebar-inbox-text",
                                                 span { class: "list-row-name",
                                                     "{it.session.name}"
@@ -3660,7 +3594,7 @@ fn App() -> Element {
                                     let mut run = run_button.clone();
                                     move |_| run(Action::WorktreesToggle)
                                 },
-                                Icon { glyph: if all_worktrees() { Glyph::Shown } else { Glyph::Hidden } }
+                                IconView { icon: Icon::ListTree }
                             }
                             span {
                                 class: "sidebar-tool",
@@ -3669,13 +3603,13 @@ fn App() -> Element {
                                     let mut run = run_button.clone();
                                     move |_| run(Action::Refresh)
                                 },
-                                Icon { glyph: Glyph::Refresh }
+                                IconView { icon: Icon::Refresh }
                             }
                             span {
                                 class: "sidebar-tool",
                                 title: "Start a session: choose where it works",
                                 onclick: move |_| open_picker(),
-                                Icon { glyph: Glyph::Plus }
+                                IconView { icon: Icon::Plus }
                             }
                         }
                     }
@@ -3684,7 +3618,7 @@ fn App() -> Element {
                         title: "Narrow the list by name; Enter keeps it, Esc clears it",
                         // A click goes on with what it holds, where `/` starts afresh.
                         onclick: move |_| focus_filter(true),
-                        span { class: "filter-field-funnel", Icon { glyph: Glyph::Funnel } }
+                        span { class: "filter-field-funnel", IconView { icon: Icon::Filter, size: 13 } }
                         input {
                             class: "filter-field-input",
                             placeholder: "Filter",
@@ -3768,6 +3702,12 @@ fn App() -> Element {
                                     Item::Waiting(_) => (0, "list-row", String::new(), String::new(), None),
                                 };
                                 let terminal = matches!(it, Item::Shell(_));
+                                let place_icon = match &it {
+                                    Item::Workspace(_) if it.fold_key().is_some_and(|k| collapsed.read().contains(&k)) => Some(Icon::Folder),
+                                    Item::Workspace(_) => Some(Icon::FolderOpen),
+                                    Item::Worktree(_) => Some(Icon::GitBranch),
+                                    _ => None,
+                                };
                                 let class = if is_sel { format!("{class} selected") } else { class.to_string() };
                                 // What the console shows stands out wherever the selection is.
                                 let class = match &it {
@@ -3791,8 +3731,11 @@ fn App() -> Element {
                                             let at = e.client_coordinates();
                                             menu.set(Some((at.x, at.y, target.clone())));
                                         },
-                                        if let Some((g, ch, tip)) = glyph_class {
-                                            span { class: "{g}", title: "{tip}", "{ch}" }
+                                        if let Some((g, icon, tip)) = glyph_class {
+                                            span { class: "{g}", title: "{tip}", IconView { icon, size: 13 } }
+                                        }
+                                        if let Some(icon) = place_icon {
+                                            span { class: "place-mark", IconView { icon } }
                                         }
                                         if terminal { Terminal {} }
                                         span { class: "list-row-name", "{text}" }
@@ -3809,7 +3752,7 @@ fn App() -> Element {
                                                         run(here.clone(), Action::SessionNew);
                                                     }
                                                 },
-                                                Icon { glyph: Glyph::Plus }
+                                                IconView { icon: Icon::Plus, size: 13 }
                                             }
                                         }
                                     }
@@ -3865,10 +3808,11 @@ fn App() -> Element {
                                             let at = e.client_coordinates();
                                             menu.set(Some((at.x, at.y, target.clone())));
                                         },
-                                        if let Some((g, ch, tip)) = glyph_class {
-                                            span { class: "{g}", title: "{tip}", "{ch}" }
+                                        if let Some((g, icon, tip)) = glyph_class {
+                                            span { class: "{g}", title: "{tip}", IconView { icon, size: 13 } }
                                         }
-                                        if shell { "$ " }
+                                        if shell { span { class: "shell-mark", IconView { icon: Icon::Terminal2 } } }
+                                        if matches!(tab, Tab::Draft { role: Role::Worker, .. }) { span { class: "place-mark", IconView { icon: Icon::MessagePlus, size: 13 } } }
                                         "{name}"
                                         if reader { Book {} }
                                         if closes {
@@ -3882,7 +3826,7 @@ fn App() -> Element {
                                                         run(closing.clone(), Action::TabClose);
                                                     }
                                                 },
-                                                "×"
+                                                IconView { icon: Icon::X, size: 12 }
                                             }
                                         }
                                     }
@@ -3902,6 +3846,7 @@ fn App() -> Element {
                         match (&active_tab, has_pane) {
                             (Some(Tab::Draft { worktree, role, .. }), _) => rsx! {
                                 div { class: "console-empty",
+                                    IconView { icon: if *role == Role::Reader { Icon::Book } else { Icon::MessagePlus }, size: 28 }
                                     div { class: "console-empty-title", "{role.draft_heading()}" }
                                     if let Some(k) = k_send.clone() {
                                         div { "Write the first prompt below and press " Keys { keys: k } "." }
@@ -3920,6 +3865,7 @@ fn App() -> Element {
                                 let ready = nav::find(&t, id).is_some_and(|(_, s)| s.can_take_over());
                                 rsx! {
                                     div { class: "console-empty",
+                                        IconView { icon: Icon::Terminal, size: 28 }
                                         div { class: "console-empty-title", "Running in another terminal" }
                                         if ready {
                                             div { "It shows only in the terminal it was started in. Press " if let Some(k) = k_take_over.clone() { Keys { keys: k } } " to take it over here; Claude Code stops in that terminal." }
@@ -3935,6 +3881,7 @@ fn App() -> Element {
                             },
                             (None, _) => rsx! {
                                 div { class: "console-empty",
+                                    IconView { icon: Icon::LayoutDashboard, size: 28 }
                                     div { class: "console-empty-title", "Nothing open" }
                                     div {
                                         "Move with "
@@ -4021,19 +3968,15 @@ fn App() -> Element {
                             span {
                                 key: "{s.title()}",
                                 class: if s == sheet_now { "details-sheet active" } else { "details-sheet" },
-                                title: {
-                                    let action = match s {
-                                        Sheet::Overview => Action::DetailsOverview,
-                                        Sheet::Changes => Action::DetailsChanges,
-                                        Sheet::Log => Action::DetailsLog,
-                                    };
-                                    km.keys_for(Context::Global, &action).unwrap_or_default()
-                                },
+                                title: km.keys_for(Context::Global, &sheet_action(s)).unwrap_or_default(),
                                 onclick: move |_| {
                                     if drill.peek().sheet() != s {
                                         drill.set(Drill::new(s));
                                     }
                                 },
+                                if let Some(icon) = Icon::of(&sheet_action(s)) {
+                                    IconView { icon, size: 13 }
+                                }
                                 "{s.title()}"
                             }
                         }
@@ -4076,10 +4019,10 @@ fn App() -> Element {
                                             drill.set(d);
                                         }
                                     },
-                                    span { class: "details-crumb-back", "‹" }
+                                    span { class: "details-crumb-back", IconView { icon: Icon::ChevronLeft } }
                                     for (i , c) in crumbs.iter().enumerate() {
                                         if i > 0 {
-                                            span { class: "details-crumb-sep", "›" }
+                                            span { class: "details-crumb-sep", IconView { icon: Icon::ChevronRight, size: 12 } }
                                         }
                                         span { class: "details-crumb", "{c}" }
                                     }
@@ -4232,11 +4175,16 @@ fn App() -> Element {
                         Target::Row(_) => &[Context::Global, Context::Sidebar],
                         Target::Tab(_) => &[Context::Global, Context::Console, Context::Sidebar],
                     };
-                    let entries: Vec<(Action, &str, Option<String>)> = menu::entries(&target, session.as_ref())
+                    // Each entry with whether a separator goes above it.
+                    let entries: Vec<(Action, &str, Option<String>, bool)> = menu::groups(&target, session.as_ref())
                         .into_iter()
-                        .map(|(a, label)| {
+                        .enumerate()
+                        .flat_map(|(g, group)| {
+                            group.into_iter().enumerate().map(move |(i, (a, label))| (a, label, g > 0 && i == 0))
+                        })
+                        .map(|(a, label, apart)| {
                             let keys = km.keys_in(contexts, &a);
-                            (a, label, keys)
+                            (a, label, keys, apart)
                         })
                         .collect();
                     rsx! {
@@ -4251,18 +4199,29 @@ fn App() -> Element {
                                 class: "context-menu",
                                 style: "left:{x}px;top:{y}px",
                                 onclick: move |e| e.stop_propagation(),
-                                for (action , label , keys) in entries {
+                                for (action , label , keys , apart) in entries {
                                     {
                                         let target = target.clone();
                                         let mut run = run_menu.clone();
                                         let act = action.clone();
                                         rsx! {
-                                            div {
-                                                key: "{action}",
-                                                class: "context-menu-item",
-                                                onclick: move |_| run(target.clone(), act.clone()),
-                                                span { "{label}" }
-                                                if let Some(k) = keys { Keys { keys: k } }
+                                            Fragment { key: "{action}",
+                                                if apart {
+                                                    div { class: "context-menu-sep" }
+                                                }
+                                                div {
+                                                    class: "context-menu-item",
+                                                    onclick: move |_| run(target.clone(), act.clone()),
+                                                    span { class: "context-menu-icon",
+                                                        if let Some(icon) = Icon::of(&action) {
+                                                            IconView { icon, size: 15 }
+                                                        }
+                                                    }
+                                                    span { class: "context-menu-label", "{label}" }
+                                                    if let Some(k) = keys {
+                                                        span { class: "context-menu-keys", Keys { keys: k } }
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -4280,7 +4239,7 @@ fn App() -> Element {
                         div { class: "dialog-scrim", onclick: move |_| renaming.set(None),
                             div { class: "dialog rename-dialog",
                                 onclick: move |e| e.stop_propagation(),
-                                div { class: "dialog-title", "Rename {r.was}" }
+                                div { class: "dialog-title", IconView { icon: Icon::Pencil, size: 16 } "Rename {r.was}" }
                                 div { class: "filter-field on",
                                     input {
                                         class: "filter-field-input",
@@ -4337,6 +4296,7 @@ fn App() -> Element {
                 {
                     let take_over = take_over.clone();
                     let stop = stop.clone();
+                    let icon = Icon::of(&match ask { Ask::TakeOver(_) => Action::SessionTakeOver, Ask::Stop(_) => Action::SessionStop });
                     let (title, body, act, s) = match ask.clone() {
                         Ask::TakeOver(s) => (
                             format!("Take over {}?", s.name),
@@ -4354,7 +4314,7 @@ fn App() -> Element {
                     rsx! {
                         div { class: "dialog-scrim",
                             div { class: "dialog",
-                                div { class: "dialog-title", "{title}" }
+                                div { class: "dialog-title", if let Some(icon) = icon { IconView { icon, size: 16 } } "{title}" }
                                 div { "{body}" }
                                 div { class: "dialog-actions",
                                     button { class: "button", onclick: move |_| confirm.set(None),

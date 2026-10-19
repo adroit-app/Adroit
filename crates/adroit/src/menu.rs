@@ -60,9 +60,84 @@ pub fn entries(target: &Target, session: Option<&Session>) -> Vec<(Action, &'sta
     }
 }
 
+/// [`entries`] in the groups the menu draws apart: going to what was
+/// clicked, starting something beside it, and ending or closing it.
+pub fn groups(target: &Target, session: Option<&Session>) -> Vec<Vec<(Action, &'static str)>> {
+    let kin = |a: &Action| match a {
+        Action::SessionNew | Action::SessionNewReader | Action::ShellOpen => 1,
+        Action::SessionTakeOver | Action::SessionStop | Action::TabClose => 2,
+        _ => 0,
+    };
+    let mut out: Vec<Vec<(Action, &'static str)>> = Vec::new();
+    for entry in entries(target, session) {
+        match out.last_mut() {
+            Some(group) if group.last().is_some_and(|(a, _)| kin(a) == kin(&entry.0)) => {
+                group.push(entry)
+            }
+            _ => out.push(vec![entry]),
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn grouped(target: Target, s: Option<&Session>) -> Vec<Vec<Action>> {
+        groups(&target, s)
+            .into_iter()
+            .map(|g| g.into_iter().map(|(a, _)| a).collect())
+            .collect()
+    }
+
+    #[test]
+    fn every_entry_of_every_menu_shows_an_icon() {
+        let own = session(Kind::Own);
+        let elsewhere = session(Kind::Interactive);
+        let targets = [
+            Target::Row(Item::Workspace("/api".into())),
+            Target::Row(Item::Worktree("/api".into())),
+            Target::Row(Item::Session("a".into())),
+            Target::Row(Item::Waiting("a".into())),
+            Target::Row(Item::Shell(1)),
+            Target::Tab(Tab::Session("a".into())),
+            Target::Tab(Tab::Shell(1)),
+        ];
+        for target in targets {
+            for s in [None, Some(&own), Some(&elsewhere)] {
+                for (action, label) in entries(&target, s) {
+                    assert!(crate::icons::Icon::of(&action).is_some(), "{label}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_menu_draws_going_starting_and_ending_apart() {
+        let s = session(Kind::Own);
+        assert_eq!(
+            grouped(Target::Row(Item::Session("a".into())), Some(&s)),
+            [
+                vec![Action::CursorOpen, Action::SessionRename],
+                vec![
+                    Action::SessionNew,
+                    Action::SessionNewReader,
+                    Action::ShellOpen
+                ],
+                vec![Action::SessionStop],
+            ]
+        );
+        assert_eq!(
+            grouped(Target::Tab(Tab::Shell(1)), None),
+            [vec![Action::TabClose]]
+        );
+        let draft = Tab::Draft {
+            worktree: "/a".into(),
+            role: crate::tabs::Role::Worker,
+        };
+        assert!(grouped(Target::Tab(draft), None).is_empty());
+    }
 
     fn session(kind: Kind) -> Session {
         Session {

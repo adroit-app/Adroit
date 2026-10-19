@@ -7,6 +7,7 @@ use dioxus::prelude::*;
 
 use crate::filer::Row;
 use crate::fuzzy::Query;
+use crate::icons::{Icon, IconView};
 use crate::keys;
 use crate::paths::home;
 use crate::picker::{Line, Mode, Picker, short};
@@ -105,6 +106,7 @@ pub fn PickerView(
                                                 (false, false) => "list-row",
                                             },
                                             onclick: move |_| onchoose.call(i),
+                                            span { class: "place-mark", IconView { icon: if line.path { Icon::Folder } else { Icon::Message } } }
                                             span { class: "list-row-name",
                                                 {marked(&query, &line.name)}
                                                 if let Some(place) = &line.place {
@@ -130,7 +132,7 @@ pub fn PickerView(
                                         move |_| onpick.call(path.clone())
                                     },
                                     span { class: "picker-chevron",
-                                        if picker.filer.is_expanded(r) { "▾" } else { "▸" }
+                                        IconView { icon: if picker.filer.is_expanded(r) { Icon::ChevronDown } else { Icon::ChevronRight }, size: 12 }
                                     }
                                     span { class: "list-row-name",
                                         if r.depth == 0 {
