@@ -406,6 +406,16 @@ const held = (e, name, fromCode) => {
   const shown = name === ' ' ? 'Space' : name === '+' ? 'Plus' : name;
   return keys.includes('Cmd+' + (e.ctrlKey ? 'Ctrl+' : '') + (e.altKey ? 'Alt+' : '') + (shift ? 'Shift+' : '') + shown);
 };
+// The Option key held, `AltLeft` or `AltRight`, and whether the settings
+// count it as Alt: `window.adroitOptionAsAlt` names which do.
+let option = '';
+t.addEventListener('keyup', (e) => {
+  if (e.code === option) option = '';
+});
+const optionIsAlt = () => {
+  const as = window.adroitOptionAsAlt || 'both';
+  return as === 'both' || (as === 'left' && option === 'AltLeft') || (as === 'right' && option === 'AltRight');
+};
 const take = () => {
   const a = document.activeElement;
   if (a !== t && !(a instanceof HTMLInputElement)) t.focus();
@@ -430,8 +440,12 @@ t.addEventListener('keydown', (e) => {
     return;
   }
   if (e.isComposing || e.keyCode === 229 || e.metaKey) return;
+  if (e.code === 'AltLeft' || e.code === 'AltRight') option = e.code;
   const printable = [...e.key].length === 1;
-  if (printable && !e.ctrlKey && !e.altKey) {
+  // On a grid, an Option key that does not count as Alt types what macOS
+  // makes of the key, as a terminal set so would.
+  const alt = e.altKey && (!onGrid || optionIsAlt());
+  if (printable && !e.ctrlKey && !alt) {
     // Read-only, the text area takes no text: the key is a command.
     if (t.readOnly) {
       e.preventDefault();
@@ -3444,6 +3458,20 @@ fn App() -> Element {
         menu_bar::show_shortcuts(&map);
         let held = serde_json::to_string(&menu_bar::left_to_menu(&map)).unwrap_or_default();
         document::eval(&format!("window.adroitHeld = {held};"));
+    });
+    // The page learns which Option keys count as Alt, now and as the settings
+    // change.
+    use_hook(|| {
+        spawn(async move {
+            let mut changed = settings::CHANGED.subscribe();
+            loop {
+                let as_alt = settings::current().console.option_as_alt.name();
+                document::eval(&format!("window.adroitOptionAsAlt = '{as_alt}';"));
+                if changed.recv().await.is_err() {
+                    break;
+                }
+            }
+        });
     });
     // Run what a menu bar entry names where the keys are now, as its key
     // would: not behind the picker, a dialog or a name being typed, which hold

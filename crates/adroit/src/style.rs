@@ -149,6 +149,8 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .screen-picture { position: absolute; overflow: hidden; pointer-events: none; }
 .screen-picture img { position: absolute; max-width: none; image-rendering: auto; }
 .screen-cursor { position: absolute; background: rgba(231,232,235,0.85); mix-blend-mode: difference; pointer-events: none; }
+.screen-cursor.blink { animation: cursor-blink 1.2s step-end infinite; }
+@keyframes cursor-blink { 50% { opacity: 0; } }
 .cell-probe { position: absolute; visibility: hidden; font-family: var(--term-font); font-size: var(--term-size); font-weight: var(--term-weight); line-height: var(--cell-h); white-space: pre; }
 .prompt { position: absolute; left: 14px; right: 14px; bottom: 14px; background: var(--raised); border: 1px solid var(--line-strong);
   border-radius: 10px; box-shadow: 0 -6px 30px rgba(0,0,0,0.45); }

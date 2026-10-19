@@ -10,6 +10,38 @@ use tokio::sync::broadcast;
 use crate::paths::config_dir;
 pub use crate::programs::{Launch, ReaderOptions, SessionOptions, ShellLaunch};
 
+/// Which Option keys count as Alt, sending Meta, in a console; the others type
+/// what macOS makes of the key with Option, as `Option-2` typing `™`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OptionAsAlt {
+    #[default]
+    Both,
+    Left,
+    Right,
+    None,
+}
+
+impl OptionAsAlt {
+    pub fn name(self) -> &'static str {
+        match self {
+            OptionAsAlt::Both => "both",
+            OptionAsAlt::Left => "left",
+            OptionAsAlt::Right => "right",
+            OptionAsAlt::None => "none",
+        }
+    }
+}
+
+/// How the console takes keys and draws its cursor.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ConsoleSettings {
+    pub option_as_alt: OptionAsAlt,
+    /// Let the cursor blink when the program lets it.
+    pub cursor_blink: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
@@ -45,6 +77,8 @@ pub struct Settings {
     pub scratch_dir: String,
     /// Where the picker looks for directories to start a session in.
     pub picker: PickerSettings,
+    /// How the console takes keys and draws its cursor.
+    pub console: ConsoleSettings,
 }
 
 /// The fonts the console falls back to, a Japanese one among them for what a
@@ -69,6 +103,7 @@ impl Default for Settings {
             readers: ReaderOptions::default(),
             scratch_dir: String::new(),
             picker: PickerSettings::default(),
+            console: ConsoleSettings::default(),
         }
     }
 }
@@ -356,6 +391,10 @@ mod tests {
                 ghq: false,
                 roots: vec!["~/src".into()],
             },
+            console: ConsoleSettings {
+                option_as_alt: OptionAsAlt::Right,
+                cursor_blink: true,
+            },
         };
         let text = toml::to_string_pretty(&s).unwrap();
         assert_eq!(Settings::parse(&text).unwrap(), s);
@@ -467,5 +506,18 @@ mod tests {
             .map(|(toml, _)| toml)
             .unwrap();
         assert_eq!(Settings::parse(block).unwrap(), Settings::default());
+    }
+
+    #[test]
+    fn option_counts_as_alt_and_the_cursor_holds_still_unless_the_settings_say_otherwise() {
+        let s = Settings::parse("").unwrap();
+        assert_eq!(s.console, ConsoleSettings::default());
+        assert_eq!(s.console.option_as_alt, OptionAsAlt::Both);
+        assert!(!s.console.cursor_blink);
+        let s =
+            Settings::parse("[console]\noption_as_alt = \"left\"\ncursor_blink = true\n").unwrap();
+        assert_eq!(s.console.option_as_alt, OptionAsAlt::Left);
+        assert!(s.console.cursor_blink);
+        assert!(Settings::parse("[console]\noption_as_alt = \"up\"\n").is_err());
     }
 }

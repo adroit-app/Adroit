@@ -90,6 +90,14 @@ disallowed_tools = ["Edit", "Write", "NotebookEdit"]
 [picker]
 ghq = true
 roots = []
+
+# How the console takes keys and draws its cursor: which Option keys send Alt
+# to what runs there, `both`, `left`, `right` or `none`, the others typing what
+# macOS makes of the key; and whether the cursor blinks when the program lets
+# it.
+[console]
+option_as_alt = "both"
+cursor_blink = false
 ```
 
 A program started through the shell is started by the shell `[shell]` names,

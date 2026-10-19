@@ -109,6 +109,8 @@ pub struct Cursor {
     pub row: usize,
     pub col: usize,
     pub shape: CursorShape,
+    /// Whether the program lets it blink.
+    pub blink: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -271,6 +273,7 @@ pub(crate) fn screen_of(
                 CursorStyle::Bar => CursorShape::Beam,
                 CursorStyle::Block => CursorShape::Block,
             },
+            blink: buffer.cursor_blink(),
         }),
         background: colours.background,
     }
@@ -550,5 +553,12 @@ pub(crate) mod tests {
     fn a_beam_cursor_is_reported_as_a_beam() {
         let s = screen(10, 1, b"\x1b[6 q");
         assert_eq!(s.cursor.unwrap().shape, CursorShape::Beam);
+    }
+
+    #[test]
+    fn the_cursor_blinks_unless_the_program_asks_for_a_steady_one() {
+        assert!(screen(10, 1, b"").cursor.unwrap().blink);
+        assert!(!screen(10, 1, b"\x1b[2 q").cursor.unwrap().blink);
+        assert!(screen(10, 1, b"\x1b[5 q").cursor.unwrap().blink);
     }
 }

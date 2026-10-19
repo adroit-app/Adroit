@@ -366,6 +366,8 @@ impl UiState {
                 .get(self.mode)
                 .copied()
                 .unwrap_or(CursorShape::Block),
+            // The prompt's cursor holds still, as Neovim's own blinking is not read.
+            blink: false,
         });
         Screen {
             cols,

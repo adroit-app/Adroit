@@ -16,7 +16,7 @@ use crate::paths::{home, keys_path};
 use crate::programs::{
     Launch, SessionOptions, format_command, format_env, parse_command, parse_env,
 };
-use crate::settings::{self, Settings};
+use crate::settings::{self, OptionAsAlt, Settings};
 use crate::style::SETTINGS_CSS;
 use crate::zoom::LEVELS;
 
@@ -356,6 +356,32 @@ fn ConsolePane(now: Settings, change: Callback<Change>) -> Element {
                         if let Ok(n) = e.value().parse::<f64>() {
                             change(Box::new(move |s: &mut Settings| s.font_size = n));
                         }
+                    },
+                }
+            }
+            Row { label: "Option as Alt", hint: "Which Option keys send Alt (Meta) to what runs in the console; the others type what macOS makes of the key.",
+                select {
+                    onchange: move |e| {
+                        let as_alt = match e.value().as_str() {
+                            "left" => OptionAsAlt::Left,
+                            "right" => OptionAsAlt::Right,
+                            "none" => OptionAsAlt::None,
+                            _ => OptionAsAlt::Both,
+                        };
+                        change(Box::new(move |s: &mut Settings| s.console.option_as_alt = as_alt));
+                    },
+                    for (value , name) in [("both", "Both"), ("left", "Left only"), ("right", "Right only"), ("none", "Neither")] {
+                        option { key: "{value}", value: "{value}", selected: now.console.option_as_alt.name() == value, "{name}" }
+                    }
+                }
+            }
+            Row { label: "Blinking cursor", hint: "The console's cursor blinks when the program lets it.",
+                input {
+                    r#type: "checkbox",
+                    checked: now.console.cursor_blink,
+                    onchange: move |e| {
+                        let on = e.checked();
+                        change(Box::new(move |s: &mut Settings| s.console.cursor_blink = on));
                     },
                 }
             }
