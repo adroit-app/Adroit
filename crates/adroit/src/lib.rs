@@ -39,6 +39,7 @@ pub mod shells;
 mod start;
 pub mod status;
 mod style;
+mod subagent_view;
 pub mod tabs;
 pub mod themes;
 mod view;

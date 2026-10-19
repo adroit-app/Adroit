@@ -96,12 +96,14 @@ ghq = true
 roots = []
 
 # How much the details panel reads and shows: the changes Log lists, the
-# lines of a diff before it is cut, and the links of each kind the overview
-# keeps, the newest, up to 1000.
+# lines of a diff before it is cut, the links of each kind the overview keeps,
+# the newest, up to 1000, and how many of them it shows before a row that
+# shows them all.
 [details]
 log_commits = 50
 diff_lines = 2000
 links_kept = 100
+links_shown = 5
 
 # How the console takes keys and draws its cursor: which Option keys send Alt
 # to what runs there, `both`, `left`, `right` or `none`, the others typing what

@@ -7,6 +7,8 @@ use std::path::{Component, Path, PathBuf};
 
 use serde_json::Value;
 
+use crate::subagents::{Agent, Subagents};
+
 /// How a session came across a file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Touch {
@@ -51,13 +53,15 @@ pub struct Peer {
     pub received: bool,
 }
 
-/// What a session brought up, each group newest first.
+/// What a session brought up, each group newest first, and the subagents
+/// it runs.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Links {
     pub artifacts: Vec<Link>,
     pub urls: Vec<Link>,
     pub files: Vec<Link>,
     pub peers: Vec<Peer>,
+    pub agents: Vec<Agent>,
 }
 
 impl Links {
@@ -66,6 +70,7 @@ impl Links {
             && self.urls.is_empty()
             && self.files.is_empty()
             && self.peers.is_empty()
+            && self.agents.is_empty()
     }
 
     /// Every link, artifacts first, then the other addresses, then files.
@@ -122,9 +127,12 @@ impl Collector {
     /// Take in one line of the transcript; `exists` tells whether a path
     /// named in a reply is there.
     pub fn feed(&mut self, line: &str, exists: &dyn Fn(&Path) -> bool) {
-        let Ok(v) = serde_json::from_str::<Value>(line) else {
-            return;
-        };
+        if let Ok(v) = serde_json::from_str::<Value>(line) {
+            self.take(&v, exists);
+        }
+    }
+
+    fn take(&mut self, v: &Value, exists: &dyn Fn(&Path) -> bool) {
         let assistant = match v["type"].as_str() {
             Some("assistant") => true,
             Some("user") => false,
@@ -416,6 +424,7 @@ pub struct Transcript {
     /// The start of a line not written to its end yet.
     rest: Vec<u8>,
     found: Collector,
+    agents: Subagents,
 }
 
 impl Transcript {
@@ -425,8 +434,10 @@ impl Transcript {
         cwd: impl Into<PathBuf>,
         home: impl Into<PathBuf>,
     ) -> Self {
+        let path = path.into();
         Transcript {
-            path: path.into(),
+            agents: Subagents::new(&path),
+            path,
             read_to: 0,
             file: None,
             rest: Vec::new(),
@@ -440,8 +451,13 @@ impl Transcript {
 
     /// Take in what was written since the last read; whether what it brings
     /// up may have changed. One that shrank, was replaced or is gone is read
-    /// from its start.
+    /// from its start. The transcripts of its subagents are read too.
     pub fn read(&mut self, exists: &dyn Fn(&Path) -> bool) -> bool {
+        let changed = self.read_own(exists);
+        self.agents.look() || changed
+    }
+
+    fn read_own(&mut self, exists: &dyn Fn(&Path) -> bool) -> bool {
         use std::io::{Read, Seek, SeekFrom};
         use std::os::unix::fs::MetadataExt;
         let opened = std::fs::File::open(&self.path).and_then(|f| Ok((f.metadata()?, f)));
@@ -474,19 +490,26 @@ impl Transcript {
         };
         let done: Vec<u8> = self.rest.drain(..=end).collect();
         for line in String::from_utf8_lossy(&done).lines() {
-            self.found.feed(line, exists);
+            if let Ok(v) = serde_json::from_str::<Value>(line) {
+                self.found.take(&v, exists);
+                self.agents.feed(&v);
+            }
         }
         true
     }
 
     pub fn links(&self) -> Links {
-        self.found.links()
+        Links {
+            agents: self.agents.agents(),
+            ..self.found.links()
+        }
     }
 
     fn restart(&mut self) {
         self.read_to = 0;
         self.file = None;
         self.rest.clear();
+        self.agents = Subagents::new(&self.path);
         self.found = Collector::new(
             std::mem::take(&mut self.found.cwd),
             std::mem::take(&mut self.found.home),
@@ -1006,6 +1029,46 @@ mod tests {
         std::fs::remove_file(&path).unwrap();
         assert!(t.read(NOWHERE));
         assert!(t.links().is_empty());
+    }
+
+    #[test]
+    fn a_transcript_lists_the_subagents_it_runs_with_their_steps() {
+        use crate::subagents::{Standing, Step};
+        let path = scratch("agents");
+        let own = path.with_extension("").join("subagents");
+        std::fs::create_dir_all(&own).unwrap();
+        append(
+            &path,
+            &format!(
+                "{}\n{}\n",
+                tool(
+                    "toolu_a",
+                    "Agent",
+                    json!({"description": "Survey", "subagent_type": "Explore", "prompt": "Look."})
+                ),
+                json!({
+                    "type": "user",
+                    "message": {"role": "user", "content": [
+                        {"type": "tool_result", "tool_use_id": "toolu_a", "content": "launched"}
+                    ]},
+                    "toolUseResult": {"isAsync": true, "status": "async_launched", "agentId": "a7cd"},
+                }),
+            ),
+        );
+        let mut t = Transcript::new(&path, "/w", "/home/me");
+        assert!(t.read(NOWHERE));
+        assert_eq!(t.links().agents[0].standing, Standing::Running);
+        assert!(t.links().agents[0].steps.is_empty());
+        assert!(!t.links().is_empty());
+        append(
+            &own.join("agent-a7cd.jsonl"),
+            &format!("{}\n", said("Reading the code.")),
+        );
+        assert!(t.read(NOWHERE), "its own transcript grew");
+        assert_eq!(
+            t.links().agents[0].steps,
+            [Step::Said("Reading the code.".into())]
+        );
     }
 
     fn sent(id: &str, to: &str) -> String {

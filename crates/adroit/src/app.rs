@@ -23,8 +23,8 @@ use crate::console_keys::direct_key;
 use crate::console_read;
 use crate::daemon;
 use crate::details::{
-    Drill, Entry, Group, Listing, Related, Sheet, Tie, View, capped, facts, gauges, load, overview,
-    related, shown_link,
+    Drill, Entry, Group, Listing, Related, Sheet, Tie, View, capped, facts, gauges, load,
+    overview_shown, related, shown_agent, shown_link, with_agents,
 };
 use crate::editor;
 use crate::filer::{Filer, read_dirs};
@@ -51,6 +51,7 @@ use crate::settings_window;
 use crate::shells::{Request, Response, answer, bind, serve, socket_path};
 use crate::status;
 use crate::style::{CSS, CellHeight, DEFAULT_CELL_HEIGHT};
+use crate::subagent_view::{SubagentView, agent_icon};
 use crate::tabs::{self, Role, Tab, fresh_name, label_from, named, shows_prompt};
 use crate::themes;
 use crate::view::Keys;
@@ -136,6 +137,7 @@ fn overview_listing(
     read: Option<&(String, Links)>,
     shown: Option<&Tab>,
     folded: &HashSet<Group>,
+    opened: &HashSet<Group>,
     tree: &Tree,
 ) -> Option<Listing> {
     match (read, shown) {
@@ -146,11 +148,15 @@ fn overview_listing(
                 Some((_, shown)) => related(shown, &sessions, &links.peers),
                 None => Vec::new(),
             };
-            Some(Listing::Links(overview(
+            let d = settings::current().details;
+            let entries = overview_shown(
                 &ties,
-                &capped(&rows, settings::current().details.links_kept),
+                &capped(&rows, d.links_kept),
                 folded,
-            )))
+                opened,
+                d.links_shown,
+            );
+            Some(Listing::Links(with_agents(entries, &links.agents, folded)))
         }
         _ => None,
     }
@@ -188,6 +194,8 @@ struct LinkSection {
     count: usize,
     folded: bool,
     rows: Vec<LinkRow>,
+    /// The row for the links not shown: its place and how many they are.
+    more: Option<(usize, usize)>,
 }
 
 /// The overview's `entries` as groups under their headings, paths shown
@@ -196,6 +204,11 @@ fn link_sections(entries: &[Entry], worktree: &Path, home: &Path) -> Vec<LinkSec
     let mut out: Vec<LinkSection> = Vec::new();
     for (at, entry) in entries.iter().enumerate() {
         match entry {
+            Entry::More { hidden, .. } => {
+                if let Some(section) = out.last_mut() {
+                    section.more = Some((at, *hidden));
+                }
+            }
             Entry::Heading {
                 group,
                 count,
@@ -206,6 +219,7 @@ fn link_sections(entries: &[Entry], worktree: &Path, home: &Path) -> Vec<LinkSec
                 count: *count,
                 folded: *folded,
                 rows: Vec::new(),
+                more: None,
             }),
             Entry::Session(r) => {
                 let icon = if r
@@ -228,6 +242,19 @@ fn link_sections(entries: &[Entry], worktree: &Path, home: &Path) -> Vec<LinkSec
                         label: r.name.clone(),
                         tag: tag.join(" · "),
                         target: r.name.clone(),
+                        file: false,
+                    });
+                }
+            }
+            Entry::Agent(a) => {
+                let (label, tag) = shown_agent(a, now_ms());
+                if let Some(section) = out.last_mut() {
+                    section.rows.push(LinkRow {
+                        at,
+                        icon: agent_icon(a.standing),
+                        label,
+                        tag,
+                        target: a.call.clone(),
                         file: false,
                     });
                 }
@@ -1097,6 +1124,8 @@ fn App() -> Element {
     let mut overview_links = use_signal(|| None::<(String, Links)>);
     // The overview's groups of links shown by their headings alone.
     let mut folded_groups = use_signal(HashSet::<Group>::new);
+    // The overview's groups of links shown whole, past their first few.
+    let mut opened_groups = use_signal(HashSet::<Group>::new);
     // The interactive session the dialog asks to take over.
     let mut confirm = use_signal(|| None::<Ask>);
     // The session being given a new name, and the name typed so far.
@@ -1653,6 +1682,19 @@ fn App() -> Element {
         move || {
             let _ = (drill().sheet(), active());
             wake.notify_one();
+        }
+    });
+    // A subagent opened that the overview no longer lists is gone back from.
+    use_effect(move || {
+        let mut d = drill();
+        let gone = d.agent().is_some_and(|call| {
+            let read = overview_links();
+            !read
+                .as_ref()
+                .is_some_and(|(_, l)| l.agents.iter().any(|a| a.call == call))
+        });
+        if gone && d.back() {
+            drill.set(d);
         }
     });
     // What was opened in one worktree means nothing in another.
@@ -3014,6 +3056,7 @@ fn App() -> Element {
                             overview_links.peek().as_ref(),
                             active.peek().as_ref(),
                             &folded_groups.peek(),
+                            &opened_groups.peek(),
                             &tree.peek(),
                         );
                     }
@@ -3189,6 +3232,18 @@ fn App() -> Element {
                 {
                     let mut d = drill.peek().clone();
                     match (&action, &details_list) {
+                        // A subagent opened shows no list: the keys scroll,
+                        // and those that fold go back to the overview.
+                        (_, Some(Listing::Links(_))) if d.agent().is_some() => match action {
+                            Action::CursorFold => {
+                                d.back();
+                            }
+                            Action::CursorDown => scroll("17"),
+                            Action::CursorUp => scroll("-17"),
+                            Action::CursorFirst => scroll("-b.scrollHeight"),
+                            Action::CursorLast => scroll("b.scrollHeight"),
+                            _ => {}
+                        },
                         (_, Some(l @ Listing::Links(entries))) => {
                             let chosen = d.selected(l).map(|at| &entries[at]);
                             // A heading folds and unfolds as a workspace's row
@@ -3217,6 +3272,7 @@ fn App() -> Element {
                                         overview_links.peek().as_ref(),
                                         active.peek().as_ref(),
                                         &f,
+                                        &opened_groups.peek(),
                                         &tree.peek(),
                                     );
                                     if let Some(now) = now
@@ -3238,6 +3294,23 @@ fn App() -> Element {
                                         Went::Nowhere => {}
                                     }
                                 }
+                                (None, Some(Use::Open), Some(Entry::More { group, .. })) => {
+                                    opened_groups.write().insert(*group);
+                                }
+                                (None, Some(how), Some(Entry::Agent(a))) => match how {
+                                    Use::Open => {
+                                        d.open(l);
+                                    }
+                                    Use::Copy => {
+                                        notify.notice(match copy_to_clipboard(&a.prompt) {
+                                            Ok(()) => {
+                                                format!("Copied the prompt of {}", a.description)
+                                            }
+                                            Err(e) => format!("cannot copy: {e}"),
+                                        })
+                                    }
+                                    Use::Reveal => {}
+                                },
                                 (None, Some(_), _) => {}
                                 _ => match action {
                                     Action::CursorDown => d.step(l, 1),
@@ -3504,6 +3577,7 @@ fn App() -> Element {
                         overview_links.peek().as_ref(),
                         active.peek().as_ref(),
                         &folded_groups.peek(),
+                        &opened_groups.peek(),
                         &tree.peek(),
                     );
                     if let Some(l) = listing {
@@ -4032,15 +4106,26 @@ fn App() -> Element {
             overview_links().as_ref(),
             active_tab.as_ref(),
             &folded_groups(),
+            &opened_groups(),
             &t,
         )
     } else {
         None
     };
     let link_selected = overview_now.as_ref().and_then(|l| drill_now.selected(l));
+    let opened_agent = drill_now.agent().and_then(|call| {
+        let read = overview_links();
+        read.as_ref()?
+            .1
+            .agents
+            .iter()
+            .find(|a| a.call == call)
+            .cloned()
+    });
     let link_sections = {
         let entries = match &overview_now {
-            Some(Listing::Links(entries)) => entries.as_slice(),
+            // A subagent opened stands in for the rows.
+            Some(Listing::Links(entries)) if drill_now.agent().is_none() => entries.as_slice(),
             _ => &[],
         };
         let worktree = current
@@ -4057,6 +4142,7 @@ fn App() -> Element {
             overview_links.peek().as_ref(),
             active.peek().as_ref(),
             &folded_groups.peek(),
+            &opened_groups.peek(),
             &tree.peek(),
         ) else {
             return;
@@ -4078,9 +4164,18 @@ fn App() -> Element {
                 Went::Told(told) => notify.notice(told),
                 Went::Nowhere => {}
             },
+            Some(Entry::Agent(_)) => {
+                let mut d = drill.peek().clone();
+                if d.open(&l) {
+                    drill.set(d);
+                }
+            }
             Some(Entry::Heading { group, folded, .. }) => {
                 let f = refold(&folded_groups.peek(), *group, !folded);
                 folded_groups.set(f);
+            }
+            Some(Entry::More { group, .. }) => {
+                opened_groups.write().insert(*group);
             }
             None => {}
         }
@@ -4756,6 +4851,19 @@ fn App() -> Element {
                             span { class: "details-path", "{p.worktree.display()}" }
                         }
                     }
+                    if let Some(agent) = opened_agent {
+                        SubagentView {
+                            agent,
+                            now_ms: now_ms(),
+                            back_keys: k_back.clone(),
+                            on_back: move |_| {
+                                let mut d = drill.peek().clone();
+                                if d.back() {
+                                    drill.set(d);
+                                }
+                            },
+                        }
+                    }
                     for section in link_sections.into_iter() {
                         div { key: "{section.group.title()}", class: "details-block details-links",
                             {
@@ -4792,6 +4900,15 @@ fn App() -> Element {
                                             }
                                         }
                                     }
+                                }
+                            }
+                            if let Some((at, hidden)) = section.more {
+                                div { key: "more-{at}",
+                                    class: if link_selected == Some(at) { "list-row details-link details-more selected" } else { "list-row details-link details-more" },
+                                    onclick: move |_| click_link(at),
+                                    IconView { icon: Icon::ChevronDown, size: 13 }
+                                    span { class: "list-row-name", "Show all" }
+                                    span { class: "details-link-tag", "{hidden} more" }
                                 }
                             }
                         }
@@ -5181,6 +5298,7 @@ fn App() -> Element {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::details::overview;
 
     #[test]
     fn the_clipboard_reads_the_text_as_utf_8_whatever_the_app_s_locale() {
@@ -5271,9 +5389,9 @@ mod tests {
         let shown = |id: &str| Tab::Session(id.into());
         let open = HashSet::new();
         let t = Tree::default();
-        assert!(overview_listing(Some(&read), Some(&shown("s1")), &open, &t).is_some());
-        assert!(overview_listing(Some(&read), Some(&shown("s2")), &open, &t).is_none());
-        assert!(overview_listing(Some(&read), Some(&Tab::Shell(1)), &open, &t).is_none());
+        assert!(overview_listing(Some(&read), Some(&shown("s1")), &open, &open, &t).is_some());
+        assert!(overview_listing(Some(&read), Some(&shown("s2")), &open, &open, &t).is_none());
+        assert!(overview_listing(Some(&read), Some(&Tab::Shell(1)), &open, &open, &t).is_none());
     }
 
     fn related_to(name: &str, id: Option<&str>, ties: &[Tie]) -> Related {

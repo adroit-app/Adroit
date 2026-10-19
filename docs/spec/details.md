@@ -10,7 +10,10 @@ Overview, Changes and Log.
   the one it was started from and those it started
   ([sessions](sessions.md#started-by-a-session)) while they run, then those it
   messaged or heard from through Claude Code, newest first, each saying how
-  the two are tied. After them it lists what the session's conversation
+  the two are tied. Then it lists the subagents the session set to work
+  through Claude Code: those still at work, the latest first, then the few
+  that ended last, each saying what kind it is, how it stands and for how
+  long it has run or ran. After them it lists what the session's conversation
   brought up, newest first: the claude.ai artifacts, the other web addresses,
   and the files it wrote or edited, read, or named in a reply where such a
   file exists, each saying how the session came across it. A shell or a
@@ -29,6 +32,14 @@ Overview, Changes and Log.
 Opening a session of the overview shows it, wherever it runs; one that runs
 no more is listed by its name and says so. Copying one copies its name, which
 Claude Code's messaging addresses it by.
+
+Each kind of link shows its newest few, five unless the settings say
+otherwise ([settings](settings.md#settingstoml)), and a row that shows the
+rest; opened, it shows them all until adroit runs again.
+
+Opening a subagent of the overview shows what it was asked, the latest
+steps it took, and, once it ended, what it reported. Copying one copies what
+it was asked.
 
 Opening a link of the overview hands it to macOS: an address opens in the
 default browser, a file in the app that opens it. A right click on a link
@@ -76,9 +87,10 @@ cannot be run, the repository is read through git instead.
 
 In a list, `j` and `k` move, `gg` and `G` go to the first and the last row,
 `Enter` or `l` opens the selected row, and `h`, `Escape` or `Backspace` go
-back. In the overview, the same keys move over its headings and links and
-open a link; on a heading, `Enter` or `l` folds or unfolds its group, the keys
-that go back fold the group of what is selected, and `y` copies the selected
-link. In a diff or an overview without links, `j`, `k`, `gg` and `G` scroll,
-and in every sheet `Ctrl+d` and `Ctrl+u` scroll by half a page. `Cmd+1`,
+back. In the overview, the same keys move over its headings and rows and
+open a link or a subagent; on a heading, `Enter` or `l` folds or unfolds its
+group, the keys that go back fold the group of what is selected, and `y`
+copies the selected row. In a subagent opened, the keys that go back go back
+to the overview. In a diff, a subagent opened or an overview without links,
+`j`, `k`, `gg` and `G` scroll, and in every sheet `Ctrl+d` and `Ctrl+u` scroll by half a page. `Cmd+1`,
 `Cmd+2` and `Cmd+3` show the sheets ([keys](keys.md)).

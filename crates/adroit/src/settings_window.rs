@@ -310,6 +310,15 @@ fn General(now: Settings, change: Callback<Change>) -> Element {
                     },
                 }
             }
+            Row { label: "Links shown", hint: "How many links of each kind the overview shows before a row that shows them all.",
+                input {
+                    r#type: "number", min: "1", max: "1000",
+                    value: "{now.details.links_shown}",
+                    onchange: move |e| if let Ok(n) = e.value().parse::<usize>() {
+                        change(Box::new(move |s: &mut Settings| s.details.links_shown = n));
+                    },
+                }
+            }
             Row { label: "Links kept", hint: "How many links of each kind the overview shows, the newest.",
                 input {
                     r#type: "number", min: "1", max: "1000",
