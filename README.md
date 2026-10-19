@@ -103,8 +103,10 @@ Claude Code's own input meanwhile moves into the prompt when the keys stop
 going there, and whenever the prompt takes the keyboard. A shell takes every
 key; `Ctrl-w .` sends a literal `Ctrl-w`.
 
-In the prompt, keys go to Neovim, `@` offers sessions and
-files, and `Ctrl-Enter` sends what you wrote.
+In the prompt, keys go to Neovim, `/` offers Claude Code's own commands, your
+skills and plugins' included, `@` offers sessions and paths to walk into, a
+line starting with `!` runs as a shell command in the session, and
+`Ctrl-Enter` sends what you wrote.
 
 In the details panel, `j` `k` and `gg` `G` move through a list and `Enter`
 opens a row: a changed file shows its diff, a commit the files it changed. `h`
