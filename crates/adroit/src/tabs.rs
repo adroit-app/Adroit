@@ -51,9 +51,15 @@ const FILLER: &[&str] = &[
     "why", "what", "how",
 ];
 
+/// How many characters a label made from text without ASCII words keeps:
+/// such text, Japanese for one, need not have spaces to cut it into words,
+/// and each of its characters takes about two columns of a sidebar row.
+const UNSPACED_LABEL_CHARS: usize = 12;
+
 /// A short label for a new session from its first prompt: the first few
-/// words that say something, lower case, joined by `-`, keeping letters and
-/// digits only.
+/// words that say something, lower case, joined by `-`, keeping ASCII
+/// letters and digits only. A prompt without such words is labelled by its
+/// first letters and digits in any script instead.
 pub fn label_from(prompt: &str) -> String {
     let words: Vec<String> = prompt
         .split_whitespace()
@@ -66,11 +72,26 @@ pub fn label_from(prompt: &str) -> String {
         .filter(|w| !w.is_empty() && !FILLER.contains(&w.as_str()))
         .take(3)
         .collect();
-    if words.is_empty() {
-        "session".into()
-    } else {
-        words.join("-")
+    if !words.is_empty() {
+        return words.join("-");
     }
+    let label: String = letter_runs(prompt)
+        .join("-")
+        .chars()
+        .take(UNSPACED_LABEL_CHARS)
+        .collect();
+    match label.trim_end_matches('-') {
+        "" => "session".into(),
+        label => label.to_string(),
+    }
+}
+
+/// The runs of letters and digits in `text`, in any script, lower case.
+fn letter_runs(text: &str) -> Vec<String> {
+    text.split(|c: char| !c.is_alphanumeric())
+        .filter(|run| !run.is_empty())
+        .map(str::to_lowercase)
+        .collect()
 }
 
 /// The label a first prompt gives its session on a first line `name: …`,
@@ -91,15 +112,16 @@ pub fn named(prompt: &str) -> (Option<String>, String) {
 }
 
 /// The label a name given by hand makes: its words lower case, joined by
-/// `-`, keeping letters, digits and `-`; `None` when nothing is left.
+/// `-`, keeping letters in any script, digits and `-`; `None` when nothing
+/// is left.
 pub fn label_of(name: &str) -> Option<String> {
     let label = name
         .split_whitespace()
         .map(|w| {
             w.chars()
-                .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+                .filter(|c| c.is_alphanumeric() || *c == '-')
                 .collect::<String>()
-                .to_ascii_lowercase()
+                .to_lowercase()
         })
         .filter(|w| !w.is_empty())
         .collect::<Vec<_>>()
@@ -205,13 +227,48 @@ mod tests {
     }
 
     #[test]
-    fn punctuation_and_non_ascii_words_are_dropped() {
+    fn punctuation_and_non_ascii_words_are_dropped_when_ascii_words_say_something() {
         assert_eq!(label_from("認証の テスト: add PKCE!"), "add-pkce");
     }
 
     #[test]
-    fn a_prompt_without_usable_words_gets_a_generic_label() {
-        assert_eq!(label_from("日本語だけ"), "session");
+    fn a_prompt_without_ascii_words_is_labelled_by_its_own_letters() {
+        assert_eq!(label_from("日本語だけ"), "日本語だけ");
+        assert_eq!(label_from("Тест входа"), "тест-входа");
+    }
+
+    #[test]
+    fn a_label_from_unspaced_text_is_cut_by_characters() {
+        assert_eq!(
+            label_from("ログインのテストが落ちる理由を調べてください"),
+            "ログインのテストが落ちる"
+        );
+    }
+
+    #[test]
+    fn punctuation_in_unspaced_text_becomes_a_single_dash() {
+        assert_eq!(label_from("認証、直して。"), "認証-直して");
+        assert_eq!(label_from("「認証」の　テスト"), "認証-の-テスト");
+        assert_eq!(
+            label_from("認証のテストを直して、確認"),
+            "認証のテストを直して-確"
+        );
+    }
+
+    #[test]
+    fn a_prompt_without_letters_or_digits_gets_a_generic_label() {
+        assert_eq!(label_from("！？ ..."), "session");
+        assert_eq!(label_from(""), "session");
+    }
+
+    #[test]
+    fn a_name_given_by_hand_keeps_letters_of_any_script() {
+        assert_eq!(label_of("ログイン 修正"), Some("ログイン-修正".to_string()));
+        assert_eq!(
+            named("name: 認証の修正\n直して").0.as_deref(),
+            Some("認証の修正")
+        );
+        assert_eq!(label_of("「」"), None);
     }
 
     #[test]
