@@ -31,12 +31,14 @@ fn script(title: &str, subtitle: &str, body: &str) -> String {
 
 /// Show a notification that the session `name` waits, for `why`.
 pub fn notify_waiting(name: &str, why: &str) {
-    let _ = std::process::Command::new("osascript")
-        .args(["-e", &script("Adroit", name, why)])
+    let mut cmd = tokio::process::Command::new("osascript");
+    cmd.args(["-e", &script("Adroit", name, why)])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn();
+        .stderr(std::process::Stdio::null());
+    dioxus::prelude::spawn(async move {
+        let _ = cmd.status().await;
+    });
 }
 
 #[cfg(test)]

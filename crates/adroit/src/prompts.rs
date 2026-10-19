@@ -100,13 +100,16 @@ impl Drafts {
         Self { shown: None, kept }
     }
 
-    /// The text for the window shown with nothing open, which a window just
-    /// opened is.
+    /// `now` is shown while there is no prompt to put its text in: the text
+    /// stays kept until [`Drafts::first`] gives it.
+    pub fn turn_to(&mut self, now: Option<Tab>) {
+        self.shown = now;
+    }
+
+    /// The text for the tab shown when the prompt first opens, which is the
+    /// window shown with nothing open unless a tab was shown before then.
     pub fn first(&mut self) -> Option<String> {
-        if self.shown.is_some() {
-            return None;
-        }
-        self.kept.remove(&None)
+        self.kept.remove(&self.shown)
     }
 
     /// The tabs not shown that have text kept aside.
@@ -269,17 +272,20 @@ pub fn keeper(nvim: Signal<Option<Arc<Embedded>>>, mut drafted: Signal<HashSet<T
                         continue;
                     }
                     history.reset();
-                    let taken = match &nv {
-                        Some(nv) => nv.take_text().await.unwrap_or_default(),
-                        None => String::new(),
+                    let Some(nv) = &nv else {
+                        drafts.turn_to(now);
+                        continue;
                     };
+                    let taken = nv.take_text().await.unwrap_or_default();
                     if let Some(text) = drafts.show(now, taken) {
                         put(text).await;
                     }
                 }
                 Op::Close(now) => {
                     history.reset();
-                    if let Some(text) = drafts.close(now) {
+                    if nv.is_none() {
+                        drafts.turn_to(now);
+                    } else if let Some(text) = drafts.close(now) {
                         put(text).await;
                     }
                 }
@@ -433,6 +439,20 @@ mod tests {
         assert!(back.holding().is_empty());
         // The window opens with nothing shown: its text comes back first.
         assert_eq!(back.first(), Some("with nothing open".into()));
+        assert_eq!(back.first(), None);
+    }
+
+    #[test]
+    fn a_tab_shown_before_the_prompt_opens_gets_its_text_once_it_does() {
+        let mut d = Drafts::default();
+        d.show(session("a"), String::new());
+        d.show(None, "for a".into());
+        let mut back = Drafts::restored(d.saved(""));
+
+        back.turn_to(session("a"));
+
+        assert_eq!(back.saved(""), d.saved(""));
+        assert_eq!(back.first(), Some("for a".into()));
         assert_eq!(back.first(), None);
     }
 

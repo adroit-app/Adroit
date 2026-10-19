@@ -55,3 +55,17 @@ A prompt whose first character is `!` is a shell line for Claude Code, and the
 card shows it as one. Sent to a session, it runs in Claude Code's bash mode,
 as if typed there, and its output joins the conversation. A draft does not
 take a shell line; its session is started with a message first.
+
+## A pasted image
+
+An image pasted into the prompt, with no text beside it on the clipboard, is
+saved by adroit, and the prompt names it at the cursor in the form Claude Code
+attaches as an image when the message is sent. Claude Code takes PNG, JPEG,
+GIF and WebP images; another kind is refused with a notice. A video is not
+taken, as Claude Code reads none. A saved image is kept for a week after it is
+pasted, so a prompt kept longer names an image that is gone.
+
+Where the console's program has the text instead, as in a shell or while
+Claude Code is answered from the prompt or passed every key, the program is
+handed an empty paste, as a terminal hands on an image paste; Claude Code
+reads the image off the clipboard itself.

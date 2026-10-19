@@ -122,10 +122,11 @@ pub(crate) fn open_with(how: &str, path: &Path, starter: &str) {
         }
         let _ = std::fs::write(path, starter);
     }
-    let _ = std::process::Command::new("open")
-        .arg(how)
-        .arg(path)
-        .spawn();
+    let mut cmd = tokio::process::Command::new("open");
+    cmd.arg(how).arg(path);
+    spawn(async move {
+        let _ = cmd.status().await;
+    });
 }
 
 const KEYS_STARTER: &str = "# Key bindings over the defaults, area by area, as in\n# [sidebar]\n# \"J\" = \"cursor.down\"\n";
@@ -378,7 +379,11 @@ fn ConsolePane(now: Settings, change: Callback<Change>) -> Element {
                 button {
                     onclick: move |_| {
                         let _ = std::fs::create_dir_all(&themes_dir);
-                        let _ = std::process::Command::new("open").arg(&themes_dir).spawn();
+                        let mut cmd = tokio::process::Command::new("open");
+                        cmd.arg(&themes_dir);
+                        spawn(async move {
+                            let _ = cmd.status().await;
+                        });
                     },
                     "Open"
                 }

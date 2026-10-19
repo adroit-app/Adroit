@@ -214,14 +214,10 @@ pub fn claude(
     (program, args, env.into_iter().chain(s.claude.env).collect())
 }
 
-/// The program Claude Code is asked things through, outside a console.
-pub fn claude_program() -> String {
-    let s = crate::settings::current();
-    s.claude
-        .command
-        .first()
-        .cloned()
-        .unwrap_or_else(adroit_claude::claude_program)
+/// What starts Claude Code with `args` to ask it something outside a console,
+/// as the settings start a session.
+pub fn claude_asked(args: Vec<String>) -> adroit_claude::Started {
+    claude(args, Vec::new())
 }
 
 /// What starts a Neovim tab's Neovim, as the settings say: the program, its

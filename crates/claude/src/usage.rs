@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use crate::control;
+use crate::{Started, control};
 
 /// The span a limit counts usage over.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -142,12 +142,16 @@ fn epoch_ms(text: &str) -> Option<u64> {
 /// it asks the account's usage over the network.
 pub const PROBE_TIMEOUT: Duration = Duration::from_secs(15);
 
-/// Ask `program`, Claude Code, run in `dir`, how much of the account's limits
+/// Ask Claude Code, started by `start` in `dir`, how much of the account's limits
 /// is used, giving up after `timeout`. `None` for every failure: the request
 /// is unversioned, and a release that changes it leaves the limits unknown
 /// rather than guessed.
-pub async fn probe(program: &str, dir: &Path, timeout: Duration) -> Option<Vec<Limit>> {
-    control::ask(program, dir, REQUEST, timeout, |line| match reply(line) {
+pub async fn probe(
+    start: impl FnOnce(Vec<String>) -> Started,
+    dir: &Path,
+    timeout: Duration,
+) -> Option<Vec<Limit>> {
+    control::ask(start, dir, REQUEST, timeout, |line| match reply(line) {
         Reply::Limits(list) => Some(Some(list)),
         Reply::Refused => Some(None),
         Reply::Other => None,
@@ -401,6 +405,12 @@ mod tests {
         program
     }
 
+    /// Claude Code started as `program` with nothing else.
+    fn started(program: &Path) -> impl FnOnce(Vec<String>) -> Started {
+        let program = program.to_str().unwrap().to_string();
+        move |args| (program, args, Vec::new())
+    }
+
     #[tokio::test]
     async fn the_probe_writes_the_usage_request_and_reads_the_answer() {
         let p = fake(
@@ -410,7 +420,7 @@ mod tests {
             ),
         );
         let dir = p.parent().unwrap();
-        let got = probe(p.to_str().unwrap(), dir, Duration::from_secs(5))
+        let got = probe(started(&p), dir, Duration::from_secs(5))
             .await
             .unwrap();
         assert_eq!(got.len(), 3);
@@ -426,12 +436,7 @@ mod tests {
 echo '{"type":"control_response","response":{"subtype":"error","request_id":"adroit","error":"Unknown subtype"}}'
 exec sleep 30"#,
         );
-        let got = probe(
-            p.to_str().unwrap(),
-            p.parent().unwrap(),
-            Duration::from_secs(5),
-        )
-        .await;
+        let got = probe(started(&p), p.parent().unwrap(), Duration::from_secs(5)).await;
         assert_eq!(got, None);
     }
 
@@ -440,9 +445,13 @@ exec sleep 30"#,
     #[tokio::test]
     #[ignore = "needs Claude Code installed and logged in to a plan with limits"]
     async fn claude_code_answers_with_the_session_limit() {
-        let got = probe("claude", &std::env::temp_dir(), PROBE_TIMEOUT)
-            .await
-            .expect("an answer");
+        let got = probe(
+            started(Path::new("claude")),
+            &std::env::temp_dir(),
+            PROBE_TIMEOUT,
+        )
+        .await
+        .expect("an answer");
         assert!(got.iter().any(|l| l.window == Window::Session), "{got:?}");
     }
 }

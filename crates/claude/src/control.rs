@@ -8,6 +8,8 @@ use std::time::Duration;
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
+use crate::Started;
+
 /// The arguments that make Claude Code take control requests on its input and
 /// answer on its output, keeping no session of what passes.
 pub(crate) const PROBE_ARGS: &[&str] = &[
@@ -19,19 +21,21 @@ pub(crate) const PROBE_ARGS: &[&str] = &[
     "--no-session-persistence",
 ];
 
-/// Start `program`, Claude Code, in `dir`, write `request` and read its
+/// Start Claude Code with `start` in `dir`, write `request` and read its
 /// output a line at a time through `read`, until `read` settles it: `Some`
 /// with the answer, or with `None` for a refusal. Gives up after `timeout`,
 /// and kills the process either way.
 pub(crate) async fn ask<T>(
-    program: &str,
+    start: impl FnOnce(Vec<String>) -> Started,
     dir: &Path,
     request: &str,
     timeout: Duration,
     mut read: impl FnMut(&str) -> Option<Option<T>>,
 ) -> Option<T> {
+    let (program, args, env) = start(PROBE_ARGS.iter().map(|a| a.to_string()).collect());
     let mut child = tokio::process::Command::new(program)
-        .args(PROBE_ARGS)
+        .args(args)
+        .envs(env)
         .current_dir(dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use crate::control;
+use crate::{Started, control};
 
 /// A command `/` offers.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,12 +61,16 @@ pub fn reply(line: &str) -> Reply {
 /// How long Claude Code is given to answer.
 pub const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Ask `program`, Claude Code, which commands it offers in `dir`, giving up
+/// Ask Claude Code, started by `start`, which commands it offers in `dir`, giving up
 /// after `timeout`. The process is killed once it answers. `None` for every
 /// failure: the request is unversioned, and a release that changes it leaves
 /// `/` with nothing to offer rather than with a list of guesses.
-pub async fn probe(program: &str, dir: &Path, timeout: Duration) -> Option<Vec<Command>> {
-    control::ask(program, dir, REQUEST, timeout, |line| match reply(line) {
+pub async fn probe(
+    start: impl FnOnce(Vec<String>) -> Started,
+    dir: &Path,
+    timeout: Duration,
+) -> Option<Vec<Command>> {
+    control::ask(start, dir, REQUEST, timeout, |line| match reply(line) {
         Reply::Commands(list) => Some(Some(list)),
         Reply::Refused => Some(None),
         Reply::Other => None,
@@ -262,7 +266,33 @@ mod tests {
 
     async fn ask(program: &Path, timeout: Duration) -> Option<Vec<Command>> {
         let dir = program.parent().unwrap();
-        probe(program.to_str().unwrap(), dir, timeout).await
+        let program = program.to_str().unwrap().to_string();
+        probe(|args| (program, args, Vec::new()), dir, timeout).await
+    }
+
+    #[tokio::test]
+    async fn the_probe_starts_claude_code_as_it_is_set_up_to_start() {
+        let p = fake(
+            "wrapped",
+            &format!(
+                "[ \"$1\" = --wrapped ] && [ \"$2\" = --output-format ] && [ \"$WRAPPED\" = yes ] || exit 1\nread line\necho '{ANSWER}'\nexec sleep 30"
+            ),
+        );
+        let program = p.to_str().unwrap().to_string();
+        let start = |args: Vec<String>| {
+            let args = std::iter::once("--wrapped".to_string())
+                .chain(args)
+                .collect();
+            (
+                program,
+                args,
+                vec![("WRAPPED".to_string(), "yes".to_string())],
+            )
+        };
+
+        let got = probe(start, p.parent().unwrap(), Duration::from_secs(5)).await;
+
+        assert_eq!(got.map(|c| c.len()), Some(2));
     }
 
     #[tokio::test]
@@ -305,7 +335,7 @@ mod tests {
     #[tokio::test]
     async fn a_missing_program_offers_nothing() {
         let got = probe(
-            "/nonexistent/claude",
+            |args| ("/nonexistent/claude".to_string(), args, Vec::new()),
             Path::new("/"),
             Duration::from_secs(1),
         )
@@ -317,7 +347,8 @@ mod tests {
     #[tokio::test]
     #[ignore = "needs Claude Code installed and logged in"]
     async fn claude_code_answers_with_its_built_in_commands() {
-        let got = probe("claude", &std::env::temp_dir(), PROBE_TIMEOUT)
+        let start = |args| ("claude".to_string(), args, Vec::new());
+        let got = probe(start, &std::env::temp_dir(), PROBE_TIMEOUT)
             .await
             .expect("an answer");
         assert!(got.iter().any(|c| c.name == "compact"), "{got:?}");

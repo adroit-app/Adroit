@@ -3,19 +3,21 @@
 
 /// Whether the screen whose rows are `lines` shows a dialog of Claude Code's
 /// that takes keys: one drawn below a rule across the screen, with a hint of
-/// its keys such as "Esc to cancel", while the input box, a prompt between two
-/// such rules, is not there.
+/// its keys such as "Esc to cancel". It takes the place of the input box, a
+/// prompt between two such rules, or sits right above it while Claude works.
 pub fn dialog_open<S: AsRef<str>>(lines: &[S]) -> bool {
     let line = |i: usize| lines[i].as_ref();
-    let mut rules = (0..lines.len()).rev().filter(|&i| rule(line(i)));
-    let Some(last) = rules.next() else {
-        return false;
+    let rules: Vec<usize> = (0..lines.len()).filter(|&i| rule(line(i))).collect();
+    let input = rules.windows(2).rposition(|w| prompt(line(w[0] + 1)));
+    let (from, to) = match input {
+        Some(0) => return false,
+        Some(at) => (rules[at - 1], rules[at]),
+        None => match rules.last() {
+            Some(&last) => (last, lines.len()),
+            None => return false,
+        },
     };
-    // The input box's own rules: a dialog draws only the one above it.
-    if rules.next().is_some_and(|above| prompt(line(above + 1))) {
-        return false;
-    }
-    (last + 1..lines.len()).any(|i| key_hint(line(i)))
+    (from + 1..to).any(|i| key_hint(line(i)))
 }
 
 /// The shortest rule taken for one across the screen; a dialog's own boxes
@@ -44,8 +46,10 @@ mod tests {
 
     /// A screen kept under `tests/screens`. Those named after a slash command
     /// and `input`, `slash-menu` and `after-a-reply` were recorded from Claude
-    /// Code 2.1.302 at 120×40; `working` and `quoting-a-dialog` are
-    /// `after-a-reply` with a spinner, or a reply quoting a dialog, written in.
+    /// Code 2.1.302 at 120×40, and `model-while-working` from 2.1.303 at
+    /// 120×40 with the lines only that session showed taken out; `working` and
+    /// `quoting-a-dialog` are `after-a-reply` with a spinner, or a reply
+    /// quoting a dialog, written in.
     fn screen(name: &str) -> Vec<String> {
         let path = format!("{}/tests/screens/{name}.txt", env!("CARGO_MANIFEST_DIR"));
         std::fs::read_to_string(&path)
@@ -60,6 +64,11 @@ mod tests {
         for name in ["model", "config", "permissions", "mcp", "theme"] {
             assert!(dialog_open(&screen(name)), "{name}");
         }
+    }
+
+    #[test]
+    fn a_picker_opened_while_claude_works_is_a_dialog_above_the_input_box() {
+        assert!(dialog_open(&screen("model-while-working")));
     }
 
     #[test]

@@ -26,6 +26,7 @@ mod layout;
 pub mod menu;
 pub mod menu_bar;
 pub mod nav;
+mod pasted;
 mod paths;
 pub mod picker;
 mod picker_view;

@@ -43,6 +43,12 @@ pub fn claude_program() -> String {
     std::env::var("ADROIT_CLAUDE").unwrap_or_else(|_| "claude".into())
 }
 
+/// A command that starts Claude Code: the program, its arguments and the
+/// variables set for it. What asks Claude Code something takes a way to make
+/// one from the arguments it needs, so it starts as the user has sessions
+/// start.
+pub type Started = (String, Vec<String>, Vec<(String, String)>);
+
 /// The environment Claude Code runs in when adroit starts it: told the
 /// console draws Kitty graphics, which it would not believe of a terminal
 /// whose XTVERSION reply names felis rather than kitty or Ghostty; claiming
@@ -55,6 +61,11 @@ async fn run(program: &str, args: &[&str], cwd: Option<&Path>) -> Result<String,
     if let Some(cwd) = cwd {
         cmd.current_dir(cwd);
     }
+    output(program, cmd).await
+}
+
+/// What `cmd`, running `program`, prints, or why it failed.
+async fn output(program: &str, mut cmd: Command) -> Result<String, Error> {
     let out = cmd.output().await.map_err(|source| Error::Spawn {
         program: program.into(),
         source,
@@ -141,9 +152,15 @@ async fn run_head(
 /// The most of a capped command's errors kept to report.
 const ERRORS_KEPT: u64 = 64 * 1024;
 
-/// The sessions running in other terminals, which Claude Code lists.
-pub async fn list_sessions() -> Result<Vec<Session>, Error> {
-    let out = run(&claude_program(), &["agents", "--json"], None).await?;
+/// The sessions running in other terminals, which Claude Code, started by
+/// `start`, lists.
+pub async fn list_sessions(
+    start: impl FnOnce(Vec<String>) -> Started,
+) -> Result<Vec<Session>, Error> {
+    let (program, args, env) = start(vec!["agents".into(), "--json".into()]);
+    let mut cmd = Command::new(&program);
+    cmd.args(args).envs(env);
+    let out = output(&program, cmd).await?;
     Ok(adroit_model::parse_agents(&out)?)
 }
 
