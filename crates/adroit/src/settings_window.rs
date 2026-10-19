@@ -599,6 +599,25 @@ const MODES: [(&str, &str); 5] = [
     ("bypassPermissions", "Bypass permissions"),
 ];
 
+struct AgentChoice {
+    agent: adroit_model::Agent,
+    label: &'static str,
+    selected: bool,
+}
+
+/// Each agent new sessions can run, the one they run now marked: a select's
+/// own `value` does not pick the option it names when the pane is drawn.
+fn agent_choices(chosen: adroit_model::Agent) -> Vec<AgentChoice> {
+    adroit_model::Agent::ALL
+        .into_iter()
+        .map(|agent| AgentChoice {
+            agent,
+            label: crate::agents::adapter(agent).label(),
+            selected: agent == chosen,
+        })
+        .collect()
+}
+
 /// The models offered to choose from; another can be typed.
 const MODELS: [&str; 3] = ["opus", "sonnet", "haiku"];
 
@@ -609,14 +628,13 @@ fn SessionsPane(now: Settings, change: Callback<Change>) -> Element {
             h2 { "New sessions" }
             Row { label: "Agent", hint: "The agent new sessions run. Sessions already running keep their agent.",
                 select {
-                    value: now.agent.key(),
                     onchange: move |e| {
                         if let Some(agent) = adroit_model::Agent::parse(&e.value()) {
                             change(Box::new(move |s: &mut Settings| s.agent = agent));
                         }
                     },
-                    for agent in adroit_model::Agent::ALL {
-                        option { value: agent.key(), "{crate::agents::adapter(agent).label()}" }
+                    for c in agent_choices(now.agent) {
+                        option { key: "{c.agent.key()}", value: "{c.agent.key()}", selected: c.selected, "{c.label}" }
                     }
                 }
             }
@@ -693,5 +711,28 @@ fn SessionGroup(title: String, options: SessionOptions, set: Callback<SessionOpt
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use adroit_model::Agent;
+
+    #[test]
+    fn the_agent_new_sessions_run_is_the_one_marked_chosen() {
+        for chosen in Agent::ALL {
+            let marked: Vec<Agent> = agent_choices(chosen)
+                .into_iter()
+                .filter(|c| c.selected)
+                .map(|c| c.agent)
+                .collect();
+            assert_eq!(marked, [chosen]);
+        }
+        let offered: Vec<Agent> = agent_choices(Agent::Claude)
+            .into_iter()
+            .map(|c| c.agent)
+            .collect();
+        assert_eq!(offered, Agent::ALL);
     }
 }
