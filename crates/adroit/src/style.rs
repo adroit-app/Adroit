@@ -230,6 +230,8 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .details-links { gap: 2px; }
 .details-links .list-row { margin: 0 -8px; }
 .details-link .icon { flex: none; color: var(--text-2); }
+.details-link-heading { gap: 4px; height: 22px; }
+.details-link-heading .icon { flex: none; color: var(--text-3); }
 .details-link-tag { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; font-size: 11px; color: var(--text-3); }
 .footer { height: 30px; display: flex; align-items: center; gap: 14px; padding: 0 16px; font-size: 11.5px; color: var(--text-3); flex: none; }
 .footer { overflow: hidden; }

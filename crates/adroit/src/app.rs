@@ -21,7 +21,9 @@ use crate::console::{Composer, ConsoleScreen, Hub, Panes, ReaderScreen, mode_of}
 use crate::console_keys::direct_key;
 use crate::console_read;
 use crate::daemon;
-use crate::details::{Drill, Listing, Sheet, View, facts, load, shown_link};
+use crate::details::{
+    Drill, Entry, Group, Listing, Sheet, View, facts, load, overview, shown_link,
+};
 use crate::editor;
 use crate::filer::{Filer, read_dirs};
 use crate::focus::{Area, Dir, moved, settled};
@@ -122,20 +124,37 @@ fn copy_to_clipboard(text: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-/// The overview's links of the session `shown`, when they were read for it.
-fn overview_listing(read: Option<&(String, Links)>, shown: Option<&Tab>) -> Option<Listing> {
+/// The overview's rows for the session `shown`, when its links were read for
+/// it, the `folded` groups showing only their headings.
+fn overview_listing(
+    read: Option<&(String, Links)>,
+    shown: Option<&Tab>,
+    folded: &HashSet<Group>,
+) -> Option<Listing> {
     match (read, shown) {
         (Some((id, links)), Some(Tab::Session(s))) if id == s => {
-            Some(Listing::Links(links.rows().cloned().collect()))
+            let rows: Vec<Link> = links.rows().cloned().collect();
+            Some(Listing::Links(overview(&rows, folded)))
         }
         _ => None,
     }
 }
 
+/// `folded` with `group` folded, when `shut`, or unfolded.
+fn refold(folded: &HashSet<Group>, group: Group, shut: bool) -> HashSet<Group> {
+    let mut f = folded.clone();
+    if shut {
+        f.insert(group);
+    } else {
+        f.remove(&group);
+    }
+    f
+}
+
 /// A link as the overview draws it.
 #[derive(Debug, Clone, PartialEq)]
 struct LinkRow {
-    /// Its place among the overview's links.
+    /// Its place among the overview's rows.
     at: usize,
     icon: Icon,
     label: String,
@@ -144,29 +163,53 @@ struct LinkRow {
     file: bool,
 }
 
-/// The overview's links under the heading of each group, paths shown from
-/// `worktree` or `home`.
-fn link_groups(rows: &[Link], worktree: &Path, home: &Path) -> Vec<(&'static str, Vec<LinkRow>)> {
-    let mut out: Vec<(&'static str, Vec<LinkRow>)> = Vec::new();
-    for (at, link) in rows.iter().enumerate() {
-        let (heading, icon) = match link.kind {
-            LinkKind::Artifact => ("Artifacts", Icon::AppWindow),
-            LinkKind::Url => ("Links", Icon::Link),
-            LinkKind::File(Touch::Edited) => ("Files", Icon::FilePencil),
-            LinkKind::File(_) => ("Files", Icon::File),
-        };
-        let (label, tag) = shown_link(link, worktree, home);
-        let row = LinkRow {
-            at,
-            icon,
-            label,
-            tag,
-            target: link.target.clone(),
-            file: matches!(link.kind, LinkKind::File(_)),
-        };
-        match out.last_mut() {
-            Some((h, group)) if *h == heading => group.push(row),
-            _ => out.push((heading, vec![row])),
+/// A group of the overview's links as drawn: its heading, at its place among
+/// the overview's rows, and the links shown under it.
+#[derive(Debug, Clone, PartialEq)]
+struct LinkSection {
+    group: Group,
+    at: usize,
+    count: usize,
+    folded: bool,
+    rows: Vec<LinkRow>,
+}
+
+/// The overview's `entries` as groups under their headings, paths shown
+/// from `worktree` or `home`.
+fn link_sections(entries: &[Entry], worktree: &Path, home: &Path) -> Vec<LinkSection> {
+    let mut out: Vec<LinkSection> = Vec::new();
+    for (at, entry) in entries.iter().enumerate() {
+        match entry {
+            Entry::Heading {
+                group,
+                count,
+                folded,
+            } => out.push(LinkSection {
+                group: *group,
+                at,
+                count: *count,
+                folded: *folded,
+                rows: Vec::new(),
+            }),
+            Entry::Link(link) => {
+                let icon = match link.kind {
+                    LinkKind::Artifact => Icon::AppWindow,
+                    LinkKind::Url => Icon::Link,
+                    LinkKind::File(Touch::Edited) => Icon::FilePencil,
+                    LinkKind::File(_) => Icon::File,
+                };
+                let (label, tag) = shown_link(link, worktree, home);
+                if let Some(section) = out.last_mut() {
+                    section.rows.push(LinkRow {
+                        at,
+                        icon,
+                        label,
+                        tag,
+                        target: link.target.clone(),
+                        file: matches!(link.kind, LinkKind::File(_)),
+                    });
+                }
+            }
         }
     }
     out
@@ -938,6 +981,8 @@ fn App() -> Element {
     let mut git_view = use_signal(|| None::<View>);
     // What the conversation of a session brought up, by the session's id.
     let mut overview_links = use_signal(|| None::<(String, Links)>);
+    // The overview's groups of links shown by their headings alone.
+    let mut folded_groups = use_signal(HashSet::<Group>::new);
     // The interactive session the dialog asks to take over.
     let mut confirm = use_signal(|| None::<Ask>);
     // The session being given a new name, and the name typed so far.
@@ -2790,6 +2835,7 @@ fn App() -> Element {
                         return overview_listing(
                             overview_links.peek().as_ref(),
                             active.peek().as_ref(),
+                            &folded_groups.peek(),
                         );
                     }
                     git_view
@@ -2964,19 +3010,50 @@ fn App() -> Element {
                 {
                     let mut d = drill.peek().clone();
                     match (&action, &details_list) {
-                        (_, Some(l @ Listing::Links(rows))) => {
+                        (_, Some(l @ Listing::Links(entries))) => {
+                            let chosen = d.selected(l).map(|at| &entries[at]);
+                            // A heading folds and unfolds as a workspace's row
+                            // does; a link folds the group it is in.
+                            let fold = match (chosen, &action) {
+                                (
+                                    Some(Entry::Heading { group, folded, .. }),
+                                    Action::CursorOpen | Action::CursorShow,
+                                ) => Some((*group, !folded)),
+                                (Some(Entry::Heading { group, .. }), Action::CursorFold) => {
+                                    Some((*group, true))
+                                }
+                                (Some(Entry::Link(link)), Action::CursorFold) => {
+                                    Some((Group::of(&link.kind), true))
+                                }
+                                _ => None,
+                            };
                             let how = match action {
                                 Action::CursorOpen | Action::CursorShow => Some(Use::Open),
                                 Action::CursorCopy => Some(Use::Copy),
                                 Action::CursorReveal => Some(Use::Reveal),
                                 _ => None,
                             };
-                            match (how, d.selected(l)) {
-                                (Some(how), Some(at)) => {
-                                    if let Some(told) = use_link(&rows[at], how) {
+                            match (fold, how, chosen) {
+                                (Some((group, shut)), ..) => {
+                                    let f = refold(&folded_groups.peek(), group, shut);
+                                    let now = overview_listing(
+                                        overview_links.peek().as_ref(),
+                                        active.peek().as_ref(),
+                                        &f,
+                                    );
+                                    if let Some(now) = now
+                                        && let Some(at) = now.heading(group)
+                                    {
+                                        d.select(&now, at);
+                                    }
+                                    folded_groups.set(f);
+                                }
+                                (None, Some(how), Some(Entry::Link(link))) => {
+                                    if let Some(told) = use_link(link, how) {
                                         notify.notice(told);
                                     }
                                 }
+                                (None, Some(_), _) => {}
                                 _ => match action {
                                     Action::CursorDown => d.step(l, 1),
                                     Action::CursorUp => d.step(l, -1),
@@ -3233,8 +3310,11 @@ fn App() -> Element {
                     focus.set(Area::Console);
                 }
                 Target::Link { at, .. } => {
-                    let listing =
-                        overview_listing(overview_links.peek().as_ref(), active.peek().as_ref());
+                    let listing = overview_listing(
+                        overview_links.peek().as_ref(),
+                        active.peek().as_ref(),
+                        &folded_groups.peek(),
+                    );
                     if let Some(l) = listing {
                         let mut d = drill.peek().clone();
                         d.select(&l, at);
@@ -3733,14 +3813,18 @@ fn App() -> Element {
         _ => None,
     };
     let overview_now = if sheet_now == Sheet::Overview {
-        overview_listing(overview_links().as_ref(), active_tab.as_ref())
+        overview_listing(
+            overview_links().as_ref(),
+            active_tab.as_ref(),
+            &folded_groups(),
+        )
     } else {
         None
     };
     let link_selected = overview_now.as_ref().and_then(|l| drill_now.selected(l));
     let link_sections = {
-        let rows = match &overview_now {
-            Some(Listing::Links(rows)) => rows.as_slice(),
+        let entries = match &overview_now {
+            Some(Listing::Links(entries)) => entries.as_slice(),
             _ => &[],
         };
         let worktree = current
@@ -3748,12 +3832,16 @@ fn App() -> Element {
             .map(|p| p.worktree.clone())
             .or_else(|| shown_session.as_ref().map(|s| s.cwd.clone()))
             .unwrap_or_default();
-        link_groups(rows, &worktree, &home())
+        link_sections(entries, &worktree, &home())
     };
-    // A link clicked opens as `Enter` on it would.
+    // A row clicked does what `Enter` on it would: a link opens, a heading
+    // folds or unfolds its group.
     let mut click_link = move |at: usize| {
-        let Some(l) = overview_listing(overview_links.peek().as_ref(), active.peek().as_ref())
-        else {
+        let Some(l) = overview_listing(
+            overview_links.peek().as_ref(),
+            active.peek().as_ref(),
+            &folded_groups.peek(),
+        ) else {
             return;
         };
         let mut d = drill.peek().clone();
@@ -3761,10 +3849,18 @@ fn App() -> Element {
         if d != *drill.peek() {
             drill.set(d);
         }
-        if let Listing::Links(rows) = &l
-            && let Some(told) = rows.get(at).and_then(|r| use_link(r, Use::Open))
-        {
-            notify.notice(told);
+        let Listing::Links(entries) = &l else { return };
+        match entries.get(at) {
+            Some(Entry::Link(link)) => {
+                if let Some(told) = use_link(link, Use::Open) {
+                    notify.notice(told);
+                }
+            }
+            Some(Entry::Heading { group, folded, .. }) => {
+                let f = refold(&folded_groups.peek(), *group, !folded);
+                folded_groups.set(f);
+            }
+            None => {}
         }
     };
     let in_dialog = session_shown && dialog();
@@ -4428,10 +4524,23 @@ fn App() -> Element {
                             span { class: "details-path", "{p.worktree.display()}" }
                         }
                     }
-                    for (heading , rows) in link_sections.into_iter() {
-                        div { key: "{heading}", class: "details-block details-links",
-                            span { class: "details-label", "{heading}" }
-                            for r in rows.into_iter() {
+                    for section in link_sections.into_iter() {
+                        div { key: "{section.group.title()}", class: "details-block details-links",
+                            {
+                                let at = section.at;
+                                rsx! {
+                                    div {
+                                        class: if link_selected == Some(at) { "list-row details-link-heading selected" } else { "list-row details-link-heading" },
+                                        onclick: move |_| click_link(at),
+                                        IconView { icon: if section.folded { Icon::ChevronRight } else { Icon::ChevronDown }, size: 12 }
+                                        span { class: "details-label", "{section.group.title()}" }
+                                        if section.folded {
+                                            span { class: "details-link-tag", "{section.count}" }
+                                        }
+                                    }
+                                }
+                            }
+                            for r in section.rows.into_iter() {
                                 {
                                     let (at, file) = (r.at, r.file);
                                     rsx! {
@@ -4844,16 +4953,47 @@ mod tests {
             link(LinkKind::File(Touch::Edited), "/w/a.rs"),
             link(LinkKind::File(Touch::Read), "/w/b.rs"),
         ];
-        let got: Vec<_> = link_groups(&rows, Path::new("/w"), Path::new("/h"))
-            .into_iter()
-            .map(|(h, g)| (h, g.iter().map(|r| (r.at, r.icon)).collect::<Vec<_>>()))
-            .collect();
+        let drawn = |folded: &HashSet<Group>| -> Vec<_> {
+            link_sections(&overview(&rows, folded), Path::new("/w"), Path::new("/h"))
+                .into_iter()
+                .map(|s| {
+                    let rows: Vec<_> = s.rows.iter().map(|r| (r.at, r.icon)).collect();
+                    (s.group, s.at, s.count, s.folded, rows)
+                })
+                .collect()
+        };
         assert_eq!(
-            got,
+            drawn(&HashSet::new()),
             [
-                ("Artifacts", vec![(0, Icon::AppWindow)]),
-                ("Links", vec![(1, Icon::Link), (2, Icon::Link)]),
-                ("Files", vec![(3, Icon::FilePencil), (4, Icon::File)]),
+                (Group::Artifacts, 0, 1, false, vec![(1, Icon::AppWindow)]),
+                (
+                    Group::Links,
+                    2,
+                    2,
+                    false,
+                    vec![(3, Icon::Link), (4, Icon::Link)]
+                ),
+                (
+                    Group::Files,
+                    5,
+                    2,
+                    false,
+                    vec![(6, Icon::FilePencil), (7, Icon::File)]
+                ),
+            ]
+        );
+        assert_eq!(
+            drawn(&HashSet::from([Group::Links])),
+            [
+                (Group::Artifacts, 0, 1, false, vec![(1, Icon::AppWindow)]),
+                (Group::Links, 2, 2, true, vec![]),
+                (
+                    Group::Files,
+                    3,
+                    2,
+                    false,
+                    vec![(4, Icon::FilePencil), (5, Icon::File)]
+                ),
             ]
         );
     }
@@ -4868,9 +5008,10 @@ mod tests {
             },
         );
         let shown = |id: &str| Tab::Session(id.into());
-        assert!(overview_listing(Some(&read), Some(&shown("s1"))).is_some());
-        assert!(overview_listing(Some(&read), Some(&shown("s2"))).is_none());
-        assert!(overview_listing(Some(&read), Some(&Tab::Shell(1))).is_none());
+        let open = HashSet::new();
+        assert!(overview_listing(Some(&read), Some(&shown("s1")), &open).is_some());
+        assert!(overview_listing(Some(&read), Some(&shown("s2")), &open).is_none());
+        assert!(overview_listing(Some(&read), Some(&Tab::Shell(1)), &open).is_none());
     }
 
     #[test]

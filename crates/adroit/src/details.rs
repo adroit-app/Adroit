@@ -1,5 +1,6 @@
 //! The sheets of the details panel.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use adroit_claude::git::{Change, Commit, DiffLine};
@@ -131,8 +132,8 @@ pub enum Listing {
     Log(Vec<Commit>),
     Diff(Vec<DiffLine>),
     Error(String),
-    /// The overview's links, in the order it shows them.
-    Links(Vec<Link>),
+    /// The overview's rows, in the order it shows them.
+    Links(Vec<Entry>),
 }
 
 impl Listing {
@@ -144,15 +145,96 @@ impl Listing {
         )
     }
 
+    /// The row of the overview that heads `group`.
+    pub fn heading(&self, group: Group) -> Option<usize> {
+        let Listing::Links(entries) = self else {
+            return None;
+        };
+        entries
+            .iter()
+            .position(|e| matches!(e, Entry::Heading { group: g, .. } if *g == group))
+    }
+
     /// What tells each row apart, for a list; nothing for the rest.
     fn keys(&self) -> Vec<&str> {
         match self {
             Listing::Files(files) => files.iter().map(|f| f.path.as_str()).collect(),
             Listing::Log(commits) => commits.iter().map(|c| c.id.as_str()).collect(),
-            Listing::Links(links) => links.iter().map(|l| l.target.as_str()).collect(),
+            Listing::Links(entries) => entries.iter().map(Entry::key).collect(),
             Listing::Diff(_) | Listing::Error(_) => Vec::new(),
         }
     }
+}
+
+/// A group of the overview's links, shown under a heading of its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Group {
+    Artifacts,
+    Links,
+    Files,
+}
+
+impl Group {
+    pub fn of(kind: &LinkKind) -> Group {
+        match kind {
+            LinkKind::Artifact => Group::Artifacts,
+            LinkKind::Url => Group::Links,
+            LinkKind::File(_) => Group::Files,
+        }
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Group::Artifacts => "Artifacts",
+            Group::Links => "Links",
+            Group::Files => "Files",
+        }
+    }
+}
+
+/// A row of the overview: the heading of a group, or one of its links.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Entry {
+    Heading {
+        group: Group,
+        count: usize,
+        folded: bool,
+    },
+    Link(Link),
+}
+
+impl Entry {
+    fn key(&self) -> &str {
+        match self {
+            // No address or path starts with a NUL, so no link takes a
+            // heading's place.
+            Entry::Heading { group, .. } => match group {
+                Group::Artifacts => "\0artifacts",
+                Group::Links => "\0links",
+                Group::Files => "\0files",
+            },
+            Entry::Link(l) => l.target.as_str(),
+        }
+    }
+}
+
+/// The overview's rows for `links`, which come grouped: each group's
+/// heading, then its links unless the group is `folded`.
+pub fn overview(links: &[Link], folded: &HashSet<Group>) -> Vec<Entry> {
+    let mut out = Vec::new();
+    for run in links.chunk_by(|a, b| Group::of(&a.kind) == Group::of(&b.kind)) {
+        let group = Group::of(&run[0].kind);
+        let shut = folded.contains(&group);
+        out.push(Entry::Heading {
+            group,
+            count: run.len(),
+            folded: shut,
+        });
+        if !shut {
+            out.extend(run.iter().cloned().map(Entry::Link));
+        }
+    }
+    out
 }
 
 /// What was read for a spot, and which worktree it was about.
@@ -664,7 +746,7 @@ mod tests {
         Listing::Links(
             targets
                 .iter()
-                .map(|t| link(LinkKind::Url, t, None, None))
+                .map(|t| Entry::Link(link(LinkKind::Url, t, None, None)))
                 .collect(),
         )
     }
@@ -681,5 +763,68 @@ mod tests {
         assert_eq!(d.spot(), None);
         d.select(&moved, 0);
         assert_eq!(d.selected(&moved), Some(0));
+    }
+    fn heading(group: Group, count: usize, folded: bool) -> Entry {
+        Entry::Heading {
+            group,
+            count,
+            folded,
+        }
+    }
+
+    #[test]
+    fn the_overview_heads_each_group_and_leaves_a_folded_one_its_heading_alone() {
+        let all = [
+            link(
+                LinkKind::Artifact,
+                "https://claude.ai/artifact/a",
+                None,
+                None,
+            ),
+            link(LinkKind::Url, "https://a.dev", None, None),
+            link(LinkKind::Url, "https://b.dev", None, None),
+            link(LinkKind::File(Touch::Edited), "/w/a.rs", None, None),
+            link(LinkKind::File(Touch::Read), "/w/b.rs", None, None),
+        ];
+        let open = overview(&all, &HashSet::new());
+        assert_eq!(
+            open,
+            [
+                heading(Group::Artifacts, 1, false),
+                Entry::Link(all[0].clone()),
+                heading(Group::Links, 2, false),
+                Entry::Link(all[1].clone()),
+                Entry::Link(all[2].clone()),
+                heading(Group::Files, 2, false),
+                Entry::Link(all[3].clone()),
+                Entry::Link(all[4].clone()),
+            ]
+        );
+        let folded = overview(&all, &HashSet::from([Group::Links, Group::Files]));
+        assert_eq!(
+            folded,
+            [
+                heading(Group::Artifacts, 1, false),
+                Entry::Link(all[0].clone()),
+                heading(Group::Links, 2, true),
+                heading(Group::Files, 2, true),
+            ]
+        );
+        assert!(overview(&[], &HashSet::new()).is_empty());
+    }
+
+    #[test]
+    fn a_heading_is_selected_apart_from_the_links_and_stays_selected_as_its_group_folds() {
+        let all = [
+            link(LinkKind::Url, "https://a.dev", None, None),
+            link(LinkKind::File(Touch::Read), "/w/a.rs", None, None),
+        ];
+        let open = Listing::Links(overview(&all, &HashSet::new()));
+        assert_eq!(open.heading(Group::Files), Some(2));
+        assert_eq!(open.heading(Group::Artifacts), None);
+        let mut d = Drill::new(Sheet::Overview);
+        d.select(&open, 2);
+        let folded = Listing::Links(overview(&all, &HashSet::from([Group::Links])));
+        assert_eq!(d.selected(&folded), Some(1));
     }
 }

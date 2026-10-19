@@ -22,7 +22,9 @@ Overview, Changes and Log.
 Opening a link of the overview hands it to macOS: an address opens in the
 default browser, a file in the app that opens it. A right click on a link
 also offers to copy it, its address or its file's path, and on a file to
-reveal it in the Finder. The list follows the conversation as it goes on.
+reveal it in the Finder. A click on a group's heading folds the group under it
+or unfolds it, and a group stays folded as other sessions are shown. The list
+follows the conversation as it goes on.
 
 Back goes out one level at a time, to the list the shown row was opened from,
 with that row selected. A row opens by its keys or a click; the line above a
@@ -58,8 +60,9 @@ cannot be run, the repository is read through git instead.
 
 In a list, `j` and `k` move, `gg` and `G` go to the first and the last row,
 `Enter` or `l` opens the selected row, and `h`, `Escape` or `Backspace` go
-back. In the overview, the same keys move over its links and open them, and
-`y` copies the selected one. In a diff or an overview without links, `j`, `k`,
-`gg` and `G` scroll, and in every
-sheet `Ctrl+d` and `Ctrl+u` scroll by half a page. `Cmd+1`, `Cmd+2` and
-`Cmd+3` show the sheets ([keys](keys.md)).
+back. In the overview, the same keys move over its headings and links and
+open a link; on a heading, `Enter` or `l` folds or unfolds its group, the keys
+that go back fold the group of what is selected, and `y` copies the selected
+link. In a diff or an overview without links, `j`, `k`, `gg` and `G` scroll,
+and in every sheet `Ctrl+d` and `Ctrl+u` scroll by half a page. `Cmd+1`,
+`Cmd+2` and `Cmd+3` show the sheets ([keys](keys.md)).
