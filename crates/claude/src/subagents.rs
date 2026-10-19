@@ -34,6 +34,9 @@ pub struct Agent {
     /// The id Claude Code gave it, which names its own transcript.
     pub id: Option<String>,
     pub description: String,
+    /// What it is about now: the summary of the latest message the session
+    /// delivered to it, as Claude Code's own list of agents names it.
+    pub title: Option<String>,
     /// The kind of agent asked for, as `Explore`.
     pub kind: Option<String>,
     pub prompt: String,
@@ -72,6 +75,9 @@ pub struct Collector {
     /// In the order they were started.
     held: Vec<Held>,
     endings: u64,
+    /// The summary of each message to a subagent not yet delivered, with
+    /// the subagent's id, by the tool call's id.
+    sending: HashMap<String, (String, String)>,
 }
 
 impl Collector {
@@ -83,6 +89,7 @@ impl Collector {
                 for item in items(v) {
                     if item["type"].as_str() == Some("tool_use") {
                         self.started(item, at);
+                        self.sending(item);
                     }
                 }
             }
@@ -96,6 +103,7 @@ impl Collector {
                     Value::Array(parts) => {
                         for item in parts {
                             if item["type"].as_str() == Some("tool_result") {
+                                self.delivered(item, outcome);
                                 self.answered(item, outcome, at);
                             }
                         }
@@ -150,6 +158,7 @@ impl Collector {
                 call: call.to_string(),
                 id: None,
                 description: text("description").unwrap_or_default(),
+                title: None,
                 kind: text("subagent_type"),
                 prompt: text("prompt").unwrap_or_default(),
                 standing: Standing::Running,
@@ -183,6 +192,44 @@ impl Collector {
         };
         self.endings += 1;
         end(h, standing, at, self.endings);
+    }
+
+    fn sending(&mut self, item: &Value) {
+        let input = &item["input"];
+        if item["name"].as_str() != Some("SendMessage") {
+            return;
+        }
+        if let (Some(call), Some(to), Some(summary)) = (
+            item["id"].as_str(),
+            input["to"].as_str(),
+            input["summary"]
+                .as_str()
+                .map(str::trim)
+                .filter(|s| !s.is_empty()),
+        ) {
+            self.sending
+                .insert(call.to_string(), (to.to_string(), summary.to_string()));
+        }
+    }
+
+    /// A message to a subagent was delivered: its summary titles it.
+    fn delivered(&mut self, item: &Value, outcome: &Value) {
+        let Some((to, summary)) = item["tool_use_id"]
+            .as_str()
+            .and_then(|call| self.sending.remove(call))
+        else {
+            return;
+        };
+        if outcome["success"].as_bool() != Some(true) {
+            return;
+        }
+        if let Some(h) = self
+            .held
+            .iter_mut()
+            .find(|h| h.agent.id.as_deref() == Some(to.as_str()))
+        {
+            h.agent.title = Some(summary);
+        }
     }
 
     fn resumed(&mut self, id: &str) {
@@ -540,6 +587,7 @@ mod tests {
                 call: "toolu_a".into(),
                 id: Some("a7cd".into()),
                 description: "Survey configurables".into(),
+                title: None,
                 kind: Some("Explore".into()),
                 prompt: "Repository: /w. Read-only investigation.\n\nGoal: list it.".into(),
                 standing: Standing::Running,
@@ -675,6 +723,103 @@ mod tests {
         let got = read(&lines);
         assert_eq!(got.len(), KEPT_ENDED);
         assert_eq!(got[0].description, format!("{}", KEPT_ENDED + 1));
+    }
+
+    fn send(call: &str, to: &str, summary: &str, at: &str) -> String {
+        serde_json::json!({
+            "isSidechain": false, "type": "assistant", "timestamp": at,
+            "message": {"role": "assistant", "stop_reason": "tool_use", "content": [
+                {"type": "tool_use", "id": call, "name": "SendMessage", "input": {
+                    "to": to, "summary": summary,
+                    "message": "Change from the user: keep it per window.",
+                    "type": "message", "recipient": to, "recipient_kind": "agent",
+                    "content": "Change from the user: keep it…",
+                }, "caller": {"type": "direct"}}
+            ]},
+        })
+        .to_string()
+    }
+
+    fn sent(call: &str, outcome: serde_json::Value, at: &str) -> String {
+        serde_json::json!({
+            "isSidechain": false, "type": "user", "timestamp": at,
+            "message": {"role": "user", "content": [
+                {"tool_use_id": call, "type": "tool_result",
+                 "content": [{"type": "text", "text": outcome.to_string()}]}
+            ]},
+            "toolUseResult": outcome,
+        })
+        .to_string()
+    }
+
+    fn queued(id: &str) -> serde_json::Value {
+        serde_json::json!({
+            "success": true,
+            "message": format!("Message queued for delivery to {id} at its next tool round."),
+            "pin": {"id": id, "name": id, "ref": "d6a1b2"},
+        })
+    }
+
+    fn titles(agents: &[Agent]) -> Vec<(&str, Option<&str>)> {
+        agents
+            .iter()
+            .map(|a| (a.description.as_str(), a.title.as_deref()))
+            .collect()
+    }
+
+    #[test]
+    fn a_subagent_is_titled_by_the_summary_of_the_latest_message_delivered_to_it() {
+        let got = read(&[
+            launch("toolu_a", "Persistent hover panel", T0),
+            launched("toolu_a", "a1e4", T0),
+            send("toolu_s1", "a1e4", "Hidden state per window", T1),
+            sent("toolu_s1", queued("a1e4"), T1),
+            send("toolu_s2", "a1e4", "Rename hover to detail", T2),
+            sent("toolu_s2", queued("a1e4"), T2),
+        ]);
+        assert_eq!(
+            titles(&got),
+            [("Persistent hover panel", Some("Rename hover to detail"))]
+        );
+    }
+
+    #[test]
+    fn a_message_that_resumed_a_finished_subagent_titles_it_too() {
+        let got = read(&[
+            launch("toolu_a", "Port stage 3", T0),
+            launched("toolu_a", "ada0", T0),
+            enqueued(&notice(Some("toolu_a"), "ada0", "completed"), T1),
+            send("toolu_s", "ada0", "Restructure scripts into modules", T2),
+            sent(
+                "toolu_s",
+                serde_json::json!({
+                    "success": true, "message": "Resuming agent ada0",
+                    "resumedAgentId": "ada0", "pin": {"id": "ada0", "name": "ada0", "ref": "0b6dfa"},
+                }),
+                T2,
+            ),
+        ]);
+        assert_eq!(standings(&got), [("Port stage 3", Standing::Running)]);
+        assert_eq!(
+            titles(&got),
+            [("Port stage 3", Some("Restructure scripts into modules"))]
+        );
+    }
+
+    #[test]
+    fn a_message_not_delivered_or_to_someone_else_leaves_the_title_alone() {
+        let got = read(&[
+            launch("toolu_a", "Survey", T0),
+            launched("toolu_a", "aaa", T0),
+            send("toolu_s1", "aaa", "Never answered", T1),
+            send("toolu_s2", "aaa", "Refused", T1),
+            sent("toolu_s2", serde_json::json!({"success": false}), T1),
+            send("toolu_s3", "api-tests", "To a peer", T1),
+            sent("toolu_s3", queued("api-tests"), T1),
+            send("toolu_s4", "aaa", "", T1),
+            sent("toolu_s4", queued("aaa"), T1),
+        ]);
+        assert_eq!(titles(&got), [("Survey", None)]);
     }
 
     #[test]

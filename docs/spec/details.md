@@ -12,9 +12,10 @@ Overview, Changes and Log.
   messaged or heard from through Claude Code, newest first, each saying how
   the two are tied. Then it lists the subagents the session set to work
   through Claude Code: those still at work, the latest first, then the few
-  that ended last, each saying what kind it is, how it stands and for how
-  long it has run or ran. After them it lists what the session's conversation
-  brought up, newest first: the claude.ai artifacts, the other web addresses,
+  that ended last, each named by what it was last asked about, marked with
+  what kind it is, and saying how it stands and for how long it has run or
+  ran. After them it lists what the session's conversation brought up,
+  newest first: the claude.ai artifacts, the other web addresses,
   and the files it wrote or edited, read, or named in a reply where such a
   file exists, each saying how the session came across it. An address inside
   a file it wrote, read or searched is the file's, not brought up. A shell or a
@@ -39,9 +40,10 @@ otherwise ([settings](settings.md#settingstoml)), and a row that shows the
 rest; opened, it shows them all until the group is folded or adroit runs
 again.
 
-Opening a subagent of the overview shows what it was asked, the latest
-steps it took, and, once it ended, what it reported. Copying one copies what
-it was asked.
+A subagent is named as the session last summed up a message it sent it, or
+by the description it was started with before any. Opening one shows what it
+was started as, what it was asked, the latest steps it took, and, once it
+ended, what it reported. Copying one copies what it was asked.
 
 Opening a link of the overview hands it to macOS: an address opens in the
 default browser, a file in the app that opens it. A right click on a link

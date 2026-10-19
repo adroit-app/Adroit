@@ -143,27 +143,23 @@ pub fn shown_link(link: &Link, worktree: &Path, home: &Path) -> (String, String)
     }
 }
 
-/// What a subagent of the overview shows: what it is called, and a word on
-/// how it stands and its kind, how long it ran told at `now_ms`.
+/// What a subagent of the overview shows: what it is called now, and how it
+/// stands, how long it ran told at `now_ms`.
 pub fn shown_agent(a: &Agent, now_ms: u64) -> (String, String) {
-    let label = if a.description.is_empty() {
-        "subagent".to_string()
-    } else {
-        a.description.clone()
+    let label = match (&a.title, a.description.as_str()) {
+        (Some(title), _) => title.clone(),
+        (None, "") => "subagent".to_string(),
+        (None, description) => description.to_string(),
     };
     let took = a
         .started_ms
         .map(|start| lasted(a.ended_ms.unwrap_or(now_ms).saturating_sub(start)));
-    let standing = match (a.standing, took) {
+    let tag = match (a.standing, took) {
         (Standing::Running, Some(t)) => format!("running {t}"),
         (Standing::Done, Some(t)) => format!("done in {t}"),
         (Standing::Failed, Some(t)) => format!("failed after {t}"),
         (Standing::Stopped, Some(t)) => format!("stopped after {t}"),
         (s, None) => standing_word(s).to_string(),
-    };
-    let tag = match &a.kind {
-        Some(kind) => format!("{standing} · {kind}"),
-        None => standing,
     };
     (label, tag)
 }
@@ -1375,6 +1371,7 @@ mod tests {
             call: call.into(),
             id: Some(format!("a-{call}")),
             description: description.into(),
+            title: None,
             kind: Some("Explore".into()),
             prompt: "Look around.".into(),
             standing,
@@ -1421,25 +1418,36 @@ mod tests {
     }
 
     #[test]
-    fn a_subagent_shows_its_description_kind_and_how_long_it_ran() {
+    fn a_subagent_shows_its_description_and_how_long_it_ran() {
         let start = 1_000_000;
         let mut a = agent("toolu_1", "Survey", Standing::Running);
         assert_eq!(
             shown_agent(&a, start + 3 * 60_000 + 5_000),
-            ("Survey".to_string(), "running 3 min · Explore".to_string())
+            ("Survey".to_string(), "running 3 min".to_string())
         );
         a.standing = Standing::Done;
         a.ended_ms = Some(start + 75 * 60_000);
-        assert_eq!(shown_agent(&a, 0).1, "done in 1 h 15 min · Explore");
+        assert_eq!(shown_agent(&a, 0).1, "done in 1 h 15 min");
         a.standing = Standing::Failed;
         a.ended_ms = Some(start + 40_000);
-        assert_eq!(shown_agent(&a, 0).1, "failed after 40 s · Explore");
+        assert_eq!(shown_agent(&a, 0).1, "failed after 40 s");
         a.standing = Standing::Stopped;
-        a.kind = None;
         a.started_ms = None;
         assert_eq!(shown_agent(&a, 0).1, "stopped");
         a.description = String::new();
         assert_eq!(shown_agent(&a, 0).0, "subagent");
+    }
+
+    #[test]
+    fn a_subagent_titled_by_a_later_message_goes_by_that_title_also_when_opened() {
+        let mut a = agent("toolu_1", "Persistent hover panel", Standing::Running);
+        a.title = Some("Rename hover to detail".into());
+        assert_eq!(shown_agent(&a, 0).0, "Rename hover to detail");
+        let none = HashSet::new();
+        let list = Listing::Links(with_agents(Vec::new(), &[a], &none));
+        let mut d = Drill::new(Sheet::Overview);
+        assert!(d.open_at(&list, 1));
+        assert_eq!(d.crumbs(), ["Rename hover to detail"]);
     }
 
     #[test]

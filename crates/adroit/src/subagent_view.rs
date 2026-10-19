@@ -18,6 +18,15 @@ pub fn agent_glyph(standing: Standing) -> (&'static str, Icon) {
     }
 }
 
+/// What a subagent was started as, when a later title replaced it.
+fn started_as(agent: &Agent) -> Option<&str> {
+    agent
+        .title
+        .as_ref()
+        .filter(|t| **t != agent.description && !agent.description.is_empty())
+        .map(|_| agent.description.as_str())
+}
+
 /// What a subagent that ended reported: the last thing it said.
 fn report(agent: &Agent) -> Option<&str> {
     if agent.standing == Standing::Running {
@@ -62,6 +71,7 @@ pub fn SubagentView(
 ) -> Element {
     let (label, tag) = shown_agent(&agent, now_ms);
     let report = report(&agent).map(str::to_string);
+    let started = started_as(&agent).map(str::to_string);
     let steps: Vec<Step> = shown_steps(&agent).into_iter().cloned().collect();
     let doing = if agent.standing == Standing::Running {
         "Doing"
@@ -83,6 +93,15 @@ pub fn SubagentView(
                     rsx! { span { class: "{tone}", IconView { icon, size: 12 } } }
                 }
                 " {tag}"
+                if let Some(kind) = &agent.kind {
+                    span { class: "commit-mark details-link-badge", style: "margin-left: 6px", "{kind}" }
+                }
+            }
+        }
+        if let Some(description) = started {
+            div { class: "details-block",
+                span { class: "details-label", "Started as" }
+                div { class: "subagent-text", "{description}" }
             }
         }
         div { class: "details-block",
@@ -129,6 +148,7 @@ mod tests {
             call: "toolu_1".into(),
             id: Some("a1".into()),
             description: "Survey".into(),
+            title: None,
             kind: None,
             prompt: "Look.".into(),
             standing,
@@ -185,6 +205,16 @@ mod tests {
             shown_steps(&a),
             [&tool("Bash"), &tool("Read"), &said("Looking.")]
         );
+    }
+
+    #[test]
+    fn a_subagent_titled_anew_tells_what_it_was_started_as() {
+        let mut a = agent(Standing::Running, Vec::new());
+        assert_eq!(started_as(&a), None);
+        a.title = Some("Rename hover to detail".into());
+        assert_eq!(started_as(&a), Some("Survey"));
+        a.title = Some("Survey".into());
+        assert_eq!(started_as(&a), None);
     }
 
     #[test]

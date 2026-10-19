@@ -201,6 +201,8 @@ struct LinkRow {
     /// The class that colours its icon; empty for the panel's own colour.
     tone: &'static str,
     label: String,
+    /// A chip after its label, as a subagent's kind.
+    badge: Option<String>,
     tag: String,
     target: String,
     file: bool,
@@ -262,6 +264,7 @@ fn link_sections(entries: &[Entry], worktree: &Path, home: &Path) -> Vec<LinkSec
                         icon,
                         tone: "",
                         label: r.name.clone(),
+                        badge: None,
                         tag: tag.join(" · "),
                         target: r.name.clone(),
                         file: false,
@@ -276,6 +279,7 @@ fn link_sections(entries: &[Entry], worktree: &Path, home: &Path) -> Vec<LinkSec
                         icon: agent_glyph(a.standing).1,
                         tone: agent_glyph(a.standing).0,
                         label,
+                        badge: a.kind.clone(),
                         tag,
                         target: a.call.clone(),
                         file: false,
@@ -296,6 +300,7 @@ fn link_sections(entries: &[Entry], worktree: &Path, home: &Path) -> Vec<LinkSec
                         icon,
                         tone: "",
                         label,
+                        badge: None,
                         tag,
                         target: link.target.clone(),
                         file: matches!(link.kind, LinkKind::File(_)),
@@ -4935,6 +4940,9 @@ fn App() -> Element {
                                                 span { class: "{r.tone}", IconView { icon: r.icon, size: 13 } }
                                             }
                                             span { class: "list-row-name", "{r.label}" }
+                                            if let Some(b) = &r.badge {
+                                                span { class: "commit-mark details-link-badge", "{b}" }
+                                            }
                                             if !r.tag.is_empty() {
                                                 span { class: "details-link-tag", "{r.tag}" }
                                             }
@@ -5469,6 +5477,45 @@ mod tests {
             id: id.map(str::to_string),
             ties: ties.to_vec(),
         }
+    }
+
+    #[test]
+    fn a_subagent_row_goes_by_its_title_with_its_kind_as_a_badge() {
+        use adroit_claude::subagents::{Agent, Standing};
+        let agent = |title: Option<&str>, kind: Option<&str>| Agent {
+            call: format!("toolu_{}", kind.unwrap_or("none")),
+            id: None,
+            description: "Persistent hover panel".into(),
+            title: title.map(str::to_string),
+            kind: kind.map(str::to_string),
+            prompt: String::new(),
+            standing: Standing::Stopped,
+            started_ms: None,
+            ended_ms: None,
+            steps: Vec::new(),
+        };
+        let agents = [
+            agent(Some("Rename hover to detail"), Some("code-writer")),
+            agent(None, None),
+        ];
+        let none = HashSet::new();
+        let drawn = link_sections(
+            &with_agents(Vec::new(), &agents, &none),
+            Path::new("/w"),
+            Path::new("/h"),
+        );
+        let shown: Vec<_> = drawn[0]
+            .rows
+            .iter()
+            .map(|r| (r.label.as_str(), r.badge.as_deref(), r.tag.as_str()))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                ("Rename hover to detail", Some("code-writer"), "stopped"),
+                ("Persistent hover panel", None, "stopped"),
+            ]
+        );
     }
 
     #[test]
