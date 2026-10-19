@@ -1,11 +1,11 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/logo/adroit-logo-horizontal-light.svg">
-    <img src="assets/logo/adroit-logo-horizontal.svg" alt="adroit" width="360">
+    <img src="assets/logo/adroit-logo-horizontal.svg" alt="Adroit" width="360">
   </picture>
 </p>
 
-# adroit
+# Adroit
 
 A workspace where you work with many Claude Code sessions by hand: the Claude TUI as it is, prompts in your own Neovim, Vim-style moves.
 
