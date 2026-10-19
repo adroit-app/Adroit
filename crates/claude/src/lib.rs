@@ -9,12 +9,14 @@ use adroit_model::{ParseError, Session, Worktree};
 use tokio::process::Command;
 
 pub mod commands;
+mod control;
 pub mod dialog;
 pub mod git;
 pub mod history;
 pub mod jj;
 pub mod links;
 pub mod places;
+pub mod usage;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use adroit_claude::git::{Change, Commit, DiffLine};
 use adroit_claude::links::{Kind as LinkKind, Link, Peer, Touch};
+use adroit_claude::usage::{Limit, Severity, Window};
 use adroit_model::{Kind, Session, State};
 
 /// What the details panel says about a session, as label and value, at
@@ -38,6 +39,69 @@ fn ago(ms: u64) -> String {
             1 => "1 day ago".into(),
             d => format!("{d} days ago"),
         },
+    }
+}
+
+/// A usage limit as the foot of the overview draws it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Gauge {
+    pub label: String,
+    /// How much of the bar is filled, from 0 to 100.
+    pub used: u32,
+    pub left: String,
+    pub note: String,
+    pub severity: Severity,
+}
+
+/// The gauges for `limits`, at `now_ms` since the Unix epoch.
+pub fn gauges(limits: &[Limit], now_ms: u64) -> Vec<Gauge> {
+    limits
+        .iter()
+        .map(|l| {
+            let label = match &l.window {
+                Window::Session => "Session".to_string(),
+                Window::Week => "Week".to_string(),
+                Window::WeekOf(name) => format!("Week · {name}"),
+                Window::Other(kind) => kind.replace('_', " "),
+            };
+            let (percent, note) = match l.resets_ms {
+                Some(at) if at <= now_ms => (0, "reset".to_string()),
+                resets => {
+                    let percent = l.percent.max(0.0).round() as u32;
+                    let mut note = format!("{percent}% used");
+                    if let Some(at) = resets {
+                        note.push_str(&format!(" · resets {}", until(at - now_ms)));
+                    }
+                    (percent, note)
+                }
+            };
+            Gauge {
+                label,
+                used: percent.min(100),
+                left: format!("{}% left", 100u32.saturating_sub(percent)),
+                note,
+                severity: l.severity,
+            }
+        })
+        .collect()
+}
+
+/// `ms` milliseconds ahead, in the two largest whole units.
+fn until(ms: u64) -> String {
+    let min = ms / 60_000;
+    let (h, m) = (min / 60, min % 60);
+    let (d, dh) = (h / 24, h % 24);
+    let days = match d {
+        1 => "1 day".to_string(),
+        d => format!("{d} days"),
+    };
+    match (d, h, m) {
+        (0, 0, 0) => "in under a minute".into(),
+        (0, 0, m) => format!("in {m} min"),
+        (0, h, 0) => format!("in {h} h"),
+        (0, h, m) => format!("in {h} h {m} min"),
+        (_, _, _) if dh == 0 => format!("in {days}"),
+        _ => format!("in {days} {dh} h"),
     }
 }
 
@@ -628,6 +692,82 @@ mod tests {
         assert_eq!(ago(90_000), "1 min ago");
         assert_eq!(ago(3 * 3_600_000 + 1), "3 h ago");
         assert_eq!(ago(2 * 86_400_000), "2 days ago");
+    }
+
+    fn limit(window: Window, percent: f64, resets_ms: Option<u64>) -> Limit {
+        Limit {
+            window,
+            percent,
+            resets_ms,
+            severity: Severity::Normal,
+        }
+    }
+
+    const MIN: u64 = 60_000;
+
+    #[test]
+    fn a_limit_reads_as_what_is_left_with_what_is_used_and_when_it_resets() {
+        let now = 1_000 * MIN;
+        let got = gauges(
+            &[limit(
+                Window::Session,
+                3.4,
+                Some(now + 4 * 60 * MIN + 13 * MIN),
+            )],
+            now,
+        );
+        assert_eq!(
+            got,
+            [Gauge {
+                label: "Session".into(),
+                used: 3,
+                left: "97% left".into(),
+                note: "3% used · resets in 4 h 13 min".into(),
+                severity: Severity::Normal,
+            }]
+        );
+    }
+
+    #[test]
+    fn each_window_is_named_for_its_span_and_scope() {
+        let got = gauges(
+            &[
+                limit(Window::Session, 0.0, None),
+                limit(Window::Week, 0.0, None),
+                limit(Window::WeekOf("Fable".into()), 0.0, None),
+                limit(Window::Other("monthly_all".into()), 0.0, None),
+            ],
+            0,
+        );
+        let labels: Vec<_> = got.iter().map(|g| g.label.as_str()).collect();
+        assert_eq!(labels, ["Session", "Week", "Week · Fable", "monthly all"]);
+    }
+
+    #[test]
+    fn a_passed_limit_fills_the_bar_and_leaves_nothing() {
+        let got = gauges(&[limit(Window::Week, 104.0, None)], 0);
+        assert_eq!(got[0].used, 100);
+        assert_eq!(got[0].left, "0% left");
+        assert_eq!(got[0].note, "104% used");
+    }
+
+    #[test]
+    fn a_window_whose_reset_has_passed_since_it_was_asked_is_unused() {
+        let got = gauges(&[limit(Window::Session, 80.0, Some(5 * MIN))], 6 * MIN);
+        assert_eq!(got[0].used, 0);
+        assert_eq!(got[0].left, "100% left");
+        assert_eq!(got[0].note, "reset");
+    }
+
+    #[test]
+    fn the_time_to_a_reset_reads_in_its_two_largest_units() {
+        assert_eq!(until(30_000), "in under a minute");
+        assert_eq!(until(MIN), "in 1 min");
+        assert_eq!(until(59 * MIN + 59_000), "in 59 min");
+        assert_eq!(until(3 * 60 * MIN), "in 3 h");
+        assert_eq!(until(3 * 60 * MIN + 5 * MIN), "in 3 h 5 min");
+        assert_eq!(until(24 * 60 * MIN), "in 1 day");
+        assert_eq!(until(2 * 24 * 60 * MIN + 23 * 60 * MIN), "in 2 days 23 h");
     }
 
     #[test]

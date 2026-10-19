@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 use adroit_claude::git::DiffKind;
 use adroit_claude::links::{Kind as LinkKind, Link, Links, Touch, Transcript};
+use adroit_claude::usage::{self, Severity};
 use adroit_claude::{commands, places};
 use adroit_model::{InboxItem, Kind, Runs, Session, Shell, State, Tree, Worktree, build, inbox};
 use adroit_nvim::{Embedded, Event as NvimEvent, notation};
@@ -22,7 +23,7 @@ use crate::console_keys::direct_key;
 use crate::console_read;
 use crate::daemon;
 use crate::details::{
-    Drill, Entry, Group, Listing, Related, Sheet, Tie, View, capped, facts, load, overview,
+    Drill, Entry, Group, Listing, Related, Sheet, Tie, View, capped, facts, gauges, load, overview,
     related, shown_link,
 };
 use crate::editor;
@@ -854,6 +855,33 @@ fn ensure_pane(
     None
 }
 
+/// Start a session as `spawn` says, with the pane of the tab `tab_of` its id
+/// names, so that its program starts in the theme's colours.
+async fn start(
+    hub: &Hub,
+    spawn: Spawn,
+    size: Size,
+    tab_of: impl Fn(u128) -> Tab,
+) -> adroit_term::Result<u128> {
+    let palette = hub.palette.peek().clone();
+    let wake = hub.wake.clone();
+    let pane = Pane::start(&hub.daemon, spawn, size, &palette, |id| {
+        let tab = tab_of(id);
+        move || {
+            let _ = wake.send(tab.clone());
+        }
+    })
+    .await?;
+    // A theme chosen while the session was being started passed it by.
+    let now = hub.palette.peek().clone();
+    if now != palette {
+        pane.set_palette(&now);
+    }
+    let id = pane.id();
+    hub.panes.borrow_mut().insert(tab_of(id), Arc::new(pane));
+    Ok(id)
+}
+
 /// Every session to list: those the daemon runs for adroit, with the shells,
 /// and those Claude Code lists in other terminals, but for adroit's own,
 /// which Claude Code lists too.
@@ -1540,6 +1568,38 @@ fn App() -> Element {
             wake.notify_one();
         }
     });
+    // How much of the account's usage limits is left, for the foot of the
+    // overview: asked of Claude Code while the overview is in sight, again
+    // once the answer has aged.
+    let mut usage_limits = use_signal(usage::Fresh::default);
+    let usage_wake = use_hook(|| Arc::new(Notify::new()));
+    use_hook({
+        let wake = usage_wake.clone();
+        move || {
+            spawn(async move {
+                loop {
+                    let in_sight =
+                        drill.peek().sheet() == Sheet::Overview && layout.peek().show_details;
+                    if in_sight && usage_limits.write().want(Instant::now()) {
+                        let program = programs::claude_program();
+                        let got = usage::probe(&program, &home(), usage::PROBE_TIMEOUT).await;
+                        usage_limits.write().settle(Instant::now(), got);
+                    }
+                    tokio::select! {
+                        _ = tokio::time::sleep(Duration::from_secs(30)) => {}
+                        _ = wake.notified() => {}
+                    }
+                }
+            });
+        }
+    });
+    use_effect({
+        let wake = usage_wake.clone();
+        move || {
+            let _ = (drill().sheet(), layout().show_details);
+            wake.notify_one();
+        }
+    });
     // What the shown session's conversation brought up, for the overview:
     // read while the overview shows it, each time only what its transcript
     // gained since.
@@ -2203,8 +2263,7 @@ fn App() -> Element {
                                         cols: size.cols,
                                         rows: size.rows,
                                     };
-                                    hub.daemon
-                                        .spawn(spawn)
+                                    start(&hub, spawn, size, |id| Tab::Session(sessions::hex(id)))
                                         .await
                                         .map_err(|e| format!("cannot start {name}: {e}"))
                                 }
@@ -2293,7 +2352,7 @@ fn App() -> Element {
                     cols: size.cols,
                     rows: size.rows,
                 };
-                match hub.daemon.spawn(spawn).await {
+                match start(&hub, spawn, size, |id| Tab::Session(sessions::hex(id))).await {
                     Ok(id) => {
                         status.set(None);
                         let id = sessions::hex(id);
@@ -3322,7 +3381,7 @@ fn App() -> Element {
                         };
                         let hub = hub.clone();
                         spawn(async move {
-                            match hub.daemon.spawn(spawn_shell).await {
+                            match start(&hub, spawn_shell, size, Tab::Shell).await {
                                 Ok(id) => {
                                     shells.write().push(Shell {
                                         id,
@@ -3897,6 +3956,10 @@ fn App() -> Element {
     let active_tab = active();
     let drill_now = drill();
     let sheet_now = drill_now.sheet();
+    let usage_now = match (sheet_now, usage_limits.read().get()) {
+        (Sheet::Overview, Some(limits)) => gauges(limits, now_ms()),
+        _ => Vec::new(),
+    };
     let spot_now = spot();
     let git_now = git_view()
         .filter(|v| {
@@ -4822,6 +4885,31 @@ fn App() -> Element {
                             }
                         }
                     }
+                    }
+                    if !usage_now.is_empty() {
+                        div { class: "details-usage",
+                            title: "Usage limits, as Claude Code's /usage reports them",
+                            span { class: "details-label", "Usage" }
+                            for g in usage_now.into_iter() {
+                                div { key: "{g.label}", class: "usage-gauge",
+                                    div { class: "usage-gauge-head",
+                                        span { class: "usage-gauge-label", "{g.label}" }
+                                        span { class: "usage-gauge-left", "{g.left}" }
+                                    }
+                                    div { class: "usage-gauge-track",
+                                        div {
+                                            class: match g.severity {
+                                                Severity::Normal => "usage-gauge-fill",
+                                                Severity::Warning => "usage-gauge-fill warning",
+                                                Severity::Critical => "usage-gauge-fill critical",
+                                            },
+                                            style: "width:{g.used}%",
+                                        }
+                                    }
+                                    span { class: "usage-gauge-note", "{g.note}" }
+                                }
+                            }
+                        }
                     }
                 }
             }

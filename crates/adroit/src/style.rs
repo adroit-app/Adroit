@@ -235,6 +235,16 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .details-link-heading { gap: 4px; height: 22px; }
 .details-link-heading .icon { flex: none; color: var(--text-3); }
 .details-link-tag { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; font-size: 11px; color: var(--text-3); }
+.details-usage { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 10px 16px 12px; border-top: 1px solid var(--line); cursor: default; }
+.usage-gauge { display: flex; flex-direction: column; gap: 3px; }
+.usage-gauge-head { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+.usage-gauge-label { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.usage-gauge-left { flex: none; color: var(--text); font-variant-numeric: tabular-nums; }
+.usage-gauge-track { height: 5px; border-radius: 3px; background: var(--raised); overflow: hidden; }
+.usage-gauge-fill { height: 100%; border-radius: 3px; background: var(--run); }
+.usage-gauge-fill.warning { background: var(--wait); }
+.usage-gauge-fill.critical { background: var(--fail); }
+.usage-gauge-note { font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
 .footer { height: 30px; display: flex; align-items: center; gap: 14px; padding: 0 16px; font-size: 11.5px; color: var(--text-3); flex: none; }
 .footer { overflow: hidden; }
 .footer-status { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 0 0 auto; max-width: 70%; }

@@ -58,7 +58,8 @@ picker.
 Choosing a session opens it as its row in the sidebar would, leaving the keys
 where they were. Choosing a directory opens a new session there: the first
 prompt sent starts it, named from its first words or from a first line
-`name: <label>`.
+`name: <label>`. A prompt with no words in ASCII letters, one written in
+Japanese for one, is named by its own first letters, cut short.
 
 `Ctrl+f` turns the picker into a **file tree** for a directory the list does
 not offer. It shows the directories under the home directory, under each
