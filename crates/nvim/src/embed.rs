@@ -24,6 +24,10 @@ pub enum Event {
     Yank { text: String, lines: usize },
     /// The reader shows from this line, and this column, counted from 0.
     Scrolled { top: usize, left: usize },
+    /// The prompt's first character became `!`, or stopped being one.
+    Shell(bool),
+    /// A `/` was typed where it offers commands.
+    CommandsWanted,
 }
 
 /// Turns the user's Neovim into a prompt editor: the frame around the text is
@@ -58,35 +62,137 @@ local function apply()
   vim.wo[w].wrap = true
   vim.wo[w].linebreak = true
   vim.opt_local.fillchars:append({ eob = " " })
-  -- `@` at the start of a word offers the candidates the window sets in
-  -- g:adroit_candidates, narrowed by what follows it.
-  local function at_start()
-    local before = vim.api.nvim_get_current_line():sub(1, vim.fn.col(".") - 1)
-    local s = before:find("@[^%s@]*$")
+  -- `@` at the start of a word offers the sessions and files the window sets
+  -- in g:adroit_candidates and the entries of the directory typed, walked from
+  -- g:adroit_root; `/` there offers the commands in g:adroit_commands.
+  local function word_start(before, pattern)
+    local s = before:find(pattern)
     if not s or (s > 1 and not before:sub(s - 1, s - 1):match("%s")) then
       return nil
     end
     return s, before:sub(s + 1)
   end
-  local function offer()
-    local s, typed = at_start()
-    if not s then
+  local LIMIT = 200
+  local function item(c, word)
+    return { word = word, abbr = c.word, menu = c.menu, info = c.info }
+  end
+  local function entries(dir)
+    local ok, names = pcall(vim.fn.readdir, dir)
+    if not ok then
+      return {}
+    end
+    local out = {}
+    for _, name in ipairs(names) do
+      -- Hidden entries are left to be typed, as a shell's completion does.
+      if name:sub(1, 1) ~= "." then
+        out[#out + 1] = { name = name, dir = vim.fn.isdirectory(dir .. "/" .. name) == 1 }
+      end
+    end
+    table.sort(out, function(x, y)
+      if x.dir ~= y.dir then
+        return x.dir
+      end
+      return x.name:lower() < y.name:lower()
+    end)
+    return out
+  end
+  local function paths(typed, out, seen)
+    local cut = typed:match(".*()/")
+    local head = cut and typed:sub(1, cut) or ""
+    local want = typed:sub(#head + 1):lower()
+    local root = vim.g.adroit_root or ""
+    local dir
+    if head:sub(1, 1) == "/" then
+      dir = head
+    elseif root ~= "" then
+      dir = root .. "/" .. head
+    else
       return
     end
+    local n = 0
+    for _, e in ipairs(entries(dir)) do
+      if e.name:sub(1, #want):lower() == want then
+        local path = head .. e.name .. (e.dir and "/" or "")
+        seen[path] = true
+        -- A directory takes no space after it, so completing goes on inside.
+        out[#out + 1] = { word = e.dir and path or path .. " ", abbr = path, menu = e.dir and "dir" or "file" }
+        n = n + 1
+        if n >= LIMIT then
+          return
+        end
+      end
+    end
+  end
+  local function offer_paths(s, typed)
     local want = typed:lower()
-    local out = {}
+    local sessions, files, seen = {}, {}, {}
     for _, c in ipairs(vim.g.adroit_candidates or {}) do
       if c.word:lower():find(want, 1, true) then
-        out[#out + 1] = { word = c.word .. " ", abbr = c.word, menu = c.menu }
-        if #out >= 200 then
-          break
+        local list = c.menu == "file" and files or sessions
+        if #list < LIMIT then
+          list[#list + 1] = c
         end
+      end
+    end
+    local out = {}
+    for _, c in ipairs(sessions) do
+      out[#out + 1] = item(c, c.word .. " ")
+    end
+    paths(typed, out, seen)
+    for _, c in ipairs(files) do
+      if not seen[c.word] then
+        out[#out + 1] = item(c, c.word .. " ")
       end
     end
     vim.fn.complete(s + 1, out)
   end
+  local function offer_commands(s, typed)
+    if typed == "" then
+      vim.rpcnotify(chan, "adroit_commands_wanted")
+    end
+    local want = "/" .. typed:lower()
+    local first, then_ = {}, {}
+    for _, c in ipairs(vim.g.adroit_commands or {}) do
+      local name = c.word:lower()
+      if name:sub(1, #want) == want then
+        first[#first + 1] = item(c, c.word .. " ")
+      elseif name:find(want:sub(2), 2, true) then
+        then_[#then_ + 1] = item(c, c.word .. " ")
+      end
+    end
+    vim.list_extend(first, then_)
+    vim.fn.complete(s, first)
+  end
+  local function offer()
+    local before = vim.api.nvim_get_current_line():sub(1, vim.fn.col(".") - 1)
+    local s, typed = word_start(before, "@[^%s@]*$")
+    if s then
+      return offer_paths(s, typed)
+    end
+    s, typed = word_start(before, "/[^%s/]*$")
+    if s then
+      return offer_commands(s, typed)
+    end
+  end
   vim.o.completeopt = "menuone,noinsert"
   vim.api.nvim_create_autocmd({ "TextChangedI", "TextChangedP" }, { buffer = b, callback = offer })
+  -- Told on every change, from wherever it comes: typed, pasted, or set by
+  -- the window.
+  local shell = false
+  vim.api.nvim_buf_attach(b, false, {
+    on_lines = function()
+      vim.schedule(function()
+        if not vim.api.nvim_buf_is_valid(b) then
+          return
+        end
+        local now = (vim.api.nvim_buf_get_lines(b, 0, 1, false)[1] or ""):sub(1, 1) == "!"
+        if now ~= shell then
+          shell = now
+          vim.rpcnotify(chan, "adroit_shell", now)
+        end
+      end)
+    end,
+  })
   local function report()
     local ok, h = pcall(vim.api.nvim_win_text_height, 0, {})
     local need = ok and h.all or vim.api.nvim_buf_line_count(0)
@@ -205,6 +311,12 @@ impl Handler for Listener {
                     (self.events)(Event::Yank { text, lines });
                 }
             }
+            "adroit_shell" => {
+                if let Some(on) = args.first().and_then(Value::as_bool) {
+                    (self.events)(Event::Shell(on));
+                }
+            }
+            "adroit_commands_wanted" => (self.events)(Event::CommandsWanted),
             "adroit_height" => {
                 if let Some(n) = args.first().and_then(Value::as_u64) {
                     (self.events)(Event::Height(n as usize));
@@ -215,12 +327,15 @@ impl Handler for Listener {
     }
 }
 
-/// Something `@` in the prompt offers: a session, a file.
+/// Something the prompt offers: a session or a file after `@`, a command
+/// after `/`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Candidate {
     pub word: String,
-    /// What kind of thing it is, shown beside it.
+    /// What it is, shown beside it.
     pub menu: String,
+    /// More about it, shown while it is picked.
+    pub info: String,
 }
 
 impl Candidate {
@@ -228,8 +343,28 @@ impl Candidate {
         Self {
             word: word.into(),
             menu: menu.into(),
+            info: String::new(),
         }
     }
+
+    pub fn with_info(mut self, info: impl Into<String>) -> Self {
+        self.info = info.into();
+        self
+    }
+}
+
+fn candidate_list(candidates: &[Candidate]) -> Value {
+    let list = candidates
+        .iter()
+        .map(|c| {
+            Value::Map(vec![
+                (Value::from("word"), Value::from(c.word.as_str())),
+                (Value::from("menu"), Value::from(c.menu.as_str())),
+                (Value::from("info"), Value::from(c.info.as_str())),
+            ])
+        })
+        .collect();
+    Value::Array(list)
 }
 
 /// The name the prompt's Neovim runs under, so its configuration, plugins
@@ -356,18 +491,27 @@ impl Embedded {
 
     /// Replace what `@` in the prompt offers.
     pub async fn set_candidates(&self, candidates: &[Candidate]) -> Result<(), Error> {
-        let list = candidates
-            .iter()
-            .map(|c| {
-                Value::Map(vec![
-                    (Value::from("word"), Value::from(c.word.as_str())),
-                    (Value::from("menu"), Value::from(c.menu.as_str())),
-                ])
-            })
-            .collect();
         self.nvim
-            .set_var("adroit_candidates", Value::Array(list))
+            .set_var("adroit_candidates", candidate_list(candidates))
             .await?;
+        Ok(())
+    }
+
+    /// Replace what `/` in the prompt offers; none offers nothing.
+    pub async fn set_commands(&self, commands: &[Candidate]) -> Result<(), Error> {
+        self.nvim
+            .set_var("adroit_commands", candidate_list(commands))
+            .await?;
+        Ok(())
+    }
+
+    /// The directory a path after `@` is walked from; without one, a path is
+    /// walked only from the root of the disk.
+    pub async fn set_root(&self, root: Option<&std::path::Path>) -> Result<(), Error> {
+        let root = root
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        self.nvim.set_var("adroit_root", Value::from(root)).await?;
         Ok(())
     }
 
@@ -683,5 +827,173 @@ mod tests {
         wait(&mut rx, |_| e.state().screen().text()[0] == "draft").await;
         e.append(&["one".into()]).await.unwrap();
         assert_eq!(e.text().await.unwrap(), "draft\none");
+    }
+    #[tokio::test]
+    async fn a_slash_offers_the_commands_beginning_with_what_follows_before_those_holding_it() {
+        let (e, mut rx) = start().await;
+        e.set_commands(&[
+            Candidate::new("/compact", "Clear history but keep a summary"),
+            Candidate::new("/pr-review", "Review a pull request"),
+            Candidate::new("/review", "Review code"),
+        ])
+        .await
+        .unwrap();
+        e.input("/re").await.unwrap();
+        wait(&mut rx, |_| {
+            e.state().popup().is_some_and(|p| {
+                p.items.iter().map(|i| i.word.as_str()).collect::<Vec<_>>()
+                    == ["/review", "/pr-review"]
+            })
+        })
+        .await;
+        e.input("<C-y>").await.unwrap();
+        wait(&mut rx, |_| e.state().popup().is_none()).await;
+        assert_eq!(e.take_text().await.unwrap(), "/review ");
+    }
+
+    #[tokio::test]
+    async fn a_slash_after_a_space_offers_the_commands_too() {
+        let (e, mut rx) = start().await;
+        e.set_commands(&[Candidate::new("/review", "Review code")])
+            .await
+            .unwrap();
+        e.input("then /r").await.unwrap();
+        wait(&mut rx, |_| {
+            e.state().popup().is_some_and(|p| p.items.len() == 1)
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn a_slash_inside_a_word_offers_no_command() {
+        let (e, mut rx) = start().await;
+        e.set_commands(&[Candidate::new("/review", "Review code")])
+            .await
+            .unwrap();
+        e.input("and/r").await.unwrap();
+        wait(&mut rx, |_| e.state().screen().text()[0] == "and/r").await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(e.state().popup().is_none());
+    }
+
+    #[tokio::test]
+    async fn a_slash_tells_the_window_the_commands_are_wanted() {
+        let (e, mut rx) = start().await;
+        e.input("/").await.unwrap();
+        wait(&mut rx, |ev| *ev == Event::CommandsWanted).await;
+    }
+
+    #[tokio::test]
+    async fn the_menu_shows_what_a_command_does_when_it_is_picked() {
+        let (e, mut rx) = start().await;
+        e.set_commands(&[Candidate::new("/review", "Review code").with_info("[pr]")])
+            .await
+            .unwrap();
+        e.input("/r<C-n>").await.unwrap();
+        wait(&mut rx, |_| {
+            e.state()
+                .popup()
+                .is_some_and(|p| p.items[0].menu == "Review code" && p.items[0].info == "[pr]")
+        })
+        .await;
+    }
+
+    /// A worktree holding `src/lib.rs`, `src/main.rs`, `README.md` and a
+    /// hidden file.
+    fn worktree(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("adroit-embed-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        for f in ["src/lib.rs", "src/main.rs", "README.md", ".env"] {
+            std::fs::write(dir.join(f), "").unwrap();
+        }
+        dir.canonicalize().unwrap()
+    }
+
+    fn words(e: &Embedded) -> Option<Vec<String>> {
+        e.state()
+            .popup()
+            .map(|p| p.items.iter().map(|i| i.word.clone()).collect())
+    }
+
+    #[tokio::test]
+    async fn an_at_sign_offers_the_sessions_then_the_worktree_s_entries_without_hidden_ones() {
+        let (e, mut rx) = start().await;
+        e.set_candidates(&[Candidate::new("fix", "session")])
+            .await
+            .unwrap();
+        e.set_root(Some(&worktree("top"))).await.unwrap();
+        e.input("@").await.unwrap();
+        wait(&mut rx, |_| {
+            words(&e).is_some_and(|w| w == ["fix", "src/", "README.md"])
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn a_directory_s_entries_are_offered_after_its_slash() {
+        let (e, mut rx) = start().await;
+        e.set_root(Some(&worktree("inside"))).await.unwrap();
+        e.input("@src/m").await.unwrap();
+        wait(&mut rx, |_| words(&e).is_some_and(|w| w == ["src/main.rs"])).await;
+        e.input("<C-y>").await.unwrap();
+        wait(&mut rx, |_| e.state().popup().is_none()).await;
+        assert_eq!(e.take_text().await.unwrap(), "@src/main.rs ");
+    }
+
+    #[tokio::test]
+    async fn picking_a_directory_goes_on_to_offer_what_is_in_it() {
+        let (e, mut rx) = start().await;
+        e.set_root(Some(&worktree("walk"))).await.unwrap();
+        e.input("@sr").await.unwrap();
+        wait(&mut rx, |_| words(&e).is_some_and(|w| w == ["src/"])).await;
+        e.input("<C-y>").await.unwrap();
+        wait(&mut rx, |_| {
+            words(&e).is_some_and(|w| w == ["src/lib.rs", "src/main.rs"])
+        })
+        .await;
+        assert_eq!(e.text().await.unwrap(), "@src/");
+    }
+
+    #[tokio::test]
+    async fn an_at_sign_and_a_slash_walk_from_the_root_of_the_disk() {
+        let (e, mut rx) = start().await;
+        let dir = worktree("absolute");
+        e.input(&format!("@{}/sr", dir.display())).await.unwrap();
+        let want = format!("{}/src/", dir.display());
+        wait(&mut rx, |_| words(&e).is_some_and(|w| w == [want.clone()])).await;
+    }
+
+    #[tokio::test]
+    async fn a_tracked_file_deep_in_the_worktree_is_found_by_part_of_its_path() {
+        let (e, mut rx) = start().await;
+        e.set_candidates(&[
+            Candidate::new("README.md", "file"),
+            Candidate::new("src/main.rs", "file"),
+        ])
+        .await
+        .unwrap();
+        e.set_root(Some(&worktree("tracked"))).await.unwrap();
+        e.input("@ma").await.unwrap();
+        wait(&mut rx, |_| words(&e).is_some_and(|w| w == ["src/main.rs"])).await;
+        e.input("<BS><BS>R").await.unwrap();
+        // The entry and the tracked file are one.
+        wait(&mut rx, |_| {
+            words(&e).is_some_and(|w| w == ["README.md", "src/main.rs"])
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn a_bang_first_tells_the_window_the_prompt_is_a_shell_line_until_it_goes() {
+        let (e, mut rx) = start().await;
+        e.input("!ls").await.unwrap();
+        wait(&mut rx, |ev| *ev == Event::Shell(true)).await;
+        e.input("<Home><Del>").await.unwrap();
+        wait(&mut rx, |ev| *ev == Event::Shell(false)).await;
+        e.paste("!pwd").await.unwrap();
+        wait(&mut rx, |ev| *ev == Event::Shell(true)).await;
+        e.take_text().await.unwrap();
+        wait(&mut rx, |ev| *ev == Event::Shell(false)).await;
     }
 }

@@ -142,6 +142,9 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .prompt { position: absolute; left: 14px; right: 14px; bottom: 14px; background: var(--raised); border: 1px solid var(--line-strong);
   border-radius: 10px; box-shadow: 0 -6px 30px rgba(0,0,0,0.45); }
 .prompt.focused { border-color: #4a5566; }
+/* Claude Code's bash mode, in its pink. */
+.prompt.shell { border-color: #c96b9f; }
+.prompt-shell { display: inline-flex; align-items: center; flex: none; height: 18px; padding: 0 7px; border-radius: 5px; font-family: var(--mono); font-weight: 500; font-size: 11px; background: rgba(240,128,190,0.14); color: #f080be; }
 .prompt-foot { display: flex; align-items: center; gap: 10px; padding: 2px 12px 6px; font-size: 11.5px; color: var(--text-3); }
 .prompt-foot-target { color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .prompt-foot-message { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }

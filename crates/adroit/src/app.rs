@@ -8,14 +8,14 @@ use std::time::{Duration, Instant};
 
 use adroit_claude::Access;
 use adroit_claude::git::DiffKind;
-use adroit_claude::places;
+use adroit_claude::{commands, places};
 use adroit_model::{InboxItem, Kind, Session, Shell, State, Tree, Worktree, build, inbox};
 use adroit_nvim::{Embedded, Event as NvimEvent, notation};
 use adroit_term::{Daemon, Key, Palette, Pane, Size, Spawn};
 use dioxus::prelude::*;
 use tokio::sync::{Notify, mpsc, oneshot};
 
-use crate::complete::candidates;
+use crate::complete::{self, candidates};
 use crate::console::{Composer, ConsoleScreen, Hub, Panes, ReaderScreen, mode_of};
 use crate::console_keys::direct_key;
 use crate::console_read;
@@ -828,6 +828,8 @@ fn App() -> Element {
     let mut prompt_height = use_signal(|| 1usize);
     // The line the prompt shows from, and how many it has.
     let mut prompt_view = use_signal(|| (0usize, 0usize));
+    // Whether the prompt's text starts with `!`.
+    let mut prompt_shell = use_signal(|| false);
     let mut prompt_cols = use_signal(|| 80u16);
     let mut cell_width = use_signal(|| 7.8f64);
     let mut console_size = use_signal(|| Size::new(100, 30));
@@ -1204,6 +1206,48 @@ fn App() -> Element {
             let _ = nv.set_candidates(&list).await;
         });
     });
+    // A path after `@` is walked from the open worktree.
+    use_effect(move || {
+        let Some(nv) = nvim() else { return };
+        let root = place.read().as_ref().map(|p| p.worktree.clone());
+        spawn(async move {
+            let _ = nv.set_root(root.as_deref()).await;
+        });
+    });
+
+    // What `/` offers: Claude Code's commands where the shown tab's session
+    // runs, asked for when such a tab is shown or a `/` is typed and the list
+    // there is missing or old; the old list is offered meanwhile.
+    let mut command_cache = use_signal(commands::Cache::default);
+    let commands_here = use_memo(move || {
+        complete::commands_dir(&tree.read(), active.read().as_ref(), place.read().as_ref())
+    });
+    let mut revalidate = move |dir: PathBuf| {
+        if !command_cache.write().want(&dir, Instant::now()) {
+            return;
+        }
+        spawn(async move {
+            let program = adroit_claude::claude_program();
+            let got = commands::probe(&program, &dir, commands::PROBE_TIMEOUT).await;
+            command_cache.write().settle(&dir, Instant::now(), got);
+        });
+    };
+    use_effect(move || {
+        if let Some(dir) = commands_here() {
+            revalidate(dir);
+        }
+    });
+    let offered_commands = use_memo(move || match commands_here() {
+        Some(dir) => complete::commands(command_cache.read().get(&dir)),
+        None => Vec::new(),
+    });
+    use_effect(move || {
+        let Some(nv) = nvim() else { return };
+        let list = offered_commands();
+        spawn(async move {
+            let _ = nv.set_commands(&list).await;
+        });
+    });
 
     // What git or jj says about the worktree in the middle, for the details
     // panel: read only while a sheet that reads it is shown, since every jj
@@ -1383,6 +1427,12 @@ fn App() -> Element {
                         // Only the console's reader tells of yanks and of
                         // where it is scrolled to.
                         NvimEvent::Yank { .. } | NvimEvent::Scrolled { .. } => {}
+                        NvimEvent::Shell(on) => prompt_shell.set(on),
+                        NvimEvent::CommandsWanted => {
+                            if let Some(dir) = commands_here.peek().clone() {
+                                revalidate(dir);
+                            }
+                        }
                         NvimEvent::View { top, lines } => {
                             if *prompt_view.peek() != (top, lines) {
                                 prompt_view.set((top, lines));
@@ -1781,7 +1831,14 @@ fn App() -> Element {
                                 ));
                                 false
                             } else {
-                                p.paste(&text);
+                                match adroit_claude::shell_line(&text) {
+                                    Some(command) => {
+                                        p.type_text("!");
+                                        tokio::time::sleep(Duration::from_millis(40)).await;
+                                        p.paste(command);
+                                    }
+                                    None => p.paste(&text),
+                                }
                                 tokio::time::sleep(Duration::from_millis(40)).await;
                                 p.key(&Key::new("Enter"));
                                 true
@@ -1803,6 +1860,14 @@ fn App() -> Element {
                         if named(&text).0.is_some() && named(&text).1.trim().is_empty() =>
                     {
                         notify.notice("Write what the session is to do below its name".into());
+                        false
+                    }
+                    // Given as the first prompt, a shell line is not known to
+                    // run as a command; it could reach the model as a message.
+                    Some(Tab::Draft { .. }) if adroit_claude::shell_line(&text).is_some() => {
+                        notify.notice(
+                            "A shell line runs in a session: start it with a message first".into(),
+                        );
                         false
                     }
                     Some(Tab::Draft { worktree, role }) => {
@@ -3927,6 +3992,7 @@ fn App() -> Element {
                             send_keys: k_send.clone(),
                             view: prompt_view(),
                             rows: prompt_rows(),
+                            shell: prompt_shell() && !matches!(active(), Some(Tab::Shell(_))),
                         }
                     }
                 }

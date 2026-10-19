@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use adroit_model::{ParseError, Session, Worktree};
 use tokio::process::Command;
 
+pub mod commands;
 pub mod git;
 pub mod history;
 pub mod hook;
@@ -184,6 +185,14 @@ pub fn resume_args(session_id: &str, settings: &str) -> Vec<String> {
         .to_vec()
 }
 
+/// The command of a prompt that is a shell line for Claude Code: one whose
+/// first character is `!`, without it. The window types the `!` as a key and
+/// pastes the rest, as Claude Code switches its input to bash mode on a `!`
+/// typed into it while empty, and a paste is not certain to.
+pub fn shell_line(prompt: &str) -> Option<&str> {
+    prompt.strip_prefix('!')
+}
+
 /// How long a session's process is given to exit after each signal.
 pub const STOP_GRACE: Duration = Duration::from_secs(3);
 
@@ -340,6 +349,18 @@ mod tests {
             resume_args("a08bbcf2-2cbf", "{}"),
             ["--resume", "a08bbcf2-2cbf", "--settings", "{}"]
         );
+    }
+
+    #[test]
+    fn a_prompt_starting_with_a_bang_is_a_shell_line_of_what_follows() {
+        assert_eq!(shell_line("!echo hi"), Some("echo hi"));
+        assert_eq!(shell_line("!"), Some(""));
+    }
+
+    #[test]
+    fn a_bang_anywhere_but_first_leaves_the_prompt_a_message() {
+        assert_eq!(shell_line("say !this"), None);
+        assert_eq!(shell_line(" !ls"), None);
     }
 
     #[tokio::test]

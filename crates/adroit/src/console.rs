@@ -258,6 +258,8 @@ pub fn Composer(
     view: (usize, usize),
     /// The lines the prompt shows.
     rows: usize,
+    /// Whether what is written is a shell line for the session.
+    shell: bool,
 ) -> Element {
     let ch = use_cell_height();
     let thumb = scroll_thumb(view.0, rows, view.1);
@@ -285,7 +287,12 @@ pub fn Composer(
         .map(|pm| menu_span(14.0 + pm.col as f64 * cw, prompt_width() + 28.0));
     rsx! {
         div {
-            class: if focused { "prompt focused" } else { "prompt" },
+            class: match (focused, shell) {
+                (true, true) => "prompt focused shell",
+                (true, false) => "prompt focused",
+                (false, true) => "prompt shell",
+                (false, false) => "prompt",
+            },
             // Stopped here, or the console around the card takes the keys back.
             onmousedown: move |e: Event<MouseData>| {
                 e.stop_propagation();
@@ -337,6 +344,13 @@ pub fn Composer(
                 }
             }
             div { class: "prompt-foot",
+                if shell {
+                    span {
+                        class: "prompt-shell",
+                        title: "Sent, this line runs as a shell command in the session, its output added to the conversation",
+                        "! shell"
+                    }
+                }
                 span { class: "prompt-foot-target", "→ {target}" }
                 if let Some((_, _, _, Some(msg))) = &prompt {
                     span { class: "prompt-foot-message", "{msg}" }
