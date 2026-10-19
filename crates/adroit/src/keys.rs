@@ -27,6 +27,13 @@ pub enum Message {
     Paste {
         text: String,
     },
+    /// An image pasted with no text beside it: its media type and its bytes
+    /// in base64.
+    Image {
+        #[serde(rename = "type")]
+        mime: String,
+        data: String,
+    },
 }
 
 impl Message {
@@ -143,5 +150,16 @@ mod tests {
             }
         );
         assert_eq!(read(r#"{"kind":"text","text":"x"}"#).key(), None);
+    }
+
+    #[test]
+    fn a_pasted_image_carries_its_media_type_and_its_bytes_in_base64() {
+        assert_eq!(
+            read(r#"{"kind":"image","type":"image/png","data":"iVBORw=="}"#),
+            Message::Image {
+                mime: "image/png".into(),
+                data: "iVBORw==".into()
+            }
+        );
     }
 }

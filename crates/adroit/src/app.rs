@@ -37,6 +37,7 @@ use crate::layout::{self, Layout, Side};
 use crate::menu::{self, Target};
 use crate::menu_bar;
 use crate::nav::{self, Item, Place};
+use crate::pasted;
 use crate::paths::{home, keys_path, scratch_dir, state_dir};
 use crate::picker::{self, Candidate, Choice, Mode, Picker};
 use crate::picker_view::PickerView;
@@ -582,8 +583,24 @@ t.addEventListener('beforeinput', (e) => {
 });
 t.addEventListener('paste', (e) => {
   e.preventDefault();
-  const d = e.clipboardData ? e.clipboardData.getData('text/plain') : '';
-  if (d) dioxus.send({ kind: 'paste', text: d });
+  const c = e.clipboardData;
+  const d = c ? c.getData('text/plain') : '';
+  if (d) {
+    dioxus.send({ kind: 'paste', text: d });
+    return;
+  }
+  // Only an image is read: Claude Code takes no video or other file.
+  const f = c && [...c.items]
+    .filter((i) => i.kind === 'file' && i.type.startsWith('image/'))
+    .map((i) => i.getAsFile())
+    .find((f) => f);
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    const url = String(r.result);
+    dioxus.send({ kind: 'image', type: f.type, data: url.slice(url.indexOf(',') + 1) });
+  };
+  r.readAsDataURL(f);
 });
 t.addEventListener('compositionend', (e) => {
   t.classList.remove('composing', 'gridded');
@@ -662,6 +679,28 @@ fn passes(area: Area, session: bool, waits: bool) -> bool {
         Area::Console => !session || waits,
         Area::Prompt => session && waits,
         Area::Sidebar | Area::Details => false,
+    }
+}
+
+/// Where typed or pasted text goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Typed {
+    Prompt,
+    /// The program in the console.
+    Program,
+    Nowhere,
+}
+
+/// Where text typed or pasted in `area` goes: text for a `session` is
+/// written in the prompt, but while the console passes keys `direct`ly or
+/// the session `waits` on an answer.
+fn typed_into(area: Area, session: bool, direct: bool, waits: bool) -> Typed {
+    match area {
+        Area::Console if session && !direct && !waits => Typed::Prompt,
+        Area::Console => Typed::Program,
+        Area::Prompt if passes(area, session, waits) => Typed::Program,
+        Area::Prompt => Typed::Prompt,
+        Area::Sidebar | Area::Details => Typed::Nowhere,
     }
 }
 
@@ -2963,53 +3002,61 @@ fn App() -> Element {
         }
     });
 
+    // Where text typed or pasted now goes. A dialog open types in its own
+    // field, or takes no text.
+    let text_goes = move || {
+        if picking.peek().is_some() || renaming.peek().is_some() || confirm.peek().is_some() {
+            return Typed::Nowhere;
+        }
+        typed_into(*focus.peek(), shows_session(), *direct.peek(), waits())
+    };
+
     let type_text = {
         let active_pane = active_pane.clone();
-        move |text: String, pasted: bool| {
-            let area = *focus.peek();
-            // A dialog open types in its own field, or takes no text.
-            if picking.peek().is_some() || renaming.peek().is_some() {
-                return;
-            }
-            match area {
-                _ if confirm.peek().is_some() => {}
-                // Text for a session is written in the prompt.
-                Area::Console if shows_session() && !*direct.peek() && !waits() => {
-                    focus.set(Area::Prompt);
-                    if let Some(nv) = nvim.peek().clone() {
-                        spawn(async move {
-                            if pasted {
-                                let _ = nv.paste(&text).await;
-                            } else {
-                                let _ = nv.type_text(&text).await;
-                            }
-                        });
-                    }
-                }
-                Area::Console | Area::Prompt
-                    if area == Area::Console || passes(area, shows_session(), waits()) =>
-                {
-                    if let Some(p) = active_pane() {
+        move |text: String, pasted: bool| match text_goes() {
+            Typed::Prompt => {
+                focus.set(Area::Prompt);
+                if let Some(nv) = nvim.peek().clone() {
+                    spawn(async move {
                         if pasted {
-                            p.paste(&text);
+                            let _ = nv.paste(&text).await;
                         } else {
-                            p.type_text(&text);
+                            let _ = nv.type_text(&text).await;
                         }
-                    }
+                    });
                 }
-                Area::Prompt => {
-                    if let Some(nv) = nvim.peek().clone() {
-                        spawn(async move {
-                            if pasted {
-                                let _ = nv.paste(&text).await;
-                            } else {
-                                let _ = nv.type_text(&text).await;
-                            }
-                        });
-                    }
-                }
-                _ => {}
             }
+            Typed::Program => {
+                if let Some(p) = active_pane() {
+                    if pasted {
+                        p.paste(&text);
+                    } else {
+                        p.type_text(&text);
+                    }
+                }
+            }
+            Typed::Nowhere => {}
+        }
+    };
+
+    // An image pasted into the prompt is saved for Claude Code to read and
+    // named there. The console's program is handed an empty paste, as a
+    // terminal hands on an image paste: Claude Code then reads the image off
+    // the clipboard itself.
+    let paste_image = {
+        let mut type_text = type_text.clone();
+        move |mime: String, data: String| match text_goes() {
+            Typed::Prompt => {
+                let dir = pasted::dir();
+                let now = std::time::SystemTime::now();
+                pasted::prune(&dir, now);
+                match pasted::save(&dir, &mime, &data, now) {
+                    Ok(path) => type_text(pasted::reference(&path), true),
+                    Err(e) => notify.notice(e.to_string()),
+                }
+            }
+            Typed::Program => type_text(String::new(), true),
+            Typed::Nowhere => {}
         }
     };
 
@@ -3943,6 +3990,7 @@ fn App() -> Element {
     use_hook({
         let mut handle_key = handle_key.clone();
         let mut type_text = type_text.clone();
+        let mut paste_image = paste_image.clone();
         move || {
             spawn(async move {
                 let mut input =
@@ -3956,6 +4004,10 @@ fn App() -> Element {
                         keys::Message::Paste { text } => {
                             pending.set(Vec::new());
                             type_text(text, true);
+                        }
+                        keys::Message::Image { mime, data } => {
+                            pending.set(Vec::new());
+                            paste_image(mime, data);
                         }
                         keys::Message::Text { text } if text.chars().count() == 1 => {
                             handle_key(Key::new(&text));
@@ -5488,6 +5540,30 @@ mod tests {
                 passes(area, session, waits),
                 want,
                 "{area:?} {session} {waits}"
+            );
+        }
+    }
+
+    #[test]
+    fn text_for_a_session_is_written_in_the_prompt_and_the_rest_goes_to_the_console_s_program() {
+        use Typed::*;
+        // (area, a session shown, keys passed directly, it waits) -> where text goes
+        let table = [
+            (Area::Prompt, true, false, false, Prompt),
+            (Area::Prompt, false, false, false, Prompt),
+            (Area::Prompt, true, false, true, Program),
+            (Area::Console, true, false, false, Prompt),
+            (Area::Console, true, true, false, Program),
+            (Area::Console, true, false, true, Program),
+            (Area::Console, false, false, false, Program),
+            (Area::Sidebar, true, false, false, Nowhere),
+            (Area::Details, false, true, true, Nowhere),
+        ];
+        for (area, session, direct, waits, want) in table {
+            assert_eq!(
+                typed_into(area, session, direct, waits),
+                want,
+                "{area:?} {session} {direct} {waits}"
             );
         }
     }
