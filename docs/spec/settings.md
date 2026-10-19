@@ -3,8 +3,10 @@
 Adroit's settings are changed in its Settings window, opened with Command
 comma or the gear in the window's header. Each change applies at once, to
 every window, and is kept for the next run; there is nothing to save. The
-window also lists the key bindings in force, each of which can be changed there
-([keys](keys.md#changing-them-in-the-settings-window)).
+file they are kept in can be edited by hand as well: a change saved there
+applies within a second, while one that does not read leaves the settings as
+they were. The window also lists the key bindings in force, each of which
+can be changed there ([keys](keys.md#changing-them-in-the-settings-window)).
 
 ## settings.toml
 

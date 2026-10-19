@@ -151,6 +151,43 @@ pub fn current() -> Settings {
     SETTINGS.read().map(|s| s.clone()).unwrap_or_default()
 }
 
+/// The settings `text`, the file read again, holds when it reads and differs
+/// from `current`; `None` otherwise, so a file half written or one adroit just
+/// wrote itself changes nothing.
+pub fn reread(current: &Settings, text: &str) -> Option<Settings> {
+    Settings::parse(text).ok().filter(|s| s != current)
+}
+
+/// Take in the file's settings whenever it changes on disk, edited by hand or
+/// by another program, looking every `every`.
+pub fn watch(every: std::time::Duration) {
+    let modified = || {
+        std::fs::metadata(Settings::path())
+            .and_then(|m| m.modified())
+            .ok()
+    };
+    std::thread::spawn(move || {
+        let mut seen = modified();
+        loop {
+            std::thread::sleep(every);
+            let now = modified();
+            if now == seen {
+                continue;
+            }
+            seen = now;
+            let Ok(text) = std::fs::read_to_string(Settings::path()) else {
+                continue;
+            };
+            if let Some(next) = reread(&current(), &text) {
+                if let Ok(mut s) = SETTINGS.write() {
+                    *s = next;
+                }
+                let _ = CHANGED.send(());
+            }
+        }
+    });
+}
+
 /// Make `next` the settings: keep them for the next run and tell every window.
 pub fn set(next: Settings) -> Result<(), String> {
     let next = next.sane();
@@ -287,5 +324,16 @@ mod tests {
         .sane();
         assert_eq!(s.shell.command, ["/bin/zsh"]);
         assert!(s.claude.command.is_empty());
+    }
+
+    #[test]
+    fn the_file_read_again_is_taken_in_only_when_it_reads_and_says_something_new() {
+        let now = Settings::default();
+        let next = reread(&now, "zoom = 1.25\n").unwrap();
+        assert_eq!(next.zoom, 1.25);
+        // What adroit wrote itself, or a file caught half written, changes nothing.
+        assert_eq!(reread(&now, &toml::to_string_pretty(&now).unwrap()), None);
+        assert_eq!(reread(&now, "zoom = "), None);
+        assert_eq!(reread(&now, "colour = \"red\"\n"), None);
     }
 }

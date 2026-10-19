@@ -80,6 +80,7 @@ fn title(described: Option<&str>) -> String {
 /// Open the window.
 pub fn launch() {
     use dioxus::desktop::{Config as Desktop, LogicalSize, WindowBuilder};
+    settings::watch(Duration::from_secs(1));
     let cfg = Desktop::new()
         .with_window(
             WindowBuilder::new()
