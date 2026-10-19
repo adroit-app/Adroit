@@ -15,6 +15,7 @@ pub mod history;
 pub mod jj;
 pub mod links;
 pub mod places;
+pub mod subagents;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

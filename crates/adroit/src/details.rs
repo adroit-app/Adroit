@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use adroit_claude::git::{Change, Commit, DiffLine};
 use adroit_claude::links::{Kind as LinkKind, Link, Peer, Touch};
+use adroit_claude::subagents::{Agent, Standing};
 use adroit_model::{Kind, Session, State};
 
 /// What the details panel says about a session, as label and value, at
@@ -75,6 +76,51 @@ pub fn shown_link(link: &Link, worktree: &Path, home: &Path) -> (String, String)
             };
             (label, word.to_string())
         }
+    }
+}
+
+/// What a subagent of the overview shows: what it is called, and a word on
+/// how it stands and its kind, how long it ran told at `now_ms`.
+pub fn shown_agent(a: &Agent, now_ms: u64) -> (String, String) {
+    let label = if a.description.is_empty() {
+        "subagent".to_string()
+    } else {
+        a.description.clone()
+    };
+    let took = a
+        .started_ms
+        .map(|start| lasted(a.ended_ms.unwrap_or(now_ms).saturating_sub(start)));
+    let standing = match (a.standing, took) {
+        (Standing::Running, Some(t)) => format!("running {t}"),
+        (Standing::Done, Some(t)) => format!("done in {t}"),
+        (Standing::Failed, Some(t)) => format!("failed after {t}"),
+        (Standing::Stopped, Some(t)) => format!("stopped after {t}"),
+        (s, None) => standing_word(s).to_string(),
+    };
+    let tag = match &a.kind {
+        Some(kind) => format!("{standing} · {kind}"),
+        None => standing,
+    };
+    (label, tag)
+}
+
+pub fn standing_word(s: Standing) -> &'static str {
+    match s {
+        Standing::Running => "running",
+        Standing::Done => "done",
+        Standing::Failed => "failed",
+        Standing::Stopped => "stopped",
+    }
+}
+
+/// `ms` milliseconds as seconds, minutes, or hours and minutes.
+fn lasted(ms: u64) -> String {
+    let s = ms / 1000;
+    match (s / 3600, s / 60 % 60) {
+        (0, 0) => format!("{s} s"),
+        (0, m) => format!("{m} min"),
+        (h, 0) => format!("{h} h"),
+        (h, m) => format!("{h} h {m} min"),
     }
 }
 
@@ -170,6 +216,7 @@ impl Listing {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Group {
     Sessions,
+    Agents,
     Artifacts,
     Links,
     Files,
@@ -187,6 +234,7 @@ impl Group {
     pub fn title(self) -> &'static str {
         match self {
             Group::Sessions => "Sessions",
+            Group::Agents => "Subagents",
             Group::Artifacts => "Artifacts",
             Group::Links => "Links",
             Group::Files => "Files",
@@ -203,6 +251,7 @@ pub enum Entry {
         folded: bool,
     },
     Session(Related),
+    Agent(Agent),
     Link(Link),
 }
 
@@ -213,11 +262,13 @@ impl Entry {
             // takes a heading's place.
             Entry::Heading { group, .. } => match group {
                 Group::Sessions => "\0sessions",
+                Group::Agents => "\0agents",
                 Group::Artifacts => "\0artifacts",
                 Group::Links => "\0links",
                 Group::Files => "\0files",
             },
             Entry::Session(r) => r.name.as_str(),
+            Entry::Agent(a) => a.call.as_str(),
             Entry::Link(l) => l.target.as_str(),
         }
     }
@@ -227,6 +278,7 @@ impl Entry {
         match self {
             Entry::Heading { group, .. } => *group,
             Entry::Session(_) => Group::Sessions,
+            Entry::Agent(_) => Group::Agents,
             Entry::Link(l) => Group::of(&l.kind),
         }
     }
@@ -338,6 +390,33 @@ pub fn overview(related: &[Related], links: &[Link], folded: &HashSet<Group>) ->
     out
 }
 
+/// The overview's `entries` with `agents` under their heading after the
+/// sessions; a `folded` group shows its heading alone.
+pub fn with_agents(
+    mut entries: Vec<Entry>,
+    agents: &[Agent],
+    folded: &HashSet<Group>,
+) -> Vec<Entry> {
+    if agents.is_empty() {
+        return entries;
+    }
+    let at = entries
+        .iter()
+        .position(|e| e.group() != Group::Sessions)
+        .unwrap_or(entries.len());
+    let shut = folded.contains(&Group::Agents);
+    let mut rows = vec![Entry::Heading {
+        group: Group::Agents,
+        count: agents.len(),
+        folded: shut,
+    }];
+    if !shut {
+        rows.extend(agents.iter().cloned().map(Entry::Agent));
+    }
+    entries.splice(at..at, rows);
+    entries
+}
+
 /// What was read for a spot, and which worktree it was about.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct View {
@@ -350,6 +429,8 @@ pub struct View {
 enum Opened {
     Commit(Commit),
     File(Change),
+    /// A subagent of the overview, by its call, and its description.
+    Agent(String, String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -380,6 +461,14 @@ impl Drill {
         self.sheet
     }
 
+    /// The subagent of the overview opened, by its call.
+    pub fn agent(&self) -> Option<&str> {
+        match self.opened.last() {
+            Some(Opened::Agent(call, _)) => Some(call),
+            _ => None,
+        }
+    }
+
     /// What to read for what is shown; the overview is not read.
     pub fn spot(&self) -> Option<Spot> {
         let rev = |c: &Commit| Rev::Commit(c.id.clone());
@@ -404,6 +493,7 @@ impl Drill {
                 }
                 Opened::Commit(c) => format!("{} {}", c.short, c.subject),
                 Opened::File(f) => f.shown(),
+                Opened::Agent(_, description) => description.clone(),
             })
             .collect()
     }
@@ -457,7 +547,11 @@ impl Drill {
         let opened = match listing {
             Listing::Files(files) => Opened::File(files[at].clone()),
             Listing::Log(commits) => Opened::Commit(commits[at].clone()),
-            Listing::Diff(_) | Listing::Error(_) | Listing::Links(_) => return false,
+            Listing::Links(entries) => match &entries[at] {
+                Entry::Agent(a) => Opened::Agent(a.call.clone(), shown_agent(a, 0).0),
+                _ => return false,
+            },
+            Listing::Diff(_) | Listing::Error(_) => return false,
         };
         self.opened.push(opened);
         self.cursor = None;
@@ -482,6 +576,7 @@ impl Drill {
         let key = match opened {
             Opened::Commit(c) => c.id,
             Opened::File(f) => f.path,
+            Opened::Agent(call, _) => call,
         };
         // Where it was is not kept; should it be gone meanwhile, the list's
         // first row stands in.
@@ -1025,5 +1120,109 @@ mod tests {
             overview(&r, &[], &HashSet::from([Group::Sessions])),
             [heading(Group::Sessions, 1, true)]
         );
+    }
+
+    fn agent(call: &str, description: &str, standing: Standing) -> Agent {
+        Agent {
+            call: call.into(),
+            id: Some(format!("a-{call}")),
+            description: description.into(),
+            kind: Some("Explore".into()),
+            prompt: "Look around.".into(),
+            standing,
+            started_ms: Some(1_000_000),
+            ended_ms: None,
+            steps: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn the_subagents_follow_the_sessions_and_fold_as_a_group() {
+        let r = [tied("tests", Some("3"), &[Tie::Started])];
+        let l = [link(LinkKind::Url, "https://a.dev", None, None)];
+        let a = [
+            agent("toolu_1", "Survey", Standing::Running),
+            agent("toolu_2", "Fix", Standing::Done),
+        ];
+        let folded = HashSet::new();
+        assert_eq!(
+            with_agents(overview(&r, &l, &folded), &a, &folded),
+            [
+                heading(Group::Sessions, 1, false),
+                Entry::Session(r[0].clone()),
+                heading(Group::Agents, 2, false),
+                Entry::Agent(a[0].clone()),
+                Entry::Agent(a[1].clone()),
+                heading(Group::Links, 1, false),
+                Entry::Link(l[0].clone()),
+            ]
+        );
+        let shut = HashSet::from([Group::Agents]);
+        assert_eq!(
+            with_agents(overview(&[], &l, &shut), &a, &shut),
+            [
+                heading(Group::Agents, 2, true),
+                heading(Group::Links, 1, false),
+                Entry::Link(l[0].clone()),
+            ]
+        );
+        assert_eq!(
+            with_agents(overview(&[], &l, &folded), &[], &folded),
+            overview(&[], &l, &folded)
+        );
+    }
+
+    #[test]
+    fn a_subagent_shows_its_description_kind_and_how_long_it_ran() {
+        let start = 1_000_000;
+        let mut a = agent("toolu_1", "Survey", Standing::Running);
+        assert_eq!(
+            shown_agent(&a, start + 3 * 60_000 + 5_000),
+            ("Survey".to_string(), "running 3 min · Explore".to_string())
+        );
+        a.standing = Standing::Done;
+        a.ended_ms = Some(start + 75 * 60_000);
+        assert_eq!(shown_agent(&a, 0).1, "done in 1 h 15 min · Explore");
+        a.standing = Standing::Failed;
+        a.ended_ms = Some(start + 40_000);
+        assert_eq!(shown_agent(&a, 0).1, "failed after 40 s · Explore");
+        a.standing = Standing::Stopped;
+        a.kind = None;
+        a.started_ms = None;
+        assert_eq!(shown_agent(&a, 0).1, "stopped");
+        a.description = String::new();
+        assert_eq!(shown_agent(&a, 0).0, "subagent");
+    }
+
+    #[test]
+    fn how_long_reads_in_seconds_minutes_or_hours_and_minutes() {
+        assert_eq!(lasted(9_400), "9 s");
+        assert_eq!(lasted(60_000), "1 min");
+        assert_eq!(lasted(59 * 60_000 + 59_000), "59 min");
+        assert_eq!(lasted(2 * 3_600_000), "2 h");
+        assert_eq!(lasted(2 * 3_600_000 + 5 * 60_000), "2 h 5 min");
+    }
+
+    #[test]
+    fn a_subagent_of_the_overview_opens_to_its_own_level_and_back_selects_it() {
+        let a = [
+            agent("toolu_1", "Survey", Standing::Running),
+            agent("toolu_2", "Fix", Standing::Done),
+        ];
+        let none = HashSet::new();
+        let list = Listing::Links(with_agents(Vec::new(), &a, &none));
+        let mut d = Drill::new(Sheet::Overview);
+        assert_eq!(d.agent(), None);
+        assert!(!d.open(&list), "its heading opens nothing");
+        d.step(&list, 2);
+        assert!(d.open(&list));
+        assert_eq!(d.agent(), Some("toolu_2"));
+        assert_eq!(d.crumbs(), ["Fix"]);
+        assert_eq!(d.spot(), None, "the overview is not read through git");
+        assert!(d.back());
+        assert_eq!(d.agent(), None);
+        assert_eq!(d.selected(&list), Some(2));
+        assert!(d.open_at(&list, 1));
+        assert_eq!(d.agent(), Some("toolu_1"));
     }
 }
