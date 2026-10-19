@@ -103,15 +103,17 @@ async fn start(
         access,
         prompt,
     ));
+    let env = adroit_claude::ENV
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .chain(crate::daemon::terminal_env())
+        .collect();
+    let (program, args, env) = crate::programs::claude(args, env);
     let spawn = Spawn {
-        program: adroit_claude::claude_program(),
+        program,
         args,
         cwd: dir.clone(),
-        env: adroit_claude::ENV
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .chain(crate::daemon::terminal_env())
-            .collect(),
+        env,
         tags: sessions::claude_tags(&name, &dir, &conversation, asked.read_only, now_ms(), from),
         cols: COLS,
         rows: ROWS,
