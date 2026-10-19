@@ -104,7 +104,7 @@ async fn keys_reach_the_program_as_its_modes_ask() {
     let (d, _dir) = daemon().await;
     let id = d
         .spawn(sh(
-            "stty raw -echo; printf ready; head -c 3 | od -An -tx1; sleep 5",
+            "stty raw -echo; printf ready; head -c 3 | od -An -tx1 | tr -s ' '; sleep 5",
         ))
         .await
         .unwrap();
