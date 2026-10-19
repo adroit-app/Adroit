@@ -948,7 +948,7 @@ fn mode_tip(mode: &str, dialog: bool) -> &'static str {
             "Vim's keys move, search, select and yank in the console; q or Esc goes back to it live, i writes a prompt"
         }
         "PASS" => "Every key goes to the console's program, but Ctrl+w sequences",
-        "DIRECT" => "Every key goes to Claude Code until Esc",
+        "DIRECT" => "Every key goes to the session until Esc",
         "PICK" => "Choosing where a session works: type to narrow, Enter chooses, Esc closes",
         "INSERT" => "Writing a prompt: Ctrl+Enter sends it, Esc stops writing",
         "NORMAL" => "The prompt takes Vim commands: i writes again, Ctrl+w k goes up",
@@ -965,7 +965,7 @@ fn row_tip(item: &Item) -> &'static str {
         Item::Worktree(_) => {
             "A worktree: a checkout of the repository, on a branch of its own. Enter or n starts a session in it, s a shell"
         }
-        Item::Session(_) | Item::Waiting(_) => "A Claude Code session. Enter opens it",
+        Item::Session(_) | Item::Waiting(_) => "A session. Enter opens it",
         Item::Shell(_) => "A shell adroit runs. Enter shows it; x closes it",
     }
 }
@@ -1030,8 +1030,8 @@ fn end_shell(hub: &Hub, id: u128) {
     });
 }
 
-/// Move the text Claude Code handed its external editor in `path` into the
-/// prompt, leaving the file empty so Claude Code's input is cleared. A file
+/// Move the text a session handed its external editor in `path` into the
+/// prompt, leaving the file empty so the session's input is cleared. A file
 /// adroit did not ask for is left alone: the user opened the editor.
 async fn take_input(
     path: &Path,
@@ -1060,15 +1060,19 @@ async fn take_input(
         return Response::Taken(0);
     }
     if let Err(e) = std::fs::write(path, "") {
-        status.set(Some(format!("cannot clear Claude Code's input: {e}")));
+        status.set(Some(format!("cannot clear the session's input: {e}")));
         return Response::Taken(0);
     }
     let n = lines.len();
-    notify.notice(format!(
-        "moved {n} line{} from Claude Code's input to the prompt",
-        if n == 1 { "" } else { "s" }
-    ));
+    notify.notice(moved_notice(n));
     Response::Taken(n)
+}
+
+fn moved_notice(n: usize) -> String {
+    format!(
+        "moved {n} line{} from the session's input to the prompt",
+        if n == 1 { "" } else { "s" }
+    )
 }
 
 /// The environment a session adroit starts runs in, over adroit's own.
@@ -5265,7 +5269,7 @@ fn App() -> Element {
                         if passing && area == Area::Console {
                             div { class: "direct-banner",
                                 span { class: "direct-banner-title", "Passing every key" }
-                                span { "to Claude Code. " kbd { "Esc" } " stops, " kbd { "Ctrl-c" } " sends Esc." }
+                                span { "to the session. " kbd { "Esc" } " stops, " kbd { "Ctrl-c" } " sends Esc." }
                             }
                         }
                         if prompt_shown {
@@ -5579,10 +5583,10 @@ fn App() -> Element {
                     span { class: "kbd-list", "every key goes to Claude Code's dialog" }
                     span { class: "kbd-list", "the window's moves leave" }
                 } else if area == Area::Prompt && answering {
-                    span { class: "kbd-list", "every key answers Claude Code" }
+                    span { class: "kbd-list", "every key answers the session" }
                     span { class: "kbd-list", "the prompt is back once it is answered" }
                 } else if area == Area::Console && answering && !passing {
-                    span { class: "kbd-list", "every key answers Claude Code" }
+                    span { class: "kbd-list", "every key answers the session" }
                     span { class: "kbd-list", "the window's moves leave" }
                 } else if area == Area::Console && passing {
                     span { class: "kbd-list", kbd { "Esc" } " stop passing keys" }
@@ -6222,5 +6226,28 @@ mod tests {
     fn passing_keys_to_a_dialog_of_claude_code_s_says_so_in_the_mode_tip() {
         assert!(mode_tip("PASS", true).contains("dialog"));
         assert!(!mode_tip("PASS", false).contains("dialog"));
+    }
+
+    #[test]
+    fn tips_that_hold_for_any_agent_name_the_session_rather_than_claude_code() {
+        for tip in [
+            mode_tip("DIRECT", false),
+            row_tip(&Item::Session("s1".into())),
+            row_tip(&Item::Waiting("s1".into())),
+        ] {
+            assert!(!tip.contains("Claude"), "{tip}");
+        }
+    }
+
+    #[test]
+    fn text_taken_from_a_session_s_input_is_counted_without_naming_its_agent() {
+        assert_eq!(
+            moved_notice(1),
+            "moved 1 line from the session's input to the prompt"
+        );
+        assert_eq!(
+            moved_notice(3),
+            "moved 3 lines from the session's input to the prompt"
+        );
     }
 }
