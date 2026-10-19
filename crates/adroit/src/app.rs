@@ -24,6 +24,7 @@ use crate::details::{Drill, Listing, Sheet, View, facts, load};
 use crate::editor;
 use crate::filer::{Filer, read_dirs};
 use crate::focus::{Area, Dir, moved, settled};
+use crate::graph;
 use crate::icons::{Icon, IconView};
 use crate::keymap::{Action, Chord, Context, Keymap, MENU_KEYS, Step};
 use crate::keys;
@@ -4132,11 +4133,19 @@ fn App() -> Element {
                                         }
                                     }
                                 },
-                                (Some(_), Some(Listing::Log(commits))) => rsx! {
-                                    for (i , c) in commits.iter().enumerate() {
+                                (Some(_), Some(Listing::Log(commits))) => {
+                                    let rows = graph::layout(commits.iter().map(|c| (c.node.as_str(), c.parents.as_slice())));
+                                    let lanes = rows.iter().map(graph::Row::width).max().unwrap_or(1);
+                                    rsx! {
+                                    for (i , (c , row)) in commits.iter().zip(&rows).enumerate() {
                                         div { key: "{c.id}",
                                             class: if selected_row == Some(i) { "commit selected" } else { "commit" },
                                             onclick: move |_| open_row(i),
+                                            div {
+                                                class: "commit-graph",
+                                                dangerous_inner_html: graph::svg(row, lanes, graph::Marks { current: c.current, empty: c.empty, conflict: c.conflict }),
+                                            }
+                                            div { class: "commit-text",
                                             span { class: "commit-hash", "{c.short}" }
                                             span { class: "commit-subject",
                                                 if c.current {
@@ -4158,9 +4167,11 @@ fn App() -> Element {
                                                 }
                                             }
                                             span { class: "commit-when", "{c.when}" }
+                                            }
                                         }
                                     }
-                                },
+                                    }
+                                }
                                 (Some(_), Some(Listing::Diff(lines))) if lines.is_empty() => rsx! { div { class: "list-row dim", "No changes" } },
                                 (Some(_), Some(Listing::Diff(lines))) => rsx! {
                                     div { class: "diff",

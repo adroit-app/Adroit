@@ -19,7 +19,7 @@ const RECORD: char = '\u{1e}';
 
 /// A change of the stack as [`parse_log`] reads it: the separators are
 /// control characters no description or bookmark name holds.
-pub const LOG_TEMPLATE: &str = r#"change_id ++ "\x1f" ++ change_id.shortest(8) ++ "\x1f" ++ description.first_line() ++ "\x1f" ++ committer.timestamp().ago() ++ "\x1f" ++ if(current_working_copy, "@") ++ "\x1f" ++ if(empty, "empty") ++ "\x1f" ++ if(conflict, "conflict") ++ "\x1f" ++ local_bookmarks.map(|b| b.name()).join(" ") ++ "\x1e""#;
+pub const LOG_TEMPLATE: &str = r#"change_id ++ "\x1f" ++ change_id.shortest(8) ++ "\x1f" ++ description.first_line() ++ "\x1f" ++ committer.timestamp().ago() ++ "\x1f" ++ if(current_working_copy, "@") ++ "\x1f" ++ if(empty, "empty") ++ "\x1f" ++ if(conflict, "conflict") ++ "\x1f" ++ local_bookmarks.map(|b| b.name()).join(" ") ++ "\x1f" ++ commit_id ++ "\x1f" ++ parents.map(|c| c.commit_id()).join(" ") ++ "\x1e""#;
 
 /// A file a change touches as [`parse_files`] reads it.
 pub const FILES_TEMPLATE: &str =
@@ -49,6 +49,8 @@ pub fn parse_log(out: &str) -> Vec<Commit> {
                 empty: f.next()? == "empty",
                 conflict: f.next()? == "conflict",
                 bookmarks: f.next()?.split_whitespace().map(str::to_string).collect(),
+                node: f.next()?.to_string(),
+                parents: f.next()?.split_whitespace().map(str::to_string).collect(),
             })
         })
         .collect()
@@ -93,7 +95,8 @@ pub fn fileset(paths: &[&str]) -> String {
 /// user's configuration asks.
 const PLAIN: [&str; 3] = ["--color", "never", "--no-pager"];
 
-/// The changes on top of trunk, the working copy first, at most `n`.
+/// The changes on top of trunk, the working copy first and each before its
+/// parents, at most `n`.
 pub async fn history(path: &Path, n: usize) -> Result<Vec<Commit>, Error> {
     let count = n.to_string();
     let mut args = PLAIN.to_vec();
@@ -143,11 +146,11 @@ mod tests {
     }
 
     #[test]
-    fn each_change_of_the_stack_carries_its_ids_description_age_and_marks() {
+    fn each_change_of_the_stack_carries_its_ids_description_age_marks_and_parents() {
         // Recorded from `jj log --no-graph -T LOG_TEMPLATE`.
-        let out = "splomqtnxsqppnkotsuyxozn\u{1f}splomqtn\u{1f}adroit: drill into changes\u{1f}2 minutes ago\u{1f}@\u{1f}empty\u{1f}\u{1f}\u{1e}\
-                   vrssmupvuyssmvmxvsqmkqwn\u{1f}vrssmupv\u{1f}\u{1f}8 minutes ago\u{1f}\u{1f}empty\u{1f}\u{1f}\u{1e}\
-                   wmmoymmlprsuyzmqzzywxvxq\u{1f}wmmoymml\u{1f}nvim: keep the reader\u{1f}11 minutes ago\u{1f}\u{1f}\u{1f}conflict\u{1f}main reader-fix\u{1e}";
+        let out = "splomqtnxsqppnkotsuyxozn\u{1f}splomqtn\u{1f}adroit: drill into changes\u{1f}2 minutes ago\u{1f}@\u{1f}empty\u{1f}\u{1f}\u{1f}c1\u{1f}c2\u{1e}\
+                   vrssmupvuyssmvmxvsqmkqwn\u{1f}vrssmupv\u{1f}\u{1f}8 minutes ago\u{1f}\u{1f}empty\u{1f}\u{1f}\u{1f}c2\u{1f}c3\u{1e}\
+                   wmmoymmlprsuyzmqzzywxvxq\u{1f}wmmoymml\u{1f}nvim: keep the reader\u{1f}11 minutes ago\u{1f}\u{1f}\u{1f}conflict\u{1f}main reader-fix\u{1f}c3\u{1f}c4 c5\u{1e}";
         assert_eq!(
             parse_log(out),
             vec![
@@ -156,6 +159,8 @@ mod tests {
                     short: "splomqtn".into(),
                     subject: "adroit: drill into changes".into(),
                     when: "2 minutes ago".into(),
+                    node: "c1".into(),
+                    parents: vec!["c2".into()],
                     current: true,
                     empty: true,
                     ..Default::default()
@@ -164,6 +169,8 @@ mod tests {
                     id: "vrssmupvuyssmvmxvsqmkqwn".into(),
                     short: "vrssmupv".into(),
                     when: "8 minutes ago".into(),
+                    node: "c2".into(),
+                    parents: vec!["c3".into()],
                     empty: true,
                     ..Default::default()
                 },
@@ -172,6 +179,8 @@ mod tests {
                     short: "wmmoymml".into(),
                     subject: "nvim: keep the reader".into(),
                     when: "11 minutes ago".into(),
+                    node: "c3".into(),
+                    parents: vec!["c4".into(), "c5".into()],
                     conflict: true,
                     bookmarks: vec!["main".into(), "reader-fix".into()],
                     ..Default::default()
@@ -182,10 +191,14 @@ mod tests {
 
     #[test]
     fn a_description_may_hold_any_character_but_the_separators() {
-        let out = "a\u{1f}a\u{1f}fix: \"quotes\", tabs\tand 日本語\u{1f}now\u{1f}\u{1f}\u{1f}\u{1f}\u{1e}\n";
+        let out = "a\u{1f}a\u{1f}fix: \"quotes\", tabs\tand 日本語\u{1f}now\u{1f}\u{1f}\u{1f}\u{1f}\u{1f}c\u{1f}\u{1e}\n";
         assert_eq!(
             parse_log(out)[0].subject,
             "fix: \"quotes\", tabs\tand 日本語"
+        );
+        assert!(
+            parse_log(out)[0].parents.is_empty(),
+            "a root has no parents"
         );
     }
 
@@ -272,6 +285,7 @@ mod tests {
         assert!(stack[0].current);
         assert_eq!(stack[0].subject, "");
         assert_eq!(stack[1].subject, "first: add a");
+        assert_eq!(stack[0].parents, [stack[1].node.clone()]);
         let changed = files(&dir, "@").await.unwrap();
         assert_eq!(changed, vec![change("M", "a.txt", None)]);
         let diff = file_diff(&dir, "@", &changed[0]).await.unwrap();
@@ -287,5 +301,38 @@ mod tests {
         );
         let first = files(&dir, &stack[1].id).await.unwrap();
         assert_eq!(first, vec![change("A", "a.txt", None)]);
+    }
+
+    #[tokio::test]
+    async fn a_jj_stack_comes_children_first_with_a_merge_s_parents_in_order() {
+        let dir = scratch("merge");
+        if !jj(&dir, &["git", "init", "."]) {
+            eprintln!("jj is not installed; skipped");
+            return;
+        }
+        assert!(jj(&dir, &["describe", "-m", "base"]));
+        assert!(jj(&dir, &["new", "-m", "left"]));
+        assert!(jj(
+            &dir,
+            &["new", "-m", "right", "description(glob:\"base*\")"]
+        ));
+        assert!(jj(
+            &dir,
+            &[
+                "new",
+                "-m",
+                "merge",
+                "description(glob:\"left*\")",
+                "description(glob:\"right*\")"
+            ]
+        ));
+
+        let stack = history(&dir, 10).await.unwrap();
+        let subjects: Vec<_> = stack.iter().map(|c| c.subject.as_str()).collect();
+        let at = |s: &str| subjects.iter().position(|x| *x == s).unwrap();
+        let node = |s: &str| stack[at(s)].node.clone();
+        assert_eq!(stack[at("merge")].parents, [node("left"), node("right")]);
+        assert!(at("merge") < at("left") && at("merge") < at("right"));
+        assert!(at("left") < at("base") && at("right") < at("base"));
     }
 }

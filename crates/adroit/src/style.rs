@@ -184,7 +184,19 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .details-sheet.active .icon { color: var(--text-2); }
 .list-rows.details-git { flex: 1; user-select: text; }
 .details-file-status { color: var(--wait); white-space: pre; flex: none; }
-.commit { display: grid; grid-template-columns: auto 1fr; gap: 0 8px; padding: 5px 8px; font-size: 12.5px; border-radius: 6px; cursor: default; }
+.commit { display: flex; align-items: center; gap: 6px; height: 40px; padding: 0 8px 0 4px; font-size: 12.5px; border-radius: 6px; cursor: default; }
+.commit-graph { flex: none; display: flex; }
+.commit-text { flex: 1; min-width: 120px; display: grid; grid-template-columns: auto 1fr; gap: 0 8px; }
+.graph path { fill: none; stroke-width: 2; }
+.graph .lane-0 { stroke: var(--run); fill: var(--run); }
+.graph .lane-1 { stroke: var(--coord); fill: var(--coord); }
+.graph .lane-2 { stroke: var(--done); fill: var(--done); }
+.graph .lane-3 { stroke: var(--wait); fill: var(--wait); }
+.graph circle { stroke-width: 0; }
+.graph circle.empty { fill: var(--panel); stroke-width: 2; }
+.commit.selected .graph circle.empty { fill: var(--select); }
+.graph circle.current { stroke: var(--text); stroke-width: 2; }
+.graph circle.conflict { stroke: var(--fail); stroke-width: 2; }
 .commit-hash { font-family: var(--mono); font-size: 11.5px; color: var(--run); }
 .commit-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .commit-when { grid-column: 2; color: var(--text-3); font-size: 11.5px; }

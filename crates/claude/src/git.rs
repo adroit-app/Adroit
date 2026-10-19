@@ -49,6 +49,10 @@ pub struct Commit {
     pub subject: String,
     /// How long ago, as git or jj words it.
     pub when: String,
+    /// The commit hash its children name it by among their parents.
+    pub node: String,
+    /// The commit hashes of its parents, the first parent first.
+    pub parents: Vec<String>,
     /// Whether it is the working copy.
     pub current: bool,
     pub empty: bool,
@@ -134,8 +138,12 @@ pub fn parse_log(out: &str) -> Vec<Commit> {
     out.lines()
         .filter_map(|l| {
             let mut f = l.split(FIELD);
+            let id = f.next()?.to_string();
+            let parents = f.next()?.split_whitespace().map(str::to_string).collect();
             Some(Commit {
-                id: f.next()?.to_string(),
+                node: id.clone(),
+                id,
+                parents,
                 short: f.next()?.to_string(),
                 subject: f.next()?.to_string(),
                 when: f.next()?.to_string(),
@@ -145,7 +153,7 @@ pub fn parse_log(out: &str) -> Vec<Commit> {
         .collect()
 }
 
-const LOG_FORMAT: &str = "--format=%H%x1f%h%x1f%s%x1f%cr";
+const LOG_FORMAT: &str = "--format=%H%x1f%P%x1f%h%x1f%s%x1f%cr";
 
 /// Read a unified diff, keeping at most `max` lines.
 pub fn parse_diff(out: &str, max: usize) -> Vec<DiffLine> {
@@ -234,11 +242,16 @@ pub async fn changes(path: &Path) -> Result<Vec<Change>, Error> {
     Ok(parse_status(&out))
 }
 
-/// The last `n` commits of a worktree's branch.
+/// The last `n` commits of a worktree's branch, each before its parents.
 pub async fn history(path: &Path, n: usize) -> Result<Vec<Commit>, Error> {
     let dir = git_dir(path)?;
     let count = format!("-n{n}");
-    let out = run("git", &["-C", dir, "log", &count, LOG_FORMAT], None).await?;
+    let out = run(
+        "git",
+        &["-C", dir, "log", "--topo-order", &count, LOG_FORMAT],
+        None,
+    )
+    .await?;
     Ok(parse_log(&out))
 }
 
@@ -483,10 +496,10 @@ mod tests {
     }
 
     #[test]
-    fn log_lines_carry_hash_subject_and_age() {
+    fn log_lines_carry_hash_parents_subject_and_age() {
         let got = parse_log(
-            "abc1234def\u{1f}abc1234\u{1f}fix: the callback\u{1f}2 hours ago\n\
-             0000000aaa\u{1f}0000000\u{1f}\u{1f}3 days ago\n",
+            "abc1234def\u{1f}1111111aaa 2222222bbb\u{1f}abc1234\u{1f}merge: the callback\u{1f}2 hours ago\n\
+             0000000aaa\u{1f}\u{1f}0000000\u{1f}\u{1f}3 days ago\n",
         );
         assert_eq!(
             got,
@@ -494,8 +507,10 @@ mod tests {
                 Commit {
                     id: "abc1234def".into(),
                     short: "abc1234".into(),
-                    subject: "fix: the callback".into(),
+                    subject: "merge: the callback".into(),
                     when: "2 hours ago".into(),
+                    node: "abc1234def".into(),
+                    parents: vec!["1111111aaa".into(), "2222222bbb".into()],
                     ..Default::default()
                 },
                 Commit {
@@ -503,6 +518,7 @@ mod tests {
                     short: "0000000".into(),
                     subject: "".into(),
                     when: "3 days ago".into(),
+                    node: "0000000aaa".into(),
                     ..Default::default()
                 },
             ]
@@ -609,6 +625,27 @@ mod tests {
         let diff = file_diff(&dir, Some(&log[0].id), &files[1]).await.unwrap();
         let texts: Vec<_> = diff.into_iter().map(|d| d.text).collect();
         assert_eq!(texts, ["b.txt", "@@ -0,0 +1 @@", "+two"]);
+    }
+
+    #[tokio::test]
+    async fn a_branch_s_log_comes_children_first_with_a_merge_s_parents_in_order() {
+        let dir = repo("merge-log");
+        git(&dir, &["commit", "-q", "--allow-empty", "-m", "base"]);
+        git(&dir, &["branch", "side"]);
+        git(&dir, &["commit", "-q", "--allow-empty", "-m", "main"]);
+        git(&dir, &["switch", "-q", "side"]);
+        git(&dir, &["commit", "-q", "--allow-empty", "-m", "side"]);
+        git(&dir, &["switch", "-q", "-"]);
+        git(&dir, &["merge", "-q", "--no-ff", "-m", "merge", "side"]);
+
+        let log = history(&dir, 10).await.unwrap();
+        let subjects: Vec<_> = log.iter().map(|c| c.subject.as_str()).collect();
+        let at = |s: &str| subjects.iter().position(|x| *x == s).unwrap();
+        let node = |s: &str| log[at(s)].node.clone();
+        assert_eq!(log[at("merge")].parents, [node("main"), node("side")]);
+        assert_eq!(at("merge"), 0);
+        assert!(at("main") < at("base") && at("side") < at("base"));
+        assert!(log[at("base")].parents.is_empty());
     }
 
     #[test]

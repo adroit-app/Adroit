@@ -9,8 +9,11 @@ Overview, Changes and Log.
   worktree it works in.
 - **Changes** lists the files the worktree changes. Opening one shows its
   diff.
-- **Log** lists the changes that lead to the worktree. Opening one lists the
-  files it changed, and opening one of those shows its diff in that change.
+- **Log** lists the changes that lead to the worktree, drawn as a graph: each
+  change is joined by lines to its parents, so forks and merges show. A line
+  running off the end leads to a change not listed. Opening a change lists
+  the files it changed, and opening one of those shows its diff in that
+  change.
 
 Back goes out one level at a time, to the list the shown row was opened from,
 with that row selected. A row opens by its keys or a click; the line above a
