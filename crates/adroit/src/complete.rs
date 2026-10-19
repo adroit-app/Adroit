@@ -100,6 +100,7 @@ mod tests {
             &[],
             &found,
             &[],
+            None,
         );
         let place = Place {
             worktree: "/api".into(),
@@ -132,6 +133,7 @@ mod tests {
             &[],
             &HashMap::new(),
             &[],
+            None,
         );
         let place = Place {
             worktree: "/b/api".into(),
@@ -187,7 +189,7 @@ mod tests {
             kind: Kind::Own,
             ..Default::default()
         };
-        build(&[s], &[], &HashMap::new(), &[])
+        build(&[s], &[], &HashMap::new(), &[], None)
     }
 
     #[test]

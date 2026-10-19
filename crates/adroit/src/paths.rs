@@ -15,6 +15,19 @@ pub fn state_dir() -> PathBuf {
         .unwrap_or_else(|| home().join(".local").join("state"))
 }
 
+/// `$XDG_DATA_HOME`, or `~/.local/share`.
+pub fn data_dir() -> PathBuf {
+    std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home().join(".local").join("share"))
+}
+
+/// Where scratch sessions run, each in a directory of its own:
+/// `scratch` in adroit's folder of the data directory.
+pub fn scratch_dir() -> PathBuf {
+    data_dir().join("adroit").join("scratch")
+}
+
 /// adroit's configuration folder: `$XDG_CONFIG_HOME/adroit`, or
 /// `~/.config/adroit`.
 pub fn config_dir() -> PathBuf {

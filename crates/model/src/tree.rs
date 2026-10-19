@@ -42,6 +42,8 @@ pub struct WorkspaceNode {
     pub root: PathBuf,
     pub name: String,
     pub git: bool,
+    /// Whether this is the scratch root, holding every directory under it.
+    pub scratch: bool,
     pub worktrees: Vec<WorktreeNode>,
 }
 
@@ -139,35 +141,45 @@ impl Tree {
 /// runs in, the git worktree holding it, or `None` outside git; a directory
 /// missing from it is taken as outside git. `listed` adds worktrees without
 /// sessions, those git knows of a workspace when every worktree is to be shown.
+/// Whatever runs in `scratch` or below it, whatever git says, is in one
+/// workspace of that directory, listed after every other.
 pub fn build(
     sessions: &[Session],
     shells: &[Shell],
     found: &HashMap<PathBuf, Option<Worktree>>,
     listed: &[Worktree],
+    scratch: Option<&Path>,
 ) -> Tree {
     let mut tree = Tree::default();
+    let held = |dir: &Path| match scratch.filter(|root| dir.starts_with(root)) {
+        Some(root) => (Worktree::plain(root), Holder::Scratch),
+        None => match found.get(dir).cloned().flatten() {
+            Some(w) => (w, Holder::Git),
+            None => (Worktree::plain(dir), Holder::Plain),
+        },
+    };
     for session in sessions {
-        let (worktree, git) = match found.get(&session.cwd).cloned().flatten() {
-            Some(w) => (w, true),
-            None => (Worktree::plain(&session.cwd), false),
-        };
-        worktree_node(&mut tree, &worktree, git)
+        let (worktree, holder) = held(&session.cwd);
+        worktree_node(&mut tree, &worktree, holder)
             .sessions
             .push(session.clone());
     }
     for shell in shells {
-        match found.get(&shell.worktree).cloned().flatten() {
-            Some(w) => worktree_node(&mut tree, &w, true),
-            None => worktree_node(&mut tree, &Worktree::plain(&shell.worktree), false),
-        };
+        let (worktree, holder) = held(&shell.worktree);
+        worktree_node(&mut tree, &worktree, holder);
     }
     for w in listed {
         if tree.workspaces.iter().any(|ws| ws.git && ws.root == w.repo) {
-            worktree_node(&mut tree, w, true);
+            worktree_node(&mut tree, w, Holder::Git);
         }
     }
-    tree.workspaces
-        .sort_by(|a, b| (a.name.to_lowercase(), &a.root).cmp(&(b.name.to_lowercase(), &b.root)));
+    tree.workspaces.sort_by(|a, b| {
+        (a.scratch, a.name.to_lowercase(), &a.root).cmp(&(
+            b.scratch,
+            b.name.to_lowercase(),
+            &b.root,
+        ))
+    });
     for ws in &mut tree.workspaces {
         ws.worktrees.sort_by(|a, b| {
             (!a.worktree.is_main(), &a.worktree.path)
@@ -189,18 +201,30 @@ pub fn innermost<'a, T: AsRef<Path> + 'a>(
         .max_by_key(|w| w.as_ref().components().count())
 }
 
-fn worktree_node<'a>(tree: &'a mut Tree, w: &Worktree, git: bool) -> &'a mut WorktreeNode {
+/// What a workspace is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Holder {
+    Git,
+    Plain,
+    Scratch,
+}
+
+fn worktree_node<'a>(tree: &'a mut Tree, w: &Worktree, holder: Holder) -> &'a mut WorktreeNode {
     let wi = match tree.workspaces.iter().position(|ws| ws.root == w.repo) {
         Some(i) => i,
         None => {
             tree.workspaces.push(WorkspaceNode {
                 root: w.repo.clone(),
-                name: w
-                    .repo
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| w.repo.display().to_string()),
-                git,
+                name: match holder {
+                    Holder::Scratch => "Scratch".into(),
+                    _ => w
+                        .repo
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| w.repo.display().to_string()),
+                },
+                git: holder == Holder::Git,
+                scratch: holder == Holder::Scratch,
                 worktrees: Vec::new(),
             });
             tree.workspaces.len() - 1
@@ -272,6 +296,7 @@ mod tests {
                 ),
             ]),
             &[],
+            None,
         );
         assert_eq!(t.workspaces.len(), 1);
         let ws = &t.workspaces[0];
@@ -289,6 +314,7 @@ mod tests {
             &[],
             &found(&[("/api/src", Some(wt("/api", "/api", "main")))]),
             &[],
+            None,
         );
         assert_eq!(
             t.workspaces[0].worktrees[0].worktree.path,
@@ -303,6 +329,7 @@ mod tests {
             &[],
             &found(&[("/notes", None)]),
             &[],
+            None,
         );
         assert_eq!(t.workspaces.len(), 2);
         assert!(t.workspaces.iter().all(|ws| !ws.git && ws.flat()));
@@ -315,6 +342,7 @@ mod tests {
             &[],
             &found(&[("/api", Some(wt("/api", "/api", "main")))]),
             &[],
+            None,
         );
         assert!(t.workspaces[0].flat());
     }
@@ -329,6 +357,7 @@ mod tests {
                 Some(wt("/api/.claude/worktrees/x", "/api", "x")),
             )]),
             &[],
+            None,
         );
         assert!(!t.workspaces[0].flat());
     }
@@ -344,6 +373,7 @@ mod tests {
                 wt("/api/.claude/worktrees/y", "/api", "y"),
                 wt("/web", "/web", "main"),
             ],
+            None,
         );
         assert_eq!(t.workspaces.len(), 1);
         let ws = &t.workspaces[0];
@@ -370,6 +400,7 @@ mod tests {
                 ("/src/Api", None),
             ]),
             &[],
+            None,
         );
         let names: Vec<_> = t.workspaces.iter().map(|w| w.name.as_str()).collect();
         assert_eq!(names, vec!["Api", "web"]);
@@ -383,6 +414,7 @@ mod tests {
             &[],
             &found(&[("/api", Some(wt("/api", "/api", "main")))]),
             &[],
+            None,
         );
         let (ws, wt, s) = t.find("a").unwrap();
         assert_eq!(
@@ -415,6 +447,7 @@ mod tests {
                 (x, Some(wt(x, "/api", "x"))),
             ]),
             &[],
+            None,
         );
         let ws = &t.workspaces[0];
         assert_eq!(ws.worktrees.len(), 2);
@@ -433,6 +466,7 @@ mod tests {
                 ("/api/src", Some(wt("/api", "/api", "main"))),
             ]),
             &[],
+            None,
         );
         let ws = &t.workspaces[0];
         assert_eq!(ws.worktrees.len(), 1);
@@ -443,7 +477,13 @@ mod tests {
 
     #[test]
     fn a_shell_outside_git_makes_its_directory_a_workspace() {
-        let t = build(&[], &[shell(1, "/notes")], &found(&[("/notes", None)]), &[]);
+        let t = build(
+            &[],
+            &[shell(1, "/notes")],
+            &found(&[("/notes", None)]),
+            &[],
+            None,
+        );
         let ws = &t.workspaces[0];
         assert_eq!(
             (ws.name.as_str(), ws.git, ws.flat()),
@@ -459,6 +499,7 @@ mod tests {
             &[shell(1, "/api")],
             &found(&[("/api", Some(wt("/api", "/api", "main")))]),
             &[wt("/api", "/api", "main"), wt("/api/w", "/api", "w")],
+            None,
         );
         assert_eq!(t.worktrees().count(), 2);
     }
@@ -474,6 +515,7 @@ mod tests {
                 (x, Some(wt(x, "/api", "x"))),
             ]),
             &[],
+            None,
         );
         // One opened since in the nested worktree, one in a directory no
         // worktree listed holds yet; the first is gone.
@@ -491,6 +533,7 @@ mod tests {
             &[shell(1, "/api")],
             &found(&[("/api", Some(wt("/api", "/api", "main")))]),
             &[],
+            None,
         );
         let (ws, wt, s) = t.shell(1).unwrap();
         assert_eq!(
@@ -507,8 +550,94 @@ mod tests {
             &[],
             &found(&[("/api", Some(wt("/api", "/api", "main")))]),
             &[],
+            None,
         );
         let got: Vec<_> = t.sessions().map(|(w, s)| (w, s.id.as_str())).collect();
         assert_eq!(got, vec![("api", "a"), ("notes", "b")]);
+    }
+
+    const SCRATCH: &str = "/data/adroit/scratch";
+
+    #[test]
+    fn sessions_in_directories_under_the_scratch_root_share_one_flat_scratch_workspace() {
+        let t = build(
+            &[
+                session("a", "/data/adroit/scratch/20261019-2130"),
+                session("b", "/data/adroit/scratch/20261019-2200"),
+            ],
+            &[],
+            &found(&[]),
+            &[],
+            Some(Path::new(SCRATCH)),
+        );
+        assert_eq!(t.workspaces.len(), 1);
+        let ws = &t.workspaces[0];
+        assert_eq!(
+            (ws.name.as_str(), ws.root.as_path(), ws.scratch, ws.git),
+            ("Scratch", Path::new(SCRATCH), true, false)
+        );
+        assert!(ws.flat());
+        assert_eq!(ids(&ws.worktrees[0]), ["a", "b"]);
+        assert_eq!(ws.worktrees[0].worktree.path, PathBuf::from(SCRATCH));
+    }
+
+    #[test]
+    fn a_scratch_directory_belongs_to_the_scratch_workspace_whatever_git_says() {
+        let dir = "/data/adroit/scratch/20261019-2130";
+        let t = build(
+            &[session("a", dir)],
+            &[],
+            &found(&[(dir, Some(wt("/data", "/data", "main")))]),
+            &[wt("/data", "/data", "main"), wt("/data/w", "/data", "w")],
+            Some(Path::new(SCRATCH)),
+        );
+        assert_eq!(t.workspaces.len(), 1);
+        assert!(t.workspaces[0].scratch);
+    }
+
+    #[test]
+    fn a_shell_in_the_scratch_root_or_below_it_sits_in_the_scratch_workspace() {
+        let t = build(
+            &[session("a", "/data/adroit/scratch/20261019-2130")],
+            &[
+                shell(1, SCRATCH),
+                shell(2, "/data/adroit/scratch/20261019-2130"),
+            ],
+            &found(&[]),
+            &[],
+            Some(Path::new(SCRATCH)),
+        );
+        assert_eq!(t.workspaces.len(), 1);
+        assert_eq!(shell_ids(&t.workspaces[0].worktrees[0]), [1, 2]);
+    }
+
+    #[test]
+    fn a_directory_beside_the_scratch_root_is_not_in_it() {
+        let t = build(
+            &[session("a", "/data/adroit/scratch-old")],
+            &[],
+            &found(&[]),
+            &[],
+            Some(Path::new(SCRATCH)),
+        );
+        assert!(!t.workspaces[0].scratch);
+        assert_eq!(t.workspaces[0].name, "scratch-old");
+    }
+
+    #[test]
+    fn the_scratch_workspace_comes_after_every_other() {
+        let t = build(
+            &[
+                session("s", "/data/adroit/scratch/20261019-2130"),
+                session("z", "/src/zebra"),
+                session("a", "/src/api"),
+            ],
+            &[],
+            &found(&[]),
+            &[],
+            Some(Path::new(SCRATCH)),
+        );
+        let names: Vec<_> = t.workspaces.iter().map(|w| w.name.as_str()).collect();
+        assert_eq!(names, ["api", "zebra", "Scratch"]);
     }
 }

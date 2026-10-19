@@ -27,6 +27,7 @@ pub mod picker;
 mod picker_view;
 pub mod prompts;
 pub mod rename;
+pub mod scratch;
 mod sessions;
 pub mod settings;
 mod settings_window;

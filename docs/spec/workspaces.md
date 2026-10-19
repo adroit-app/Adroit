@@ -9,6 +9,8 @@ runs in.
 
 A **workspace** is where sessions and the shells you open in adroit run:
 
+- Scratch, holding every session and shell that runs in the scratch folder or
+  below it ([scratch sessions](#scratch-sessions));
 - a git repository, holding every session and shell that runs in any of its
   worktrees or in a directory below one;
 - otherwise the directory a session or a shell runs in.
@@ -35,8 +37,9 @@ which a session started later resumes with Claude Code's `/resume`.
 ## Going to a session or starting one
 
 `Cmd+p`, `w`, `+` beside Workspaces, or the Session menu opens the
-**picker**. It lists every session first, each with where it runs and how it
-stands, and then the directories to start a new session in:
+**picker**. Its first row starts a [scratch session](#scratch-sessions). It
+lists every session next, each with where it runs and how it stands, and then
+the directories to start a new session in:
 
 - the directories sessions run in now;
 - the directories Claude Code has been used in, the most recent first;
@@ -44,7 +47,8 @@ stands, and then the directories to start a new session in:
 
 Typing narrows both by a fuzzy match, fzf's syntax included: a session on its
 name and where it runs, a directory on its path. The sessions stay above the
-directories however well either answers. `Ctrl+n` and `Ctrl+p` (or the arrow
+directories however well either answers, and the scratch row stays on top
+while what is typed matches its words. `Ctrl+n` and `Ctrl+p` (or the arrow
 keys, `Tab` and `Shift+Tab`) move, `Enter` chooses, and `Escape` closes the
 picker.
 
@@ -63,6 +67,32 @@ chooses the directory under the cursor. `Ctrl+f` goes back to the list and
 `n` on a row starts a session in that row's worktree or directory without the
 picker, and `N` starts a reader there. `Cmd+}` and `Cmd+{` open the next and
 the previous session without asking.
+
+## Scratch sessions
+
+A **scratch session** is for talking to Claude about something no project
+holds, with no directory to choose. `Cmd+Alt+n`, the picker's first row or New
+Scratch Session in the Session menu opens one, with the prompt ready as for a
+new session. The first prompt sent starts it in a new directory of its own,
+named by the local date and time, in the scratch folder:
+`$XDG_DATA_HOME/adroit/scratch` (`~/.local/share/adroit/scratch` when
+`$XDG_DATA_HOME` is unset). One never sent makes no directory.
+
+The sidebar lists everything that runs in the scratch folder as one
+workspace, Scratch, after every other, its sessions and shells straight under
+it. Starting a session or a reader from it starts another scratch session in
+a directory of its own; a shell opened from it runs in the scratch folder.
+
+adroit removes none of these directories. Claude Code keeps each conversation
+by the directory it ran in, and the picker offers that directory among those
+Claude Code has been used in, so a session started there can `/resume` it.
+
+Claude Code asks whether to trust a folder before a session first works in
+it, and each scratch session works in a new one: its console shows the
+question until it is answered there. Claude Code takes a folder outside git
+as trusted when a folder above it is, so trusting the scratch folder itself,
+by running `claude` once in a shell opened from Scratch, keeps the question
+from coming back.
 
 ## Sessions that only read
 

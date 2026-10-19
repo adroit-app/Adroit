@@ -10,7 +10,7 @@ use crate::fuzzy::Query;
 use crate::icons::{Icon, IconView};
 use crate::keys;
 use crate::paths::home;
-use crate::picker::{Line, Mode, Picker, short};
+use crate::picker::{Line, Mark, Mode, Picker, short};
 
 /// `text` with what `query` marked in it drawn as matched.
 fn marked(query: &Query, text: &str) -> Element {
@@ -99,14 +99,14 @@ pub fn PickerView(
                                             div { class: "picker-heading", "{heading}" }
                                         }
                                         div {
-                                            class: match (line.path, i == picker.cursor) {
+                                            class: match (line.mark == Mark::Directory, i == picker.cursor) {
                                                 (true, true) => "list-row mono selected",
                                                 (true, false) => "list-row mono",
                                                 (false, true) => "list-row selected",
                                                 (false, false) => "list-row",
                                             },
                                             onclick: move |_| onchoose.call(i),
-                                            span { class: "place-mark", IconView { icon: if line.path { Icon::Folder } else { Icon::Message } } }
+                                            span { class: "place-mark", IconView { icon: match line.mark { Mark::Scratch => Icon::Notes, Mark::Session => Icon::Message, Mark::Directory => Icon::Folder } } }
                                             span { class: "list-row-name",
                                                 {marked(&query, &line.name)}
                                                 if let Some(place) = &line.place {

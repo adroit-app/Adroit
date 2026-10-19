@@ -74,6 +74,7 @@ pub fn sections() -> Vec<Section> {
             entries: vec![
                 Run(Action::SessionNew, "New Session"),
                 Run(Action::SessionNewReader, "New Reader"),
+                Run(Action::SessionScratch, "New Scratch Session"),
                 Run(Action::SessionPick, "Go to or Start Session…"),
                 Separator,
                 Run(Action::PromptSend, "Send Prompt"),
@@ -437,6 +438,10 @@ mod tests {
         assert_eq!(shown(&map, Action::SessionNew), Some("Cmd+n".into()));
         assert_eq!(shown(&map, Action::SessionNewReader), Some("Cmd+N".into()));
         assert_eq!(shown(&map, Action::SessionPick), Some("Cmd+p".into()));
+        assert_eq!(
+            shown(&map, Action::SessionScratch),
+            Some("Cmd+Alt+n".into())
+        );
         assert_eq!(shown(&map, Action::DetailsToggle), Some("Cmd+Alt+b".into()));
         assert_eq!(
             shown(&map, Action::SessionStop),
@@ -546,7 +551,12 @@ mod tests {
     #[test]
     fn a_held_key_is_written_as_the_window_reports_it() {
         let held = left_to_menu(&Keymap::defaults());
-        for (key, shift, alt) in [("n", false, false), ("N", true, false), ("b", false, true)] {
+        for (key, shift, alt) in [
+            ("n", false, false),
+            ("N", true, false),
+            ("b", false, true),
+            ("n", false, true),
+        ] {
             let pressed = Chord::pressed(key, false, alt, shift, true).unwrap();
             assert!(held.contains(&pressed), "{pressed}");
         }

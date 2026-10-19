@@ -31,11 +31,12 @@ use crate::layout::{self, Layout, Side};
 use crate::menu::{self, Target};
 use crate::menu_bar;
 use crate::nav::{self, Item, Place};
-use crate::paths::{home, keys_path, state_dir};
+use crate::paths::{home, keys_path, scratch_dir, state_dir};
 use crate::picker::{self, Candidate, Choice, Mode, Picker};
 use crate::picker_view::PickerView;
 use crate::prompts::{self, Op, Prompts};
 use crate::rename::Rename;
+use crate::scratch::{self, Moment};
 use crate::sessions::{self, Kept};
 use crate::settings;
 use crate::settings_window;
@@ -1037,7 +1038,9 @@ fn App() -> Element {
                                     }
                                 }
                             }
-                            let next = build(&sessions, &kept_shells, &found, &listed);
+                            let scratch = scratch_dir();
+                            let next =
+                                build(&sessions, &kept_shells, &found, &listed, Some(&scratch));
                             // A session started a moment ago, and shown, is
                             // placed among its worktree's tabs once listed:
                             // below the worktree's top, it is shown there.
@@ -1823,17 +1826,36 @@ fn App() -> Element {
                         let name = fresh_name(&label, &taken);
                         let reader = role == Role::Reader;
                         let access = if reader { Access::Read } else { Access::Edit };
-                        let settings = adroit_claude::hook::settings(&adroit_program());
-                        let spawn = Spawn {
-                            program: adroit_claude::claude_program(),
-                            args: adroit_claude::start_args(&name, &settings, access, &text),
-                            cwd: worktree.clone(),
-                            env: session_env(),
-                            tags: sessions::claude_tags(&name, &worktree, reader, now_ms()),
-                            cols: size.cols,
-                            rows: size.rows,
-                        };
-                        match hub.daemon.spawn(spawn).await {
+                        // Made only now, so a draft left unsent leaves no
+                        // empty directory behind.
+                        let started =
+                            match scratch::start_dir(&worktree, &scratch_dir(), Moment::now()) {
+                                Ok(worktree) => {
+                                    let settings = adroit_claude::hook::settings(&adroit_program());
+                                    let spawn = Spawn {
+                                        program: adroit_claude::claude_program(),
+                                        args: adroit_claude::start_args(
+                                            &name, &settings, access, &text,
+                                        ),
+                                        cwd: worktree.clone(),
+                                        env: session_env(),
+                                        tags: sessions::claude_tags(
+                                            &name,
+                                            &worktree,
+                                            reader,
+                                            now_ms(),
+                                        ),
+                                        cols: size.cols,
+                                        rows: size.rows,
+                                    };
+                                    hub.daemon
+                                        .spawn(spawn)
+                                        .await
+                                        .map_err(|e| format!("cannot start {name}: {e}"))
+                                }
+                                Err(e) => Err(format!("cannot make a directory for {name}: {e}")),
+                            };
+                        match started {
                             Ok(id) => {
                                 let id = sessions::hex(id);
                                 hub.refresh.notify_one();
@@ -1842,7 +1864,7 @@ fn App() -> Element {
                                 true
                             }
                             Err(e) => {
-                                status.set(Some(format!("cannot start {name}: {e}")));
+                                status.set(Some(e));
                                 false
                             }
                         }
@@ -1998,6 +2020,7 @@ fn App() -> Element {
     let mut choose_row = move |at: usize| {
         let chosen = picked_rows.peek().get(at).cloned();
         match chosen {
+            Some(Choice::Scratch) => choose(scratch_dir()),
             Some(Choice::Directory(c)) => choose(c.path),
             Some(Choice::Session(s)) => {
                 picking.set(None);
@@ -2790,6 +2813,7 @@ fn App() -> Element {
                     }
                 }
                 Action::SessionPick => open_picker(),
+                Action::SessionScratch => choose(scratch_dir()),
                 Action::SessionNew | Action::SessionNewReader => {
                     let p = cur
                         .as_ref()
@@ -3364,7 +3388,7 @@ fn App() -> Element {
     let workspace = current
         .as_ref()
         .and_then(|p| t.workspace_of(&p.worktree))
-        .map(|w| (w.name.clone(), w.root.clone()));
+        .map(|w| (w.name.clone(), w.root.clone(), w.scratch));
     let waiting = ib.read().len();
     let working = t
         .sessions()
@@ -3535,8 +3559,8 @@ fn App() -> Element {
                 }
                 div { class: "header-crumbs",
                     if let Some(p) = &current {
-                        if let Some((name, _)) = &workspace {
-                            span { class: "header-crumbs-item", IconView { icon: Icon::Folder, size: 14 } "{name}" }
+                        if let Some((name, _, scratch)) = &workspace {
+                            span { class: "header-crumbs-item", IconView { icon: if *scratch { Icon::Notes } else { Icon::Folder }, size: 14 } "{name}" }
                             span { class: "header-crumbs-sep", IconView { icon: Icon::ChevronRight, size: 12 } }
                         }
                         span { class: "header-crumbs-item header-crumbs-path", IconView { icon: Icon::GitBranch, size: 14 } "{short(&p.worktree)}" }
@@ -3765,6 +3789,7 @@ fn App() -> Element {
                                 };
                                 let terminal = matches!(it, Item::Shell(_));
                                 let place_icon = match &it {
+                                    Item::Workspace(root) if t.workspace_of(root).is_some_and(|w| w.scratch) => Some(Icon::Notes),
                                     Item::Workspace(_) if it.fold_key().is_some_and(|k| collapsed.read().contains(&k)) => Some(Icon::Folder),
                                     Item::Workspace(_) => Some(Icon::FolderOpen),
                                     Item::Worktree(_) => Some(Icon::GitBranch),
@@ -4058,7 +4083,7 @@ fn App() -> Element {
                             }
                         }
                     }
-                    if let Some((name, root)) = &workspace {
+                    if let Some((name, root, _)) = &workspace {
                         div { class: "details-block",
                             span { class: "details-label", "Workspace" }
                             span { "{name}" }

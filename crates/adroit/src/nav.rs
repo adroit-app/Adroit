@@ -433,6 +433,7 @@ mod tests {
             &[],
             &found,
             &[],
+            None,
         )
     }
 
@@ -558,7 +559,13 @@ mod tests {
         // The worktree last opened wins.
         assert_eq!(start_place(&tree(), Some(&at("/w"))), Some(at("/w")));
         // Else the only place sessions run.
-        let one = build(&[s("a", "/x", State::Idle)], &[], &HashMap::new(), &[]);
+        let one = build(
+            &[s("a", "/x", State::Idle)],
+            &[],
+            &HashMap::new(),
+            &[],
+            None,
+        );
         assert_eq!(start_place(&one, None), Some(at("/x")));
         // A worktree listed without sessions is no place sessions run.
         let found = HashMap::from([(PathBuf::from("/api"), Some(wt("/api", "/api", "main")))]);
@@ -567,6 +574,7 @@ mod tests {
             &[],
             &found,
             &[wt("/api", "/api", "main"), wt(OAUTH, "/api", "oauth")],
+            None,
         );
         assert_eq!(listed.worktrees().count(), 2);
         assert_eq!(start_place(&listed, None), Some(at("/api")));
@@ -757,7 +765,7 @@ mod tests {
             PathBuf::from("/src/w1"),
             Some(wt("/src/w1", "/src/api.git", "a")),
         )]);
-        let t = build(&[s("a", "/src/w1", State::Idle)], &[], &found, &[]);
+        let t = build(&[s("a", "/src/w1", State::Idle)], &[], &found, &[], None);
         assert_eq!(place_of(&t, &ws("/src/api.git")), Some(at("/src/w1")));
     }
 
@@ -798,6 +806,7 @@ mod tests {
             ],
             &found,
             &[],
+            None,
         )
     }
 
@@ -919,7 +928,7 @@ mod tests {
         let next = next_session(&t, shown.as_ref(), None, true);
         assert_eq!(next.as_deref(), Some("o"));
         // Nor is a worktree with only shells a place sessions run.
-        let notes = build(&[], &[sh(1, "shell", "/notes")], &HashMap::new(), &[]);
+        let notes = build(&[], &[sh(1, "shell", "/notes")], &HashMap::new(), &[], None);
         assert_eq!(start_place(&notes, None), None);
     }
 

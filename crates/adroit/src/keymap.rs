@@ -33,6 +33,7 @@ pub const DEFAULTS: &str = r#"
 "Ctrl+w ." = "console.send Ctrl+w"
 "Cmd+n" = "session.new"
 "Cmd+N" = "session.new_reader"
+"Cmd+Alt+n" = "session.scratch"
 "Cmd+s" = "shell.open"
 "Cmd+t" = "session.take_over"
 "Cmd+Backspace" = "session.stop"
@@ -441,6 +442,7 @@ actions! {
     SessionPick => "session.pick",
     SessionNew => "session.new",
     SessionNewReader => "session.new_reader",
+    SessionScratch => "session.scratch",
     SessionTakeOver => "session.take_over",
     SessionStop => "session.stop",
     SessionRename => "session.rename",
@@ -970,6 +972,29 @@ mod tests {
         assert_eq!(
             Chord::pressed("}", false, false, true, true),
             Some("Cmd+}".into())
+        );
+    }
+
+    #[test]
+    fn a_scratch_session_is_started_by_command_option_n_from_every_area() {
+        let map = Keymap::defaults();
+        for ctx in [
+            Context::Sidebar,
+            Context::Details,
+            Context::Console,
+            Context::Prompt,
+        ] {
+            assert_eq!(
+                map.resolve(&[ctx, Context::Global], &[], &Key::new("n").meta().alt()),
+                Step::Run(Action::SessionScratch),
+                "{}",
+                ctx.name()
+            );
+        }
+        // Option changes the letter typed; the window reports the key's own.
+        assert_eq!(
+            Chord::pressed("n", false, true, false, true),
+            Some("Cmd+Alt+n".into())
         );
     }
 

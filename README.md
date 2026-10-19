@@ -69,7 +69,8 @@ From anywhere, the prompt included: `Cmd-]` `Cmd-[` (or `Ctrl-w n` `Ctrl-w p`)
 show the next or previous tab of the panel the keys are in, the console's
 tabs or the details panel's overview, changes and log, which `Cmd-1` to
 `Cmd-3` also show one by one; `Cmd-o` chooses where a new session
-works, `Cmd-n` starts one where the console is (`Cmd-Shift-n` a reader),
+works, `Cmd-n` starts one where the console is (`Cmd-Shift-n` a reader,
+`Cmd-Option-n` a scratch session that needs no directory chosen),
 `Cmd-s` opens a shell there, `Cmd-f` filters the sidebar, `Cmd-e` lists every
 worktree, `Cmd-r` refreshes, `Cmd-t` takes over a session and
 `Cmd-Backspace` ends one.

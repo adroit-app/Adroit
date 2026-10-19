@@ -18,13 +18,26 @@ pub struct Line {
     pub name: String,
     pub place: Option<String>,
     pub badge: String,
-    /// Whether `name` is a path, drawn in a fixed-width face.
-    pub path: bool,
+    pub mark: Mark,
 }
+
+/// What a row is marked as.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mark {
+    Scratch,
+    Session,
+    /// A path, drawn in a fixed-width face.
+    Directory,
+}
+
+/// What the scratch row says.
+pub const SCRATCH: &str = "New scratch session";
 
 /// What a row of the list offers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Choice {
+    /// A session to start in a new directory of its own.
+    Scratch,
     /// A session to open.
     Session(SessionOffer),
     /// A directory to start a session in.
@@ -150,8 +163,9 @@ pub fn matching(candidates: &[Candidate], query: &str, home: &Path, cap: usize) 
     )
 }
 
-/// The sessions for `query`, then the directories, each group ranked among
-/// its own and cut at `cap`: a directory never comes between sessions.
+/// The scratch row while `query` answers to it, the sessions for `query`,
+/// then the directories, each group ranked among its own and cut at `cap`: a
+/// directory never comes between sessions.
 pub fn choices(
     sessions: &[SessionOffer],
     directories: &[Candidate],
@@ -159,10 +173,14 @@ pub fn choices(
     home: &Path,
     cap: usize,
 ) -> Vec<Choice> {
+    let scratch = Query::new(query)
+        .rank_named(SCRATCH, SCRATCH)
+        .map(|_| Choice::Scratch);
     let sessions = matching_sessions(sessions, query, cap).into_iter();
     let directories = matching(directories, query, home, cap).into_iter();
-    sessions
-        .map(Choice::Session)
+    scratch
+        .into_iter()
+        .chain(sessions.map(Choice::Session))
         .chain(directories.map(Choice::Directory))
         .collect()
 }
@@ -174,28 +192,38 @@ pub fn lines(choices: &[Choice], home: &Path) -> Vec<Line> {
         .iter()
         .map(|c| {
             let (group, line) = match c {
+                Choice::Scratch => (
+                    None,
+                    Line {
+                        heading: None,
+                        name: SCRATCH.into(),
+                        place: None,
+                        badge: String::new(),
+                        mark: Mark::Scratch,
+                    },
+                ),
                 Choice::Session(s) => (
-                    "Sessions",
+                    Some("Sessions"),
                     Line {
                         heading: None,
                         name: s.name.clone(),
                         place: Some(s.place.clone()),
                         badge: s.state.into(),
-                        path: false,
+                        mark: Mark::Session,
                     },
                 ),
                 Choice::Directory(d) => (
-                    "Start in",
+                    Some("Start in"),
                     Line {
                         heading: None,
                         name: short(&d.path, home),
                         place: None,
                         badge: d.source.label().into(),
-                        path: true,
+                        mark: Mark::Directory,
                     },
                 ),
             };
-            let heading = (last != Some(group)).then_some(group);
+            let heading = group.filter(|_| last != Some(group));
             last = Some(group);
             Line { heading, ..line }
         })
@@ -452,6 +480,7 @@ mod tests {
             &[],
             &found,
             &[],
+            None,
         )
     }
 
@@ -501,6 +530,7 @@ mod tests {
             &[],
             &found,
             &[],
+            None,
         );
         let ids: Vec<String> = matching_sessions(&sessions(&t), "scratch", 10)
             .into_iter()
@@ -517,6 +547,7 @@ mod tests {
         found
             .iter()
             .map(|c| match c {
+                Choice::Scratch => "scratch".into(),
                 Choice::Session(s) => s.id.clone(),
                 Choice::Directory(d) => d.path.display().to_string(),
             })
@@ -528,10 +559,10 @@ mod tests {
         let all = sessions(&tree());
         let ds = dirs(&["/w/x/api", "/w/api"]);
         let pick = |q: &str| chosen(&choices(&all, &ds, q, Path::new(HOME), 10));
-        assert_eq!(pick(""), ["a", "o", "z", "/w/x/api", "/w/api"]);
+        assert_eq!(pick(""), ["scratch", "a", "o", "z", "/w/x/api", "/w/api"]);
         // A directory answering better than a session still comes after it.
         assert_eq!(pick("api"), ["a", "o", "/w/api", "/w/x/api"]);
-        assert_eq!(pick("scratch"), ["z"]);
+        assert_eq!(pick("login"), ["a"]);
         assert_eq!(pick("x/api"), ["/w/x/api"]);
     }
 
@@ -540,7 +571,18 @@ mod tests {
         let all = sessions(&tree());
         let ds = dirs(&["/a", "/b", "/c"]);
         let found = choices(&all, &ds, "", Path::new(HOME), 2);
-        assert_eq!(chosen(&found), ["a", "o", "/a", "/b"]);
+        assert_eq!(chosen(&found), ["scratch", "a", "o", "/a", "/b"]);
+    }
+
+    #[test]
+    fn a_scratch_session_is_offered_above_everything_while_the_query_answers_to_it() {
+        let all = sessions(&tree());
+        let pick = |q: &str| chosen(&choices(&all, &[], q, Path::new(HOME), 10));
+        assert_eq!(pick("")[0], "scratch");
+        // The session named scratch answers too, after it.
+        assert_eq!(pick("scratch"), ["scratch", "z"]);
+        assert_eq!(pick("new ses"), ["scratch"]);
+        assert!(!pick("login").contains(&"scratch".to_string()));
     }
 
     #[test]
@@ -554,9 +596,10 @@ mod tests {
                 .collect()
         };
         let both = choices(&all, &ds, "", Path::new(HOME), 10);
+        // The scratch row stands above the groups, under no heading.
         assert_eq!(
             headings(&both),
-            [Some("Sessions"), None, None, Some("Start in"), None]
+            [None, Some("Sessions"), None, None, Some("Start in"), None]
         );
         // A group nothing in answers has no heading.
         let only_dirs = choices(&all, &ds, "/a", Path::new(HOME), 10);
@@ -564,9 +607,11 @@ mod tests {
     }
 
     #[test]
-    fn a_row_draws_a_directory_by_its_short_path_and_a_session_by_its_name_and_place() {
+    fn a_row_draws_a_directory_by_its_short_path_a_session_by_its_name_and_place_and_the_scratch_row_by_what_it_starts()
+     {
         let all = sessions(&tree());
         let found = [
+            Choice::Scratch,
             Choice::Session(all[1].clone()),
             Choice::Directory(Candidate {
                 path: "/Users/me/src/x".into(),
@@ -577,18 +622,25 @@ mod tests {
             lines(&found, Path::new(HOME)),
             [
                 Line {
+                    heading: None,
+                    name: SCRATCH.into(),
+                    place: None,
+                    badge: String::new(),
+                    mark: Mark::Scratch,
+                },
+                Line {
                     heading: Some("Sessions"),
                     name: "add tokens".into(),
                     place: Some("api › oauth".into()),
                     badge: "waiting".into(),
-                    path: false,
+                    mark: Mark::Session,
                 },
                 Line {
                     heading: Some("Start in"),
                     name: "~/src/x".into(),
                     place: None,
                     badge: "ghq".into(),
-                    path: true,
+                    mark: Mark::Directory,
                 },
             ]
         );

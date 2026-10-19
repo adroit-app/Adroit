@@ -52,6 +52,7 @@ mod tests {
             &[],
             &HashMap::new(),
             &[],
+            None,
         );
         let items = inbox(&tree);
         assert_eq!(items.len(), 2);
