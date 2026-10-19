@@ -835,6 +835,33 @@ fn ensure_pane(
     None
 }
 
+/// Start a session as `spawn` says, with the pane of the tab `tab_of` its id
+/// names, so that its program starts in the theme's colours.
+async fn start(
+    hub: &Hub,
+    spawn: Spawn,
+    size: Size,
+    tab_of: impl Fn(u128) -> Tab,
+) -> adroit_term::Result<u128> {
+    let palette = hub.palette.peek().clone();
+    let wake = hub.wake.clone();
+    let pane = Pane::start(&hub.daemon, spawn, size, &palette, |id| {
+        let tab = tab_of(id);
+        move || {
+            let _ = wake.send(tab.clone());
+        }
+    })
+    .await?;
+    // A theme chosen while the session was being started passed it by.
+    let now = hub.palette.peek().clone();
+    if now != palette {
+        pane.set_palette(&now);
+    }
+    let id = pane.id();
+    hub.panes.borrow_mut().insert(tab_of(id), Arc::new(pane));
+    Ok(id)
+}
+
 /// Every session to list: those the daemon runs for adroit, with the shells,
 /// and those Claude Code lists in other terminals, but for adroit's own,
 /// which Claude Code lists too.
@@ -2174,8 +2201,7 @@ fn App() -> Element {
                                         cols: size.cols,
                                         rows: size.rows,
                                     };
-                                    hub.daemon
-                                        .spawn(spawn)
+                                    start(&hub, spawn, size, |id| Tab::Session(sessions::hex(id)))
                                         .await
                                         .map_err(|e| format!("cannot start {name}: {e}"))
                                 }
@@ -2261,7 +2287,7 @@ fn App() -> Element {
                     cols: size.cols,
                     rows: size.rows,
                 };
-                match hub.daemon.spawn(spawn).await {
+                match start(&hub, spawn, size, |id| Tab::Session(sessions::hex(id))).await {
                     Ok(id) => {
                         status.set(None);
                         let id = sessions::hex(id);
@@ -3277,7 +3303,7 @@ fn App() -> Element {
                         };
                         let hub = hub.clone();
                         spawn(async move {
-                            match hub.daemon.spawn(spawn_shell).await {
+                            match start(&hub, spawn_shell, size, Tab::Shell).await {
                                 Ok(id) => {
                                     shells.write().push(Shell {
                                         id,

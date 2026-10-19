@@ -7,18 +7,19 @@ use std::sync::{Arc, Mutex};
 use base64::Engine;
 use felis_client_core::renderer_effect::{RendererEffect, renderer_effect};
 use felis_client_core::{
-    AttachIntent, ImageId, ImageLayout, ImageShadow, OutgoingFrame, ShadowScreen,
+    AttachIntent, Connection, ImageId, ImageLayout, ImageShadow, OutgoingFrame, ShadowScreen,
 };
 use felis_grid::image_layout::ImageDraw;
 use felis_protocol::MessageKind;
 use felis_protocol::messages::{
     ConnToClientMsg, GridMsg, ImageMsg, InputMods, InputMsg, MouseAction, MouseButton, MouseEvent,
-    PushMsg, RequestedDims, SessionToDaemonMsg, ThemeChannel,
+    PushMsg, RequestedDims, SessionInfo, SessionToDaemonMsg, ThemeChannel,
 };
+use felis_transport::local::{ReadHalf, WriteHalf};
 use felis_transport::{Delivery, Incoming};
 use tokio::sync::mpsc;
 
-use crate::daemon::{Daemon, Result};
+use crate::daemon::{Daemon, Error, Result, Spawn, spawn_args};
 use crate::screen::{Overrides, screen_of};
 use crate::{Key, Palette, Rgb, Screen};
 
@@ -118,6 +119,50 @@ fn theme(palette: &Palette) -> SessionToDaemonMsg {
     }
 }
 
+/// Holds a program back until a line comes in. felis runs a session's
+/// program the moment it makes the session, before a window can tell the
+/// session its colours, so a program asking for them at once would race the
+/// window; held, it cannot ask before the line, which is sent after them.
+/// The line's echo moves the cursor down, and is taken back.
+const GATE: &str = r#"IFS= read -r _; printf '\033[H'; exec "$0" "$@""#;
+
+/// What lets a [`gated`] program go.
+const RELEASE: &[u8] = b"\r";
+
+/// `spawn`, its program held back until [`RELEASE`] comes in.
+fn gated(spawn: Spawn) -> Spawn {
+    let args = ["-c".to_string(), GATE.to_string(), spawn.program]
+        .into_iter()
+        .chain(spawn.args)
+        .collect();
+    Spawn {
+        program: "/bin/sh".into(),
+        args,
+        ..spawn
+    }
+}
+
+/// Whether `spawn`'s program is one that can run, looked up on the `PATH`
+/// it is started with.
+fn found(spawn: &Spawn) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    let runs = |p: &std::path::Path| {
+        std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    };
+    if spawn.program.contains('/') {
+        return runs(&spawn.cwd.join(&spawn.program));
+    }
+    let path = spawn
+        .env
+        .iter()
+        .rev()
+        .find(|(k, _)| k == "PATH")
+        .map(|(_, v)| v.clone())
+        .or_else(|| std::env::var("PATH").ok())
+        .unwrap_or_default();
+    std::env::split_paths(&path).any(|dir| runs(&dir.join(&spawn.program)))
+}
+
 fn dark(palette: &Palette) -> bool {
     let lum = |c: Rgb| 0.2126 * f64::from(c.r) + 0.7152 * f64::from(c.g) + 0.0722 * f64::from(c.b);
     lum(palette.background) < lum(palette.foreground)
@@ -135,6 +180,48 @@ impl Pane {
     ) -> Result<Self> {
         let mut conn = daemon.window().await?;
         let info = conn.attach(id, AttachIntent::Deliberate).await?;
+        Ok(Self::over(conn, &info, size, palette, waker))
+    }
+
+    /// Start a session as `spawn` says, at `size` rather than the size it
+    /// names, and attach to it, drawn in `palette`. `waker_for` makes the
+    /// waker [`Pane::attach`] takes, given the session's id. The program
+    /// runs only once the session has the palette, so the first colour it
+    /// asks for is the palette's.
+    pub async fn start<W>(
+        daemon: &Daemon,
+        spawn: Spawn,
+        size: Size,
+        palette: &Palette,
+        waker_for: impl FnOnce(u128) -> W,
+    ) -> Result<Self>
+    where
+        W: Fn() + Send + Sync + 'static,
+    {
+        // Behind the gate the daemon starts a shell, which is always there,
+        // so a program missing is told here, as the daemon would have.
+        if !found(&spawn) {
+            return Err(Error::NotFound(spawn.program));
+        }
+        let mut args = spawn_args(gated(spawn));
+        args.dims = Some(size.dims());
+        let mut conn = daemon.window().await?;
+        let info = conn.create_with(args).await?;
+        let waker = waker_for(info.id);
+        let pane = Self::over(conn, &info, size, palette, waker);
+        pane.send(InputMsg::KeyBytes(RELEASE.to_vec()));
+        Ok(pane)
+    }
+
+    /// The pane over `conn`, attached to the session `info` lists.
+    fn over(
+        conn: Connection<ReadHalf, WriteHalf>,
+        info: &SessionInfo,
+        size: Size,
+        palette: &Palette,
+        waker: impl Fn() + Send + Sync + 'static,
+    ) -> Self {
+        let id = info.id;
         let state = Arc::new(Mutex::new(State {
             shadow: ShadowScreen::new(info.dims.rows, info.dims.cols),
             images: ImageShadow::new(),
@@ -224,7 +311,7 @@ impl Pane {
             dark: dark(palette),
         });
         pane.resize(size);
-        Ok(pane)
+        pane
     }
 
     pub fn id(&self) -> u128 {
@@ -589,6 +676,60 @@ mod tests {
         };
         let dims = size.dims();
         assert_eq!((dims.pixel_w, dims.pixel_h), (800, 540));
+    }
+
+    async fn daemon(dir: &std::path::Path) -> Daemon {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let socket = dir.join("d.sock");
+        let serving = socket.clone();
+        tokio::spawn(async move {
+            Daemon::serve(&serving, std::time::Duration::from_secs(1), |_| {}).await
+        });
+        let d = Daemon::new(socket);
+        for _ in 0..100 {
+            if d.sessions().await.is_ok() {
+                return d;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        panic!("the daemon did not answer");
+    }
+
+    #[tokio::test]
+    async fn a_gated_program_runs_only_once_released_and_draws_from_the_top() {
+        let dir = tempfile::Builder::new()
+            .prefix("adroit-")
+            .tempdir_in("/tmp")
+            .unwrap();
+        let d = daemon(dir.path()).await;
+        let id = d
+            .spawn(gated(Spawn {
+                program: "/bin/sh".into(),
+                args: vec!["-c".into(), "printf started; sleep 5".into()],
+                cwd: "/tmp".into(),
+                cols: 40,
+                rows: 6,
+                ..Spawn::default()
+            }))
+            .await
+            .unwrap();
+        let pane = Pane::attach(&d, id, Size::new(40, 6), &Palette::default(), || {})
+            .await
+            .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        assert!(
+            pane.screen().text().iter().all(|l| !l.contains("started")),
+            "ran before it was released"
+        );
+        pane.send(InputMsg::KeyBytes(RELEASE.to_vec()));
+        for _ in 0..200 {
+            if pane.screen().text()[0] == "started" {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        panic!("never drawn at the top: {:?}", pane.screen().text());
     }
 
     #[test]

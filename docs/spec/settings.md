@@ -76,7 +76,10 @@ as the theme, in Ghostty's theme format, so a theme file from Ghostty works as
 it is. Of it, adroit reads the sixteen colours, the background, the
 foreground and the cursor's colour. Your file of the same name as one adroit
 comes with is used in its place. The whole window is drawn in the theme's
-colours, and a new theme reaches the consoles already open.
+colours, and a new theme reaches the consoles already open. A program started
+in a console is told the theme's colours from the first time it asks, so one
+that picks its look by the background as it starts, as Neovim does, picks
+the theme's.
 
 An unknown setting makes the file unreadable, so a misspelt one is not
 silently ignored. `naming_model` and `projects_dir`, which earlier versions

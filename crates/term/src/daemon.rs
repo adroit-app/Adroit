@@ -25,6 +25,8 @@ pub enum Error {
     Connect(#[from] ConnectError),
     #[error("{0}")]
     Io(#[from] std::io::Error),
+    #[error("cannot find {0} to start")]
+    NotFound(String),
     #[error("the daemon at {0} did not start")]
     NotStarted(PathBuf),
     #[error("{0} is not a folder of yours alone, as the daemon's socket needs")]
@@ -177,21 +179,7 @@ impl Daemon {
 
     /// Start a session, returning its id.
     pub async fn spawn(&self, spawn: Spawn) -> Result<u128> {
-        let args = SpawnArgs {
-            command: spawn.program,
-            args: spawn.args,
-            cwd: spawn.cwd.to_string_lossy().into_owned(),
-            env: spawn.env,
-            dims: Some(RequestedDims {
-                rows: u32::from(spawn.rows.max(1)),
-                cols: u32::from(spawn.cols.max(1)),
-                pixel_w: 0,
-                pixel_h: 0,
-            }),
-            env_base: felis_client_core::env_base::capture(),
-            tags: spawn.tags,
-        };
-        Ok(self.ops().await?.spawn_session(args).await?.id)
+        Ok(self.ops().await?.spawn_session(spawn_args(spawn)).await?.id)
     }
 
     /// End a session, hanging up its program.
@@ -281,6 +269,24 @@ impl Daemon {
                 _ => {}
             }
         }
+    }
+}
+
+/// What starts a session as the daemon takes it.
+pub(crate) fn spawn_args(spawn: Spawn) -> SpawnArgs {
+    SpawnArgs {
+        command: spawn.program,
+        args: spawn.args,
+        cwd: spawn.cwd.to_string_lossy().into_owned(),
+        env: spawn.env,
+        dims: Some(RequestedDims {
+            rows: u32::from(spawn.rows.max(1)),
+            cols: u32::from(spawn.cols.max(1)),
+            pixel_w: 0,
+            pixel_h: 0,
+        }),
+        env_base: felis_client_core::env_base::capture(),
+        tags: spawn.tags,
     }
 }
 
