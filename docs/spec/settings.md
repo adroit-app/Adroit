@@ -95,6 +95,14 @@ disallowed_tools = ["Edit", "Write", "NotebookEdit"]
 ghq = true
 roots = []
 
+# How much the details panel reads and shows: the changes Log lists, the
+# lines of a diff before it is cut, and the links of each kind the overview
+# keeps, the newest, up to 1000.
+[details]
+log_commits = 50
+diff_lines = 2000
+links_kept = 100
+
 # How the console takes keys and draws its cursor: which Option keys send Alt
 # to what runs there, `both`, `left`, `right` or `none`, the others typing what
 # macOS makes of the key; and whether the cursor blinks when the program lets

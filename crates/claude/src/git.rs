@@ -279,11 +279,12 @@ pub async fn commit_files(path: &Path, rev: &str) -> Result<Vec<Change>, Error> 
 }
 
 /// What `change` does to its file: in commit `rev`, or in the worktree
-/// against its last commit when `rev` is `None`.
+/// against its last commit when `rev` is `None`; up to `lines` lines.
 pub async fn file_diff(
     path: &Path,
     rev: Option<&str>,
     change: &Change,
+    lines: usize,
 ) -> Result<Vec<DiffLine>, Error> {
     let dir = git_dir(path)?;
     if rev.is_none() && change.status == "??" {
@@ -292,7 +293,7 @@ pub async fn file_diff(
                 program: "git".into(),
                 stderr: format!("cannot read {}: {e}", change.path),
             })?;
-        return Ok(added(&change.path, &content, DIFF_LINES));
+        return Ok(added(&change.path, &content, lines));
     }
     let mut args = vec!["-C", dir, "-c", UNQUOTED];
     match rev {
@@ -301,8 +302,8 @@ pub async fn file_diff(
     }
     args.extend(["--no-color", "--no-ext-diff", "--"]);
     args.extend(change.paths());
-    let out = run_head("git", &args, None, DIFF_LINES, DIFF_BYTES).await?;
-    Ok(parse_diff(&out, DIFF_LINES))
+    let out = run_head("git", &args, None, lines, DIFF_BYTES).await?;
+    Ok(parse_diff(&out, lines))
 }
 
 /// At most `max` bytes from the start of a file.
@@ -600,9 +601,9 @@ mod tests {
             vec![change(" M", "a.txt", None), change("??", "sub/b.txt", None)]
         );
         let texts = |d: Vec<DiffLine>| d.into_iter().map(|d| d.text).collect::<Vec<_>>();
-        let a = texts(file_diff(&dir, None, &listed[0]).await.unwrap());
+        let a = texts(file_diff(&dir, None, &listed[0], DIFF_LINES).await.unwrap());
         assert_eq!(a, ["a.txt", "@@ -1 +1 @@", "-old", "+new"]);
-        let b = texts(file_diff(&dir, None, &listed[1]).await.unwrap());
+        let b = texts(file_diff(&dir, None, &listed[1], DIFF_LINES).await.unwrap());
         assert_eq!(b, ["sub/b.txt", "@@ -0,0 +1 @@", "+fresh"]);
     }
 
@@ -622,7 +623,9 @@ mod tests {
             files,
             vec![change("A", "a.txt", None), change("A", "b.txt", None)]
         );
-        let diff = file_diff(&dir, Some(&log[0].id), &files[1]).await.unwrap();
+        let diff = file_diff(&dir, Some(&log[0].id), &files[1], DIFF_LINES)
+            .await
+            .unwrap();
         let texts: Vec<_> = diff.into_iter().map(|d| d.text).collect();
         assert_eq!(texts, ["b.txt", "@@ -0,0 +1 @@", "+two"]);
     }

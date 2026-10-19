@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use crate::git::{Change, Commit, DIFF_BYTES, DIFF_LINES, DiffLine, parse_diff};
+use crate::git::{Change, Commit, DIFF_BYTES, DiffLine, parse_diff};
 use crate::{Error, run, run_head};
 
 /// Whether `dir` belongs to a jj workspace: the nearest directory holding
@@ -122,18 +122,24 @@ pub async fn files(path: &Path, rev: &str) -> Result<Vec<Change>, Error> {
     Ok(parse_files(&out))
 }
 
-/// What `change` does to its file in change `rev`.
-pub async fn file_diff(path: &Path, rev: &str, change: &Change) -> Result<Vec<DiffLine>, Error> {
+/// What `change` does to its file in change `rev`, up to `lines` lines.
+pub async fn file_diff(
+    path: &Path,
+    rev: &str,
+    change: &Change,
+    lines: usize,
+) -> Result<Vec<DiffLine>, Error> {
     let files = fileset(&change.paths());
     let mut args = PLAIN.to_vec();
     args.extend(["diff", "-r", rev, "--git", "--", &files]);
-    let out = run_head("jj", &args, Some(path), DIFF_LINES, DIFF_BYTES).await?;
-    Ok(parse_diff(&out, DIFF_LINES))
+    let out = run_head("jj", &args, Some(path), lines, DIFF_BYTES).await?;
+    Ok(parse_diff(&out, lines))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::git::DIFF_LINES;
 
     use crate::git::DiffKind;
 
@@ -288,7 +294,7 @@ mod tests {
         assert_eq!(stack[0].parents, [stack[1].node.clone()]);
         let changed = files(&dir, "@").await.unwrap();
         assert_eq!(changed, vec![change("M", "a.txt", None)]);
-        let diff = file_diff(&dir, "@", &changed[0]).await.unwrap();
+        let diff = file_diff(&dir, "@", &changed[0], DIFF_LINES).await.unwrap();
         let got: Vec<_> = diff.into_iter().map(|d| (d.kind, d.text)).collect();
         assert_eq!(
             got,

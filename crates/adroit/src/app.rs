@@ -22,8 +22,8 @@ use crate::console_keys::direct_key;
 use crate::console_read;
 use crate::daemon;
 use crate::details::{
-    Drill, Entry, Group, Listing, Related, Sheet, Tie, View, facts, load, overview, related,
-    shown_link,
+    Drill, Entry, Group, Listing, Related, Sheet, Tie, View, capped, facts, load, overview,
+    related, shown_link,
 };
 use crate::editor;
 use crate::filer::{Filer, read_dirs};
@@ -145,7 +145,11 @@ fn overview_listing(
                 Some((_, shown)) => related(shown, &sessions, &links.peers),
                 None => Vec::new(),
             };
-            Some(Listing::Links(overview(&ties, &rows, folded)))
+            Some(Listing::Links(overview(
+                &ties,
+                &capped(&rows, settings::current().details.links_kept),
+                folded,
+            )))
         }
         _ => None,
     }

@@ -307,6 +307,15 @@ pub fn related(shown: &Session, sessions: &[&Session], peers: &[Peer]) -> Vec<Re
     out
 }
 
+/// `links`, which come grouped and newest first, keeping up to `kept` of each
+/// group.
+pub fn capped(links: &[Link], kept: usize) -> Vec<Link> {
+    links
+        .chunk_by(|a, b| Group::of(&a.kind) == Group::of(&b.kind))
+        .flat_map(|run| run.iter().take(kept).cloned())
+        .collect()
+}
+
 /// The overview's rows: the `related` sessions under their heading, then
 /// `links`, which come grouped, each group's heading followed by its links;
 /// a `folded` group shows its heading alone.
@@ -511,13 +520,11 @@ impl Drill {
     }
 }
 
-/// How many commits the log sheet shows.
-pub const LOG_COMMITS: usize = 50;
-
 /// Read what `spot` shows of `worktree`: through jj in a jj repository,
 /// through git otherwise or when jj cannot be run.
 pub async fn load(spot: Spot, worktree: PathBuf) -> View {
     use adroit_claude::{Error, git, jj};
+    let diff_lines = crate::settings::current().details.diff_lines;
     let mut listing = None;
     if jj::is_jj(&worktree) {
         let rev = |r: &Rev| match r {
@@ -526,10 +533,12 @@ pub async fn load(spot: Spot, worktree: PathBuf) -> View {
         };
         let read = match &spot {
             Spot::Files(r) => jj::files(&worktree, &rev(r)).await.map(Listing::Files),
-            Spot::Diff(r, c) => jj::file_diff(&worktree, &rev(r), c)
+            Spot::Diff(r, c) => jj::file_diff(&worktree, &rev(r), c, diff_lines)
                 .await
                 .map(Listing::Diff),
-            Spot::Log => jj::history(&worktree, LOG_COMMITS).await.map(Listing::Log),
+            Spot::Log => jj::history(&worktree, crate::settings::current().details.log_commits)
+                .await
+                .map(Listing::Log),
         };
         // Without jj, a colocated repository still reads through git.
         if !matches!(read, Err(Error::Spawn { .. })) {
@@ -548,10 +557,14 @@ pub async fn load(spot: Spot, worktree: PathBuf) -> View {
                 Spot::Files(Rev::Commit(id)) => {
                     git::commit_files(&worktree, id).await.map(Listing::Files)
                 }
-                Spot::Diff(r, c) => git::file_diff(&worktree, rev(r).as_deref(), c)
+                Spot::Diff(r, c) => git::file_diff(&worktree, rev(r).as_deref(), c, diff_lines)
                     .await
                     .map(Listing::Diff),
-                Spot::Log => git::history(&worktree, LOG_COMMITS).await.map(Listing::Log),
+                Spot::Log => {
+                    git::history(&worktree, crate::settings::current().details.log_commits)
+                        .await
+                        .map(Listing::Log)
+                }
             }
         }
     };
@@ -1025,5 +1038,18 @@ mod tests {
             overview(&r, &[], &HashSet::from([Group::Sessions])),
             [heading(Group::Sessions, 1, true)]
         );
+    }
+
+    #[test]
+    fn each_group_of_the_overview_keeps_its_newest_links_up_to_the_cap() {
+        let all = [
+            link(LinkKind::Url, "https://a.dev", None, None),
+            link(LinkKind::Url, "https://b.dev", None, None),
+            link(LinkKind::Url, "https://c.dev", None, None),
+            link(LinkKind::File(Touch::Read), "/w/a.rs", None, None),
+        ];
+        let kept = capped(&all, 2);
+        let kept: Vec<&str> = kept.iter().map(|l| l.target.as_str()).collect();
+        assert_eq!(kept, ["https://a.dev", "https://b.dev", "/w/a.rs"]);
     }
 }

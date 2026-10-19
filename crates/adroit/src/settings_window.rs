@@ -291,6 +291,36 @@ fn General(now: Settings, change: Callback<Change>) -> Element {
             }
         }
         section { class: "settings-group",
+            h2 { "Details panel" }
+            Row { label: "Changes in Log", hint: "How many changes the Log sheet lists.",
+                input {
+                    r#type: "number", min: "1", max: "1000",
+                    value: "{now.details.log_commits}",
+                    onchange: move |e| if let Ok(n) = e.value().parse::<usize>() {
+                        change(Box::new(move |s: &mut Settings| s.details.log_commits = n));
+                    },
+                }
+            }
+            Row { label: "Lines of a diff", hint: "How much of a diff is shown before it is cut.",
+                input {
+                    r#type: "number", min: "1", max: "100000",
+                    value: "{now.details.diff_lines}",
+                    onchange: move |e| if let Ok(n) = e.value().parse::<usize>() {
+                        change(Box::new(move |s: &mut Settings| s.details.diff_lines = n));
+                    },
+                }
+            }
+            Row { label: "Links kept", hint: "How many links of each kind the overview shows, the newest.",
+                input {
+                    r#type: "number", min: "1", max: "1000",
+                    value: "{now.details.links_kept}",
+                    onchange: move |e| if let Ok(n) = e.value().parse::<usize>() {
+                        change(Box::new(move |s: &mut Settings| s.details.links_kept = n));
+                    },
+                }
+            }
+        }
+        section { class: "settings-group",
             h2 { "Files" }
             for (name, path, starter) in files {
                 Row { key: "{name}", label: name, hint: short(&path),

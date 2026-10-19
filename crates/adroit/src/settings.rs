@@ -33,6 +33,28 @@ impl OptionAsAlt {
     }
 }
 
+/// How much the details panel reads and shows.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct DetailsSettings {
+    /// The changes Log lists.
+    pub log_commits: usize,
+    /// The lines of a diff shown before it is cut.
+    pub diff_lines: usize,
+    /// The links of each kind the overview keeps, the newest.
+    pub links_kept: usize,
+}
+
+impl Default for DetailsSettings {
+    fn default() -> Self {
+        Self {
+            log_commits: 50,
+            diff_lines: 2000,
+            links_kept: 100,
+        }
+    }
+}
+
 /// How the console takes keys and draws its cursor.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -82,6 +104,8 @@ pub struct Settings {
     pub picker: PickerSettings,
     /// How the console takes keys and draws its cursor.
     pub console: ConsoleSettings,
+    /// How much the details panel reads and shows.
+    pub details: DetailsSettings,
 }
 
 /// The fonts the console falls back to, a Japanese one among them for what a
@@ -108,6 +132,7 @@ impl Default for Settings {
             scratch_dir: String::new(),
             picker: PickerSettings::default(),
             console: ConsoleSettings::default(),
+            details: DetailsSettings::default(),
         }
     }
 }
@@ -183,6 +208,10 @@ impl Settings {
         self.shell.command = words(self.shell.command);
         self.claude.command = words(self.claude.command);
         self.neovim.command = words(self.neovim.command);
+        let d = &mut self.details;
+        d.log_commits = d.log_commits.clamp(1, 1000);
+        d.diff_lines = d.diff_lines.clamp(1, 100_000);
+        d.links_kept = d.links_kept.clamp(1, adroit_claude::links::KEPT);
         self
     }
 
@@ -400,6 +429,11 @@ mod tests {
                 option_as_alt: OptionAsAlt::Right,
                 cursor_blink: true,
             },
+            details: DetailsSettings {
+                log_commits: 10,
+                diff_lines: 300,
+                links_kept: 20,
+            },
         };
         let text = toml::to_string_pretty(&s).unwrap();
         assert_eq!(Settings::parse(&text).unwrap(), s);
@@ -533,6 +567,29 @@ mod tests {
             Settings::parse("notify_waiting = true\n")
                 .unwrap()
                 .notify_waiting
+        );
+    }
+
+    #[test]
+    fn the_details_panel_reads_as_much_as_the_settings_say_and_at_least_one() {
+        let s = Settings::parse("").unwrap();
+        assert_eq!(
+            (
+                s.details.log_commits,
+                s.details.diff_lines,
+                s.details.links_kept
+            ),
+            (50, 2000, 100)
+        );
+        let s = Settings::parse("[details]\nlog_commits = 0\ndiff_lines = 9\nlinks_kept = 5000\n")
+            .unwrap();
+        assert_eq!(
+            (
+                s.details.log_commits,
+                s.details.diff_lines,
+                s.details.links_kept
+            ),
+            (1, 9, 1000)
         );
     }
 }
