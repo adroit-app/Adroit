@@ -1,6 +1,7 @@
 //! The adroit window.
 
 mod app;
+mod awake;
 mod complete;
 mod console;
 pub mod console_keys;

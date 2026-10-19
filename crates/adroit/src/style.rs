@@ -284,6 +284,7 @@ h2 { font-size: 12px; font-weight: 500; color: var(--text-2); margin: 0 0 4px; p
 select, input, button { font: inherit; font-size: 13px; color: var(--text); background: var(--ground);
   border: 1px solid var(--line-strong); border-radius: 6px; padding: 4px 8px; outline: none; }
 input[type=number] { width: 72px; }
+input[type=checkbox] { width: 16px; height: 16px; margin: 0; padding: 0; accent-color: var(--run); }
 select:focus, input:focus { border-color: var(--run); }
 button { background: var(--select); border-color: transparent; padding: 5px 12px; }
 button:hover { background: #2d333b; }

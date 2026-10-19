@@ -34,6 +34,10 @@ font_weight = 400
 
 # The console's colours, by the name of a theme.
 theme = "Adroit"
+
+# Keep the Mac from idle sleep while a session or a shell runs, the window
+# open or not; the display still sleeps.
+keep_awake = true
 ```
 
 A theme is adroit's own, one of those it comes with (Nightfox, TokyoNight,

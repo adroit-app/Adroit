@@ -18,6 +18,16 @@ leaving it as it is.
 A session ends when its program exits or when it is ended from adroit. Its
 console then says so, and it is listed no more.
 
+## Keeping the Mac awake
+
+While a session or a shell runs, the window open or not, the Mac does not go
+to idle sleep, so they go on with no one at it; the display still sleeps as
+the Energy settings say. Closing the lid on battery, sleeping it by hand and
+the system's own emergencies still sleep it. `pmset -g assertions` lists what
+keeps it awake under adroit's name. Within seconds of the last one ending, or
+of `keep_awake` being turned off in the [settings](settings.md), the Mac
+sleeps when idle again.
+
 ## How a session stands
 
 The state a session shows, working, waiting on you and for what, done or

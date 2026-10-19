@@ -56,7 +56,9 @@ in, those Claude Code was used in, the repositories ghq keeps, or a file tree,
 and say what you want done. adroit keeps no list of its own: the sessions are
 the ones it runs, which keep running when the window closes, and the ones
 Claude Code reports running in other terminals
-([details](docs/spec/workspaces.md)).
+([details](docs/spec/workspaces.md)). While they run, the Mac does not go to
+idle sleep, so they go on with the display off
+([details](docs/spec/sessions.md#keeping-the-mac-awake)).
 
 ### Keys
 

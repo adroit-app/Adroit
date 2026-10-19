@@ -16,6 +16,7 @@ dependencies = [
  "adroit-model",
  "adroit-nvim",
  "adroit-term",
+ "core-foundation",
  "dioxus",
  "libc",
  "nucleo-matcher",

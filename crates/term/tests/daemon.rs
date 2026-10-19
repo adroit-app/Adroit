@@ -7,6 +7,13 @@ use adroit_term::{Daemon, Key, Palette, Pane, Size, Spawn, tags};
 
 /// A daemon on a socket of its own, served until the test ends.
 async fn daemon() -> (Daemon, tempfile::TempDir) {
+    daemon_telling(|_| {}).await
+}
+
+/// [`daemon`], telling `running` often how many sessions still run.
+async fn daemon_telling(
+    running: impl FnMut(usize) + Send + 'static,
+) -> (Daemon, tempfile::TempDir) {
     // A socket path has to be short, so not under the usual temp folder.
     let dir = tempfile::Builder::new()
         .prefix("adroit-")
@@ -19,7 +26,10 @@ async fn daemon() -> (Daemon, tempfile::TempDir) {
     }
     let socket = dir.path().join("d.sock");
     let serving = socket.clone();
-    let served = tokio::spawn(async move { Daemon::serve(&serving).await });
+    let served =
+        tokio::spawn(
+            async move { Daemon::serve(&serving, Duration::from_millis(20), running).await },
+        );
     let d = Daemon::new(socket);
     let mut last = None;
     for _ in 0..100 {
@@ -218,6 +228,57 @@ async fn an_ended_session_is_listed_no_more() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     panic!("still listed");
+}
+
+#[tokio::test]
+async fn the_daemon_tells_how_many_sessions_run_as_they_start_and_end() {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let (d, _dir) = daemon_telling(move |n| {
+        let _ = tx.send(n);
+    })
+    .await;
+    let until_told = async |rx: &mut tokio::sync::mpsc::UnboundedReceiver<usize>, want| {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while rx.recv().await != Some(want) {}
+        })
+        .await
+        .unwrap_or_else(|_| panic!("never told {want}"));
+    };
+    until_told(&mut rx, 0).await;
+    let first = d.spawn(sh("sleep 5")).await.unwrap();
+    let second = d.spawn(sh("sleep 5")).await.unwrap();
+    until_told(&mut rx, 2).await;
+    d.end(first).await.unwrap();
+    until_told(&mut rx, 1).await;
+    d.end(second).await.unwrap();
+    until_told(&mut rx, 0).await;
+}
+
+#[tokio::test]
+async fn a_session_whose_program_exited_runs_no_more() {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let (d, _dir) = daemon_telling(move |n| {
+        let _ = tx.send(n);
+    })
+    .await;
+    let id = d.spawn(sh("sleep 0.3")).await.unwrap();
+    let exited_but_listed = async {
+        loop {
+            let listed = d.sessions().await.unwrap();
+            if listed.iter().any(|s| s.id == id && s.exited) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(5), exited_but_listed)
+        .await
+        .expect("never listed as exited");
+    while rx.try_recv().is_ok() {}
+    let told = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+        .await
+        .unwrap();
+    assert_eq!(told, Some(0));
 }
 
 #[tokio::test]

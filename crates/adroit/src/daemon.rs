@@ -7,8 +7,10 @@ use std::path::{Path, PathBuf};
 
 use adroit_term::{Daemon, tags};
 
+use crate::awake::{self, Assertion, Keeper};
 use crate::paths::state_dir;
 use crate::sessions::{CONVERSATION, id_of};
+use crate::settings::Settings;
 
 /// `$ADROIT_DAEMON`, or `adroit/felis/daemon.sock` under the state directory.
 pub fn socket() -> PathBuf {
@@ -80,12 +82,20 @@ fn runtime() -> std::io::Result<tokio::runtime::Runtime> {
         .build()
 }
 
+/// How often the daemon counts what runs and reads whether to keep the Mac
+/// awake: well within the minutes idle sleep waits.
+const AWAKE_EVERY: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// `adroit daemon`: serve sessions at the socket until killed. Returns the
 /// process exit code.
 pub fn cli() -> i32 {
+    let mut keeper = Keeper::new(|| Assertion::take(awake::NAME));
+    // The setting is read from its file each time, as the window that
+    // changes it is another process, which may not be open.
+    let running = move |n| keeper.keep(awake::wanted(n, Settings::load().keep_awake));
     let served = runtime()
         .map_err(adroit_term::Error::from)
-        .and_then(|rt| rt.block_on(Daemon::serve(&socket())));
+        .and_then(|rt| rt.block_on(Daemon::serve(&socket(), AWAKE_EVERY, running)));
     match served {
         Ok(()) => 0,
         Err(e) => {

@@ -28,6 +28,8 @@ pub struct Settings {
     /// The console's colour theme, by name: one adroit comes with, or one
     /// in the themes folder.
     pub theme: String,
+    /// Keep the Mac from idle sleep while a session or a shell runs.
+    pub keep_awake: bool,
 }
 
 /// The fonts the console falls back to, a Japanese one among them for what a
@@ -44,6 +46,7 @@ impl Default for Settings {
             font_size: 13.0,
             font_weight: 400,
             theme: crate::themes::DEFAULT.into(),
+            keep_awake: true,
         }
     }
 }
@@ -153,6 +156,12 @@ mod tests {
     }
 
     #[test]
+    fn the_mac_is_kept_awake_unless_the_setting_says_not() {
+        assert!(Settings::parse("").unwrap().keep_awake);
+        assert!(!Settings::parse("keep_awake = false\n").unwrap().keep_awake);
+    }
+
+    #[test]
     fn settings_earlier_versions_kept_for_projects_are_read_and_dropped() {
         let s = Settings::parse(
             "zoom = 1.25\nnaming_model = \"haiku\"\nprojects_dir = \"~/Projects\"\n",
@@ -171,6 +180,7 @@ mod tests {
             font_size: 99.0,
             font_weight: 1234,
             theme: " ".into(),
+            keep_awake: true,
         }
         .sane();
         assert_eq!(s.zoom, 1.75);
@@ -203,6 +213,7 @@ mod tests {
             font_size: 14.0,
             font_weight: 300,
             theme: "Nightfox".into(),
+            keep_awake: false,
         };
         let text = toml::to_string_pretty(&s).unwrap();
         assert_eq!(Settings::parse(&text).unwrap(), s);

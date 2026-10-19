@@ -192,6 +192,16 @@ fn General(now: Settings, change: Callback<Change>) -> Element {
                     }
                 }
             }
+            Row { label: "Keep the Mac awake", hint: "While a session or a shell runs, even with the window closed; the display still sleeps.",
+                input {
+                    r#type: "checkbox",
+                    checked: now.keep_awake,
+                    onchange: move |e| {
+                        let on = e.checked();
+                        change(Box::new(move |s: &mut Settings| s.keep_awake = on));
+                    },
+                }
+            }
         }
         section { class: "settings-group",
             h2 { "Files" }

@@ -95,13 +95,30 @@ impl Daemon {
         &self.socket
     }
 
-    /// Serve sessions at `socket` until the process ends.
-    pub async fn serve(socket: &Path) -> Result<()> {
+    /// Serve sessions at `socket` until the process ends, telling `running`
+    /// every `every` how many of them have a program still running.
+    pub async fn serve(
+        socket: &Path,
+        every: Duration,
+        mut running: impl FnMut(usize) + Send + 'static,
+    ) -> Result<()> {
         own_dir(socket)?;
         let pool = Arc::new(tokio::sync::Mutex::new(SessionPool::new()));
-        felis_daemon::serve_unix(Endpoint::unix(socket), DaemonCaps::default(), pool)
-            .await
-            .map_err(|e| Error::Protocol(e.to_string()))
+        // felis tells no one of a session starting, so the pool is counted
+        // on a timer rather than on its changes.
+        let counted = Arc::clone(&pool);
+        let counting = tokio::spawn(async move {
+            let mut tick = tokio::time::interval(every);
+            loop {
+                tick.tick().await;
+                let handles = counted.lock().await.live_handles();
+                running(handles.iter().filter(|h| !h.meta_snapshot().exited).count());
+            }
+        });
+        let served =
+            felis_daemon::serve_unix(Endpoint::unix(socket), DaemonCaps::default(), pool).await;
+        counting.abort();
+        served.map_err(|e| Error::Protocol(e.to_string()))
     }
 
     /// Make sure a daemon answers, starting `program` with `args` apart
