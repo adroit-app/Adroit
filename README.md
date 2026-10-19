@@ -110,7 +110,9 @@ files, and `Ctrl-Enter` sends what you wrote. In the details panel, `j` `k`,
 the settings ([details](docs/spec/settings.md)).
 
 These are adroit's own bindings. Change any of them, or add your own, in
-`~/.config/adroit/keys.toml` ([format](docs/spec/keys.md)).
+`~/.config/adroit/keys.toml` ([format](docs/spec/keys.md)). The menu bar
+offers every action that is more than a key, each with the Command key bound
+to it.
 
 ### From a session
 

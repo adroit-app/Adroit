@@ -28,6 +28,7 @@ use crate::keymap::{Action, Chord, Context, Keymap, MENU_KEYS, Step};
 use crate::keys;
 use crate::layout::{self, Layout, Side};
 use crate::menu::{self, Target};
+use crate::menu_bar;
 use crate::nav::{self, Item, Place};
 use crate::paths::{home, keys_path, state_dir};
 use crate::picker::{self, Candidate, Mode, Pick, Picker, SessionOffer};
@@ -76,6 +77,7 @@ pub fn launch() {
                 .with_title(title(option_env!("ADROIT_DESCRIBE")))
                 .with_inner_size(LogicalSize::new(1440.0, 900.0)),
         )
+        .with_menu(menu_bar::build())
         .with_background_color((15, 17, 20, 255))
         .with_custom_head(format!("<style>{CSS}</style>"));
     dioxus::LaunchBuilder::desktop().with_cfg(cfg).launch(App);
@@ -185,10 +187,23 @@ const WORKTREE_TTL: Duration = Duration::from_secs(15);
 /// before the text area changes: a default prevented from Rust arrives too late
 /// once the event has crossed to the webview, and the stray character then
 /// lands out of order. Other keys have their default stopped here for the same
-/// reason; Rust reads them from `keydown`. Command shortcuts keep their default
-/// so the menu's copy, paste and quit still work.
+/// reason; Rust reads them from `keydown`. Command keys the menu bar holds keep
+/// their default, so the menu runs them, as it does copy, paste and quit:
+/// `window.adroitHeld` lists them as [`menu_bar::left_to_menu`] names them.
 const INPUT: &str = r#"
 const t = document.getElementById('adroit-keys');
+// Whether the menu holds Command with this key: one of macOS's letters,
+// whatever else is held, or a key an entry shows, written as the bindings
+// write it. Shift is in a letter's case and in a character such as `}`, but
+// not in a digit, which is read from its key.
+const held = (e, name, fromCode) => {
+  const keys = window.adroitHeld;
+  if (keys.includes(name.toLowerCase())) return true;
+  const character = [...name].length === 1 && name !== ' ';
+  const shift = e.shiftKey && !/^[A-Z]$/.test(name) && !(character && !fromCode);
+  const shown = name === ' ' ? 'Space' : name === '+' ? 'Plus' : name;
+  return keys.includes('Cmd+' + (e.ctrlKey ? 'Ctrl+' : '') + (e.altKey ? 'Alt+' : '') + (shift ? 'Shift+' : '') + shown);
+};
 const take = () => {
   const a = document.activeElement;
   if (a !== t && !(a instanceof HTMLInputElement)) t.focus();
@@ -200,14 +215,14 @@ t.addEventListener('blur', keep);
 t.addEventListener('keydown', (e) => {
   // WebKit sends the key that ends a composition after `compositionend`,
   // no longer composing but still with key code 229.
-  // Command with a key the menu does not keep is the window's own; the
+  // Command with a key the menu does not hold is the window's own; the
   // letter is read from the key itself, as Command and Option change what it
   // types.
   if (e.metaKey && !e.isComposing && !['Meta', 'Shift', 'Control', 'Alt'].includes(e.key)) {
     const code = /^(Key[A-Z]|Digit[0-9])$/.exec(e.code);
     let name = code ? e.code.slice(-1) : e.key;
     if (code && !e.shiftKey) name = name.toLowerCase();
-    if (MENU.includes(name.toLowerCase())) return;
+    if (held(e, name, !!code)) return;
     e.preventDefault();
     dioxus.send({ kind: 'key', key: name, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey, meta: true });
     return;
@@ -2784,6 +2799,37 @@ fn App() -> Element {
         move |action: Action| perform(action, None)
     };
 
+    // The menu bar shows the Command keys in force, and the page leaves those
+    // keys to it, so a key runs once, from the menu.
+    use_effect(move || {
+        let map = keymap();
+        menu_bar::show_shortcuts(&map);
+        let held = serde_json::to_string(&menu_bar::left_to_menu(&map)).unwrap_or_default();
+        document::eval(&format!("window.adroitHeld = {held};"));
+    });
+    // Run what a menu bar entry names where the keys are now, as its key
+    // would: not behind the picker, a dialog or a name being typed, which hold
+    // the keys. The entries act on this window whichever of adroit's is in
+    // front, and bring it forward to show what they did.
+    dioxus::desktop::use_muda_event_handler({
+        let mut perform = perform.clone();
+        let desktop = dioxus::desktop::window();
+        move |event| {
+            let Some(action) = menu_bar::action_of(&event.id().0) else {
+                return;
+            };
+            if picking.peek().is_some() || renaming.peek().is_some() || confirm.peek().is_some() {
+                return;
+            }
+            if action != Action::SettingsOpen {
+                desktop.window.set_focus();
+            }
+            menu.set(None);
+            pending.set(Vec::new());
+            perform(action, None);
+        }
+    });
+
     // The picker's keys: those its query field does not type with, and every
     // key in its file tree.
     let picker_key = {
@@ -3079,7 +3125,8 @@ fn App() -> Element {
         let mut type_text = type_text.clone();
         move || {
             spawn(async move {
-                let mut input = document::eval(&format!("const MENU = {MENU_KEYS:?};\n{INPUT}"));
+                let mut input =
+                    document::eval(&format!("window.adroitHeld ??= {MENU_KEYS:?};\n{INPUT}"));
                 while let Ok(message) = input.recv::<keys::Message>().await {
                     if let Some(key) = message.key() {
                         handle_key(key);

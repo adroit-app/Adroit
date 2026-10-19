@@ -18,6 +18,7 @@ mod keys_edit;
 mod keys_pane;
 mod layout;
 pub mod menu;
+pub mod menu_bar;
 pub mod nav;
 mod paths;
 pub mod picker;

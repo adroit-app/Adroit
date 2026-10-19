@@ -6,6 +6,20 @@ prompt's keys are Neovim's and are set up in Neovim; the dialog that asks
 before taking over a session always answers to `y`, `Enter`, `n` and `Escape`,
 and the picker's keys are its own ([workspaces](workspaces.md#starting-a-session)).
 
+## In the menu bar
+
+The menu bar offers every action that is more than a key, beside macOS's own
+entries for the application, editing and windows. An entry runs its action
+where the keys are, as its key would, but not while the picker, a dialog or a
+name being typed holds the keys; from the Settings window, it runs in the
+main window and brings it forward.
+
+Each entry shows the Command key bound to its action in `global`, when that
+key runs it in every area. An action bound only to a sequence, to keys
+without Command, or to a Command key some area binds otherwise shows none,
+and so does a key the menu cannot show as it is typed, such as `Cmd+}`.
+The entries follow the file as it changes.
+
 ## With the mouse
 
 What the keys do to a sidebar row or a tab of the console is also offered by

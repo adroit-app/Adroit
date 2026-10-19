@@ -565,6 +565,15 @@ impl Keymap {
             .map(|(_, seq, _)| show_sequence(seq))
     }
 
+    /// Every sequence bound to `action` in `ctx`, in the order of the file.
+    pub fn sequences_for(&self, ctx: Context, action: &Action) -> Vec<&[Chord]> {
+        self.bindings
+            .iter()
+            .filter(|(c, _, a)| *c == ctx && a == action)
+            .map(|(_, seq, _)| seq.as_slice())
+            .collect()
+    }
+
     /// The keys of `action` in the first of `contexts` that binds it: what
     /// works in an area that reads those contexts.
     pub fn keys_in(&self, contexts: &[Context], action: &Action) -> Option<String> {

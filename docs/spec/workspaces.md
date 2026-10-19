@@ -28,8 +28,8 @@ which a session started later resumes with Claude Code's `/resume`.
 
 ## Starting a session
 
-`w`, or `+` beside Workspaces, opens the **picker**, which asks where the
-session works. It offers, in one list:
+`w`, `+` beside Workspaces, or the Session menu opens the **picker**, which
+asks where the session works. It offers, in one list:
 
 - the directories sessions run in now;
 - the directories Claude Code has been used in, the most recent first;
@@ -52,11 +52,11 @@ directory without the picker, and `N` starts a reader there.
 
 ## Going to another session
 
-`Cmd+p` opens the picker on every session instead, each with where it runs
-and how it stands. Typing narrows the list by a fuzzy match on a session's
-name and where it runs, the same keys move and close, and `Enter` opens the
-session chosen as its row in the sidebar would, leaving the keys where they
-were. This picker has no file tree.
+`Cmd+p`, or the Session menu, opens the picker on every session instead, each
+with where it runs and how it stands. Typing narrows the list by a fuzzy match
+on a session's name and where it runs, the same keys move and close, and
+`Enter` opens the session chosen as its row in the sidebar would, leaving the
+keys where they were. This picker has no file tree.
 
 `Cmd+}` and `Cmd+{` open the next and the previous session without asking.
 
