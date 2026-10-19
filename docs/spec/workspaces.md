@@ -7,20 +7,26 @@ runs in.
 
 ## The tree
 
-A **workspace** is where sessions run:
+A **workspace** is where sessions and the shells you open in adroit run:
 
-- a git repository, holding every session that runs in any of its worktrees
-  or in a directory below one;
-- otherwise the directory a session runs in.
+- a git repository, holding every session and shell that runs in any of its
+  worktrees or in a directory below one;
+- otherwise the directory a session or a shell runs in.
 
-Inside a git workspace, each session sits under the worktree it runs in. A
-workspace whose sessions all run in its main checkout shows them straight
-under it, with no worktree row; one outside git always does.
+Inside a git workspace, each session and each shell sits under the worktree
+it runs in, a shell marked as a terminal; a worktree where only shells run is
+listed for them. A workspace where everything runs in its main checkout shows
+it straight under it, with no worktree row; one outside git always does.
+
+Opening a shell's row shows that shell in the console and moves the keys
+there, as opening a session's row does. Closing it from its row ends the
+shell, as closing its tab does ([shells](shells.md)). Going from session to
+session, the waiting sessions and the picker pass shells over.
 
 `!` in the sidebar shows every worktree git knows of each workspace, those
-without sessions too, drawn dim; opening one starts a session there. Pressing
-it again goes back to the worktrees with sessions. The window does not keep
-this between runs.
+where nothing runs too, drawn dim; opening one starts a session there.
+Pressing it again goes back to the worktrees where sessions or shells run. The
+window does not keep this between runs.
 
 Sessions running in other terminals are listed beside adroit's own. A
 session that has ended is listed no more; Claude Code keeps its conversation,

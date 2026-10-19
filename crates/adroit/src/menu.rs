@@ -37,6 +37,11 @@ pub fn entries(target: &Target, session: Option<&Session>) -> Vec<(Action, &'sta
             .chain(here)
             .chain(ending)
             .collect(),
+        Target::Row(Item::Shell(_)) => [(Action::CursorOpen, "Open")]
+            .into_iter()
+            .chain(here)
+            .chain([(Action::TabClose, "Close shell")])
+            .collect(),
         Target::Row(Item::Worktree(_)) => [(Action::CursorOpen, "Open")]
             .into_iter()
             .chain(here)
@@ -113,6 +118,20 @@ mod tests {
                 ]
             );
         }
+    }
+
+    #[test]
+    fn a_shell_s_row_opens_it_starts_beside_it_and_closes_it() {
+        assert_eq!(
+            actions(Target::Row(Item::Shell(1)), None),
+            [
+                Action::CursorOpen,
+                Action::SessionNew,
+                Action::SessionNewReader,
+                Action::ShellOpen,
+                Action::TabClose,
+            ]
+        );
     }
 
     #[test]

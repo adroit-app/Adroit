@@ -3,10 +3,8 @@
 
 use std::path::PathBuf;
 
-use adroit_model::{Kind, Session, State};
+use adroit_model::{Kind, Session, Shell, State};
 use adroit_term::tags;
-
-use crate::shells::ShellInfo;
 
 const KIND: &str = "adroit.kind";
 pub const NAME: &str = "adroit.name";
@@ -22,7 +20,7 @@ pub const CONVERSATION: &str = "adroit.claude";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Kept {
     Claude(Session),
-    Shell(ShellInfo),
+    Shell(Shell),
 }
 
 /// The daemon's id as the window writes it.
@@ -63,7 +61,7 @@ pub fn read(session: &adroit_term::Session) -> Option<Kept> {
             started_ms: tags::value(t, STARTED).and_then(|s| s.parse().ok()),
             reader: tags::value(t, READER).is_some(),
         })),
-        "shell" => Some(Kept::Shell(ShellInfo {
+        "shell" => Some(Kept::Shell(Shell {
             id: session.id,
             name,
             worktree: cwd,
@@ -186,7 +184,7 @@ mod tests {
         let s = kept(9, shell_tags("shell 1", std::path::Path::new("/api")));
         assert_eq!(
             read(&s),
-            Some(Kept::Shell(ShellInfo {
+            Some(Kept::Shell(Shell {
                 id: 9,
                 name: "shell 1".into(),
                 worktree: "/api".into(),

@@ -131,9 +131,9 @@ another, the complete one runs.
 | --- | --- |
 | `window.left`, `window.down`, `window.up`, `window.right` | move to the area in that direction |
 | `tab.next`, `tab.prev` | show the next or previous tab of the area the keys are in: the details panel's sheets there, elsewhere the console's tabs, which are the sessions opened in the window, the worktree's shells and a draft |
-| `tab.close` | close the current tab; a shell ends, a session runs on and stays in the sidebar |
+| `tab.close` | close the current tab; a shell ends, a session runs on and stays in the sidebar. On a shell's row in the sidebar, that shell ends |
 | `cursor.down`, `cursor.up`, `cursor.first`, `cursor.last` | move the selection in the sidebar; in the details panel, in the list it shows, or scroll what else it shows |
-| `cursor.open` | open the selected session or worktree and move to its console, or to the prompt of a session not started yet; fold or unfold a workspace; in the details panel, open the selected row |
+| `cursor.open` | open the selected session, shell or worktree and move to its console, or to the prompt of a session not started yet; fold or unfold a workspace; in the details panel, open the selected row |
 | `cursor.fold` | fold the selected node; in the details panel, go back out to the list what it shows was opened from |
 | `waiting.next`, `waiting.prev` | open the next or previous session waiting on you |
 | `session.next`, `session.prev` | open the session after or before the one shown, in the sidebar's order over every session, folded away or filtered out too, going round at the ends; the keys stay in the area they are in |
@@ -143,13 +143,13 @@ another, the complete one runs.
 | `session.take_over` | take over an interactive session ([details](interactive-sessions.md)) |
 | `session.stop` | end a session adroit runs after asking; Claude Code keeps its conversation, for `/resume` in a session started later |
 | `session.rename` | ask for a new name for a session adroit runs, with its name to change; the sidebar shows it, and the session is sent Claude Code's `/rename` so its own interface says it too |
-| `shell.open`, `shell.close` | open a shell in the worktree, close the current one |
+| `shell.open`, `shell.close` | open a shell in the worktree, close the current one: the one selected in the sidebar, or else the one shown |
 | `scroll.down`, `scroll.up`, `scroll.half_down`, `scroll.half_up`, `scroll.top`, `scroll.bottom` | scroll the details panel; bound in the console, scroll it: Claude Code and other programs that read the mouse are sent the wheel, others are scrolled back through what scrolled off |
 | `refresh` | read the sessions, and what git says of where they run, again now |
 | `sidebar.toggle`, `details.toggle` | show or hide the sidebar, the details panel |
 | `settings.open` | open the Settings window |
 | `zoom.in`, `zoom.out`, `zoom.reset` | draw the window larger or smaller a step, or at the zoom the settings give |
-| `filter` | narrow the sidebar to the sessions, workspaces and worktrees whose names hold what is typed next; `Enter` keeps it, `Escape` clears it |
+| `filter` | narrow the sidebar to the sessions, shells, workspaces and worktrees whose names hold what is typed next; `Enter` keeps it, `Escape` clears it |
 | `details.overview`, `details.changes`, `details.log` | show that sheet of the details panel ([details](details.md)), and the panel when it is hidden |
 | `worktrees.toggle` | list every worktree git knows, those without sessions too, or only those with sessions again |
 | `prompt.focus` | give the prompt the keys |

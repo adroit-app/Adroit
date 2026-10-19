@@ -449,6 +449,7 @@ mod tests {
                 session("o", "add tokens", OAUTH, State::Waiting(Wait::Input)),
                 session("z", "scratch", "/tmp", State::Idle),
             ],
+            &[],
             &found,
             &[],
         )
@@ -497,6 +498,7 @@ mod tests {
                 session("x", "docs", "/w/scratch", State::Idle),
                 session("s", "scratch", "/w/docs", State::Idle),
             ],
+            &[],
             &found,
             &[],
         );

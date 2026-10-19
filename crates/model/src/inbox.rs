@@ -49,6 +49,7 @@ mod tests {
                 session("asks", "/api", State::Waiting(Wait::Permission)),
                 session("other", "/notes", State::Waiting(Wait::Input)),
             ],
+            &[],
             &HashMap::new(),
             &[],
         );

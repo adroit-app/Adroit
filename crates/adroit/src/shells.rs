@@ -9,18 +9,9 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 
-use adroit_model::innermost;
+use adroit_model::{Shell, innermost};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
-
-/// A shell adroit started in a worktree.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ShellInfo {
-    /// The daemon's id for it.
-    pub id: u128,
-    pub name: String,
-    pub worktree: PathBuf,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "lowercase")]
@@ -57,9 +48,9 @@ pub fn socket_path(state_dir: &Path) -> PathBuf {
 /// for its parent's. `screen` reads what a shell shows.
 pub async fn answer(
     request: &Request,
-    shells: &[ShellInfo],
+    shells: &[Shell],
     worktrees: &[PathBuf],
-    screen: impl AsyncFn(&ShellInfo) -> Option<Vec<String>>,
+    screen: impl AsyncFn(&Shell) -> Option<Vec<String>>,
 ) -> Response {
     let cwd = match request {
         Request::List { cwd } | Request::Screen { cwd, .. } => cwd,
@@ -215,8 +206,8 @@ pub fn cli(args: &[String]) -> i32 {
 mod tests {
     use super::*;
 
-    fn shell(id: u128, worktree: &str) -> ShellInfo {
-        ShellInfo {
+    fn shell(id: u128, worktree: &str) -> Shell {
+        Shell {
             id,
             name: format!("shell-{id}"),
             worktree: worktree.into(),

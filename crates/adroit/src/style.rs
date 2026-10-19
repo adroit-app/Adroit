@@ -111,6 +111,7 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .state-glyph.fail { color: var(--fail); width: auto; height: auto; font-size: 11px; }
 .state-glyph.stop { background: var(--text-3); width: 7px; height: 7px; }
 .reads-only-mark { flex: none; color: var(--text-3); display: inline-flex; }
+.shell-mark { flex: none; color: var(--text-3); display: inline-flex; margin: 0 -2px; }
 .sidebar-inbox .list-row-name .reads-only-mark { margin-left: 6px; vertical-align: -1px; }
 /* One line however many tabs there are, so the console keeps its height; the rest scrolls sideways. */
 .tabs { display: flex; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; align-items: center; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--line); flex: none; }

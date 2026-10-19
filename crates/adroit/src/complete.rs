@@ -52,6 +52,7 @@ mod tests {
         )]);
         let tree = build(
             &[s("scratch", "/tmp"), s("fix", "/api/.claude/worktrees/x")],
+            &[],
             &found,
             &[],
         );
@@ -83,6 +84,7 @@ mod tests {
         };
         let tree = build(
             &[s("there", "/a/api"), s("here", "/b/api")],
+            &[],
             &HashMap::new(),
             &[],
         );
