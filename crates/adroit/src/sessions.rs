@@ -14,8 +14,12 @@ const CWD: &str = "adroit.cwd";
 const STARTED: &str = "adroit.started";
 const READER: &str = "adroit.reader";
 /// The conversation a Claude Code session holds, chosen by adroit when it
-/// starts or resumes the session.
+/// starts or resumes the session, and followed when `/clear` or `/resume`
+/// moves the session to another.
 const CONVERSATION: &str = "adroit.claude";
+/// The process Claude Code runs in, learned from its listing while the
+/// session still holds the conversation it was started with.
+const PID: &str = "adroit.pid";
 /// The conversation of the session this one was started from.
 const STARTED_FROM: &str = "adroit.from";
 
@@ -51,7 +55,7 @@ pub fn read(session: &adroit_term::Session) -> Option<Kept> {
         "claude" => Some(Kept::Claude(Session {
             id: hex(session.id),
             session_id: tags::value(t, CONVERSATION).unwrap_or_default(),
-            pid: None,
+            pid: tags::value(t, PID).and_then(|p| p.parse().ok()),
             said_idle: false,
             name,
             cwd,
@@ -77,6 +81,52 @@ pub fn read(session: &adroit_term::Session) -> Option<Kept> {
         })),
         _ => None,
     }
+}
+
+/// Read Claude Code's `listed` sessions against adroit's `own`: each of `own`
+/// learns the process that holds its conversation, and follows that process
+/// to the conversation `/clear` or `/resume` moves it to. The sessions of
+/// `listed` that run in other terminals, and what was learned, as each
+/// session's daemon id, the tag's key and its new value.
+pub fn follow(
+    own: &mut [Session],
+    listed: Vec<Session>,
+) -> (Vec<Session>, Vec<(u128, &'static str, String)>) {
+    let mut learned = Vec::new();
+    for s in own.iter_mut() {
+        let Some(id) = id_of(&s.id) else { continue };
+        match s.pid {
+            Some(pid) => {
+                let moved = listed
+                    .iter()
+                    .find(|l| l.pid == Some(pid))
+                    .filter(|l| !l.session_id.is_empty() && l.session_id != s.session_id);
+                if let Some(l) = moved {
+                    s.session_id = l.session_id.clone();
+                    learned.push((id, CONVERSATION, s.session_id.clone()));
+                }
+            }
+            None => {
+                let holding = listed
+                    .iter()
+                    .filter(|_| !s.session_id.is_empty())
+                    .find(|l| l.session_id == s.session_id)
+                    .and_then(|l| l.pid);
+                if let Some(pid) = holding {
+                    s.pid = Some(pid);
+                    learned.push((id, PID, pid.to_string()));
+                }
+            }
+        }
+    }
+    let elsewhere = listed
+        .into_iter()
+        .filter(|l| {
+            !own.iter()
+                .any(|s| s.session_id == l.session_id || (s.pid.is_some() && s.pid == l.pid))
+        })
+        .collect();
+    (elsewhere, learned)
 }
 
 /// The tags a Claude Code session adroit starts or resumes carries, holding
@@ -229,6 +279,73 @@ mod tests {
         );
         s.exited = true;
         assert_eq!(read(&s), None);
+    }
+
+    fn own(id: u128, conversation: &str, pid: Option<u32>) -> Session {
+        let mut tags = claude_tags(
+            "fix",
+            std::path::Path::new("/api"),
+            conversation,
+            false,
+            0,
+            None,
+        );
+        if let Some(pid) = pid {
+            tags.extend(tags::tagged(PID, &pid.to_string()));
+        }
+        let Some(Kept::Claude(c)) = read(&kept(id, tags)) else {
+            panic!("not a session");
+        };
+        c
+    }
+
+    fn listed(conversation: &str, pid: u32) -> Session {
+        Session {
+            id: conversation.into(),
+            session_id: conversation.into(),
+            pid: Some(pid),
+            kind: Kind::Interactive,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_session_learns_the_process_holding_its_conversation() {
+        let mut ours = [own(7, "uuid", None)];
+
+        let (elsewhere, learned) = follow(&mut ours, vec![listed("uuid", 42), listed("other", 9)]);
+
+        assert_eq!(ours[0].pid, Some(42));
+        assert_eq!(learned, vec![(7, PID, "42".to_string())]);
+        assert_eq!(elsewhere, vec![listed("other", 9)]);
+    }
+
+    #[test]
+    fn a_session_follows_its_process_to_the_conversation_it_moves_to() {
+        let mut ours = [own(7, "uuid", Some(42))];
+
+        let (elsewhere, learned) = follow(&mut ours, vec![listed("cleared", 42)]);
+
+        assert_eq!(ours[0].session_id, "cleared");
+        assert_eq!(learned, vec![(7, CONVERSATION, "cleared".to_string())]);
+        assert!(elsewhere.is_empty());
+    }
+
+    #[test]
+    fn a_session_whose_conversation_and_process_are_known_learns_nothing() {
+        let mut ours = [own(7, "uuid", Some(42))];
+
+        let (elsewhere, learned) = follow(&mut ours, vec![listed("uuid", 42)]);
+
+        assert_eq!(ours[0].session_id, "uuid");
+        assert!(learned.is_empty());
+        assert!(elsewhere.is_empty());
+    }
+
+    #[test]
+    fn the_process_a_session_runs_in_is_read_back_from_its_tags() {
+        assert_eq!(own(7, "uuid", Some(42)).pid, Some(42));
+        assert_eq!(own(7, "uuid", None).pid, None);
     }
 
     #[test]

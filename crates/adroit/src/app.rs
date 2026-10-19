@@ -1125,14 +1125,22 @@ async fn read_sessions(daemon: &Daemon) -> Result<(Vec<Session>, Vec<Shell>), St
     }
     // Without Claude Code, or with a listing it cannot give, the sessions in
     // other terminals are not listed; adroit's own still are.
-    let elsewhere = adroit_claude::list_sessions(programs::claude_asked)
+    let listed = adroit_claude::list_sessions(programs::claude_asked)
         .await
         .unwrap_or_default();
-    let held: HashSet<&str> = own.iter().map(|s| s.session_id.as_str()).collect();
-    let elsewhere: Vec<Session> = elsewhere
-        .into_iter()
-        .filter(|s| !held.contains(s.session_id.as_str()))
-        .collect();
+    let (elsewhere, learned) = sessions::follow(&mut own, listed);
+    // Kept on the session, so a window opened later follows it too; one not
+    // kept is learned again on the next read.
+    for (id, key, value) in learned {
+        let held = kept
+            .iter()
+            .find(|s| s.id == id)
+            .map(|s| adroit_term::tags::holding(&s.tags, key))
+            .unwrap_or_default();
+        let _ = daemon
+            .tag(id, adroit_term::tags::tagged(key, &value), held)
+            .await;
+    }
     own.extend(elsewhere);
     Ok((own, kept_shells))
 }

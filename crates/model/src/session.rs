@@ -12,7 +12,8 @@ pub struct Session {
     /// The conversation's id, which stays when a session is taken over and
     /// runs under another id; empty until the conversation tells it.
     pub session_id: String,
-    /// The process a session in another terminal runs in.
+    /// The process the session runs in, as Claude Code lists it; for one
+    /// adroit runs, unknown until it is listed.
     pub pid: Option<u32>,
     /// Whether Claude Code named the session idle, rather than adroit taking
     /// it as idle for want of a state it knows.

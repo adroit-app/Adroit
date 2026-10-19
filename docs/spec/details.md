@@ -58,7 +58,8 @@ default browser, a file in the app that opens it. A right click on a link
 also offers to copy it, its address or its file's path, and on a file to
 reveal it in the Finder. A click on a group's heading folds the group under it
 or unfolds it, and a group stays folded as other sessions are shown. The list
-follows the conversation as it goes on.
+follows the conversation as it goes on, and to the one `/clear` or `/resume`
+moves the session to.
 
 Back goes out one level at a time, to the list the shown row was opened from,
 with that row selected. A row opens by its keys or a click; the line above a
