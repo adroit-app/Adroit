@@ -10,7 +10,7 @@ use adroit_claude::Access;
 use adroit_claude::git::DiffKind;
 use adroit_claude::links::{Kind as LinkKind, Link, Links, Touch, Transcript};
 use adroit_claude::{commands, places};
-use adroit_model::{InboxItem, Kind, Session, Shell, State, Tree, Worktree, build, inbox};
+use adroit_model::{InboxItem, Kind, Runs, Session, Shell, State, Tree, Worktree, build, inbox};
 use adroit_nvim::{Embedded, Event as NvimEvent, notation};
 use adroit_term::{Daemon, Key, Palette, Pane, Size, Spawn};
 use dioxus::prelude::*;
@@ -897,12 +897,25 @@ fn Book() -> Element {
     }
 }
 
-/// The mark of a shell's row.
+/// What the shell `id` runs; a shell when it is not among `shells`.
+fn runs_of(shells: &[Shell], id: u128) -> Runs {
+    shells
+        .iter()
+        .find(|s| s.id == id)
+        .map(|s| s.runs)
+        .unwrap_or_default()
+}
+
+/// The mark of a shell's row or tab, by what it runs.
 #[component]
-fn Terminal() -> Element {
+fn Terminal(runs: Runs) -> Element {
+    let (icon, title) = match runs {
+        Runs::Shell => (Icon::Terminal2, "shell"),
+        Runs::Neovim => (Icon::Code, "Neovim"),
+    };
     rsx! {
-        span { class: "shell-mark", title: "shell",
-            IconView { icon: Icon::Terminal2, size: 14 }
+        span { class: "shell-mark", title,
+            IconView { icon }
         }
     }
 }
@@ -3228,7 +3241,12 @@ fn App() -> Element {
                         start_writing(nvim);
                     }
                 }
-                Action::ShellOpen => {
+                Action::ShellOpen | Action::NeovimOpen => {
+                    let runs = if action == Action::NeovimOpen {
+                        Runs::Neovim
+                    } else {
+                        Runs::Shell
+                    };
                     let p = cur
                         .as_ref()
                         .filter(|_| on_list)
@@ -3242,15 +3260,18 @@ fn App() -> Element {
                             .map(|s| s.name.clone())
                             .collect();
                         let taken: Vec<&str> = names.iter().map(String::as_str).collect();
-                        let name = fresh_name("shell", &taken);
-                        let (program, args, env) = programs::shell();
+                        let (base, (program, args, env)) = match runs {
+                            Runs::Shell => ("shell", programs::shell()),
+                            Runs::Neovim => ("nvim", programs::neovim()),
+                        };
+                        let name = fresh_name(base, &taken);
                         let size = *console_size.peek();
                         let spawn_shell = Spawn {
                             program,
                             args,
                             cwd: p.worktree.clone(),
                             env: env.into_iter().chain(daemon::terminal_env()).collect(),
-                            tags: sessions::shell_tags(&name, &p.worktree),
+                            tags: sessions::shell_tags(&name, &p.worktree, runs),
                             cols: size.cols,
                             rows: size.rows,
                         };
@@ -3262,12 +3283,13 @@ fn App() -> Element {
                                         id,
                                         name,
                                         worktree: p.worktree.clone(),
+                                        runs,
                                     });
                                     place.set(Some(p));
                                     active.set(Some(Tab::Shell(id)));
                                     focus.set(Area::Console);
                                 }
-                                Err(e) => status.set(Some(format!("cannot start a shell: {e}"))),
+                                Err(e) => status.set(Some(format!("cannot start {base}: {e}"))),
                             }
                         });
                     }
@@ -4272,7 +4294,10 @@ fn App() -> Element {
                                     }
                                     Item::Waiting(_) => (0, "list-row", String::new(), String::new(), None),
                                 };
-                                let terminal = matches!(it, Item::Shell(_));
+                                let terminal = match &it {
+                                    Item::Shell(id) => Some(runs_of(&shells.read(), *id)),
+                                    _ => None,
+                                };
                                 let place_icon = match &it {
                                     Item::Workspace(root) if t.workspace_of(root).is_some_and(|w| w.scratch) => Some(Icon::Notes),
                                     Item::Workspace(_) if it.fold_key().is_some_and(|k| collapsed.read().contains(&k)) => Some(Icon::Folder),
@@ -4315,7 +4340,7 @@ fn App() -> Element {
                                         if let Some(icon) = place_icon {
                                             span { class: "place-mark", IconView { icon } }
                                         }
-                                        if terminal { Terminal {} }
+                                        if let Some(runs) = terminal { Terminal { runs } }
                                         span { class: "list-row-name", "{text}" }
                                         if reader { Book {} }
                                         if has_draft {
@@ -4371,8 +4396,11 @@ fn App() -> Element {
                         for (tab , name , state , reader) in tabs().into_iter() {
                             {
                                 let is_active = active_tab.as_ref() == Some(&tab);
-                                let shell = matches!(tab, Tab::Shell(_));
-                                let class = match (is_active, shell) {
+                                let shell = match &tab {
+                                    Tab::Shell(id) => Some(runs_of(&shells.read(), *id)),
+                                    _ => None,
+                                };
+                                let class = match (is_active, shell.is_some()) {
                                     (true, true) => "tab active shell",
                                     (true, false) => "tab active",
                                     (false, true) => "tab shell",
@@ -4397,7 +4425,7 @@ fn App() -> Element {
                                         if let Some((g, icon, tip)) = glyph_class {
                                             span { class: "{g}", title: "{tip}", IconView { icon, size: 13 } }
                                         }
-                                        if shell { span { class: "shell-mark", IconView { icon: Icon::Terminal2 } } }
+                                        if let Some(runs) = shell { Terminal { runs } }
                                         if matches!(tab, Tab::Draft { role: Role::Worker, .. }) { span { class: "place-mark", IconView { icon: Icon::MessagePlus, size: 13 } } }
                                         "{name}"
                                         if reader { Book {} }
@@ -4407,7 +4435,11 @@ fn App() -> Element {
                                         if closes {
                                             span {
                                                 class: "tab-close",
-                                                title: if shell { "Close the shell" } else { "Close the tab; the session runs on" },
+                                                title: match shell {
+                                                    Some(Runs::Shell) => "Close the shell",
+                                                    Some(Runs::Neovim) => "Close Neovim",
+                                                    None => "Close the tab; the session runs on",
+                                                },
                                                 onclick: {
                                                     let mut run = run_menu.clone();
                                                     move |e: Event<MouseData>| {

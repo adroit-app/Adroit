@@ -35,6 +35,8 @@ pub struct Settings {
     pub shell: ShellLaunch,
     /// How Claude Code is started.
     pub claude: Launch,
+    /// How a Neovim tab's Neovim is started.
+    pub neovim: Launch,
 }
 
 /// The fonts the console falls back to, a Japanese one among them for what a
@@ -54,6 +56,7 @@ impl Default for Settings {
             keep_awake: true,
             shell: ShellLaunch::default(),
             claude: Launch::default(),
+            neovim: Launch::default(),
         }
     }
 }
@@ -88,6 +91,7 @@ impl Settings {
         };
         self.shell.command = words(self.shell.command);
         self.claude.command = words(self.claude.command);
+        self.neovim.command = words(self.neovim.command);
         self
     }
 
@@ -240,6 +244,11 @@ mod tests {
                 via_shell: true,
                 env: BTreeMap::from([("FOO".into(), "1".into())]),
             },
+            neovim: Launch {
+                command: vec!["nvim".into(), "--listen".into(), "/tmp/n".into()],
+                via_shell: false,
+                env: BTreeMap::new(),
+            },
         };
         let text = toml::to_string_pretty(&s).unwrap();
         assert_eq!(Settings::parse(&text).unwrap(), s);
@@ -255,6 +264,10 @@ mod tests {
         assert!(s.claude.via_shell);
         assert_eq!(s.claude.env.get("FOO").map(String::as_str), Some("1"));
         assert_eq!(Settings::parse("").unwrap().claude, Launch::default());
+        let s = Settings::parse("[neovim]\ncommand = [\"/opt/nvim/bin/nvim\"]\nvia_shell = true\n")
+            .unwrap();
+        assert_eq!(s.neovim.command, ["/opt/nvim/bin/nvim"]);
+        assert!(s.neovim.via_shell);
         assert!(Settings::parse("[claude]\nvia_shel = true\n").is_err());
     }
 

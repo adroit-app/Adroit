@@ -426,6 +426,7 @@ mod tests {
 
     fn shell(id: u128, dir: &str) -> Shell {
         Shell {
+            runs: Default::default(),
             id,
             name: format!("shell-{id}"),
             worktree: dir.into(),

@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use adroit_model::{Kind, Session, Shell, State};
+use adroit_model::{Kind, Runs, Session, Shell, State};
 use adroit_term::tags;
 
 const KIND: &str = "adroit.kind";
@@ -65,10 +65,15 @@ pub fn read(session: &adroit_term::Session) -> Option<Kept> {
             reader: tags::value(t, READER).is_some(),
             started_from: tags::value(t, STARTED_FROM).unwrap_or_default(),
         })),
-        "shell" => Some(Kept::Shell(Shell {
+        kind @ ("shell" | "nvim") => Some(Kept::Shell(Shell {
             id: session.id,
             name,
             worktree: cwd,
+            runs: if kind == "nvim" {
+                Runs::Neovim
+            } else {
+                Runs::Shell
+            },
         })),
         _ => None,
     }
@@ -98,9 +103,13 @@ pub fn claude_tags(
     out
 }
 
-/// The tags a shell adroit starts carries.
-pub fn shell_tags(name: &str, worktree: &std::path::Path) -> Vec<String> {
-    let mut out = tags::tagged(KIND, "shell");
+/// The tags a shell adroit starts carries, saying what it `runs`.
+pub fn shell_tags(name: &str, worktree: &std::path::Path, runs: Runs) -> Vec<String> {
+    let kind = match runs {
+        Runs::Shell => "shell",
+        Runs::Neovim => "nvim",
+    };
+    let mut out = tags::tagged(KIND, kind);
     out.extend(tags::tagged(NAME, name));
     out.extend(tags::tagged(CWD, &worktree.to_string_lossy()));
     out
@@ -196,22 +205,28 @@ mod tests {
     }
 
     #[test]
-    fn a_shell_is_read_back_with_its_worktree() {
-        let s = kept(9, shell_tags("shell 1", std::path::Path::new("/api")));
-        assert_eq!(
-            read(&s),
-            Some(Kept::Shell(Shell {
-                id: 9,
-                name: "shell 1".into(),
-                worktree: "/api".into(),
-            }))
-        );
+    fn a_shell_is_read_back_with_its_worktree_and_what_it_runs() {
+        for runs in [Runs::Shell, Runs::Neovim] {
+            let s = kept(9, shell_tags("shell 1", std::path::Path::new("/api"), runs));
+            assert_eq!(
+                read(&s),
+                Some(Kept::Shell(Shell {
+                    id: 9,
+                    name: "shell 1".into(),
+                    worktree: "/api".into(),
+                    runs,
+                }))
+            );
+        }
     }
 
     #[test]
     fn a_session_adroit_did_not_start_or_one_that_exited_is_not_adroit_s() {
         assert_eq!(read(&kept(1, vec!["other=1".into()])), None);
-        let mut s = kept(9, shell_tags("shell 1", std::path::Path::new("/api")));
+        let mut s = kept(
+            9,
+            shell_tags("shell 1", std::path::Path::new("/api"), Runs::Shell),
+        );
         s.exited = true;
         assert_eq!(read(&s), None);
     }

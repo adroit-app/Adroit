@@ -55,6 +55,13 @@ command = []
 via_shell = false
 
 [claude.env]
+
+# How a Neovim tab's Neovim starts, as Claude Code does: empty for `nvim`.
+[neovim]
+command = []
+via_shell = false
+
+[neovim.env]
 ```
 
 A program started through the shell is started by the shell `[shell]` names,

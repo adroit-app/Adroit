@@ -404,6 +404,13 @@ fn ProgramsPane(now: Settings, change: Callback<Change>) -> Element {
             launch: now.claude.clone(),
             set: move |l: Launch| change(Box::new(move |s: &mut Settings| s.claude = l)),
         }
+        LaunchGroup {
+            title: "Neovim",
+            hint: "The Neovim a Neovim tab runs, with its arguments; empty for nvim. It reads your own configuration.",
+            placeholder: "nvim",
+            launch: now.neovim.clone(),
+            set: move |l: Launch| change(Box::new(move |s: &mut Settings| s.neovim = l)),
+        }
     }
 }
 

@@ -142,6 +142,15 @@ pub fn claude_program() -> String {
         .unwrap_or_else(adroit_claude::claude_program)
 }
 
+/// What starts a Neovim tab's Neovim, as the settings say: the program, its
+/// arguments, and the variables the settings set for it.
+pub fn neovim() -> (String, Vec<String>, Vec<(String, String)>) {
+    let s = crate::settings::current();
+    let shell = s.shell.program(&login_shell());
+    let (program, args) = s.neovim.command_line("nvim", &[], &shell);
+    (program, args, s.neovim.env.into_iter().collect())
+}
+
 /// What starts a shell tab's shell, as the settings say: the program, its
 /// arguments, and the variables it gets, `SHELL` naming it.
 pub fn shell() -> (String, Vec<String>, Vec<(String, String)>) {

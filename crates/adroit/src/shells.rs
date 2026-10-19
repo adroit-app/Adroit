@@ -208,6 +208,7 @@ mod tests {
 
     fn shell(id: u128, worktree: &str) -> Shell {
         Shell {
+            runs: Default::default(),
             id,
             name: format!("shell-{id}"),
             worktree: worktree.into(),

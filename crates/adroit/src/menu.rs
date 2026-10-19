@@ -26,6 +26,7 @@ pub fn entries(target: &Target, session: Option<&Session>) -> Vec<(Action, &'sta
         (Action::SessionNew, "New session here"),
         (Action::SessionNewReader, "New reader here"),
         (Action::ShellOpen, "Open a shell here"),
+        (Action::NeovimOpen, "Open Neovim here"),
     ];
     let ending = session.map(|s| match s.kind {
         Kind::Interactive => (Action::SessionTakeOver, "Take over…"),
@@ -77,7 +78,7 @@ pub fn entries(target: &Target, session: Option<&Session>) -> Vec<(Action, &'sta
 /// clicked, starting something beside it, and ending or closing it.
 pub fn groups(target: &Target, session: Option<&Session>) -> Vec<Vec<(Action, &'static str)>> {
     let kin = |a: &Action| match a {
-        Action::SessionNew | Action::SessionNewReader | Action::ShellOpen => 1,
+        Action::SessionNew | Action::SessionNewReader | Action::ShellOpen | Action::NeovimOpen => 1,
         Action::SessionTakeOver | Action::SessionStop | Action::TabClose => 2,
         _ => 0,
     };
@@ -153,7 +154,8 @@ mod tests {
                 vec![
                     Action::SessionNew,
                     Action::SessionNewReader,
-                    Action::ShellOpen
+                    Action::ShellOpen,
+                    Action::NeovimOpen,
                 ],
                 vec![Action::SessionStop],
             ]
@@ -193,6 +195,7 @@ mod tests {
                 Action::SessionNew,
                 Action::SessionNewReader,
                 Action::ShellOpen,
+                Action::NeovimOpen,
                 Action::SessionStop,
             ]
         );
@@ -214,6 +217,7 @@ mod tests {
             Action::SessionNew,
             Action::SessionNewReader,
             Action::ShellOpen,
+            Action::NeovimOpen,
         ];
         assert_eq!(
             actions(Target::Row(Item::Workspace("/api".into())), None),
@@ -235,6 +239,7 @@ mod tests {
                 Action::SessionNew,
                 Action::SessionNewReader,
                 Action::ShellOpen,
+                Action::NeovimOpen,
                 Action::TabClose,
             ]
         );

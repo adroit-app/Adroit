@@ -8,6 +8,10 @@ under the worktree it runs in ([workspaces](workspaces.md#the-tree)), so a
 shell whose tab is out of view is a row away. Closing a shell's tab, or
 closing it from its row, ends it.
 
+A Neovim tab is a shell that runs Neovim, with your own configuration, in
+place of the shell: opened, listed and read as a shell is, and ended by
+closing it or by quitting Neovim.
+
 The shells you open in adroit belong to a worktree. A session working in that
 worktree can read them, so it can see a dev server's log or a failing command
 without you copying it over.
