@@ -423,9 +423,13 @@ fn starts_reading(area: Area, session: bool, passing: bool, reading: bool) -> bo
     area == Area::Console && session && !passing && !reading
 }
 
-/// What the mode chip's word means.
-fn mode_tip(mode: &str) -> &'static str {
+/// What the mode chip's word means, `dialog` while the session in the console
+/// shows a dialog of Claude Code's own.
+fn mode_tip(mode: &str, dialog: bool) -> &'static str {
     match mode {
+        "PASS" if dialog => {
+            "Claude Code shows a dialog: every key goes to it, but Ctrl+w sequences, until it closes"
+        }
         "TREE" => "The sidebar has the keys: j and k move, Enter opens. Ctrl+w l goes right",
         "DETAILS" => {
             "The details panel has the keys: j and k move or scroll, Enter opens, h goes back, Cmd+] and Cmd+[ change the sheet"
@@ -833,6 +837,9 @@ fn App() -> Element {
     let mut menu = use_signal(|| None::<(f64, f64, Target)>);
     // Whether the console passes every key on to the session it shows.
     let mut direct = use_signal(|| false);
+    // Whether the session in the console shows a dialog of Claude Code's own,
+    // which, as a choice it waits on, takes every key.
+    let mut dialog = use_signal(|| false);
     // The session asked to hand its input over through the external editor.
     let mut pull = use_signal(|| None::<Tab>);
     // Counts the requests, so one lapsing does not take a later one with it.
@@ -2334,10 +2341,28 @@ fn App() -> Element {
     // Whether that session waits on a choice, which every key answers.
     let waits = move || match &*active.peek() {
         Some(Tab::Session(id)) => {
-            nav::find(&tree.peek(), id).is_some_and(|(_, s)| matches!(s.state, State::Waiting(_)))
+            *dialog.peek()
+                || nav::find(&tree.peek(), id)
+                    .is_some_and(|(_, s)| matches!(s.state, State::Waiting(_)))
         }
         _ => false,
     };
+    // Claude Code reports no status for a dialog it opens itself, so the
+    // console's screen tells, looked at again whenever it is redrawn.
+    use_effect({
+        let active_pane = active_pane.clone();
+        move || {
+            let _ = frame();
+            let shows = match &*active.read() {
+                Some(Tab::Session(_)) => active_pane()
+                    .is_some_and(|p| adroit_claude::dialog::dialog_open(&p.screen().text())),
+                _ => false,
+            };
+            if *dialog.peek() != shows {
+                dialog.set(shows);
+            }
+        }
+    });
 
     // Ask the session in the console to hand its input over: Ctrl-g opens
     // Claude Code's external editor, which is `adroit editor`. Claude Code
@@ -2387,7 +2412,7 @@ fn App() -> Element {
                 }
                 _ => false,
             };
-            let free = answering || direct();
+            let free = answering || dialog() || direct();
             let was = *was_free.peek();
             if was == free {
                 return;
@@ -3374,9 +3399,11 @@ fn App() -> Element {
         Some(Tab::Session(id)) => nav::find(&t, id).map(|(_, s)| s.clone()),
         _ => None,
     };
+    let in_dialog = session_shown && dialog();
     let answering = match &active_tab {
         Some(Tab::Session(id)) => {
-            nav::find(&t, id).is_some_and(|(_, s)| matches!(s.state, State::Waiting(_)))
+            in_dialog
+                || nav::find(&t, id).is_some_and(|(_, s)| matches!(s.state, State::Waiting(_)))
         }
         _ => false,
     };
@@ -4087,7 +4114,7 @@ fn App() -> Element {
                 }
             }
             div { class: "footer",
-                span { class: "mode-chip {footer_class}", title: "{mode_tip(&footer_mode)}", "{footer_mode}" }
+                span { class: "mode-chip {footer_class}", title: "{mode_tip(&footer_mode, in_dialog)}", "{footer_mode}" }
                 if let Some(msg) = status() {
                     span { class: "footer-status", title: "{msg}", "{msg}" }
                 }
@@ -4102,7 +4129,13 @@ fn App() -> Element {
                     span { class: "kbd-list", kbd { "Enter" } " keep the filter" }
                     span { class: "kbd-list", kbd { "Esc" } " clear it" }
                 }
-                if area == Area::Prompt && answering {
+                if area == Area::Prompt && in_dialog {
+                    span { class: "kbd-list", "every key goes to Claude Code's dialog" }
+                    span { class: "kbd-list", "the prompt is back once it closes" }
+                } else if area == Area::Console && in_dialog && !passing {
+                    span { class: "kbd-list", "every key goes to Claude Code's dialog" }
+                    span { class: "kbd-list", "the window's moves leave" }
+                } else if area == Area::Prompt && answering {
                     span { class: "kbd-list", "every key answers Claude Code" }
                     span { class: "kbd-list", "the prompt is back once it is answered" }
                 } else if area == Area::Console && answering && !passing {
@@ -4400,5 +4433,11 @@ mod tests {
                 "{area:?} {session} {waits}"
             );
         }
+    }
+
+    #[test]
+    fn passing_keys_to_a_dialog_of_claude_code_s_says_so_in_the_mode_tip() {
+        assert!(mode_tip("PASS", true).contains("dialog"));
+        assert!(!mode_tip("PASS", false).contains("dialog"));
     }
 }

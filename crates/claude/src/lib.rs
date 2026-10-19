@@ -9,6 +9,7 @@ use adroit_model::{ParseError, Session, Worktree};
 use tokio::process::Command;
 
 pub mod commands;
+pub mod dialog;
 pub mod git;
 pub mod history;
 pub mod hook;

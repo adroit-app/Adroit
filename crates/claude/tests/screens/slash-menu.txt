@@ -1,0 +1,40 @@
+ ▐▛███▛█   Claude Code v2.1.302
+▝▜██████▀  Opus 5.5 · Claude Max
+ ▝▝   ▝▝   ~/ghq/github.com/adroit-app/Adroit/.claude/worktrees/pass-keys-to-claude-code-dialogs
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ /model
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ❯ /model                                          Set the AI model for Claude Code (currently Opus 5.5)
+    /auto-mode-setup                                Teach auto mode about your environment, plus optional rule tweaks
+    /code-review                                    3 free /ultrareview · Review the current diff, or a PR
+                                                    number/branch/path target, for correctness bugs (plus reuse/simpl…
+    /engineering:system-design                      (engineering) Design systems, services, and architectures. Trigger
+                                                    with "design a system for", "how should we architect", "system de…
+    /update-config                                  Use this skill to configure the Claude Code harness via
+                                                    settings.json. Automated behaviors ("from now on when X", "each t…
+    /loop                                           Run a prompt or slash command on a recurring interval (e.g. /loop
+                                                    5m /foo). Omit the interval to let the model self-pace.
+    /claude-api                                     Reference for the Claude API / Anthropic SDK — model ids, pricing,
+                                                    params, streaming, tool use, MCP, agents, caching, token counting…
+    /advisor                                        Let Claude consult a stronger model at key moments
+    /effort                                         Set effort level for model usage
+    /status                                         Show Claude Code status including version, model, account, API
+                                                    connectivity, and tool statuses
+    /mcp-builder                                    Guide for creating high-quality MCP (Model Context Protocol)
+                                                    servers that enable LLMs to interact with external services throu…
+
+
+
+
+
+
+
+
+
+
+
+
+
+

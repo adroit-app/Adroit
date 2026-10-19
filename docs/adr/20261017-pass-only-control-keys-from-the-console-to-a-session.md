@@ -1,6 +1,7 @@
 # Pass only control keys from the console to a session
 
-Status: Accepted
+Status: Accepted; superseded in part by
+20261019-pass-every-key-while-claude-code-shows-a-dialog.md
 
 ## Context
 

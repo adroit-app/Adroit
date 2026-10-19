@@ -1,0 +1,40 @@
+❯ /permissions
+  ⎿  Permissions dialog dismissed
+
+❯ /mcp
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Manage MCP servers
+  34 servers
+
+    claude.ai
+  ❯ ✔ claude.ai Claude Docs                 8 tools
+    ✔ claude.ai ClickUp                     61 tools
+    ✔ claude.ai Gmail                       30 tools
+    ✔ claude.ai Google Calendar             9 tools
+    ✔ claude.ai Google Drive                11 tools
+    ✔ claude.ai Google Sheets               9 tools
+    ✔ claude.ai Metabase                    21 tools
+    ✔ claude.ai Slack                       26 tools
+    ✔ claude.ai Slite                       41 tools
+    → Show unused connectors                1 hidden
+
+    Built-in MCPs (always available)
+    ✔ claude-in-chrome                      22 tools
+    ◯ computer-use
+    ⚠ plugin:data:amplitude                 needs authentication
+    ⚠ plugin:data:amplitude-eu              needs authentication
+    ◯ plugin:data:databricks                not configured
+    ✘ plugin:data:definite
+    ⚠ plugin:data:hex                       needs authentication
+    ◯ plugin:data:snowflake                 not configured
+    ⚠ plugin:design:figma                   needs authentication
+    ◯ plugin:design:gmail                   not configured
+    ◯ plugin:design:google calendar         not configured
+    ⚠ plugin:design:intercom                needs authentication
+    ⚠ plugin:engineering:datadog            needs authentication
+    ↓ 11 more
+  ※ Run claude --debug to see error logs
+  https://code.claude.com/docs/en/mcp for help
+ ↑/↓ to navigate · Enter to confirm · Esc to cancel
+

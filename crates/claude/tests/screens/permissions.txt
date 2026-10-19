@@ -1,0 +1,40 @@
+ ▐▛███▛█   Claude Code v2.1.302
+▝▜██████▀  Opus 5.5 · Claude Max
+ ▝▝   ▝▝   ~/ghq/github.com/adroit-app/Adroit/.claude/worktrees/pass-keys-to-claude-code-dialogs
+
+
+❯ /model
+  ⎿  Kept model as Opus 5.5 (default)
+
+❯ /config
+  ⎿  Disabled auto-compact
+
+❯ /permissions
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Permissions  Recently denied   Allow   Ask   Deny   Auto mode   Workspace
+
+  Claude Code won't ask before using allowed tools.
+  ╭───────────────────────────────────────────────╮
+  │ ⌕ Search…                                     │
+  ╰───────────────────────────────────────────────╯
+
+    1.  Add a new rule…
+    2.  Bash(jj absorb:*)
+    3.  Bash(jj describe:*)
+    4.  Bash(jj edit:*)
+    5.  Bash(jj git fetch:*)
+    6.  Bash(jj git init:*)
+    7.  Bash(jj new:*)
+    8.  Bash(jj rebase:*)
+    9.  Bash(jj restore:*)
+  ↓ 10. Bash(jj split:*)
+
+  ←/→ to switch · ↓ to select · Esc to cancel
+
+
+
+
+
+
+

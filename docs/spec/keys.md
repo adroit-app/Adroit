@@ -87,7 +87,10 @@ xterm sends it otherwise.
 A shell in the console takes every key that is not a `global` binding. A
 session waiting on a permission prompt or a question does too, as its answer,
 from the prompt as well as the console; the prompt is Neovim's again once it
-is answered.
+is answered. So does a session showing a dialog of Claude Code's own in place
+of its input box, such as the picker `/model` opens, until the dialog closes.
+The dialog is told from what the console shows; one adroit does not
+recognise still takes `console.pass_every_key`.
 The mouse wheel scrolls the console back in either case, and what is sent to
 it shows the bottom again.
 A key the `console` area does not bind, in a session's console, starts

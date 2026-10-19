@@ -1,0 +1,40 @@
+ ▐▛███▛█   Claude Code v2.1.302
+▝▜██████▀  Opus 5.5 · Claude Max
+ ▝▝   ▝▝   ~/ghq/github.com/adroit-app/Adroit/.claude/worktrees/pass-keys-to-claude-code-dialogs
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ Try "create a util logging.py that..."
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle)
+                                                                Update available! Run: brew upgrade claude-code@latest
+  You've used 81% of your weekly limit · resets Oct 22 at 11pm (Asia/Tokyo) · /usage-credits to keep using Claude Code
+                                                                                                                   /rc
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
