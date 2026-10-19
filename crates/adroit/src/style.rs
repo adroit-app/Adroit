@@ -328,11 +328,13 @@ h2 { font-size: 12px; font-weight: 500; color: var(--text-2); margin: 0 0 4px; p
 .settings-hint { color: var(--text-3); font-size: 12px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; }
 .settings-mono { font-family: var(--mono); font-size: 12px; }
 .settings-row-control { flex: none; display: flex; gap: 8px; align-items: center; }
-select, input, button { font: inherit; font-size: 13px; color: var(--text); background: var(--ground);
+select, input, button, textarea { font: inherit; font-size: 13px; color: var(--text); background: var(--ground);
   border: 1px solid var(--line-strong); border-radius: 6px; padding: 4px 8px; outline: none; }
 input[type=number] { width: 72px; }
+input.settings-command { width: 260px; font-family: var(--mono); font-size: 12px; }
+textarea.settings-env { width: 260px; height: 64px; resize: vertical; font-family: var(--mono); font-size: 12px; }
 input[type=checkbox] { width: 16px; height: 16px; margin: 0; padding: 0; accent-color: var(--run); }
-select:focus, input:focus { border-color: var(--run); }
+select:focus, input:focus, textarea:focus { border-color: var(--run); }
 button { background: var(--select); border-color: transparent; padding: 5px 12px; }
 button:hover { background: #2d333b; }
 button.primary { background: rgba(232,180,94,0.16); color: var(--wait); font-weight: 500; }

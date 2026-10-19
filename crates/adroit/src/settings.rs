@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 
 use crate::paths::config_dir;
+pub use crate::programs::{Launch, ShellLaunch};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -30,6 +31,10 @@ pub struct Settings {
     pub theme: String,
     /// Keep the Mac from idle sleep while a session or a shell runs.
     pub keep_awake: bool,
+    /// How a shell tab's shell is started.
+    pub shell: ShellLaunch,
+    /// How Claude Code is started.
+    pub claude: Launch,
 }
 
 /// The fonts the console falls back to, a Japanese one among them for what a
@@ -47,6 +52,8 @@ impl Default for Settings {
             font_weight: 400,
             theme: crate::themes::DEFAULT.into(),
             keep_awake: true,
+            shell: ShellLaunch::default(),
+            claude: Launch::default(),
         }
     }
 }
@@ -73,6 +80,14 @@ impl Settings {
         }
         self.font_size = self.font_size.clamp(8.0, 32.0);
         self.font_weight = (self.font_weight.clamp(100, 900) + 50) / 100 * 100;
+        let words = |c: Vec<String>| -> Vec<String> {
+            c.into_iter()
+                .map(|w| w.trim().to_string())
+                .filter(|w| !w.is_empty())
+                .collect()
+        };
+        self.shell.command = words(self.shell.command);
+        self.claude.command = words(self.claude.command);
         self
     }
 
@@ -146,6 +161,7 @@ pub fn set(next: Settings) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
 
     #[test]
     fn settings_not_named_are_as_designed() {
@@ -181,6 +197,7 @@ mod tests {
             font_weight: 1234,
             theme: " ".into(),
             keep_awake: true,
+            ..Settings::default()
         }
         .sane();
         assert_eq!(s.zoom, 1.75);
@@ -214,8 +231,48 @@ mod tests {
             font_weight: 300,
             theme: "Nightfox".into(),
             keep_awake: false,
+            shell: ShellLaunch {
+                command: vec!["/bin/bash".into(), "-l".into()],
+                env: BTreeMap::from([("LANG".into(), "C".into())]),
+            },
+            claude: Launch {
+                command: vec!["claude".into(), "--model".into(), "opus".into()],
+                via_shell: true,
+                env: BTreeMap::from([("FOO".into(), "1".into())]),
+            },
         };
         let text = toml::to_string_pretty(&s).unwrap();
         assert_eq!(Settings::parse(&text).unwrap(), s);
+    }
+
+    #[test]
+    fn how_shells_and_claude_code_start_is_read_from_tables_of_their_own() {
+        let s = Settings::parse(
+            "[shell]\ncommand = [\"/bin/bash\", \"-l\"]\n[claude]\nvia_shell = true\n[claude.env]\nFOO = \"1\"\n",
+        )
+        .unwrap();
+        assert_eq!(s.shell.command, ["/bin/bash", "-l"]);
+        assert!(s.claude.via_shell);
+        assert_eq!(s.claude.env.get("FOO").map(String::as_str), Some("1"));
+        assert_eq!(Settings::parse("").unwrap().claude, Launch::default());
+        assert!(Settings::parse("[claude]\nvia_shel = true\n").is_err());
+    }
+
+    #[test]
+    fn a_command_keeps_no_empty_words() {
+        let s = Settings {
+            shell: ShellLaunch {
+                command: vec!["  ".into(), " /bin/zsh ".into(), "".into()],
+                ..ShellLaunch::default()
+            },
+            claude: Launch {
+                command: vec![" ".into()],
+                ..Launch::default()
+            },
+            ..Settings::default()
+        }
+        .sane();
+        assert_eq!(s.shell.command, ["/bin/zsh"]);
+        assert!(s.claude.command.is_empty());
     }
 }

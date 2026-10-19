@@ -13,6 +13,7 @@ use dioxus::prelude::*;
 use crate::icons::{Icon, IconView};
 use crate::keys_pane::KeysPane;
 use crate::paths::{home, keys_path};
+use crate::programs::{Launch, format_command, format_env, parse_command, parse_env};
 use crate::settings::{self, Settings};
 use crate::style::SETTINGS_CSS;
 use crate::zoom::LEVELS;
@@ -67,17 +68,25 @@ enum Pane {
     General,
     Console,
     Prompt,
+    Programs,
     Keys,
 }
 
 impl Pane {
-    const ALL: [Pane; 4] = [Pane::General, Pane::Console, Pane::Prompt, Pane::Keys];
+    const ALL: [Pane; 5] = [
+        Pane::General,
+        Pane::Console,
+        Pane::Prompt,
+        Pane::Programs,
+        Pane::Keys,
+    ];
 
     fn title(self) -> &'static str {
         match self {
             Pane::General => "General",
             Pane::Console => "Console",
             Pane::Prompt => "Prompt",
+            Pane::Programs => "Programs",
             Pane::Keys => "Keys",
         }
     }
@@ -87,6 +96,7 @@ impl Pane {
             Pane::General => Icon::AdjustmentsHorizontal,
             Pane::Console => Icon::Terminal,
             Pane::Prompt => Icon::Pencil,
+            Pane::Programs => Icon::Terminal2,
             Pane::Keys => Icon::Keyboard,
         }
     }
@@ -169,6 +179,7 @@ fn SettingsWindow() -> Element {
                     Pane::General => rsx! { General { now: now(), change } },
                     Pane::Console => rsx! { ConsolePane { now: now(), change } },
                     Pane::Prompt => rsx! { PromptPane { now: now(), change } },
+                    Pane::Programs => rsx! { ProgramsPane { now: now(), change } },
                     Pane::Keys => rsx! { KeysPane {} },
                 }
             }
@@ -349,6 +360,92 @@ fn PromptPane(now: Settings, change: Callback<Change>) -> Element {
                             change(Box::new(move |s: &mut Settings| s.prompt_max_rows = n));
                         }
                     },
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn ProgramsPane(now: Settings, change: Callback<Change>) -> Element {
+    let login = crate::programs::login_shell();
+    rsx! {
+        section { class: "settings-group",
+            h2 { "Shell" }
+            Row { label: "Command", hint: "The shell a shell tab runs, with its arguments; empty for your login shell, started as a login shell.",
+                input {
+                    class: "settings-command",
+                    r#type: "text",
+                    value: "{format_command(&now.shell.command)}",
+                    placeholder: "{login} -l",
+                    onchange: move |e| {
+                        if let Some(c) = parse_command(&e.value()) {
+                            change(Box::new(move |s: &mut Settings| s.shell.command = c));
+                        }
+                    },
+                }
+            }
+            Row { label: "Environment", hint: "Variables set for it, one a line as NAME=value.",
+                textarea {
+                    class: "settings-env",
+                    value: "{format_env(&now.shell.env)}",
+                    placeholder: "LANG=en_US.UTF-8",
+                    onchange: move |e| {
+                        let env = parse_env(&e.value());
+                        change(Box::new(move |s: &mut Settings| s.shell.env = env));
+                    },
+                }
+            }
+        }
+        LaunchGroup {
+            title: "Claude Code",
+            hint: "The program every session runs, with the arguments it always gets ahead of adroit's own; empty for claude.",
+            placeholder: "claude",
+            launch: now.claude.clone(),
+            set: move |l: Launch| change(Box::new(move |s: &mut Settings| s.claude = l)),
+        }
+    }
+}
+
+/// How one program other than the shell is started: its command, whether
+/// through the shell, and its variables.
+#[component]
+fn LaunchGroup(
+    title: String,
+    hint: String,
+    placeholder: String,
+    launch: Launch,
+    set: Callback<Launch>,
+) -> Element {
+    let (a, b, c) = (launch.clone(), launch.clone(), launch.clone());
+    rsx! {
+        section { class: "settings-group",
+            h2 { "{title}" }
+            Row { label: "Command", hint,
+                input {
+                    class: "settings-command",
+                    r#type: "text",
+                    value: "{format_command(&launch.command)}",
+                    placeholder,
+                    onchange: move |e| {
+                        if let Some(command) = parse_command(&e.value()) {
+                            set(Launch { command, ..a.clone() });
+                        }
+                    },
+                }
+            }
+            Row { label: "Start through the shell", hint: "Run by your shell as an interactive login shell, so what its startup files set reaches it.",
+                input {
+                    r#type: "checkbox",
+                    checked: launch.via_shell,
+                    onchange: move |e| set(Launch { via_shell: e.checked(), ..b.clone() }),
+                }
+            }
+            Row { label: "Environment", hint: "Variables set for it, one a line as NAME=value.",
+                textarea {
+                    class: "settings-env",
+                    value: "{format_env(&launch.env)}",
+                    onchange: move |e| set(Launch { env: parse_env(&e.value()), ..c.clone() }),
                 }
             }
         }

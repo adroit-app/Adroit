@@ -40,6 +40,7 @@ use crate::paths::{home, keys_path, scratch_dir, state_dir};
 use crate::picker::{self, Candidate, Choice, Mode, Picker};
 use crate::picker_view::PickerView;
 use crate::plugin;
+use crate::programs;
 use crate::prompts::{self, Op, Prompts};
 use crate::rename::Rename;
 use crate::scratch::{self, Moment};
@@ -590,10 +591,6 @@ fn now_ms() -> u64 {
 /// Where the tab shown is kept for the next run of the window.
 fn shown_path() -> PathBuf {
     state_dir().join("adroit").join("shown")
-}
-
-fn shell_program() -> String {
-    crate::env::login_shell().unwrap_or_else(|| "/bin/sh".into())
 }
 
 fn short(path: &Path) -> String {
@@ -1431,7 +1428,7 @@ fn App() -> Element {
             return;
         }
         spawn(async move {
-            let program = adroit_claude::claude_program();
+            let program = programs::claude_program();
             let got = commands::probe(&program, &dir, commands::PROBE_TIMEOUT).await;
             command_cache.write().settle(&dir, Instant::now(), got);
         });
@@ -2146,11 +2143,13 @@ fn App() -> Element {
                                         access,
                                         &text,
                                     ));
+                                    let (program, args, env) =
+                                        programs::claude(args, session_env());
                                     let spawn = Spawn {
-                                        program: adroit_claude::claude_program(),
+                                        program,
                                         args,
                                         cwd: worktree.clone(),
-                                        env: session_env(),
+                                        env,
                                         tags: sessions::claude_tags(
                                             &name,
                                             &worktree,
@@ -2232,11 +2231,12 @@ fn App() -> Element {
                 let size = *console_size.peek();
                 let mut args = plugin::args(&adroit_program());
                 args.extend(adroit_claude::resume_args(&now.session_id));
+                let (program, args, env) = programs::claude(args, session_env());
                 let spawn = Spawn {
-                    program: adroit_claude::claude_program(),
+                    program,
                     args,
                     cwd: now.cwd.clone(),
-                    env: session_env(),
+                    env,
                     tags: sessions::claude_tags(
                         &now.name,
                         &now.cwd,
@@ -3243,17 +3243,13 @@ fn App() -> Element {
                             .collect();
                         let taken: Vec<&str> = names.iter().map(String::as_str).collect();
                         let name = fresh_name("shell", &taken);
-                        let shell = shell_program();
+                        let (program, args, env) = programs::shell();
                         let size = *console_size.peek();
                         let spawn_shell = Spawn {
-                            program: shell.clone(),
-                            args: vec!["-l".into()],
+                            program,
+                            args,
                             cwd: p.worktree.clone(),
-                            // What runs in it reads the shell it runs in from here.
-                            env: [("SHELL".into(), shell)]
-                                .into_iter()
-                                .chain(daemon::terminal_env())
-                                .collect(),
+                            env: env.into_iter().chain(daemon::terminal_env()).collect(),
                             tags: sessions::shell_tags(&name, &p.worktree),
                             cols: size.cols,
                             rows: size.rows,

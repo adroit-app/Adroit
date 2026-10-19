@@ -38,7 +38,29 @@ theme = "Adroit"
 # Keep the Mac from idle sleep while a session or a shell runs, the window
 # open or not; the display still sleeps.
 keep_awake = true
+
+# How a shell tab's shell starts: the shell and its arguments, empty for your
+# account's login shell started as a login shell, and variables set for it.
+[shell]
+command = []
+
+[shell.env]
+
+# How Claude Code starts for every session adroit runs: the program and the
+# arguments it always gets ahead of adroit's own, empty for `claude`; whether
+# your shell starts it, as an interactive login shell so that what its startup
+# files set reaches it; and variables set for it.
+[claude]
+command = []
+via_shell = false
+
+[claude.env]
 ```
+
+A program started through the shell is started by the shell `[shell]` names,
+or your login shell, with the program and its arguments handed over as they
+are; a POSIX shell or fish can do so. The Programs pane of the Settings window
+changes the same settings, a command written there as a shell would split it.
 
 A theme is adroit's own, one of those it comes with (Nightfox, TokyoNight,
 Catppuccin, Gruvbox, Dracula, Nord, Kanagawa, Rose Pine and GitHub Light among

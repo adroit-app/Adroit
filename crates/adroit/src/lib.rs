@@ -27,6 +27,7 @@ mod paths;
 pub mod picker;
 mod picker_view;
 mod plugin;
+mod programs;
 pub mod prompts;
 pub mod rename;
 pub mod scratch;
