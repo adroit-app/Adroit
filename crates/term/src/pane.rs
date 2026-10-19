@@ -1,7 +1,7 @@
 //! A window onto one session in the daemon: the screen and images it sends,
 //! mirrored as they change, and the input sent to it.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use base64::Engine;
@@ -12,8 +12,8 @@ use felis_client_core::{
 use felis_grid::image_layout::ImageDraw;
 use felis_protocol::MessageKind;
 use felis_protocol::messages::{
-    ConnToClientMsg, GridMsg, ImageMsg, InputMods, InputMsg, MouseAction, MouseButton, MouseEvent,
-    PushMsg, RequestedDims, SessionInfo, SessionToDaemonMsg, ThemeChannel,
+    ConnToClientMsg, GridMsg, ImageMsg, ImageTarget, InputMods, InputMsg, MouseAction, MouseButton,
+    MouseEvent, PushMsg, RequestedDims, SessionInfo, SessionToDaemonMsg, ThemeChannel,
 };
 use felis_transport::local::{ReadHalf, WriteHalf};
 use felis_transport::{Delivery, Incoming};
@@ -76,6 +76,19 @@ pub struct Picture {
     pub dst: [f32; 4],
 }
 
+/// An image a program sent, as it first came in whole: straight RGBA8
+/// pixels, `width` by `height`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Drawn {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
+}
+
+/// The most images waiting to be taken; past it the oldest give way, so a
+/// pane nobody takes from holds no more.
+const WAITING: usize = 8;
+
 type Waker = Arc<dyn Fn() + Send + Sync>;
 
 struct State {
@@ -84,6 +97,10 @@ struct State {
     layout: ImageLayout,
     overrides: Overrides,
     palette: Palette,
+    /// Images begun anew, not yet in whole.
+    fresh: HashSet<ImageId>,
+    /// Images in whole since they were last taken, oldest first.
+    drawn: VecDeque<Drawn>,
     /// Each image as a `data:` URL, made once for what it shows.
     urls: HashMap<ImageId, (u64, Arc<str>)>,
     exited: bool,
@@ -228,6 +245,8 @@ impl Pane {
             layout: ImageLayout::new(),
             overrides: Overrides::default(),
             palette: palette.clone(),
+            fresh: HashSet::new(),
+            drawn: VecDeque::new(),
             urls: HashMap::new(),
             exited: info.exited,
             cell: {
@@ -272,7 +291,7 @@ impl Pane {
                         Err(_) => false,
                     },
                     MessageKind::Image => match driver.decode::<ImageMsg>(&p) {
-                        Ok(Delivery::Deliver(d)) => s.images.apply(&d.msg).is_ok(),
+                        Ok(Delivery::Deliver(d)) => s.image(&d.msg),
                         Ok(_) => true,
                         Err(_) => false,
                     },
@@ -388,6 +407,12 @@ impl Pane {
         let live: Vec<ImageId> = s.layout.live_images().to_vec();
         s.urls.retain(|id, _| live.contains(id));
         out
+    }
+
+    /// The images the program sent since they were last taken, oldest
+    /// first, each once, whether still shown or not.
+    pub fn take_drawn(&self) -> Vec<Drawn> {
+        self.state.lock().unwrap().drawn.drain(..).collect()
     }
 
     /// Send a key, as the program's modes ask; `false` when the key never
@@ -561,6 +586,43 @@ impl State {
             }
             Some(RendererEffect::ReverseVideo(on)) => self.overrides.reverse = on,
             None => {}
+        }
+        true
+    }
+
+    /// Take one image message in, keeping an image as it comes in whole;
+    /// `false` when it cannot be, and the connection has to end.
+    fn image(&mut self, msg: &ImageMsg) -> bool {
+        if self.images.apply(msg).is_err() {
+            return false;
+        }
+        match msg {
+            ImageMsg::Header {
+                id,
+                target: ImageTarget::New { .. },
+            } => {
+                self.fresh.insert(*id);
+            }
+            ImageMsg::Delete { id } => {
+                self.fresh.remove(id);
+            }
+            ImageMsg::Complete { id } if self.fresh.remove(id) => {
+                if let Some(image) = self.images.image(*id)
+                    && image.is_complete()
+                {
+                    let mut rgba = Vec::new();
+                    image.write_rgba8(&mut rgba);
+                    if self.drawn.len() == WAITING {
+                        self.drawn.pop_front();
+                    }
+                    self.drawn.push_back(Drawn {
+                        width: image.width,
+                        height: image.height,
+                        rgba,
+                    });
+                }
+            }
+            _ => {}
         }
         true
     }

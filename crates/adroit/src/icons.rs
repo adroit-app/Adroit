@@ -83,6 +83,7 @@ icons! {
     MessageUp => "message-up",
     Notes => "notes",
     Pencil => "pencil",
+    Photo => "photo",
     PlayerStop => "player-stop",
     Plus => "plus",
     Refresh => "refresh",

@@ -2,6 +2,7 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use adroit_claude::git::{Change, Commit, DiffLine};
 use adroit_claude::links::{Kind as LinkKind, Link, Peer, Touch};
@@ -140,6 +141,78 @@ pub fn shown_link(link: &Link, worktree: &Path, home: &Path) -> (String, String)
             };
             (label, word.to_string())
         }
+    }
+}
+
+/// Where an image of the overview came from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Source {
+    /// The console drew it: kept by its id, `width` by `height` pixels.
+    Console { id: u64, width: u32, height: u32 },
+    /// The session came across the file at `path`.
+    File { path: String, touch: Touch },
+}
+
+/// An image of the overview.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Shot {
+    /// What tells it apart from every other row.
+    pub key: String,
+    pub source: Source,
+    /// When it came up, in milliseconds since the Unix epoch.
+    pub at_ms: Option<u64>,
+    /// A small copy as a `data:` URL, when one could be made.
+    pub thumb: Option<Arc<str>>,
+}
+
+impl Shot {
+    pub fn console(id: u64, width: u32, height: u32, at_ms: u64, thumb: Option<Arc<str>>) -> Shot {
+        Shot {
+            // No path or address starts with a NUL, so no other row takes a
+            // drawn image's place.
+            key: format!("\0drawn {id:016x}"),
+            source: Source::Console { id, width, height },
+            at_ms: Some(at_ms),
+            thumb,
+        }
+    }
+
+    pub fn file(path: &str, touch: Touch, at_ms: Option<u64>, thumb: Option<Arc<str>>) -> Shot {
+        Shot {
+            key: path.to_string(),
+            source: Source::File {
+                path: path.to_string(),
+                touch,
+            },
+            at_ms,
+            thumb,
+        }
+    }
+}
+
+/// `shots` newest first; those of an unknown time keep their order last.
+pub fn newest_first(mut shots: Vec<Shot>) -> Vec<Shot> {
+    shots.sort_by_key(|s| (s.at_ms.is_none(), std::cmp::Reverse(s.at_ms)));
+    shots
+}
+
+/// What an image of the overview shows: what it is called, and a word on
+/// how the session came by it.
+pub fn shown_shot(shot: &Shot, worktree: &Path, home: &Path) -> (String, String) {
+    match &shot.source {
+        Source::Console { width, height, .. } => {
+            (format!("Image {width} × {height}"), "drawn".to_string())
+        }
+        Source::File { path, touch } => shown_link(
+            &Link {
+                kind: LinkKind::File(*touch),
+                target: path.clone(),
+                title: None,
+                line: None,
+            },
+            worktree,
+            home,
+        ),
     }
 }
 
@@ -282,6 +355,7 @@ pub enum Group {
     Sessions,
     Agents,
     Artifacts,
+    Images,
     Links,
     Files,
 }
@@ -300,6 +374,7 @@ impl Group {
             Group::Sessions => "Sessions",
             Group::Agents => "Subagents",
             Group::Artifacts => "Artifacts",
+            Group::Images => "Images",
             Group::Links => "Links",
             Group::Files => "Files",
         }
@@ -317,6 +392,7 @@ pub enum Entry {
     Session(Related),
     Agent(Agent),
     Link(Link),
+    Image(Shot),
     /// The row standing for a group's links not shown, which shows them all.
     More {
         group: Group,
@@ -333,16 +409,19 @@ impl Entry {
                 Group::Sessions => "\0sessions",
                 Group::Agents => "\0agents",
                 Group::Artifacts => "\0artifacts",
+                Group::Images => "\0images",
                 Group::Links => "\0links",
                 Group::Files => "\0files",
             },
             Entry::Session(r) => r.name.as_str(),
             Entry::Agent(a) => a.call.as_str(),
             Entry::Link(l) => l.target.as_str(),
+            Entry::Image(s) => s.key.as_str(),
             Entry::More { group, .. } => match group {
                 Group::Sessions => "\0more sessions",
                 Group::Agents => "\0more agents",
                 Group::Artifacts => "\0more artifacts",
+                Group::Images => "\0more images",
                 Group::Links => "\0more links",
                 Group::Files => "\0more files",
             },
@@ -356,6 +435,7 @@ impl Entry {
             Entry::Session(_) => Group::Sessions,
             Entry::Agent(_) => Group::Agents,
             Entry::Link(l) => Group::of(&l.kind),
+            Entry::Image(_) => Group::Images,
             Entry::More { group, .. } => *group,
         }
     }
@@ -522,6 +602,47 @@ pub fn with_agents(
     }];
     if !shut {
         rows.extend(agents.iter().cloned().map(Entry::Agent));
+    }
+    entries.splice(at..at, rows);
+    entries
+}
+
+/// The overview's `entries` with `shots` under their heading after the
+/// artifacts, showing their `first` and a row for the rest unless the group
+/// is among those `opened`; a `folded` group shows its heading alone.
+pub fn with_images(
+    mut entries: Vec<Entry>,
+    shots: &[Shot],
+    folded: &HashSet<Group>,
+    opened: &HashSet<Group>,
+    first: usize,
+) -> Vec<Entry> {
+    if shots.is_empty() {
+        return entries;
+    }
+    let at = entries
+        .iter()
+        .position(|e| matches!(e.group(), Group::Links | Group::Files))
+        .unwrap_or(entries.len());
+    let shut = folded.contains(&Group::Images);
+    let mut rows = vec![Entry::Heading {
+        group: Group::Images,
+        count: shots.len(),
+        folded: shut,
+    }];
+    if !shut {
+        let shown = if opened.contains(&Group::Images) {
+            shots.len()
+        } else {
+            first.min(shots.len())
+        };
+        rows.extend(shots[..shown].iter().cloned().map(Entry::Image));
+        if shown < shots.len() {
+            rows.push(Entry::More {
+                group: Group::Images,
+                hidden: shots.len() - shown,
+            });
+        }
     }
     entries.splice(at..at, rows);
     entries
@@ -1472,5 +1593,118 @@ mod tests {
         assert_eq!(d.selected(&list), Some(2));
         assert!(d.open_at(&list, 1));
         assert_eq!(d.agent(), Some("toolu_1"));
+    }
+
+    fn drawn(id: u64, at_ms: u64) -> Shot {
+        Shot::console(id, 64, 32, at_ms, None)
+    }
+
+    fn image_file(path: &str, at_ms: Option<u64>) -> Shot {
+        Shot::file(path, Touch::Read, at_ms, None)
+    }
+
+    #[test]
+    fn images_run_newest_first_and_those_of_unknown_time_last() {
+        let got = newest_first(vec![
+            image_file("/w/old.png", Some(1)),
+            image_file("/w/when.png", None),
+            drawn(7, 5),
+            image_file("/w/new.png", Some(9)),
+        ]);
+        let keys: Vec<_> = got.iter().map(|s| s.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            [
+                "/w/new.png",
+                drawn(7, 0).key.as_str(),
+                "/w/old.png",
+                "/w/when.png"
+            ]
+        );
+    }
+
+    #[test]
+    fn an_image_shows_its_path_or_its_size_and_how_it_came_up() {
+        let row = |s: &Shot| shown_shot(s, Path::new("/w"), Path::new("/home/me"));
+        assert_eq!(
+            row(&Shot::file("/w/out/plot.png", Touch::Edited, None, None)),
+            ("out/plot.png".to_string(), "edited".to_string())
+        );
+        assert_eq!(
+            row(&Shot::file("/home/me/a.jpg", Touch::Mentioned, None, None)),
+            ("~/a.jpg".to_string(), "mentioned".to_string())
+        );
+        assert_eq!(
+            row(&drawn(1, 0)),
+            ("Image 64 × 32".to_string(), "drawn".to_string())
+        );
+    }
+
+    #[test]
+    fn the_images_follow_the_artifacts_and_show_their_first_few_until_opened() {
+        let l = [
+            link(
+                LinkKind::Artifact,
+                "https://claude.ai/artifact/a",
+                None,
+                None,
+            ),
+            link(LinkKind::Url, "https://a.dev", None, None),
+        ];
+        let shots: Vec<Shot> = (0..3).map(|i| drawn(i, 10 - i)).collect();
+        let none = HashSet::new();
+        let entries = overview(&[], &l, &none);
+        assert_eq!(
+            with_images(entries.clone(), &shots, &none, &none, 2),
+            [
+                heading(Group::Artifacts, 1, false),
+                Entry::Link(l[0].clone()),
+                heading(Group::Images, 3, false),
+                Entry::Image(shots[0].clone()),
+                Entry::Image(shots[1].clone()),
+                Entry::More {
+                    group: Group::Images,
+                    hidden: 1
+                },
+                heading(Group::Links, 1, false),
+                Entry::Link(l[1].clone()),
+            ]
+        );
+        let opened = HashSet::from([Group::Images]);
+        let shown = with_images(entries.clone(), &shots, &none, &opened, 2);
+        assert_eq!(
+            shown
+                .iter()
+                .filter(|e| matches!(e, Entry::Image(_)))
+                .count(),
+            3
+        );
+        let shut = HashSet::from([Group::Images]);
+        assert_eq!(
+            with_images(Vec::new(), &shots, &shut, &none, 2),
+            [heading(Group::Images, 3, true)]
+        );
+        assert_eq!(with_images(entries.clone(), &[], &none, &none, 2), entries);
+    }
+
+    #[test]
+    fn an_image_is_selected_apart_from_its_heading_and_opens_nothing_inside() {
+        let shots = [drawn(1, 2), image_file("/w/a.png", Some(1))];
+        let none = HashSet::new();
+        let list = Listing::Links(with_images(Vec::new(), &shots, &none, &none, 5));
+        assert_eq!(list.heading(Group::Images), Some(0));
+        let mut d = Drill::new(Sheet::Overview);
+        d.step(&list, 2);
+        assert_eq!(d.selected(&list), Some(2));
+        assert!(!d.open(&list));
+        assert_eq!(d.spot(), None);
+        let moved = Listing::Links(with_images(
+            Vec::new(),
+            &[drawn(9, 3), shots[0].clone(), shots[1].clone()],
+            &none,
+            &none,
+            5,
+        ));
+        assert_eq!(d.selected(&moved), Some(3));
     }
 }

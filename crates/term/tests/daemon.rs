@@ -390,6 +390,32 @@ async fn an_image_stays_within_the_rows_the_program_was_moved_past() {
 }
 
 #[tokio::test]
+async fn each_image_the_program_sends_is_handed_over_once_whole() {
+    let (d, _dir) = daemon().await;
+    // A red pixel, then a two by one image of a red and a green pixel.
+    let id = d
+        .spawn(sh(
+            r"printf '_Ga=T,f=24,s=1,v=1;/wAA\'; printf '_Ga=T,f=24,s=2,v=1;/wAAAP8A\'; sleep 5",
+        ))
+        .await
+        .unwrap();
+    let pane = attach(&d, id).await;
+    let mut got = Vec::new();
+    for _ in 0..200 {
+        got.extend(pane.take_drawn());
+        if got.len() >= 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let shapes: Vec<_> = got.iter().map(|i| (i.width, i.height)).collect();
+    assert_eq!(shapes, [(1, 1), (2, 1)]);
+    assert_eq!(got[1].rgba, [255, 0, 0, 255, 0, 255, 0, 255]);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(pane.take_drawn().is_empty(), "handed over again");
+}
+
+#[tokio::test]
 async fn tags_are_changed_on_a_running_session() {
     let (d, _dir) = daemon().await;
     let id = d.spawn(sh("sleep 5")).await.unwrap();

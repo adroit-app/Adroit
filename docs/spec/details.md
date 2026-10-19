@@ -14,9 +14,11 @@ Overview, Changes and Log.
   through Claude Code: those still at work, the latest first, then the few
   that ended last, each saying what kind it is, how it stands and for how
   long it has run or ran. After them it lists what the session's conversation
-  brought up, newest first: the claude.ai artifacts, the other web addresses,
-  and the files it wrote or edited, read, or named in a reply where such a
-  file exists, each saying how the session came across it. A shell or a
+  brought up, newest first: the claude.ai artifacts, the images, the other web
+  addresses, and the files it wrote or edited, read, or named in a reply where
+  such a file exists, each saying how the session came across it. The images
+  are those the session's console drew and the image files it came across
+  that still exist, together, each beside a small picture of it. A shell or a
   draft has no conversation and lists none. At its foot, whatever is shown
   above, it tells how much of the account's usage limits is left: each limit
   Claude Code's `/usage` reports, such as the current session and the week,
@@ -41,6 +43,12 @@ again.
 Opening a subagent of the overview shows what it was asked, the latest
 steps it took, and, once it ended, what it reported. Copying one copies what
 it was asked.
+
+Opening an image of the overview shows it whole in a window of its own,
+named for it, the image fit within the window; opening it again brings that
+window forward. `Escape` or `Cmd+W` closes it. An image the console drew is
+kept while adroit runs, after the console has let it go, the newest few of
+each session; it has no file to copy or reveal.
 
 Opening a link of the overview hands it to macOS: an address opens in the
 default browser, a file in the app that opens it. A right click on a link
@@ -89,7 +97,7 @@ cannot be run, the repository is read through git instead.
 In a list, `j` and `k` move, `gg` and `G` go to the first and the last row,
 `Enter` or `l` opens the selected row, and `h`, `Escape` or `Backspace` go
 back. In the overview, the same keys move over its headings and rows and
-open a link or a subagent; on a heading, `Enter` or `l` folds or unfolds its
+open a link, an image or a subagent; on a heading, `Enter` or `l` folds or unfolds its
 group, the keys that go back fold the group of what is selected, and `y`
 copies the selected row. In a subagent opened, the keys that go back go back
 to the overview. In a diff, a subagent opened or an overview without links,

@@ -23,14 +23,15 @@ use crate::console_keys::direct_key;
 use crate::console_read;
 use crate::daemon;
 use crate::details::{
-    Drill, Entry, Group, Listing, Related, Sheet, Tie, View, capped, facts, gauges, load,
-    overview_shown, related, shown_agent, shown_link, with_agents,
+    Drill, Entry, Group, Listing, Related, Sheet, Shot, Source, Tie, View, capped, facts, gauges,
+    load, overview_shown, related, shown_agent, shown_link, shown_shot, with_agents, with_images,
 };
 use crate::editor;
 use crate::filer::{Filer, read_dirs};
 use crate::focus::{Area, Dir, moved, settled};
 use crate::graph;
 use crate::icons::{Icon, IconView};
+use crate::image_window;
 use crate::keymap::{Action, Chord, Context, Keymap, MENU_KEYS, Step};
 use crate::keys;
 use crate::layout::{self, Layout, Side};
@@ -40,6 +41,7 @@ use crate::nav::{self, Item, Place};
 use crate::paths::{home, keys_path, scratch_dir, state_dir};
 use crate::picker::{self, Candidate, Choice, Mode, Picker};
 use crate::picker_view::PickerView;
+use crate::pictures::{self, Gallery};
 use crate::plugin;
 use crate::programs;
 use crate::prompts::{self, Op, Prompts};
@@ -132,13 +134,14 @@ fn copy_to_clipboard(text: &str) -> std::io::Result<()> {
 
 /// The overview's rows for the session `shown`, when its links were read for
 /// it, the `folded` groups showing only their headings; the sessions it
-/// worked with are found in `tree`.
+/// worked with are found in `tree`, its images in `gallery`.
 fn overview_listing(
     read: Option<&(String, Links)>,
     shown: Option<&Tab>,
     folded: &HashSet<Group>,
     opened: &HashSet<Group>,
     tree: &Tree,
+    gallery: &Gallery,
 ) -> Option<Listing> {
     match (read, shown) {
         (Some((id, links)), Some(Tab::Session(s))) if id == s => {
@@ -156,7 +159,16 @@ fn overview_listing(
                 opened,
                 d.links_shown,
             );
-            Some(Listing::Links(with_agents(entries, &links.agents, folded)))
+            let mut shots = pictures::shots(&gallery.store, s, &links.images, &gallery.thumbs);
+            shots.truncate(d.links_kept);
+            let entries = with_agents(entries, &links.agents, folded);
+            Some(Listing::Links(with_images(
+                entries,
+                &shots,
+                folded,
+                opened,
+                d.links_shown,
+            )))
         }
         _ => None,
     }
@@ -195,6 +207,8 @@ struct LinkRow {
     tag: String,
     target: String,
     file: bool,
+    /// A small copy of an image, drawn in place of the icon.
+    thumb: Option<Arc<str>>,
 }
 
 /// A group of the overview's links as drawn: its heading, at its place among
@@ -256,6 +270,7 @@ fn link_sections(entries: &[Entry], worktree: &Path, home: &Path) -> Vec<LinkSec
                         tag: tag.join(" · "),
                         target: r.name.clone(),
                         file: false,
+                        thumb: None,
                     });
                 }
             }
@@ -270,6 +285,26 @@ fn link_sections(entries: &[Entry], worktree: &Path, home: &Path) -> Vec<LinkSec
                         tag,
                         target: a.call.clone(),
                         file: false,
+                        thumb: None,
+                    });
+                }
+            }
+            Entry::Image(shot) => {
+                let (label, tag) = shown_shot(shot, worktree, home);
+                let (target, file) = match &shot.source {
+                    Source::File { path, .. } => (path.clone(), true),
+                    Source::Console { .. } => (label.clone(), false),
+                };
+                if let Some(section) = out.last_mut() {
+                    section.rows.push(LinkRow {
+                        at,
+                        icon: Icon::Photo,
+                        tone: "",
+                        label,
+                        tag,
+                        target,
+                        file,
+                        thumb: shot.thumb.clone(),
                     });
                 }
             }
@@ -290,6 +325,7 @@ fn link_sections(entries: &[Entry], worktree: &Path, home: &Path) -> Vec<LinkSec
                         tag,
                         target: link.target.clone(),
                         file: matches!(link.kind, LinkKind::File(_)),
+                        thumb: None,
                     });
                 }
             }
@@ -354,6 +390,102 @@ fn use_related(related: &Related, how: Use) -> Went {
         }),
         (Use::Reveal, _) => Went::Nowhere,
     }
+}
+
+/// Show `shot` in a window of its own, or copy or reveal its file as a file
+/// of the overview is; what to tell of it. A drawn image is found among those
+/// `gallery` keeps for `session`.
+fn use_shot(shot: &Shot, how: Use, session: &str, gallery: &Gallery) -> Option<String> {
+    match (&shot.source, how) {
+        (
+            Source::Console {
+                id, width, height, ..
+            },
+            Use::Open,
+        ) => {
+            let kept = gallery.store.find(session, *id)?;
+            image_window::open(
+                &shot.key,
+                &format!("Image {width} × {height}"),
+                pictures::kept_shown(kept),
+                Some((*width, *height)),
+            );
+            None
+        }
+        (Source::Console { .. }, Use::Copy) => Some("A drawn image has no file to copy".into()),
+        (Source::Console { .. }, Use::Reveal) => None,
+        (Source::File { path, .. }, Use::Open) => {
+            let (key, path) = (shot.key.clone(), PathBuf::from(path));
+            spawn(async move {
+                let read = path.clone();
+                let shown = tokio::task::spawn_blocking(move || pictures::file_shown(&read))
+                    .await
+                    .ok()
+                    .flatten();
+                match shown {
+                    Some(src) => {
+                        let title = path.file_name().map_or_else(
+                            || path.display().to_string(),
+                            |n| n.to_string_lossy().into_owned(),
+                        );
+                        image_window::open(&key, &title, src, None);
+                    }
+                    // Too large to read here: macOS's own viewer shows it.
+                    None => {
+                        let _ = tokio::process::Command::new("/usr/bin/open")
+                            .arg(&path)
+                            .status()
+                            .await;
+                    }
+                }
+            });
+            None
+        }
+        (Source::File { path, touch }, how) => use_link(
+            &Link {
+                kind: LinkKind::File(*touch),
+                target: path.clone(),
+                title: None,
+                line: None,
+            },
+            how,
+        ),
+    }
+}
+
+/// Keep the images `drawn` in `session`'s console, encoded away from the
+/// window's thread.
+fn keep_drawn(mut gallery: Signal<Gallery>, session: String, drawn: Vec<adroit_term::Drawn>) {
+    // A program may send the same image again as it redraws; it is kept
+    // already, and encoding it again would be for nothing.
+    let drawn: Vec<_> = {
+        let g = gallery.peek();
+        drawn
+            .into_iter()
+            .filter(|d| g.store.find(&session, pictures::id_of(d)).is_none())
+            .collect()
+    };
+    if drawn.is_empty() {
+        return;
+    }
+    spawn(async move {
+        let at = now_ms();
+        let kept = tokio::task::spawn_blocking(move || {
+            drawn
+                .into_iter()
+                .filter_map(|d| pictures::Kept::of(d, at))
+                .collect::<Vec<_>>()
+        })
+        .await
+        .unwrap_or_default();
+        if kept.is_empty() {
+            return;
+        }
+        let mut g = gallery.write();
+        for k in kept {
+            g.store.keep(&session, k);
+        }
+    });
 }
 
 /// How long the prompt's Neovim has to live to be started again once it
@@ -1137,6 +1269,8 @@ fn App() -> Element {
     let mut git_view = use_signal(|| None::<View>);
     // What the conversation of a session brought up, by the session's id.
     let mut overview_links = use_signal(|| None::<(String, Links)>);
+    // The images the consoles drew, and the small copies of image files.
+    let mut gallery = use_signal(Gallery::default);
     // The overview's groups of links shown by their headings alone.
     let mut folded_groups = use_signal(HashSet::<Group>::new);
     // The overview's groups of links shown whole, past their first few.
@@ -1211,6 +1345,16 @@ fn App() -> Element {
                     woke.push(t);
                 }
                 for tab in &woke {
+                    if let Tab::Session(id) = tab {
+                        let drawn = watched
+                            .borrow()
+                            .get(tab)
+                            .map(|p| p.take_drawn())
+                            .unwrap_or_default();
+                        if !drawn.is_empty() {
+                            keep_drawn(gallery, id.clone(), drawn);
+                        }
+                    }
                     let gone = watched.borrow().get(tab).is_some_and(|p| p.exited());
                     if let (Tab::Shell(id), true) = (tab, gone) {
                         close_shell(*id, &watched, shells, active, place, tree, prompts);
@@ -1438,6 +1582,18 @@ fn App() -> Element {
                                 Tab::Shell(id) => shells.peek().iter().any(|s| s.id == *id),
                                 Tab::Draft { .. } => true,
                             });
+                            // Nor are the images its console drew kept.
+                            let gone = gallery
+                                .peek()
+                                .store
+                                .sessions()
+                                .any(|id| !sessions.iter().any(|s| s.id == id));
+                            if gone {
+                                gallery
+                                    .write()
+                                    .store
+                                    .retain(|id| sessions.iter().any(|s| s.id == id));
+                            }
                             // The tab shown when the window last closed comes
                             // back once what it shows is listed, unless
                             // another was opened meanwhile.
@@ -1667,15 +1823,21 @@ fn App() -> Element {
                             Some(t) if t.path() == path => t,
                             _ => Transcript::new(path, &s.cwd, home()),
                         };
+                        let thumbs = gallery.peek().thumbs.clone();
                         let read = tokio::task::spawn_blocking(move || {
                             let mut t = t;
                             t.read(&|p: &Path| p.is_file());
-                            let links = t.links();
-                            (t, links)
+                            let mut links = t.links();
+                            let mut thumbs = thumbs;
+                            pictures::refresh_thumbs(&mut links.images, &mut thumbs);
+                            (t, links, thumbs)
                         })
                         .await;
-                        if let Ok((t, links)) = read {
+                        if let Ok((t, links, thumbs)) = read {
                             held = Some(t);
+                            if gallery.peek().thumbs != thumbs {
+                                gallery.write().thumbs = thumbs;
+                            }
                             let next = Some((s.id, links));
                             if *overview_links.peek() != next {
                                 overview_links.set(next);
@@ -2575,6 +2737,7 @@ fn App() -> Element {
         }
     });
     use_drop(settings_window::close);
+    use_drop(image_window::close_all);
 
     // End a session adroit runs; Claude Code keeps its conversation.
     let stop = {
@@ -3073,6 +3236,7 @@ fn App() -> Element {
                             &folded_groups.peek(),
                             &opened_groups.peek(),
                             &tree.peek(),
+                            &gallery.peek(),
                         );
                     }
                     git_view
@@ -3291,6 +3455,7 @@ fn App() -> Element {
                                         &f,
                                         &opened_groups.peek(),
                                         &tree.peek(),
+                                        &gallery.peek(),
                                     );
                                     if let Some(now) = now
                                         && let Some(at) = now.heading(group)
@@ -3301,6 +3466,18 @@ fn App() -> Element {
                                 }
                                 (None, Some(how), Some(Entry::Link(link))) => {
                                     if let Some(told) = use_link(link, how) {
+                                        notify.notice(told);
+                                    }
+                                }
+                                (None, Some(how), Some(Entry::Image(shot))) => {
+                                    let session = overview_links
+                                        .peek()
+                                        .as_ref()
+                                        .map(|(id, _)| id.clone())
+                                        .unwrap_or_default();
+                                    if let Some(told) =
+                                        use_shot(shot, how, &session, &gallery.peek())
+                                    {
                                         notify.notice(told);
                                     }
                                 }
@@ -3596,6 +3773,7 @@ fn App() -> Element {
                         &folded_groups.peek(),
                         &opened_groups.peek(),
                         &tree.peek(),
+                        &gallery.peek(),
                     );
                     if let Some(l) = listing {
                         let mut d = drill.peek().clone();
@@ -3652,7 +3830,7 @@ fn App() -> Element {
             // Closing acts on the window in front, as macOS's own Close does,
             // so it does not reach behind Settings to a tab.
             if matches!(action, Action::TabClose | Action::WindowClose)
-                && settings_window::close_in_front()
+                && (settings_window::close_in_front() || image_window::close_in_front())
             {
                 return;
             }
@@ -4125,6 +4303,7 @@ fn App() -> Element {
             &folded_groups(),
             &opened_groups(),
             &t,
+            &gallery.read(),
         )
     } else {
         None
@@ -4161,6 +4340,7 @@ fn App() -> Element {
             &folded_groups.peek(),
             &opened_groups.peek(),
             &tree.peek(),
+            &gallery.peek(),
         ) else {
             return;
         };
@@ -4173,6 +4353,16 @@ fn App() -> Element {
         match entries.get(at) {
             Some(Entry::Link(link)) => {
                 if let Some(told) = use_link(link, Use::Open) {
+                    notify.notice(told);
+                }
+            }
+            Some(Entry::Image(shot)) => {
+                let session = overview_links
+                    .peek()
+                    .as_ref()
+                    .map(|(id, _)| id.clone())
+                    .unwrap_or_default();
+                if let Some(told) = use_shot(shot, Use::Open, &session, &gallery.peek()) {
                     notify.notice(told);
                 }
             }
@@ -4902,9 +5092,15 @@ fn App() -> Element {
                             for r in section.rows.into_iter() {
                                 {
                                     let (at, file) = (r.at, r.file);
+                                    let class = match (link_selected == Some(at), r.thumb.is_some()) {
+                                        (true, true) => "list-row details-link details-image selected",
+                                        (true, false) => "list-row details-link selected",
+                                        (false, true) => "list-row details-link details-image",
+                                        (false, false) => "list-row details-link",
+                                    };
                                     rsx! {
                                         div { key: "{r.target}",
-                                            class: if link_selected == Some(at) { "list-row details-link selected" } else { "list-row details-link" },
+                                            class,
                                             title: "{r.target}",
                                             onclick: move |_| click_link(at),
                                             oncontextmenu: move |e: Event<MouseData>| {
@@ -4912,7 +5108,9 @@ fn App() -> Element {
                                                 let p = e.client_coordinates();
                                                 menu.set(Some((p.x, p.y, Target::Link { at, file })));
                                             },
-                                            if r.tone.is_empty() {
+                                            if let Some(thumb) = &r.thumb {
+                                                img { class: "details-thumb", src: "{thumb}", alt: "" }
+                                            } else if r.tone.is_empty() {
                                                 IconView { icon: r.icon, size: 13 }
                                             } else {
                                                 span { class: "{r.tone}", IconView { icon: r.icon, size: 13 } }
@@ -5412,6 +5610,75 @@ mod tests {
     }
 
     #[test]
+    fn an_image_row_shows_its_small_copy_in_place_of_the_icon() {
+        let thumb: Arc<str> = "data:image/png;base64,AA==".into();
+        let shots = [
+            Shot::console(7, 64, 32, 2, Some(thumb.clone())),
+            Shot::file("/w/a.heic", Touch::Read, Some(1), None),
+        ];
+        let none = HashSet::new();
+        let drawn = link_sections(
+            &with_images(Vec::new(), &shots, &none, &none, 5),
+            Path::new("/w"),
+            Path::new("/h"),
+        );
+        assert_eq!(drawn[0].group, Group::Images);
+        let rows: Vec<_> = drawn[0]
+            .rows
+            .iter()
+            .map(|r| (r.label.as_str(), r.tag.as_str(), r.file, r.thumb.clone()))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("Image 64 × 32", "drawn", false, Some(thumb)),
+                ("a.heic", "read", true, None),
+            ]
+        );
+        assert_eq!(drawn[0].rows[1].icon, Icon::Photo);
+    }
+
+    #[test]
+    fn the_overview_lists_drawn_images_of_the_session_shown_after_its_artifacts() {
+        let read = (
+            "s1".to_string(),
+            Links {
+                artifacts: vec![link(LinkKind::Artifact, "https://claude.ai/artifact/a")],
+                urls: vec![link(LinkKind::Url, "https://a.dev")],
+                ..Default::default()
+            },
+        );
+        let mut gallery = Gallery::default();
+        let drawn = adroit_term::Drawn {
+            width: 1,
+            height: 1,
+            rgba: vec![255, 0, 0, 255],
+        };
+        gallery
+            .store
+            .keep("s1", pictures::Kept::of(drawn, 5).unwrap());
+        let open = HashSet::new();
+        let Some(Listing::Links(entries)) = overview_listing(
+            Some(&read),
+            Some(&Tab::Session("s1".into())),
+            &open,
+            &open,
+            &Tree::default(),
+            &gallery,
+        ) else {
+            panic!("no overview");
+        };
+        let groups: Vec<_> = entries
+            .iter()
+            .filter_map(|e| match e {
+                Entry::Heading { group, .. } => Some(*group),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(groups, [Group::Artifacts, Group::Images, Group::Links]);
+    }
+
+    #[test]
     fn the_overview_lists_links_only_for_the_session_they_were_read_for() {
         let read = (
             "s1".to_string(),
@@ -5423,9 +5690,39 @@ mod tests {
         let shown = |id: &str| Tab::Session(id.into());
         let open = HashSet::new();
         let t = Tree::default();
-        assert!(overview_listing(Some(&read), Some(&shown("s1")), &open, &open, &t).is_some());
-        assert!(overview_listing(Some(&read), Some(&shown("s2")), &open, &open, &t).is_none());
-        assert!(overview_listing(Some(&read), Some(&Tab::Shell(1)), &open, &open, &t).is_none());
+        assert!(
+            overview_listing(
+                Some(&read),
+                Some(&shown("s1")),
+                &open,
+                &open,
+                &t,
+                &Gallery::default()
+            )
+            .is_some()
+        );
+        assert!(
+            overview_listing(
+                Some(&read),
+                Some(&shown("s2")),
+                &open,
+                &open,
+                &t,
+                &Gallery::default()
+            )
+            .is_none()
+        );
+        assert!(
+            overview_listing(
+                Some(&read),
+                Some(&Tab::Shell(1)),
+                &open,
+                &open,
+                &t,
+                &Gallery::default()
+            )
+            .is_none()
+        );
     }
 
     fn related_to(name: &str, id: Option<&str>, ties: &[Tie]) -> Related {

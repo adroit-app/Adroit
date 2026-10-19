@@ -237,6 +237,8 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .details-link-heading .icon { flex: none; color: var(--text-3); }
 .details-link-tag { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; font-size: 11px; color: var(--text-3); }
 .details-more, .details-more .icon { color: var(--text-3); }
+.details-link.details-image { height: 46px; }
+.details-thumb { flex: none; width: 56px; height: 40px; object-fit: contain; border-radius: 4px; background: var(--raised); }
 .details-usage { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 10px 16px 12px; border-top: 1px solid var(--line); cursor: default; }
 .usage-gauge { display: flex; flex-direction: column; gap: 3px; }
 .usage-gauge-head { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }

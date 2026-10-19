@@ -400,7 +400,7 @@ fn clip(text: &str) -> String {
 
 /// Milliseconds since the Unix epoch of a UTC time such as
 /// `2026-10-19T14:13:00.648Z`.
-fn epoch_ms(s: &str) -> Option<u64> {
+pub(crate) fn epoch_ms(s: &str) -> Option<u64> {
     let num = |r: std::ops::Range<usize>| s.get(r)?.parse::<i64>().ok();
     let (y, mo, d) = (num(0..4)?, num(5..7)?, num(8..10)?);
     let (h, mi, sec) = (num(11..13)?, num(14..16)?, num(17..19)?);

@@ -11,5 +11,5 @@ pub mod tags;
 pub use daemon::{Daemon, Error, Result, Session, Spawn, Status};
 pub use input::Key;
 pub use palette::{Palette, Rgb};
-pub use pane::{Pane, Picture, Size};
+pub use pane::{Drawn, Pane, Picture, Size};
 pub use screen::{Cursor, CursorShape, Line, Part, Run, Screen, Style, block, set_apart};

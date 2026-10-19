@@ -53,6 +53,31 @@ pub struct Peer {
     pub received: bool,
 }
 
+/// An image file a session came across.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImageFile {
+    /// The file's absolute path.
+    pub path: String,
+    pub touch: Touch,
+    /// When the session last came across it, in milliseconds since the Unix
+    /// epoch, as the transcript tells.
+    pub at_ms: Option<u64>,
+}
+
+/// Whether `path` names an image, told by its extension.
+pub fn is_image(path: &str) -> bool {
+    const IMAGES: &[&str] = &[
+        "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "heic", "heif", "tif", "tiff", "ico",
+        "avif",
+    ];
+    let p = Path::new(path);
+    !path.ends_with('/')
+        && p.file_stem().is_some()
+        && p.extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| IMAGES.iter().any(|i| e.eq_ignore_ascii_case(i)))
+}
+
 /// What a session brought up, each group newest first, and the subagents
 /// it runs.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -60,6 +85,8 @@ pub struct Links {
     pub artifacts: Vec<Link>,
     pub urls: Vec<Link>,
     pub files: Vec<Link>,
+    /// The image files, apart from the other files.
+    pub images: Vec<ImageFile>,
     pub peers: Vec<Peer>,
     pub agents: Vec<Agent>,
 }
@@ -69,6 +96,7 @@ impl Links {
         self.artifacts.is_empty()
             && self.urls.is_empty()
             && self.files.is_empty()
+            && self.images.is_empty()
             && self.peers.is_empty()
             && self.agents.is_empty()
     }
@@ -104,6 +132,10 @@ pub struct Collector {
     found: HashMap<(Group, String), (u64, Link)>,
     /// What each artifact publish called its page, by the tool call's id.
     publishing: HashMap<String, String>,
+    /// When each file was last brought up, by its path.
+    stamps: HashMap<String, u64>,
+    /// When the line being taken in was written.
+    now_ms: Option<u64>,
     /// Who each message not yet delivered is to, by the tool call's id.
     sending: HashMap<String, String>,
     /// The sessions messaged or heard from, by name, with when last.
@@ -118,6 +150,8 @@ impl Collector {
             home: home.into(),
             count: 0,
             found: HashMap::new(),
+            stamps: HashMap::new(),
+            now_ms: None,
             publishing: HashMap::new(),
             sending: HashMap::new(),
             peers: HashMap::new(),
@@ -138,6 +172,7 @@ impl Collector {
             Some("user") => false,
             _ => return,
         };
+        self.now_ms = v["timestamp"].as_str().and_then(crate::subagents::epoch_ms);
         let origin = &v["origin"];
         if origin["kind"].as_str() == Some("peer")
             && let Some(name) = origin["name"].as_str()
@@ -180,6 +215,16 @@ impl Collector {
             let group = match link.kind {
                 Kind::Artifact => &mut out.artifacts,
                 Kind::Url => &mut out.urls,
+                Kind::File(touch) if is_image(&link.target) => {
+                    if out.images.len() < KEPT {
+                        out.images.push(ImageFile {
+                            path: link.target.clone(),
+                            touch,
+                            at_ms: self.stamps.get(&link.target).copied(),
+                        });
+                    }
+                    continue;
+                }
                 Kind::File(_) => &mut out.files,
             };
             if group.len() < KEPT {
@@ -388,6 +433,9 @@ impl Collector {
 
     fn note(&mut self, link: Link) {
         self.count += 1;
+        if let (Kind::File(_), Some(at)) = (link.kind, self.now_ms) {
+            self.stamps.insert(link.target.clone(), at);
+        }
         let (group, key) = match link.kind {
             Kind::Artifact => (
                 Group::Artifact,
@@ -1169,5 +1217,77 @@ mod tests {
             &[],
         );
         assert!(links.peers.is_empty());
+    }
+
+    fn stamped(line: String, at: &str) -> String {
+        let mut v: serde_json::Value = serde_json::from_str(&line).unwrap();
+        v["timestamp"] = json!(at);
+        v.to_string()
+    }
+
+    fn image(path: &str, touch: Touch, at_ms: Option<u64>) -> ImageFile {
+        ImageFile {
+            path: path.into(),
+            touch,
+            at_ms,
+        }
+    }
+
+    #[test]
+    fn an_image_file_read_or_written_is_listed_apart_from_the_files_with_when() {
+        let got = read(
+            &[
+                stamped(
+                    tool("t1", "Read", json!({"file_path": "/w/shot.png"})),
+                    "2026-10-20T00:00:01.000Z",
+                ),
+                tool("t2", "Read", json!({"file_path": "/w/a.rs"})),
+                stamped(
+                    tool("t3", "Write", json!({"file_path": "plot.SVG"})),
+                    "2026-10-20T00:00:02.500Z",
+                ),
+            ],
+            &[],
+        );
+        let at = |ms: u64| Some(1_792_454_400_000 + ms);
+        assert_eq!(
+            got.images,
+            [
+                image("/w/plot.SVG", Touch::Edited, at(2_500)),
+                image("/w/shot.png", Touch::Read, at(1_000)),
+            ]
+        );
+        assert_eq!(got.files, [file("/w/a.rs", Touch::Read, None)]);
+        assert!(got.rows().all(|l| l.target != "/w/shot.png"));
+    }
+
+    #[test]
+    fn an_image_named_in_a_reply_is_listed_when_it_is_there_and_last_brought_up_counts() {
+        let got = read(
+            &[
+                stamped(
+                    tool("t1", "Read", json!({"file_path": "/w/a.jpg"})),
+                    "2026-10-20T00:00:01.000Z",
+                ),
+                stamped(said("See a.jpg and gone.png"), "2026-10-20T00:00:09.000Z"),
+            ],
+            &["/w/a.jpg"],
+        );
+        assert_eq!(
+            got.images,
+            [image("/w/a.jpg", Touch::Read, Some(1_792_454_409_000))]
+        );
+    }
+
+    #[test]
+    fn an_image_is_told_by_its_extension_in_any_case() {
+        for yes in [
+            "a.png", "b.JPG", "c.jpeg", "d.gif", "e.webp", "f.bmp", "g.svg", "h.heic", "i.tiff",
+        ] {
+            assert!(is_image(yes), "{yes}");
+        }
+        for no in ["a.rs", "png", "/w/.png", "notes.md", "/w/dir.png/x"] {
+            assert!(!is_image(no), "{no}");
+        }
     }
 }
