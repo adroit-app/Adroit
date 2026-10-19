@@ -57,6 +57,7 @@ icons! {
     Circle => "circle",
     Code => "code",
     Copy => "copy",
+    Dots => "dots",
     CursorText => "cursor-text",
     Eye => "eye",
     File => "file",

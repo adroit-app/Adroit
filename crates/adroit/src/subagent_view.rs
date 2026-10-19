@@ -7,13 +7,14 @@ use dioxus::prelude::*;
 use crate::details::shown_agent;
 use crate::icons::{Icon, IconView};
 
-/// The icon a subagent's row is shown with, by how it stands.
-pub fn agent_icon(standing: Standing) -> Icon {
+/// How a subagent is marked, by how it stands: the class that colours its
+/// icon as a session's in the same standing is, and the icon.
+pub fn agent_glyph(standing: Standing) -> (&'static str, Icon) {
     match standing {
-        Standing::Running => Icon::Loader,
-        Standing::Done => Icon::Check,
-        Standing::Failed => Icon::AlertTriangle,
-        Standing::Stopped => Icon::PlayerStop,
+        Standing::Running => ("state-glyph run", Icon::Loader),
+        Standing::Done => ("state-glyph done", Icon::Check),
+        Standing::Failed => ("state-glyph fail", Icon::AlertTriangle),
+        Standing::Stopped => ("state-glyph idle", Icon::PlayerStop),
     }
 }
 
@@ -77,7 +78,10 @@ pub fn SubagentView(
         }
         div { class: "details-block",
             span { class: "details-label",
-                IconView { icon: agent_icon(agent.standing), size: 12 }
+                {
+                    let (tone, icon) = agent_glyph(agent.standing);
+                    rsx! { span { class: "{tone}", IconView { icon, size: 12 } } }
+                }
                 " {tag}"
             }
         }
@@ -143,6 +147,26 @@ mod tests {
 
     fn said(text: &str) -> Step {
         Step::Said(text.into())
+    }
+
+    #[test]
+    fn a_subagent_is_marked_in_the_colour_a_session_in_the_same_standing_is() {
+        assert_eq!(
+            agent_glyph(Standing::Running),
+            ("state-glyph run", Icon::Loader)
+        );
+        assert_eq!(
+            agent_glyph(Standing::Done),
+            ("state-glyph done", Icon::Check)
+        );
+        assert_eq!(
+            agent_glyph(Standing::Failed),
+            ("state-glyph fail", Icon::AlertTriangle)
+        );
+        assert_eq!(
+            agent_glyph(Standing::Stopped),
+            ("state-glyph idle", Icon::PlayerStop)
+        );
     }
 
     #[test]

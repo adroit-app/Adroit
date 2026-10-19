@@ -51,7 +51,7 @@ use crate::settings_window;
 use crate::shells::{Request, Response, answer, bind, serve, socket_path};
 use crate::status;
 use crate::style::{CSS, CellHeight, DEFAULT_CELL_HEIGHT};
-use crate::subagent_view::{SubagentView, agent_icon};
+use crate::subagent_view::{SubagentView, agent_glyph};
 use crate::tabs::{self, Role, Tab, fresh_name, label_from, named, shows_prompt};
 use crate::themes;
 use crate::view::Keys;
@@ -173,12 +173,24 @@ fn refold(folded: &HashSet<Group>, group: Group, shut: bool) -> HashSet<Group> {
     f
 }
 
+/// `opened` once `group` is folded, when `shut`, or unfolded: a folded group
+/// forgets it was shown whole, so it shows its first few when it opens again.
+fn reopened(opened: &HashSet<Group>, group: Group, shut: bool) -> HashSet<Group> {
+    let mut o = opened.clone();
+    if shut {
+        o.remove(&group);
+    }
+    o
+}
+
 /// A link as the overview draws it.
 #[derive(Debug, Clone, PartialEq)]
 struct LinkRow {
     /// Its place among the overview's rows.
     at: usize,
     icon: Icon,
+    /// The class that colours its icon; empty for the panel's own colour.
+    tone: &'static str,
     label: String,
     tag: String,
     target: String,
@@ -239,6 +251,7 @@ fn link_sections(entries: &[Entry], worktree: &Path, home: &Path) -> Vec<LinkSec
                     section.rows.push(LinkRow {
                         at,
                         icon,
+                        tone: "",
                         label: r.name.clone(),
                         tag: tag.join(" · "),
                         target: r.name.clone(),
@@ -251,7 +264,8 @@ fn link_sections(entries: &[Entry], worktree: &Path, home: &Path) -> Vec<LinkSec
                 if let Some(section) = out.last_mut() {
                     section.rows.push(LinkRow {
                         at,
-                        icon: agent_icon(a.standing),
+                        icon: agent_glyph(a.standing).1,
+                        tone: agent_glyph(a.standing).0,
                         label,
                         tag,
                         target: a.call.clone(),
@@ -271,6 +285,7 @@ fn link_sections(entries: &[Entry], worktree: &Path, home: &Path) -> Vec<LinkSec
                     section.rows.push(LinkRow {
                         at,
                         icon,
+                        tone: "",
                         label,
                         tag,
                         target: link.target.clone(),
@@ -3268,6 +3283,8 @@ fn App() -> Element {
                             match (fold, how, chosen) {
                                 (Some((group, shut)), ..) => {
                                     let f = refold(&folded_groups.peek(), group, shut);
+                                    let o = reopened(&opened_groups.peek(), group, shut);
+                                    opened_groups.set(o);
                                     let now = overview_listing(
                                         overview_links.peek().as_ref(),
                                         active.peek().as_ref(),
@@ -4172,6 +4189,8 @@ fn App() -> Element {
             }
             Some(Entry::Heading { group, folded, .. }) => {
                 let f = refold(&folded_groups.peek(), *group, !folded);
+                let o = reopened(&opened_groups.peek(), *group, !folded);
+                opened_groups.set(o);
                 folded_groups.set(f);
             }
             Some(Entry::More { group, .. }) => {
@@ -4893,7 +4912,11 @@ fn App() -> Element {
                                                 let p = e.client_coordinates();
                                                 menu.set(Some((p.x, p.y, Target::Link { at, file })));
                                             },
-                                            IconView { icon: r.icon, size: 13 }
+                                            if r.tone.is_empty() {
+                                                IconView { icon: r.icon, size: 13 }
+                                            } else {
+                                                span { class: "{r.tone}", IconView { icon: r.icon, size: 13 } }
+                                            }
                                             span { class: "list-row-name", "{r.label}" }
                                             if !r.tag.is_empty() {
                                                 span { class: "details-link-tag", "{r.tag}" }
@@ -4906,7 +4929,7 @@ fn App() -> Element {
                                 div { key: "more-{at}",
                                     class: if link_selected == Some(at) { "list-row details-link details-more selected" } else { "list-row details-link details-more" },
                                     onclick: move |_| click_link(at),
-                                    IconView { icon: Icon::ChevronDown, size: 13 }
+                                    IconView { icon: Icon::Dots, size: 13 }
                                     span { class: "list-row-name", "Show all" }
                                     span { class: "details-link-tag", "{hidden} more" }
                                 }
@@ -5299,6 +5322,17 @@ fn App() -> Element {
 mod tests {
     use super::*;
     use crate::details::overview;
+
+    #[test]
+    fn a_group_folded_shows_its_first_few_again_once_unfolded() {
+        let opened = HashSet::from([Group::Files, Group::Links]);
+        assert_eq!(
+            reopened(&opened, Group::Files, true),
+            HashSet::from([Group::Links])
+        );
+        // Unfolding leaves it as it was.
+        assert_eq!(reopened(&opened, Group::Artifacts, false), opened);
+    }
 
     #[test]
     fn the_clipboard_reads_the_text_as_utf_8_whatever_the_app_s_locale() {

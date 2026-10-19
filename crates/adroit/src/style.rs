@@ -232,9 +232,11 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .details-links { gap: 2px; }
 .details-links .list-row { margin: 0 -8px; }
 .details-link .icon { flex: none; color: var(--text-2); }
+.details-link .state-glyph .icon { color: inherit; }
 .details-link-heading { gap: 4px; height: 22px; }
 .details-link-heading .icon { flex: none; color: var(--text-3); }
 .details-link-tag { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; font-size: 11px; color: var(--text-3); }
+.details-more, .details-more .icon { color: var(--text-3); }
 .details-usage { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 10px 16px 12px; border-top: 1px solid var(--line); cursor: default; }
 .usage-gauge { display: flex; flex-direction: column; gap: 3px; }
 .usage-gauge-head { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }

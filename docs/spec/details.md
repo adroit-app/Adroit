@@ -35,7 +35,8 @@ Claude Code's messaging addresses it by.
 
 Each kind of link shows its newest few, five unless the settings say
 otherwise ([settings](settings.md#settingstoml)), and a row that shows the
-rest; opened, it shows them all until adroit runs again.
+rest; opened, it shows them all until the group is folded or adroit runs
+again.
 
 Opening a subagent of the overview shows what it was asked, the latest
 steps it took, and, once it ended, what it reported. Copying one copies what
