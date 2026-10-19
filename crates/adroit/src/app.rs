@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -577,6 +577,13 @@ const ATTACH_WAIT_STEPS: usize = 60;
 /// How long what git said about a worktree is trusted before asking again.
 const WORKTREE_TTL: Duration = Duration::from_secs(15);
 
+/// How long the window waits before it runs [`INPUT`] again, once the keys
+/// it listened for are lost.
+const RESTART_INPUT_AFTER: Duration = Duration::from_millis(200);
+
+/// How often the window looks whether its page has its keys.
+const LOOK_FOR_KEYS_EVERY: Duration = Duration::from_millis(500);
+
 /// Keeps the hidden text area focused, but while a text field has the keys,
 /// and turns what it receives into messages. Text is taken from
 /// `beforeinput` (from `keydown` while the text area is read-only), pastes
@@ -590,12 +597,30 @@ const WORKTREE_TTL: Duration = Duration::from_secs(15);
 /// `window.adroitHeld` lists them as [`menu_bar::left_to_menu`] names them.
 const INPUT: &str = r#"
 const t = document.getElementById('adroit-keys');
+// This run of the script. The window runs it again once the keys are lost,
+// and this run then leaves the page to the later one.
+const me = {};
+window.adroitInput = me;
+const current = () => window.adroitInput === me;
+// While keys are traced, what reaches the window and where focus goes.
+if (window.adroitDebugKeys) {
+  const trace = (text) => current() && dioxus.send({ kind: 'trace', text });
+  const name = (el) => !el ? 'none' : el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + (typeof el.className === 'string' && el.className ? '.' + el.className.trim().split(/\s+/).join('.') : '');
+  window.addEventListener('keydown', (e) => trace('keydown key=' + e.key + ' code=' + e.code + ' keyCode=' + e.keyCode + ' composing=' + e.isComposing + ' meta=' + e.metaKey + ' target=' + name(e.target) + ' active=' + name(document.activeElement) + ' readOnly=' + t.readOnly + ' connected=' + t.isConnected + ' focus=' + document.hasFocus()), true);
+  document.addEventListener('focusin', (e) => trace('focusin ' + name(e.target)), true);
+  document.addEventListener('focusout', (e) => trace('focusout ' + name(e.target)), true);
+  window.addEventListener('focus', () => trace('window focus'));
+  window.addEventListener('blur', () => trace('window blur'));
+  for (const k of ['compositionstart', 'compositionend']) t.addEventListener(k, (e) => trace(k + ' data=' + e.data));
+  window.addEventListener('error', (e) => trace('error ' + e.message + ' at ' + e.lineno + ':' + e.colno));
+  window.addEventListener('unhandledrejection', (e) => trace('rejection ' + e.reason));
+}
 // Whether the menu holds Command with this key: one of macOS's letters,
 // whatever else is held, or a key an entry shows, written as the bindings
 // write it. Shift is in a letter's case and in a character such as `}`, but
 // not in a digit, which is read from its key.
 const held = (e, name, fromCode) => {
-  const keys = window.adroitHeld;
+  const keys = window.adroitHeld || [];
   if (keys.includes(name.toLowerCase())) return true;
   const character = [...name].length === 1 && name !== ' ';
   const shift = e.shiftKey && !/^[A-Z]$/.test(name) && !(character && !fromCode);
@@ -612,15 +637,32 @@ const optionIsAlt = () => {
   const as = window.adroitOptionAsAlt || 'both';
   return as === 'both' || (as === 'left' && option === 'AltLeft') || (as === 'right' && option === 'AltRight');
 };
+// Whether the user types in this text field: one shown and taking text. A
+// field hidden, gone or read-only would hold the keys without using them.
+const typesIn = (a) => (a instanceof HTMLInputElement || a instanceof HTMLTextAreaElement)
+  && a !== t && a.isConnected && !a.readOnly && !a.disabled && a.getClientRects().length > 0;
 const take = () => {
+  if (!current()) return;
   const a = document.activeElement;
-  if (a !== t && !(a instanceof HTMLInputElement)) t.focus();
+  if (a !== t && !typesIn(a)) t.focus();
 };
 const keep = () => setTimeout(take, 0);
 document.addEventListener('mouseup', keep);
 window.addEventListener('focus', keep);
+// Rust gives the keys back to the page when the window has them and the page
+// has not.
+const told = () => current() && dioxus.send({ kind: 'focused', on: document.hasFocus() });
+window.addEventListener('focus', told);
+window.addEventListener('blur', told);
+told();
 t.addEventListener('blur', keep);
-t.addEventListener('keydown', (e) => {
+// Whether the keys go to a terminal grid, where a wide character takes two
+// cells rather than the width its font draws it in.
+let onGrid = false;
+let gridCursor = null;
+// A key pressed on the text area, or `astray` on whatever else focus was on.
+const onKey = (e, astray) => {
+  if (!current()) return;
   // WebKit sends the key that ends a composition after `compositionend`,
   // no longer composing but still with key code 229.
   // Command with a key the menu does not hold is the window's own; the
@@ -642,8 +684,9 @@ t.addEventListener('keydown', (e) => {
   // makes of the key, as a terminal set so would.
   const alt = e.altKey && (!onGrid || optionIsAlt());
   if (printable && !e.ctrlKey && !alt) {
-    // Read-only, the text area takes no text: the key is a command.
-    if (t.readOnly) {
+    // Read-only, the text area takes no text: the key is a command. Astray,
+    // it never reached the text area to be typed.
+    if (t.readOnly || astray) {
       e.preventDefault();
       dioxus.send({ kind: 'text', text: e.key });
     }
@@ -659,14 +702,20 @@ t.addEventListener('keydown', (e) => {
     if (!e.shiftKey) name = name.toLowerCase();
   }
   dioxus.send({ kind: 'key', key: name, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey });
+};
+t.addEventListener('keydown', (e) => onKey(e, false));
+// A key that reaches the page while focus is where keys are not used, as on
+// an element a click left focused, is the window's all the same. A dialog's
+// keys are its own.
+window.addEventListener('keydown', (e) => {
+  const on = e.target;
+  if (!current() || e.defaultPrevented || on === t || typesIn(on) || (on instanceof Element && on.closest('.dialog'))) return;
+  t.focus();
+  onKey(e, true);
 });
 // The text area sits on the cursor of what has the keys, so the input
 // method draws its composition and opens its candidates there.
 let at = '';
-// Whether the keys go to a terminal grid, where a wide character takes two
-// cells rather than the width its font draws it in.
-let onGrid = false;
-let gridCursor = null;
 // The colour of the grid's cell under its cursor, which the text composed
 // there is drawn in once it lands.
 const colourAt = (cursor) => {
@@ -678,12 +727,20 @@ const colourAt = (cursor) => {
   }
   return '';
 };
-const shown = document.createElement('div');
+const shown = document.getElementById('adroit-compose') || document.createElement('div');
 shown.id = 'adroit-compose';
 document.body.appendChild(shown);
 const follow = () => {
-  // A text field gone leaves the keys with no one.
-  if (document.activeElement === document.body) t.focus();
+  if (!current()) return;
+  // The text area gone, as when the page is drawn anew, takes the listeners
+  // with it: the window runs the script again.
+  if (!t.isConnected) {
+    dioxus.send({ kind: 'lost' });
+    return;
+  }
+  // Focus left where the keys are not used, as on a text field gone or
+  // hidden, gives them back to the text area.
+  if (document.hasFocus()) take();
   const cursor = document.querySelector('.screen-cursor');
   const c = cursor
     || document.querySelector('.app-panel.focused .list-row.selected')
@@ -3238,29 +3295,32 @@ fn App() -> Element {
 
     let type_text = {
         let active_pane = active_pane.clone();
-        move |text: String, pasted: bool| match text_goes() {
-            Typed::Prompt => {
-                focus.set(Area::Prompt);
-                if let Some(nv) = nvim.peek().clone() {
-                    spawn(async move {
-                        if pasted {
-                            let _ = nv.paste(&text).await;
-                        } else {
-                            let _ = nv.type_text(&text).await;
-                        }
-                    });
-                }
-            }
-            Typed::Program => {
-                if let Some(p) = active_pane() {
-                    if pasted {
-                        p.paste(&text);
-                    } else {
-                        p.type_text(&text);
+        move |text: String, pasted: bool| {
+            keys::trace(|| format!("text {text:?} pasted={pasted}"));
+            match text_goes() {
+                Typed::Prompt => {
+                    focus.set(Area::Prompt);
+                    if let Some(nv) = nvim.peek().clone() {
+                        spawn(async move {
+                            if pasted {
+                                let _ = nv.paste(&text).await;
+                            } else {
+                                let _ = nv.type_text(&text).await;
+                            }
+                        });
                     }
                 }
+                Typed::Program => {
+                    if let Some(p) = active_pane() {
+                        if pasted {
+                            p.paste(&text);
+                        } else {
+                            p.type_text(&text);
+                        }
+                    }
+                }
+                Typed::Nowhere => {}
             }
-            Typed::Nowhere => {}
         }
     };
 
@@ -3910,6 +3970,25 @@ fn App() -> Element {
             }
         });
     });
+    // The window made key again gives the keys to its page, whatever in the
+    // window took them meanwhile: AppKit sends them to the first responder,
+    // and with anything but the page there no key reaches the window.
+    dioxus::desktop::use_wry_event_handler({
+        let desktop = dioxus::desktop::window();
+        move |event, _| {
+            use dioxus::desktop::tao::event::Event;
+            if let Event::WindowEvent {
+                window_id,
+                event: dioxus::desktop::WindowEvent::Focused(true),
+                ..
+            } = event
+                && *window_id == desktop.window.id()
+            {
+                keys::trace(|| "window made key: the page takes the keys");
+                let _ = desktop.webview.focus();
+            }
+        }
+    });
     // Run what a menu bar entry names where the keys are now, as its key
     // would: not behind the picker, a dialog or a name being typed, which hold
     // the keys. The entries act on this window whichever of adroit's is in
@@ -4021,6 +4100,7 @@ fn App() -> Element {
             }
             // A key closes a menu left open, and does nothing else.
             if menu.peek().is_some() {
+                keys::trace(|| "dropped: a menu was open");
                 menu.set(None);
                 return;
             }
@@ -4031,11 +4111,13 @@ fn App() -> Element {
             }
             // Renaming, the keys are its field's; none act behind it.
             if renaming.peek().is_some() {
+                keys::trace(|| "dropped: renaming");
                 return;
             }
             // The dialog holds the keys until it is answered.
             let asked = confirm.peek().clone();
             if let Some(ask) = asked {
+                keys::trace(|| format!("to the dialog: {ask:?}"));
                 match key.key.as_str() {
                     "y" | "Enter" => {
                         confirm.set(None);
@@ -4175,6 +4257,12 @@ fn App() -> Element {
                 Area::Prompt if nvim_insert => &[Context::Prompt],
                 Area::Prompt => &[Context::Prompt, Context::Global],
             };
+            keys::trace(|| {
+                format!(
+                    "area={area:?} passing={passing} windowing={windowing} nvim_insert={nvim_insert} pending={:?}",
+                    pending.peek()
+                )
+            });
             let seq = pending.peek().clone();
             let action = match keymap.peek().resolve(contexts, &seq, &key) {
                 Step::Wait => {
@@ -4199,6 +4287,7 @@ fn App() -> Element {
                     // A key that ends no binding is the area's to take, unless
                     // it broke off a sequence.
                     if !seq.is_empty() {
+                        keys::trace(|| "dropped: broke off a sequence");
                         return;
                     }
                     match area {
@@ -4213,7 +4302,9 @@ fn App() -> Element {
                                 && let Some(nv) = nvim.peek().clone()
                             {
                                 spawn(async move {
-                                    let _ = nv.input(&n).await;
+                                    if let Err(e) = nv.input(&n).await {
+                                        keys::trace(|| format!("prompt refused {n}: {e}"));
+                                    }
                                 });
                             }
                         }
@@ -4226,6 +4317,8 @@ fn App() -> Element {
         }
     };
 
+    // Whether the page has the keys, as it last told.
+    let page_focused = use_hook(|| Rc::new(Cell::new(true)));
     // Keys, text, pastes and input-method commits from the hidden text area.
     // Keys with a modifier and keys that type nothing come as keys; plain
     // characters come as text.
@@ -4233,16 +4326,40 @@ fn App() -> Element {
         let mut handle_key = handle_key.clone();
         let mut type_text = type_text.clone();
         let mut paste_image = paste_image.clone();
+        let page_focused = page_focused.clone();
         move || {
             spawn(async move {
-                let mut input =
-                    document::eval(&format!("window.adroitHeld ??= {MENU_KEYS:?};\n{INPUT}"));
-                while let Ok(message) = input.recv::<keys::Message>().await {
+                let run = || {
+                    document::eval(&format!(
+                        "window.adroitHeld ??= {MENU_KEYS:?};\nwindow.adroitDebugKeys = {};\n{INPUT}",
+                        *keys::TRACED
+                    ))
+                };
+                let mut input = run();
+                loop {
+                    let message = match keys::after(input.recv::<keys::Message>().await) {
+                        keys::Next::Handle(message) => message,
+                        keys::Next::Skip => {
+                            keys::trace(|| "passed over a message that cannot be read");
+                            continue;
+                        }
+                        keys::Next::Restart => {
+                            keys::trace(|| "the keys were lost: running the script again");
+                            // A script that cannot keep its channel is not run
+                            // again at once, over and over.
+                            tokio::time::sleep(RESTART_INPUT_AFTER).await;
+                            input = run();
+                            continue;
+                        }
+                    };
                     if let Some(key) = message.key() {
+                        keys::trace(|| format!("received {key:?}"));
                         handle_key(key);
                         continue;
                     }
                     match message {
+                        keys::Message::Trace { text } => keys::trace(|| format!("js {text}")),
+                        keys::Message::Focused { on } => page_focused.set(on),
                         keys::Message::Paste { text } => {
                             pending.set(Vec::new());
                             type_text(text, true);
@@ -4258,11 +4375,28 @@ fn App() -> Element {
                             pending.set(Vec::new());
                             type_text(text, false);
                         }
-                        keys::Message::Key { .. } => {}
+                        keys::Message::Key { .. } | keys::Message::Lost => {}
                     }
                 }
             });
         }
+    });
+    // A window that has the keys while its page has not, past a moment, gives
+    // them back to the page: nothing else in the window uses them, and with
+    // them elsewhere every key is lost while the window looks as it should.
+    use_hook(move || {
+        let desktop = dioxus::desktop::window();
+        spawn(async move {
+            let mut watch = keys::Watch::default();
+            loop {
+                tokio::time::sleep(LOOK_FOR_KEYS_EVERY).await;
+                let key = desktop.window.is_focused();
+                if watch.look(key, page_focused.get(), desktop.webview.is_devtools_open()) {
+                    keys::trace(|| "the page lost the keys of the window: giving them back");
+                    let _ = desktop.webview.focus();
+                }
+            }
+        });
     });
 
     let _ = attached();

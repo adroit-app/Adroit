@@ -33,6 +33,18 @@ A click on the console, live or read, reaches a program that reads the mouse,
 as Claude Code does, at the cell clicked; a program that does not read it is
 told nothing.
 
+## Where the keys go
+
+Keys go where the mode chip at the bottom left says, whatever in the window a
+click or macOS left focused, but for a text field being typed in that is
+shown: the filter, a name being typed, the picker's query. When the window is
+in front and its keys have strayed elsewhere, it takes them back by itself
+within a second, without a click.
+
+With `$ADROIT_DEBUG_KEYS` set to anything but empty, the window writes to its
+standard error, line by line, each key it receives, where focus moves and
+where each key goes.
+
 ## Where the file is
 
 - `$ADROIT_KEYS`, when set;

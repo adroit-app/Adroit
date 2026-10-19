@@ -1,6 +1,9 @@
 //! Keys as the window's script reports them.
 
+use std::sync::LazyLock;
+
 use adroit_term::Key;
+use dioxus::document::EvalError;
 use serde::Deserialize;
 
 /// What the window's script tells, one JSON object a message tagged by its
@@ -34,6 +37,38 @@ pub enum Message {
         mime: String,
         data: String,
     },
+    /// What the script saw, told while keys are traced.
+    Trace {
+        text: String,
+    },
+    /// The text area the script listens on is gone from the page.
+    Lost,
+    /// Whether the page has the keys of the window, told as it gains or
+    /// loses them.
+    Focused {
+        on: bool,
+    },
+}
+
+/// What to do with what the script sent.
+#[derive(Debug, PartialEq)]
+pub enum Next {
+    Handle(Message),
+    /// A message that cannot be read, which costs that message and no other.
+    Skip,
+    /// Run the script again: its text area or its channel is gone, and no key
+    /// would come any more.
+    Restart,
+}
+
+/// What to do with what the script sent, or the error waiting for it.
+pub fn after(received: Result<Message, EvalError>) -> Next {
+    match received {
+        Ok(Message::Lost) => Next::Restart,
+        Ok(message) => Next::Handle(message),
+        Err(EvalError::Serialization(_)) => Next::Skip,
+        Err(_) => Next::Restart,
+    }
 }
 
 impl Message {
@@ -55,6 +90,46 @@ impl Message {
             }),
             _ => None,
         }
+    }
+}
+
+/// Looks at whether the page has the keys while its window has them, and
+/// tells when the window should give them back to it.
+#[derive(Debug, Default)]
+pub struct Watch {
+    astray: u32,
+}
+
+impl Watch {
+    /// Whether to give the keys back to the page, looking once more: the
+    /// window is key, the page has not had the keys since the last look either,
+    /// and no developer tools are open to take them. A single look is not
+    /// enough, as the page loses the keys for a moment to what macOS opens over
+    /// it.
+    pub fn look(&mut self, window_key: bool, page_focused: bool, devtools: bool) -> bool {
+        if !window_key || page_focused || devtools {
+            self.astray = 0;
+            return false;
+        }
+        self.astray += 1;
+        if self.astray < 2 {
+            return false;
+        }
+        self.astray = 0;
+        true
+    }
+}
+
+/// Whether the way keys travel is written to the standard error, as
+/// `ADROIT_DEBUG_KEYS` asks.
+pub static TRACED: LazyLock<bool> =
+    LazyLock::new(|| std::env::var_os("ADROIT_DEBUG_KEYS").is_some_and(|v| !v.is_empty()));
+
+/// Write where a key went, while keys are traced; `what` is not even made
+/// otherwise.
+pub fn trace<D: std::fmt::Display>(what: impl FnOnce() -> D) {
+    if *TRACED {
+        eprintln!("[keys] {}", what());
     }
 }
 
@@ -160,6 +235,86 @@ mod tests {
                 mime: "image/png".into(),
                 data: "iVBORw==".into()
             }
+        );
+    }
+
+    fn unreadable(json: &str) -> EvalError {
+        EvalError::Serialization(serde_json::from_str::<Message>(json).unwrap_err())
+    }
+
+    #[test]
+    fn a_message_read_is_handled() {
+        let m = Message::Text { text: "a".into() };
+        assert_eq!(
+            after(Ok(m)),
+            Next::Handle(Message::Text { text: "a".into() })
+        );
+    }
+
+    #[test]
+    fn a_message_that_cannot_be_read_is_passed_over_and_the_keys_after_it_still_come() {
+        assert_eq!(
+            after(Err(unreadable(r#"{"kind":"image","png":"…"}"#))),
+            Next::Skip
+        );
+        assert_eq!(after(Err(unreadable(r#"{"kind":"text"}"#))), Next::Skip);
+    }
+
+    #[test]
+    fn the_script_runs_again_when_its_keys_area_is_gone() {
+        assert_eq!(after(Ok(read(r#"{"kind":"lost"}"#))), Next::Restart);
+    }
+
+    #[test]
+    fn the_page_telling_whether_it_has_the_keys_is_read() {
+        assert_eq!(
+            read(r#"{"kind":"focused","on":false}"#),
+            Message::Focused { on: false }
+        );
+    }
+
+    #[test]
+    fn a_key_window_whose_page_stays_without_the_keys_gives_them_back_on_the_second_look() {
+        let mut w = Watch::default();
+        assert!(!w.look(true, false, false));
+        assert!(w.look(true, false, false));
+    }
+
+    #[test]
+    fn the_keys_are_given_back_once_and_then_looked_for_afresh() {
+        let mut w = Watch::default();
+        w.look(true, false, false);
+        assert!(w.look(true, false, false));
+        assert!(!w.look(true, false, false));
+    }
+
+    #[test]
+    fn a_page_with_the_keys_again_between_looks_is_left_alone() {
+        let mut w = Watch::default();
+        w.look(true, false, false);
+        assert!(!w.look(true, true, false));
+        assert!(!w.look(true, false, false));
+    }
+
+    #[test]
+    fn the_keys_are_not_taken_while_another_window_has_them_or_developer_tools_are_open() {
+        let mut w = Watch::default();
+        for _ in 0..3 {
+            assert!(!w.look(false, false, false));
+        }
+        for _ in 0..3 {
+            assert!(!w.look(true, false, true));
+        }
+    }
+
+    #[test]
+    fn the_script_runs_again_when_its_channel_ends() {
+        assert_eq!(after(Err(EvalError::Finished)), Next::Restart);
+        assert_eq!(
+            after(Err(EvalError::Communication(
+                "Receive channel closed".into()
+            ))),
+            Next::Restart
         );
     }
 }
