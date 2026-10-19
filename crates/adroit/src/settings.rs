@@ -41,6 +41,10 @@ pub struct Settings {
     pub sessions: SessionOptions,
     /// How a reader runs.
     pub readers: ReaderOptions,
+    /// Where scratch sessions run; empty for adroit's own folder.
+    pub scratch_dir: String,
+    /// Where the picker looks for directories to start a session in.
+    pub picker: PickerSettings,
 }
 
 /// The fonts the console falls back to, a Japanese one among them for what a
@@ -63,7 +67,49 @@ impl Default for Settings {
             neovim: Launch::default(),
             sessions: SessionOptions::default(),
             readers: ReaderOptions::default(),
+            scratch_dir: String::new(),
+            picker: PickerSettings::default(),
         }
+    }
+}
+
+/// Where the picker looks for directories to start a session in, beside where
+/// sessions run and Claude Code has been used.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PickerSettings {
+    /// Offer the repositories ghq keeps, and its roots in the file tree.
+    pub ghq: bool,
+    /// Folders whose folders are offered, and which the file tree lists.
+    pub roots: Vec<String>,
+}
+
+impl Default for PickerSettings {
+    fn default() -> Self {
+        Self {
+            ghq: true,
+            roots: Vec::new(),
+        }
+    }
+}
+
+impl PickerSettings {
+    /// The roots as paths, `~` standing for `home`.
+    pub fn root_paths(&self, home: &std::path::Path) -> Vec<PathBuf> {
+        self.roots
+            .iter()
+            .map(|r| r.trim())
+            .filter(|r| !r.is_empty())
+            .map(|r| expand(r, home))
+            .collect()
+    }
+}
+
+/// `path` with a leading `~` standing for `home`.
+fn expand(path: &str, home: &std::path::Path) -> PathBuf {
+    match path.strip_prefix('~') {
+        Some(rest) => home.join(rest.trim_start_matches('/')),
+        None => PathBuf::from(path),
     }
 }
 
@@ -99,6 +145,14 @@ impl Settings {
         self.claude.command = words(self.claude.command);
         self.neovim.command = words(self.neovim.command);
         self
+    }
+
+    /// Where scratch sessions run, `~` standing for `home`.
+    pub fn scratch_folder(&self, home: &std::path::Path) -> PathBuf {
+        match self.scratch_dir.trim() {
+            "" => crate::paths::data_dir().join("adroit").join("scratch"),
+            dir => expand(dir, home),
+        }
     }
 
     /// The console's fonts as CSS names them: the chosen one first.
@@ -297,6 +351,11 @@ mod tests {
                 ..SessionOptions::default()
             },
             readers: ReaderOptions::default(),
+            scratch_dir: "~/notes".into(),
+            picker: PickerSettings {
+                ghq: false,
+                roots: vec!["~/src".into()],
+            },
         };
         let text = toml::to_string_pretty(&s).unwrap();
         assert_eq!(Settings::parse(&text).unwrap(), s);
@@ -367,5 +426,46 @@ mod tests {
             ["--model", "opus", "--permission-mode", "acceptEdits"]
         );
         assert_eq!(s.readers.options().args(), ["--permission-mode", "plan"]);
+    }
+
+    #[test]
+    fn scratch_sessions_run_in_the_folder_the_settings_name_or_adroit_s_own() {
+        let home = std::path::Path::new("/h");
+        let at = |text: &str| Settings::parse(text).unwrap().scratch_folder(home);
+        assert_eq!(
+            at(""),
+            crate::paths::data_dir().join("adroit").join("scratch")
+        );
+        assert_eq!(
+            at("scratch_dir = \"~/notes/scratch\"\n"),
+            PathBuf::from("/h/notes/scratch")
+        );
+        assert_eq!(at("scratch_dir = \"/tmp/s\"\n"), PathBuf::from("/tmp/s"));
+    }
+
+    #[test]
+    fn the_picker_asks_ghq_and_lists_the_folders_the_settings_name() {
+        let home = std::path::Path::new("/h");
+        let s = Settings::parse("").unwrap();
+        assert!(s.picker.ghq);
+        assert!(s.picker.root_paths(home).is_empty());
+        let s = Settings::parse("[picker]\nghq = false\nroots = [\"~/src\", \"/work\", \" \"]\n")
+            .unwrap();
+        assert!(!s.picker.ghq);
+        assert_eq!(
+            s.picker.root_paths(home),
+            [PathBuf::from("/h/src"), PathBuf::from("/work")]
+        );
+    }
+
+    #[test]
+    fn the_specification_s_settings_toml_reads_as_the_settings_as_designed() {
+        let spec = include_str!("../../../docs/spec/settings.md");
+        let block = spec
+            .split_once("```toml\n")
+            .and_then(|(_, rest)| rest.split_once("```"))
+            .map(|(toml, _)| toml)
+            .unwrap();
+        assert_eq!(Settings::parse(block).unwrap(), Settings::default());
     }
 }

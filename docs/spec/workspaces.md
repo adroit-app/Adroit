@@ -43,7 +43,10 @@ the directories to start a new session in:
 
 - the directories sessions run in now;
 - the directories Claude Code has been used in, the most recent first;
-- the repositories `ghq list` names, when ghq is installed.
+- the repositories `ghq list` names, when ghq is installed and the settings
+  do not turn it off;
+- the folders in each folder the settings list for the picker
+  ([settings](settings.md#settingstoml)).
 
 Typing narrows both by a fuzzy match, fzf's syntax included: a session on its
 name and where it runs, a directory on its path. The sessions stay above the
@@ -58,8 +61,8 @@ prompt sent starts it, named from its first words or from a first line
 `name: <label>`.
 
 `Ctrl+f` turns the picker into a **file tree** for a directory the list does
-not offer. It shows the directories under the home directory and under each
-ghq root, side by side. `j` and `k` move, `l` opens a directory, `h` closes it
+not offer. It shows the directories under the home directory, under each
+ghq root and under each folder the settings list, side by side. `j` and `k` move, `l` opens a directory, `h` closes it
 or moves to its parent, `!` shows or hides the hidden ones, and `Enter`
 chooses the directory under the cursor. `Ctrl+f` goes back to the list and
 `Escape` closes the picker.
@@ -76,9 +79,9 @@ Scratch Session in the Session menu opens one, with the prompt ready as for a
 new session, and so does a prompt sent with nothing open when it has no one
 worktree to go to ([prompt](prompt.md)). The first prompt sent starts it in
 a new directory of its own,
-named by the local date and time, in the scratch folder:
-`$XDG_DATA_HOME/adroit/scratch` (`~/.local/share/adroit/scratch` when
-`$XDG_DATA_HOME` is unset). One never sent makes no directory.
+named by the local date and time, in the scratch folder: the one the settings
+name, or `$XDG_DATA_HOME/adroit/scratch` (`~/.local/share/adroit/scratch`
+when `$XDG_DATA_HOME` is unset). One never sent makes no directory.
 
 The sidebar lists everything that runs in the scratch folder as one
 workspace, Scratch, after every other, its sessions and shells straight under

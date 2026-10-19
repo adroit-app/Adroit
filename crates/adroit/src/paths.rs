@@ -22,10 +22,10 @@ pub fn data_dir() -> PathBuf {
         .unwrap_or_else(|| home().join(".local").join("share"))
 }
 
-/// Where scratch sessions run, each in a directory of its own:
-/// `scratch` in adroit's folder of the data directory.
+/// Where scratch sessions run, each in a directory of its own, as the
+/// settings say.
 pub fn scratch_dir() -> PathBuf {
-    data_dir().join("adroit").join("scratch")
+    crate::settings::current().scratch_folder(&home())
 }
 
 /// adroit's configuration folder: `$XDG_CONFIG_HOME/adroit`, or

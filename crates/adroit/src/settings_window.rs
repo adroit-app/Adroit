@@ -245,6 +245,42 @@ fn General(now: Settings, change: Callback<Change>) -> Element {
             }
         }
         section { class: "settings-group",
+            h2 { "Starting sessions" }
+            Row { label: "Scratch folder", hint: "Where scratch sessions run, each in a folder of its own; empty for adroit's own.",
+                input {
+                    class: "settings-command",
+                    r#type: "text",
+                    value: "{now.scratch_dir}",
+                    placeholder: "~/.local/share/adroit/scratch",
+                    onchange: move |e| {
+                        let dir = e.value().trim().to_string();
+                        change(Box::new(move |s: &mut Settings| s.scratch_dir = dir));
+                    },
+                }
+            }
+            Row { label: "Offer ghq's repositories", hint: "The picker lists the repositories ghq keeps, and its file tree ghq's roots.",
+                input {
+                    r#type: "checkbox",
+                    checked: now.picker.ghq,
+                    onchange: move |e| {
+                        let on = e.checked();
+                        change(Box::new(move |s: &mut Settings| s.picker.ghq = on));
+                    },
+                }
+            }
+            Row { label: "Folders to offer", hint: "One a line: the picker lists the folders in each, and its file tree each one.",
+                textarea {
+                    class: "settings-env",
+                    value: "{now.picker.roots.join(\"\\n\")}",
+                    placeholder: "~/src",
+                    onchange: move |e| {
+                        let roots = e.value().lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect();
+                        change(Box::new(move |s: &mut Settings| s.picker.roots = roots));
+                    },
+                }
+            }
+        }
+        section { class: "settings-group",
             h2 { "Files" }
             for (name, path, starter) in files {
                 Row { key: "{name}", label: name, hint: short(&path),

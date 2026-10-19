@@ -41,6 +41,10 @@ theme = "Adroit"
 # open or not; the display still sleeps.
 keep_awake = true
 
+# Where scratch sessions run, `~` standing for your home folder; empty for
+# adroit's own folder.
+scratch_dir = ""
+
 # How a shell tab's shell starts: the shell and its arguments, empty for your
 # account's login shell started as a login shell, and variables set for it.
 [shell]
@@ -79,6 +83,13 @@ disallowed_tools = []
 model = ""
 permission_mode = "plan"
 disallowed_tools = ["Edit", "Write", "NotebookEdit"]
+
+# Where the picker looks for directories to start a session in: the
+# repositories ghq keeps, and the folders in each of `roots`, `~` standing for
+# your home folder.
+[picker]
+ghq = true
+roots = []
 ```
 
 A program started through the shell is started by the shell `[shell]` names,

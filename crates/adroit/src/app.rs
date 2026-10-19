@@ -2294,7 +2294,7 @@ fn App() -> Element {
             .filter(|w| !w.sessions.is_empty())
             .map(|w| w.worktree.path.clone())
             .collect();
-        offers.set(picker::candidates(&running, &[], &[]));
+        offers.set(picker::candidates(&running, &[], &[], &[]));
         // The home folder starts open: nearly every pick in the tree begins
         // inside it.
         let mut filer = Filer::new([home()]);
@@ -2304,16 +2304,29 @@ fn App() -> Element {
             // Claude Code's state file can run to megabytes, and every
             // directory it names is looked at: not on the window's thread.
             let home = home();
-            let (recent, (ghq, roots)) = tokio::join!(
+            let asked = settings::current().picker;
+            let listed_roots = asked.root_paths(&home);
+            let (recent, (ghq, ghq_roots), listed) = tokio::join!(
                 tokio::task::spawn_blocking(move || places::recent(&home)),
-                async { tokio::join!(places::ghq_list(), places::ghq_roots()) },
+                async {
+                    if asked.ghq {
+                        tokio::join!(places::ghq_list(), places::ghq_roots())
+                    } else {
+                        (Vec::new(), Vec::new())
+                    }
+                },
+                tokio::task::spawn_blocking({
+                    let roots = listed_roots.clone();
+                    move || picker::folders_in(&roots)
+                }),
             );
+            let roots: Vec<PathBuf> = ghq_roots.into_iter().chain(listed_roots).collect();
             // Closed while they were read, the picker wants them no more.
             if picking.peek().is_none() {
                 return;
             }
             let recent = recent.unwrap_or_default();
-            let next = picker::candidates(&running, &recent, &ghq);
+            let next = picker::candidates(&running, &recent, &ghq, &listed.unwrap_or_default());
             // The rows rank anew with more to rank: the cursor stays on the
             // row it was on, not on whatever comes to sit at its place.
             let (query, on) = {
