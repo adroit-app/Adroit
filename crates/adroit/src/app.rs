@@ -1405,7 +1405,8 @@ fn App() -> Element {
             spawn(async move {
                 loop {
                     let wt = place.peek().as_ref().map(|p| p.worktree.clone());
-                    let next = match (drill.peek().spot(), wt) {
+                    let spot = drill.peek().spot();
+                    let next = match (spot, wt) {
                         (Some(s), Some(wt)) => Some(load(s, wt).await),
                         _ => None,
                     };
@@ -1616,7 +1617,8 @@ fn App() -> Element {
                 let born = Instant::now();
                 nvim.set(Some(embedded.clone()));
                 let rows = *prompt_rows.peek() as u16;
-                let _ = embedded.resize(*prompt_cols.peek(), rows).await;
+                let cols = *prompt_cols.peek();
+                let _ = embedded.resize(cols, rows).await;
                 while let Some(ev) = rx.recv().await {
                     match ev {
                         NvimEvent::Redraw => {
@@ -1979,7 +1981,8 @@ fn App() -> Element {
                     sending.set(false);
                     return;
                 };
-                if let Some(nv) = nvim.peek().clone() {
+                let nv = nvim.peek().clone();
+                if let Some(nv) = nv {
                     let _ = nv.stop_writing().await;
                 }
                 // Sent with nothing open, a prompt starts a session where it
@@ -2332,7 +2335,8 @@ fn App() -> Element {
                         prompt_rows.set(rows);
                         let embedded = nvim.peek().clone();
                         if let Some(e) = embedded {
-                            let _ = e.resize(*prompt_cols.peek(), rows as u16).await;
+                            let cols = *prompt_cols.peek();
+                            let _ = e.resize(cols, rows as u16).await;
                         }
                     }
                     was = s;
@@ -2411,7 +2415,8 @@ fn App() -> Element {
                 }
                 hub.refresh.notify_one();
                 let tab = Tab::Session(r.id.clone());
-                if let Some(p) = pane_for(&hub, &tab, *console_size.peek()).await {
+                let size = *console_size.peek();
+                if let Some(p) = pane_for(&hub, &tab, size).await {
                     p.paste(&format!("/rename {name}"));
                     tokio::time::sleep(Duration::from_millis(40)).await;
                     p.key(&Key::new("Enter"));

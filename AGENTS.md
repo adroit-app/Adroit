@@ -76,7 +76,7 @@ Scoped Commits:
 | `spec` | `docs/spec/` |
 | `ci` | `.github/` |
 | `nix` | `flake.nix`, `flake.lock` |
-| `tooling` | `justfile`, `rust-toolchain.toml`, `Cargo.toml`, `.envrc.sample`, `.gitattributes` |
+| `tooling` | `justfile`, `rust-toolchain.toml`, `Cargo.toml`, `clippy.toml`, `.envrc.sample`, `.gitattributes` |
 | `deps` | dependency updates |
 
 Add a row when a new area appears.

@@ -1,0 +1,4 @@
+await-holding-invalid-types = [
+    { path = "generational_box::GenerationalRef", reason = "a signal read across an await panics when the signal is written meanwhile; take what is needed out of it first" },
+    { path = "generational_box::GenerationalRefMut", reason = "a signal written across an await panics when the signal is read meanwhile" },
+]
