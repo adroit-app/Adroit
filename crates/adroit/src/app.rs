@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 use adroit_claude::Access;
 use adroit_claude::git::DiffKind;
 use adroit_claude::links::{Kind as LinkKind, Link, Links, Touch, Transcript};
+use adroit_claude::usage::{self, Severity};
 use adroit_claude::{commands, places};
 use adroit_model::{InboxItem, Kind, Runs, Session, Shell, State, Tree, Worktree, build, inbox};
 use adroit_nvim::{Embedded, Event as NvimEvent, notation};
@@ -22,8 +23,8 @@ use crate::console_keys::direct_key;
 use crate::console_read;
 use crate::daemon;
 use crate::details::{
-    Drill, Entry, Group, Listing, Related, Sheet, Tie, View, facts, load, overview, related,
-    shown_link,
+    Drill, Entry, Group, Listing, Related, Sheet, Tie, View, facts, gauges, load, overview,
+    related, shown_link,
 };
 use crate::editor;
 use crate::filer::{Filer, read_dirs};
@@ -1508,6 +1509,38 @@ fn App() -> Element {
         let wake = hub.git.clone();
         move || {
             let _ = (spot(), place());
+            wake.notify_one();
+        }
+    });
+    // How much of the account's usage limits is left, for the foot of the
+    // overview: asked of Claude Code while the overview is in sight, again
+    // once the answer has aged.
+    let mut usage_limits = use_signal(usage::Fresh::default);
+    let usage_wake = use_hook(|| Arc::new(Notify::new()));
+    use_hook({
+        let wake = usage_wake.clone();
+        move || {
+            spawn(async move {
+                loop {
+                    let in_sight =
+                        drill.peek().sheet() == Sheet::Overview && layout.peek().show_details;
+                    if in_sight && usage_limits.write().want(Instant::now()) {
+                        let program = programs::claude_program();
+                        let got = usage::probe(&program, &home(), usage::PROBE_TIMEOUT).await;
+                        usage_limits.write().settle(Instant::now(), got);
+                    }
+                    tokio::select! {
+                        _ = tokio::time::sleep(Duration::from_secs(30)) => {}
+                        _ = wake.notified() => {}
+                    }
+                }
+            });
+        }
+    });
+    use_effect({
+        let wake = usage_wake.clone();
+        move || {
+            let _ = (drill().sheet(), layout().show_details);
             wake.notify_one();
         }
     });
@@ -3838,6 +3871,10 @@ fn App() -> Element {
     let active_tab = active();
     let drill_now = drill();
     let sheet_now = drill_now.sheet();
+    let usage_now = match (sheet_now, usage_limits.read().get()) {
+        (Sheet::Overview, Some(limits)) => gauges(limits, now_ms()),
+        _ => Vec::new(),
+    };
     let spot_now = spot();
     let git_now = git_view()
         .filter(|v| {
@@ -4763,6 +4800,31 @@ fn App() -> Element {
                             }
                         }
                     }
+                    }
+                    if !usage_now.is_empty() {
+                        div { class: "details-usage",
+                            title: "Usage limits, as Claude Code's /usage reports them",
+                            span { class: "details-label", "Usage" }
+                            for g in usage_now.into_iter() {
+                                div { key: "{g.label}", class: "usage-gauge",
+                                    div { class: "usage-gauge-head",
+                                        span { class: "usage-gauge-label", "{g.label}" }
+                                        span { class: "usage-gauge-left", "{g.left}" }
+                                    }
+                                    div { class: "usage-gauge-track",
+                                        div {
+                                            class: match g.severity {
+                                                Severity::Normal => "usage-gauge-fill",
+                                                Severity::Warning => "usage-gauge-fill warning",
+                                                Severity::Critical => "usage-gauge-fill critical",
+                                            },
+                                            style: "width:{g.used}%",
+                                        }
+                                    }
+                                    span { class: "usage-gauge-note", "{g.note}" }
+                                }
+                            }
+                        }
                     }
                 }
             }

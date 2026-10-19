@@ -8,6 +8,8 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
+use crate::control;
+
 /// A command `/` offers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Command {
@@ -29,36 +31,18 @@ pub enum Reply {
     Other,
 }
 
-/// The arguments that make Claude Code take control requests on its input and
-/// answer on its output, keeping no session of what passes.
-pub const PROBE_ARGS: &[&str] = &[
-    "--output-format",
-    "stream-json",
-    "--verbose",
-    "--input-format",
-    "stream-json",
-    "--no-session-persistence",
-];
-
-const REQUEST_ID: &str = "adroit";
-
 /// The one line written to Claude Code: an `initialize` control request,
 /// never a user message, so no turn runs and no tokens are spent.
 const REQUEST: &str = "{\"request_id\":\"adroit\",\"type\":\"control_request\",\"request\":{\"subtype\":\"initialize\"}}\n";
 
 /// Read one line of Claude Code's output.
 pub fn reply(line: &str) -> Reply {
-    let Ok(msg) = serde_json::from_str::<Value>(line) else {
-        return Reply::Other;
+    let answer = match control::answer(line) {
+        control::Answer::Success(v) => v,
+        control::Answer::Refused => return Reply::Refused,
+        control::Answer::Other => return Reply::Other,
     };
-    let response = &msg["response"];
-    if msg["type"] != "control_response" || response["request_id"] != REQUEST_ID {
-        return Reply::Other;
-    }
-    let Some(list) = (response["subtype"] == "success")
-        .then(|| response["response"]["commands"].as_array())
-        .flatten()
-    else {
+    let Some(list) = answer["commands"].as_array() else {
         return Reply::Refused;
     };
     let text = |v: &Value| v.as_str().unwrap_or_default().to_string();
@@ -82,35 +66,12 @@ pub const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 /// failure: the request is unversioned, and a release that changes it leaves
 /// `/` with nothing to offer rather than with a list of guesses.
 pub async fn probe(program: &str, dir: &Path, timeout: Duration) -> Option<Vec<Command>> {
-    use std::process::Stdio;
-    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-    let mut child = tokio::process::Command::new(program)
-        .args(PROBE_ARGS)
-        .current_dir(dir)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .spawn()
-        .ok()?;
-    let mut stdin = child.stdin.take()?;
-    let mut lines = BufReader::new(child.stdout.take()?).lines();
-    let asked = async {
-        stdin.write_all(REQUEST.as_bytes()).await.ok()?;
-        stdin.flush().await.ok()?;
-        while let Some(line) = lines.next_line().await.ok()? {
-            match reply(&line) {
-                Reply::Commands(list) => return Some(list),
-                Reply::Refused => return None,
-                Reply::Other => {}
-            }
-        }
-        None
-    };
-    let got = tokio::time::timeout(timeout, asked).await.ok().flatten();
-    let _ = child.start_kill();
-    let _ = child.wait().await;
-    got
+    control::ask(program, dir, REQUEST, timeout, |line| match reply(line) {
+        Reply::Commands(list) => Some(Some(list)),
+        Reply::Refused => Some(None),
+        Reply::Other => None,
+    })
+    .await
 }
 
 /// How long a directory's commands are offered before they are asked for
@@ -222,13 +183,8 @@ mod tests {
         let sent: serde_json::Value = serde_json::from_str(REQUEST.trim_end()).unwrap();
         assert_eq!(sent["type"], "control_request");
         assert_eq!(sent["request"]["subtype"], "initialize");
-        assert_eq!(sent["request_id"], REQUEST_ID);
+        assert_eq!(sent["request_id"], control::REQUEST_ID);
         assert!(REQUEST.ends_with('\n'));
-    }
-
-    #[test]
-    fn the_process_keeps_no_session() {
-        assert!(PROBE_ARGS.contains(&"--no-session-persistence"));
     }
 
     fn dir() -> PathBuf {
