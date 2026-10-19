@@ -1,11 +1,39 @@
 use std::path::PathBuf;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-/// A Claude Code session: one adroit runs, or one running in another
+/// The program that owns a session's conversation.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Agent {
+    #[default]
+    Claude,
+    Codex,
+}
+
+impl Agent {
+    pub const ALL: [Self; 2] = [Self::Claude, Self::Codex];
+    pub const fn key(self) -> &'static str {
+        match self {
+            Self::Claude => "claude",
+            Self::Codex => "codex",
+        }
+    }
+
+    pub fn parse(key: &str) -> Option<Self> {
+        match key {
+            "claude" => Some(Self::Claude),
+            "codex" => Some(Self::Codex),
+            _ => None,
+        }
+    }
+}
+
+/// An agent session: one adroit runs, or one running in another
 /// terminal that Claude Code lists.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Session {
+    pub agent: Agent,
     /// Which session this is: the daemon's id for one adroit runs, the
     /// conversation's for one in another terminal.
     pub id: String,
@@ -145,6 +173,7 @@ pub fn parse_agents(json: &str) -> Result<Vec<Session>, ParseError> {
         .map(|raw| {
             let status = raw.status.unwrap_or_default();
             Session {
+                agent: Agent::Claude,
                 id: raw.session_id.clone(),
                 name: raw.name.unwrap_or_else(|| raw.session_id.clone()),
                 session_id: raw.session_id,

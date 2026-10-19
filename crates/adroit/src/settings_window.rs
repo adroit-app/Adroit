@@ -522,10 +522,17 @@ fn ProgramsPane(now: Settings, change: Callback<Change>) -> Element {
         }
         LaunchGroup {
             title: "Claude Code",
-            hint: "The program every session runs, with the arguments it always gets ahead of adroit's own; empty for claude.",
+            hint: "The program Claude Code sessions run, with the arguments it always gets ahead of adroit's own; empty for claude.",
             placeholder: "claude",
             launch: now.claude.clone(),
             set: move |l: Launch| change(Box::new(move |s: &mut Settings| s.claude = l)),
+        }
+        LaunchGroup {
+            title: "Codex",
+            hint: "The program Codex sessions run, with its arguments; empty for codex.",
+            placeholder: "codex",
+            launch: now.codex.clone(),
+            set: move |l: Launch| change(Box::new(move |s: &mut Settings| s.codex = l)),
         }
         LaunchGroup {
             title: "Neovim",
@@ -598,13 +605,43 @@ const MODELS: [&str; 3] = ["opus", "sonnet", "haiku"];
 #[component]
 fn SessionsPane(now: Settings, change: Callback<Change>) -> Element {
     rsx! {
+        section { class: "settings-group",
+            h2 { "New sessions" }
+            Row { label: "Agent", hint: "The agent new sessions run. Sessions already running keep their agent.",
+                select {
+                    value: now.agent.key(),
+                    onchange: move |e| {
+                        if let Some(agent) = adroit_model::Agent::parse(&e.value()) {
+                            change(Box::new(move |s: &mut Settings| s.agent = agent));
+                        }
+                    },
+                    for agent in adroit_model::Agent::ALL {
+                        option { value: agent.key(), "{crate::agents::adapter(agent).label()}" }
+                    }
+                }
+            }
+        }
+        section { class: "settings-group",
+            h2 { "Codex sessions" }
+            Row { label: "Model", hint: "Empty for Codex's own model. Readers use Codex's read-only sandbox.",
+                input {
+                    class: "settings-command",
+                    r#type: "text",
+                    value: now.codex_sessions.model.clone(),
+                    onchange: move |e| {
+                        let model = e.value().trim().to_string();
+                        change(Box::new(move |s: &mut Settings| s.codex_sessions.model = model));
+                    },
+                }
+            }
+        }
         SessionGroup {
-            title: "Sessions",
+            title: "Claude Code sessions",
             options: now.sessions.clone(),
             set: move |o: SessionOptions| change(Box::new(move |s: &mut Settings| s.sessions = o)),
         }
         SessionGroup {
-            title: "Readers",
+            title: "Claude Code readers",
             options: SessionOptions::from(now.readers.clone()),
             set: move |o: SessionOptions| change(Box::new(move |s: &mut Settings| s.readers = o.into())),
         }

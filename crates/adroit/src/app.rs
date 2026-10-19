@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use adroit_claude::git::DiffKind;
-use adroit_claude::links::{Kind as LinkKind, Link, Links, Touch, Transcript};
+use adroit_claude::links::{Kind as LinkKind, Link, Links, Touch};
 use adroit_claude::usage::{self, Severity};
 use adroit_claude::{commands, places};
 use adroit_model::{InboxItem, Kind, Runs, Session, Shell, State, Tree, Worktree, build, inbox};
@@ -16,6 +16,7 @@ use adroit_term::{Daemon, Key, Palette, Pane, Size, Spawn};
 use dioxus::prelude::*;
 use tokio::sync::{Notify, mpsc, oneshot};
 
+use crate::agents;
 use crate::alerts;
 use crate::complete::{self, candidates};
 use crate::console::{Composer, ConsoleScreen, Hub, Panes, ReaderScreen, mode_of};
@@ -43,7 +44,6 @@ use crate::paths::{home, instance_state, keys_path, scratch_dir};
 use crate::picker::{self, Candidate, Choice, Mode, Picker};
 use crate::picker_view::PickerView;
 use crate::pictures::{self, Gallery};
-use crate::plugin;
 use crate::programs;
 use crate::prompts::{self, Op, Prompts};
 use crate::rename::Rename;
@@ -1073,11 +1073,7 @@ async fn take_input(
 
 /// The environment a session adroit starts runs in, over adroit's own.
 fn session_env() -> Vec<(String, String)> {
-    let mut env: Vec<(String, String)> = adroit_claude::ENV
-        .iter()
-        .map(|(k, v)| (k.to_string(), v.to_string()))
-        .chain(daemon::terminal_env())
-        .collect();
+    let mut env = daemon::terminal_env();
     // Claude Code runs the external editor with the environment it started
     // in, so the prompt can take back what was typed into its input.
     let editor = editor::script_path(&socket_path(&instance_state()));
@@ -1175,17 +1171,22 @@ async fn read_sessions(daemon: &Daemon) -> Result<(Vec<Session>, Vec<Shell>), St
     let (mut own, mut kept_shells) = (Vec::new(), Vec::new());
     for s in &kept {
         match sessions::read(s) {
-            Some(Kept::Claude(c)) => own.push(c),
+            Some(Kept::Agent(c)) => own.push(c),
             Some(Kept::Shell(sh)) => kept_shells.push(sh),
             None => {}
         }
     }
     // Without Claude Code, or with a listing it cannot give, the sessions in
     // other terminals are not listed; adroit's own still are.
-    let listed = adroit_claude::list_sessions(programs::claude_asked)
-        .await
-        .unwrap_or_default();
-    let (elsewhere, learned) = sessions::follow(&mut own, listed);
+    let mut elsewhere = Vec::new();
+    let mut learned = Vec::new();
+    for agent in adroit_model::Agent::ALL {
+        let adapter = agents::adapter(agent);
+        let listed = adapter.list_sessions().await.unwrap_or_default();
+        let (external, tags) = adapter.follow(&mut own, listed);
+        elsewhere.extend(external);
+        learned.extend(tags);
+    }
     // Kept on the session, so a window opened later follows it too; one not
     // kept is learned again on the next read.
     for (id, key, value) in learned {
@@ -1810,17 +1811,34 @@ fn App() -> Element {
     // What `/` offers: Claude Code's commands where the shown tab's session
     // runs, asked for when such a tab is shown or a `/` is typed and the list
     // there is missing or old; the old list is offered meanwhile.
-    let mut command_cache = use_signal(commands::Cache::default);
+    let mut command_cache = use_signal(HashMap::<adroit_model::Agent, commands::Cache>::new);
     let commands_here = use_memo(move || {
-        complete::commands_dir(&tree.read(), active.read().as_ref(), place.read().as_ref())
+        let t = tree.read();
+        let tab = active.read();
+        let agent = agents::for_tab(&t, tab.as_ref(), font.read().agent);
+        agents::adapter(agent)
+            .capabilities()
+            .command_probe
+            .then(|| complete::commands_dir(&t, tab.as_ref(), place.read().as_ref()))
+            .flatten()
+            .map(|dir| (agent, dir))
     });
-    let mut revalidate = move |dir: PathBuf| {
-        if !command_cache.write().want(&dir, Instant::now()) {
+    let mut revalidate = move |(agent, dir): (adroit_model::Agent, PathBuf)| {
+        if !command_cache
+            .write()
+            .entry(agent)
+            .or_default()
+            .want(&dir, Instant::now())
+        {
             return;
         }
         spawn(async move {
-            let got = commands::probe(programs::claude_asked, &dir, commands::PROBE_TIMEOUT).await;
-            command_cache.write().settle(&dir, Instant::now(), got);
+            let got = agents::adapter(agent).commands(dir.clone()).await;
+            command_cache
+                .write()
+                .entry(agent)
+                .or_default()
+                .settle(&dir, Instant::now(), got);
         });
     };
     use_effect(move || {
@@ -1829,7 +1847,11 @@ fn App() -> Element {
         }
     });
     let offered_commands = use_memo(move || match commands_here() {
-        Some(dir) => complete::commands(command_cache.read().get(&dir)),
+        Some((agent, dir)) => command_cache
+            .read()
+            .get(&agent)
+            .map(|cache| complete::commands(cache.get(&dir)))
+            .unwrap_or_default(),
         None => Vec::new(),
     });
     use_effect(move || {
@@ -1891,20 +1913,34 @@ fn App() -> Element {
     // How much of the account's usage limits is left, for the foot of the
     // overview: asked of Claude Code while the overview is in sight, again
     // once the answer has aged.
-    let mut usage_limits = use_signal(usage::Fresh::default);
+    let mut usage_limits = use_signal(HashMap::<adroit_model::Agent, usage::Fresh>::new);
     let usage_wake = use_hook(|| Arc::new(Notify::new()));
     use_hook({
         let wake = usage_wake.clone();
         move || {
             spawn(async move {
                 loop {
-                    let in_sight =
-                        drill.peek().sheet() == Sheet::Overview && layout.peek().show_details;
-                    if in_sight && usage_limits.write().want(Instant::now()) {
-                        let got =
-                            usage::probe(programs::claude_asked, &home(), usage::PROBE_TIMEOUT)
-                                .await;
-                        usage_limits.write().settle(Instant::now(), got);
+                    let agent = agents::for_tab(
+                        &tree.peek(),
+                        active.peek().as_ref(),
+                        settings::current().agent,
+                    );
+                    let in_sight = drill.peek().sheet() == Sheet::Overview
+                        && layout.peek().show_details
+                        && agents::adapter(agent).capabilities().usage_limits;
+                    if in_sight
+                        && usage_limits
+                            .write()
+                            .entry(agent)
+                            .or_default()
+                            .want(Instant::now())
+                    {
+                        let got = agents::adapter(agent).usage(home()).await;
+                        usage_limits
+                            .write()
+                            .entry(agent)
+                            .or_default()
+                            .settle(Instant::now(), got);
                     }
                     tokio::select! {
                         _ = tokio::time::sleep(Duration::from_secs(30)) => {}
@@ -1929,7 +1965,9 @@ fn App() -> Element {
         let wake = links_wake.clone();
         move || {
             spawn(async move {
-                let mut held: Option<Transcript> = None;
+                type ConversationKey = (adroit_model::Agent, PathBuf, String);
+                type Reader = Box<dyn agents::ConversationReader>;
+                let mut held: Option<(ConversationKey, Reader)> = None;
                 loop {
                     let shown = match (drill.peek().sheet(), &*active.peek()) {
                         (Sheet::Overview, Some(Tab::Session(id))) => {
@@ -1937,31 +1975,35 @@ fn App() -> Element {
                         }
                         _ => None,
                     }
-                    .filter(|s| !s.session_id.is_empty());
+                    .filter(|s| {
+                        agents::adapter(s.agent).capabilities().transcript
+                            && !s.session_id.is_empty()
+                    });
                     if let Some(s) = shown {
-                        let path = places::transcript(&home(), &s.cwd, &s.session_id);
-                        let t = match held.take() {
-                            Some(t) if t.path() == path => t,
-                            _ => Transcript::new(path, &s.cwd, home()),
+                        let key = (s.agent, s.cwd.clone(), s.session_id.clone());
+                        let reader = match held.take() {
+                            Some((was, reader)) if was == key => Some(reader),
+                            _ => agents::adapter(s.agent).transcript(&home(), &s),
                         };
-                        let thumbs = gallery.peek().thumbs.clone();
-                        let read = tokio::task::spawn_blocking(move || {
-                            let mut t = t;
-                            t.read(&|p: &Path| p.is_file());
-                            let mut links = t.links();
-                            let mut thumbs = thumbs;
-                            pictures::refresh_thumbs(&mut links.images, &mut thumbs);
-                            (t, links, thumbs)
-                        })
-                        .await;
-                        if let Ok((t, links, thumbs)) = read {
-                            held = Some(t);
-                            if gallery.peek().thumbs != thumbs {
-                                gallery.write().thumbs = thumbs;
-                            }
-                            let next = Some((s.id, links));
-                            if *overview_links.peek() != next {
-                                overview_links.set(next);
+                        if let Some(t) = reader {
+                            let thumbs = gallery.peek().thumbs.clone();
+                            let read = tokio::task::spawn_blocking(move || {
+                                let mut t = t;
+                                let mut links = t.read();
+                                let mut thumbs = thumbs;
+                                pictures::refresh_thumbs(&mut links.images, &mut thumbs);
+                                (t, links, thumbs)
+                            })
+                            .await;
+                            if let Ok((t, links, thumbs)) = read {
+                                held = Some((key, t));
+                                if gallery.peek().thumbs != thumbs {
+                                    gallery.write().thumbs = thumbs;
+                                }
+                                let next = Some((s.id, links));
+                                if *overview_links.peek() != next {
+                                    overview_links.set(next);
+                                }
                             }
                         }
                     } else {
@@ -2523,6 +2565,7 @@ fn App() -> Element {
                 let sent_to = Some(tab.clone());
                 let size = *console_size.peek();
                 let t = tree.peek().clone();
+                let agent = agents::for_tab(&t, Some(&tab), settings::current().agent);
                 let waiting = |id: &str| {
                     nav::find(&t, id).is_some_and(|(_, s)| matches!(s.state, State::Waiting(_)))
                 };
@@ -2534,7 +2577,7 @@ fn App() -> Element {
                         // waits in the prompt for after.
                         focus.set(Area::Console);
                         notify.notice(
-                            "Answer Claude Code above first; your message waits here".into(),
+                            "Answer the session above first; your message waits here".into(),
                         );
                         false
                     }
@@ -2554,7 +2597,9 @@ fn App() -> Element {
                                 ));
                                 false
                             } else {
-                                match adroit_claude::shell_line(&text) {
+                                match adroit_claude::shell_line(&text)
+                                    .filter(|_| agents::adapter(agent).capabilities().shell_bang)
+                                {
                                     Some(command) => {
                                         p.type_text("!");
                                         tokio::time::sleep(Duration::from_millis(40)).await;
@@ -2581,7 +2626,10 @@ fn App() -> Element {
                     }
                     // Given as the first prompt, a shell line is not known to
                     // run as a command; it could reach the model as a message.
-                    Tab::Draft { .. } if adroit_claude::shell_line(&text).is_some() => {
+                    Tab::Draft { .. }
+                        if agents::adapter(agent).capabilities().shell_bang
+                            && adroit_claude::shell_line(&text).is_some() =>
+                    {
                         notify.notice(
                             "A shell line runs in a session: start it with a message first".into(),
                         );
@@ -2593,28 +2641,21 @@ fn App() -> Element {
                         let taken: Vec<&str> = t.sessions().map(|(_, s)| s.name.as_str()).collect();
                         let name = fresh_name(&label, &taken);
                         let reader = role == Role::Reader;
-                        let options = programs::session_options(reader);
+                        let agent = settings::current().agent;
                         // Made only now, so a draft left unsent leaves no
                         // empty directory behind.
                         let started =
                             match scratch::start_dir(&worktree, &scratch_dir(), Moment::now()) {
                                 Ok(worktree) => {
-                                    let conversation = adroit_claude::new_session_id();
-                                    let mut args = plugin::args(&adroit_program());
-                                    args.extend(adroit_claude::start_args(
-                                        &name,
-                                        &conversation,
-                                        &options,
-                                        &text,
-                                    ));
-                                    let (program, args, env) =
-                                        programs::claude(args, session_env());
+                                    let (conversation, (program, args, env)) =
+                                        agents::start(agent, &name, reader, &text, session_env());
                                     let spawn = Spawn {
                                         program,
                                         args,
                                         cwd: worktree.clone(),
                                         env,
-                                        tags: sessions::claude_tags(
+                                        tags: sessions::agent_tags(
+                                            agent,
                                             &name,
                                             &worktree,
                                             &conversation,
@@ -2665,7 +2706,8 @@ fn App() -> Element {
             spawn(async move {
                 status.set(Some(format!("taking over {}…", asked.name)));
                 // The session may have moved on while the dialog was open.
-                let now = match adroit_claude::list_sessions(programs::claude_asked).await {
+                let adapter = agents::adapter(asked.agent);
+                let now = match adapter.list_sessions().await {
                     Ok(list) => list
                         .into_iter()
                         .find(|s| s.session_id == asked.session_id && s.pid == asked.pid),
@@ -2681,6 +2723,11 @@ fn App() -> Element {
                     )));
                     return;
                 };
+                let Some(resume) = adapter.resume_args(&settings::current(), &now.session_id)
+                else {
+                    status.set(Some("This agent cannot be taken over".into()));
+                    return;
+                };
                 moving.write().insert(now.id.clone());
                 let stopped = match now.pid {
                     Some(pid) => adroit_claude::stop(pid, adroit_claude::STOP_GRACE).await,
@@ -2692,18 +2739,16 @@ fn App() -> Element {
                     return;
                 }
                 let size = *console_size.peek();
-                let mut args = plugin::args(&adroit_program());
-                args.extend(adroit_claude::resume_args(
-                    &now.session_id,
-                    &programs::session_options(false),
-                ));
-                let (program, args, env) = programs::claude(args, session_env());
+                let mut args = adapter.integration_args(&adroit_program());
+                args.extend(resume);
+                let (program, args, env) = agents::launch(now.agent, args, session_env());
                 let spawn = Spawn {
                     program,
                     args,
                     cwd: now.cwd.clone(),
                     env,
-                    tags: sessions::claude_tags(
+                    tags: sessions::agent_tags(
+                        now.agent,
                         &now.name,
                         &now.cwd,
                         &now.session_id,
@@ -2846,7 +2891,7 @@ fn App() -> Element {
                     let face = |s: &settings::Settings| {
                         (s.font_family.clone(), s.font_size, s.font_weight)
                     };
-                    if face(&s) != face(&was) {
+                    if face(&s) != face(&was) || s.agent != was.agent {
                         font.set(s.clone());
                     }
                     // A new theme reaches every console open, what is drawn and
@@ -2934,6 +2979,11 @@ fn App() -> Element {
             let (Some(name), Some(id)) = (r.name(), sessions::id_of(&r.id)) else {
                 return;
             };
+            let agent = agents::for_tab(
+                &tree.peek(),
+                Some(&Tab::Session(r.id.clone())),
+                settings::current().agent,
+            );
             let hub = hub.clone();
             spawn(async move {
                 let held = hub
@@ -2952,8 +3002,10 @@ fn App() -> Element {
                 hub.refresh.notify_one();
                 let tab = Tab::Session(r.id.clone());
                 let size = *console_size.peek();
-                if let Some(p) = pane_for(&hub, &tab, size).await {
-                    p.paste(&format!("/rename {name}"));
+                if let Some(command) = agents::adapter(agent).rename_command(&name)
+                    && let Some(p) = pane_for(&hub, &tab, size).await
+                {
+                    p.paste(&command);
                     tokio::time::sleep(Duration::from_millis(40)).await;
                     p.key(&Key::new("Enter"));
                 }
@@ -3186,8 +3238,11 @@ fn App() -> Element {
         move || {
             let _ = frame();
             let shows = match &*active.read() {
-                Some(Tab::Session(_)) => active_pane()
-                    .is_some_and(|p| adroit_claude::dialog::dialog_open(&p.screen().text())),
+                Some(tab @ Tab::Session(_)) => {
+                    let agent = agents::for_tab(&tree.read(), Some(tab), font.read().agent);
+                    active_pane()
+                        .is_some_and(|p| agents::adapter(agent).dialog_open(&p.screen().text()))
+                }
                 _ => false,
             };
             if *dialog.peek() != shows {
@@ -3497,11 +3552,13 @@ fn App() -> Element {
                         Some(Tab::Draft { worktree, .. }) => Some(PathBuf::from(worktree)),
                         _ => None,
                     };
+                    let agent =
+                        agents::for_tab(&tree.peek(), tab.as_ref(), settings::current().agent);
                     let back = action == Action::HistoryPrev;
                     spawn(async move {
                         let sent = match project {
                             Some(dir) => tokio::task::spawn_blocking(move || {
-                                adroit_claude::history::read(&dir)
+                                agents::adapter(agent).history(&dir)
                             })
                             .await
                             .unwrap_or_default(),
@@ -4458,8 +4515,20 @@ fn App() -> Element {
     let active_tab = active();
     let drill_now = drill();
     let sheet_now = drill_now.sheet();
-    let usage_now = match (sheet_now, usage_limits.read().get()) {
-        (Sheet::Overview, Some(limits)) => gauges(limits, now_ms()),
+    let current_agent = agents::for_tab(&t, active_tab.as_ref(), font.read().agent);
+    let agent_label = agents::adapter(current_agent).label();
+    let usage_now = match (
+        sheet_now,
+        usage_limits
+            .read()
+            .get(&current_agent)
+            .and_then(|fresh| fresh.get()),
+    ) {
+        (Sheet::Overview, Some(limits))
+            if agents::adapter(current_agent).capabilities().usage_limits =>
+        {
+            gauges(limits, now_ms())
+        }
         _ => Vec::new(),
     };
     let spot_now = spot();
@@ -5127,7 +5196,7 @@ fn App() -> Element {
                             (Some(Tab::Draft { worktree, role, .. }), _) => rsx! {
                                 div { class: "console-empty",
                                     IconView { icon: if *role == Role::Reader { Icon::Book } else { Icon::MessagePlus }, size: 28 }
-                                    div { class: "console-empty-title", "{role.draft_heading()}" }
+                                    div { class: "console-empty-title", "{role.draft_heading()} · {agent_label}" }
                                     if *role == Role::Reader {
                                         div { "A reader reads and reports: it plans, and edits no files." }
                                     }

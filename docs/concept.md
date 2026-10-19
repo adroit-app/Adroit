@@ -6,35 +6,35 @@ are recorded as ADRs.
 
 ## What it is
 
-adroit is a place to get things done with many Claude Code sessions at once.
+adroit is a place to get things done with many coding agent sessions at once.
 
-Its unit is a **session**: a conversation with Claude. You start one by choosing
+Its unit is a **session**: a conversation with an agent such as Claude Code or Codex. You start one by choosing
 the directory it works in, its **workspace**, and talking. What the work turns
 out to be shows as you go; nothing has to be named or declared before the
 first word.
 
-A workspace holds every session that runs in it, the ones started outside
-adroit too. When the workspace is a git repository, its worktrees divide it:
+A workspace holds every session Adroit runs in it, together with external
+sessions its agent can report. When the workspace is a git repository, its worktrees divide it:
 each session sits under the worktree it runs in. A session hands the work
 itself to Claude Code's own agents, which do it in worktrees of their own when
 they need to.
 
 You see every workspace's sessions in one window, the ones waiting on you
-first. You read each session in the real Claude Code interface, you write to it
+first. You read each session in the agent's real terminal interface, you write to it
 in your own Neovim, and you move around the whole window the way you move
 around Vim.
 
 ## Who it is for
 
-People who live in Vim and work with several Claude Code sessions at the same
+People who live in Vim and work with several coding agent sessions at the same
 time, often across repositories, and who want that work to feel like editing
 rather than like operating a dashboard.
 
 ## Principles
 
-- **The Claude Code interface stays as it is.** adroit shows Claude Code's own
-  terminal interface unchanged, images and diagrams included. It never rebuilds
-  Claude's screen from structured output.
+- **The agent interface stays as it is.** adroit shows each agent's own
+  terminal interface unchanged. It never rebuilds an agent's screen from
+  structured output.
 - **Writing is Neovim.** Prompts are written in an embedded Neovim configured
   by the user for it, specialised for input rather than replaced.
 - **Moving is Vim.** The window is navigated with Vim's grammar: window motions

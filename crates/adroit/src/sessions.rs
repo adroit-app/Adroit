@@ -26,7 +26,7 @@ const STARTED_FROM: &str = "adroit.from";
 /// A session the daemon holds, as what it runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Kept {
-    Claude(Session),
+    Agent(Session),
     Shell(Shell),
 }
 
@@ -52,7 +52,8 @@ pub fn read(session: &adroit_term::Session) -> Option<Kept> {
     let name = tags::value(t, NAME).unwrap_or_default();
     let cwd = PathBuf::from(tags::value(t, CWD)?);
     match tags::value(t, KIND)?.as_str() {
-        "claude" => Some(Kept::Claude(Session {
+        kind if adroit_model::Agent::parse(kind).is_some() => Some(Kept::Agent(Session {
+            agent: adroit_model::Agent::parse(kind)?,
             id: hex(session.id),
             session_id: tags::value(t, CONVERSATION).unwrap_or_default(),
             pid: tags::value(t, PID).and_then(|p| p.parse().ok()),
@@ -93,7 +94,10 @@ pub fn follow(
     listed: Vec<Session>,
 ) -> (Vec<Session>, Vec<(u128, &'static str, String)>) {
     let mut learned = Vec::new();
-    for s in own.iter_mut() {
+    for s in own
+        .iter_mut()
+        .filter(|s| s.agent == adroit_model::Agent::Claude)
+    {
         let Some(id) = id_of(&s.id) else { continue };
         match s.pid {
             Some(pid) => {
@@ -122,8 +126,10 @@ pub fn follow(
     let elsewhere = listed
         .into_iter()
         .filter(|l| {
-            !own.iter()
-                .any(|s| s.session_id == l.session_id || (s.pid.is_some() && s.pid == l.pid))
+            !own.iter().any(|s| {
+                s.agent == l.agent
+                    && (s.session_id == l.session_id || (s.pid.is_some() && s.pid == l.pid))
+            })
         })
         .collect();
     (elsewhere, learned)
@@ -150,6 +156,26 @@ pub fn claude_tags(
     if let Some(from) = started_from {
         out.extend(tags::tagged(STARTED_FROM, from));
     }
+    out
+}
+
+/// Tags for any supported agent; Claude retains its original wire format.
+#[allow(clippy::too_many_arguments)]
+pub fn agent_tags(
+    agent: adroit_model::Agent,
+    name: &str,
+    cwd: &std::path::Path,
+    conversation: &str,
+    reader: bool,
+    started_ms: u64,
+    started_from: Option<&str>,
+) -> Vec<String> {
+    let mut out = claude_tags(name, cwd, conversation, reader, started_ms, started_from);
+    out.retain(|t| {
+        !t.starts_with("adroit.kind=")
+            && (!conversation.is_empty() || !t.starts_with("adroit.claude="))
+    });
+    out.extend(tags::tagged(KIND, agent.key()));
     out
 }
 
@@ -184,6 +210,37 @@ mod tests {
     }
 
     #[test]
+    fn codex_keeps_its_agent_and_status_without_a_claude_conversation() {
+        let mut s = kept(
+            8,
+            agent_tags(
+                adroit_model::Agent::Codex,
+                "fix",
+                std::path::Path::new("/api"),
+                "",
+                true,
+                42,
+                None,
+            ),
+        );
+        s.status = Some(Status {
+            state: "working".into(),
+            kind: None,
+            msg: None,
+        });
+        let Some(Kept::Agent(c)) = read(&s) else {
+            panic!("not a session")
+        };
+        assert_eq!(c.agent, adroit_model::Agent::Codex);
+        assert_eq!(c.state, State::Working);
+        assert!(c.reader);
+        assert!(c.session_id.is_empty());
+        let mut own = [c];
+        let (_, learned) = follow(&mut own, vec![listed("claude-uuid", 42)]);
+        assert!(learned.is_empty());
+    }
+
+    #[test]
     fn a_claude_session_is_read_back_from_its_tags_and_status() {
         let mut s = kept(
             7,
@@ -194,7 +251,7 @@ mod tests {
             kind: Some("permission".into()),
             msg: None,
         });
-        let Some(Kept::Claude(c)) = read(&s) else {
+        let Some(Kept::Agent(c)) = read(&s) else {
             panic!("not a session");
         };
         assert_eq!(c.id, hex(7));
@@ -214,7 +271,7 @@ mod tests {
             7,
             claude_tags("fix", std::path::Path::new("/api"), "uuid", false, 0, None),
         );
-        let Some(Kept::Claude(c)) = read(&s) else {
+        let Some(Kept::Agent(c)) = read(&s) else {
             panic!("not a session");
         };
         assert_eq!(c.session_id, "uuid");
@@ -235,7 +292,7 @@ mod tests {
                 Some("parent-uuid"),
             ),
         );
-        let Some(Kept::Claude(c)) = read(&s) else {
+        let Some(Kept::Agent(c)) = read(&s) else {
             panic!("not a session");
         };
         assert_eq!(c.started_from, "parent-uuid");
@@ -247,7 +304,7 @@ mod tests {
             7,
             claude_tags("fix", std::path::Path::new("/api"), "uuid", false, 0, None),
         );
-        let Some(Kept::Claude(c)) = read(&s) else {
+        let Some(Kept::Agent(c)) = read(&s) else {
             panic!("not a session");
         };
         assert_eq!(c.state, State::Idle);
@@ -293,7 +350,7 @@ mod tests {
         if let Some(pid) = pid {
             tags.extend(tags::tagged(PID, &pid.to_string()));
         }
-        let Some(Kept::Claude(c)) = read(&kept(id, tags)) else {
+        let Some(Kept::Agent(c)) = read(&kept(id, tags)) else {
             panic!("not a session");
         };
         c

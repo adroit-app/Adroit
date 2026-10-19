@@ -7,12 +7,12 @@
 
 # Adroit
 
-A workspace where you work with many Claude Code sessions by hand: the Claude TUI as it is, prompts in your own Neovim, Vim-style moves.
+A workspace for Claude Code and Codex sessions: their own terminal interfaces, prompts in Neovim, Vim-style moves.
 
 > [!NOTE]
 > adroit is early: it runs, but expect rough edges and changes.
 
-One window holds every Claude Code session you are working with, found where
+One window holds your Claude Code and Codex sessions, grouped where
 it runs. You start one by choosing a directory and talking; nothing has to be
 named or declared first:
 
@@ -30,7 +30,7 @@ notes                            ← a directory outside git
 ```
 
 The sessions waiting on you are listed first, across every workspace. Each
-session shows the real Claude Code interface; you write to it in an embedded
+session shows its agent's real terminal interface; you write to it in an embedded
 Neovim with your own configuration, and you move between panes with Vim's
 window motions. See [docs/concept.md](docs/concept.md) for the ideas behind it.
 
@@ -40,7 +40,7 @@ Not yet released.
 
 ## Usage
 
-adroit needs Claude Code (`claude`), Neovim (`nvim`) and git on `PATH`, and jj
+adroit needs Claude Code (`claude`) or Codex CLI (`codex`), Neovim (`nvim`) and git on `PATH`, and jj
 to read jj repositories through it. Build and run it from the development
 shell:
 
@@ -59,6 +59,23 @@ Claude Code reports running in other terminals
 ([details](docs/spec/workspaces.md)). While they run, the Mac does not go to
 idle sleep, so they go on with the display off
 ([details](docs/spec/sessions.md#keeping-the-mac-awake)).
+
+### Codex
+
+Choose Codex under Settings → Sessions → Agent, then start a session as
+usual. Settings → Programs configures its command and environment; Codex's
+model is set separately from Claude's. Sessions already running keep their
+agent, so both can run together. From a terminal:
+
+```sh
+adroit session start --agent codex --dir ~/src/api -- "Review the API"
+```
+
+Codex readers use its read-only sandbox. External Codex discovery and
+takeover, embedded prompt history and slash completion, usage limits and
+transcript-derived details are not yet supported. Use `Ctrl-g i` to operate
+Codex's commands and menus directly; `Esc` returns to Adroit. See
+[the session specification](docs/spec/sessions.md#agents) for the scope.
 
 ### Keys
 

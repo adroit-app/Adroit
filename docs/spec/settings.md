@@ -21,6 +21,9 @@ leaves every setting as designed. A value out of reason is brought into it.
 # Command 0 comes back to it.
 zoom = 1.0
 
+# The agent new sessions run: claude or codex.
+agent = "claude"
+
 # The fewest lines the prompt shows, and the most it grows to before it
 # scrolls inside.
 prompt_min_rows = 3
@@ -66,6 +69,19 @@ via_shell = false
 
 [claude.env]
 
+# How Codex starts, independently of Claude Code; empty for codex.
+[codex]
+command = []
+via_shell = false
+
+[codex.env]
+
+# Codex model; empty for its own choice. Readers also use this model and
+# start with the read-only sandbox. Other Codex options can be included in
+# codex.command or in Codex's own configuration.
+[codex_sessions]
+model = ""
+
 # How a Neovim tab's Neovim starts, as Claude Code does: empty for `nvim`.
 [neovim]
 command = []
@@ -73,7 +89,7 @@ via_shell = false
 
 [neovim.env]
 
-# How every session runs, and how a reader runs: the model it starts with, as
+# How Claude Code sessions run, and how a Claude Code reader runs: the model it starts with, as
 # Claude Code's `--model` takes it; its permission mode, one of `default`,
 # `acceptEdits`, `plan` and `bypassPermissions`; and the tools denied it.
 # What is left empty is Claude Code's own choice; a reader plans and edits

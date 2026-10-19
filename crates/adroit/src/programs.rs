@@ -153,17 +153,6 @@ impl ReaderOptions {
     }
 }
 
-/// The options a session runs with, as the settings say: a reader's when
-/// `reader`, else every other session's.
-pub fn session_options(reader: bool) -> adroit_claude::Options {
-    let s = crate::settings::current();
-    if reader {
-        s.readers.options()
-    } else {
-        s.sessions.options()
-    }
-}
-
 /// A command written as a shell would split it into words; `None` while a
 /// quote is left open.
 pub fn parse_command(text: &str) -> Option<Vec<String>> {

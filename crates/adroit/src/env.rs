@@ -62,7 +62,8 @@ pub fn inherited(names: impl IntoIterator<Item = String>) -> Vec<String> {
     names
         .into_iter()
         .filter(|n| {
-            n == "NVIM"
+            n == "CODEX_THREAD_ID"
+                || n == "NVIM"
                 || n == "NVIM_LISTEN_ADDRESS"
                 || n.starts_with("GUISE_")
                 || (in_claude && CLAUDE_SESSION.contains(&n.as_str()))
@@ -126,6 +127,14 @@ mod tests {
         assert_eq!(
             dropped(&["CLAUDECODE", "CLAUDE_CODE_USE_BEDROCK", "ANTHROPIC_MODEL"]),
             ["CLAUDECODE"]
+        );
+    }
+
+    #[test]
+    fn a_codex_child_forgets_its_parent_thread_but_keeps_user_configuration() {
+        assert_eq!(
+            dropped(&["CODEX_THREAD_ID", "CODEX_HOME", "OPENAI_API_KEY"]),
+            ["CODEX_THREAD_ID"]
         );
     }
 

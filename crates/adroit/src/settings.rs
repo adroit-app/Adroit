@@ -7,6 +7,7 @@ use std::sync::{LazyLock, RwLock};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 
+pub use crate::agents::CodexOptions;
 use crate::paths::config_dir;
 pub use crate::programs::{Launch, ReaderOptions, SessionOptions, ShellLaunch};
 
@@ -70,6 +71,11 @@ pub struct ConsoleSettings {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
+    /// The agent new sessions run.
+    pub agent: adroit_model::Agent,
+    /// How Codex is started.
+    pub codex: Launch,
+    pub codex_sessions: CodexOptions,
     /// How far the window is zoomed when it opens.
     pub zoom: f64,
     /// The fewest lines the prompt shows.
@@ -118,6 +124,9 @@ pub const MONO: &str = r#""SF Mono", Menlo, ui-monospace, "Hiragino Kaku Gothic 
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            agent: adroit_model::Agent::Claude,
+            codex: Launch::default(),
+            codex_sessions: crate::agents::CodexOptions::default(),
             zoom: 1.0,
             prompt_min_rows: 3,
             prompt_max_rows: 12,
@@ -210,6 +219,7 @@ impl Settings {
         };
         self.shell.command = words(self.shell.command);
         self.claude.command = words(self.claude.command);
+        self.codex.command = words(self.codex.command);
         self.neovim.command = words(self.neovim.command);
         let d = &mut self.details;
         d.log_commits = d.log_commits.clamp(1, 1000);
@@ -337,6 +347,35 @@ mod tests {
     use std::collections::BTreeMap;
 
     #[test]
+    fn codex_has_its_own_launch_and_model_and_claude_remains_the_default() {
+        assert_eq!(
+            Settings::parse("").unwrap().agent,
+            adroit_model::Agent::Claude
+        );
+        let s = Settings::parse(
+            r#"agent = "codex"
+[codex]
+command = ["/opt/bin/codex"]
+via_shell = true
+[codex.env]
+FOO = "bar"
+[codex_sessions]
+model = "chosen-model"
+"#,
+        )
+        .unwrap();
+        assert_eq!(s.agent, adroit_model::Agent::Codex);
+        assert_eq!(s.codex.command, ["/opt/bin/codex"]);
+        assert!(s.codex.via_shell);
+        assert_eq!(s.codex_sessions.model, "chosen-model");
+        assert_eq!(
+            Settings::parse(&toml::to_string_pretty(&s).unwrap()).unwrap(),
+            s
+        );
+        assert!(Settings::parse(r#"agent = "other""#).is_err());
+    }
+
+    #[test]
     fn settings_not_named_are_as_designed() {
         let s = Settings::parse("zoom = 1.25\n").unwrap();
         assert_eq!(s.zoom, 1.25);
@@ -396,6 +435,9 @@ mod tests {
     #[test]
     fn settings_written_read_back_the_same() {
         let s = Settings {
+            agent: adroit_model::Agent::Claude,
+            codex: Launch::default(),
+            codex_sessions: crate::agents::CodexOptions::default(),
             zoom: 1.1,
             prompt_min_rows: 2,
             prompt_max_rows: 20,

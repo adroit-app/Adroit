@@ -10,8 +10,7 @@ use crate::scratch::{self, Moment};
 use crate::sessions::{self, Kept};
 use crate::tabs::{fresh_name, label_from, label_of};
 
-const USAGE: &str =
-    "usage: adroit session start [--dir <path>] [--name <name>] [--read-only] [-- <prompt>]";
+const USAGE: &str = "usage: adroit session start [--dir <path>] [--name <name>] [--read-only] [--agent <claude|codex>] [-- <prompt>]";
 
 /// Where Claude Code tells a command it runs which conversation it is.
 const CONVERSATION_ENV: &str = "CLAUDE_CODE_SESSION_ID";
@@ -26,6 +25,7 @@ struct Asked {
     dir: Option<PathBuf>,
     name: Option<String>,
     read_only: bool,
+    agent: Option<adroit_model::Agent>,
     /// `None` when the prompt is to be read from standard input.
     prompt: Option<String>,
 }
@@ -38,6 +38,7 @@ fn parse(args: &[String]) -> Option<Asked> {
             "--dir" => asked.dir = Some(rest.next()?.into()),
             "--name" => asked.name = Some(rest.next()?.clone()),
             "--read-only" => asked.read_only = true,
+            "--agent" => asked.agent = Some(adroit_model::Agent::parse(rest.next()?)?),
             "--" => {
                 let words: Vec<&str> = rest.by_ref().map(String::as_str).collect();
                 asked.prompt = Some(words.join(" "));
@@ -82,34 +83,32 @@ async fn start(
     let names: Vec<String> = listed
         .iter()
         .filter_map(|s| match sessions::read(s)? {
-            Kept::Claude(c) => Some(c.name),
+            Kept::Agent(c) => Some(c.name),
             Kept::Shell(_) => None,
         })
         .collect();
     let taken: Vec<&str> = names.iter().map(String::as_str).collect();
     let name = name_for(asked.name.as_deref(), prompt, &taken);
-    let conversation = adroit_claude::new_session_id();
-    let options = crate::programs::session_options(asked.read_only);
-    let program = std::env::current_exe().unwrap_or_else(|_| "adroit".into());
-    let mut args = crate::plugin::args(&program);
-    args.extend(adroit_claude::start_args(
-        &name,
-        &conversation,
-        &options,
-        prompt,
-    ));
-    let env = adroit_claude::ENV
-        .iter()
-        .map(|(k, v)| (k.to_string(), v.to_string()))
-        .chain(crate::daemon::terminal_env())
-        .collect();
-    let (program, args, env) = crate::programs::claude(args, env);
+    let agent = asked
+        .agent
+        .unwrap_or_else(|| crate::settings::current().agent);
+    let env = crate::daemon::terminal_env();
+    let (conversation, (program, args, env)) =
+        crate::agents::start(agent, &name, asked.read_only, prompt, env);
     let spawn = Spawn {
         program,
         args,
         cwd: dir.clone(),
         env,
-        tags: sessions::claude_tags(&name, &dir, &conversation, asked.read_only, now_ms(), from),
+        tags: sessions::agent_tags(
+            agent,
+            &name,
+            &dir,
+            &conversation,
+            asked.read_only,
+            now_ms(),
+            from,
+        ),
         cols: COLS,
         rows: ROWS,
     };
@@ -216,8 +215,31 @@ mod tests {
                 dir: Some("/src/api".into()),
                 name: Some("flaky".into()),
                 read_only: true,
+                agent: None,
                 prompt: Some("find why --it fails".into()),
             })
+        );
+    }
+
+    #[test]
+    fn the_command_can_choose_an_agent_and_rejects_an_unknown_one() {
+        assert_eq!(
+            parse(&args(&["--agent", "codex", "--", "hello"]))
+                .unwrap()
+                .agent,
+            Some(adroit_model::Agent::Codex)
+        );
+        assert_eq!(
+            parse(&args(&["--agent", "claude"])).unwrap().agent,
+            Some(adroit_model::Agent::Claude)
+        );
+        assert_eq!(parse(&args(&["--agent", "other"])), None);
+        assert_eq!(parse(&args(&["--agent"])), None);
+        assert!(
+            parse(&args(&["--", "--agent codex"]))
+                .unwrap()
+                .agent
+                .is_none()
         );
     }
 

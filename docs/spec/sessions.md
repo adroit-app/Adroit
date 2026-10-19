@@ -6,6 +6,27 @@ scrollback kept; opening it again lists them as they are and shows each one
 from where it stands, starting with the session or shell it showed when it
 closed, if that still runs.
 
+## Agents
+
+A session runs Claude Code or Codex CLI in its own terminal interface. Choose
+which new sessions run in Settings under Sessions, or with `agent` in
+[settings.toml](settings.md). Sessions already running keep their agent when
+that default changes. Both kinds can run in the same workspace.
+
+Codex sessions use the embedded prompt and report their working and waiting
+states through the terminal, including permission and question prompts. A
+Codex reader starts with the read-only sandbox. Codex's own configuration
+controls authentication and approvals; the Claude model, permission mode and
+denied tools do not apply to it.
+
+Adroit currently lists only the Codex sessions it starts. Discovery and
+takeover of external Codex sessions, Codex prompt history in the embedded
+prompt, slash-command completion, usage limits and transcript-derived details
+are not available. Use Codex's own interface for its commands and menus:
+`Ctrl-g i` passes keys through until `Esc`. Renaming in Adroit changes the
+Codex session's sidebar name only. A leading `!` is sent as ordinary text to
+Codex; use a shell tab to run shell commands.
+
 ## Instances
 
 adroit runs as named instances, each with its own daemon, sessions and
@@ -38,7 +59,8 @@ console then says so, and it is listed no more.
 
 ## Started by a session
 
-A session can start another, and so can any program running in one:
+A session can start another, and so can any program running in one.
+Use --agent claude or --agent codex to override the default agent:
 
 ```console
 $ adroit session start --dir ~/src/api -- "Find why the login test is flaky"
