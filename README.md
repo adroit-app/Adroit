@@ -40,8 +40,9 @@ Not yet released.
 
 ## Usage
 
-adroit needs Claude Code (`claude`), Neovim (`nvim`) and git on `PATH`. Build
-and run it from the development shell:
+adroit needs Claude Code (`claude`), Neovim (`nvim`) and git on `PATH`, and jj
+to read jj repositories through it. Build and run it from the development
+shell:
 
 ```sh
 nix develop -c cargo run --release -p adroit
@@ -64,8 +65,8 @@ panel. `Ctrl-w` followed by `h` `j` `k` `l` moves between them, as in Vim.
 
 From anywhere, the prompt included: `Cmd-]` `Cmd-[` (or `Ctrl-w n` `Ctrl-w p`)
 show the next or previous tab of the panel the keys are in, the console's
-tabs or the details panel's overview, files, log and diff, which `Cmd-1` to
-`Cmd-4` also show one by one; `Cmd-o` chooses where a new session
+tabs or the details panel's overview, changes and log, which `Cmd-1` to
+`Cmd-3` also show one by one; `Cmd-o` chooses where a new session
 works, `Cmd-n` starts one where the console is (`Cmd-Shift-n` a reader),
 `Cmd-s` opens a shell there, `Cmd-f` filters the sidebar, `Cmd-e` lists every
 worktree, `Cmd-r` refreshes, `Cmd-t` takes over a session and
@@ -103,8 +104,12 @@ going there, and whenever the prompt takes the keyboard. A shell takes every
 key; `Ctrl-w .` sends a literal `Ctrl-w`.
 
 In the prompt, keys go to Neovim, `@` offers sessions and
-files, and `Ctrl-Enter` sends what you wrote. In the details panel, `j` `k`,
-`Ctrl-d` `Ctrl-u` and `gg` `G` scroll.
+files, and `Ctrl-Enter` sends what you wrote.
+
+In the details panel, `j` `k` and `gg` `G` move through a list and `Enter`
+opens a row: a changed file shows its diff, a commit the files it changed. `h`
+or `Esc` goes back, and in a diff `j` `k` scroll. A jj repository is read
+through jj, its stack in the log ([details](docs/spec/details.md)).
 
 `Cmd-+` `Cmd--` zoom the window in and out, and `Cmd-0` back. `Cmd-,` opens
 the settings ([details](docs/spec/settings.md)).

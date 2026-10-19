@@ -1,6 +1,6 @@
 [package]
 name = "adroit-claude"
-description = "The calls adroit makes to Claude Code, git and ghq"
+description = "The calls adroit makes to Claude Code, git, jj and ghq"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

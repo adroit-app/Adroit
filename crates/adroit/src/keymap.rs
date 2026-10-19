@@ -21,9 +21,8 @@ pub const DEFAULTS: &str = r#"
 "Cmd+]" = "tab.next"
 "Cmd+[" = "tab.prev"
 "Cmd+1" = "details.overview"
-"Cmd+2" = "details.files"
+"Cmd+2" = "details.changes"
 "Cmd+3" = "details.log"
-"Cmd+4" = "details.diff"
 "Ctrl+w ]" = "waiting.next"
 "Ctrl+w [" = "waiting.prev"
 "Ctrl+w N" = "session.next"
@@ -76,14 +75,16 @@ pub const DEFAULTS: &str = r#"
 "!" = "worktrees.toggle"
 
 [details]
-"j" = "scroll.down"
-"ArrowDown" = "scroll.down"
-"k" = "scroll.up"
-"ArrowUp" = "scroll.up"
+"j" = "cursor.down"
+"ArrowDown" = "cursor.down"
+"k" = "cursor.up"
+"ArrowUp" = "cursor.up"
+"g g" = "cursor.first"
+"G" = "cursor.last"
+"Escape" = "cursor.fold"
+"Backspace" = "cursor.fold"
 "Ctrl+d" = "scroll.half_down"
 "Ctrl+u" = "scroll.half_up"
-"g g" = "scroll.top"
-"G" = "scroll.bottom"
 
 [console]
 "Enter" = "console.send"
@@ -364,6 +365,8 @@ const RETIRED: &[&str] = &[
     "workspace.pick",
     "sheet.prev",
     "sheet.next",
+    "details.files",
+    "details.diff",
 ];
 
 macro_rules! actions {
@@ -443,9 +446,8 @@ actions! {
     Refresh => "refresh",
     Filter => "filter",
     DetailsOverview => "details.overview",
-    DetailsFiles => "details.files",
+    DetailsChanges => "details.changes",
     DetailsLog => "details.log",
-    DetailsDiff => "details.diff",
     WorktreesToggle => "worktrees.toggle",
     ScrollDown => "scroll.down",
     ScrollUp => "scroll.up",
@@ -877,11 +879,44 @@ mod tests {
 
     #[test]
     fn an_earlier_area_wins_over_a_later_one() {
-        let map = Keymap::defaults();
+        let map = Keymap::with_user("[details]\n\"n\" = \"refresh\"\n").unwrap();
         let both = [Context::Details, Context::Sidebar];
-        assert_eq!(step(&map, &both, &[], "j"), Step::Run(Action::ScrollDown));
+        assert_eq!(step(&map, &both, &[], "n"), Step::Run(Action::Refresh));
+        assert_eq!(
+            step(&map, &[Context::Sidebar], &[], "n"),
+            Step::Run(Action::SessionNew)
+        );
         // A key the details panel leaves alone falls through to the sidebar's.
-        assert_eq!(step(&map, &both, &[], "n"), Step::Run(Action::SessionNew));
+        assert_eq!(
+            step(&map, &both, &[], "N"),
+            Step::Run(Action::SessionNewReader)
+        );
+    }
+
+    #[test]
+    fn the_details_panel_moves_opens_and_goes_back_with_the_cursor_and_scrolls_by_half() {
+        let map = Keymap::defaults();
+        let areas = [Context::Details, Context::Sidebar];
+        for (key, action) in [
+            ("j", Action::CursorDown),
+            ("ArrowDown", Action::CursorDown),
+            ("k", Action::CursorUp),
+            ("ArrowUp", Action::CursorUp),
+            ("G", Action::CursorLast),
+            ("Enter", Action::CursorOpen),
+            ("l", Action::CursorOpen),
+            ("h", Action::CursorFold),
+            ("Escape", Action::CursorFold),
+            ("Backspace", Action::CursorFold),
+            ("Ctrl+d", Action::ScrollHalfDown),
+            ("Ctrl+u", Action::ScrollHalfUp),
+        ] {
+            assert_eq!(step(&map, &areas, &[], key), Step::Run(action), "{key}");
+        }
+        assert_eq!(
+            step(&map, &areas, &["g"], "g"),
+            Step::Run(Action::CursorFirst)
+        );
     }
 
     #[test]
@@ -938,9 +973,8 @@ mod tests {
         let map = Keymap::defaults();
         for (digit, action) in [
             ("1", Action::DetailsOverview),
-            ("2", Action::DetailsFiles),
+            ("2", Action::DetailsChanges),
             ("3", Action::DetailsLog),
-            ("4", Action::DetailsDiff),
         ] {
             let key = Key::new(digit).meta();
             for ctx in [Context::Sidebar, Context::Console, Context::Prompt] {
@@ -955,8 +989,18 @@ mod tests {
 
     #[test]
     fn a_binding_to_the_sheets_actions_earlier_versions_had_is_dropped() {
-        let map = Keymap::with_user("[details]\n\"J\" = \"sheet.next\"\n\"K\" = \"scroll.up\"\n")
-            .unwrap();
+        let map = Keymap::with_user(
+            "[details]\n\"J\" = \"sheet.next\"\n\"K\" = \"scroll.up\"\n\
+             [global]\n\"Cmd+4\" = \"details.files\"\n\"Cmd+5\" = \"details.diff\"\n",
+        )
+        .unwrap();
+        for digit in ["4", "5"] {
+            assert_eq!(
+                map.resolve(&[Context::Global], &[], &Key::new(digit).meta()),
+                Step::Nothing,
+                "{digit}"
+            );
+        }
         assert_eq!(
             map.resolve(&[Context::Details], &[], &Key::new("K").shift()),
             Step::Run(Action::ScrollUp)

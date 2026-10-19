@@ -1,5 +1,5 @@
 //! What git says about a worktree: the files changed in it, its recent
-//! commits and its diff.
+//! commits, what each changed, and a file's diff.
 
 use std::path::Path;
 
@@ -7,20 +7,53 @@ use adroit_model::Worktree;
 
 use crate::{Error, run, run_head};
 
-/// A file that differs from the last commit.
+/// A file a change touches.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Change {
-    /// git's two-letter status: index, then worktree (`M `, ` M`, `??`, …).
+    /// How it changed: git's two letters for the worktree, index then
+    /// worktree (`M `, ` M`, `??`, …), and one for a commit (`M`, `A`, `D`,
+    /// `R`, `C`).
     pub status: String,
     pub path: String,
+    /// The path a rename or copy came from.
+    pub from: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+impl Change {
+    /// The paths to ask a diff of, the one it came from first.
+    pub fn paths(&self) -> Vec<&str> {
+        self.from
+            .iter()
+            .map(String::as_str)
+            .chain([self.path.as_str()])
+            .collect()
+    }
+
+    /// Its path, and where it came from.
+    pub fn shown(&self) -> String {
+        match &self.from {
+            Some(from) => format!("{from} -> {}", self.path),
+            None => self.path.clone(),
+        }
+    }
+}
+
+/// A commit, or a jj change.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Commit {
-    pub hash: String,
+    /// What names it: a commit hash, or a change ID, which a rewrite keeps.
+    pub id: String,
+    /// `id` as short as it is shown.
+    pub short: String,
+    /// The first line of its description; empty when it has none.
     pub subject: String,
-    /// How long ago, as git words it.
+    /// How long ago, as git or jj words it.
     pub when: String,
+    /// Whether it is the working copy.
+    pub current: bool,
+    pub empty: bool,
+    pub conflict: bool,
+    pub bookmarks: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,17 +88,42 @@ pub fn parse_status(out: &str) -> Vec<Change> {
         let (Some(status), Some(path)) = (entry.get(..2), entry.get(3..)) else {
             continue;
         };
-        let path = if status.contains(['R', 'C']) {
-            match fields.next() {
-                Some(from) => format!("{from} -> {path}"),
-                None => path.to_string(),
-            }
+        let from = if status.contains(['R', 'C']) {
+            fields.next().map(str::to_string)
         } else {
-            path.to_string()
+            None
         };
         found.push(Change {
             status: status.to_string(),
-            path,
+            path: path.to_string(),
+            from,
+        });
+    }
+    found
+}
+
+/// Read `git show --name-status -z`: a status, then the path, or for a
+/// rename or copy, scored as `R100`, the path it came from and the path.
+pub fn parse_name_status(out: &str) -> Vec<Change> {
+    let mut fields = out.split('\0').filter(|f| !f.is_empty());
+    let mut found = Vec::new();
+    while let Some(code) = fields.next() {
+        let Some(letter) = code.get(..1) else {
+            continue;
+        };
+        let Some(first) = fields.next() else { break };
+        let (path, from) = if matches!(letter, "R" | "C") {
+            match fields.next() {
+                Some(to) => (to, Some(first.to_string())),
+                None => (first, None),
+            }
+        } else {
+            (first, None)
+        };
+        found.push(Change {
+            status: letter.to_string(),
+            path: path.to_string(),
+            from,
         });
     }
     found
@@ -77,15 +135,17 @@ pub fn parse_log(out: &str) -> Vec<Commit> {
         .filter_map(|l| {
             let mut f = l.split(FIELD);
             Some(Commit {
-                hash: f.next()?.to_string(),
+                id: f.next()?.to_string(),
+                short: f.next()?.to_string(),
                 subject: f.next()?.to_string(),
                 when: f.next()?.to_string(),
+                ..Default::default()
             })
         })
         .collect()
 }
 
-const LOG_FORMAT: &str = "--format=%h%x1f%s%x1f%cr";
+const LOG_FORMAT: &str = "--format=%H%x1f%h%x1f%s%x1f%cr";
 
 /// Read a unified diff, keeping at most `max` lines.
 pub fn parse_diff(out: &str, max: usize) -> Vec<DiffLine> {
@@ -122,6 +182,27 @@ pub fn parse_diff(out: &str, max: usize) -> Vec<DiffLine> {
     lines
 }
 
+/// A file git does not track yet, as the diff that would add it, at most
+/// `max` lines.
+pub fn added(path: &str, content: &[u8], max: usize) -> Vec<DiffLine> {
+    let line = |kind, text: String| DiffLine { kind, text };
+    let mut lines = vec![line(DiffKind::File, path.to_string())];
+    if content.contains(&0) {
+        lines.push(line(DiffKind::Context, "Binary file".into()));
+        return lines;
+    }
+    let text = String::from_utf8_lossy(content);
+    let count = text.lines().count();
+    let hunk = match count {
+        1 => "@@ -0,0 +1 @@".to_string(),
+        n => format!("@@ -0,0 +1,{n} @@"),
+    };
+    lines.push(line(DiffKind::Hunk, hunk));
+    lines.extend(text.lines().map(|l| line(DiffKind::Added, format!("+{l}"))));
+    lines.truncate(max);
+    lines
+}
+
 /// Has git write a path as it is rather than octal escapes for anything
 /// outside ASCII, so a Japanese name reads as itself.
 const UNQUOTED: &str = "core.quotePath=false";
@@ -133,10 +214,23 @@ fn git_dir(path: &Path) -> Result<&str, Error> {
     })
 }
 
-/// The files changed in a worktree, staged or not, and the untracked ones.
+/// The files changed in a worktree, staged or not, and every untracked one,
+/// each file of an untracked directory too.
 pub async fn changes(path: &Path) -> Result<Vec<Change>, Error> {
     let dir = git_dir(path)?;
-    let out = run("git", &["-C", dir, "status", "--porcelain", "-z"], None).await?;
+    let out = run(
+        "git",
+        &[
+            "-C",
+            dir,
+            "status",
+            "--porcelain",
+            "-z",
+            "--untracked-files=all",
+        ],
+        None,
+    )
+    .await?;
     Ok(parse_status(&out))
 }
 
@@ -148,26 +242,64 @@ pub async fn history(path: &Path, n: usize) -> Result<Vec<Commit>, Error> {
     Ok(parse_log(&out))
 }
 
-/// What the worktree changes against its last commit.
-pub async fn diff(path: &Path) -> Result<Vec<DiffLine>, Error> {
+/// The files commit `rev` changed.
+pub async fn commit_files(path: &Path, rev: &str) -> Result<Vec<Change>, Error> {
     let dir = git_dir(path)?;
-    let out = run_head(
+    let out = run(
         "git",
         &[
             "-C",
             dir,
             "-c",
             UNQUOTED,
-            "diff",
-            "HEAD",
-            "--no-color",
-            "--no-ext-diff",
+            "show",
+            "--name-status",
+            "-z",
+            "--format=",
+            rev,
+            "--",
         ],
-        DIFF_LINES,
-        DIFF_BYTES,
+        None,
     )
     .await?;
+    Ok(parse_name_status(&out))
+}
+
+/// What `change` does to its file: in commit `rev`, or in the worktree
+/// against its last commit when `rev` is `None`.
+pub async fn file_diff(
+    path: &Path,
+    rev: Option<&str>,
+    change: &Change,
+) -> Result<Vec<DiffLine>, Error> {
+    let dir = git_dir(path)?;
+    if rev.is_none() && change.status == "??" {
+        let content =
+            read_head(&path.join(&change.path), DIFF_BYTES).map_err(|e| Error::Failed {
+                program: "git".into(),
+                stderr: format!("cannot read {}: {e}", change.path),
+            })?;
+        return Ok(added(&change.path, &content, DIFF_LINES));
+    }
+    let mut args = vec!["-C", dir, "-c", UNQUOTED];
+    match rev {
+        Some(rev) => args.extend(["show", "--format=", rev]),
+        None => args.extend(["diff", "HEAD"]),
+    }
+    args.extend(["--no-color", "--no-ext-diff", "--"]);
+    args.extend(change.paths());
+    let out = run_head("git", &args, None, DIFF_LINES, DIFF_BYTES).await?;
     Ok(parse_diff(&out, DIFF_LINES))
+}
+
+/// At most `max` bytes from the start of a file.
+fn read_head(file: &Path, max: usize) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let mut kept = Vec::new();
+    std::fs::File::open(file)?
+        .take(u64::try_from(max).unwrap_or(u64::MAX))
+        .read_to_end(&mut kept)?;
+    Ok(kept)
 }
 
 /// Read `git worktree list --porcelain`: the first entry is the main checkout,
@@ -321,39 +453,162 @@ mod tests {
         assert_eq!(changes(&dir).await.unwrap()[0].path, "a\"b\\c.md");
     }
 
+    fn change(status: &str, path: &str, from: Option<&str>) -> Change {
+        Change {
+            status: status.into(),
+            path: path.into(),
+            from: from.map(Into::into),
+        }
+    }
+
     #[test]
     fn status_entries_split_into_code_and_path() {
         let got = parse_status(" M src/lib.rs\0?? notes.md\0R  new.rs\0old.rs\0");
         assert_eq!(
             got,
             vec![
-                Change {
-                    status: " M".into(),
-                    path: "src/lib.rs".into()
+                change(" M", "src/lib.rs", None),
+                change("??", "notes.md", None),
+                change("R ", "new.rs", Some("old.rs")),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_renamed_file_is_shown_with_where_it_came_from_and_diffed_on_both_paths() {
+        let c = change("R", "new.rs", Some("old.rs"));
+        assert_eq!(c.shown(), "old.rs -> new.rs");
+        assert_eq!(c.paths(), ["old.rs", "new.rs"]);
+        assert_eq!(change("M", "a.rs", None).paths(), ["a.rs"]);
+    }
+
+    #[test]
+    fn log_lines_carry_hash_subject_and_age() {
+        let got = parse_log(
+            "abc1234def\u{1f}abc1234\u{1f}fix: the callback\u{1f}2 hours ago\n\
+             0000000aaa\u{1f}0000000\u{1f}\u{1f}3 days ago\n",
+        );
+        assert_eq!(
+            got,
+            vec![
+                Commit {
+                    id: "abc1234def".into(),
+                    short: "abc1234".into(),
+                    subject: "fix: the callback".into(),
+                    when: "2 hours ago".into(),
+                    ..Default::default()
                 },
-                Change {
-                    status: "??".into(),
-                    path: "notes.md".into()
-                },
-                Change {
-                    status: "R ".into(),
-                    path: "old.rs -> new.rs".into()
+                Commit {
+                    id: "0000000aaa".into(),
+                    short: "0000000".into(),
+                    subject: "".into(),
+                    when: "3 days ago".into(),
+                    ..Default::default()
                 },
             ]
         );
     }
 
     #[test]
-    fn log_lines_carry_hash_subject_and_age() {
-        let got = parse_log("abc1234\u{1f}fix: the callback\u{1f}2 hours ago\n");
+    fn what_a_commit_changed_is_read_with_a_rename_s_two_paths() {
+        let got =
+            parse_name_status("M\0src/a.rs\0R100\0old.rs\0new.rs\0A\0日本語.md\0D\0gone.txt\0");
         assert_eq!(
             got,
-            vec![Commit {
-                hash: "abc1234".into(),
-                subject: "fix: the callback".into(),
-                when: "2 hours ago".into(),
-            }]
+            vec![
+                change("M", "src/a.rs", None),
+                change("R", "new.rs", Some("old.rs")),
+                change("A", "日本語.md", None),
+                change("D", "gone.txt", None),
+            ]
         );
+    }
+
+    #[test]
+    fn a_new_file_reads_as_every_line_added() {
+        let got: Vec<_> = added("notes.md", b"one\ntwo\n", 100)
+            .into_iter()
+            .map(|d| (d.kind, d.text))
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                (DiffKind::File, "notes.md".into()),
+                (DiffKind::Hunk, "@@ -0,0 +1,2 @@".into()),
+                (DiffKind::Added, "+one".into()),
+                (DiffKind::Added, "+two".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_new_binary_file_is_not_spelled_out_and_a_long_one_is_cut() {
+        let got = added("logo.png", b"\x89PNG\0\0", 100);
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[1].kind, DiffKind::Context);
+        assert_eq!(added("long.txt", "x\n".repeat(50).as_bytes(), 10).len(), 10);
+    }
+
+    fn git(dir: &Path, args: &[&str]) {
+        let ok = std::process::Command::new("git")
+            .args(["-c", "user.name=a", "-c", "user.email=a@b"])
+            .args(args)
+            .current_dir(dir)
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok, "git {args:?}");
+    }
+
+    fn repo(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("adroit-git-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        git(&dir, &["init", "-q"]);
+        dir
+    }
+
+    #[tokio::test]
+    async fn a_file_s_diff_in_the_worktree_is_against_the_last_commit_or_whole_when_untracked() {
+        let dir = repo("file-diff");
+        std::fs::write(dir.join("a.txt"), "old\n").unwrap();
+        git(&dir, &["add", "a.txt"]);
+        git(&dir, &["commit", "-q", "-m", "first"]);
+        std::fs::write(dir.join("a.txt"), "new\n").unwrap();
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::write(dir.join("sub/b.txt"), "fresh\n").unwrap();
+
+        let listed = changes(&dir).await.unwrap();
+        assert_eq!(
+            listed,
+            vec![change(" M", "a.txt", None), change("??", "sub/b.txt", None)]
+        );
+        let texts = |d: Vec<DiffLine>| d.into_iter().map(|d| d.text).collect::<Vec<_>>();
+        let a = texts(file_diff(&dir, None, &listed[0]).await.unwrap());
+        assert_eq!(a, ["a.txt", "@@ -1 +1 @@", "-old", "+new"]);
+        let b = texts(file_diff(&dir, None, &listed[1]).await.unwrap());
+        assert_eq!(b, ["sub/b.txt", "@@ -0,0 +1 @@", "+fresh"]);
+    }
+
+    #[tokio::test]
+    async fn a_commit_lists_what_it_changed_and_diffs_one_file_of_it() {
+        let dir = repo("commit-files");
+        std::fs::write(dir.join("a.txt"), "one\n").unwrap();
+        std::fs::write(dir.join("b.txt"), "two\n").unwrap();
+        git(&dir, &["add", "."]);
+        git(&dir, &["commit", "-q", "-m", "first"]);
+
+        let log = history(&dir, 10).await.unwrap();
+        assert_eq!(log.len(), 1);
+        assert_eq!(log[0].subject, "first");
+        let files = commit_files(&dir, &log[0].id).await.unwrap();
+        assert_eq!(
+            files,
+            vec![change("A", "a.txt", None), change("A", "b.txt", None)]
+        );
+        let diff = file_diff(&dir, Some(&log[0].id), &files[1]).await.unwrap();
+        let texts: Vec<_> = diff.into_iter().map(|d| d.text).collect();
+        assert_eq!(texts, ["b.txt", "@@ -0,0 +1 @@", "+two"]);
     }
 
     #[test]

@@ -20,7 +20,7 @@ use crate::console::{Composer, ConsoleScreen, Hub, Panes, ReaderScreen, mode_of}
 use crate::console_keys::direct_key;
 use crate::console_read;
 use crate::daemon;
-use crate::details::{GitData, GitView, Sheet, facts, load};
+use crate::details::{Drill, Listing, Sheet, View, facts, load};
 use crate::editor;
 use crate::filer::{Filer, read_dirs};
 use crate::focus::{Area, Dir, moved};
@@ -427,7 +427,7 @@ fn mode_tip(mode: &str) -> &'static str {
     match mode {
         "TREE" => "The sidebar has the keys: j and k move, Enter opens. Ctrl+w l goes right",
         "DETAILS" => {
-            "The details panel has the keys: j and k scroll, Cmd+] and Cmd+[ change the sheet"
+            "The details panel has the keys: j and k move or scroll, Enter opens, h goes back, Cmd+] and Cmd+[ change the sheet"
         }
         "CONSOLE" => {
             "The console has the keys: Vim's moves read it, i writes a prompt below, Ctrl+w h goes back to the sidebar"
@@ -864,8 +864,11 @@ fn App() -> Element {
     let mut keymap = use_signal(Keymap::defaults);
     // Whether the next key goes to the session as it is.
     let mut send_next = use_signal(|| false);
-    let mut sheet = use_signal(|| Sheet::Overview);
-    let mut git_view = use_signal(|| None::<GitView>);
+    // How far into which sheet the details panel has gone, and what was read
+    // for it.
+    let mut drill = use_signal(|| Drill::new(Sheet::Overview));
+    let spot = use_memo(move || drill().spot());
+    let mut git_view = use_signal(|| None::<View>);
     // The interactive session the dialog asks to take over.
     let mut confirm = use_signal(|| None::<Ask>);
     // The session being given a new name, and the name typed so far.
@@ -1179,20 +1182,37 @@ fn App() -> Element {
         });
     });
 
-    // What git says about the worktree in the middle, for the details panel.
+    // What git or jj says about the worktree in the middle, for the details
+    // panel: read only while a sheet that reads it is shown, since every jj
+    // command may record the working copy.
     use_hook({
         let wake = hub.git.clone();
         move || {
             spawn(async move {
                 loop {
-                    let s = *sheet.peek();
                     let wt = place.peek().as_ref().map(|p| p.worktree.clone());
-                    let next = match wt {
-                        Some(wt) => load(s, wt).await,
-                        None => None,
+                    let next = match (drill.peek().spot(), wt) {
+                        (Some(s), Some(wt)) => Some(load(s, wt).await),
+                        _ => None,
                     };
+                    // The panel may have moved on, or to another worktree,
+                    // while it was read.
+                    let mut stepped_back = false;
+                    if let Some(v) = &next
+                        && drill.peek().spot().as_ref() == Some(&v.spot)
+                        && place.peek().as_ref().map(|p| &p.worktree) == Some(&v.worktree)
+                    {
+                        let mut d = drill.peek().clone();
+                        stepped_back = d.refreshed(&v.listing);
+                        if d != *drill.peek() {
+                            drill.set(d);
+                        }
+                    }
                     if *git_view.peek() != next {
                         git_view.set(next);
+                    }
+                    if stepped_back {
+                        continue;
                     }
                     tokio::select! {
                         _ = tokio::time::sleep(Duration::from_secs(2)) => {}
@@ -1205,9 +1225,26 @@ fn App() -> Element {
     use_effect({
         let wake = hub.git.clone();
         move || {
-            let _ = (sheet(), place());
+            let _ = (spot(), place());
             wake.notify_one();
         }
+    });
+    // What was opened in one worktree means nothing in another.
+    let shown_worktree = use_memo(move || place().map(|p| p.worktree));
+    use_effect(move || {
+        let _ = shown_worktree();
+        let top = Drill::new(drill.peek().sheet());
+        if *drill.peek() != top {
+            drill.set(top);
+        }
+    });
+    // Keep the row selected in the details panel in view, after it is drawn.
+    use_effect(move || {
+        let _ = (drill(), git_view());
+        document::eval(
+            "requestAnimationFrame(() => document.querySelectorAll('.details-scroll .selected')
+               .forEach((r) => r.scrollIntoView({ block: 'nearest' })));",
+        );
     });
 
     // Answer sessions asking for the shells of their worktree, and Claude
@@ -2434,6 +2471,18 @@ fn App() -> Element {
                     "const b = document.querySelector('.details-scroll'); if (b) b.scrollBy(0, {by});"
                 ));
             };
+            // In the details panel, the cursor moves through a list shown and
+            // scrolls anything else.
+            let details_list = (area == Area::Details)
+                .then(|| {
+                    let d = drill.peek();
+                    git_view
+                        .peek()
+                        .as_ref()
+                        .filter(|v| d.spot().as_ref() == Some(&v.spot) && v.listing.is_list())
+                        .map(|v| v.listing.clone())
+                })
+                .flatten();
             // In the console, the scroll actions move its view back through
             // what scrolled off instead.
             let on_console = area == Area::Console && pane.is_some();
@@ -2464,8 +2513,8 @@ fn App() -> Element {
                 Action::TabNext | Action::TabPrev => {
                     let delta = if action == Action::TabNext { 1 } else { -1 };
                     if area == Area::Details {
-                        let s = sheet.peek().step(delta);
-                        sheet.set(s);
+                        let s = drill.peek().sheet().step(delta);
+                        drill.set(Drill::new(s));
                     } else {
                         cycle_tab(delta);
                     }
@@ -2579,6 +2628,36 @@ fn App() -> Element {
                 Action::ScrollHalfUp => scroll("-b.clientHeight / 2"),
                 Action::ScrollTop => scroll("-b.scrollHeight"),
                 Action::ScrollBottom => scroll("b.scrollHeight"),
+                Action::CursorDown
+                | Action::CursorUp
+                | Action::CursorFirst
+                | Action::CursorLast
+                | Action::CursorOpen
+                | Action::CursorFold
+                    if area == Area::Details =>
+                {
+                    let mut d = drill.peek().clone();
+                    match (&action, &details_list) {
+                        (Action::CursorFold, _) => {
+                            d.back();
+                        }
+                        (Action::CursorOpen, Some(l)) => {
+                            d.open(l);
+                        }
+                        (Action::CursorDown, Some(l)) => d.step(l, 1),
+                        (Action::CursorUp, Some(l)) => d.step(l, -1),
+                        (Action::CursorFirst, Some(l)) => d.first(l),
+                        (Action::CursorLast, Some(l)) => d.last(l),
+                        (Action::CursorDown, None) => scroll("17"),
+                        (Action::CursorUp, None) => scroll("-17"),
+                        (Action::CursorFirst, None) => scroll("-b.scrollHeight"),
+                        (Action::CursorLast, None) => scroll("b.scrollHeight"),
+                        _ => {}
+                    }
+                    if d != *drill.peek() {
+                        drill.set(d);
+                    }
+                }
                 Action::CursorDown => selected.set(nav::step(&list, cur.as_ref(), 1)),
                 Action::CursorUp => selected.set(nav::step(&list, cur.as_ref(), -1)),
                 Action::CursorFirst => selected.set(list.first().cloned()),
@@ -2723,16 +2802,15 @@ fn App() -> Element {
                     }
                 }
                 Action::Refresh => hub.refresh.notify_one(),
-                Action::DetailsOverview
-                | Action::DetailsFiles
-                | Action::DetailsLog
-                | Action::DetailsDiff => {
-                    sheet.set(match action {
-                        Action::DetailsFiles => Sheet::Files,
+                Action::DetailsOverview | Action::DetailsChanges | Action::DetailsLog => {
+                    let s = match action {
+                        Action::DetailsChanges => Sheet::Changes,
                         Action::DetailsLog => Sheet::Log,
-                        Action::DetailsDiff => Sheet::Diff,
                         _ => Sheet::Overview,
-                    });
+                    };
+                    if drill.peek().sheet() != s {
+                        drill.set(Drill::new(s));
+                    }
                     let l = *layout.peek();
                     if !l.show_details {
                         let next = l.toggled(Side::Details);
@@ -3201,12 +3279,29 @@ fn App() -> Element {
         .filter(|(_, s)| s.state == State::Working)
         .count();
     let active_tab = active();
-    let sheet_now = sheet();
+    let drill_now = drill();
+    let sheet_now = drill_now.sheet();
+    let spot_now = spot();
     let git_now = git_view()
         .filter(|v| {
-            v.sheet == sheet_now && current.as_ref().is_some_and(|p| p.worktree == v.worktree)
+            spot_now.as_ref() == Some(&v.spot)
+                && current.as_ref().is_some_and(|p| p.worktree == v.worktree)
         })
-        .map(|v| v.data);
+        .map(|v| v.listing);
+    let crumbs = drill_now.crumbs();
+    let selected_row = git_now.as_ref().and_then(|l| drill_now.selected(l));
+    // A row clicked opens as `Enter` on it would.
+    let mut open_row = move |i: usize| {
+        let mut d = drill.peek().clone();
+        let opened = git_view
+            .peek()
+            .as_ref()
+            .filter(|v| d.spot().as_ref() == Some(&v.spot))
+            .is_some_and(|v| d.open_at(&v.listing, i));
+        if opened {
+            drill.set(d);
+        }
+    };
     let target = match &active_tab {
         Some(Tab::Session(id)) => nav::find(&t, id)
             .map(|(_, s)| s.name.clone())
@@ -3307,6 +3402,9 @@ fn App() -> Element {
     let k_down = km.keys_for(Context::Sidebar, &Action::CursorDown);
     let k_up = km.keys_for(Context::Sidebar, &Action::CursorUp);
     let k_open = km.keys_for(Context::Sidebar, &Action::CursorOpen);
+    let k_back = km
+        .keys_in(&[Context::Details, Context::Sidebar], &Action::CursorFold)
+        .unwrap_or_default();
     let k_new = km.keys_for(Context::Sidebar, &Action::SessionNew);
     let k_reader = km.keys_for(Context::Sidebar, &Action::SessionNewReader);
     let k_shell = km.keys_for(Context::Sidebar, &Action::ShellOpen);
@@ -3808,13 +3906,16 @@ fn App() -> Element {
                                 title: {
                                     let action = match s {
                                         Sheet::Overview => Action::DetailsOverview,
-                                        Sheet::Files => Action::DetailsFiles,
+                                        Sheet::Changes => Action::DetailsChanges,
                                         Sheet::Log => Action::DetailsLog,
-                                        Sheet::Diff => Action::DetailsDiff,
                                     };
                                     km.keys_for(Context::Global, &action).unwrap_or_default()
                                 },
-                                onclick: move |_| sheet.set(s),
+                                onclick: move |_| {
+                                    if drill.peek().sheet() != s {
+                                        drill.set(Drill::new(s));
+                                    }
+                                },
                                 "{s.title()}"
                             }
                         }
@@ -3846,32 +3947,72 @@ fn App() -> Element {
                         }
                     }
                     }
-                    if sheet_now.reads_git() {
+                    if spot_now.is_some() {
                         div { class: "list-rows details-git",
+                            if !crumbs.is_empty() {
+                                div { class: "details-crumbs",
+                                    title: "Back to the list ({k_back})",
+                                    onclick: move |_| {
+                                        let mut d = drill.peek().clone();
+                                        if d.back() {
+                                            drill.set(d);
+                                        }
+                                    },
+                                    span { class: "details-crumb-back", "‹" }
+                                    for (i , c) in crumbs.iter().enumerate() {
+                                        if i > 0 {
+                                            span { class: "details-crumb-sep", "›" }
+                                        }
+                                        span { class: "details-crumb", "{c}" }
+                                    }
+                                }
+                            }
                             match (&current, &git_now) {
                                 (None, _) => rsx! { div { class: "list-row dim", "Open a worktree to see it here" } },
-                                (Some(_), None) => rsx! { div { class: "list-row dim", "Reading git…" } },
-                                (Some(_), Some(GitData::Error(e))) => rsx! { div { class: "git-error", "{e}" } },
-                                (Some(_), Some(GitData::Files(files))) if files.is_empty() => rsx! { div { class: "list-row dim", "No changes" } },
-                                (Some(_), Some(GitData::Files(files))) => rsx! {
+                                (Some(_), None) => rsx! { div { class: "list-row dim", "Reading…" } },
+                                (Some(_), Some(Listing::Error(e))) => rsx! { div { class: "git-error", "{e}" } },
+                                (Some(_), Some(Listing::Files(files))) if files.is_empty() => rsx! { div { class: "list-row dim", "No changes" } },
+                                (Some(_), Some(Listing::Files(files))) => rsx! {
                                     for (i , f) in files.iter().enumerate() {
-                                        div { key: "{i}", class: "list-row mono",
+                                        div { key: "{f.path}",
+                                            class: if selected_row == Some(i) { "list-row mono selected" } else { "list-row mono" },
+                                            onclick: move |_| open_row(i),
                                             span { class: "details-file-status", "{f.status}" }
-                                            span { class: "list-row-name", "{f.path}" }
+                                            span { class: "list-row-name", "{f.shown()}" }
                                         }
                                     }
                                 },
-                                (Some(_), Some(GitData::Log(commits))) => rsx! {
-                                    for c in commits.iter() {
-                                        div { key: "{c.hash}", class: "commit",
-                                            span { class: "commit-hash", "{c.hash}" }
-                                            span { class: "commit-subject", "{c.subject}" }
+                                (Some(_), Some(Listing::Log(commits))) => rsx! {
+                                    for (i , c) in commits.iter().enumerate() {
+                                        div { key: "{c.id}",
+                                            class: if selected_row == Some(i) { "commit selected" } else { "commit" },
+                                            onclick: move |_| open_row(i),
+                                            span { class: "commit-hash", "{c.short}" }
+                                            span { class: "commit-subject",
+                                                if c.current {
+                                                    span { class: "commit-mark current", "@" }
+                                                }
+                                                if c.conflict {
+                                                    span { class: "commit-mark conflict", "conflict" }
+                                                }
+                                                if c.empty {
+                                                    span { class: "commit-mark", "empty" }
+                                                }
+                                                for b in c.bookmarks.iter() {
+                                                    span { class: "commit-mark bookmark", "{b}" }
+                                                }
+                                                if c.subject.is_empty() {
+                                                    span { class: "commit-none", "(no description)" }
+                                                } else {
+                                                    "{c.subject}"
+                                                }
+                                            }
                                             span { class: "commit-when", "{c.when}" }
                                         }
                                     }
                                 },
-                                (Some(_), Some(GitData::Diff(lines))) if lines.is_empty() => rsx! { div { class: "list-row dim", "No changes" } },
-                                (Some(_), Some(GitData::Diff(lines))) => rsx! {
+                                (Some(_), Some(Listing::Diff(lines))) if lines.is_empty() => rsx! { div { class: "list-row dim", "No changes" } },
+                                (Some(_), Some(Listing::Diff(lines))) => rsx! {
                                     div { class: "diff",
                                         for (i , d) in lines.iter().enumerate() {
                                             div { key: "{i}", class: "{diff_class(d.kind)}", "{d.text}" }

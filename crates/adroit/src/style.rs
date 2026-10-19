@@ -165,10 +165,22 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .details-sheet.active { background: var(--select); color: var(--text); font-weight: 500; }
 .list-rows.details-git { flex: 1; user-select: text; }
 .details-file-status { color: var(--wait); white-space: pre; flex: none; }
-.commit { display: grid; grid-template-columns: auto 1fr; gap: 0 8px; padding: 5px 8px; font-size: 12.5px; }
+.commit { display: grid; grid-template-columns: auto 1fr; gap: 0 8px; padding: 5px 8px; font-size: 12.5px; border-radius: 6px; cursor: default; }
 .commit-hash { font-family: var(--mono); font-size: 11.5px; color: var(--run); }
 .commit-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .commit-when { grid-column: 2; color: var(--text-3); font-size: 11.5px; }
+.commit.selected { background: var(--select); }
+.app-panel.focused .commit.selected { box-shadow: inset 0 0 0 1px #3a4352; }
+.commit-mark { margin-right: 6px; padding: 0 5px; border-radius: 4px; font-size: 11px; color: var(--text-3); border: 1px solid var(--line); }
+.commit-mark.current { color: var(--run); border-color: var(--run); }
+.commit-mark.conflict { color: var(--fail); border-color: var(--fail); }
+.commit-mark.bookmark { color: var(--wait); }
+.commit-none { color: var(--text-3); font-style: italic; }
+.details-crumbs { display: flex; align-items: center; gap: 6px; padding: 2px 8px 8px; font-size: 12px; color: var(--text-2); cursor: default; white-space: nowrap; overflow: hidden; }
+.details-crumbs:hover { color: var(--text); }
+.details-crumb { overflow: hidden; text-overflow: ellipsis; }
+.details-crumb-back { font-size: 14px; }
+.details-crumb-sep { color: var(--text-3); }
 .diff { font-family: var(--mono); font-size: 11.5px; line-height: 16px; white-space: pre; overflow-x: auto; padding: 0 8px; }
 .diff-file { color: var(--text); font-weight: 600; margin-top: 10px; }
 .diff-hunk { color: var(--coord); }

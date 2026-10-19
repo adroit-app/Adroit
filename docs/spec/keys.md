@@ -39,10 +39,10 @@ told nothing.
   `~/.config/adroit/` when `$XDG_CONFIG_HOME` is unset.
 
 A missing file keeps adroit's own bindings. A binding to `coordinator.open`,
-`project.new`, `project.edit` or `workspace.pick`, actions earlier versions
-had, is read and dropped. The window reads the file again
-when it changes; a mistake in it is reported at the bottom of the window, and
-the bindings in force stay as they were.
+`project.new`, `project.edit`, `workspace.pick`, `details.files` or
+`details.diff`, actions earlier versions had, is read and dropped. The window
+reads the file again when it changes; a mistake in it is reported at the bottom
+of the window, and the bindings in force stay as they were.
 
 ## Changing them in the Settings window
 
@@ -132,9 +132,9 @@ another, the complete one runs.
 | `window.left`, `window.down`, `window.up`, `window.right` | move to the area in that direction |
 | `tab.next`, `tab.prev` | show the next or previous tab of the area the keys are in: the details panel's sheets there, elsewhere the console's tabs, which are the sessions opened in the window, the worktree's shells and a draft |
 | `tab.close` | close the current tab; a shell ends, a session runs on and stays in the sidebar |
-| `cursor.down`, `cursor.up`, `cursor.first`, `cursor.last` | move the selection in the sidebar |
-| `cursor.open` | open the selected session or worktree and move to its console, or to the prompt of a session not started yet; fold or unfold a workspace |
-| `cursor.fold` | fold the selected node |
+| `cursor.down`, `cursor.up`, `cursor.first`, `cursor.last` | move the selection in the sidebar; in the details panel, in the list it shows, or scroll what else it shows |
+| `cursor.open` | open the selected session or worktree and move to its console, or to the prompt of a session not started yet; fold or unfold a workspace; in the details panel, open the selected row |
+| `cursor.fold` | fold the selected node; in the details panel, go back out to the list what it shows was opened from |
 | `waiting.next`, `waiting.prev` | open the next or previous session waiting on you |
 | `session.next`, `session.prev` | open the session after or before the one shown, in the sidebar's order over every session, folded away or filtered out too, going round at the ends; the keys stay in the area they are in |
 | `session.pick` | open the picker, to go to a session or choose where a new one works ([details](workspaces.md#going-to-a-session-or-starting-one)) |
@@ -150,7 +150,7 @@ another, the complete one runs.
 | `settings.open` | open the Settings window |
 | `zoom.in`, `zoom.out`, `zoom.reset` | draw the window larger or smaller a step, or at the zoom the settings give |
 | `filter` | narrow the sidebar to the sessions, workspaces and worktrees whose names hold what is typed next; `Enter` keeps it, `Escape` clears it |
-| `details.overview`, `details.files`, `details.log`, `details.diff` | show that sheet of the details panel, and the panel when it is hidden |
+| `details.overview`, `details.changes`, `details.log` | show that sheet of the details panel ([details](details.md)), and the panel when it is hidden |
 | `worktrees.toggle` | list every worktree git knows, those without sessions too, or only those with sessions again |
 | `prompt.focus` | give the prompt the keys |
 | `prompt.write` | give the prompt the keys, and the key pressed with them |
@@ -179,9 +179,8 @@ another, the complete one runs.
 "Cmd+]" = "tab.next"
 "Cmd+[" = "tab.prev"
 "Cmd+1" = "details.overview"
-"Cmd+2" = "details.files"
+"Cmd+2" = "details.changes"
 "Cmd+3" = "details.log"
-"Cmd+4" = "details.diff"
 "Ctrl+w ]" = "waiting.next"
 "Ctrl+w [" = "waiting.prev"
 "Ctrl+w N" = "session.next"
@@ -234,14 +233,16 @@ another, the complete one runs.
 "!" = "worktrees.toggle"
 
 [details]
-"j" = "scroll.down"
-"ArrowDown" = "scroll.down"
-"k" = "scroll.up"
-"ArrowUp" = "scroll.up"
+"j" = "cursor.down"
+"ArrowDown" = "cursor.down"
+"k" = "cursor.up"
+"ArrowUp" = "cursor.up"
+"g g" = "cursor.first"
+"G" = "cursor.last"
+"Escape" = "cursor.fold"
+"Backspace" = "cursor.fold"
 "Ctrl+d" = "scroll.half_down"
 "Ctrl+u" = "scroll.half_up"
-"g g" = "scroll.top"
-"G" = "scroll.bottom"
 
 [console]
 "Enter" = "console.send"

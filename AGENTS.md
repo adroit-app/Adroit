@@ -66,6 +66,10 @@ Scoped Commits:
 | Scope | Covers |
 | --- | --- |
 | `adroit` | `crates/adroit/` |
+| `claude` | `crates/claude/` |
+| `nvim` | `crates/nvim/` |
+| `model` | `crates/model/` |
+| `term` | `crates/term/` |
 | `assets` | `assets/` |
 | `docs` | `docs/concept.md`, `README.md`, `AGENTS.md` |
 | `adr` | `docs/adr/` |

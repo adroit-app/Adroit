@@ -1,5 +1,6 @@
 //! The calls adroit makes to the outside: Claude Code for sessions, git for
-//! worktrees, and ghq for the directories sessions may start in.
+//! worktrees, jj for what a jj repository holds, and ghq for the directories
+//! sessions may start in.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -10,6 +11,7 @@ use tokio::process::Command;
 pub mod git;
 pub mod history;
 pub mod hook;
+pub mod jj;
 pub mod places;
 
 #[derive(Debug, thiserror::Error)]
@@ -67,6 +69,7 @@ async fn run(program: &str, args: &[&str], cwd: Option<&Path>) -> Result<String,
 async fn run_head(
     program: &str,
     args: &[&str],
+    cwd: Option<&Path>,
     max_lines: usize,
     max_bytes: usize,
 ) -> Result<String, Error> {
@@ -76,7 +79,11 @@ async fn run_head(
         program: program.into(),
         source,
     };
-    let mut child = Command::new(program)
+    let mut cmd = Command::new(program);
+    if let Some(cwd) = cwd {
+        cmd.current_dir(cwd);
+    }
+    let mut child = cmd
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -339,7 +346,7 @@ mod tests {
     async fn output_past_its_line_cap_is_not_waited_for() {
         let got = tokio::time::timeout(
             Duration::from_secs(5),
-            run_head("yes", &["+a"], 3, usize::MAX),
+            run_head("yes", &["+a"], None, 3, usize::MAX),
         )
         .await
         .unwrap()
@@ -354,6 +361,7 @@ mod tests {
             run_head(
                 "sh",
                 &["-c", "head -c 200000 /dev/zero >&2; echo done"],
+                None,
                 10,
                 usize::MAX,
             ),
@@ -368,7 +376,7 @@ mod tests {
     async fn output_past_its_byte_cap_is_not_waited_for() {
         let got = tokio::time::timeout(
             Duration::from_secs(5),
-            run_head("yes", &["a long line"], usize::MAX, 8),
+            run_head("yes", &["a long line"], None, usize::MAX, 8),
         )
         .await
         .unwrap()
@@ -379,7 +387,7 @@ mod tests {
     #[tokio::test]
     async fn output_within_its_caps_comes_whole() {
         assert_eq!(
-            run_head("printf", &["a\\nb"], 3, 100).await.unwrap(),
+            run_head("printf", &["a\\nb"], None, 3, 100).await.unwrap(),
             "a\nb"
         );
     }
@@ -387,7 +395,7 @@ mod tests {
     #[tokio::test]
     async fn a_failure_within_the_caps_is_reported() {
         assert!(matches!(
-            run_head("false", &[], 3, 100).await,
+            run_head("false", &[], None, 3, 100).await,
             Err(Error::Failed { .. })
         ));
     }
