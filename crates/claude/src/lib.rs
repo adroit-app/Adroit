@@ -161,7 +161,24 @@ pub async fn list_sessions(
     let mut cmd = Command::new(&program);
     cmd.args(args).envs(env);
     let out = output(&program, cmd).await?;
-    Ok(adroit_model::parse_agents(&out)?)
+    Ok(parse_listing(&out)?)
+}
+
+/// The sessions in `out`, read from the first line a listing can be read
+/// from: a shell that starts Claude Code may print from its startup files
+/// first, lines starting with `[` among them.
+fn parse_listing(out: &str) -> Result<Vec<Session>, ParseError> {
+    let starts = std::iter::once(0).chain(out.match_indices("\n[").map(|(at, _)| at + 1));
+    let mut failed = None;
+    for at in starts {
+        match adroit_model::parse_agents(&out[at..]) {
+            Ok(sessions) => return Ok(sessions),
+            Err(e) => {
+                failed.get_or_insert(e);
+            }
+        }
+    }
+    Err(failed.expect("the whole output is tried"))
 }
 
 /// How a session runs: the model, the permission mode and the tools denied
@@ -461,6 +478,20 @@ mod tests {
     fn a_bang_anywhere_but_first_leaves_the_prompt_a_message() {
         assert_eq!(shell_line("say !this"), None);
         assert_eq!(shell_line(" !ls"), None);
+    }
+
+    #[tokio::test]
+    async fn the_listing_is_read_past_what_a_shell_starting_claude_code_prints() {
+        let listing = r#"[{"pid":1,"cwd":"/r","kind":"interactive","sessionId":"abc"}]"#;
+        let start = |_| {
+            let script = format!("echo welcome; echo '[INFO] ready'; echo '{listing}'");
+            ("sh".to_string(), vec!["-c".to_string(), script], Vec::new())
+        };
+
+        let got = list_sessions(start).await.unwrap();
+
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].session_id, "abc");
     }
 
     #[tokio::test]
