@@ -5,14 +5,14 @@ use std::path::{Path, PathBuf};
 use adroit_term::Daemon;
 
 use crate::awake::{self, Assertion, Keeper};
-use crate::paths::state_dir;
+use crate::paths::{instance_state, state_dir};
 use crate::settings::Settings;
 
 /// `$ADROIT_DAEMON`, or `adroit/felis/daemon.sock` under the state directory.
 pub fn socket() -> PathBuf {
     std::env::var_os("ADROIT_DAEMON")
         .map(PathBuf::from)
-        .unwrap_or_else(|| state_dir().join("adroit").join("felis").join("daemon.sock"))
+        .unwrap_or_else(|| instance_state().join("felis").join("daemon.sock"))
 }
 
 /// The daemon the window talks to.

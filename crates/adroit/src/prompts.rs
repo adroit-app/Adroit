@@ -14,7 +14,7 @@ use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use tokio::sync::oneshot;
 
 use crate::nav;
-use crate::paths::state_dir;
+use crate::paths::instance_state;
 use crate::tabs::{self, Tab};
 
 /// The name the text written with nothing open is kept by.
@@ -208,7 +208,7 @@ pub enum Op {
 
 /// Where what is written is kept past the window.
 fn drafts_path() -> PathBuf {
-    state_dir().join("adroit").join("drafts.json")
+    instance_state().join("drafts.json")
 }
 
 /// How often what is written is kept, so a window that ends however it ends

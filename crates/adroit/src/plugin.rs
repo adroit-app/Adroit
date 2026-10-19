@@ -8,7 +8,7 @@ const START_SESSION: &str = include_str!("../plugin/skills/start-session/SKILL.m
 
 /// Where the plugin is written for sessions to load.
 pub fn dir() -> PathBuf {
-    crate::paths::state_dir().join("adroit").join("plugin")
+    crate::paths::instance_state().join("plugin")
 }
 
 /// The skill, naming `program` as the command to run.

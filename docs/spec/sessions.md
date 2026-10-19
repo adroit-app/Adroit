@@ -6,12 +6,29 @@ scrollback kept; opening it again lists them as they are and shows each one
 from where it stands, starting with the session or shell it showed when it
 closed, if that still runs.
 
+## Instances
+
+adroit runs as named instances, each with its own daemon, sessions and
+window, apart from the others. `adroit --instance <name>` opens the window of
+the instance `name`, as does `adroit` with `$ADROIT_INSTANCE` set; without
+either it is the instance `default`. A name is made of letters, digits, `-`
+and `_`, up to 32 of them.
+
+An instance has one window at most. Opening its window while it is open
+brings the open one to the front instead. The windows of other instances open
+beside it.
+
+The sessions and shells of an instance, and the commands run in them, belong
+to it: they see only its sessions and shells, and the sessions they start are
+its own. Settings and keys are the same in every instance.
+
 ## The daemon
 
-The window starts the daemon when none answers, as `adroit daemon`, and leaves
-it running when it closes. It listens on `$ADROIT_DAEMON`, or
-`$XDG_STATE_HOME/adroit/felis/daemon.sock`
-(`~/.local/state/adroit/felis/daemon.sock` when `$XDG_STATE_HOME` is unset).
+The window starts the daemon of its instance when none answers, as
+`adroit daemon`, and leaves it running when it closes. It listens on
+`$ADROIT_DAEMON`, or `$XDG_STATE_HOME/adroit/felis/daemon.sock` for the
+default instance and `$XDG_STATE_HOME/adroit/instances/<name>/felis/daemon.sock`
+for another (`$XDG_STATE_HOME` being `~/.local/state` when unset).
 The folder of the socket has to be yours and open to no one else: adroit makes
 it so when it makes the folder, and refuses one already there that is not,
 leaving it as it is.

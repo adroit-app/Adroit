@@ -35,11 +35,11 @@ status 1.
 
 ## The socket
 
-The window answers on a unix socket at `$ADROIT_SOCKET`, or
-`$XDG_STATE_HOME/adroit/adroit.sock` (`~/.local/state/adroit/adroit.sock`
-when `$XDG_STATE_HOME` is unset). Only one window answers at a time; a second
-window says so and leaves the first one answering. Only the window that answers
-takes text back from Claude Code's input.
+The window answers on a unix socket at `$ADROIT_SOCKET`, or `adroit.sock` in
+its [instance](sessions.md#instances)'s folder of the state directory:
+`~/.local/state/adroit/adroit.sock` for the default instance, when
+`$XDG_STATE_HOME` is unset. A window opened while its instance's window
+answers asks that one to come to the front and closes.
 
 A request and its answer are each one line of JSON:
 

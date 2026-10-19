@@ -22,6 +22,8 @@ pub enum Request {
     Screen { cwd: PathBuf, name: String },
     /// Take the text Claude Code handed its external editor in `path`.
     Editor { path: PathBuf },
+    /// Come to the front, for a window of the same instance opened again.
+    Show,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -33,14 +35,16 @@ pub enum Response {
     Taken(usize),
     /// The window did not ask for the text: the user opened the editor.
     Declined,
+    /// The window came to the front.
+    Shown,
     Error(String),
 }
 
-/// `$ADROIT_SOCKET`, or `adroit/adroit.sock` under the state directory.
-pub fn socket_path(state_dir: &Path) -> PathBuf {
+/// `$ADROIT_SOCKET`, or `adroit.sock` in the instance's folder `dir`.
+pub fn socket_path(dir: &Path) -> PathBuf {
     std::env::var_os("ADROIT_SOCKET")
         .map(PathBuf::from)
-        .unwrap_or_else(|| state_dir.join("adroit").join("adroit.sock"))
+        .unwrap_or_else(|| dir.join("adroit.sock"))
 }
 
 /// Answer a request from the shells adroit runs. `worktrees` are the other
@@ -54,7 +58,9 @@ pub async fn answer(
 ) -> Response {
     let cwd = match request {
         Request::List { cwd } | Request::Screen { cwd, .. } => cwd,
-        Request::Editor { .. } => return Response::Error("not a question about shells".into()),
+        Request::Editor { .. } | Request::Show => {
+            return Response::Error("not a question about shells".into());
+        }
     };
     let known = shells.iter().map(|s| &s.worktree).chain(worktrees);
     let Some(home) = innermost(known, cwd) else {
@@ -63,7 +69,7 @@ pub async fn answer(
     let mut here = shells.iter().filter(|s| s.worktree == *home);
     match request {
         Request::List { .. } => Response::Shells(here.map(|s| s.name.clone()).collect()),
-        Request::Editor { .. } => unreachable!(),
+        Request::Editor { .. } | Request::Show => unreachable!(),
         Request::Screen { name, .. } => match here.find(|s| &s.name == name) {
             Some(s) => match screen(s).await {
                 Some(lines) => Response::Lines(trim_bottom(lines)),
@@ -179,9 +185,9 @@ pub fn cli(args: &[String]) -> i32 {
             return 2;
         }
     };
-    let socket = socket_path(&crate::paths::state_dir());
+    let socket = socket_path(&crate::paths::instance_state());
     match ask(&socket, &request) {
-        Ok(Response::Taken(_) | Response::Declined) => 0,
+        Ok(Response::Taken(_) | Response::Declined | Response::Shown) => 0,
         Ok(Response::Shells(names)) | Ok(Response::Lines(names)) => {
             for n in names {
                 println!("{n}");
@@ -231,6 +237,18 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&Response::Shells(vec!["dev".into()])).unwrap(),
             r#"{"shells":["dev"]}"#
+        );
+    }
+
+    #[test]
+    fn a_window_opened_again_asks_the_open_one_to_come_to_the_front() {
+        assert_eq!(
+            serde_json::to_string(&Request::Show).unwrap(),
+            r#"{"op":"show"}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&Response::Shown).unwrap(),
+            r#""shown""#
         );
     }
 

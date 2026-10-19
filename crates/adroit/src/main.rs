@@ -1,7 +1,17 @@
 fn main() {
-    use adroit::cli::{Command, USAGE, command};
+    use adroit::cli::{Command, USAGE, command, hand_to_open_window, settle_instance};
     let args: Vec<String> = std::env::args().skip(1).collect();
-    match command(&args) {
+    let asked = command(&args);
+    let given = match &asked {
+        Some(Command::Window(name)) => name.clone(),
+        _ => None,
+    };
+    // Every process started from here belongs to the instance it settles on.
+    if let Err(e) = settle_instance(given) {
+        eprintln!("adroit: {e}");
+        std::process::exit(2);
+    }
+    match asked {
         None => {
             eprintln!("{USAGE}");
             std::process::exit(2);
@@ -14,7 +24,10 @@ fn main() {
         Some(Command::Shell(rest)) => std::process::exit(adroit::shell_cli(&rest)),
         Some(Command::Editor(rest)) => std::process::exit(adroit::editor::cli(&rest)),
         Some(Command::Daemon) => std::process::exit(adroit::daemon_cli()),
-        Some(Command::Window) => {}
+        Some(Command::Window(_)) => {}
+    }
+    if hand_to_open_window() {
+        return;
     }
     // Opened from the Finder, there is no terminal and no PATH of the user's
     // own; the login shell knows where their tools are.

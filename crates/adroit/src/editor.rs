@@ -7,7 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::paths::state_dir;
+use crate::paths::instance_state;
 use crate::shells::{Request, Response, ask, socket_path};
 
 /// The lines typed into Claude Code's input, from the file it hands its
@@ -80,7 +80,7 @@ pub fn cli(args: &[String]) -> i32 {
         return 2;
     };
     let answer = ask(
-        &socket_path(&state_dir()),
+        &socket_path(&instance_state()),
         &Request::Editor {
             path: PathBuf::from(path),
         },

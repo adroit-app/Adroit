@@ -36,7 +36,7 @@ use crate::layout::{self, Layout, Side};
 use crate::menu::{self, Target};
 use crate::menu_bar;
 use crate::nav::{self, Item, Place};
-use crate::paths::{home, keys_path, scratch_dir, state_dir};
+use crate::paths::{home, instance_state, keys_path, scratch_dir};
 use crate::picker::{self, Candidate, Choice, Mode, Picker};
 use crate::picker_view::PickerView;
 use crate::plugin;
@@ -46,7 +46,7 @@ use crate::scratch::{self, Moment};
 use crate::sessions::{self, Kept};
 use crate::settings;
 use crate::settings_window;
-use crate::shells::{Request, Response, answer, bind, serve, socket_path};
+use crate::shells::{Request, Response, answer, ask, bind, serve, socket_path};
 use crate::status;
 use crate::style::{CSS, CellHeight, DEFAULT_CELL_HEIGHT};
 use crate::tabs::{self, Role, Tab, fresh_name, label_from, named, shows_prompt};
@@ -589,7 +589,7 @@ fn now_ms() -> u64 {
 
 /// Where the tab shown is kept for the next run of the window.
 fn shown_path() -> PathBuf {
-    state_dir().join("adroit").join("shown")
+    instance_state().join("shown")
 }
 
 fn shell_program() -> String {
@@ -778,7 +778,7 @@ fn session_env() -> Vec<(String, String)> {
         .collect();
     // Claude Code runs the external editor with the environment it started
     // in, so the prompt can take back what was typed into its input.
-    let editor = editor::script_path(&socket_path(&state_dir()));
+    let editor = editor::script_path(&socket_path(&instance_state()));
     if ANSWERS.load(Ordering::Relaxed) && editor.exists() {
         // Kept for when the user opens the editor themselves.
         if let Ok(own) = std::env::var("VISUAL").or_else(|_| std::env::var("EDITOR")) {
@@ -1579,7 +1579,7 @@ fn App() -> Element {
     use_hook({
         let hub = hub.clone();
         move || {
-            let socket = socket_path(&state_dir());
+            let socket = socket_path(&instance_state());
             spawn(async move {
                 let mut asked = match bind(&socket) {
                     Ok(listener) => {
@@ -1595,6 +1595,12 @@ fn App() -> Element {
                         serve(listener)
                     }
                     Err(e) => {
+                        // Opened together with another window of this
+                        // instance, which claimed the socket first.
+                        if matches!(ask(&socket, &Request::Show), Ok(Response::Shown)) {
+                            dioxus::desktop::window().close();
+                            return;
+                        }
                         status.set(Some(format!("sessions cannot read the shells: {e}")));
                         return;
                     }
@@ -1602,6 +1608,14 @@ fn App() -> Element {
                 while let Some((request, reply)) = asked.recv().await {
                     if let Request::Editor { path } = &request {
                         let _ = reply.send(take_input(path, &mut pull, prompts, notify).await);
+                        continue;
+                    }
+                    if request == Request::Show {
+                        let w = dioxus::desktop::window();
+                        w.window.set_visible(true);
+                        w.window.set_minimized(false);
+                        w.window.set_focus();
+                        let _ = reply.send(Response::Shown);
                         continue;
                     }
                     let worktrees: Vec<PathBuf> = tree
