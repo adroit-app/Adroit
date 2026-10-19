@@ -25,6 +25,9 @@ pub struct Session {
     pub started_ms: Option<u64>,
     /// Started to read only: in plan mode, without the editing tools.
     pub reader: bool,
+    /// The conversation of the session this one was started from; empty for
+    /// one the user started.
+    pub started_from: String,
 }
 
 impl Session {
@@ -154,6 +157,7 @@ pub fn parse_agents(json: &str) -> Result<Vec<Session>, ParseError> {
                 },
                 started_ms: raw.started_at,
                 reader: false,
+                started_from: String::new(),
             }
         })
         .collect())

@@ -5,6 +5,7 @@ fn main() {
             println!("adroit {}", env!("CARGO_PKG_VERSION"));
             return;
         }
+        Some("session") => std::process::exit(adroit::session_cli(&args[1..])),
         Some("shell") => std::process::exit(adroit::shell_cli(&args[1..])),
         Some("editor") => std::process::exit(adroit::editor::cli(&args[1..])),
         Some("daemon") => std::process::exit(adroit::daemon_cli()),

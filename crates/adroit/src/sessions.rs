@@ -16,6 +16,8 @@ const READER: &str = "adroit.reader";
 /// The conversation a Claude Code session holds, chosen by adroit when it
 /// starts or resumes the session.
 const CONVERSATION: &str = "adroit.claude";
+/// The conversation of the session this one was started from.
+const STARTED_FROM: &str = "adroit.from";
 
 /// A session the daemon holds, as what it runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,6 +63,7 @@ pub fn read(session: &adroit_term::Session) -> Option<Kept> {
                 .unwrap_or_default(),
             started_ms: tags::value(t, STARTED).and_then(|s| s.parse().ok()),
             reader: tags::value(t, READER).is_some(),
+            started_from: tags::value(t, STARTED_FROM).unwrap_or_default(),
         })),
         "shell" => Some(Kept::Shell(Shell {
             id: session.id,
@@ -79,6 +82,7 @@ pub fn claude_tags(
     conversation: &str,
     reader: bool,
     started_ms: u64,
+    started_from: Option<&str>,
 ) -> Vec<String> {
     let mut out = tags::tagged(KIND, "claude");
     out.extend(tags::tagged(NAME, name));
@@ -87,6 +91,9 @@ pub fn claude_tags(
     out.extend(tags::tagged(CONVERSATION, conversation));
     if reader {
         out.extend(tags::tagged(READER, "1"));
+    }
+    if let Some(from) = started_from {
+        out.extend(tags::tagged(STARTED_FROM, from));
     }
     out
 }
@@ -121,7 +128,7 @@ mod tests {
     fn a_claude_session_is_read_back_from_its_tags_and_status() {
         let mut s = kept(
             7,
-            claude_tags("fix", std::path::Path::new("/api"), "uuid", true, 42),
+            claude_tags("fix", std::path::Path::new("/api"), "uuid", true, 42, None),
         );
         s.status = Some(Status {
             state: "blocked".into(),
@@ -146,20 +153,40 @@ mod tests {
     fn a_session_goes_by_its_conversation_before_it_reports_anything() {
         let s = kept(
             7,
-            claude_tags("fix", std::path::Path::new("/api"), "uuid", false, 0),
+            claude_tags("fix", std::path::Path::new("/api"), "uuid", false, 0, None),
         );
         let Some(Kept::Claude(c)) = read(&s) else {
             panic!("not a session");
         };
         assert_eq!(c.session_id, "uuid");
         assert!(!c.reads_only());
+        assert_eq!(c.started_from, "");
+    }
+
+    #[test]
+    fn a_session_started_from_another_keeps_the_conversation_it_came_from() {
+        let s = kept(
+            7,
+            claude_tags(
+                "fix",
+                std::path::Path::new("/api"),
+                "uuid",
+                false,
+                0,
+                Some("parent-uuid"),
+            ),
+        );
+        let Some(Kept::Claude(c)) = read(&s) else {
+            panic!("not a session");
+        };
+        assert_eq!(c.started_from, "parent-uuid");
     }
 
     #[test]
     fn a_session_that_reported_nothing_is_idle() {
         let s = kept(
             7,
-            claude_tags("fix", std::path::Path::new("/api"), "uuid", false, 0),
+            claude_tags("fix", std::path::Path::new("/api"), "uuid", false, 0, None),
         );
         let Some(Kept::Claude(c)) = read(&s) else {
             panic!("not a session");

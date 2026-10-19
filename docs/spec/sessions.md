@@ -19,6 +19,35 @@ leaving it as it is.
 A session ends when its program exits or when it is ended from adroit. Its
 console then says so, and it is listed no more.
 
+## Started by a session
+
+A session can start another, and so can any program running in one:
+
+```console
+$ adroit session start --dir ~/src/api -- "Find why the login test is flaky"
+find-login-test
+```
+
+The new session runs in the daemon like one started from the window, whether
+the window is open or not, and the window lists and shows it the same way. The command
+prints the name it goes by, which is also the name Claude Code's messaging
+between sessions addresses it by. The prompt is read from standard input when
+none follows `--`.
+
+- `--dir <path>` is where it works, the current directory when not given.
+- `--name <name>` names it; without one it is named from its prompt, as the
+  window names a session. A name already taken gets a number.
+- `--read-only` starts it as one that only reads, as `session.new_reader`
+  does ([keys](keys.md)).
+
+Run from a Claude Code session, the new session is known to have been started
+from that one. The sessions adroit starts are told of the command, so Claude
+can hand work to a session of its own instead of an agent inside itself, and
+hear back from it by Claude Code's messaging.
+
+When the daemon cannot be reached, the command fails with a message on
+standard error and exit status 1.
+
 ## Keeping the Mac awake
 
 While a session or a shell runs, the window open or not, the Mac does not go

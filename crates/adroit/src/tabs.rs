@@ -85,23 +85,26 @@ pub fn named(prompt: &str) -> (Option<String>, String) {
         .map(|_| first.trim()[5..].trim())
         .filter(|name| !name.is_empty());
     match given {
-        Some(name) => {
-            let label = name
-                .split_whitespace()
-                .map(|w| {
-                    w.chars()
-                        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
-                        .collect::<String>()
-                        .to_ascii_lowercase()
-                })
-                .filter(|w| !w.is_empty())
-                .collect::<Vec<_>>()
-                .join("-");
-            let label = (!label.is_empty()).then_some(label);
-            (label, rest.trim_start_matches('\n').to_string())
-        }
+        Some(name) => (label_of(name), rest.trim_start_matches('\n').to_string()),
         None => (None, prompt.to_string()),
     }
+}
+
+/// The label a name given by hand makes: its words lower case, joined by
+/// `-`, keeping letters, digits and `-`; `None` when nothing is left.
+pub fn label_of(name: &str) -> Option<String> {
+    let label = name
+        .split_whitespace()
+        .map(|w| {
+            w.chars()
+                .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+                .collect::<String>()
+                .to_ascii_lowercase()
+        })
+        .filter(|w| !w.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    (!label.is_empty()).then_some(label)
 }
 
 /// A name for a new session no other session has: the label, then the label

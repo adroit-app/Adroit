@@ -38,6 +38,7 @@ use crate::nav::{self, Item, Place};
 use crate::paths::{home, keys_path, scratch_dir, state_dir};
 use crate::picker::{self, Candidate, Choice, Mode, Picker};
 use crate::picker_view::PickerView;
+use crate::plugin;
 use crate::prompts::{self, Op, Prompts};
 use crate::rename::Rename;
 use crate::scratch::{self, Moment};
@@ -2082,14 +2083,16 @@ fn App() -> Element {
                             match scratch::start_dir(&worktree, &scratch_dir(), Moment::now()) {
                                 Ok(worktree) => {
                                     let conversation = adroit_claude::new_session_id();
+                                    let mut args = plugin::args(&adroit_program());
+                                    args.extend(adroit_claude::start_args(
+                                        &name,
+                                        &conversation,
+                                        access,
+                                        &text,
+                                    ));
                                     let spawn = Spawn {
                                         program: adroit_claude::claude_program(),
-                                        args: adroit_claude::start_args(
-                                            &name,
-                                            &conversation,
-                                            access,
-                                            &text,
-                                        ),
+                                        args,
                                         cwd: worktree.clone(),
                                         env: session_env(),
                                         tags: sessions::claude_tags(
@@ -2098,6 +2101,7 @@ fn App() -> Element {
                                             &conversation,
                                             reader,
                                             now_ms(),
+                                            None,
                                         ),
                                         cols: size.cols,
                                         rows: size.rows,
@@ -2170,9 +2174,11 @@ fn App() -> Element {
                     return;
                 }
                 let size = *console_size.peek();
+                let mut args = plugin::args(&adroit_program());
+                args.extend(adroit_claude::resume_args(&now.session_id));
                 let spawn = Spawn {
                     program: adroit_claude::claude_program(),
-                    args: adroit_claude::resume_args(&now.session_id),
+                    args,
                     cwd: now.cwd.clone(),
                     env: session_env(),
                     tags: sessions::claude_tags(
@@ -2181,6 +2187,7 @@ fn App() -> Element {
                         &now.session_id,
                         false,
                         now_ms(),
+                        None,
                     ),
                     cols: size.cols,
                     rows: size.rows,

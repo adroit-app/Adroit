@@ -184,6 +184,15 @@ pub fn start_args(name: &str, session_id: &str, access: Access, prompt: &str) ->
     args
 }
 
+/// The arguments that load the plugin in `dir` for the session alone, put
+/// before the others.
+pub fn plugin_args(dir: impl AsRef<Path>) -> Vec<String> {
+    vec![
+        "--plugin-dir".into(),
+        dir.as_ref().to_string_lossy().into_owned(),
+    ]
+}
+
 /// The arguments that continue the conversation `session_id`.
 pub fn resume_args(session_id: &str) -> Vec<String> {
     ["--resume", session_id].map(String::from).to_vec()
@@ -351,6 +360,14 @@ mod tests {
                 "--",
                 "b"
             ]
+        );
+    }
+
+    #[test]
+    fn a_plugin_is_handed_over_by_its_directory() {
+        assert_eq!(
+            plugin_args(Path::new("/state/plugin")),
+            ["--plugin-dir", "/state/plugin"]
         );
     }
 
