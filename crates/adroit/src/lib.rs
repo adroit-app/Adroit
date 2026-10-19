@@ -1,5 +1,6 @@
 //! The adroit window.
 
+mod alerts;
 mod app;
 mod awake;
 mod complete;

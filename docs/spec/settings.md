@@ -41,6 +41,10 @@ theme = "Adroit"
 # open or not; the display still sleeps.
 keep_awake = true
 
+# Show a notification when a session starts waiting on you while the window
+# is not in front.
+notify_waiting = false
+
 # Where scratch sessions run, `~` standing for your home folder; empty for
 # adroit's own folder.
 scratch_dir = ""

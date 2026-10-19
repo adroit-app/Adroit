@@ -15,6 +15,7 @@ use adroit_term::{Daemon, Key, Palette, Pane, Size, Spawn};
 use dioxus::prelude::*;
 use tokio::sync::{Notify, mpsc, oneshot};
 
+use crate::alerts;
 use crate::complete::{self, candidates};
 use crate::console::{Composer, ConsoleScreen, Hub, Panes, ReaderScreen, mode_of};
 use crate::console_keys::direct_key;
@@ -1382,6 +1383,16 @@ fn App() -> Element {
                                     }
                                     place.set(Some(p));
                                     active.set(Some(kept));
+                                }
+                            }
+                            // Told only of what changed since the window first read the
+                            // sessions, and only while it is not in front.
+                            if *restored.peek()
+                                && settings::current().notify_waiting
+                                && !dioxus::desktop::window().is_focused()
+                            {
+                                for (name, why) in alerts::newly_waiting(&tree.peek(), &next) {
+                                    alerts::notify_waiting(&name, &why);
                                 }
                             }
                             if !*restored.peek() {

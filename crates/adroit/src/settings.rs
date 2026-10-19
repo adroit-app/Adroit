@@ -63,6 +63,9 @@ pub struct Settings {
     pub theme: String,
     /// Keep the Mac from idle sleep while a session or a shell runs.
     pub keep_awake: bool,
+    /// Tell, by a notification, of a session that starts waiting while the
+    /// window is not in front.
+    pub notify_waiting: bool,
     /// How a shell tab's shell is started.
     pub shell: ShellLaunch,
     /// How Claude Code is started.
@@ -96,6 +99,7 @@ impl Default for Settings {
             font_weight: 400,
             theme: crate::themes::DEFAULT.into(),
             keep_awake: true,
+            notify_waiting: false,
             shell: ShellLaunch::default(),
             claude: Launch::default(),
             neovim: Launch::default(),
@@ -367,6 +371,7 @@ mod tests {
             font_weight: 300,
             theme: "Nightfox".into(),
             keep_awake: false,
+            notify_waiting: true,
             shell: ShellLaunch {
                 command: vec!["/bin/bash".into(), "-l".into()],
                 env: BTreeMap::from([("LANG".into(), "C".into())]),
@@ -519,5 +524,15 @@ mod tests {
         assert_eq!(s.console.option_as_alt, OptionAsAlt::Left);
         assert!(s.console.cursor_blink);
         assert!(Settings::parse("[console]\noption_as_alt = \"up\"\n").is_err());
+    }
+
+    #[test]
+    fn a_session_starting_to_wait_is_told_of_only_when_the_settings_ask() {
+        assert!(!Settings::parse("").unwrap().notify_waiting);
+        assert!(
+            Settings::parse("notify_waiting = true\n")
+                .unwrap()
+                .notify_waiting
+        );
     }
 }

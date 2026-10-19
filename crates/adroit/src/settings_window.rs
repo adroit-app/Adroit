@@ -243,6 +243,16 @@ fn General(now: Settings, change: Callback<Change>) -> Element {
                     },
                 }
             }
+            Row { label: "Notify when a session waits", hint: "A notification when a session starts waiting on you while the window is not in front.",
+                input {
+                    r#type: "checkbox",
+                    checked: now.notify_waiting,
+                    onchange: move |e| {
+                        let on = e.checked();
+                        change(Box::new(move |s: &mut Settings| s.notify_waiting = on));
+                    },
+                }
+            }
         }
         section { class: "settings-group",
             h2 { "Starting sessions" }
