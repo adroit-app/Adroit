@@ -12,7 +12,8 @@ The menu bar offers every action that is more than a key, beside macOS's own
 entries for the application, editing and windows. An entry runs its action
 where the keys are, as its key would, but not while the picker, a dialog or a
 name being typed holds the keys; from the Settings window, it runs in the
-main window and brings it forward.
+main window and brings it forward, but for closing a tab or the window, which
+closes the Settings window.
 
 Each entry shows the Command key bound to its action in `global`, when that
 key runs it in every area. An action bound only to a sequence, to keys
@@ -115,8 +116,8 @@ In the prompt, `global` bindings apply only outside Neovim's insert mode.
 
 A key is written as its modifiers, then its name, joined by `+`: `Ctrl+w`,
 `Shift+Tab`, `Ctrl+Alt+x`, `Cmd+p`. The modifiers are `Cmd`, `Ctrl`, `Alt`
-and `Shift`. Command with `c`, `v`, `x`, `a`, `z`, `q`, `w`, `h` and `m`
-stays with the menu: editing, quitting, hiding, minimizing and closing.
+and `Shift`. Command with `c`, `v`, `x`, `a`, `z`, `q`, `h` and `m` stays
+with the menu: editing, quitting, hiding and minimizing.
 A Command key reaches the `global` bindings wherever the keys are, the
 prompt's insert mode and a console passing its keys on included.
 A key is a single character, `Space`, `Plus`, `F1` to `F12`, or one of
@@ -137,6 +138,7 @@ another, the complete one runs.
 | `window.left`, `window.down`, `window.up`, `window.right` | move to the area in that direction |
 | `tab.next`, `tab.prev` | show the next or previous tab of the area the keys are in: the details panel's sheets there, elsewhere the console's tabs, which are the sessions opened in the window, the worktree's shells and a draft |
 | `tab.close` | close the current tab; a shell ends, a session runs on and stays in the sidebar. On a shell's row in the sidebar, that shell ends |
+| `window.close` | close the window, which ends adroit; its sessions run on |
 | `cursor.down`, `cursor.up`, `cursor.first`, `cursor.last` | move the selection in the sidebar; in the details panel, in the list it shows, or scroll what else it shows |
 | `cursor.open` | open the selected session, shell or worktree and move to its console, or to the prompt of a session not started yet; fold or unfold a workspace; in the details panel, open the selected row |
 | `cursor.show` | show the selected session, shell or worktree in the console, as `cursor.open` does, with the keys staying in the sidebar; fold or unfold a workspace; in the details panel, open the selected row |
@@ -187,6 +189,8 @@ another, the complete one runs.
 "Ctrl+w p" = "tab.prev"
 "Cmd+]" = "tab.next"
 "Cmd+[" = "tab.prev"
+"Cmd+w" = "tab.close"
+"Cmd+W" = "window.close"
 "Cmd+1" = "details.overview"
 "Cmd+2" = "details.changes"
 "Cmd+3" = "details.log"

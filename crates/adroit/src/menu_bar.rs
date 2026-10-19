@@ -20,7 +20,6 @@ pub enum System {
     HideOthers,
     ShowAll,
     Quit,
-    CloseWindow,
     Undo,
     Redo,
     Cut,
@@ -82,7 +81,7 @@ pub fn sections() -> Vec<Section> {
                 Run(Action::ShellOpen, "Open Shell"),
                 Run(Action::ShellClose, "Close Shell"),
                 Run(Action::TabClose, "Close Tab"),
-                Sys(System::CloseWindow),
+                Run(Action::WindowClose, "Close Window"),
                 Separator,
                 Run(Action::SessionRename, "Rename…"),
                 Run(Action::SessionTakeOver, "Take Over…"),
@@ -321,7 +320,6 @@ fn system(s: System) -> PredefinedMenuItem {
         System::HideOthers => PredefinedMenuItem::hide_others(None),
         System::ShowAll => PredefinedMenuItem::show_all(None),
         System::Quit => PredefinedMenuItem::quit(None),
-        System::CloseWindow => PredefinedMenuItem::close_window(None),
         System::Undo => PredefinedMenuItem::undo(None),
         System::Redo => PredefinedMenuItem::redo(None),
         System::Cut => PredefinedMenuItem::cut(None),
@@ -449,6 +447,8 @@ mod tests {
             shown(&map, Action::SessionStop),
             Some("Cmd+Backspace".into())
         );
+        assert_eq!(shown(&map, Action::TabClose), Some("Cmd+w".into()));
+        assert_eq!(shown(&map, Action::WindowClose), Some("Cmd+W".into()));
     }
 
     #[test]
@@ -542,7 +542,15 @@ mod tests {
         for letter in MENU_KEYS {
             assert!(held.contains(&letter.to_string()), "{letter}");
         }
-        for chord in ["Cmd+n", "Cmd+N", "Cmd+p", "Cmd+,", "Cmd+Ctrl+f"] {
+        for chord in [
+            "Cmd+n",
+            "Cmd+N",
+            "Cmd+p",
+            "Cmd+,",
+            "Cmd+Ctrl+f",
+            "Cmd+w",
+            "Cmd+W",
+        ] {
             assert!(held.contains(&chord.to_string()), "{chord}");
         }
         // The window takes what the menu does not show.

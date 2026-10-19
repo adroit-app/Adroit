@@ -3196,6 +3196,7 @@ fn App() -> Element {
                     );
                 }
                 Action::SettingsOpen => settings_window::open(),
+                Action::WindowClose => dioxus::desktop::window().close(),
                 Action::SidebarToggle => toggle_panel(Side::Sidebar),
                 Action::DetailsToggle => toggle_panel(Side::Details),
                 Action::ZoomIn | Action::ZoomOut | Action::ZoomReset => {
@@ -3272,6 +3273,13 @@ fn App() -> Element {
             let Some(action) = menu_bar::action_of(&event.id().0) else {
                 return;
             };
+            // Closing acts on the window in front, as macOS's own Close does,
+            // so it does not reach behind Settings to a tab.
+            if matches!(action, Action::TabClose | Action::WindowClose)
+                && settings_window::close_in_front()
+            {
+                return;
+            }
             if picking.peek().is_some() || renaming.peek().is_some() || confirm.peek().is_some() {
                 return;
             }

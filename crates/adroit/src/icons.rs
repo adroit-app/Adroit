@@ -116,6 +116,7 @@ impl Icon {
             A::ShellOpen => Icon::Terminal2,
             A::ShellClose => Icon::SquareX,
             A::TabClose => Icon::X,
+            A::WindowClose => Icon::AppWindow,
             A::SessionRename => Icon::Pencil,
             A::SessionTakeOver => Icon::TransferIn,
             A::SessionStop => Icon::PlayerStop,

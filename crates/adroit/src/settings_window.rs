@@ -50,6 +50,18 @@ pub fn close() {
     }
 }
 
+/// Close the Settings window when it is the one in front; whether it was.
+pub fn close_in_front() -> bool {
+    let Some(w) = OPEN.with(|o| o.borrow().upgrade()) else {
+        return false;
+    };
+    if !w.window.is_focused() {
+        return false;
+    }
+    w.close();
+    true
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Pane {
     General,

@@ -20,6 +20,8 @@ pub const DEFAULTS: &str = r#"
 "Ctrl+w p" = "tab.prev"
 "Cmd+]" = "tab.next"
 "Cmd+[" = "tab.prev"
+"Cmd+w" = "tab.close"
+"Cmd+W" = "window.close"
 "Cmd+1" = "details.overview"
 "Cmd+2" = "details.changes"
 "Cmd+3" = "details.log"
@@ -158,8 +160,8 @@ const NAMED: &[&str] = &[
 ];
 
 /// Keys that stay with the menu with Command held: copy, paste and the rest
-/// of editing, quitting, hiding, minimizing and closing.
-pub const MENU_KEYS: &[&str] = &["c", "v", "x", "a", "z", "q", "w", "h", "m"];
+/// of editing, quitting, hiding and minimizing.
+pub const MENU_KEYS: &[&str] = &["c", "v", "x", "a", "z", "q", "h", "m"];
 
 fn menu_key(key: &str) -> bool {
     MENU_KEYS.contains(&key.to_lowercase().as_str())
@@ -452,6 +454,7 @@ actions! {
     ShellOpen => "shell.open",
     ShellClose => "shell.close",
     TabClose => "tab.close",
+    WindowClose => "window.close",
     Refresh => "refresh",
     Filter => "filter",
     DetailsOverview => "details.overview",
@@ -711,6 +714,7 @@ mod tests {
         assert_eq!(c("Control", true, false, false, false), None);
         assert_eq!(c("j", false, false, false, true), Some("Cmd+j".into()));
         assert_eq!(c("c", false, false, false, true), None);
+        assert_eq!(c("w", false, false, false, true), Some("Cmd+w".into()));
     }
 
     #[test]
@@ -746,12 +750,12 @@ mod tests {
 
     #[test]
     fn command_keys_the_menu_uses_cannot_be_bound() {
-        for taken in [
-            "Cmd+c", "Cmd+v", "Cmd+q", "Cmd+w", "Cmd+Z", "Cmd+h", "Cmd+m",
-        ] {
+        for taken in ["Cmd+c", "Cmd+v", "Cmd+q", "Cmd+Z", "Cmd+h", "Cmd+m"] {
             assert!(Chord::parse(taken).is_err(), "{taken}");
         }
-        for free in ["Cmd+b", "Cmd+0", "Cmd+,", "Cmd+Plus", "Cmd+-"] {
+        for free in [
+            "Cmd+w", "Cmd+W", "Cmd+b", "Cmd+0", "Cmd+,", "Cmd+Plus", "Cmd+-",
+        ] {
             assert!(Chord::parse(free).is_ok(), "{free}");
         }
         let chord = Chord::parse("Cmd+N").unwrap();
@@ -773,6 +777,11 @@ mod tests {
         assert_eq!(
             run(Key::new("b").meta().alt()),
             Step::Run(Action::DetailsToggle)
+        );
+        assert_eq!(run(Key::new("w").meta()), Step::Run(Action::TabClose));
+        assert_eq!(
+            run(Key::new("W").meta().shift()),
+            Step::Run(Action::WindowClose)
         );
     }
 
