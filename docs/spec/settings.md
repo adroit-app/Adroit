@@ -64,12 +64,27 @@ command = []
 via_shell = false
 
 [neovim.env]
+
+# How every session runs, and how a reader runs: the model it starts with, as
+# Claude Code's `--model` takes it; its permission mode, one of `default`,
+# `acceptEdits`, `plan` and `bypassPermissions`; and the tools denied it.
+# What is left empty is Claude Code's own choice; a reader plans and edits
+# nothing unless told otherwise.
+[sessions]
+model = ""
+permission_mode = ""
+disallowed_tools = []
+
+[readers]
+model = ""
+permission_mode = "plan"
+disallowed_tools = ["Edit", "Write", "NotebookEdit"]
 ```
 
 A program started through the shell is started by the shell `[shell]` names,
 or your login shell, with the program and its arguments handed over as they
-are; a POSIX shell or fish can do so. The Programs pane of the Settings window
-changes the same settings, a command written there as a shell would split it.
+are; a POSIX shell or fish can do so. The Sessions and Programs panes of the
+Settings window change the same settings, a command written there as a shell would split it.
 
 A theme is adroit's own, one of those it comes with (Nightfox, TokyoNight,
 Catppuccin, Gruvbox, Dracula, Nord, Kanagawa, Rose Pine and GitHub Light among

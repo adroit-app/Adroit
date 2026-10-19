@@ -13,7 +13,9 @@ use dioxus::prelude::*;
 use crate::icons::{Icon, IconView};
 use crate::keys_pane::KeysPane;
 use crate::paths::{home, keys_path};
-use crate::programs::{Launch, format_command, format_env, parse_command, parse_env};
+use crate::programs::{
+    Launch, SessionOptions, format_command, format_env, parse_command, parse_env,
+};
 use crate::settings::{self, Settings};
 use crate::style::SETTINGS_CSS;
 use crate::zoom::LEVELS;
@@ -68,15 +70,17 @@ enum Pane {
     General,
     Console,
     Prompt,
+    Sessions,
     Programs,
     Keys,
 }
 
 impl Pane {
-    const ALL: [Pane; 5] = [
+    const ALL: [Pane; 6] = [
         Pane::General,
         Pane::Console,
         Pane::Prompt,
+        Pane::Sessions,
         Pane::Programs,
         Pane::Keys,
     ];
@@ -86,6 +90,7 @@ impl Pane {
             Pane::General => "General",
             Pane::Console => "Console",
             Pane::Prompt => "Prompt",
+            Pane::Sessions => "Sessions",
             Pane::Programs => "Programs",
             Pane::Keys => "Keys",
         }
@@ -96,6 +101,7 @@ impl Pane {
             Pane::General => Icon::AdjustmentsHorizontal,
             Pane::Console => Icon::Terminal,
             Pane::Prompt => Icon::Pencil,
+            Pane::Sessions => Icon::Message,
             Pane::Programs => Icon::Terminal2,
             Pane::Keys => Icon::Keyboard,
         }
@@ -179,6 +185,7 @@ fn SettingsWindow() -> Element {
                     Pane::General => rsx! { General { now: now(), change } },
                     Pane::Console => rsx! { ConsolePane { now: now(), change } },
                     Pane::Prompt => rsx! { PromptPane { now: now(), change } },
+                    Pane::Sessions => rsx! { SessionsPane { now: now(), change } },
                     Pane::Programs => rsx! { ProgramsPane { now: now(), change } },
                     Pane::Keys => rsx! { KeysPane {} },
                 }
@@ -453,6 +460,83 @@ fn LaunchGroup(
                     class: "settings-env",
                     value: "{format_env(&launch.env)}",
                     onchange: move |e| set(Launch { env: parse_env(&e.value()), ..c.clone() }),
+                }
+            }
+        }
+    }
+}
+
+/// The permission modes Claude Code takes, as it names them, with what the
+/// Settings window calls each; empty leaves it to Claude Code.
+const MODES: [(&str, &str); 5] = [
+    ("", "Claude Code's own"),
+    ("default", "Ask before acting"),
+    ("acceptEdits", "Accept edits"),
+    ("plan", "Plan only"),
+    ("bypassPermissions", "Bypass permissions"),
+];
+
+/// The models offered to choose from; another can be typed.
+const MODELS: [&str; 3] = ["opus", "sonnet", "haiku"];
+
+#[component]
+fn SessionsPane(now: Settings, change: Callback<Change>) -> Element {
+    rsx! {
+        SessionGroup {
+            title: "Sessions",
+            options: now.sessions.clone(),
+            set: move |o: SessionOptions| change(Box::new(move |s: &mut Settings| s.sessions = o)),
+        }
+        SessionGroup {
+            title: "Readers",
+            options: SessionOptions::from(now.readers.clone()),
+            set: move |o: SessionOptions| change(Box::new(move |s: &mut Settings| s.readers = o.into())),
+        }
+    }
+}
+
+/// How sessions of one kind run: their model, permission mode and the tools
+/// denied them.
+#[component]
+fn SessionGroup(title: String, options: SessionOptions, set: Callback<SessionOptions>) -> Element {
+    let (a, b, c) = (options.clone(), options.clone(), options.clone());
+    let list = format!("models-{title}");
+    rsx! {
+        section { class: "settings-group",
+            h2 { "{title}" }
+            Row { label: "Model", hint: "The model they start with, as Claude Code's --model takes it; empty for Claude Code's own.",
+                input {
+                    class: "settings-command",
+                    r#type: "text",
+                    list: "{list}",
+                    value: "{options.model}",
+                    placeholder: "Claude Code's own",
+                    onchange: move |e| set(SessionOptions { model: e.value().trim().to_string(), ..a.clone() }),
+                }
+                datalist { id: "{list}",
+                    for m in MODELS {
+                        option { key: "{m}", value: "{m}" }
+                    }
+                }
+            }
+            Row { label: "Permission mode", hint: "How they ask before they act.",
+                select {
+                    onchange: move |e| set(SessionOptions { permission_mode: e.value(), ..b.clone() }),
+                    for (mode , name) in MODES {
+                        option { key: "{mode}", value: "{mode}", selected: options.permission_mode == mode, "{name}" }
+                    }
+                }
+            }
+            Row { label: "Tools denied", hint: "Tools they may not use, separated by commas.",
+                input {
+                    class: "settings-command",
+                    r#type: "text",
+                    value: "{options.disallowed_tools.join(\", \")}",
+                    placeholder: "Edit, Write",
+                    onchange: move |e| {
+                        let tools = e.value().split(',').map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect();
+                        set(SessionOptions { disallowed_tools: tools, ..c.clone() })
+                    },
                 }
             }
         }

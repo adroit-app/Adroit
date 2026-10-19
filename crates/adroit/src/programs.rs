@@ -82,6 +82,88 @@ impl Launch {
     }
 }
 
+/// How sessions of one kind run: Claude Code's model, its permission mode and
+/// the tools denied; what is left empty is Claude Code's own choice.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SessionOptions {
+    pub model: String,
+    pub permission_mode: String,
+    pub disallowed_tools: Vec<String>,
+}
+
+impl SessionOptions {
+    pub fn options(&self) -> adroit_claude::Options {
+        adroit_claude::Options {
+            model: self.model.trim().to_string(),
+            permission_mode: self.permission_mode.trim().to_string(),
+            disallowed_tools: self
+                .disallowed_tools
+                .iter()
+                .map(|t| t.trim().to_string())
+                .filter(|t| !t.is_empty())
+                .collect(),
+        }
+    }
+}
+
+/// How a reader runs: as [`SessionOptions`], but what a table leaves out is
+/// a reader's own, planning with the tools that edit files denied.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ReaderOptions {
+    pub model: String,
+    pub permission_mode: String,
+    pub disallowed_tools: Vec<String>,
+}
+
+impl Default for ReaderOptions {
+    fn default() -> Self {
+        Self {
+            model: String::new(),
+            permission_mode: "plan".into(),
+            disallowed_tools: ["Edit", "Write", "NotebookEdit"].map(String::from).to_vec(),
+        }
+    }
+}
+
+impl From<ReaderOptions> for SessionOptions {
+    fn from(r: ReaderOptions) -> Self {
+        Self {
+            model: r.model,
+            permission_mode: r.permission_mode,
+            disallowed_tools: r.disallowed_tools,
+        }
+    }
+}
+
+impl From<SessionOptions> for ReaderOptions {
+    fn from(s: SessionOptions) -> Self {
+        Self {
+            model: s.model,
+            permission_mode: s.permission_mode,
+            disallowed_tools: s.disallowed_tools,
+        }
+    }
+}
+
+impl ReaderOptions {
+    pub fn options(&self) -> adroit_claude::Options {
+        SessionOptions::from(self.clone()).options()
+    }
+}
+
+/// The options a session runs with, as the settings say: a reader's when
+/// `reader`, else every other session's.
+pub fn session_options(reader: bool) -> adroit_claude::Options {
+    let s = crate::settings::current();
+    if reader {
+        s.readers.options()
+    } else {
+        s.sessions.options()
+    }
+}
+
 /// A command written as a shell would split it into words; `None` while a
 /// quote is left open.
 pub fn parse_command(text: &str) -> Option<Vec<String>> {

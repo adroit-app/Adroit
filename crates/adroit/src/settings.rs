@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 
 use crate::paths::config_dir;
-pub use crate::programs::{Launch, ShellLaunch};
+pub use crate::programs::{Launch, ReaderOptions, SessionOptions, ShellLaunch};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -37,6 +37,10 @@ pub struct Settings {
     pub claude: Launch,
     /// How a Neovim tab's Neovim is started.
     pub neovim: Launch,
+    /// How every session but a reader runs.
+    pub sessions: SessionOptions,
+    /// How a reader runs.
+    pub readers: ReaderOptions,
 }
 
 /// The fonts the console falls back to, a Japanese one among them for what a
@@ -57,6 +61,8 @@ impl Default for Settings {
             shell: ShellLaunch::default(),
             claude: Launch::default(),
             neovim: Launch::default(),
+            sessions: SessionOptions::default(),
+            readers: ReaderOptions::default(),
         }
     }
 }
@@ -286,6 +292,11 @@ mod tests {
                 via_shell: false,
                 env: BTreeMap::new(),
             },
+            sessions: SessionOptions {
+                model: "opus".into(),
+                ..SessionOptions::default()
+            },
+            readers: ReaderOptions::default(),
         };
         let text = toml::to_string_pretty(&s).unwrap();
         assert_eq!(Settings::parse(&text).unwrap(), s);
@@ -335,5 +346,26 @@ mod tests {
         assert_eq!(reread(&now, &toml::to_string_pretty(&now).unwrap()), None);
         assert_eq!(reread(&now, "zoom = "), None);
         assert_eq!(reread(&now, "colour = \"red\"\n"), None);
+    }
+
+    #[test]
+    fn sessions_and_readers_run_with_the_model_mode_and_tools_the_settings_name() {
+        let s = Settings::parse("").unwrap();
+        assert_eq!(s.sessions, SessionOptions::default());
+        // A reader plans and edits nothing unless told otherwise.
+        assert_eq!(s.readers.permission_mode, "plan");
+        assert_eq!(
+            s.readers.disallowed_tools,
+            ["Edit", "Write", "NotebookEdit"]
+        );
+        let s = Settings::parse(
+            "[sessions]\nmodel = \"opus\"\npermission_mode = \"acceptEdits\"\n[readers]\ndisallowed_tools = []\n",
+        )
+        .unwrap();
+        assert_eq!(
+            s.sessions.options().args(),
+            ["--model", "opus", "--permission-mode", "acceptEdits"]
+        );
+        assert_eq!(s.readers.options().args(), ["--permission-mode", "plan"]);
     }
 }

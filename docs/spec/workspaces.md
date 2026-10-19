@@ -99,5 +99,7 @@ from coming back.
 ## Sessions that only read
 
 A session started as a reader runs in Claude Code's plan mode with the tools that
-edit files denied, for looking into something or reviewing without changing
-the worktree under the sessions working in it. It is marked with a book.
+edit files denied, unless the settings say otherwise
+([settings](settings.md#settingstoml)), for looking into something or reviewing
+without changing the worktree under the sessions working in it. It is marked
+with a book.

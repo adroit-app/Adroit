@@ -6,7 +6,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use adroit_claude::Access;
 use adroit_claude::git::DiffKind;
 use adroit_claude::links::{Kind as LinkKind, Link, Links, Touch, Transcript};
 use adroit_claude::{commands, places};
@@ -2143,7 +2142,7 @@ fn App() -> Element {
                         let taken: Vec<&str> = t.sessions().map(|(_, s)| s.name.as_str()).collect();
                         let name = fresh_name(&label, &taken);
                         let reader = role == Role::Reader;
-                        let access = if reader { Access::Read } else { Access::Edit };
+                        let options = programs::session_options(reader);
                         // Made only now, so a draft left unsent leaves no
                         // empty directory behind.
                         let started =
@@ -2154,7 +2153,7 @@ fn App() -> Element {
                                     args.extend(adroit_claude::start_args(
                                         &name,
                                         &conversation,
-                                        access,
+                                        &options,
                                         &text,
                                     ));
                                     let (program, args, env) =
@@ -2244,7 +2243,10 @@ fn App() -> Element {
                 }
                 let size = *console_size.peek();
                 let mut args = plugin::args(&adroit_program());
-                args.extend(adroit_claude::resume_args(&now.session_id));
+                args.extend(adroit_claude::resume_args(
+                    &now.session_id,
+                    &programs::session_options(false),
+                ));
                 let (program, args, env) = programs::claude(args, session_env());
                 let spawn = Spawn {
                     program,
