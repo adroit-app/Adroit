@@ -1,15 +1,20 @@
 fn main() {
+    use adroit::cli::{Command, USAGE, command};
     let args: Vec<String> = std::env::args().skip(1).collect();
-    match args.first().map(String::as_str) {
-        Some("--version") => {
+    match command(&args) {
+        None => {
+            eprintln!("{USAGE}");
+            std::process::exit(2);
+        }
+        Some(Command::Version) => {
             println!("adroit {}", env!("CARGO_PKG_VERSION"));
             return;
         }
-        Some("session") => std::process::exit(adroit::session_cli(&args[1..])),
-        Some("shell") => std::process::exit(adroit::shell_cli(&args[1..])),
-        Some("editor") => std::process::exit(adroit::editor::cli(&args[1..])),
-        Some("daemon") => std::process::exit(adroit::daemon_cli()),
-        _ => {}
+        Some(Command::Session(rest)) => std::process::exit(adroit::session_cli(&rest)),
+        Some(Command::Shell(rest)) => std::process::exit(adroit::shell_cli(&rest)),
+        Some(Command::Editor(rest)) => std::process::exit(adroit::editor::cli(&rest)),
+        Some(Command::Daemon) => std::process::exit(adroit::daemon_cli()),
+        Some(Command::Window) => {}
     }
     // Opened from the Finder, there is no terminal and no PATH of the user's
     // own; the login shell knows where their tools are.

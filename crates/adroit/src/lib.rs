@@ -2,6 +2,7 @@
 
 mod app;
 mod awake;
+pub mod cli;
 mod complete;
 mod console;
 pub mod console_keys;
