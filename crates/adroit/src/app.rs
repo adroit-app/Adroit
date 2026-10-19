@@ -415,6 +415,13 @@ fn passes(area: Area, session: bool, waits: bool) -> bool {
     }
 }
 
+/// Whether a key that ends no binding starts reading the console. Read
+/// already, the key broke off a `global` sequence, which is not the reader's:
+/// `Ctrl+w s` would split its window.
+fn starts_reading(area: Area, session: bool, passing: bool, reading: bool) -> bool {
+    area == Area::Console && session && !passing && !reading
+}
+
 /// What the mode chip's word means.
 fn mode_tip(mode: &str) -> &'static str {
     match mode {
@@ -3073,7 +3080,7 @@ fn App() -> Element {
                     // In a session's console, a key adroit does not bind is
                     // a Vim key: it starts reading the console with it, and
                     // with a sequence it broke off, such as `g` before `g`.
-                    if area == Area::Console && session && !passing && pane.is_some() {
+                    if starts_reading(area, session, passing, *reading.peek()) && pane.is_some() {
                         let keys: Vec<String> =
                             seq.iter().chain(Some(&key)).filter_map(notation).collect();
                         enter_reading(keys);
@@ -4132,6 +4139,26 @@ mod tests {
     fn a_build_that_knows_its_source_names_it_in_the_title() {
         assert_eq!(title(Some("6b5486a-dirty")), "Adroit (6b5486a-dirty)");
         assert_eq!(title(None), "Adroit");
+    }
+
+    #[test]
+    fn an_unbound_key_in_a_session_s_console_starts_reading_unless_it_is_read_already() {
+        // (area, a session shown, its keys passed on, reading) -> reading starts
+        let table = [
+            (Area::Console, true, false, false, true),
+            (Area::Console, true, false, true, false),
+            (Area::Console, true, true, false, false),
+            (Area::Console, false, false, false, false),
+            (Area::Prompt, true, false, false, false),
+            (Area::Sidebar, true, false, false, false),
+        ];
+        for (area, session, passing, reading, want) in table {
+            assert_eq!(
+                starts_reading(area, session, passing, reading),
+                want,
+                "{area:?} {session} {passing} {reading}"
+            );
+        }
     }
 
     #[test]

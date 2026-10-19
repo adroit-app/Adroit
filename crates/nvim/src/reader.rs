@@ -44,6 +44,32 @@ local function apply()
   vim.wo[w].wrap = false
   vim.wo[w].list = false
   vim.opt_local.fillchars:append({ eob = " " })
+  -- The reader is for moving, searching and copying. Commands, Ex mode and
+  -- quitting would leave it broken or gone, and windows and tabs arranged in
+  -- it would stay. `<C-w>` takes the key after it too, or `<C-w>q` would
+  -- start recording.
+  for _, lhs in ipairs({ ":", "Q", "gQ", "ZZ", "ZQ" }) do
+    vim.keymap.set({ "n", "x" }, lhs, "<Nop>")
+  end
+  vim.keymap.set({ "n", "x" }, "<C-w>", function()
+    vim.fn.getcharstr()
+  end)
+  -- Keys are not the only way: a mapping or a plugin of the user's may open
+  -- a window, as `K` opens help.
+  vim.api.nvim_create_autocmd({ "WinNew", "TabNew" }, {
+    callback = function()
+      vim.schedule(function()
+        if vim.api.nvim_win_is_valid(w) then
+          vim.api.nvim_set_current_win(w)
+        end
+        vim.cmd("silent! tabonly! | silent! only!")
+        if vim.api.nvim_buf_is_valid(b) then
+          vim.api.nvim_win_set_buf(0, b)
+        end
+        w = vim.api.nvim_get_current_win()
+      end)
+    end,
+  })
   -- Where the text is scrolled to, so the window can put images over it.
   local function view()
     local v = vim.fn.winsaveview()
@@ -243,6 +269,75 @@ mod tests {
             let path = e.stdpath(kind).await;
             assert!(path.ends_with("adroit/console/nvim"), "{kind}: {path}");
         }
+    }
+
+    /// Wait, at most two seconds, for `expr` to be `want`.
+    async fn settles(e: &Embedded, expr: &str, want: Value) -> bool {
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while e.eval(expr).await != want {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .is_ok()
+    }
+
+    /// Windows, tabs, and whether the console's buffer is the one shown.
+    const LAYOUT: &str = "[winnr('$'), tabpagenr('$'), bufnr() == g:adroit_buf]";
+
+    fn alone() -> Value {
+        Value::from(vec![Value::from(1), Value::from(1), Value::from(1)])
+    }
+
+    #[tokio::test]
+    async fn a_window_or_a_tab_opened_in_it_closes_at_once() {
+        let (e, _rx) = start().await;
+        e.show(&lines(&["one", "two"]), &[], (0, 0), true, "#101010")
+            .await
+            .unwrap();
+        // As a plugin or a mapping of the user's would open them.
+        for cmd in ["split", "vnew", "tabnew", "help"] {
+            e.exec(&format!("vim.cmd('{cmd}')"), vec![]).await.unwrap();
+            assert!(
+                settles(&e, LAYOUT, alone()).await,
+                "{cmd}: {}",
+                e.eval(LAYOUT).await
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn its_keys_neither_arrange_windows_nor_run_commands_nor_quit() {
+        let (e, _rx) = start().await;
+        e.show(&lines(&["one", "two"]), &[], (0, 0), true, "#101010")
+            .await
+            .unwrap();
+        let keys = [
+            "<C-w>s",
+            "<C-w>v",
+            "<C-w>q",
+            ":let g:ran = 1<CR>",
+            "Vj:<C-u>let g:ran = 1<CR>",
+            "gQlet g:ran = 1<CR>visual<CR>",
+            "Qlet g:ran = 1<CR>visual<CR>",
+            "ZZ",
+            "ZQ",
+        ];
+        // Typed and taken before the call returns, as `input` is not; a key
+        // that fails, as `s` does on text that cannot change, may fail it.
+        let typed = "vim.api.nvim_feedkeys(vim.keycode(...), 'xt', false)";
+        for keys in keys {
+            let taken =
+                tokio::time::timeout(Duration::from_secs(2), e.exec(typed, vec![keys.into()]))
+                    .await;
+            assert!(taken.is_ok(), "{keys}: still waiting for keys");
+            assert_eq!(e.eval(LAYOUT).await, alone(), "{keys}");
+            assert_eq!(e.eval("exists('g:ran')").await, Value::from(0), "{keys}");
+            assert_eq!(e.eval("reg_recording()").await, Value::from(""), "{keys}");
+        }
+        // Searching stays.
+        e.exec(typed, vec!["gg/two<CR>".into()]).await.unwrap();
+        assert_eq!(e.eval("line('.')").await, Value::from(2));
     }
 
     #[tokio::test]

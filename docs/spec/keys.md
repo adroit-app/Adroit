@@ -95,7 +95,10 @@ reading it: what the console holds, scrolled off and on screen, colours kept,
 is read in Neovim, with your own Vim keys for moving, scrolling, searching and
 selecting, and a yank copies to the clipboard. It follows what the session
 writes meanwhile. `q` or `Esc` in normal mode goes back to the console live,
-and `i`, `a` and `o` to the prompt; `Ctrl-w` sequences stay `global`.
+and `i`, `a` and `o` to the prompt; `Ctrl-w` sequences stay `global`, and
+one that ends no binding does nothing. The reader is for reading only: `:`,
+Ex mode, quitting and Vim's window commands do nothing in it, and a window or
+a tab a mapping or a plugin opens in it closes at once.
 A program that scrolls what it shows itself, as Claude Code does on the
 alternate screen, leaves nothing scrolled off to read: moving or scrolling past the reader's
 first or last line scrolls the program instead, and the reader follows; `G`

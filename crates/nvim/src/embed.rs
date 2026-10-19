@@ -307,6 +307,11 @@ impl Embedded {
         path.as_str().unwrap().to_string()
     }
 
+    #[cfg(test)]
+    pub(crate) async fn eval(&self, expr: &str) -> Value {
+        self.nvim.eval(expr).await.unwrap()
+    }
+
     pub(crate) async fn exec(&self, lua: &str, args: Vec<Value>) -> Result<(), Error> {
         self.nvim.exec_lua(lua, args).await?;
         Ok(())
