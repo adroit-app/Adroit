@@ -230,6 +230,8 @@ kbd { font-family: var(--mono); font-size: 10.5px; color: #c9ccd2; background: v
 .dialog.picker-dialog .list-row-name { min-width: 0; }
 .picker-chevron { flex: none; width: 10px; color: var(--text-3); font-size: 10px; }
 .picker-match { color: var(--wait); font-weight: 600; }
+.picker-heading { padding: 8px 8px 2px; color: var(--text-3); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+.picker-heading:first-child { padding-top: 0; }
 .picker-place { margin-left: 10px; color: var(--text-3); font-size: 11.5px; }
 .picker-keys { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 6px 8px 0; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--text-3); }
 "#;

@@ -71,8 +71,7 @@ pub fn sections() -> Vec<Section> {
             entries: vec![
                 Run(Action::SessionNew, "New Session"),
                 Run(Action::SessionNewReader, "New Reader"),
-                Run(Action::WorkspacePick, "Start in Workspace…"),
-                Run(Action::SessionPick, "Go to Session…"),
+                Run(Action::SessionPick, "Go to or Start Session…"),
                 Separator,
                 Run(Action::PromptSend, "Send Prompt"),
                 Separator,
@@ -380,7 +379,7 @@ mod tests {
         let map = Keymap::defaults();
         assert_eq!(shown(&map, Action::SessionNew), Some("Cmd+n".into()));
         assert_eq!(shown(&map, Action::SessionNewReader), Some("Cmd+N".into()));
-        assert_eq!(shown(&map, Action::WorkspacePick), Some("Cmd+o".into()));
+        assert_eq!(shown(&map, Action::SessionPick), Some("Cmd+p".into()));
         assert_eq!(shown(&map, Action::DetailsToggle), Some("Cmd+Alt+b".into()));
         assert_eq!(
             shown(&map, Action::SessionStop),
@@ -479,7 +478,7 @@ mod tests {
         for letter in MENU_KEYS {
             assert!(held.contains(&letter.to_string()), "{letter}");
         }
-        for chord in ["Cmd+n", "Cmd+N", "Cmd+o", "Cmd+,", "Cmd+Ctrl+f"] {
+        for chord in ["Cmd+n", "Cmd+N", "Cmd+p", "Cmd+,", "Cmd+Ctrl+f"] {
             assert!(held.contains(&chord.to_string()), "{chord}");
         }
         // The window takes what the menu does not show.

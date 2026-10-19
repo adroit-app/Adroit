@@ -4,7 +4,7 @@ Every key adroit handles itself runs a named action. adroit ships bindings of
 its own, and a file you write changes, adds to or takes away from them. The
 prompt's keys are Neovim's and are set up in Neovim; the dialog that asks
 before taking over a session always answers to `y`, `Enter`, `n` and `Escape`,
-and the picker's keys are its own ([workspaces](workspaces.md#starting-a-session)).
+and the picker's keys are its own ([workspaces](workspaces.md#going-to-a-session-or-starting-one)).
 
 ## In the menu bar
 
@@ -39,8 +39,8 @@ told nothing.
   `~/.config/adroit/` when `$XDG_CONFIG_HOME` is unset.
 
 A missing file keeps adroit's own bindings. A binding to `coordinator.open`,
-`project.new` or `project.edit`, actions earlier versions had, is read and
-dropped. The window reads the file again
+`project.new`, `project.edit` or `workspace.pick`, actions earlier versions
+had, is read and dropped. The window reads the file again
 when it changes; a mistake in it is reported at the bottom of the window, and
 the bindings in force stay as they were.
 
@@ -106,7 +106,7 @@ In the prompt, `global` bindings apply only outside Neovim's insert mode.
 ### Keys
 
 A key is written as its modifiers, then its name, joined by `+`: `Ctrl+w`,
-`Shift+Tab`, `Ctrl+Alt+x`, `Cmd+o`. The modifiers are `Cmd`, `Ctrl`, `Alt`
+`Shift+Tab`, `Ctrl+Alt+x`, `Cmd+p`. The modifiers are `Cmd`, `Ctrl`, `Alt`
 and `Shift`. Command with `c`, `v`, `x`, `a`, `z`, `q`, `w`, `h` and `m`
 stays with the menu: editing, quitting, hiding, minimizing and closing.
 A Command key reaches the `global` bindings wherever the keys are, the
@@ -134,7 +134,7 @@ another, the complete one runs.
 | `cursor.fold` | fold the selected node |
 | `waiting.next`, `waiting.prev` | open the next or previous session waiting on you |
 | `session.next`, `session.prev` | open the session after or before the one shown, in the sidebar's order over every session, folded away or filtered out too, going round at the ends; the keys stay in the area they are in |
-| `session.pick` | open the picker on every session, to choose one to open ([details](workspaces.md#going-to-another-session)) |
+| `session.pick` | open the picker, to go to a session or choose where a new one works ([details](workspaces.md#going-to-a-session-or-starting-one)) |
 | `session.new` | start a session, with the prompt ready to write its first message: in the selected row's worktree or directory from the sidebar, in the one the console shows from elsewhere |
 | `session.new_reader` | start a session that only reads, as `session.new` does |
 | `session.take_over` | take over an interactive session ([details](interactive-sessions.md)) |
@@ -148,7 +148,6 @@ another, the complete one runs.
 | `zoom.in`, `zoom.out`, `zoom.reset` | draw the window larger or smaller a step, or at the zoom the settings give |
 | `filter` | narrow the sidebar to the sessions, workspaces and worktrees whose names hold what is typed next; `Enter` keeps it, `Escape` clears it |
 | `details.overview`, `details.files`, `details.log`, `details.diff` | show that sheet of the details panel, and the panel when it is hidden |
-| `workspace.pick` | open the picker, to choose where a new session works ([details](workspaces.md#starting-a-session)) |
 | `worktrees.toggle` | list every worktree git knows, those without sessions too, or only those with sessions again |
 | `prompt.focus` | give the prompt the keys |
 | `prompt.write` | give the prompt the keys, and the key pressed with them |
@@ -188,7 +187,6 @@ another, the complete one runs.
 "Cmd+{" = "session.prev"
 "Cmd+p" = "session.pick"
 "Ctrl+w ." = "console.send Ctrl+w"
-"Cmd+o" = "workspace.pick"
 "Cmd+n" = "session.new"
 "Cmd+N" = "session.new_reader"
 "Cmd+s" = "shell.open"
@@ -229,7 +227,7 @@ another, the complete one runs.
 "a" = "prompt.write"
 "r" = "refresh"
 "/" = "filter"
-"w" = "workspace.pick"
+"w" = "session.pick"
 "!" = "worktrees.toggle"
 
 [details]

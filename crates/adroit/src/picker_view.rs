@@ -9,7 +9,7 @@ use crate::filer::Row;
 use crate::fuzzy::Query;
 use crate::keys;
 use crate::paths::home;
-use crate::picker::{Line, Mode, Pick, Picker, short};
+use crate::picker::{Line, Mode, Picker, short};
 
 /// `text` with what `query` marked in it drawn as matched.
 fn marked(query: &Query, text: &str) -> Element {
@@ -39,15 +39,14 @@ pub fn PickerView(
     onkey: EventHandler<adroit_term::Key>,
 ) -> Element {
     let home = home();
-    let keys: &[(&str, &str)] = match (picker.pick, picker.mode) {
-        (Pick::Session, _) => &[("Ctrl+n/p", "move"), ("Enter", "open"), ("Esc", "close")],
-        (Pick::Directory, Mode::List) => &[
+    let keys: &[(&str, &str)] = match picker.mode {
+        Mode::List => &[
             ("Ctrl+n/p", "move"),
             ("Enter", "choose"),
             ("Ctrl+f", "file tree"),
             ("Esc", "close"),
         ],
-        (Pick::Directory, Mode::Tree) => &[
+        Mode::Tree => &[
             ("j/k", "move"),
             ("l", "open"),
             ("h", "close"),
@@ -57,20 +56,12 @@ pub fn PickerView(
             ("Esc", "close"),
         ],
     };
-    let (title, none, row_class) = match picker.pick {
-        Pick::Directory => (
-            "Where does the session work?",
-            "No directory matches",
-            "list-row mono",
-        ),
-        Pick::Session => ("Which session?", "No session matches", "list-row"),
-    };
     rsx! {
         div { class: "dialog-scrim",
             div { class: "dialog picker-dialog",
                 // A click inside is not one on the shade around it, which closes.
                 onclick: move |e| e.stop_propagation(),
-                div { class: "dialog-title", "{title}" }
+                div { class: "dialog-title", "Go to a session, or start one" }
                 match picker.mode {
                     Mode::List => {
                         let query = Query::new(&picker.query);
@@ -99,20 +90,29 @@ pub fn PickerView(
                             }
                             div { class: "list-rows",
                                 if rows.is_empty() {
-                                    div { class: "list-row dim", "{none}" }
+                                    div { class: "list-row dim", "Nothing matches" }
                                 }
                                 for (i, line) in rows.iter().enumerate() {
-                                    div {
-                                        key: "{i}:{line.name}",
-                                        class: if i == picker.cursor { "{row_class} selected" } else { "{row_class}" },
-                                        onclick: move |_| onchoose.call(i),
-                                        span { class: "list-row-name",
-                                            {marked(&query, &line.name)}
-                                            if let Some(place) = &line.place {
-                                                span { class: "picker-place", {marked(&query, place)} }
-                                            }
+                                    Fragment { key: "{i}:{line.name}",
+                                        if let Some(heading) = line.heading {
+                                            div { class: "picker-heading", "{heading}" }
                                         }
-                                        span { class: "list-row-meta", "{line.badge}" }
+                                        div {
+                                            class: match (line.path, i == picker.cursor) {
+                                                (true, true) => "list-row mono selected",
+                                                (true, false) => "list-row mono",
+                                                (false, true) => "list-row selected",
+                                                (false, false) => "list-row",
+                                            },
+                                            onclick: move |_| onchoose.call(i),
+                                            span { class: "list-row-name",
+                                                {marked(&query, &line.name)}
+                                                if let Some(place) = &line.place {
+                                                    span { class: "picker-place", {marked(&query, place)} }
+                                                }
+                                            }
+                                            span { class: "list-row-meta", "{line.badge}" }
+                                        }
                                     }
                                 }
                             }

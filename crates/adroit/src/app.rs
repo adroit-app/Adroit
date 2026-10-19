@@ -31,7 +31,7 @@ use crate::menu::{self, Target};
 use crate::menu_bar;
 use crate::nav::{self, Item, Place};
 use crate::paths::{home, keys_path, state_dir};
-use crate::picker::{self, Candidate, Mode, Pick, Picker, SessionOffer};
+use crate::picker::{self, Candidate, Choice, Mode, Picker};
 use crate::picker_view::PickerView;
 use crate::prompts::{self, Op, Prompts};
 use crate::rename::Rename;
@@ -748,8 +748,8 @@ fn App() -> Element {
     let mut focus = use_signal(|| Area::Sidebar);
     // Whether every worktree git knows is listed, those without sessions too.
     let mut all_worktrees = use_signal(|| false);
-    // The picker asking where a new session works, or which session to open,
-    // while it is open, and the directories it offers.
+    // The picker going to a session or starting one, while it is open, and
+    // the directories it offers.
     let mut picking = use_signal(|| None::<Picker>);
     let mut offers = use_signal(Vec::<Candidate>::new);
     // What the open picker draws, worked out again only when the picker or
@@ -757,7 +757,7 @@ fn App() -> Element {
     // and the tree reads the disk.
     // Moving the cursor changes neither what was typed nor what the tree has
     // open, so neither the ranking nor the disk is gone over again for it.
-    let picked_query = use_memo(move || picking.read().as_ref().map(|p| (p.pick, p.query.clone())));
+    let picked_query = use_memo(move || picking.read().as_ref().map(|p| p.query.clone()));
     let picked_layout = use_memo(move || {
         picking
             .read()
@@ -765,16 +765,16 @@ fn App() -> Element {
             .filter(|p| p.mode == Mode::Tree)
             .map(|p| p.filer.layout())
     });
-    let picked_rows = use_memo(move || match &*picked_query.read() {
-        Some((Pick::Directory, q)) => picker::matching(&offers.read(), q, &home(), PICKS),
-        _ => Vec::new(),
-    });
     // The sessions are offered as they stand now, their states kept current.
-    let picked_sessions = use_memo(move || match &*picked_query.read() {
-        Some((Pick::Session, q)) => {
-            picker::matching_sessions(&picker::sessions(&tree.read()), q, PICKS)
-        }
-        _ => Vec::new(),
+    let picked_rows = use_memo(move || {
+        picked_query
+            .read()
+            .as_ref()
+            .map(|q| {
+                let sessions = picker::sessions(&tree.read());
+                picker::choices(&sessions, &offers.read(), q, &home(), PICKS)
+            })
+            .unwrap_or_default()
     });
     let picked_tree = use_memo(move || {
         picked_layout
@@ -1842,8 +1842,9 @@ fn App() -> Element {
         }
     };
 
-    // Open the picker on the directories sessions run in; those Claude Code was
-    // used in, and ghq's repositories and roots, follow once they are read.
+    // Open the picker on the sessions and the directories they run in; those
+    // Claude Code was used in, and ghq's repositories and roots, follow once
+    // they are read.
     let mut open_picker = move || {
         let running: Vec<PathBuf> = tree
             .peek()
@@ -1868,17 +1869,18 @@ fn App() -> Element {
             let recent = recent.unwrap_or_default();
             let next = picker::candidates(&running, &recent, &ghq);
             // The rows rank anew with more to rank: the cursor stays on the
-            // directory it was on, not on whatever comes to sit at its place.
+            // row it was on, not on whatever comes to sit at its place.
             let (query, on) = {
                 let open = picking.peek();
                 let Some(p) = open.as_ref() else { return };
-                let on = picked_rows.peek().get(p.cursor).map(|c| c.path.clone());
+                let on = picked_rows.peek().get(p.cursor).cloned();
                 (p.query.clone(), on)
             };
             let cursor = on.and_then(|on| {
-                picker::matching(&next, &query, &crate::paths::home(), PICKS)
+                let sessions = picker::sessions(&tree.peek());
+                picker::choices(&sessions, &next, &query, &crate::paths::home(), PICKS)
                     .iter()
-                    .position(|c| c.path == on)
+                    .position(|c| *c == on)
             });
             offers.set(next);
             // The tree may already be open and moved through: its roots are
@@ -1906,20 +1908,12 @@ fn App() -> Element {
 
     // A row of the picker's list chosen, by its place among those drawn.
     let mut choose_row = move |at: usize| {
-        let ask = picking.peek().as_ref().map(|p| p.pick);
-        match ask {
-            Some(Pick::Directory) => {
-                let dir = picked_rows.peek().get(at).map(|c| c.path.clone());
-                if let Some(dir) = dir {
-                    choose(dir);
-                }
-            }
-            Some(Pick::Session) => {
-                let id = picked_sessions.peek().get(at).map(|s| s.id.clone());
-                if let Some(id) = id {
-                    picking.set(None);
-                    show_session(id);
-                }
+        let chosen = picked_rows.peek().get(at).cloned();
+        match chosen {
+            Some(Choice::Directory(c)) => choose(c.path),
+            Some(Choice::Session(s)) => {
+                picking.set(None);
+                show_session(s.id);
             }
             None => {}
         }
@@ -2625,7 +2619,7 @@ fn App() -> Element {
                         show_session(id);
                     }
                 }
-                Action::SessionPick => picking.set(Some(Picker::sessions())),
+                Action::SessionPick => open_picker(),
                 Action::SessionNew | Action::SessionNewReader => {
                     let p = cur
                         .as_ref()
@@ -2722,7 +2716,6 @@ fn App() -> Element {
                     }
                 }
                 Action::Refresh => hub.refresh.notify_one(),
-                Action::WorkspacePick => open_picker(),
                 Action::DetailsOverview
                 | Action::DetailsFiles
                 | Action::DetailsLog
@@ -2853,8 +2846,7 @@ fn App() -> Element {
             if mode == Some(Mode::List) {
                 // Read before the picker is borrowed to change it: a memo
                 // out of date reads the picker to work itself out again.
-                // Only the list of what the picker asks for has rows.
-                let rows = picked_rows.peek().len() + picked_sessions.peek().len();
+                let rows = picked_rows.peek().len();
                 let delta = match k {
                     "ArrowDown" | "Tab" if !key.shift => Some(1),
                     "Tab" => Some(-1),
@@ -3311,7 +3303,7 @@ fn App() -> Element {
     let k_new = km.keys_for(Context::Sidebar, &Action::SessionNew);
     let k_reader = km.keys_for(Context::Sidebar, &Action::SessionNewReader);
     let k_shell = km.keys_for(Context::Sidebar, &Action::ShellOpen);
-    let k_pick = km.keys_for(Context::Sidebar, &Action::WorkspacePick);
+    let k_pick = km.keys_for(Context::Sidebar, &Action::SessionPick);
     let k_take_over = km.keys_for(Context::Console, &Action::SessionTakeOver);
     let k_send = km.keys_for(Context::Prompt, &Action::PromptSend);
     let k_write = km.keys_for(Context::Console, &Action::PromptWrite);
@@ -3937,13 +3929,7 @@ fn App() -> Element {
             }
             if let Some(p) = picking() {
                 {
-                    let rows = match p.pick {
-                        Pick::Directory => {
-                            let home = home();
-                            picked_rows().iter().map(|c| c.line(&home)).collect()
-                        }
-                        Pick::Session => picked_sessions().iter().map(SessionOffer::line).collect(),
-                    };
+                    let rows = picker::lines(&picked_rows(), &home());
                     let tree_rows = picked_tree();
                     rsx! {
                         div {

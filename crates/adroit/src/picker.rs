@@ -1,6 +1,6 @@
-//! The picker that asks which directory a new session works in, or which
-//! session to open: one list of candidates narrowed by a fuzzy query, or, for a
-//! directory the list does not offer, a directory tree.
+//! The picker that goes to a session or starts one: one list of the sessions,
+//! then of the directories to start one in, narrowed by a fuzzy query, or, for
+//! a directory the list does not offer, a directory tree.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -10,23 +10,25 @@ use adroit_model::{Session, Tree};
 use crate::filer::Filer;
 use crate::fuzzy::{Query, best};
 
-/// What the picker asks for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Pick {
-    /// Where a new session works.
-    #[default]
-    Directory,
-    /// Which session to open.
-    Session,
-}
-
-/// One row of the list as drawn: what the query marks, where it is, and a
-/// badge beside it.
+/// One row of the list as drawn: the heading of the group it starts, what
+/// the query marks, where it is, and a badge beside it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Line {
+    pub heading: Option<&'static str>,
     pub name: String,
     pub place: Option<String>,
     pub badge: String,
+    /// Whether `name` is a path, drawn in a fixed-width face.
+    pub path: bool,
+}
+
+/// What a row of the list offers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Choice {
+    /// A session to open.
+    Session(SessionOffer),
+    /// A directory to start a session in.
+    Directory(Candidate),
 }
 
 /// Where a candidate came from.
@@ -56,16 +58,6 @@ pub struct Candidate {
     pub source: Source,
 }
 
-impl Candidate {
-    pub fn line(&self, home: &Path) -> Line {
-        Line {
-            name: short(&self.path, home),
-            place: None,
-            badge: self.source.label().into(),
-        }
-    }
-}
-
 /// A session the picker offers, with where it runs and how it stands.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionOffer {
@@ -74,16 +66,6 @@ pub struct SessionOffer {
     /// The workspace, and the worktree when the sidebar shows one.
     pub place: String,
     pub state: &'static str,
-}
-
-impl SessionOffer {
-    pub fn line(&self) -> Line {
-        Line {
-            name: self.name.clone(),
-            place: Some(self.place.clone()),
-            badge: self.state.into(),
-        }
-    }
 }
 
 /// Every session in the sidebar's order.
@@ -168,6 +150,58 @@ pub fn matching(candidates: &[Candidate], query: &str, home: &Path, cap: usize) 
     )
 }
 
+/// The sessions for `query`, then the directories, each group ranked among
+/// its own and cut at `cap`: a directory never comes between sessions.
+pub fn choices(
+    sessions: &[SessionOffer],
+    directories: &[Candidate],
+    query: &str,
+    home: &Path,
+    cap: usize,
+) -> Vec<Choice> {
+    let sessions = matching_sessions(sessions, query, cap).into_iter();
+    let directories = matching(directories, query, home, cap).into_iter();
+    sessions
+        .map(Choice::Session)
+        .chain(directories.map(Choice::Directory))
+        .collect()
+}
+
+/// The rows `choices` are drawn as, the first of each group under its heading.
+pub fn lines(choices: &[Choice], home: &Path) -> Vec<Line> {
+    let mut last = None;
+    choices
+        .iter()
+        .map(|c| {
+            let (group, line) = match c {
+                Choice::Session(s) => (
+                    "Sessions",
+                    Line {
+                        heading: None,
+                        name: s.name.clone(),
+                        place: Some(s.place.clone()),
+                        badge: s.state.into(),
+                        path: false,
+                    },
+                ),
+                Choice::Directory(d) => (
+                    "Start in",
+                    Line {
+                        heading: None,
+                        name: short(&d.path, home),
+                        place: None,
+                        badge: d.source.label().into(),
+                        path: true,
+                    },
+                ),
+            };
+            let heading = (last != Some(group)).then_some(group);
+            last = Some(group);
+            Line { heading, ..line }
+        })
+        .collect()
+}
+
 /// The cursor moved by `delta` over `len` rows, wrapping at either end.
 pub fn step(cursor: usize, len: usize, delta: isize) -> usize {
     if len == 0 {
@@ -195,7 +229,6 @@ pub enum Mode {
 /// What the picker holds while it is open.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Picker {
-    pub pick: Pick,
     pub query: String,
     pub cursor: usize,
     pub mode: Mode,
@@ -203,18 +236,9 @@ pub struct Picker {
 }
 
 impl Picker {
-    /// Asking where a new session works.
     pub fn new(filer: Filer) -> Self {
         Self {
             filer,
-            ..Self::default()
-        }
-    }
-
-    /// Asking which session to open.
-    pub fn sessions() -> Self {
-        Self {
-            pick: Pick::Session,
             ..Self::default()
         }
     }
@@ -228,11 +252,7 @@ impl Picker {
         }
     }
 
-    /// Only a directory has a tree to choose it from.
     pub fn toggle_mode(&mut self) {
-        if self.pick == Pick::Session {
-            return;
-        }
         self.mode = match self.mode {
             Mode::List => Mode::Tree,
             Mode::Tree => Mode::List,
@@ -487,37 +507,88 @@ mod tests {
         assert_eq!(ids, ["s", "x"]);
     }
 
+    fn dirs(ps: &[&str]) -> Vec<Candidate> {
+        candidates(&[], &paths(ps), &[])
+    }
+
+    fn chosen(found: &[Choice]) -> Vec<String> {
+        found
+            .iter()
+            .map(|c| match c {
+                Choice::Session(s) => s.id.clone(),
+                Choice::Directory(d) => d.path.display().to_string(),
+            })
+            .collect()
+    }
+
     #[test]
-    fn the_session_picker_has_no_file_tree_to_toggle_to() {
-        let mut p = Picker::sessions();
-        assert_eq!(p.pick, Pick::Session);
-        p.toggle_mode();
-        assert_eq!(p.mode, Mode::List);
-        assert_eq!(Picker::new(Filer::default()).pick, Pick::Directory);
+    fn the_sessions_come_before_the_directories_each_ranked_among_its_own() {
+        let all = sessions(&tree());
+        let ds = dirs(&["/w/x/api", "/w/api"]);
+        let pick = |q: &str| chosen(&choices(&all, &ds, q, Path::new(HOME), 10));
+        assert_eq!(pick(""), ["a", "o", "z", "/w/x/api", "/w/api"]);
+        // A directory answering better than a session still comes after it.
+        assert_eq!(pick("api"), ["a", "o", "/w/api", "/w/x/api"]);
+        assert_eq!(pick("scratch"), ["z"]);
+        assert_eq!(pick("x/api"), ["/w/x/api"]);
+    }
+
+    #[test]
+    fn each_group_keeps_no_more_than_the_cap() {
+        let all = sessions(&tree());
+        let ds = dirs(&["/a", "/b", "/c"]);
+        let found = choices(&all, &ds, "", Path::new(HOME), 2);
+        assert_eq!(chosen(&found), ["a", "o", "/a", "/b"]);
+    }
+
+    #[test]
+    fn each_group_is_headed_once_above_its_first_row() {
+        let all = sessions(&tree());
+        let ds = dirs(&["/a", "/b"]);
+        let headings = |found: &[Choice]| -> Vec<Option<&str>> {
+            lines(found, Path::new(HOME))
+                .into_iter()
+                .map(|l| l.heading)
+                .collect()
+        };
+        let both = choices(&all, &ds, "", Path::new(HOME), 10);
+        assert_eq!(
+            headings(&both),
+            [Some("Sessions"), None, None, Some("Start in"), None]
+        );
+        // A group nothing in answers has no heading.
+        let only_dirs = choices(&all, &ds, "/a", Path::new(HOME), 10);
+        assert_eq!(headings(&only_dirs), [Some("Start in")]);
     }
 
     #[test]
     fn a_row_draws_a_directory_by_its_short_path_and_a_session_by_its_name_and_place() {
-        let dir = Candidate {
-            path: "/Users/me/src/x".into(),
-            source: Source::Ghq,
-        };
-        assert_eq!(
-            dir.line(Path::new(HOME)),
-            Line {
-                name: "~/src/x".into(),
-                place: None,
-                badge: "ghq".into(),
-            }
-        );
         let all = sessions(&tree());
+        let found = [
+            Choice::Session(all[1].clone()),
+            Choice::Directory(Candidate {
+                path: "/Users/me/src/x".into(),
+                source: Source::Ghq,
+            }),
+        ];
         assert_eq!(
-            all[1].line(),
-            Line {
-                name: "add tokens".into(),
-                place: Some("api › oauth".into()),
-                badge: "waiting".into(),
-            }
+            lines(&found, Path::new(HOME)),
+            [
+                Line {
+                    heading: Some("Sessions"),
+                    name: "add tokens".into(),
+                    place: Some("api › oauth".into()),
+                    badge: "waiting".into(),
+                    path: false,
+                },
+                Line {
+                    heading: Some("Start in"),
+                    name: "~/src/x".into(),
+                    place: None,
+                    badge: "ghq".into(),
+                    path: true,
+                },
+            ]
         );
     }
 

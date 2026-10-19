@@ -32,7 +32,6 @@ pub const DEFAULTS: &str = r#"
 "Cmd+{" = "session.prev"
 "Cmd+p" = "session.pick"
 "Ctrl+w ." = "console.send Ctrl+w"
-"Cmd+o" = "workspace.pick"
 "Cmd+n" = "session.new"
 "Cmd+N" = "session.new_reader"
 "Cmd+s" = "shell.open"
@@ -73,7 +72,7 @@ pub const DEFAULTS: &str = r#"
 "a" = "prompt.write"
 "r" = "refresh"
 "/" = "filter"
-"w" = "workspace.pick"
+"w" = "session.pick"
 "!" = "worktrees.toggle"
 
 [details]
@@ -356,13 +355,13 @@ impl Context {
     }
 }
 
-/// Actions earlier versions had, for projects adroit no longer keeps: a
-/// binding to one is dropped as it is read, so a file that has one still
-/// reads.
+/// Actions earlier versions had: a binding to one is dropped as it is read,
+/// so a file that has one still reads.
 const RETIRED: &[&str] = &[
     "coordinator.open",
     "project.new",
     "project.edit",
+    "workspace.pick",
     "sheet.prev",
     "sheet.next",
 ];
@@ -443,7 +442,6 @@ actions! {
     TabClose => "tab.close",
     Refresh => "refresh",
     Filter => "filter",
-    WorkspacePick => "workspace.pick",
     DetailsOverview => "details.overview",
     DetailsFiles => "details.files",
     DetailsLog => "details.log",
@@ -1022,6 +1020,25 @@ mod tests {
             Step::Run(Action::CursorDown)
         );
         assert_eq!(step(&map, &[Context::Sidebar], &[], "P"), Step::Nothing);
+    }
+
+    #[test]
+    fn a_binding_to_the_workspace_picker_earlier_versions_had_is_dropped() {
+        let map = Keymap::with_user("[global]\n\"Cmd+y\" = \"workspace.pick\"\n").unwrap();
+        let key = Key::new("y").meta();
+        assert_eq!(map.resolve(&[Context::Global], &[], &key), Step::Nothing);
+        assert!(!Action::NAMES.contains(&"workspace.pick"));
+    }
+
+    #[test]
+    fn w_in_the_sidebar_opens_the_one_picker_and_cmd_o_is_free() {
+        let map = Keymap::defaults();
+        assert_eq!(
+            step(&map, &[Context::Sidebar, Context::Global], &[], "w"),
+            Step::Run(Action::SessionPick)
+        );
+        let o = Key::new("o").meta();
+        assert_eq!(map.resolve(&[Context::Global], &[], &o), Step::Nothing);
     }
 
     #[test]
