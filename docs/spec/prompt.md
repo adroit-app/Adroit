@@ -3,7 +3,9 @@
 The prompt under the console is where messages to the shown session or
 draft are written, in Neovim. Ctrl+Enter sends what it holds to that tab: a
 session gets it as its next message, and a draft starts its session with it.
-The prompt is left empty, in Neovim's normal mode.
+The prompt is left empty, in Neovim's normal mode. Sent
+empty, it passes Ctrl+Enter itself to the session, as Claude Code's own
+input would take it; a draft gets nothing from an empty prompt.
 
 A shell's tab shows no prompt: its console takes the room and every key, and
 the keys that would go to the prompt stay with the shell.

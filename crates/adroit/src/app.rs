@@ -162,6 +162,15 @@ fn overview_listing(
     }
 }
 
+/// The session an empty prompt sent passes Ctrl+Enter to: the one whose tab
+/// it was written for; a draft or a shell gets nothing from an empty one.
+fn passes_enter(taken: Option<&(Option<Tab>, String)>) -> Option<String> {
+    match taken {
+        Some((Some(Tab::Session(id)), text)) if text.trim().is_empty() => Some(id.clone()),
+        _ => None,
+    }
+}
+
 /// `folded` with `group` folded, when `shut`, or unfolded.
 fn refold(folded: &HashSet<Group>, group: Group, shut: bool) -> HashSet<Group> {
     let mut f = folded.clone();
@@ -2190,6 +2199,14 @@ fn App() -> Element {
                     Ok(()) => given.await.ok(),
                     Err(_) => None,
                 };
+                // Sent empty, the key itself goes to the session, as it would in
+                // Claude Code's own input.
+                if let Some(id) = passes_enter(taken.as_ref()) {
+                    let size = *console_size.peek();
+                    if let Some(p) = pane_for(&hub, &Tab::Session(id), size).await {
+                        p.key(&Key::new("Enter").ctrl());
+                    }
+                }
                 let Some((shown, text)) = taken.filter(|(_, text)| !text.trim().is_empty()) else {
                     sending.set(false);
                     return;
@@ -5322,6 +5339,24 @@ fn App() -> Element {
 mod tests {
     use super::*;
     use crate::details::overview;
+
+    #[test]
+    fn an_empty_prompt_passes_ctrl_enter_to_its_session_alone() {
+        let session = (Some(Tab::Session("s1".into())), "  \n".to_string());
+        assert_eq!(passes_enter(Some(&session)), Some("s1".to_string()));
+        let written = (Some(Tab::Session("s1".into())), "hi".to_string());
+        assert_eq!(passes_enter(Some(&written)), None);
+        let draft = (
+            Some(Tab::Draft {
+                worktree: "/w".into(),
+                role: Role::Worker,
+            }),
+            String::new(),
+        );
+        assert_eq!(passes_enter(Some(&draft)), None);
+        assert_eq!(passes_enter(Some(&(None, String::new()))), None);
+        assert_eq!(passes_enter(None), None);
+    }
 
     #[test]
     fn a_group_folded_shows_its_first_few_again_once_unfolded() {
