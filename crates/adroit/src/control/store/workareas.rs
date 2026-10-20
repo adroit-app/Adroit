@@ -35,7 +35,7 @@ impl Store {
             let kept = match kept {
                 Some(kept) => {
                     if kept.path != area.path || kept.backend != area.backend || kept.repository != area.repository
-                        || (kept.id != area.id && kept.backend != WorkAreaBackend::Directory) {
+                        || (kept.id != area.id && kept.backend != WorkAreaBackend::Directory && !(is_default && kept.state == WorkAreaState::Ready && area.state == WorkAreaState::Ready)) {
                         return Err(conflict("the working-area identity is already registered with different metadata"));
                     }
                     kept
@@ -53,7 +53,7 @@ impl Store {
             let existing: Option<String> = connection.query_row("SELECT data FROM run_work_areas WHERE run_id = ?1 AND work_area_id = ?2", params![run_id.to_string(), kept.id.to_string()], |row| row.get(0)).optional()?;
             if let Some(existing) = existing {
                 let existing: RunWorkArea = decode(&existing)?;
-                if existing.is_default != is_default { return Err(conflict("the working-area association has a different default selection")); }
+                if is_default && !existing.is_default { return Err(conflict("the working-area association has a different default selection")); }
             } else {
                 connection.execute("INSERT INTO run_work_areas(run_id, work_area_id, is_default, data) VALUES (?1, ?2, ?3, ?4)", params![run_id.to_string(), kept.id.to_string(), is_default, encode(&association)?])?;
                 event(connection, Some(run_id), "work_area_registered", &json!({"area":kept, "association":association}))?;

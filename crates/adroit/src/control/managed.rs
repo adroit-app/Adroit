@@ -120,6 +120,23 @@ pub async fn prepare(
             )
             .await
             .map_err(|error| error.to_string())?;
+        let area = crate::workareas::existing(
+            WorkAreaId::new(),
+            request.cwd.clone(),
+            "Default working area".into(),
+        )
+        .await?;
+        client
+            .request(
+                RequestId::new(),
+                Command::RegisterDefaultArea {
+                    identity,
+                    run_id,
+                    area,
+                },
+            )
+            .await
+            .map_err(|error| error.to_string())?;
         let token = client
             .request(RequestId::new(), Command::Grant { identity })
             .await

@@ -213,11 +213,11 @@ async fn revision(
     }
 }
 
-pub async fn plan(request: WorkAreaRequest) -> Result<WorkArea> {
-    if request.description.trim().is_empty() {
+async fn identify(id: WorkAreaId, source: PathBuf, description: String) -> Result<WorkArea> {
+    if description.trim().is_empty() {
         return Err("a working area needs a task description".into());
     }
-    let source = canonical(&request.source)?;
+    let source = canonical(&source)?;
     if !source.is_dir() {
         return Err("the source must be an existing directory".into());
     }
@@ -270,6 +270,40 @@ pub async fn plan(request: WorkAreaRequest) -> Result<WorkArea> {
         }
         WorkAreaBackend::Directory => None,
     };
+    Ok(WorkArea {
+        id,
+        backend,
+        path: root.clone(),
+        source,
+        source_root: root,
+        repository,
+        base_revision: None,
+        native_name: None,
+        description,
+        state: WorkAreaState::Ready,
+        error: None,
+    })
+}
+
+pub async fn existing(id: WorkAreaId, source: PathBuf, description: String) -> Result<WorkArea> {
+    let mut area = identify(id, source, description).await?;
+    if area.backend != WorkAreaBackend::Directory {
+        let requested = if area.backend == WorkAreaBackend::Jj {
+            "@"
+        } else {
+            "HEAD"
+        };
+        area.base_revision = Some(revision(&area.path, area.backend, requested, false).await?);
+    }
+    Ok(area)
+}
+
+pub async fn plan(request: WorkAreaRequest) -> Result<WorkArea> {
+    let mut area = identify(request.id, request.source, request.description).await?;
+    let backend = area.backend;
+    let source = area.source.clone();
+    let root = area.source_root.clone();
+    let repository = area.repository.clone();
     let (path, base_revision, native_name) = if backend == WorkAreaBackend::Directory {
         if request.revision.is_some() {
             return Err("an ordinary directory cannot select a VCS revision".into());
@@ -307,19 +341,11 @@ pub async fn plan(request: WorkAreaRequest) -> Result<WorkArea> {
         .await?;
         (path, Some(base), Some(name))
     };
-    Ok(WorkArea {
-        id: request.id,
-        backend,
-        path,
-        source,
-        source_root: root,
-        repository,
-        base_revision,
-        native_name,
-        description: request.description,
-        state: WorkAreaState::Preparing,
-        error: None,
-    })
+    area.path = path;
+    area.base_revision = base_revision;
+    area.native_name = native_name;
+    area.state = WorkAreaState::Preparing;
+    Ok(area)
 }
 
 pub async fn prepare(area: &WorkArea) -> Result<WorkArea> {

@@ -47,6 +47,18 @@ async fn human_starts_at_one_root_receive_independent_leaders_and_runs() {
     let snapshot: ControlSnapshot = serde_json::from_value(snapshot).unwrap();
     assert_eq!(snapshot.sessions.len(), 2);
     assert_eq!(snapshot.runs.len(), 2);
+    assert_eq!(snapshot.work_areas.len(), 1);
+    assert_eq!(snapshot.run_work_areas.len(), 2);
+    assert!(
+        snapshot
+            .run_work_areas
+            .iter()
+            .all(|association| association.is_default)
+    );
+    assert_eq!(
+        snapshot.work_areas[0].path,
+        dir.path().canonicalize().unwrap()
+    );
     assert!(
         snapshot
             .sessions
@@ -128,4 +140,64 @@ fn a_managed_agent_cannot_create_an_unassigned_peer_through_session_start() {
         .unwrap();
     assert_eq!(output.status.code(), Some(2));
     assert!(String::from_utf8(output.stderr).unwrap().contains("task"));
+}
+
+#[tokio::test]
+async fn independent_leaders_at_one_native_workspace_share_its_default_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("source");
+    std::fs::create_dir(&source).unwrap();
+    for args in [
+        vec!["git", "init", "--colocate"],
+        vec!["describe", "-m", "test: establish a shared default"],
+    ] {
+        let output = std::process::Command::new("jj")
+            .args([
+                "--config",
+                "user.name=Test",
+                "--config",
+                "user.email=test@example.invalid",
+            ])
+            .args(args)
+            .current_dir(&source)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let root = dir.path().join("control");
+    let _service = Service::bind(&root).await.unwrap();
+    for _ in 0..2 {
+        managed::prepare(
+            &root,
+            &Settings::default(),
+            request(&source),
+            std::path::Path::new("/adroit"),
+        )
+        .await
+        .unwrap();
+    }
+    let snapshot: ControlSnapshot = serde_json::from_value(
+        Client::human(&root)
+            .unwrap()
+            .request(RequestId::new(), Command::Snapshot)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(snapshot.runs.len(), 2);
+    assert_eq!(snapshot.work_areas.len(), 1);
+    assert_eq!(snapshot.work_areas[0].backend, WorkAreaBackend::Jj);
+    assert_eq!(snapshot.work_areas[0].path, source.canonicalize().unwrap());
+    assert_eq!(snapshot.run_work_areas.len(), 2);
+    assert!(
+        snapshot
+            .run_work_areas
+            .iter()
+            .all(|association| association.is_default
+                && association.work_area_id == snapshot.work_areas[0].id)
+    );
 }

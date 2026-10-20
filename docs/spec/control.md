@@ -30,6 +30,7 @@ below; IDs are UUID strings and session references contain `id` and `generation`
 
 - `register_leader`: `id`, `agent`, `cwd`, optional `permissions` (human client).
 - `grant`: `identity` (human client; returns the session credential).
+- `register_default_area`: `identity`, `run_id`, ready `area` (human client; associates the existing default before startup).
 - `remember_launch`: `identity`, `runtime` containing a `settings` snapshot (human client; recorded before startup and immutable for that generation).
 - `attach_session`: `identity`, `cwd`, `terminal_id`, `conversation_id` (human
   client; records a completed startup).
@@ -196,3 +197,10 @@ as well as successful changes, and notifies the related Leaders.
 
 Snapshots retain these notices and discussions for the participating runs.
 Coordination does not reassign tasks or merge the participating requests.
+
+New managed Leaders register their existing default working area before their
+native program starts. Registration identifies the current native jj workspace,
+Git worktree, or selected ordinary directory; it does not create another working
+area or record user edits in history. Independent Leaders at the same physical
+default share its working-area identity. A newly registered related Leader
+receives the saved coordination context without delaying existing work.

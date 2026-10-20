@@ -267,6 +267,11 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
         Command::RememberLaunch { identity, runtime } if is_human => {
             value(store.remember_launch(request.id, identity, *runtime)?)
         }
+        Command::RegisterDefaultArea {
+            identity,
+            run_id,
+            area,
+        } if is_human => value(store.register_work_area(request.id, identity, run_id, area, true)?),
         Command::AttachSession {
             identity,
             cwd,
@@ -284,6 +289,7 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
         Command::Grant { identity } if is_human => value(store.grant(identity)?),
         Command::RegisterLeader { .. }
         | Command::RememberLaunch { .. }
+        | Command::RegisterDefaultArea { .. }
         | Command::Grant { .. }
         | Command::AttachSession { .. }
         | Command::StartUncertain { .. }

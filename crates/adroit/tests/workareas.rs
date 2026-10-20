@@ -308,3 +308,68 @@ async fn an_explicit_destination_wins_over_an_invalid_default_placement() {
             .join("worker")
     );
 }
+
+#[tokio::test]
+async fn inspecting_an_existing_directory_returns_it_ready_without_creating_any_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("input.txt"), "Input").unwrap();
+    let area = adroit::workareas::existing(WorkAreaId::new(), dir.path().into(), "Default".into())
+        .await
+        .unwrap();
+    assert_eq!(area.backend, WorkAreaBackend::Directory);
+    assert_eq!(area.state, WorkAreaState::Ready);
+    assert_eq!(area.path, dir.path().canonicalize().unwrap());
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+}
+
+#[tokio::test]
+async fn inspecting_an_existing_jj_workspace_preserves_its_files_and_history() {
+    let dir = tempfile::tempdir().unwrap();
+    jj(dir.path(), &["git", "init", "--colocate"]);
+    jj(
+        dir.path(),
+        &["describe", "-m", "test: establish the default workspace"],
+    );
+    let before = jj(
+        dir.path(),
+        &["log", "-r", "@", "--no-graph", "-T", "commit_id"],
+    );
+    std::fs::write(dir.path().join("unsnapshotted.txt"), "Human edits").unwrap();
+    let operations = jj(
+        dir.path(),
+        &[
+            "--ignore-working-copy",
+            "op",
+            "log",
+            "--no-graph",
+            "-T",
+            "id ++ \"\\n\"",
+        ],
+    );
+    let area = adroit::workareas::existing(WorkAreaId::new(), dir.path().into(), "Default".into())
+        .await
+        .unwrap();
+    assert_eq!(area.backend, WorkAreaBackend::Jj);
+    assert_eq!(area.state, WorkAreaState::Ready);
+    assert_eq!(area.path, dir.path().canonicalize().unwrap());
+    assert_eq!(area.base_revision.as_deref(), Some(before.trim()));
+    assert!(area.native_name.is_none());
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("unsnapshotted.txt")).unwrap(),
+        "Human edits"
+    );
+    assert_eq!(
+        jj(
+            dir.path(),
+            &[
+                "--ignore-working-copy",
+                "op",
+                "log",
+                "--no-graph",
+                "-T",
+                "id ++ \"\\n\""
+            ]
+        ),
+        operations
+    );
+}

@@ -36,6 +36,11 @@ pub enum Command {
         identity: SessionRef,
         runtime: Box<super::runtime::RuntimeLaunch>,
     },
+    RegisterDefaultArea {
+        identity: SessionRef,
+        run_id: RunId,
+        area: WorkArea,
+    },
     AttachSession {
         identity: SessionRef,
         cwd: PathBuf,
