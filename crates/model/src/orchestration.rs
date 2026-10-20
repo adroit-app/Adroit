@@ -49,6 +49,7 @@ ids!(
     RequestId,
     WorkAreaId,
     CoordinationId,
+    CandidateId,
     DraftId,
     TerminalResourceId,
 );

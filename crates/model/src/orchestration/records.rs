@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Agent, AgentPermissions, AttemptId, CoordinationId, LogicalSessionId, MessageId, RunId,
-    SessionBinding, TaskId, WorkAreaId,
+    Agent, AgentPermissions, AttemptId, CandidateId, CoordinationId, LogicalSessionId, MessageId,
+    RunId, SessionBinding, TaskId, WorkAreaId,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,6 +64,7 @@ pub struct RunBrief {
     pub goal: String,
     pub constraints: Vec<String>,
     pub completion_kind: CompletionKind,
+    pub quality_gate: QualityGate,
     pub decisions: Vec<String>,
     pub unresolved: Vec<String>,
 }
@@ -99,6 +100,8 @@ pub struct RunRecord {
     pub leader_id: LogicalSessionId,
     pub brief: RunBrief,
     pub plan_revision: u64,
+    #[serde(default)]
+    pub candidate_id: Option<CandidateId>,
     pub state: RunState,
 }
 
@@ -328,6 +331,7 @@ pub struct ControlSnapshot {
     pub deliveries: Vec<DeliveryRecord>,
     pub reports: Vec<TaskReportRecord>,
     pub completions: Vec<RunCompletion>,
+    pub candidates: Vec<CandidateRecord>,
     pub coordination: Vec<CoordinationNotice>,
     pub coordination_replies: Vec<CoordinationReply>,
     pub work_areas: Vec<WorkArea>,
@@ -606,4 +610,44 @@ pub struct AgentContext {
     pub task: Option<TaskRecord>,
     pub attempt: Option<AttemptRecord>,
     pub work_area: Option<WorkArea>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct QualityGate {
+    pub commands: Vec<Vec<String>>,
+    pub review_required: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CandidatePlan {
+    pub id: CandidateId,
+    pub run_id: RunId,
+    pub source: TaskVersion,
+    pub attempt_id: AttemptId,
+    #[serde(default)]
+    pub inputs: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CandidateState {
+    Requested,
+    Prepared,
+    Verified,
+    Superseded,
+    Stale,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CandidateRecord {
+    pub plan: CandidatePlan,
+    pub source_report: MessageId,
+    pub artifact: TaskArtifact,
+    pub state: CandidateState,
+    pub proof: Option<CandidateProof>,
+    pub error: Option<String>,
 }

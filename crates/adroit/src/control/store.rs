@@ -11,6 +11,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 
+mod candidates;
 mod context;
 mod coordination;
 mod dependencies;
@@ -19,7 +20,7 @@ mod runs;
 mod runtime;
 mod workareas;
 
-const SCHEMA_VERSION: i64 = 8;
+const SCHEMA_VERSION: i64 = 9;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -162,6 +163,7 @@ enum Table {
     RunWorkAreas,
     Reports,
     Completions,
+    Candidates,
     Coordination,
     CoordinationReplies,
 }
@@ -177,6 +179,7 @@ impl Table {
             Self::RunWorkAreas => "run_work_areas",
             Self::Reports => "task_reports",
             Self::Completions => "run_completions",
+            Self::Candidates => "candidates",
             Self::Coordination => "coordination_notices",
             Self::CoordinationReplies => "coordination_replies",
         }
@@ -522,6 +525,13 @@ impl Store {
             let transaction =
                 connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
             transaction.execute_batch("CREATE TABLE coordination_notices (id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), data TEXT NOT NULL); CREATE TABLE coordination_replies (id TEXT PRIMARY KEY, notice_id TEXT NOT NULL REFERENCES coordination_notices(id), data TEXT NOT NULL);")?;
+            transaction.pragma_update(None, "user_version", 8)?;
+            transaction.commit()?;
+        }
+        if schema < 9 {
+            let transaction =
+                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            transaction.execute_batch("CREATE TABLE candidates (id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), source_task_id TEXT NOT NULL REFERENCES tasks(id), data TEXT NOT NULL);")?;
             transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
             transaction.commit()?;
         }
@@ -682,7 +692,7 @@ impl Store {
             if load::<RunRecord>(connection, Table::Runs, id)?.is_some() { return Err(conflict("the run already exists")); }
             let active: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM runs WHERE leader_id = ?1 AND state IN ('active', 'verifying', 'cancelling'))", [identity.id.to_string()], |row| row.get(0))?;
             if active { return Err(conflict("the leader already has an active run")); }
-            let run = RunRecord { id, leader_id: identity.id, brief, plan_revision: 1, state: RunState::Active };
+            let run = RunRecord { id, leader_id: identity.id, brief, plan_revision: 1, candidate_id: None, state: RunState::Active };
             save_run(connection, &run)?;
             session.binding = SessionBinding::leader(identity.id, Some(id));
             save_session(connection, &session)?;
@@ -1405,6 +1415,7 @@ impl Store {
             deliveries,
             reports: all(&transaction, Table::Reports)?,
             completions: all(&transaction, Table::Completions)?,
+            candidates: all(&transaction, Table::Candidates)?,
             coordination: all(&transaction, Table::Coordination)?,
             coordination_replies: all(&transaction, Table::CoordinationReplies)?,
             work_areas: all(&transaction, Table::WorkAreas)?,

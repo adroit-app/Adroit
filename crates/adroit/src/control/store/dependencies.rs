@@ -48,6 +48,7 @@ pub(super) fn invalidate_tasks(
             break;
         }
     }
+    super::candidates::invalidate_sources(connection, &affected)?;
     for mut task in tasks
         .into_iter()
         .filter(|task| affected.contains(&task.id) && (include_roots || !roots.contains(&task.id)))

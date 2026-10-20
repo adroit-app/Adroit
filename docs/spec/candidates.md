@@ -32,3 +32,26 @@ Directory candidates use the reported output manifest and its canonical file
 fingerprint. A stale or unsupported reported fingerprint is refused. Additional
 verification inputs are captured with the outputs, so later verification can
 identify changes to those inputs independently of the output report.
+
+## Selecting a completion candidate
+
+A run's `brief.quality_gate` contains `commands` (argument arrays) and
+`review_required` (a boolean). Code-change completion needs the declared quality
+conditions; reports do not require code-change checks. A candidate requires at
+least one command or a required review.
+
+`propose_candidate` takes `expected_revision` (the run's current plan revision)
+and `plan`. The plan contains `id`, `run_id`, `source` (a task version),
+`attempt_id`, and optional additional file `inputs`. Its source must be the
+current applied successful change result. A stale plan, foreign source, or
+missing quality condition refuses the proposal.
+
+Selecting a candidate advances the plan revision and supersedes its previous
+selection. Source results remain historical evidence; selection does not
+reassign them. A proposal is durable before capture starts, and proposing it
+does not complete the run. Revising or cancelling its source invalidates the
+candidate. A late capture cannot restore it to the current plan.
+
+Capture records a prepared proof or a failure and notifies the Leader. Prepared
+file evidence is immutable. Verification and final completion must use the
+current selected candidate and current source revisions.

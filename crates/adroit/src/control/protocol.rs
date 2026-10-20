@@ -96,6 +96,10 @@ pub enum Command {
         expected_revision: u64,
         summary: String,
     },
+    ProposeCandidate {
+        expected_revision: u64,
+        plan: CandidatePlan,
+    },
     AnnounceChange {
         intent: CoordinationIntent,
     },

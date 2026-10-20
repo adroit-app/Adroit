@@ -317,6 +317,9 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
                 snapshot.tasks.retain(|t| t.run_id == run);
                 snapshot.reports.retain(|r| r.run_id == run);
                 snapshot.completions.retain(|r| r.run_id == run);
+                snapshot
+                    .candidates
+                    .retain(|candidate| candidate.plan.run_id == run);
                 snapshot.coordination.retain(|notice| {
                     notice
                         .participants
@@ -388,6 +391,10 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
         Command::CancelRun { run_id } => {
             value(store.cancel_run(request.id, identity()?, run_id)?)
         }
+        Command::ProposeCandidate {
+            expected_revision,
+            plan,
+        } => value(store.propose_candidate(request.id, identity()?, expected_revision, plan)?),
         Command::AnnounceChange { intent } => {
             value(store.announce_change(request.id, identity()?, intent)?)
         }
