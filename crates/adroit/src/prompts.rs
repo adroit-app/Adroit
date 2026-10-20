@@ -513,6 +513,97 @@ mod tests {
     }
 
     #[test]
+    fn hiding_the_last_session_keeps_its_prompt_and_images_for_reopening() {
+        use crate::pasted::Attachments;
+
+        let leader = session("leader");
+        let mut drafts = Drafts::default();
+        let mut images = Attachments::default();
+        drafts.show(leader.clone(), String::new());
+        images.show(leader.clone());
+        images.add(vec!["/leader.png".into()]);
+
+        assert_eq!(drafts.show(None, "unsent-view-draft".into()), None);
+        images.show(None);
+        assert!(images.current().is_empty());
+        assert!(
+            drafts
+                .saved("")
+                .values()
+                .any(|text| text == "unsent-view-draft")
+        );
+
+        assert_eq!(
+            drafts.show(leader.clone(), String::new()),
+            Some("unsent-view-draft".into())
+        );
+        images.show(leader);
+        assert_eq!(images.current(), &[PathBuf::from("/leader.png")]);
+    }
+
+    #[test]
+    fn hiding_a_session_keeps_both_sessions_prompts_and_attachments_separate() {
+        use crate::pasted::Attachments;
+
+        let leader = session("leader");
+        let worker = session("worker");
+        let mut drafts = Drafts::default();
+        let mut images = Attachments::default();
+        drafts.show(worker.clone(), String::new());
+        images.show(worker.clone());
+        images.add(vec!["/worker.png".into()]);
+        drafts.show(leader.clone(), "worker draft".into());
+        images.show(leader.clone());
+        images.add(vec!["/leader.png".into()]);
+
+        assert_eq!(
+            drafts.show(worker, "leader draft".into()),
+            Some("worker draft".into())
+        );
+        images.show(session("worker"));
+        assert_eq!(images.current(), &[PathBuf::from("/worker.png")]);
+        assert_eq!(
+            drafts.show(leader.clone(), "edited worker draft".into()),
+            Some("leader draft".into())
+        );
+        images.show(leader);
+        assert_eq!(images.current(), &[PathBuf::from("/leader.png")]);
+    }
+
+    #[test]
+    fn closing_an_ephemeral_draft_keeps_its_text_and_images_accessible_to_the_next_composer() {
+        use crate::pasted::Attachments;
+
+        for next in [None, session("existing")] {
+            let draft = Some(Tab::draft("/repo"));
+            let mut drafts = Drafts::default();
+            let mut images = Attachments::default();
+            drafts.show(next.clone(), String::new());
+            images.show(next.clone());
+            images.add(vec!["/next.png".into()]);
+            drafts.show(draft.clone(), "next draft".into());
+            images.show(draft);
+            images.add(vec!["/unsent.png".into()]);
+
+            let mut composer = "unsent new-session draft".to_string();
+            if let Some(text) = drafts.close(next.clone()) {
+                composer.push('\n');
+                composer.push_str(&text);
+            }
+            images.close(next);
+            assert!(composer.contains("unsent new-session draft"));
+            assert!(
+                drafts
+                    .saved(&composer)
+                    .values()
+                    .any(|text| text.contains("unsent new-session draft"))
+            );
+            assert!(images.current().contains(&PathBuf::from("/unsent.png")));
+            assert!(images.current().contains(&PathBuf::from("/next.png")));
+        }
+    }
+
+    #[test]
     fn what_a_closed_tab_held_stays_and_the_next_tab_s_follows_it() {
         let mut d = Drafts::default();
         d.show(session("a"), String::new());

@@ -4410,7 +4410,9 @@ fn App() -> Element {
                         let next = nav::tab_after(&listed, &tab);
                         opened.write().remove(&tab);
                         draft_options.write().remove(&tab);
-                        let _ = prompts.send(Op::Close(next.clone()));
+                        if matches!(tab, Tab::Draft { .. }) {
+                            let _ = prompts.send(Op::Close(next.clone()));
+                        }
                         active.set(next);
                     }
                 }

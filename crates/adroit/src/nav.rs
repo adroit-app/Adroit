@@ -293,12 +293,18 @@ pub fn narrowed(tree: &Tree, text: &str) -> Tree {
 }
 
 /// The tab to show once `closing` is closed among `tabs`: the one before it,
-/// or else the one after it.
+/// or else the one after it. An ephemeral draft needs a composer to receive
+/// its unsent input, so it skips terminals or gives way to the empty composer.
 pub fn tab_after(tabs: &[Tab], closing: &Tab) -> Option<Tab> {
     let at = tabs.iter().position(|t| t == closing)?;
-    at.checked_sub(1)
-        .or_else(|| (at + 1 < tabs.len()).then_some(at + 1))
-        .map(|i| tabs[i].clone())
+    let eligible =
+        |tab: &&Tab| !matches!(closing, Tab::Draft { .. }) || !matches!(tab, Tab::Terminal(_));
+    tabs[..at]
+        .iter()
+        .rev()
+        .find(eligible)
+        .or_else(|| tabs[at + 1..].iter().find(eligible))
+        .cloned()
 }
 
 /// What the console shows once a tab of `place` has closed: its first
@@ -596,6 +602,41 @@ mod tests {
         assert_eq!(tab_after(&tabs, &a), Some(b));
         assert_eq!(tab_after(std::slice::from_ref(&c), &c), None);
         assert_eq!(tab_after(&tabs, &Tab::Terminal(9)), None);
+    }
+
+    #[test]
+    fn a_closed_ephemeral_draft_uses_the_empty_composer_when_only_terminals_remain() {
+        let draft = Tab::draft("/repo");
+        for tabs in [
+            vec![draft.clone(), Tab::Terminal(1)],
+            vec![Tab::Terminal(1), draft.clone(), Tab::Terminal(2)],
+        ] {
+            assert_eq!(tab_after(&tabs, &draft), None);
+        }
+    }
+
+    #[test]
+    fn a_closed_ephemeral_draft_skips_terminals_but_other_closed_tabs_keep_their_order() {
+        let session = Tab::Session("existing".into());
+        let draft = Tab::draft("/repo");
+        let other_draft = Tab::draft("/repo");
+        let terminal = Tab::Terminal(1);
+        let tabs = [
+            session.clone(),
+            terminal.clone(),
+            draft.clone(),
+            other_draft.clone(),
+        ];
+        assert_eq!(tab_after(&tabs, &draft), Some(session.clone()));
+        assert_eq!(tab_after(&tabs, &session), Some(terminal.clone()));
+        assert_eq!(tab_after(&tabs, &terminal), Some(session));
+        let tabs = [
+            terminal,
+            draft.clone(),
+            Tab::Terminal(2),
+            other_draft.clone(),
+        ];
+        assert_eq!(tab_after(&tabs, &draft), Some(other_draft));
     }
 
     #[test]
