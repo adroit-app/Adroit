@@ -167,6 +167,9 @@ impl Default for TaskBrief {
 pub struct TaskPlan {
     pub id: TaskId,
     pub run_id: RunId,
+    #[schemars(
+        description = "Use null for a new task. To update an existing task, supply its current revision from context or snapshot; this is a concurrency check, not the revision to assign."
+    )]
     pub expected_revision: Option<u64>,
     pub brief: TaskBrief,
     pub dependencies: Vec<TaskId>,

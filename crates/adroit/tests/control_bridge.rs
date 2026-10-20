@@ -274,6 +274,10 @@ async fn native_tools_describe_complete_task_and_result_inputs_and_offer_typed_i
     let control = tools.iter().find(|tool| tool["name"] == "control").unwrap();
     let schema = &control["inputSchema"];
     assert!(
+        serde_json::to_vec(schema).unwrap().len() < 32_768,
+        "keep headroom below the native 64 KiB Adroit schema budget"
+    );
+    assert!(
         schema["$defs"]["TaskPlan"]["properties"]
             .get("brief")
             .is_some()

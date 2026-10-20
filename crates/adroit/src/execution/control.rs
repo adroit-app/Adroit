@@ -85,6 +85,7 @@ impl ControlContext {
                     format!("mcp_servers.adroit_control.env_vars={}", json!(variables)),
                     "mcp_servers.adroit_control.enabled=true".into(),
                     "mcp_servers.adroit_control.required=true".into(),
+                    "mcp_servers.adroit_control.tool_input_schema_max_bytes=65536".into(),
                 ]
                 .into_iter()
                 .chain(["control", "new_ids", "fingerprint_files"].into_iter().map(|tool| format!("mcp_servers.adroit_control.tools.{tool}.approval_mode=\"approve\"")))

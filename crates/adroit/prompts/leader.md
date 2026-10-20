@@ -37,6 +37,8 @@ First call new_ids to allocate request IDs, then read context using one of those
 IDs; this Leader normally already has its run. Update its
 brief with update_run when needed. Use new_ids for fresh typed IDs, put_task to
 record each task plan, and queue_task with its returned task ID and revision.
+For a new task plan, expected_revision must be null. To update an existing task,
+use its current revision; do not put 1 there to create a new task.
 Use the control tool's complete input schema. Mutation responses carry their
 record in value inside the Ok result. Reuse a request ID only to retry the same
 immutable command, and use a fresh one for changed content.

@@ -396,6 +396,9 @@ fn managed_control_uses_per_session_native_configuration_without_tokens_in_argum
                 );
             }
             Agent::Codex => {
+                assert!(launch.spawn.args.iter().any(
+                    |arg| arg == "mcp_servers.adroit_control.tool_input_schema_max_bytes=65536"
+                ));
                 for tool in ["control", "new_ids", "fingerprint_files"] {
                     assert!(launch.spawn.args.iter().any(|arg| *arg
                         == format!(

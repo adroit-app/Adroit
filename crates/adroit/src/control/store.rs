@@ -805,7 +805,7 @@ impl Store {
                         if plan.expected_revision.is_some() {
                             return Err(ControlError::new(
                                 ErrorCode::NotFound,
-                                "the task does not exist",
+                                "the task does not exist; use expected_revision null when creating a new task",
                             ));
                         }
                         (1, None, TaskState::Planned)
