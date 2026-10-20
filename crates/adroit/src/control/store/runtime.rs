@@ -3,6 +3,20 @@ use super::*;
 use crate::control::runtime::RuntimeLaunch;
 
 impl Store {
+    pub fn read_message(&self, identity: SessionRef, id: MessageId) -> Result<AgentMessage> {
+        let session = reference(&self.connection, identity)?;
+        let message: AgentMessage = require(&self.connection, Table::Messages, id)?;
+        if session.binding.run_id() != Some(message.run_id)
+            || (message.from != identity.id && message.to != identity.id)
+        {
+            return Err(ControlError::new(
+                ErrorCode::OwnershipMismatch,
+                "the message is outside this session's addressed scope",
+            ));
+        }
+        Ok(message)
+    }
+
     pub fn runtime(&self, identity: SessionRef) -> Result<Option<RuntimeLaunch>> {
         reference(&self.connection, identity)?;
         let data: Option<String> = self

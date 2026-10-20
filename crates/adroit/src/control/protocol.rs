@@ -78,6 +78,9 @@ pub enum Command {
     },
     Context,
     Snapshot,
+    ReadMessage {
+        message_id: MessageId,
+    },
     Mailbox {
         after: u64,
         limit: u32,

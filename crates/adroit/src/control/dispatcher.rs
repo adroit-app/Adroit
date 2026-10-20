@@ -3,10 +3,7 @@ use std::collections::{HashMap, HashSet};
 
 use adroit_model::*;
 
-use super::{
-    actor::Actor,
-    store::{ControlError, ErrorCode},
-};
+use super::{actor::Actor, store::ControlError};
 
 type Result<T> = std::result::Result<T, ControlError>;
 
@@ -86,8 +83,7 @@ impl Dispatcher {
                 continue;
             };
             let id = message.id;
-            let envelope = serde_json::to_string(&message)
-                .map_err(|error| ControlError::new(ErrorCode::InvalidRequest, error.to_string()))?;
+            let envelope = super::envelope::encode(&message)?;
             let claimed = self
                 .actor
                 .call(move |store| {

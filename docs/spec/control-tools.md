@@ -32,3 +32,18 @@ and makes them eligible with `queue_task`. It finishes its turn after dispatch;
 notifications bring back results and questions. A Worker uses `send_message` for
 progress and questions and `report_task` for a final structured outcome. Neither
 session names nor matching directories establish ownership.
+
+## Large native notifications
+
+Small notifications contain the complete message. Larger serialized messages
+use a bounded reference while the complete immutable body remains stored. The
+reference has `type` equal to `adroit_message_reference`, `version` equal to 1,
+`message_id`, `run_id`, `from`, `to`, nullable `task_id`, `attempt_id`, and
+`revision`, and the message `kind`. It contains no body and is not a report by
+itself.
+
+`read_message` takes `message_id` and returns the complete original message.
+Only its sender or recipient in the assigned run can fetch it through a session
+credential. Acknowledgment does not remove the stored body, and fetching it does
+not acknowledge or finish work. This reference format is shared by the native
+Codex queue and Claude channel routes; neither route types into the console.

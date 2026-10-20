@@ -34,3 +34,5 @@ pub mod observer;
 pub mod files;
 
 pub mod capture;
+
+pub mod envelope;

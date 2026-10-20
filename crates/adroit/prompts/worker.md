@@ -43,3 +43,9 @@ Use new_ids to allocate fresh request and report message IDs. Follow the native
 control tool's complete input schema. Tool text contains an Ok result or Err
 error, and mutation replies put their record in value. Keep a request ID for an
 identical retry; changed content or another operation requires a fresh ID.
+
+For an adroit_message_reference notification, fetch the full immutable message
+with read_message and message_id before handling it. Reading does not acknowledge
+it. Acknowledge explicitly and preserve the same message ID when deduplicating.
+Native internal subagents report to their parent Worker; only the assigned
+external Worker reports its overall Adroit attempt outcome to the Leader.

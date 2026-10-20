@@ -39,3 +39,8 @@ record each task plan, and queue_task with its returned task ID and revision.
 Use the control tool's complete input schema. Mutation responses carry their
 record in value inside the Ok result. Reuse a request ID only to retry the same
 immutable command, and use a fresh one for changed content.
+
+A large native notification may be an adroit_message_reference. Fetch its full
+immutable message with read_message and message_id before handling it. Reading
+the body does not acknowledge it; acknowledge explicitly and do not repeat effects
+for an already handled message. Never treat a reference as the complete report.
