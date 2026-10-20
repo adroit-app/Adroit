@@ -21,7 +21,11 @@ lint:
 
 # Run the tests.
 test:
-    cargo test --workspace
+    #!/usr/bin/env bash
+    set -euo pipefail
+    task_root=$(mktemp -d "${TMPDIR:-/tmp}/adroit-tests.XXXXXX")
+    trap 'rm -rf "$task_root"' EXIT
+    XDG_STATE_HOME="$task_root/state" XDG_CONFIG_HOME="$task_root/config" XDG_DATA_HOME="$task_root/data" cargo test --workspace
 
 # Everything CI runs.
 ci: fmt-check lint test
