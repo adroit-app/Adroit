@@ -24,6 +24,8 @@ fi
 printf '\033]0;Codex · %s\007' "$ADROIT_SESSION_ID"
 if [ -n "$ADROIT_TASK_ID" ]; then
     printf '{"op":"report_task","report":{"message_id":"%s","task":{"task_id":"%s","revision":1},"attempt_id":"%s","result":{"status":"succeeded","summary":"Classified the inputs","artifact":{"kind":"report","data":{"label":"ok"},"files":[],"reviewed_revision":null},"checks":[],"unresolved":[]}}}' "$ADROIT_TEST_REPORT_ID" "$ADROIT_TASK_ID" "$ADROIT_ATTEMPT_ID" | "$ADROIT_TEST_BINARY" control > report.json
+else
+    printf '{"op":"context"}' | "$ADROIT_TEST_BINARY" control > "leader-$ADROIT_SESSION_GENERATION-context.json"
 fi
 sleep 10
 "#,None)).unwrap();
@@ -162,6 +164,78 @@ sleep 10
             .unwrap()
             .contains(&report_id.to_string())
     );
+    let old_leader = snapshot
+        .sessions
+        .iter()
+        .find(|session| session.reference() == owner)
+        .unwrap();
+    let terminal = old_leader.terminal_id.clone().unwrap();
+    daemon
+        .end(u128::from_str_radix(&terminal, 16).unwrap())
+        .await
+        .unwrap();
+    human
+        .request(
+            RequestId::new(),
+            Command::ConfirmTerminalExit {
+                identity: owner,
+                terminal_id: terminal.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    human
+        .request(RequestId::new(), Command::RestartLeader { identity: owner })
+        .await
+        .unwrap();
+    let snapshot = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let current = service
+                .actor()
+                .call(|store| store.snapshot())
+                .await
+                .unwrap();
+            if current.sessions.iter().any(|session| {
+                session.reference().id == owner.id
+                    && session.generation == 2
+                    && session.state == ManagedSessionState::Running
+            }) {
+                break current;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let new_leader = snapshot
+        .sessions
+        .iter()
+        .find(|session| session.reference().id == owner.id)
+        .unwrap();
+    assert_ne!(new_leader.terminal_id.as_ref(), Some(&terminal));
+    assert_eq!(new_leader.binding.run_id(), Some(run_id));
+    let receipt = new_leader
+        .cwd
+        .as_ref()
+        .unwrap()
+        .join("leader-2-context.json");
+    let context = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            if let Ok(bytes) = std::fs::read(&receipt)
+                && let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes)
+            {
+                break value;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(context["result"]["Ok"]["session"]["generation"], 2);
+    assert_eq!(context["result"]["Ok"]["run"]["id"], run_id.to_string());
+    assert_eq!(snapshot.attempts.len(), 1);
+    assert_eq!(snapshot.reports.len(), 1);
+    assert_eq!(snapshot.runs[0].state, RunState::Active);
     for session in snapshot.sessions {
         if let Some(id) = session.terminal_id {
             daemon

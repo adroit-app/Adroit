@@ -241,7 +241,7 @@ pub(super) fn fail_start_record(
         )?;
     } else if let Some(run_id) = session.binding.run_id() {
         let mut run: RunRecord = require(connection, Table::Runs, run_id)?;
-        if matches!(run.state, RunState::Active | RunState::Verifying) {
+        if session.generation == 1 && matches!(run.state, RunState::Active | RunState::Verifying) {
             run.state = RunState::Failed;
             save_run(connection, &run)?;
         }
@@ -264,6 +264,49 @@ pub(super) fn fail_start_record(
 }
 
 impl Store {
+    pub fn restart_leader(
+        &mut self,
+        request: RequestId,
+        identity: SessionRef,
+    ) -> Result<Reply<ManagedSession>> {
+        self.transact(request, json!({"op":"restart_leader","caller":identity}), |connection| {
+            let mut session = reference(connection, identity)?;
+            if session.binding.role() != SessionRole::Leader {
+                return Err(invalid("only a Leader can restart with its existing request"));
+            }
+            if !matches!(session.state, ManagedSessionState::Exited | ManagedSessionState::Failed) {
+                return Err(conflict("confirm that the assigned native session stopped before restarting the Leader"));
+            }
+            let runtime: String = connection.query_row(
+                "SELECT data FROM session_launches WHERE session_id=?1 AND generation=?2",
+                params![identity.id.to_string(), identity.generation.to_string()],
+                |row| row.get(0),
+            ).optional()?.ok_or_else(|| conflict("the Leader has no saved native routing settings"))?;
+            session.generation = session.generation.checked_add(1).ok_or_else(|| conflict("session generation exhausted"))?;
+            session.state = ManagedSessionState::Preparing;
+            session.terminal_id = None;
+            session.conversation_id = None;
+            save_session(connection, &session)?;
+            connection.execute("DELETE FROM session_credentials WHERE session_id=?1", [identity.id.to_string()])?;
+            connection.execute("INSERT INTO session_launches(session_id,generation,data) VALUES (?1,?2,?3)", params![identity.id.to_string(),session.generation.to_string(),runtime])?;
+            let dispatching = {
+                let mut statement = connection.prepare("SELECT data FROM deliveries WHERE recipient=?1 AND json_extract(data,'$.state')='dispatching'")?;
+                statement.query_map([identity.id.to_string()], |row| row.get::<_,String>(0))?.collect::<std::result::Result<Vec<_>,_>>()?
+            };
+            for data in dispatching {
+                let mut record: DeliveryRecord = decode(&data)?;
+                if record.state == DeliveryState::Dispatching {
+                    record.state = DeliveryState::Uncertain;
+                    record.last_error = Some("the recipient generation ended during delivery; inspect its mailbox before retrying".into());
+                    save_delivery(connection, &record)?;
+                    event(connection, session.binding.run_id(), "delivery_uncertain", &record)?;
+                }
+            }
+            event(connection, session.binding.run_id(), "leader_restart_queued", &session)?;
+            Ok(session)
+        })
+    }
+
     pub fn interrupted_startups(&self) -> Result<Vec<SessionRef>> {
         let mut statement=self.connection.prepare("SELECT data FROM logical_sessions WHERE json_extract(data,'$.state')='preparing' ORDER BY rowid")?;
         statement

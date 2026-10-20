@@ -5,6 +5,50 @@ use dioxus::prelude::*;
 use crate::leader_navigation::project;
 use crate::nav::Item;
 
+#[component]
+pub fn LeaderRecovery(snapshot: ControlSnapshot) -> Element {
+    let mut pending = use_signal(|| None::<SessionRef>);
+    let mut error = use_signal(|| None::<String>);
+    rsx! {
+        for session in snapshot.sessions.iter().filter(|session| {
+            session.binding.role() == SessionRole::Leader
+                && matches!(session.state, ManagedSessionState::Exited | ManagedSessionState::Failed)
+                && session.binding.run_id().is_some()
+        }) {
+            {
+                let identity = session.reference();
+                let title = session.binding.run_id().and_then(|id| snapshot.runs.iter().find(|run| run.id == id)).map(|run| run.brief.title.as_str()).unwrap_or("Saved request");
+                rsx! {
+                    div { class: "details-block request-recovery", key: "{identity.id}-{identity.generation}",
+                        span { class: "details-label", "{title}" }
+                        button {
+                            class: "request-open",
+                            disabled: pending() == Some(identity),
+                            title: "Open a fresh Leader conversation with this saved request and its existing Workers",
+                            onclick: move |_| {
+                                pending.set(Some(identity));
+                                error.set(None);
+                                spawn(async move {
+                                    let result = async {
+                                        crate::control::client::Client::human(&crate::control::root())?
+                                            .request(RequestId::new(), crate::control::protocol::Command::RestartLeader { identity }).await
+                                    }.await;
+                                    if let Err(failure) = result {
+                                        error.set(Some(failure.to_string()));
+                                        pending.set(None);
+                                    }
+                                });
+                            },
+                            if pending() == Some(identity) { "Restart queued" } else { "Restart Leader" }
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(failure) = error() { p { class: "request-attention", "{failure}" } }
+    }
+}
+
 fn task_state(state: TaskState) -> &'static str {
     match state {
         TaskState::Planned => "planned",

@@ -5525,6 +5525,9 @@ fn App() -> Element {
                             }
                         }
                     }
+                    if leader_view() {
+                        crate::leader_details::LeaderRecovery { snapshot: orchestration() }
+                    }
                     div {
                         class: if filtering() { "filter-field on" } else { "filter-field" },
                         title: "Narrow the list by name; Enter keeps it, Esc clears it",

@@ -315,6 +315,9 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
             identity,
             terminal_id,
         } if is_human => value(store.observe_terminal_exit(request.id, identity, terminal_id)?),
+        Command::RestartLeader { identity } if is_human => {
+            value(store.restart_leader(request.id, identity)?)
+        }
         Command::AbortPreparedStart {
             identity,
             terminal_id,
@@ -335,6 +338,7 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
         | Command::Grant { .. }
         | Command::AttachSession { .. }
         | Command::ConfirmTerminalExit { .. }
+        | Command::RestartLeader { .. }
         | Command::AbortPreparedStart { .. }
         | Command::StartUncertain { .. }
         | Command::FailStart { .. } => Err(denied("this operation requires a human client")),

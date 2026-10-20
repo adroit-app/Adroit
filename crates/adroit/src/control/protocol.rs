@@ -57,6 +57,10 @@ pub enum Command {
         terminal_id: String,
     },
     #[schemars(skip)]
+    RestartLeader {
+        identity: SessionRef,
+    },
+    #[schemars(skip)]
     AbortPreparedStart {
         identity: SessionRef,
         terminal_id: String,

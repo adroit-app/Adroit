@@ -55,6 +55,53 @@ impl Scheduler {
             }
         }
         let snapshot = self.actor.call(|store| store.snapshot()).await?;
+        let restarting = snapshot
+            .sessions
+            .iter()
+            .filter(|session| {
+                session.binding.role() == SessionRole::Leader
+                    && self
+                        .active
+                        .values()
+                        .any(|identity| *identity == session.reference())
+            })
+            .count();
+        for session in snapshot
+            .sessions
+            .iter()
+            .filter(|session| {
+                session.binding.role() == SessionRole::Leader
+                    && session.generation > 1
+                    && session.state == ManagedSessionState::Preparing
+                    && !self
+                        .active
+                        .values()
+                        .any(|identity| *identity == session.reference())
+            })
+            .take(4usize.saturating_sub(restarting))
+            .cloned()
+            .collect::<Vec<_>>()
+        {
+            let identity = session.reference();
+            let actor = self.actor.clone();
+            let daemon = self.daemon.clone();
+            let root = self.root.clone();
+            let program = self.program.clone();
+            let job = self.jobs.spawn(async move {
+                if let Err(error) =
+                    super::restart::start(&actor, &daemon, &root, &program, session).await
+                {
+                    let _ = actor
+                        .call(move |store| {
+                            store
+                                .fail_start(RequestId::new(), identity, error.to_string())
+                                .map(|_| ())
+                        })
+                        .await;
+                }
+            });
+            self.active.insert(job.id(), identity);
+        }
         let occupied = snapshot
             .attempts
             .iter()

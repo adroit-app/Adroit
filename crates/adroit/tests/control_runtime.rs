@@ -400,3 +400,83 @@ fn a_private_launch_selection_cannot_change_the_sessions_agent_or_permissions() 
         assert!(store.runtime(session.reference()).unwrap().is_none());
     }
 }
+
+#[test]
+fn restarting_a_stopped_leader_keeps_its_run_and_route_and_rejects_old_credentials() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let leader = store
+        .register_leader(
+            RequestId::new(),
+            LogicalSessionId::new(),
+            Agent::Codex,
+            dir.path().into(),
+        )
+        .unwrap()
+        .value;
+    let old = leader.reference();
+    let token = store.grant(old).unwrap();
+    let runtime = RuntimeLaunch::new(Settings::default());
+    store
+        .remember_launch(RequestId::new(), old, runtime.clone())
+        .unwrap();
+    let run = RunId::new();
+    store
+        .open_run(
+            RequestId::new(),
+            old,
+            run,
+            RunBrief {
+                title: "Saved request".into(),
+                goal: "Keep the existing work".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let terminal = "0123456789abcdef0123456789abcdef".to_owned();
+    store
+        .attach_session(
+            RequestId::new(),
+            old,
+            dir.path().into(),
+            terminal.clone(),
+            MessageId::new().to_string(),
+        )
+        .unwrap();
+    assert!(store.restart_leader(RequestId::new(), old).is_err());
+    store
+        .observe_terminal_missing(RequestId::new(), old, terminal.clone())
+        .unwrap();
+    assert!(store.restart_leader(RequestId::new(), old).is_err());
+    store
+        .observe_terminal_exit(RequestId::new(), old, terminal)
+        .unwrap();
+    let request = RequestId::new();
+    let restarted = store.restart_leader(request, old).unwrap().value;
+    assert_eq!(store.restart_leader(request, old).unwrap().value, restarted);
+    assert_eq!(restarted.generation, old.generation + 1);
+    assert_eq!(restarted.binding.run_id(), Some(run));
+    assert_eq!(restarted.state, ManagedSessionState::Preparing);
+    assert!(restarted.terminal_id.is_none());
+    assert!(restarted.conversation_id.is_none());
+    assert!(store.authenticate(&token).is_err());
+    assert!(store.context(old).is_err());
+    assert_eq!(store.runtime(restarted.reference()).unwrap(), Some(runtime));
+    assert_eq!(
+        store
+            .context(restarted.reference())
+            .unwrap()
+            .run
+            .unwrap()
+            .state,
+        RunState::Active
+    );
+    store
+        .fail_start(
+            RequestId::new(),
+            restarted.reference(),
+            "restart refused".into(),
+        )
+        .unwrap();
+    assert_eq!(store.snapshot().unwrap().runs[0].state, RunState::Active);
+}

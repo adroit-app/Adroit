@@ -71,3 +71,22 @@ unsupported configuration response rather than replacing an unknown user policy.
 An oversized composed instruction is refused without truncating that policy.
 The configuration read does not create a model thread or turn, and does not
 change user or project configuration files.
+
+## Restarting a stopped Leader
+
+A human may explicitly restart an exited or failed Leader using `restart_leader`
+with its current `identity`. A missing or uncertain native terminal must first be
+reconciled as stopped. Workers cannot use this operation or restart themselves.
+
+Restart opens a fresh conversation with the saved request context, tasks, reports,
+and mailbox. It preserves the Leader's logical identity, provider, permissions,
+and saved launch settings while advancing its generation and invalidating old
+credentials. It does not replay an uncertain delivery automatically, restart
+Workers, stop Terminal resources, or reinterpret a failed restart as failure of
+an otherwise active request. The new Leader reads the saved context before
+continuing orchestration. The former native conversation is not resumed.
+
+Leader / Workers shows a Restart Leader action for saved requests whose Leader
+has stopped, including requests with no visible Worker sessions. Closing a
+window or tab does not queue this action. Repeated requests with the same request
+ID cannot start another generation.
