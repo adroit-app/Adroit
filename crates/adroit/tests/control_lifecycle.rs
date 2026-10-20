@@ -360,3 +360,334 @@ async fn an_unreconciled_agent_can_read_its_assignment_but_cannot_apply_results_
         AttemptState::Failed
     );
 }
+
+fn pending_worker(store: &mut Store, path: &Path, starting: bool) -> (SessionRef, AttemptRecord) {
+    let (owner, run, _, _) = running_worker(store, path);
+    let task = store
+        .put_task(
+            RequestId::new(),
+            owner,
+            TaskPlan {
+                id: TaskId::new(),
+                run_id: run,
+                expected_revision: None,
+                brief: TaskBrief {
+                    instructions: "Pending work".into(),
+                    ..Default::default()
+                },
+                dependencies: vec![],
+            },
+        )
+        .unwrap()
+        .value;
+    let wanted = TaskVersion {
+        task_id: task.id,
+        revision: task.revision,
+    };
+    store.queue_task(RequestId::new(), owner, wanted).unwrap();
+    let attempt = store
+        .reserve_attempt(RequestId::new(), owner, wanted, TargetSelection::default())
+        .unwrap()
+        .value;
+    let area = store.snapshot().unwrap().work_areas[0].id;
+    if starting {
+        store
+            .bind_work_area(RequestId::new(), owner, wanted, attempt.id, area)
+            .unwrap();
+        store
+            .begin_start(RequestId::new(), owner, wanted, attempt.id)
+            .unwrap();
+    }
+    (owner, attempt)
+}
+
+#[test]
+fn interrupted_preparation_fails_without_respawning_but_a_start_intent_remains_uncertain() {
+    for starting in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("control/state.sqlite3");
+        let mut store = Store::open(&path).unwrap();
+        let (_, attempt) = pending_worker(&mut store, dir.path(), starting);
+        let identity = SessionRef {
+            id: attempt.session_id,
+            generation: 1,
+        };
+        assert!(store.interrupted_startups().unwrap().contains(&identity));
+        drop(store);
+        let mut store = Store::open(&path).unwrap();
+        store.recover_startup(RequestId::new(), identity).unwrap();
+        let snapshot = store.snapshot().unwrap();
+        let attempt = snapshot
+            .attempts
+            .iter()
+            .find(|record| record.id == attempt.id)
+            .unwrap();
+        assert_eq!(
+            attempt.state,
+            if starting {
+                AttemptState::Uncertain
+            } else {
+                AttemptState::Failed
+            }
+        );
+        assert_eq!(attempt.state.holds_slot(), starting);
+        assert_eq!(snapshot.attempts.len(), 2);
+        let count = snapshot.messages.len();
+        store.recover_startup(RequestId::new(), identity).unwrap();
+        assert_eq!(store.snapshot().unwrap().messages.len(), count);
+    }
+}
+
+#[test]
+fn a_session_attached_after_recovery_was_listed_is_not_failed_by_the_old_preparation_record() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let leader = store
+        .register_leader(
+            RequestId::new(),
+            LogicalSessionId::new(),
+            Agent::Codex,
+            dir.path().into(),
+        )
+        .unwrap()
+        .value;
+    assert!(
+        store
+            .interrupted_startups()
+            .unwrap()
+            .contains(&leader.reference())
+    );
+    store
+        .attach_session(
+            RequestId::new(),
+            leader.reference(),
+            dir.path().into(),
+            MessageId::new().to_string().replace('-', ""),
+            MessageId::new().to_string(),
+        )
+        .unwrap();
+    store
+        .recover_startup(RequestId::new(), leader.reference())
+        .unwrap();
+    assert_eq!(
+        store.snapshot().unwrap().sessions[0].state,
+        ManagedSessionState::Running
+    );
+}
+
+#[test]
+fn interrupted_native_working_area_preparation_is_retained_for_reconciliation() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (owner, attempt) = pending_worker(&mut store, dir.path(), false);
+    let run = store.snapshot().unwrap().runs[0].id;
+    let source = dir.path().canonicalize().unwrap();
+    let area = store
+        .register_work_area(
+            RequestId::new(),
+            owner,
+            run,
+            WorkArea {
+                id: WorkAreaId::new(),
+                backend: WorkAreaBackend::Jj,
+                path: source.join("partial-native-area"),
+                source: source.clone(),
+                source_root: source.clone(),
+                repository: Some(source),
+                base_revision: Some("a".repeat(40)),
+                native_name: Some("pending".into()),
+                description: "Pending native workspace".into(),
+                state: WorkAreaState::Preparing,
+                error: None,
+            },
+            false,
+        )
+        .unwrap()
+        .value;
+    store
+        .bind_work_area(
+            RequestId::new(),
+            owner,
+            TaskVersion {
+                task_id: attempt.task_id,
+                revision: 1,
+            },
+            attempt.id,
+            area.id,
+        )
+        .unwrap();
+    store
+        .recover_startup(
+            RequestId::new(),
+            SessionRef {
+                id: attempt.session_id,
+                generation: 1,
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        store.work_area(area.id).unwrap().state,
+        WorkAreaState::NeedsReconciliation
+    );
+    assert!(
+        store
+            .finish_work_area(RequestId::new(), area.id, Ok(()))
+            .is_err()
+    );
+}
+
+#[test]
+fn cancelled_preparation_releases_its_slot_only_when_no_start_intent_was_recorded() {
+    for starting in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+        let (owner, attempt) = pending_worker(&mut store, dir.path(), starting);
+        store
+            .cancel_task(
+                RequestId::new(),
+                owner,
+                TaskVersion {
+                    task_id: attempt.task_id,
+                    revision: 1,
+                },
+            )
+            .unwrap();
+        store
+            .recover_startup(
+                RequestId::new(),
+                SessionRef {
+                    id: attempt.session_id,
+                    generation: 1,
+                },
+            )
+            .unwrap();
+        let snapshot = store.snapshot().unwrap();
+        let current = snapshot
+            .attempts
+            .iter()
+            .find(|current| current.id == attempt.id)
+            .unwrap();
+        assert_eq!(
+            current.state,
+            if starting {
+                AttemptState::CancelRequested
+            } else {
+                AttemptState::Cancelled
+            }
+        );
+        assert_eq!(current.state.holds_slot(), starting);
+    }
+}
+
+#[tokio::test]
+async fn supervisor_recovery_excludes_sessions_created_after_the_endpoint_was_bound() {
+    use adroit::control::{client::Client, protocol::Command, service::Service};
+    use adroit::settings::Settings;
+    use adroit_term::Daemon;
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let root = dir.path().join("control");
+    let mut store = Store::open(&root.join("state.sqlite3")).unwrap();
+    let inherited = store
+        .register_leader(
+            RequestId::new(),
+            LogicalSessionId::new(),
+            Agent::Codex,
+            dir.path().into(),
+        )
+        .unwrap()
+        .value;
+    drop(store);
+    let mut service = Service::bind(&root).await.unwrap();
+    let client = Client::human(&root).unwrap();
+    let new_id = LogicalSessionId::new();
+    client
+        .request(
+            RequestId::new(),
+            Command::RegisterLeader {
+                id: new_id,
+                agent: Agent::Codex,
+                cwd: dir.path().into(),
+                permissions: AgentPermissions::Default,
+            },
+        )
+        .await
+        .unwrap();
+    let socket = dir.path().join("d.sock");
+    let serving = socket.clone();
+    let native = tokio::spawn(async move {
+        Daemon::serve(&serving, std::time::Duration::from_secs(60), |_| {}).await
+    });
+    service
+        .supervise(Daemon::new(socket), "/adroit".into(), Settings::default)
+        .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            let snapshot = service
+                .actor()
+                .call(|store| store.snapshot())
+                .await
+                .unwrap();
+            if snapshot.sessions.iter().any(|session| {
+                session.reference() == inherited.reference()
+                    && session.state == ManagedSessionState::Failed
+            }) {
+                assert_eq!(
+                    snapshot
+                        .sessions
+                        .iter()
+                        .find(|session| session.binding.logical_id() == new_id)
+                        .unwrap()
+                        .state,
+                    ManagedSessionState::Preparing
+                );
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    native.abort();
+}
+
+#[test]
+fn a_late_startup_uncertainty_cannot_revive_a_confirmed_exited_leader() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let leader = store
+        .register_leader(
+            RequestId::new(),
+            LogicalSessionId::new(),
+            Agent::Codex,
+            dir.path().into(),
+        )
+        .unwrap()
+        .value
+        .reference();
+    let terminal = MessageId::new().to_string().replace('-', "");
+    store
+        .attach_session(
+            RequestId::new(),
+            leader,
+            dir.path().into(),
+            terminal.clone(),
+            MessageId::new().to_string(),
+        )
+        .unwrap();
+    store
+        .observe_terminal_exit(RequestId::new(), leader, terminal)
+        .unwrap();
+    store
+        .start_uncertain(
+            RequestId::new(),
+            leader,
+            "A delayed transport failure".into(),
+        )
+        .unwrap();
+    assert_eq!(
+        store.snapshot().unwrap().sessions[0].state,
+        ManagedSessionState::Exited
+    );
+}

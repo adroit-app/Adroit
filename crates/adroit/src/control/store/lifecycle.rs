@@ -134,3 +134,144 @@ impl Store {
         })
     }
 }
+
+pub(super) fn fail_start_record(
+    connection: &Connection,
+    identity: SessionRef,
+    reason: &str,
+) -> Result<ManagedSession> {
+    if reason.trim().is_empty() {
+        return Err(invalid("a failed startup needs a reason"));
+    }
+    let mut session = reference(connection, identity)?;
+    if session.state == ManagedSessionState::Failed {
+        return Ok(session);
+    }
+    if session.state != ManagedSessionState::Preparing {
+        return Err(conflict("the session is no longer preparing"));
+    }
+    if let Some((task_id, attempt_id)) = session.binding.work() {
+        let mut task: TaskRecord = require(connection, Table::Tasks, task_id)?;
+        let mut attempt: AttemptRecord = require(connection, Table::Attempts, attempt_id)?;
+        if task.current_attempt != Some(attempt_id)
+            || !matches!(
+                attempt.state,
+                AttemptState::Preparing | AttemptState::Starting | AttemptState::CancelRequested
+            )
+        {
+            return Err(conflict("the worker assignment changed"));
+        }
+        let cancelled = attempt.state == AttemptState::CancelRequested;
+        store_message(
+            connection,
+            &AgentMessage {
+                id: MessageId::new(),
+                run_id: task.run_id,
+                from: identity.id,
+                to: session.binding.leader_id(),
+                task_id: Some(task.id),
+                attempt_id: Some(attempt.id),
+                revision: Some(attempt.task_revision),
+                kind: MessageKind::Report,
+                body: if cancelled {
+                    format!("Worker startup cancelled before release: {reason}")
+                } else {
+                    format!("Worker startup failed: {reason}")
+                },
+                reply_to: None,
+                blocks_work: false,
+            },
+        )?;
+        attempt.state = if cancelled {
+            AttemptState::Cancelled
+        } else {
+            AttemptState::Failed
+        };
+        let run: RunRecord = require(connection, Table::Runs, task.run_id)?;
+        if run.state == RunState::Cancelling {
+            task.state = TaskState::Cancelled;
+        } else if task.revision == attempt.task_revision {
+            task.state = if cancelled {
+                TaskState::Cancelled
+            } else {
+                TaskState::Failed
+            };
+        } else {
+            task.current_attempt = None;
+        }
+        save_attempt(connection, &attempt)?;
+        save_task(connection, &task)?;
+        runs::settle_cancellation(connection, task.run_id)?;
+        event(
+            connection,
+            session.binding.run_id(),
+            "attempt_start_failed",
+            &json!({"attempt":attempt, "reason":reason}),
+        )?;
+    } else if let Some(run_id) = session.binding.run_id() {
+        let mut run: RunRecord = require(connection, Table::Runs, run_id)?;
+        if matches!(run.state, RunState::Active | RunState::Verifying) {
+            run.state = RunState::Failed;
+            save_run(connection, &run)?;
+        }
+        event(
+            connection,
+            Some(run_id),
+            "run_start_failed",
+            &json!({"run":run, "reason":reason}),
+        )?;
+    }
+    session.state = ManagedSessionState::Failed;
+    save_session(connection, &session)?;
+    event(
+        connection,
+        session.binding.run_id(),
+        "session_start_failed",
+        &json!({"session":session, "reason":reason}),
+    )?;
+    Ok(session)
+}
+
+impl Store {
+    pub fn interrupted_startups(&self) -> Result<Vec<SessionRef>> {
+        let mut statement=self.connection.prepare("SELECT data FROM logical_sessions WHERE json_extract(data,'$.state')='preparing' ORDER BY rowid")?;
+        statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .map(|row| Ok(decode::<ManagedSession>(&row?)?.reference()))
+            .collect()
+    }
+
+    pub fn recover_startup(
+        &mut self,
+        request: RequestId,
+        identity: SessionRef,
+    ) -> Result<Reply<ManagedSession>> {
+        self.transact(request,json!({"op":"recover_startup","caller":identity}),|connection| {
+            let mut session=reference(connection,identity)?;
+            if session.state!=ManagedSessionState::Preparing {return Ok(session);}
+            if let Some((_,id))=session.binding.work() {
+                let mut attempt:AttemptRecord=require(connection,Table::Attempts,id)?;
+                let start_intent:bool=connection.query_row("SELECT EXISTS(SELECT 1 FROM events WHERE kind='attempt_starting' AND json_extract(data,'$.id')=?1)",[id.to_string()],|row|row.get(0))?;
+                if attempt.state==AttemptState::Starting || (attempt.state==AttemptState::CancelRequested && start_intent) {
+                    session.state=ManagedSessionState::NeedsReconciliation;
+                    if attempt.state!=AttemptState::CancelRequested {attempt.state=AttemptState::Uncertain;}
+                    save_attempt(connection,&attempt)?;
+                    save_session(connection,&session)?;
+                    notify_uncertain(connection,&session,"The controller restarted after recording startup intent. Reconcile the native session before continuing; no replacement has been started.")?;
+                    event(connection,session.binding.run_id(),"startup_recovery_uncertain",&session)?;
+                    return Ok(session);
+                }
+                if let Some(id)=attempt.work_area_id {
+                    let mut area:WorkArea=require(connection,Table::WorkAreas,id)?;
+                    if area.state==WorkAreaState::Preparing {
+                        area.state=WorkAreaState::NeedsReconciliation;
+                        area.error=Some("Working area preparation was interrupted; preserve its files and reconcile its native state".into());
+                        connection.execute("UPDATE work_areas SET data=?1 WHERE id=?2",params![encode(&area)?,id.to_string()])?;
+                        event(connection,session.binding.run_id(),"work_area_recovery_required",&area)?;
+                    }
+                }
+            }
+            fail_start_record(connection,identity,"The controller restarted before the native program was released")
+        })
+    }
+}

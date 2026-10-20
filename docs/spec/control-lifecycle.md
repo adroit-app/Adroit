@@ -22,3 +22,16 @@ with the daemon. The human-only `confirm_terminal_exit` command takes `identity`
 and `terminal_id`; both must identify the current assigned terminal. It records
 a confirmed fact and does not stop a program itself. Closing tabs or the window
 does not confirm an exit or stop Agent and Terminal sessions.
+
+## Interrupted preparation
+
+Controller startup records which sessions were still preparing when its endpoint
+was bound. Recovery does not include sessions created after that boundary, and
+an already attached session is not failed using an earlier preparation record.
+
+Preparation interrupted before startup intent is recorded becomes failed or
+cancelled without starting another attempt. A recorded startup intent remains
+uncertain and retains its slot, including when cancellation was already
+requested. A partially prepared working area is kept for native reconciliation;
+a late preparation result cannot silently make it ready again. Late startup
+uncertainty cannot revive a confirmed exited or failed session.

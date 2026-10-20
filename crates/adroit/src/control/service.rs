@@ -24,6 +24,7 @@ pub struct Service {
     _claim: File,
     actor: Actor,
     supervisor: Option<tokio::task::JoinHandle<()>>,
+    startup: Vec<SessionRef>,
 }
 
 impl Drop for Service {
@@ -54,12 +55,25 @@ impl Service {
             ));
         }
         let actor = self.actor.clone();
+        let startup = std::mem::take(&mut self.startup);
         let root = self
             .socket
             .parent()
             .expect("control endpoint directory")
             .to_path_buf();
         self.supervisor = Some(tokio::spawn(async move {
+            for identity in startup {
+                if let Err(error) = actor
+                    .call(move |store| {
+                        store
+                            .recover_startup(RequestId::new(), identity)
+                            .map(|_| ())
+                    })
+                    .await
+                {
+                    eprintln!("adroit: startup recovery: {error}");
+                }
+            }
             let mut scheduler =
                 super::scheduler::Scheduler::new(actor.clone(), daemon.clone(), root, program);
             let mut dispatcher = super::dispatcher::Dispatcher::new(actor.clone());
@@ -114,6 +128,7 @@ impl Service {
         claim.try_lock().map_err(storage)?;
         let human = human_token(root)?;
         let actor = Actor::open(root.join("state.sqlite3")).await?;
+        let startup = actor.call(|store| store.interrupted_startups()).await?;
         let socket = root.join("control.sock");
         match std::fs::remove_file(&socket) {
             Ok(()) => {}
@@ -151,6 +166,7 @@ impl Service {
             _claim: claim,
             actor,
             supervisor: None,
+            startup,
         })
     }
 }
