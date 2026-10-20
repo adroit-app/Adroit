@@ -45,9 +45,12 @@ can be typed.
 
 `/` at the start of a word offers the shown session's agent's commands,
 narrowed by what follows the `/`. A Codex session or draft offers Adroit's
-catalog of Codex built-in commands; availability in Codex depends on the
-installed release and its configuration. Custom Codex commands and skills
-are not included in this catalog.
+catalog of Codex built-in commands immediately; availability in Codex depends
+on the installed release and its configuration. Enabled skills are fetched
+from Codex for the current directory and offered alongside the commands.
+Picking a skill inserts its Codex invocation, beginning with `$`. Typing `$`
+also offers skills. Skills refresh periodically; an unsuccessful refresh
+keeps the previous list, and built-in commands remain available.
 
 A Claude Code session or draft offers Claude Code's commands, the account's own
 skills and plugins among them, as Claude Code lists them for where the shown

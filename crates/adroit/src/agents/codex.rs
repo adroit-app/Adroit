@@ -2,6 +2,7 @@ use super::*;
 use serde::{Deserialize, Serialize};
 
 mod commands;
+mod rpc;
 mod usage;
 
 /// How Codex sessions start, apart from Claude Code's options.
@@ -34,8 +35,18 @@ impl AgentAdapter for Codex {
     fn usage_url(&self) -> Option<&'static str> {
         Some("https://chatgpt.com/settings/usage")
     }
-    fn commands(&self, _dir: PathBuf) -> Probe<adroit_claude::commands::Command> {
-        Box::pin(async { Some(commands::builtins()) })
+    fn commands(&self, dir: PathBuf) -> Probe<adroit_claude::commands::Command> {
+        Box::pin(async move {
+            commands::probe(
+                super::launch(Agent::Codex, vec!["app-server".into()], Vec::new()),
+                &dir,
+                adroit_claude::commands::PROBE_TIMEOUT,
+            )
+            .await
+        })
+    }
+    fn builtin_commands(&self) -> Vec<adroit_claude::commands::Command> {
+        commands::builtins()
     }
     fn usage(&self, home: PathBuf) -> Probe<adroit_claude::usage::Limit> {
         Box::pin(async move {
@@ -123,10 +134,7 @@ mod tests {
 
     #[tokio::test]
     async fn codex_slash_commands_reach_the_embedded_prompt() {
-        let list = Codex
-            .commands("/unused".into())
-            .await
-            .expect("Codex commands");
+        let list = Codex.builtin_commands();
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let editor = adroit_nvim::Embedded::spawn(
             "nvim",

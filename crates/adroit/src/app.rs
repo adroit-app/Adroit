@@ -1854,11 +1854,13 @@ fn App() -> Element {
         }
     });
     let offered_commands = use_memo(move || match commands_here() {
-        Some((agent, dir)) => command_cache
-            .read()
-            .get(&agent)
-            .map(|cache| complete::commands(cache.get(&dir)))
-            .unwrap_or_default(),
+        Some((agent, dir)) => {
+            let mut list = agents::adapter(agent).builtin_commands();
+            if let Some(cache) = command_cache.read().get(&agent) {
+                list.extend_from_slice(cache.get(&dir));
+            }
+            complete::commands(&list)
+        }
         None => Vec::new(),
     });
     use_effect(move || {

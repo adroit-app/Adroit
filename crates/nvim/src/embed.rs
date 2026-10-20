@@ -146,18 +146,20 @@ local function apply()
     end
     vim.fn.complete(s + 1, out)
   end
-  local function offer_commands(s, typed)
+  local function offer_commands(s, typed, sigil)
     if typed == "" then
       vim.rpcnotify(chan, "adroit_commands_wanted")
     end
-    local want = "/" .. typed:lower()
+    local want = typed:lower()
     local first, then_ = {}, {}
     for _, c in ipairs(vim.g.adroit_commands or {}) do
-      local name = c.word:lower()
-      if name:sub(1, #want) == want then
-        first[#first + 1] = item(c, c.word .. " ")
-      elseif name:find(want:sub(2), 2, true) then
-        then_[#then_ + 1] = item(c, c.word .. " ")
+      if sigil ~= "$" or c.word:sub(1, 1) == "$" then
+        local name = c.word:sub(2):lower()
+        if name:sub(1, #want) == want then
+          first[#first + 1] = item(c, c.word .. " ")
+        elseif name:find(want, 1, true) then
+          then_[#then_ + 1] = item(c, c.word .. " ")
+        end
       end
     end
     vim.list_extend(first, then_)
@@ -171,7 +173,11 @@ local function apply()
     end
     s, typed = word_start(before, "/[^%s/]*$")
     if s then
-      return offer_commands(s, typed)
+      return offer_commands(s, typed, "/")
+    end
+    s, typed = word_start(before, "%$[^%s$]*$")
+    if s then
+      return offer_commands(s, typed, "$")
     end
   end
   vim.o.completeopt = "menuone,noinsert"
@@ -853,6 +859,29 @@ mod tests {
         e.input("<C-y>").await.unwrap();
         wait(&mut rx, |_| e.state().popup().is_none()).await;
         assert_eq!(e.take_text().await.unwrap(), "/review ");
+    }
+
+    #[tokio::test]
+    async fn a_codex_skill_is_completed_from_a_slash_or_dollar_as_a_dollar_invocation() {
+        for trigger in ["/deploy", "$deploy"] {
+            let (e, mut rx) = start().await;
+            e.set_commands(&[
+                Candidate::new("/review", "Review code"),
+                Candidate::new("$deploy", "Deploy the service"),
+            ])
+            .await
+            .unwrap();
+            e.input(trigger).await.unwrap();
+            wait(&mut rx, |_| {
+                e.state()
+                    .popup()
+                    .is_some_and(|p| p.items.iter().any(|i| i.word == "$deploy"))
+            })
+            .await;
+            e.input("<C-y>").await.unwrap();
+            wait(&mut rx, |_| e.state().popup().is_none()).await;
+            assert_eq!(e.take_text().await.unwrap(), "$deploy ");
+        }
     }
 
     #[tokio::test]

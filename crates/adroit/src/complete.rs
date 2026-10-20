@@ -47,7 +47,11 @@ const DESCRIPTION_SHOWN: usize = 60;
 pub fn commands(list: &[Command]) -> Vec<Candidate> {
     list.iter()
         .map(|c| {
-            let word = format!("/{}", c.name);
+            let word = if c.name.starts_with('$') {
+                c.name.clone()
+            } else {
+                format!("/{}", c.name)
+            };
             let long = c.description.chars().count() > DESCRIPTION_SHOWN;
             let menu = if long {
                 let kept: String = c.description.chars().take(DESCRIPTION_SHOWN - 1).collect();
@@ -76,6 +80,12 @@ mod tests {
     use adroit_model::{Kind, Session, State, Worktree, build};
 
     use super::*;
+
+    #[test]
+    fn codex_skills_keep_the_dollar_invocation_in_the_completion() {
+        let got = commands(&[command("$deploy", "Deploy the service", "")]);
+        assert_eq!(got[0].word, "$deploy");
+    }
 
     #[test]
     fn the_open_workspace_s_sessions_come_before_the_others_and_files_last() {

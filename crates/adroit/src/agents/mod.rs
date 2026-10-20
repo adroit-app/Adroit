@@ -40,6 +40,9 @@ pub trait AgentAdapter: Sync {
     fn usage_url(&self) -> Option<&'static str> {
         None
     }
+    fn builtin_commands(&self) -> Vec<adroit_claude::commands::Command> {
+        Vec::new()
+    }
     fn commands(&self, _dir: PathBuf) -> Probe<adroit_claude::commands::Command> {
         Box::pin(async { None })
     }

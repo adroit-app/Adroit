@@ -1,9 +1,7 @@
 use adroit_claude::usage::{Limit, Severity, Window};
 use serde_json::Value;
 use std::path::Path;
-use std::process::Stdio;
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 fn limits(result: &Value) -> Option<Vec<Limit>> {
     let buckets: Vec<(Option<&str>, &Value)> = match result["rateLimitsByLimitId"].as_object() {
@@ -60,56 +58,11 @@ fn limits(result: &Value) -> Option<Vec<Limit>> {
 
 /// Ask the installed Codex for account limits without starting a thread or turn.
 pub(super) async fn probe(
-    (program, args, env): adroit_claude::Started,
+    start: adroit_claude::Started,
     dir: &Path,
     timeout: Duration,
 ) -> Option<Vec<Limit>> {
-    let mut child = tokio::process::Command::new(program)
-        .args(args)
-        .envs(env)
-        .current_dir(dir)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .spawn()
-        .ok()?;
-    let mut stdin = child.stdin.take()?;
-    let mut lines = BufReader::new(child.stdout.take()?).lines();
-    let asked = async {
-        let initialize = serde_json::json!({
-            "id": "adroit-init", "method": "initialize",
-            "params": {"clientInfo": {"name": "adroit", "version": env!("CARGO_PKG_VERSION")}}
-        });
-        stdin
-            .write_all(format!("{initialize}\n").as_bytes())
-            .await
-            .ok()?;
-        stdin.flush().await.ok()?;
-        response(&mut lines, "adroit-init").await?;
-        stdin.write_all(b"{\"method\":\"initialized\"}\n{\"id\":\"adroit-usage\",\"method\":\"account/rateLimits/read\"}\n").await.ok()?;
-        stdin.flush().await.ok()?;
-        limits(&response(&mut lines, "adroit-usage").await?)
-    };
-    let got = tokio::time::timeout(timeout, asked).await.ok().flatten();
-    let _ = child.start_kill();
-    let _ = child.wait().await;
-    got
-}
-
-async fn response(
-    lines: &mut tokio::io::Lines<BufReader<tokio::process::ChildStdout>>,
-    id: &str,
-) -> Option<Value> {
-    while let Some(line) = lines.next_line().await.ok()? {
-        let Ok(reply) = serde_json::from_str::<Value>(&line) else {
-            continue;
-        };
-        if reply["id"] == id {
-            return reply.get("result").cloned();
-        }
-    }
-    None
+    limits(&super::rpc::request(start, dir, timeout, "account/rateLimits/read", Value::Null).await?)
 }
 
 #[cfg(test)]
@@ -198,7 +151,7 @@ IFS= read -r line
 printf '%s\n' "$line" >> requests
 echo '{"method":"account/updated","params":{}}'
 echo '{"id":"unrelated","result":{}}'
-echo '{"id":"adroit-usage","result":{"rateLimits":{"primary":{"usedPercent":25,"windowDurationMins":300}}}}'
+echo '{"id":"adroit-query","result":{"rateLimits":{"primary":{"usedPercent":25,"windowDurationMins":300}}}}'
 exec sleep 30
 "#,
         );
@@ -228,7 +181,7 @@ exec sleep 30
         for body in [
             "exit 0",
             "read line\necho '{\"id\":\"adroit-init\",\"error\":{\"code\":-1}}'\nexec sleep 30",
-            "read line\necho '{\"id\":\"adroit-init\",\"result\":{}}'\nread line\nread line\necho '{\"id\":\"adroit-usage\",\"error\":{\"code\":-1}}'\nexec sleep 30",
+            "read line\necho '{\"id\":\"adroit-init\",\"result\":{}}'\nread line\nread line\necho '{\"id\":\"adroit-query\",\"error\":{\"code\":-1}}'\nexec sleep 30",
         ] {
             let (dir, start) = fake(body);
             assert_eq!(probe(start, dir.path(), Duration::from_secs(5)).await, None);
