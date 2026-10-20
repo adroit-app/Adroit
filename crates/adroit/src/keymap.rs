@@ -129,6 +129,7 @@ pub const DEFAULTS: &str = r#"
 "X" = "session.stop"
 
 [prompt]
+"Ctrl+c" = "console.send Escape"
 "Ctrl+Enter" = "prompt.send"
 "Ctrl+p" = "prompt.history_prev"
 "Ctrl+n" = "prompt.history_next"
@@ -1201,6 +1202,14 @@ mod tests {
             pending,
             key,
         )
+    }
+
+    #[test]
+    fn ctrl_c_in_the_prompt_sends_escape_to_the_agent() {
+        assert_eq!(
+            step(&Keymap::defaults(), &[Context::Prompt], &[], "Ctrl+c"),
+            Step::Run(Action::ConsoleSend(Some(Chord::parse("Escape").unwrap())))
+        );
     }
 
     #[test]

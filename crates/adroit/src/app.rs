@@ -986,7 +986,7 @@ fn mode_tip(mode: &str, dialog: bool) -> &'static str {
             "The console has the keys: Vim's moves read it, i writes a prompt below, Ctrl+w h goes back to the sidebar"
         }
         "READ" | "VISUAL" => {
-            "Vim's keys move, search, select and yank in the console; q or Esc goes back to it live, i writes a prompt"
+            "Vim's keys move, search, select and yank in the console; q, Esc or G goes back to it live, i writes a prompt"
         }
         "PASS" => "Every key goes to the console's program, but Ctrl+w sequences",
         "DIRECT" => "Every key goes to the session until Esc",
@@ -3381,6 +3381,19 @@ fn App() -> Element {
             reading.set(false);
         }
     });
+    // A session left scrolled back would show its jump-to-bottom line live,
+    // moving with its layout. Leaving READ and entering the prompt both
+    // return it to its latest output.
+    let leave_reading = {
+        let active_pane = active_pane.clone();
+        move || {
+            reading.set(false);
+            read_last.set(None);
+            if let Some(p) = active_pane().filter(|p| p.takes_mouse()) {
+                p.key(&console_read::newest());
+            }
+        }
+    };
     // Start reading the console, the cursor where the console's is, and give
     // the reader `keys`, the ones that started it.
     let enter_reading = {
@@ -3576,12 +3589,14 @@ fn App() -> Element {
     let mut last_area = use_signal(|| Area::Sidebar);
     use_effect({
         let mut request_pull = request_pull.clone();
+        let mut leave_reading = leave_reading.clone();
         move || {
             let area = focus();
             let before = *last_area.peek();
             if before != area {
                 last_area.set(area);
                 if area == Area::Prompt {
+                    leave_reading();
                     request_pull();
                 }
             }
@@ -3658,7 +3673,7 @@ fn App() -> Element {
         let hub = hub.clone();
         move |action: Action, key: Option<Key>| {
             let area = *focus.peek();
-            let pane = active_pane().filter(|_| area == Area::Console);
+            let pane = active_pane().filter(|_| matches!(area, Area::Console | Area::Prompt));
             let write = |p: &Pane, k: &Key| {
                 p.key(k);
             };
@@ -4419,6 +4434,7 @@ fn App() -> Element {
     let handle_key = {
         let active_pane = active_pane.clone();
         let enter_reading = enter_reading.clone();
+        let mut leave_reading = leave_reading.clone();
         let mut perform = perform.clone();
         let take_over = take_over.clone();
         let mut picker_key = picker_key;
@@ -4505,7 +4521,7 @@ fn App() -> Element {
             }
             // Reading, the keys are the reader's, but for those that begin a
             // global binding and those that leave it from its normal mode:
-            // Escape and q for the live console, i, a and o for the prompt.
+            // Escape, q and G for the live console, i, a and o for the prompt.
             // A key taken as global is only global: the console's binding of
             // it is for the live console.
             let mut windowing = false;
@@ -4518,34 +4534,25 @@ fn App() -> Element {
                     || keymap.peek().resolve(&[Context::Global], &[], &key) != Step::Nothing;
                 if !windowing {
                     let normal = r.state().mode() == "normal";
-                    let plain = !key.ctrl && !key.alt && !key.meta;
-                    // A session left scrolled back would show Claude Code's
-                    // jump-to-bottom line live, moving with its layout.
-                    let mut leave = || {
-                        reading.set(false);
-                        if let Some(p) = active_pane().filter(|p| p.takes_mouse()) {
-                            write(&p, &console_read::newest());
-                        }
-                    };
-                    match key.key.as_str() {
-                        "Escape" | "q" if normal && plain => {
-                            leave();
+                    match console_read::exit(&key, normal) {
+                        Some(console_read::Exit::Live) => {
+                            leave_reading();
                             return;
                         }
-                        "i" | "a" | "I" | "A" | "o" | "O" if normal && plain => leave(),
-                        _ => {
+                        Some(console_read::Exit::Prompt) => {}
+                        None => {
                             // A program that scrolls what it shows itself, as
                             // Claude Code on the alternate screen does, leaves
                             // nothing scrolled off to read: moving past the
                             // reader's first or last line scrolls the program,
-                            // and the reader follows what it then shows. `G`
-                            // and `gg` scroll it all the way, and move too.
+                            // and the reader follows what it then shows. `gg`
+                            // scrolls it to its start, and moves there too.
                             let previous = read_last.peek().clone();
                             read_last.set(Some(key.clone()));
                             let program = active_pane().filter(|p| p.takes_mouse());
                             if normal
                                 && let Some(p) = &program
-                                && let Some(to) = console_read::to_end(&key, previous.as_ref())
+                                && let Some(to) = console_read::to_start(&key, previous.as_ref())
                             {
                                 write(p, &to);
                                 *frame.write() += 1;

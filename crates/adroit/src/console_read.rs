@@ -82,16 +82,36 @@ pub fn past_edge(key: &adroit_term::Key, at: Edge) -> Option<i32> {
     ((by > 0 && first) || (by < 0 && last)).then_some(by)
 }
 
+/// Where a key leaves the reader for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Exit {
+    Live,
+    Prompt,
+}
+
+/// The normal-mode keys that leave the reader. Other modes keep their keys
+/// so searches and selections can be finished inside Neovim.
+pub fn exit(key: &adroit_term::Key, normal: bool) -> Option<Exit> {
+    if !normal || key.ctrl || key.alt || key.meta {
+        return None;
+    }
+    match key.key.as_str() {
+        "Escape" | "q" | "G" => Some(Exit::Live),
+        "i" | "a" | "I" | "A" | "o" | "O" => Some(Exit::Prompt),
+        _ => None,
+    }
+}
+
 /// Claude Code's key for scrolling to its newest message.
 pub fn newest() -> adroit_term::Key {
     adroit_term::Key::new("End").ctrl()
 }
 
-/// The key that scrolls the session to its end or its start, when `key`
-/// after `previous` moves the reader to its last line, as `G` does, or to its
-/// first, as `gg` does. `None` for any other key. The wheel would stop short
+/// The key that scrolls the session to its start when `key` after
+/// `previous` moves the reader to its first line, as `gg` does. `None`
+/// for any other key. The wheel would stop short
 /// of a long session, as a terminal turns it only so far at once.
-pub fn to_end(
+pub fn to_start(
     key: &adroit_term::Key,
     previous: Option<&adroit_term::Key>,
 ) -> Option<adroit_term::Key> {
@@ -100,7 +120,6 @@ pub fn to_end(
         return None;
     }
     match key.key.as_str() {
-        "G" => Some(newest()),
         "g" if previous.is_some_and(|p| plain(p) && p.key == "g") => {
             Some(adroit_term::Key::new("Home").ctrl())
         }
@@ -374,16 +393,30 @@ mod tests {
     }
 
     #[test]
-    fn going_to_the_last_or_the_first_line_scrolls_the_session_all_the_way() {
+    fn leaving_read_mode_uses_the_same_keys_for_live_and_prompt() {
+        for k in ["q", "Escape", "G"] {
+            assert_eq!(exit(&key(k), true), Some(Exit::Live), "{k}");
+            assert_eq!(exit(&key(k), false), None, "{k}");
+            assert_eq!(exit(&key(k).ctrl(), true), None, "{k}");
+        }
+        for k in ["i", "a", "I", "A", "o", "O"] {
+            assert_eq!(exit(&key(k), true), Some(Exit::Prompt), "{k}");
+            assert_eq!(exit(&key(k), false), None, "{k}");
+            assert_eq!(exit(&key(k).meta(), true), None, "{k}");
+        }
+        assert_eq!(exit(&key("G").shift(), true), Some(Exit::Live));
+        assert_eq!(exit(&key("j"), true), None);
+    }
+
+    #[test]
+    fn going_to_the_first_line_scrolls_the_session_all_the_way() {
         let g = key("g");
-        let big_g = key("G").shift();
-        // Claude Code's own keys for its newest and its first message.
-        assert_eq!(to_end(&big_g, None), Some(key("End").ctrl()));
-        assert_eq!(to_end(&g, Some(&g)), Some(key("Home").ctrl()));
+        assert_eq!(to_start(&key("G").shift(), None), None);
+        assert_eq!(to_start(&g, Some(&g)), Some(key("Home").ctrl()));
         // A lone g waits for the next key; one after another key is a new start.
-        assert_eq!(to_end(&g, None), None);
-        assert_eq!(to_end(&g, Some(&key("j"))), None);
-        assert_eq!(to_end(&key("j"), Some(&g)), None);
-        assert_eq!(to_end(&key("g").ctrl(), Some(&g)), None);
+        assert_eq!(to_start(&g, None), None);
+        assert_eq!(to_start(&g, Some(&key("j"))), None);
+        assert_eq!(to_start(&key("j"), Some(&g)), None);
+        assert_eq!(to_start(&key("g").ctrl(), Some(&g)), None);
     }
 }
