@@ -82,6 +82,48 @@ async fn a_session_s_screen_shows_what_its_program_wrote() {
     until(&pane, |t| t[0] == "hello").await;
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn a_headless_start_is_released_before_its_command_runtime_exits() {
+    let (daemon, _dir) = daemon().await;
+    let starting = daemon.clone();
+    let id = tokio::task::spawn_blocking(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let pane = Pane::start(
+                &starting,
+                sh("printf headless; sleep 5"),
+                Size::new(40, 6),
+                &Palette::default(),
+                |_| || {},
+            )
+            .await
+            .unwrap();
+            pane.id()
+        })
+    })
+    .await
+    .unwrap();
+    let mut released = false;
+    for _ in 0..100 {
+        if daemon
+            .visible(id)
+            .await
+            .unwrap()
+            .iter()
+            .any(|line| line.contains("headless"))
+        {
+            released = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    daemon.end(id).await.unwrap();
+    assert!(released, "the program remained behind the startup gate");
+}
+
 #[tokio::test]
 async fn a_session_is_listed_with_its_tags_and_keeps_running_without_a_window() {
     let (d, _dir) = daemon().await;

@@ -47,6 +47,7 @@ ids!(
     WorkAreaId,
     CoordinationId,
     DraftId,
+    TerminalResourceId,
 );
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

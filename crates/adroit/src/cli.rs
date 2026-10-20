@@ -1,7 +1,7 @@
 //! What the `adroit` command was asked to do.
 
 use crate::paths::{DEFAULT_INSTANCE, INSTANCE_ENV, instance_state, is_instance};
-use crate::shells::{Request, Response, ask, socket_path};
+use crate::window_socket::{Request, Response, ask, socket_path};
 
 /// What `adroit` does, by its arguments.
 #[derive(Debug, PartialEq, Eq)]
@@ -11,14 +11,14 @@ pub enum Command {
     Window(Option<String>),
     Version,
     /// A subcommand, and the arguments that follow it.
-    Shell(Vec<String>),
+    Terminal(Vec<String>),
     Editor(Vec<String>),
     Session(Vec<String>),
     Daemon,
 }
 
 pub const USAGE: &str =
-    "usage: adroit [--instance <name> | --version | shell … | editor … | session … | daemon]";
+    "usage: adroit [--instance <name> | --version | terminal … | editor … | session … | daemon]";
 
 /// The command `args` ask for; `None` for one adroit does not know, which
 /// must not open a window: a program that ran an older adroit's subcommand
@@ -34,7 +34,7 @@ pub fn command(args: &[String]) -> Option<Command> {
             _ => None,
         },
         Some("--version") if args.len() == 1 => Some(Command::Version),
-        Some("shell") => Some(Command::Shell(rest())),
+        Some("terminal") => Some(Command::Terminal(rest())),
         Some("editor") => Some(Command::Editor(rest())),
         Some("session") => Some(Command::Session(rest())),
         Some("daemon") if args.len() == 1 => Some(Command::Daemon),
@@ -91,8 +91,8 @@ mod tests {
     #[test]
     fn a_subcommand_takes_the_arguments_after_it() {
         assert_eq!(
-            asked(&["shell", "screen", "dev"]),
-            Some(Command::Shell(vec!["screen".into(), "dev".into()]))
+            asked(&["terminal", "screen", "dev"]),
+            Some(Command::Terminal(vec!["screen".into(), "dev".into()]))
         );
         assert_eq!(
             asked(&["editor", "/tmp/p.md"]),

@@ -7,7 +7,7 @@ mod leaders;
 mod metrics;
 mod orchestration;
 mod session;
-mod shell;
+mod terminal;
 mod tree;
 
 pub use inbox::*;
@@ -15,5 +15,5 @@ pub use leaders::*;
 pub use metrics::*;
 pub use orchestration::*;
 pub use session::*;
-pub use shell::*;
+pub use terminal::*;
 pub use tree::*;

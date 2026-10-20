@@ -9,6 +9,7 @@ use adroit_term::Daemon;
 
 use crate::scratch::{self, Moment};
 use crate::sessions::{self, Kept};
+use crate::settings::Settings;
 use crate::tabs::{fresh_name, label_from, label_of};
 
 const USAGE: &str = "usage: adroit session start [--dir <path>] [--name <name>] [--permissions <default|read_only> | --permissions-file <path>] [--agent <claude|codex>] [--model <model>] [-- <prompt>]";
@@ -106,7 +107,7 @@ async fn start(
         .iter()
         .filter_map(|s| match sessions::read(s)? {
             Kept::Agent(c) => Some(c.name),
-            Kept::Shell(_) => None,
+            Kept::Terminal(_) => None,
         })
         .collect();
     let taken: Vec<&str> = names.iter().map(String::as_str).collect();
@@ -128,8 +129,8 @@ async fn start(
     let mut spawn = crate::execution::resolve(&settings, request, &program)?.spawn;
     spawn.cols = COLS;
     spawn.rows = ROWS;
-    daemon
-        .spawn(spawn)
+    let palette = crate::themes::palette(&settings.theme, &Settings::themes_dir())?;
+    crate::execution::spawn_headless(daemon, spawn, &palette)
         .await
         .map_err(|e| format!("cannot start {name}: {e}"))?;
     Ok(name)

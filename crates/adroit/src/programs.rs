@@ -163,28 +163,6 @@ pub fn claude_asked(args: Vec<String>) -> adroit_claude::Started {
     claude(args, Vec::new())
 }
 
-/// What starts a Neovim tab's Neovim, as the settings say: the program, its
-/// arguments, and the variables the settings set for it.
-pub fn neovim() -> (String, Vec<String>, Vec<(String, String)>) {
-    let s = crate::settings::current();
-    let shell = s.shell.program(&login_shell());
-    let (program, args) = s.neovim.command_line("nvim", &[], &shell);
-    (program, args, s.neovim.env.into_iter().collect())
-}
-
-/// What starts a shell tab's shell, as the settings say: the program, its
-/// arguments, and the variables it gets, `SHELL` naming it.
-pub fn shell() -> (String, Vec<String>, Vec<(String, String)>) {
-    let s = crate::settings::current();
-    let (program, args) = s.shell.command_line(&login_shell());
-    // What runs in it reads the shell it runs in from here.
-    let env = [("SHELL".to_string(), program.clone())]
-        .into_iter()
-        .chain(s.shell.env)
-        .collect();
-    (program, args, env)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

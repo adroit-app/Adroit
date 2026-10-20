@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::{Session, Shell};
+use crate::{Session, TerminalSession};
 
 /// A git worktree as found on disk.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,7 +29,7 @@ impl Worktree {
     }
 }
 
-/// The workspaces sessions and shells run in, each with its worktrees, and
+/// The workspaces sessions and terminals run in, each with its worktrees, and
 /// what runs in each.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Tree {
@@ -51,7 +51,7 @@ pub struct WorkspaceNode {
 pub struct WorktreeNode {
     pub worktree: Worktree,
     pub sessions: Vec<Session>,
-    pub shells: Vec<Shell>,
+    pub terminals: Vec<TerminalSession>,
 }
 
 impl WorkspaceNode {
@@ -92,29 +92,32 @@ impl Tree {
     }
 
     /// The workspace and worktree a shell runs in.
-    pub fn shell(&self, id: u128) -> Option<(&WorkspaceNode, &WorktreeNode, &Shell)> {
+    pub fn terminal(&self, id: u128) -> Option<(&WorkspaceNode, &WorktreeNode, &TerminalSession)> {
         self.workspaces.iter().find_map(|ws| {
-            ws.worktrees
-                .iter()
-                .find_map(|wt| wt.shells.iter().find(|s| s.id == id).map(|s| (ws, wt, s)))
+            ws.worktrees.iter().find_map(|wt| {
+                wt.terminals
+                    .iter()
+                    .find(|s| s.id == id)
+                    .map(|s| (ws, wt, s))
+            })
         })
     }
 
-    /// The tree with `shells` in place of the shells it held, each in the
+    /// The tree with `terminals` in place of the terminals it held, each in the
     /// innermost worktree holding the directory it runs in. A shell no
     /// worktree holds is left out: placing it needs git, which `build` asks.
-    pub fn with_shells(&self, shells: &[Shell]) -> Tree {
+    pub fn with_terminals(&self, terminals: &[TerminalSession]) -> Tree {
         let mut out = self.clone();
         for w in out
             .workspaces
             .iter_mut()
             .flat_map(|ws| ws.worktrees.iter_mut())
         {
-            w.shells.clear();
+            w.terminals.clear();
         }
         let paths: Vec<PathBuf> = out.worktrees().map(|w| w.worktree.path.clone()).collect();
-        for shell in shells {
-            let Some(home) = innermost(&paths, &shell.worktree).cloned() else {
+        for shell in terminals {
+            let Some(home) = innermost(&paths, &shell.cwd).cloned() else {
                 continue;
             };
             if let Some(w) = out
@@ -123,7 +126,7 @@ impl Tree {
                 .flat_map(|ws| ws.worktrees.iter_mut())
                 .find(|w| w.worktree.path == home)
             {
-                w.shells.push(shell.clone());
+                w.terminals.push(shell.clone());
             }
         }
         out
@@ -145,7 +148,7 @@ impl Tree {
 /// workspace of that directory, listed after every other.
 pub fn build(
     sessions: &[Session],
-    shells: &[Shell],
+    terminals: &[TerminalSession],
     found: &HashMap<PathBuf, Option<Worktree>>,
     listed: &[Worktree],
     scratch: Option<&Path>,
@@ -164,8 +167,8 @@ pub fn build(
             .sessions
             .push(session.clone());
     }
-    for shell in shells {
-        let (worktree, holder) = held(&shell.worktree);
+    for shell in terminals {
+        let (worktree, holder) = held(&shell.cwd);
         worktree_node(&mut tree, &worktree, holder);
     }
     for w in listed {
@@ -186,7 +189,7 @@ pub fn build(
                 .cmp(&(!b.worktree.is_main(), &b.worktree.path))
         });
     }
-    tree.with_shells(shells)
+    tree.with_terminals(terminals)
 }
 
 /// The innermost of `worktrees` holding `cwd`. A worktree under
@@ -237,7 +240,7 @@ fn worktree_node<'a>(tree: &'a mut Tree, w: &Worktree, holder: Holder) -> &'a mu
             ws.worktrees.push(WorktreeNode {
                 worktree: w.clone(),
                 sessions: Vec::new(),
-                shells: Vec::new(),
+                terminals: Vec::new(),
             });
             ws.worktrees.len() - 1
         }
@@ -249,7 +252,7 @@ fn worktree_node<'a>(tree: &'a mut Tree, w: &Worktree, holder: Holder) -> &'a mu
 mod tests {
     use super::*;
     use crate::Kind;
-    use crate::Shell;
+    use crate::TerminalSession;
 
     fn session(id: &str, cwd: &str) -> Session {
         Session {
@@ -424,17 +427,18 @@ mod tests {
         assert!(t.find("b").is_none());
     }
 
-    fn shell(id: u128, dir: &str) -> Shell {
-        Shell {
-            runs: Default::default(),
+    fn shell(id: u128, dir: &str) -> TerminalSession {
+        TerminalSession {
+            program: Default::default(),
             id,
             name: format!("shell-{id}"),
-            worktree: dir.into(),
+            cwd: dir.into(),
+            ..Default::default()
         }
     }
 
     fn shell_ids(node: &WorktreeNode) -> Vec<u128> {
-        node.shells.iter().map(|s| s.id).collect()
+        node.terminals.iter().map(|s| s.id).collect()
     }
 
     #[test]
@@ -520,9 +524,9 @@ mod tests {
         );
         // One opened since in the nested worktree, one in a directory no
         // worktree listed holds yet; the first is gone.
-        let again = t.with_shells(&[shell(2, &format!("{x}/src")), shell(3, "/web")]);
+        let again = t.with_terminals(&[shell(2, &format!("{x}/src")), shell(3, "/web")]);
         let ws = &again.workspaces[0];
-        assert!(ws.worktrees[0].shells.is_empty());
+        assert!(ws.worktrees[0].terminals.is_empty());
         assert_eq!(shell_ids(&ws.worktrees[1]), [2]);
         assert_eq!(again.workspaces.len(), 1);
     }
@@ -536,12 +540,12 @@ mod tests {
             &[],
             None,
         );
-        let (ws, wt, s) = t.shell(1).unwrap();
+        let (ws, wt, s) = t.terminal(1).unwrap();
         assert_eq!(
             (ws.name.as_str(), wt.worktree.path.as_path(), s.id),
             ("api", Path::new("/api"), 1)
         );
-        assert!(t.shell(2).is_none());
+        assert!(t.terminal(2).is_none());
     }
 
     #[test]

@@ -124,7 +124,7 @@ impl Icon {
             A::PromptImages => Icon::Photo,
             A::ShellOpen => Icon::Terminal2,
             A::NeovimOpen => Icon::Code,
-            A::ShellClose => Icon::SquareX,
+            A::TerminalStop => Icon::SquareX,
             A::TabClose => Icon::X,
             A::WindowClose => Icon::AppWindow,
             A::SessionRename => Icon::Pencil,

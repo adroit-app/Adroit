@@ -461,7 +461,7 @@ actions! {
     SessionRename => "session.rename",
     SessionAgentNext => "session.agent_next",
     ShellOpen => "shell.open",
-    ShellClose => "shell.close",
+    TerminalStop => "terminal.stop",
     NeovimOpen => "neovim.open",
     TabClose => "tab.close",
     WindowClose => "window.close",

@@ -21,7 +21,7 @@ fn main() {
             return;
         }
         Some(Command::Session(rest)) => std::process::exit(adroit::session_cli(&rest)),
-        Some(Command::Shell(rest)) => std::process::exit(adroit::shell_cli(&rest)),
+        Some(Command::Terminal(rest)) => std::process::exit(adroit::terminal_cli(&rest)),
         Some(Command::Editor(rest)) => std::process::exit(adroit::editor::cli(&rest)),
         Some(Command::Daemon) => std::process::exit(adroit::daemon_cli()),
         Some(Command::Window(_)) => {}

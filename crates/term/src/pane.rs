@@ -111,11 +111,16 @@ struct State {
 }
 
 /// A window onto one session.
+enum WriteRequest {
+    Frame(OutgoingFrame),
+    Flushed(tokio::sync::oneshot::Sender<()>),
+}
+
 pub struct Pane {
     id: u128,
     last_input_ms: AtomicU64,
     state: Arc<Mutex<State>>,
-    out: mpsc::UnboundedSender<OutgoingFrame>,
+    out: mpsc::UnboundedSender<WriteRequest>,
     reader: tokio::task::JoinHandle<()>,
 }
 
@@ -229,6 +234,7 @@ impl Pane {
         let waker = waker_for(info.id);
         let pane = Self::over(conn, &info, size, palette, waker);
         pane.send(InputMsg::KeyBytes(RELEASE.to_vec()));
+        pane.flush().await?;
         Ok(pane)
     }
 
@@ -263,13 +269,20 @@ impl Pane {
             mut driver,
             ..
         } = conn;
-        let (out, mut queue) = mpsc::unbounded_channel::<OutgoingFrame>();
+        let (out, mut queue) = mpsc::unbounded_channel::<WriteRequest>();
         tokio::spawn(async move {
-            while let Some(frame) = queue.recv().await {
-                if writer.send_checked_unflushed(frame.frame()).await.is_err()
-                    || writer.flush().await.is_err()
-                {
-                    break;
+            while let Some(request) = queue.recv().await {
+                match request {
+                    WriteRequest::Frame(frame) => {
+                        if writer.send_checked_unflushed(frame.frame()).await.is_err()
+                            || writer.flush().await.is_err()
+                        {
+                            break;
+                        }
+                    }
+                    WriteRequest::Flushed(reply) => {
+                        let _ = reply.send(());
+                    }
                 }
             }
         });
@@ -356,15 +369,25 @@ impl Pane {
         self.id
     }
 
+    async fn flush(&self) -> Result<()> {
+        let (reply, flushed) = tokio::sync::oneshot::channel();
+        self.out
+            .send(WriteRequest::Flushed(reply))
+            .map_err(|_| Error::Protocol("the terminal writer stopped".into()))?;
+        flushed
+            .await
+            .map_err(|_| Error::Protocol("the terminal writer stopped before flushing".into()))
+    }
+
     fn send(&self, msg: InputMsg) {
         if let Ok(frame) = OutgoingFrame::input(&msg) {
-            let _ = self.out.send(frame);
+            let _ = self.out.send(WriteRequest::Frame(frame));
         }
     }
 
     fn send_session(&self, msg: &SessionToDaemonMsg) {
         if let Ok(frame) = OutgoingFrame::ordered(msg) {
-            let _ = self.out.send(frame);
+            let _ = self.out.send(WriteRequest::Frame(frame));
         }
     }
 

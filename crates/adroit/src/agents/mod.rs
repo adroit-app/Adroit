@@ -260,7 +260,7 @@ mod tests {
                 scratch: false,
                 worktrees: vec![WorktreeNode {
                     worktree: Worktree::plain("/api"),
-                    shells: vec![],
+                    terminals: vec![],
                     sessions: vec![Session {
                         id: "codex-session".into(),
                         agent: Agent::Codex,
@@ -346,7 +346,7 @@ mod tests {
                 id: Default::default(),
             })));
         }
-        for tab in [Tab::Session("running".into()), Tab::Shell(1)] {
+        for tab in [Tab::Session("running".into()), Tab::Terminal(1)] {
             assert!(!can_choose(Some(&tab)));
             let mut chosen = HashMap::new();
             let mut last = Some(Agent::Claude);

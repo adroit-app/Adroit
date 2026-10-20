@@ -452,12 +452,12 @@ mod tests {
     fn what_is_written_survives_the_window_and_comes_back_to_its_tab() {
         let mut d = Drafts::default();
         d.show(session("a"), String::new());
-        d.show(Some(Tab::Shell(1)), "for a".into());
+        d.show(Some(Tab::Terminal(1)), "for a".into());
         let saved = d.saved("in the shell's prompt");
         let mut back = Drafts::restored(saved);
         assert_eq!(back.show(session("a"), String::new()), Some("for a".into()));
         assert_eq!(
-            back.show(Some(Tab::Shell(1)), String::new()),
+            back.show(Some(Tab::Terminal(1)), String::new()),
             Some("in the shell's prompt".into())
         );
     }

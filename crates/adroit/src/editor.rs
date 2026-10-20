@@ -8,7 +8,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::paths::instance_state;
-use crate::shells::{Request, Response, ask, socket_path};
+use crate::window_socket::{Request, Response, ask, socket_path};
 
 /// The lines typed into Claude Code's input, from the file it hands its
 /// editor.

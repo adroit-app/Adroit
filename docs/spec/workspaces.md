@@ -22,7 +22,7 @@ it straight under it, with no worktree row; one outside git always does.
 
 Opening a shell's row shows that shell in the console and moves the keys
 there, as opening a session's row does. Closing it from its row ends the
-shell, as closing its tab does ([shells](shells.md)). Going from session to
+shell, as closing its tab does ([shells](terminals.md)). Going from session to
 session, the waiting sessions and the picker pass shells over.
 
 `!` in the sidebar shows every worktree git knows of each workspace, those

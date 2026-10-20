@@ -5,7 +5,7 @@
 /// `pmset -g assertions`.
 pub const NAME: &str = "adroit: sessions are running";
 
-/// Whether the Mac is to be kept awake, with `running` sessions and shells
+/// Whether the Mac is to be kept awake, with `running` sessions and terminals
 /// whose programs still run.
 pub fn wanted(running: usize, keep_awake: bool) -> bool {
     keep_awake && running > 0

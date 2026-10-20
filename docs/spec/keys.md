@@ -152,7 +152,7 @@ another, the complete one runs.
 | --- | --- |
 | `window.left`, `window.down`, `window.up`, `window.right` | move to the area in that direction |
 | `tab.next`, `tab.prev` | show the next or previous tab of the area the keys are in: the details panel's sheets there, elsewhere the console's tabs, which are the sessions opened in the window, the worktree's shells and a draft |
-| `tab.close` | close the current tab; a shell ends, a session runs on and stays in the sidebar. On a shell's row in the sidebar, that shell ends |
+| `tab.close` | close the current tab; agents and terminals keep running and remain reachable from the sidebar |
 | `window.close` | close the window, which ends adroit; its sessions run on |
 | `cursor.down`, `cursor.up`, `cursor.first`, `cursor.last` | move the selection in the sidebar; in the details panel, in the list it shows, or scroll what else it shows |
 | `cursor.open` | open the selected session, shell or worktree and move to its console, or to the prompt of a session not started yet; fold or unfold a workspace; in the details panel, open the selected row |
@@ -169,8 +169,9 @@ another, the complete one runs.
 | `session.take_over` | take over an interactive session ([details](interactive-sessions.md)) |
 | `session.stop` | end a session adroit runs after asking; Claude Code keeps its conversation, for `/resume` in a session started later |
 | `session.rename` | ask for a new name for a session adroit runs, with its name to change; the sidebar shows it, and the session is sent Claude Code's `/rename` so its own interface says it too |
-| `shell.open`, `shell.close` | open a shell in the worktree, close the current one: the one selected in the sidebar, or else the one shown |
-| `neovim.open` | open Neovim, with your own configuration, in the worktree as `shell.open` opens a shell ([shells](shells.md)) |
+| `shell.open` | open a shell in the worktree |
+| `terminal.stop` | end the terminal selected in the sidebar, or else the one shown |
+| `neovim.open` | open Neovim, with your own configuration, in the worktree as `shell.open` opens a shell ([shells](terminals.md)) |
 | `scroll.down`, `scroll.up`, `scroll.half_down`, `scroll.half_up`, `scroll.top`, `scroll.bottom` | scroll the details panel; bound in the console, scroll it: Claude Code and other programs that read the mouse are sent the wheel, others are scrolled back through what scrolled off |
 | `refresh` | read the sessions, and what git says of where they run, again now |
 | `sidebar.toggle`, `details.toggle` | show or hide the sidebar, the details panel |

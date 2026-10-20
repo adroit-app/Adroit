@@ -81,7 +81,7 @@ pub fn sections() -> Vec<Section> {
                 Separator,
                 Run(Action::ShellOpen, "Open Shell"),
                 Run(Action::NeovimOpen, "Open Neovim"),
-                Run(Action::ShellClose, "Close Shell"),
+                Run(Action::TerminalStop, "Stop Terminal"),
                 Run(Action::TabClose, "Close Tab"),
                 Run(Action::WindowClose, "Close Window"),
                 Separator,

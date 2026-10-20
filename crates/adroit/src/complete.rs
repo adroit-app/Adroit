@@ -34,7 +34,7 @@ pub fn commands_dir(tree: &Tree, tab: Option<&Tab>, place: Option<&Place>) -> Op
     match tab {
         Some(Tab::Session(id)) => nav::find(tree, id).map(|(_, s)| s.cwd.clone()),
         Some(Tab::Draft { worktree, .. }) => Some(worktree.clone()),
-        Some(Tab::Shell(_)) => None,
+        Some(Tab::Terminal(_)) => None,
         None => place.map(|p| p.worktree.clone()),
     }
 }
@@ -241,7 +241,7 @@ mod tests {
             worktree: "/api".into(),
         };
         assert_eq!(
-            commands_dir(&Tree::default(), Some(&Tab::Shell(1)), Some(&place)),
+            commands_dir(&Tree::default(), Some(&Tab::Terminal(1)), Some(&place)),
             None
         );
     }

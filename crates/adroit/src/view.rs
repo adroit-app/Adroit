@@ -1,5 +1,5 @@
 //! Drawing a terminal-like screen from cells, shared by the session consoles,
-//! the shells and the prompt.
+//! the terminals and the prompt.
 
 use adroit_term::{CursorShape, Picture, Screen};
 use dioxus::prelude::*;

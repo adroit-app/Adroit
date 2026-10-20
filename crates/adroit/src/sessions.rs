@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use adroit_model::{Kind, Runs, Session, Shell, State};
+use adroit_model::{Kind, Session, State, TerminalProgram, TerminalSession};
 use adroit_term::tags;
 
 const KIND: &str = "adroit.kind";
@@ -27,7 +27,7 @@ const STARTED_FROM: &str = "adroit.from";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Kept {
     Agent(Session),
-    Shell(Shell),
+    Terminal(TerminalSession),
 }
 
 /// The daemon's id as the window writes it.
@@ -97,14 +97,19 @@ pub fn read(session: &adroit_term::Session) -> Option<Kept> {
             },
             started_from: tags::value(t, STARTED_FROM).unwrap_or_default(),
         })),
-        kind @ ("shell" | "nvim") => Some(Kept::Shell(Shell {
+        "terminal" => Some(Kept::Terminal(TerminalSession {
             id: session.id,
+            resource_id: tags::value(t, "adroit.resource")?.parse().ok()?,
             name,
-            worktree: cwd,
-            runs: if kind == "nvim" {
-                Runs::Neovim
-            } else {
-                Runs::Shell
+            cwd,
+            program: match tags::value(t, "adroit.program")?.as_str() {
+                "shell" => TerminalProgram::Shell,
+                "neovim" => TerminalProgram::Neovim,
+                _ => return None,
+            },
+            binding: match tags::value(t, "adroit.terminal-binding") {
+                Some(raw) => Some(serde_json::from_str(&raw).ok()?),
+                None => None,
             },
         })),
         _ => None,
@@ -215,14 +220,30 @@ pub fn agent_tags(
 }
 
 /// The tags a shell adroit starts carries, saying what it `runs`.
-pub fn shell_tags(name: &str, worktree: &std::path::Path, runs: Runs) -> Vec<String> {
-    let kind = match runs {
-        Runs::Shell => "shell",
-        Runs::Neovim => "nvim",
-    };
-    let mut out = tags::tagged(KIND, kind);
+pub fn terminal_tags(
+    name: &str,
+    cwd: &std::path::Path,
+    program: TerminalProgram,
+    resource_id: adroit_model::TerminalResourceId,
+    binding: Option<&adroit_model::TerminalBinding>,
+) -> Vec<String> {
+    let mut out = tags::tagged(KIND, "terminal");
     out.extend(tags::tagged(NAME, name));
-    out.extend(tags::tagged(CWD, &worktree.to_string_lossy()));
+    out.extend(tags::tagged(CWD, &cwd.to_string_lossy()));
+    out.extend(tags::tagged("adroit.resource", &resource_id.to_string()));
+    out.extend(tags::tagged(
+        "adroit.program",
+        match program {
+            TerminalProgram::Shell => "shell",
+            TerminalProgram::Neovim => "neovim",
+        },
+    ));
+    if let Some(binding) = binding {
+        out.extend(tags::tagged(
+            "adroit.terminal-binding",
+            &serde_json::to_string(binding).expect("serializable terminal binding"),
+        ));
+    }
     out
 }
 
@@ -431,16 +452,32 @@ mod tests {
     }
 
     #[test]
-    fn a_shell_is_read_back_with_its_worktree_and_what_it_runs() {
-        for runs in [Runs::Shell, Runs::Neovim] {
-            let s = kept(9, shell_tags("shell 1", std::path::Path::new("/api"), runs));
+    fn a_terminal_keeps_its_resource_id_program_and_optional_owner() {
+        for program in [TerminalProgram::Shell, TerminalProgram::Neovim] {
+            let resource_id = adroit_model::TerminalResourceId::new();
+            let binding = adroit_model::TerminalBinding {
+                run_id: adroit_model::RunId::new(),
+                worker_id: None,
+            };
+            let s = kept(
+                9,
+                terminal_tags(
+                    "tool",
+                    std::path::Path::new("/api"),
+                    program,
+                    resource_id,
+                    Some(&binding),
+                ),
+            );
             assert_eq!(
                 read(&s),
-                Some(Kept::Shell(Shell {
+                Some(Kept::Terminal(TerminalSession {
                     id: 9,
-                    name: "shell 1".into(),
-                    worktree: "/api".into(),
-                    runs,
+                    resource_id,
+                    name: "tool".into(),
+                    cwd: "/api".into(),
+                    program,
+                    binding: Some(binding),
                 }))
             );
         }
@@ -451,7 +488,13 @@ mod tests {
         assert_eq!(read(&kept(1, vec!["other=1".into()])), None);
         let mut s = kept(
             9,
-            shell_tags("shell 1", std::path::Path::new("/api"), Runs::Shell),
+            terminal_tags(
+                "shell 1",
+                std::path::Path::new("/api"),
+                TerminalProgram::Shell,
+                adroit_model::TerminalResourceId::new(),
+                None,
+            ),
         );
         s.exited = true;
         assert_eq!(read(&s), None);

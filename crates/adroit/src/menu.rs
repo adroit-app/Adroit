@@ -44,11 +44,13 @@ pub fn entries(target: &Target, session: Option<&Session>) -> Vec<(Action, &'sta
                 .chain(ending)
                 .collect()
         }
-        Target::Row(Item::Shell(_)) => [(Action::CursorOpen, "Open"), (Action::CursorShow, "Show")]
-            .into_iter()
-            .chain(here)
-            .chain([(Action::TabClose, "Close shell")])
-            .collect(),
+        Target::Row(Item::Terminal(_)) => {
+            [(Action::CursorOpen, "Open"), (Action::CursorShow, "Show")]
+                .into_iter()
+                .chain(here)
+                .chain([(Action::TerminalStop, "Stop terminal")])
+                .collect()
+        }
         Target::Row(Item::Worktree(_)) => {
             [(Action::CursorOpen, "Open"), (Action::CursorShow, "Show")]
                 .into_iter()
@@ -64,7 +66,10 @@ pub fn entries(target: &Target, session: Option<&Session>) -> Vec<(Action, &'sta
             .chain(rename)
             .chain(ending)
             .collect(),
-        Target::Tab(Tab::Shell(_)) => vec![(Action::TabClose, "Close shell")],
+        Target::Tab(Tab::Terminal(_)) => vec![
+            (Action::TabClose, "Close tab"),
+            (Action::TerminalStop, "Stop terminal"),
+        ],
         Target::Tab(Tab::Draft { .. }) => Vec::new(),
         Target::Link { file, .. } => [(Action::CursorOpen, "Open"), (Action::CursorCopy, "Copy")]
             .into_iter()
@@ -78,7 +83,9 @@ pub fn entries(target: &Target, session: Option<&Session>) -> Vec<(Action, &'sta
 pub fn groups(target: &Target, session: Option<&Session>) -> Vec<Vec<(Action, &'static str)>> {
     let kin = |a: &Action| match a {
         Action::SessionNew | Action::ShellOpen | Action::NeovimOpen => 1,
-        Action::SessionTakeOver | Action::SessionStop | Action::TabClose => 2,
+        Action::SessionTakeOver | Action::SessionStop | Action::TerminalStop | Action::TabClose => {
+            2
+        }
         _ => 0,
     };
     let mut out: Vec<Vec<(Action, &'static str)>> = Vec::new();
@@ -113,9 +120,9 @@ mod tests {
             Target::Row(Item::Worktree("/api".into())),
             Target::Row(Item::Session("a".into())),
             Target::Row(Item::Waiting("a".into())),
-            Target::Row(Item::Shell(1)),
+            Target::Row(Item::Terminal(1)),
             Target::Tab(Tab::Session("a".into())),
-            Target::Tab(Tab::Shell(1)),
+            Target::Tab(Tab::Terminal(1)),
             Target::Link { at: 0, file: true },
         ];
         for target in targets {
@@ -155,8 +162,8 @@ mod tests {
             ]
         );
         assert_eq!(
-            grouped(Target::Tab(Tab::Shell(1)), None),
-            [vec![Action::TabClose]]
+            grouped(Target::Tab(Tab::Terminal(1)), None),
+            [vec![Action::TabClose, Action::TerminalStop]]
         );
         let draft = Tab::Draft {
             worktree: "/a".into(),
@@ -218,30 +225,30 @@ mod tests {
     }
 
     #[test]
-    fn a_shell_s_row_opens_it_starts_beside_it_and_closes_it() {
+    fn a_terminal_row_opens_it_starts_beside_it_and_offers_an_explicit_stop() {
         assert_eq!(
-            actions(Target::Row(Item::Shell(1)), None),
+            actions(Target::Row(Item::Terminal(1)), None),
             [
                 Action::CursorOpen,
                 Action::CursorShow,
                 Action::SessionNew,
                 Action::ShellOpen,
                 Action::NeovimOpen,
-                Action::TabClose,
+                Action::TerminalStop,
             ]
         );
     }
 
     #[test]
-    fn a_tab_closes_and_a_session_s_tab_also_ends_it() {
+    fn closing_a_tab_and_stopping_its_agent_or_terminal_are_distinct_actions() {
         let s = session(Kind::Own);
         assert_eq!(
             actions(Target::Tab(Tab::Session("a".into())), Some(&s)),
             [Action::TabClose, Action::SessionRename, Action::SessionStop]
         );
         assert_eq!(
-            actions(Target::Tab(Tab::Shell(1)), None),
-            [Action::TabClose]
+            actions(Target::Tab(Tab::Terminal(1)), None),
+            [Action::TabClose, Action::TerminalStop]
         );
     }
 }

@@ -143,9 +143,9 @@ to it.
 
 ### From a session
 
-A session reads the shells next to it with
-`adroit shell list` and `adroit shell screen <name>`
-([details](docs/spec/shells.md)). Programs can show images with the kitty
+A session lists terminal resources with `adroit terminal list --json` and
+reads one with `adroit terminal screen --terminal <resource-id>`
+([details](docs/spec/terminals.md)). Programs can show images with the kitty
 graphics protocol ([details](docs/spec/images.md)).
 
 ## Development

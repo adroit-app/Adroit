@@ -16,7 +16,7 @@ pub enum Item {
     Worktree(PathBuf),
     Session(String),
     /// A shell adroit runs, by the daemon's id.
-    Shell(u128),
+    Terminal(u128),
 }
 
 impl Item {
@@ -61,10 +61,10 @@ pub fn items(tree: &Tree, inbox: &[InboxItem], collapsed: &HashSet<String>) -> V
     out
 }
 
-/// The rows of what runs in a worktree: its sessions, then its shells.
+/// The rows of what runs in a worktree: its sessions, then its terminals.
 fn rows_in(w: &WorktreeNode) -> impl Iterator<Item = Item> + '_ {
     let sessions = w.sessions.iter().map(|s| Item::Session(s.id.clone()));
-    sessions.chain(w.shells.iter().map(|s| Item::Shell(s.id)))
+    sessions.chain(w.terminals.iter().map(|s| Item::Terminal(s.id)))
 }
 
 /// The row above `item` in `list`, which stands where it stood once it is
@@ -160,7 +160,7 @@ pub fn start_place(tree: &Tree, last: Option<&Place>, scratch: &Path) -> Place {
     if let Some(p) = last {
         return p.clone();
     }
-    // A worktree listed for its shells alone, or only because every worktree
+    // A worktree listed for its terminals alone, or only because every worktree
     // is shown, runs no session.
     let mut all = tree.worktrees().filter(|w| !w.sessions.is_empty());
     match (all.next(), all.next()) {
@@ -259,7 +259,7 @@ pub fn row_kept(
     row_of(list, tree, shown, place)
 }
 
-/// `tree` with only the sessions and shells whose names hold `text`, any
+/// `tree` with only the sessions and terminals whose names hold `text`, any
 /// case, and the worktrees and workspaces that still hold one; a workspace or a worktree
 /// whose own name holds it keeps everything beneath it. An empty `text` keeps
 /// everything.
@@ -282,9 +282,9 @@ pub fn narrowed(tree: &Tree, text: &str) -> Tree {
                     .is_some_and(|f| named(&f.to_string_lossy()));
             if !own {
                 w.sessions.retain(|s| named(&s.name));
-                w.shells.retain(|s| named(&s.name));
+                w.terminals.retain(|s| named(&s.name));
             }
-            own || !w.sessions.is_empty() || !w.shells.is_empty()
+            own || !w.sessions.is_empty() || !w.terminals.is_empty()
         });
     }
     out.workspaces
@@ -302,12 +302,12 @@ pub fn tab_after(tabs: &[Tab], closing: &Tab) -> Option<Tab> {
 }
 
 /// What the console shows once a tab of `place` has closed: its first
-/// session, or else the first of `shells`, the shells left in the worktree.
-pub fn tab_after_closing(tree: &Tree, place: &Place, shells: &[u128]) -> Option<Tab> {
+/// session, or else the first of `terminals`, the terminals left in the worktree.
+pub fn tab_after_closing(tree: &Tree, place: &Place, terminals: &[u128]) -> Option<Tab> {
     sessions_in(tree, place)
         .first()
         .map(|s| Tab::Session(s.id.clone()))
-        .or_else(|| shells.first().map(|&id| Tab::Shell(id)))
+        .or_else(|| terminals.first().map(|&id| Tab::Terminal(id)))
 }
 
 /// The row in `list` for what a tab shows: the session's or the shell's own
@@ -316,7 +316,7 @@ pub fn tab_after_closing(tree: &Tree, place: &Place, shells: &[u128]) -> Option<
 pub fn row_of(list: &[Item], tree: &Tree, shown: Option<&Tab>, place: &Place) -> Option<Item> {
     let mut rows: Vec<Item> = match shown {
         Some(Tab::Session(id)) => vec![Item::Session(id.clone())],
-        Some(Tab::Shell(id)) => vec![Item::Shell(*id)],
+        Some(Tab::Terminal(id)) => vec![Item::Terminal(*id)],
         _ => Vec::new(),
     };
     rows.push(Item::Worktree(place.worktree.clone()));
@@ -357,8 +357,8 @@ pub fn row_after_switch(
 pub fn place_of(tree: &Tree, item: &Item) -> Option<Place> {
     match item {
         Item::Waiting(id) | Item::Session(id) => find(tree, id).map(|(p, _)| p),
-        Item::Shell(id) => tree.shell(*id).map(|(_, _, s)| Place {
-            worktree: s.worktree.clone(),
+        Item::Terminal(id) => tree.terminal(*id).map(|(_, _, s)| Place {
+            worktree: s.cwd.clone(),
         }),
         Item::Worktree(path) => Some(Place {
             worktree: path.clone(),
@@ -388,7 +388,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use adroit_model::{Kind, Shell, State, Wait, Worktree, build, inbox};
+    use adroit_model::{Kind, State, TerminalSession, Wait, Worktree, build, inbox};
 
     fn s(id: &str, cwd: &str, state: State) -> Session {
         Session {
@@ -492,7 +492,7 @@ mod tests {
     fn a_worktree_without_sessions_shows_another_shell_or_nothing() {
         assert_eq!(
             tab_after_closing(&tree(), &at("/nowhere"), &[7]),
-            Some(Tab::Shell(7))
+            Some(Tab::Terminal(7))
         );
         assert_eq!(tab_after_closing(&tree(), &at("/nowhere"), &[]), None);
     }
@@ -501,7 +501,7 @@ mod tests {
     fn the_selection_moves_to_the_new_tab_s_row_only_from_the_old_one_s() {
         let t = tree();
         let list = items(&t, &inbox(&t), &HashSet::new());
-        let shell = Tab::Shell(1);
+        let shell = Tab::Terminal(1);
         let a = Tab::Session("a".into());
         let row_a = Some(session("a"));
         let switch = |selected: Option<Item>, before: Option<&Tab>| {
@@ -589,13 +589,13 @@ mod tests {
     #[test]
     fn a_closed_tab_gives_way_to_the_one_before_it_or_else_after_it() {
         let a = Tab::Session("a".into());
-        let b = Tab::Shell(1);
+        let b = Tab::Terminal(1);
         let c = Tab::Session("c".into());
         let tabs = [a.clone(), b.clone(), c.clone()];
         assert_eq!(tab_after(&tabs, &b), Some(a.clone()));
         assert_eq!(tab_after(&tabs, &a), Some(b));
         assert_eq!(tab_after(std::slice::from_ref(&c), &c), None);
-        assert_eq!(tab_after(&tabs, &Tab::Shell(9)), None);
+        assert_eq!(tab_after(&tabs, &Tab::Terminal(9)), None);
     }
 
     #[test]
@@ -712,7 +712,7 @@ mod tests {
     #[test]
     fn a_tab_without_a_session_stands_after_the_sessions_of_its_worktree() {
         let t = tree();
-        let shell = Some(Tab::Shell(1));
+        let shell = Some(Tab::Terminal(1));
         let next = |path: &str, forward| next_session(&t, shell.as_ref(), Some(&at(path)), forward);
         assert_eq!(next("/api", true).as_deref(), Some("o"));
         assert_eq!(next("/api", false).as_deref(), Some("b"));
@@ -775,16 +775,17 @@ mod tests {
 
     const DEV: &str = "/api/.claude/worktrees/dev";
 
-    fn sh(id: u128, name: &str, dir: &str) -> Shell {
-        Shell {
-            runs: Default::default(),
+    fn sh(id: u128, name: &str, dir: &str) -> TerminalSession {
+        TerminalSession {
+            program: Default::default(),
             id,
             name: name.into(),
-            worktree: dir.into(),
+            cwd: dir.into(),
+            ..Default::default()
         }
     }
 
-    /// `tree()` with shells: one beside `api`'s sessions, two in a worktree
+    /// `tree()` with terminals: one beside `api`'s sessions, two in a worktree
     /// where no session runs, one in `tmp`, a workspace without a worktree
     /// row, and one in `notes`, outside git, where nothing else runs.
     fn shelled() -> Tree {
@@ -816,7 +817,7 @@ mod tests {
     }
 
     fn shell(id: u128) -> Item {
-        Item::Shell(id)
+        Item::Terminal(id)
     }
 
     #[test]
@@ -873,7 +874,7 @@ mod tests {
     #[test]
     fn a_shell_tab_selects_the_shell_s_row_or_the_nearest_one_shown() {
         let t = shelled();
-        let tab = Tab::Shell(2);
+        let tab = Tab::Terminal(2);
         let list = items(&t, &[], &HashSet::new());
         assert_eq!(row_of(&list, &t, Some(&tab), &at(DEV)), Some(shell(2)));
         let collapsed = HashSet::from([worktree(DEV).fold_key().unwrap()]);
@@ -889,14 +890,14 @@ mod tests {
         let t = shelled();
         let list = items(&t, &[], &HashSet::new());
         let a = Tab::Session("a".into());
-        let one = Tab::Shell(1);
+        let one = Tab::Terminal(1);
         let switch = |selected: Item, before: &Tab, now: &Tab| {
             row_after_switch(&list, &t, Some(&selected), Some(before), now, &at("/api"))
         };
         assert_eq!(switch(session("a"), &a, &one), Some(shell(1)));
         assert_eq!(switch(shell(1), &one, &a), Some(session("a")));
         // A shell gone, its row with it, gives way to the tab shown next.
-        assert_eq!(switch(shell(9), &Tab::Shell(9), &a), Some(session("a")));
+        assert_eq!(switch(shell(9), &Tab::Terminal(9), &a), Some(session("a")));
         assert_eq!(switch(ws("/web"), &one, &a), None);
     }
 
@@ -932,7 +933,7 @@ mod tests {
         let shown = Some(Tab::Session("b".into()));
         let next = next_session(&t, shown.as_ref(), None, true);
         assert_eq!(next.as_deref(), Some("o"));
-        // Nor is a worktree with only shells a place sessions run.
+        // Nor is a worktree with only terminals a place sessions run.
         let notes = build(&[], &[sh(1, "shell", "/notes")], &HashMap::new(), &[], None);
         assert_eq!(
             start_place(&notes, None, Path::new("/scratch")),
@@ -968,13 +969,13 @@ mod tests {
             Tab::Session("a08bbcf2-2cbf".into()),
             Tab::Session("b".into()),
             Tab::Session("gone".into()),
-            Tab::Shell(1),
+            Tab::Terminal(1),
         ]
         .into();
         let expected: HashSet<Tab> = [
             Tab::Session("a08bbcf2".into()),
             Tab::Session("b".into()),
-            Tab::Shell(1),
+            Tab::Terminal(1),
         ]
         .into();
         assert_eq!(followed(&sessions, &kept), expected);

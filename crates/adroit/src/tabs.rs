@@ -1,4 +1,4 @@
-//! The tabs above the console: the sessions and shells of one worktree.
+//! The tabs above the console: the sessions and terminals of one worktree.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -11,7 +11,7 @@ pub enum Tab {
     /// A Claude Code session, by id.
     Session(String),
     /// A shell adroit started in a worktree, by the daemon's id.
-    Shell(u128),
+    Terminal(u128),
     /// A session not started yet: the next prompt sent from here starts it.
     Draft { worktree: PathBuf, id: DraftId },
 }
@@ -19,7 +19,7 @@ pub enum Tab {
 /// Whether the prompt is shown under the console while `tab` is: a shell
 /// takes every key in the console itself.
 pub fn shows_prompt(tab: Option<&Tab>) -> bool {
-    !matches!(tab, Some(Tab::Shell(_)))
+    !matches!(tab, Some(Tab::Terminal(_)))
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -161,7 +161,7 @@ pub fn fresh_name(label: &str, taken: &[&str]) -> String {
 pub fn kept_name(tab: &Tab) -> Option<String> {
     match tab {
         Tab::Session(id) => Some(format!("session:{id}")),
-        Tab::Shell(id) => Some(format!("shell:{id:x}")),
+        Tab::Terminal(id) => Some(format!("terminal:{id:x}")),
         Tab::Draft { .. } => None,
     }
 }
@@ -172,8 +172,8 @@ pub fn from_kept(name: &str) -> Option<Tab> {
     if let Some(id) = name.strip_prefix("session:") {
         return Some(Tab::Session(id.to_string()));
     }
-    let id = name.strip_prefix("shell:")?;
-    u128::from_str_radix(id, 16).ok().map(Tab::Shell)
+    let id = name.strip_prefix("terminal:")?;
+    u128::from_str_radix(id, 16).ok().map(Tab::Terminal)
 }
 
 #[cfg(test)]
@@ -186,7 +186,7 @@ mod tests {
             worktree: PathBuf::from("/w"),
             id: Default::default(),
         };
-        assert!(!shows_prompt(Some(&Tab::Shell(1))));
+        assert!(!shows_prompt(Some(&Tab::Terminal(1))));
         assert!(shows_prompt(Some(&Tab::Session("a".into()))));
         assert!(shows_prompt(Some(&draft)));
         assert!(shows_prompt(None));
@@ -194,7 +194,7 @@ mod tests {
 
     #[test]
     fn a_session_s_or_a_shell_s_tab_is_kept_by_name_and_a_draft_s_is_not() {
-        for tab in [Tab::Session("ab12".into()), Tab::Shell(0xff)] {
+        for tab in [Tab::Session("ab12".into()), Tab::Terminal(0xff)] {
             let name = kept_name(&tab).unwrap();
             assert_eq!(from_kept(&name), Some(tab), "{name}");
         }

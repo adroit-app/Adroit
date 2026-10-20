@@ -23,7 +23,7 @@ pub fn facts(s: &Session, now_ms: u64) -> Vec<(&'static str, String)> {
         (Kind::Interactive, false) => "in a terminal",
         (Kind::Interactive, true) => "in a terminal, reading only",
     };
-    let mut out = vec![("State", state), ("Runs", runs.to_string())];
+    let mut out = vec![("State", state), ("TerminalProgram", runs.to_string())];
     if let Some(started) = s.started_ms {
         out.push(("Started", ago(now_ms.saturating_sub(started))));
     }
@@ -1114,7 +1114,7 @@ mod tests {
             got,
             [
                 ("State", "waiting · permission prompt".to_string()),
-                ("Runs", "in adroit".to_string()),
+                ("TerminalProgram", "in adroit".to_string()),
                 ("Started", "12 min ago".to_string()),
             ]
         );
@@ -1134,7 +1134,7 @@ mod tests {
             got,
             [
                 ("State", "idle".to_string()),
-                ("Runs", "in a terminal, reading only".to_string()),
+                ("TerminalProgram", "in a terminal, reading only".to_string()),
             ]
         );
     }

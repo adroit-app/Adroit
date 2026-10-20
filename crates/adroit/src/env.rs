@@ -51,7 +51,7 @@ pub fn login_path(shell: &str) -> Option<String> {
 /// The variables among `names` to remove before anything is started.
 ///
 /// Started from a terminal inside an editor, `NVIM` and the like point at that
-/// editor, and plugins in the embedded prompt or the shells (vim-guise among
+/// editor, and plugins in the embedded prompt or the terminals (vim-guise among
 /// them) would talk to it instead of their own. Started from inside Claude
 /// Code, its session's marks would make every session adroit starts a child
 /// of it. They are only dropped when `CLAUDECODE` says so, since a user may

@@ -10,7 +10,9 @@ use adroit_claude::git::DiffKind;
 use adroit_claude::links::{Kind as LinkKind, Link, Links, Touch};
 use adroit_claude::usage::{self, Severity};
 use adroit_claude::{commands, places};
-use adroit_model::{InboxItem, Kind, Runs, Session, Shell, State, Tree, Worktree, build, inbox};
+use adroit_model::{
+    InboxItem, Kind, Session, State, TerminalProgram, TerminalSession, Tree, Worktree, build, inbox,
+};
 use adroit_nvim::{Embedded, Event as NvimEvent, notation};
 use adroit_term::{Daemon, Key, Palette, Pane, Size, Spawn};
 use dioxus::prelude::*;
@@ -52,13 +54,13 @@ use crate::scratch::{self, Moment};
 use crate::sessions::{self, Kept};
 use crate::settings;
 use crate::settings_window;
-use crate::shells::{Request, Response, answer, ask, bind, serve, socket_path};
 use crate::status;
 use crate::style::{CSS, CellHeight, DEFAULT_CELL_HEIGHT};
 use crate::subagent_view::{SubagentView, agent_glyph};
 use crate::tabs::{self, Tab, fresh_name, label_from, named, shows_prompt};
 use crate::themes;
 use crate::view::Keys;
+use crate::window_socket::{Request, Response, ask, bind, serve, socket_path};
 use crate::zoom;
 
 fn shows_usage(tab: Option<&Tab>, agent: adroit_model::Agent) -> bool {
@@ -1016,7 +1018,9 @@ fn row_tip(item: &Item) -> &'static str {
             "A worktree: a checkout of the repository, on a branch of its own. Enter or n starts a session in it, s a shell"
         }
         Item::Session(_) | Item::Waiting(_) => "A session. Enter opens it",
-        Item::Shell(_) => "A shell adroit runs. Enter shows it; x closes it",
+        Item::Terminal(_) => {
+            "A terminal adroit runs. Enter shows it; closing its tab leaves it running"
+        }
     }
 }
 
@@ -1048,22 +1052,22 @@ fn start_writing(nvim: Signal<Option<Arc<Embedded>>>) {
 fn close_shell(
     id: u128,
     panes: &Panes,
-    mut shells: Signal<Vec<Shell>>,
+    mut terminals: Signal<Vec<TerminalSession>>,
     mut active: Signal<Option<Tab>>,
     place: Signal<Option<Place>>,
     tree: Signal<Tree>,
     prompts: Prompts,
 ) {
-    panes.borrow_mut().remove(&Tab::Shell(id));
-    shells.write().retain(|s| s.id != id);
-    if *active.peek() != Some(Tab::Shell(id)) {
+    panes.borrow_mut().remove(&Tab::Terminal(id));
+    terminals.write().retain(|s| s.id != id);
+    if *active.peek() != Some(Tab::Terminal(id)) {
         return;
     }
     let next = place.peek().as_ref().and_then(|p| {
-        let left: Vec<u128> = shells
+        let left: Vec<u128> = terminals
             .peek()
             .iter()
-            .filter(|s| s.worktree == p.worktree)
+            .filter(|s| s.cwd == p.worktree)
             .map(|s| s.id)
             .collect();
         nav::tab_after_closing(&tree.peek(), p, &left)
@@ -1148,7 +1152,7 @@ fn session_env() -> Vec<(String, String)> {
 fn kept_id(tab: &Tab) -> Option<u128> {
     match tab {
         Tab::Session(id) => sessions::id_of(id),
-        Tab::Shell(id) => Some(*id),
+        Tab::Terminal(id) => Some(*id),
         Tab::Draft { .. } => None,
     }
 }
@@ -1217,13 +1221,13 @@ async fn start(
     Ok(id)
 }
 
-/// Every session to list: those the daemon runs for adroit, with the shells,
+/// Every session to list: those the daemon runs for adroit, with the terminals,
 /// and those Claude Code lists in other terminals, but for adroit's own,
 /// which Claude Code lists too.
 async fn read_sessions(
     daemon: &Daemon,
     inputs: &HashMap<u128, u64>,
-) -> Result<(Vec<Session>, Vec<Shell>), String> {
+) -> Result<(Vec<Session>, Vec<TerminalSession>), String> {
     let kept = daemon.sessions().await.map_err(|e| e.to_string())?;
     let (mut own, mut kept_shells) = (Vec::new(), Vec::new());
     let mut learned = Vec::new();
@@ -1251,7 +1255,7 @@ async fn read_sessions(
                 }
                 own.push(c);
             }
-            Some(Kept::Shell(sh)) => kept_shells.push(sh),
+            Some(Kept::Terminal(sh)) => kept_shells.push(sh),
             None => {}
         }
     }
@@ -1318,21 +1322,21 @@ fn Book() -> Element {
     }
 }
 
-/// What the shell `id` runs; a shell when it is not among `shells`.
-fn runs_of(shells: &[Shell], id: u128) -> Runs {
-    shells
+/// What the shell `id` runs; a shell when it is not among `terminals`.
+fn runs_of(terminals: &[TerminalSession], id: u128) -> TerminalProgram {
+    terminals
         .iter()
         .find(|s| s.id == id)
-        .map(|s| s.runs)
+        .map(|s| s.program)
         .unwrap_or_default()
 }
 
 /// The mark of a shell's row or tab, by what it runs.
 #[component]
-fn Terminal(runs: Runs) -> Element {
+fn Terminal(runs: TerminalProgram) -> Element {
     let (icon, title) = match runs {
-        Runs::Shell => (Icon::Terminal2, "shell"),
-        Runs::Neovim => (Icon::Code, "Neovim"),
+        TerminalProgram::Shell => (Icon::Terminal2, "shell"),
+        TerminalProgram::Neovim => (Icon::Code, "Neovim"),
     };
     rsx! {
         span { class: "shell-mark", title,
@@ -1403,7 +1407,7 @@ fn App() -> Element {
     let mut draft_options = use_signal(HashMap::<Tab, tabs::DraftOptions>::new);
     let mut last_agent = use_signal(|| None::<adroit_model::Agent>);
     let mut place = use_signal(|| None::<Place>);
-    let mut shells = use_signal(Vec::<Shell>::new);
+    let mut terminals = use_signal(Vec::<TerminalSession>::new);
     // The sessions opened in the window, which the tabs above the console
     // list; the sidebar lists every one.
     let mut opened = use_signal(HashSet::<Tab>::new);
@@ -1585,8 +1589,8 @@ fn App() -> Element {
                         }
                     }
                     let gone = watched.borrow().get(tab).is_some_and(|p| p.exited());
-                    if let (Tab::Shell(id), true) = (tab, gone) {
-                        close_shell(*id, &watched, shells, active, place, tree, prompts);
+                    if let (Tab::Terminal(id), true) = (tab, gone) {
+                        close_shell(*id, &watched, terminals, active, place, tree, prompts);
                     }
                 }
                 let shown = active.peek().clone();
@@ -1669,8 +1673,8 @@ fn App() -> Element {
                     match read_sessions(&daemon, &inputs).await {
                         Ok((sessions, kept_shells)) => {
                             notify.while_failing(&mut list_err, None);
-                            if *shells.peek() != kept_shells {
-                                shells.set(kept_shells.clone());
+                            if *terminals.peek() != kept_shells {
+                                terminals.set(kept_shells.clone());
                             }
                             // Asked of git all at once: one by one, every
                             // directory would hold the list back by its calls.
@@ -1678,7 +1682,7 @@ fn App() -> Element {
                                 let mut unread: Vec<PathBuf> = sessions
                                     .iter()
                                     .map(|s| s.cwd.clone())
-                                    .chain(kept_shells.iter().map(|s| s.worktree.clone()))
+                                    .chain(kept_shells.iter().map(|s| s.cwd.clone()))
                                     .filter(|d| {
                                         cache
                                             .get(d)
@@ -1703,7 +1707,7 @@ fn App() -> Element {
                             let found: HashMap<PathBuf, Option<Worktree>> = sessions
                                 .iter()
                                 .map(|s| &s.cwd)
-                                .chain(kept_shells.iter().map(|s| &s.worktree))
+                                .chain(kept_shells.iter().map(|s| &s.cwd))
                                 .filter_map(|d| cache.get(d).map(|(_, w)| (d.clone(), w.clone())))
                                 .collect();
                             let mut listed = Vec::new();
@@ -1772,10 +1776,10 @@ fn App() -> Element {
                                 && !alive_here(&panes, &attaching, id)
                             {
                                 let after = place.peek().as_ref().and_then(|p| {
-                                    let left: Vec<u128> = shells
+                                    let left: Vec<u128> = terminals
                                         .peek()
                                         .iter()
-                                        .filter(|s| s.worktree == p.worktree)
+                                        .filter(|s| s.cwd == p.worktree)
                                         .map(|s| s.id)
                                         .collect();
                                     nav::tab_after_closing(&next, p, &left)
@@ -1814,7 +1818,7 @@ fn App() -> Element {
                             // its pane is closed.
                             panes.borrow_mut().retain(|tab, _| match tab {
                                 Tab::Session(id) => sessions.iter().any(|s| &s.id == id),
-                                Tab::Shell(id) => shells.peek().iter().any(|s| s.id == *id),
+                                Tab::Terminal(id) => terminals.peek().iter().any(|s| s.id == *id),
                                 Tab::Draft { .. } => true,
                             });
                             // Nor are the images its console drew kept.
@@ -1837,9 +1841,11 @@ fn App() -> Element {
                             {
                                 let at = match &kept {
                                     Tab::Session(id) => nav::find(&next, id).map(|(p, _)| p),
-                                    Tab::Shell(id) => {
-                                        shells.peek().iter().find(|s| s.id == *id).map(|s| Place {
-                                            worktree: s.worktree.clone(),
+                                    Tab::Terminal(id) => {
+                                        terminals.peek().iter().find(|s| s.id == *id).map(|s| {
+                                            Place {
+                                                worktree: s.cwd.clone(),
+                                            }
                                         })
                                     }
                                     Tab::Draft { .. } => None,
@@ -2272,10 +2278,8 @@ fn App() -> Element {
         );
     });
 
-    // Answer sessions asking for the shells of their worktree, and Claude
-    // Code's external editor handing over its input.
+    // The editor handoff belongs to the window, unlike terminal resources.
     use_hook({
-        let hub = hub.clone();
         move || {
             let socket = socket_path(&instance_state());
             spawn(async move {
@@ -2299,7 +2303,7 @@ fn App() -> Element {
                             dioxus::desktop::window().close();
                             return;
                         }
-                        status.set(Some(format!("sessions cannot read the shells: {e}")));
+                        status.set(Some(format!("cannot answer window requests: {e}")));
                         return;
                     }
                 };
@@ -2316,18 +2320,6 @@ fn App() -> Element {
                         let _ = reply.send(Response::Shown);
                         continue;
                     }
-                    let worktrees: Vec<PathBuf> = tree
-                        .peek()
-                        .worktrees()
-                        .map(|w| w.worktree.path.clone())
-                        .collect();
-                    let known = shells.peek().clone();
-                    let daemon = hub.daemon.clone();
-                    let response = answer(&request, &known, &worktrees, async |s| {
-                        daemon.visible(s.id).await.ok()
-                    })
-                    .await;
-                    let _ = reply.send(response);
                 }
             });
         }
@@ -2532,7 +2524,7 @@ fn App() -> Element {
     // A shell opened or closed shows in the sidebar at once, among the
     // worktrees already listed, not when the sessions are next read.
     use_effect(move || {
-        let placed = tree.peek().with_shells(&shells.read());
+        let placed = tree.peek().with_terminals(&terminals.read());
         if *tree.peek() != placed {
             tree.set(placed);
         }
@@ -2587,7 +2579,7 @@ fn App() -> Element {
     // elsewhere by hand.
     use_effect(move || {
         let now = active.read().clone();
-        if let Some(tab @ (Tab::Session(_) | Tab::Draft { .. })) = &now
+        if let Some(tab) = &now
             && !opened.peek().contains(tab)
         {
             opened.write().insert(tab.clone());
@@ -2636,11 +2628,11 @@ fn App() -> Element {
                 }
                 active.set(Some(Tab::Session(id.clone())));
             }
-            Item::Shell(id) => {
+            Item::Terminal(id) => {
                 if let Some(p) = nav::place_of(&tree.peek(), &item) {
                     place.set(Some(p));
                 }
-                active.set(Some(Tab::Shell(*id)));
+                active.set(Some(Tab::Terminal(*id)));
             }
             Item::Worktree(path) => {
                 let p = Place {
@@ -2677,8 +2669,12 @@ fn App() -> Element {
                 )
             })
             .collect();
-        for sh in shells.read().iter().filter(|s| s.worktree == p.worktree) {
-            out.push((Tab::Shell(sh.id), sh.name.clone(), None, false));
+        for sh in terminals
+            .read()
+            .iter()
+            .filter(|s| s.cwd == p.worktree && open.contains(&Tab::Terminal(s.id)))
+        {
+            out.push((Tab::Terminal(sh.id), sh.name.clone(), None, false));
         }
         for draft in tabs::drafts_in(&open, &p.worktree) {
             let title = "new session".to_string();
@@ -2869,7 +2865,7 @@ fn App() -> Element {
                             false
                         }
                     },
-                    Tab::Shell(_) => false,
+                    Tab::Terminal(_) => false,
                     Tab::Draft { .. }
                         if named(&text).0.is_some()
                             && named(&text).1.trim().is_empty()
@@ -4169,9 +4165,9 @@ fn App() -> Element {
                 }
                 Action::ShellOpen | Action::NeovimOpen => {
                     let runs = if action == Action::NeovimOpen {
-                        Runs::Neovim
+                        TerminalProgram::Neovim
                     } else {
-                        Runs::Shell
+                        TerminalProgram::Shell
                     };
                     let p = cur
                         .as_ref()
@@ -4179,40 +4175,40 @@ fn App() -> Element {
                         .and_then(|c| nav::place_of(&tree.peek(), c))
                         .or_else(|| place.peek().clone());
                     if let Some(p) = p {
-                        let names: Vec<String> = shells
+                        let names: Vec<String> = terminals
                             .peek()
                             .iter()
-                            .filter(|s| s.worktree == p.worktree)
+                            .filter(|s| s.cwd == p.worktree)
                             .map(|s| s.name.clone())
                             .collect();
                         let taken: Vec<&str> = names.iter().map(String::as_str).collect();
-                        let (base, (program, args, env)) = match runs {
-                            Runs::Shell => ("shell", programs::shell()),
-                            Runs::Neovim => ("nvim", programs::neovim()),
+                        let base = match runs {
+                            TerminalProgram::Shell => "shell",
+                            TerminalProgram::Neovim => "nvim",
                         };
                         let name = fresh_name(base, &taken);
                         let size = *console_size.peek();
-                        let spawn_shell = Spawn {
-                            program,
-                            args,
-                            cwd: p.worktree.clone(),
-                            env: env.into_iter().chain(daemon::terminal_env()).collect(),
-                            tags: sessions::shell_tags(&name, &p.worktree, runs),
-                            cols: size.cols,
-                            rows: size.rows,
-                        };
+                        let mut resolved = crate::execution::resolve_terminal(
+                            &settings::current(),
+                            crate::execution::TerminalStartRequest {
+                                name,
+                                cwd: p.worktree.clone(),
+                                program: runs,
+                                binding: None,
+                                env: daemon::terminal_env(),
+                            },
+                            &programs::login_shell(),
+                        );
+                        resolved.spawn.cols = size.cols;
+                        resolved.spawn.rows = size.rows;
                         let hub = hub.clone();
                         spawn(async move {
-                            match start(&hub, spawn_shell, size, Tab::Shell).await {
+                            match start(&hub, resolved.spawn, size, Tab::Terminal).await {
                                 Ok(id) => {
-                                    shells.write().push(Shell {
-                                        id,
-                                        name,
-                                        worktree: p.worktree.clone(),
-                                        runs,
-                                    });
+                                    resolved.terminal.id = id;
+                                    terminals.write().push(resolved.terminal);
                                     place.set(Some(p));
-                                    active.set(Some(Tab::Shell(id)));
+                                    active.set(Some(Tab::Terminal(id)));
                                     focus.set(Area::Console);
                                 }
                                 Err(e) => status.set(Some(format!("cannot start {base}: {e}"))),
@@ -4221,38 +4217,30 @@ fn App() -> Element {
                     }
                 }
                 // On a shell's row, that shell closes, whichever tab is shown.
-                Action::ShellClose | Action::TabClose
-                    if let Some(Item::Shell(id)) = cur.as_ref().filter(|_| on_list) =>
+                Action::TerminalStop
+                    if let Some(Item::Terminal(id)) = cur.as_ref().filter(|_| on_list) =>
                 {
-                    selected.set(nav::row_above(&list, &Item::Shell(*id)));
+                    selected.set(nav::row_above(&list, &Item::Terminal(*id)));
                     end_shell(&hub, *id);
-                    close_shell(*id, &hub.panes, shells, active, place, tree, prompts);
+                    close_shell(*id, &hub.panes, terminals, active, place, tree, prompts);
                 }
-                Action::ShellClose => {
+                Action::TerminalStop => {
                     let current_tab = active.peek().clone();
-                    if let Some(Tab::Shell(id)) = current_tab {
+                    if let Some(Tab::Terminal(id)) = current_tab {
                         end_shell(&hub, id);
-                        close_shell(id, &hub.panes, shells, active, place, tree, prompts);
+                        close_shell(id, &hub.panes, terminals, active, place, tree, prompts);
                     }
                 }
                 Action::TabClose => {
                     let shown = active.peek().clone();
-                    match shown {
-                        Some(Tab::Shell(id)) => {
-                            end_shell(&hub, id);
-                            close_shell(id, &hub.panes, shells, active, place, tree, prompts);
-                        }
-                        // The session runs on; only its tab goes.
-                        Some(tab @ (Tab::Session(_) | Tab::Draft { .. })) => {
-                            let listed: Vec<Tab> =
-                                tabs.peek().iter().map(|(t, ..)| t.clone()).collect();
-                            let next = nav::tab_after(&listed, &tab);
-                            opened.write().remove(&tab);
-                            draft_options.write().remove(&tab);
-                            let _ = prompts.send(Op::Close(next.clone()));
-                            active.set(next);
-                        }
-                        _ => {}
+                    if let Some(tab) = shown {
+                        let listed: Vec<Tab> =
+                            tabs.peek().iter().map(|(t, ..)| t.clone()).collect();
+                        let next = nav::tab_after(&listed, &tab);
+                        opened.write().remove(&tab);
+                        draft_options.write().remove(&tab);
+                        let _ = prompts.send(Op::Close(next.clone()));
+                        active.set(next);
                     }
                 }
                 Action::Refresh => hub.refresh.notify_one(),
@@ -4915,7 +4903,7 @@ fn App() -> Element {
         Some(Tab::Session(id)) => nav::find(&t, id)
             .map(|(_, s)| s.name.clone())
             .unwrap_or_else(|| id.clone()),
-        Some(Tab::Shell(n)) => shells
+        Some(Tab::Terminal(n)) => terminals
             .read()
             .iter()
             .find(|s| s.id == *n)
@@ -5135,7 +5123,7 @@ fn App() -> Element {
         // The picker holds every key while it is open, the console's too.
         _ if picking.read().is_some() => ("PICK".to_string(), "normal"),
         Area::Console if passing => ("DIRECT".to_string(), "pass"),
-        Area::Console if answering || matches!(active_tab, Some(Tab::Shell(_))) => {
+        Area::Console if answering || matches!(active_tab, Some(Tab::Terminal(_))) => {
             ("PASS".to_string(), "pass")
         }
         Area::Console if reading() => {
@@ -5421,7 +5409,7 @@ fn App() -> Element {
                                             .and_then(|w| w.worktree.branch.clone())
                                             .or_else(|| path.file_name().map(|f| f.to_string_lossy().into_owned()))
                                             .unwrap_or_else(|| short(path));
-                                        let empty = node.is_none_or(|w| w.sessions.is_empty() && w.shells.is_empty());
+                                        let empty = node.is_none_or(|w| w.sessions.is_empty() && w.terminals.is_empty());
                                         (14, if empty { "list-row dim mono vacant" } else { "list-row dim mono" }, label, String::new(), None)
                                     }
                                     Item::Session(id) => {
@@ -5440,18 +5428,18 @@ fn App() -> Element {
                                             s.map(|s| glyph(completions.read().state(&s))),
                                         )
                                     }
-                                    Item::Shell(id) => {
+                                    Item::Terminal(id) => {
                                         let under_worktree = shown_tree
                                             .read()
-                                            .shell(*id)
+                                            .terminal(*id)
                                             .is_some_and(|(ws, _, _)| !ws.flat());
-                                        let name = t.shell(*id).map(|(_, _, s)| s.name.clone()).unwrap_or_default();
+                                        let name = t.terminal(*id).map(|(_, _, s)| s.name.clone()).unwrap_or_default();
                                         (if under_worktree { 28 } else { 14 }, "list-row", name, String::new(), None)
                                     }
                                     Item::Waiting(_) => (0, "list-row", String::new(), String::new(), None),
                                 };
                                 let terminal = match &it {
-                                    Item::Shell(id) => Some(runs_of(&shells.read(), *id)),
+                                    Item::Terminal(id) => Some(runs_of(&terminals.read(), *id)),
                                     _ => None,
                                 };
                                 let place_icon = match &it {
@@ -5465,7 +5453,7 @@ fn App() -> Element {
                                 // What the console shows stands out wherever the selection is.
                                 let class = match &it {
                                     Item::Session(id) if shown_id.as_deref() == Some(id.as_str()) => format!("{class} shown"),
-                                    Item::Shell(id) if active_tab == Some(Tab::Shell(*id)) => format!("{class} shown"),
+                                    Item::Terminal(id) if active_tab == Some(Tab::Terminal(*id)) => format!("{class} shown"),
                                     _ => class,
                                 };
                                 let target = Target::Row(it.clone());
@@ -5557,7 +5545,7 @@ fn App() -> Element {
                             {
                                 let is_active = active_tab.as_ref() == Some(&tab);
                                 let shell = match &tab {
-                                    Tab::Shell(id) => Some(runs_of(&shells.read(), *id)),
+                                    Tab::Terminal(id) => Some(runs_of(&terminals.read(), *id)),
                                     _ => None,
                                 };
                                 let class = match (is_active, shell.is_some()) {
@@ -5596,8 +5584,8 @@ fn App() -> Element {
                                             span {
                                                 class: "tab-close",
                                                 title: match shell {
-                                                    Some(Runs::Shell) => "Close the shell",
-                                                    Some(Runs::Neovim) => "Close Neovim",
+                                                    Some(TerminalProgram::Shell) => "Close the tab",
+                                                    Some(TerminalProgram::Neovim) => "Close the tab",
                                                     None => "Close the tab; the session runs on",
                                                 },
                                                 onclick: {
@@ -6460,7 +6448,7 @@ mod tests {
             ] {
                 assert!(shows_usage(Some(&tab), agent));
             }
-            assert!(!shows_usage(Some(&Tab::Shell(1)), agent));
+            assert!(!shows_usage(Some(&Tab::Terminal(1)), agent));
             assert!(!shows_usage(None, agent));
         }
     }
@@ -6484,7 +6472,7 @@ mod tests {
         for item in [
             Item::Workspace("/project".into()),
             Item::Worktree("/project".into()),
-            Item::Shell(1),
+            Item::Terminal(1),
             Item::Session("missing".into()),
         ] {
             assert_eq!(row_badge(&tree, &item), None);
@@ -6706,7 +6694,7 @@ mod tests {
         assert!(
             overview_listing(
                 Some(&read),
-                Some(&Tab::Shell(1)),
+                Some(&Tab::Terminal(1)),
                 &open,
                 &open,
                 &t,

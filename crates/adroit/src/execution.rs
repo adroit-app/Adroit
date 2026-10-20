@@ -2,8 +2,11 @@
 
 use std::path::{Path, PathBuf};
 
-use adroit_model::{Agent, AgentPermissions, CustomPermissions};
-use adroit_term::Spawn;
+use adroit_model::{
+    Agent, AgentPermissions, CustomPermissions, TerminalBinding, TerminalProgram,
+    TerminalResourceId, TerminalSession,
+};
+use adroit_term::{Daemon, Palette, Pane, Size, Spawn};
 
 use crate::{agents, sessions, settings::Settings};
 
@@ -37,6 +40,84 @@ pub struct ResolvedLaunch {
     pub model_source: ModelSource,
     pub conversation: String,
     pub spawn: Spawn,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct TerminalStartRequest {
+    pub name: String,
+    pub cwd: PathBuf,
+    pub program: TerminalProgram,
+    pub binding: Option<TerminalBinding>,
+    pub env: Vec<(String, String)>,
+}
+
+pub struct ResolvedTerminalLaunch {
+    pub terminal: TerminalSession,
+    pub spawn: Spawn,
+}
+
+pub fn resolve_terminal(
+    settings: &Settings,
+    request: TerminalStartRequest,
+    login_shell: &str,
+) -> ResolvedTerminalLaunch {
+    let shell = settings.shell.program(login_shell);
+    let (program, args, env) = match request.program {
+        TerminalProgram::Shell => {
+            let (program, args) = settings.shell.command_line(login_shell);
+            let env = [("SHELL".into(), program.clone())]
+                .into_iter()
+                .chain(settings.shell.env.clone())
+                .collect::<Vec<_>>();
+            (program, args, env)
+        }
+        TerminalProgram::Neovim => {
+            let (program, args) = settings.neovim.command_line("nvim", &[], &shell);
+            (
+                program,
+                args,
+                settings.neovim.env.clone().into_iter().collect(),
+            )
+        }
+    };
+    let resource_id = TerminalResourceId::new();
+    let tags = sessions::terminal_tags(
+        &request.name,
+        &request.cwd,
+        request.program,
+        resource_id,
+        request.binding.as_ref(),
+    );
+    ResolvedTerminalLaunch {
+        terminal: TerminalSession {
+            resource_id,
+            id: 0,
+            name: request.name,
+            cwd: request.cwd.clone(),
+            program: request.program,
+            binding: request.binding,
+        },
+        spawn: Spawn {
+            program,
+            args,
+            cwd: request.cwd,
+            env: request.env.into_iter().chain(env).collect(),
+            tags,
+            ..Spawn::default()
+        },
+    }
+}
+
+pub async fn spawn_headless(
+    daemon: &Daemon,
+    spawn: Spawn,
+    palette: &Palette,
+) -> Result<u128, String> {
+    let size = Size::new(spawn.cols, spawn.rows);
+    let pane = Pane::start(daemon, spawn, size, palette, |_| || {})
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(pane.id())
 }
 
 pub fn resolve(
