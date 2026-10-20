@@ -144,6 +144,17 @@ impl Attachments {
         self.add(images);
     }
 
+    pub fn rebind(&mut self, previous: &crate::tabs::Tab, next: &crate::tabs::Tab) {
+        if let Some(source) = self.kept.remove(&Some(previous.clone())) {
+            let target = self.kept.entry(Some(next.clone())).or_default();
+            for image in source {
+                if !target.contains(&image) {
+                    target.push(image);
+                }
+            }
+        }
+    }
+
     pub fn follow(&mut self, sessions: &[adroit_model::Session]) {
         let moved = |tab: Option<crate::tabs::Tab>| match tab {
             Some(crate::tabs::Tab::Session(ref id)) => crate::nav::successor(sessions, id)
