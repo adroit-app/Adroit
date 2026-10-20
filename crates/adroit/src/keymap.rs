@@ -36,7 +36,6 @@ pub const DEFAULTS: &str = r#"
 "Cmd+n" = "session.new"
 "Cmd+N" = "session.new_reader"
 "Cmd+Alt+n" = "session.scratch"
-"Cmd+g" = "session.agent_next"
 "Cmd+s" = "shell.open"
 "Cmd+Alt+e" = "neovim.open"
 "Cmd+t" = "session.take_over"
@@ -51,6 +50,9 @@ pub const DEFAULTS: &str = r#"
 "Cmd+0" = "zoom.reset"
 "Cmd+b" = "sidebar.toggle"
 "Cmd+Alt+b" = "details.toggle"
+
+[draft]
+"Tab" = "session.agent_next"
 
 [sidebar]
 "j" = "cursor.down"
@@ -344,15 +346,18 @@ pub enum Context {
     /// The console while it shows a session.
     Console,
     Prompt,
+    /// Before the area's bindings while a new session is shown.
+    Draft,
 }
 
 impl Context {
-    pub const ALL: [Context; 5] = [
+    pub const ALL: [Context; 6] = [
         Context::Global,
         Context::Sidebar,
         Context::Details,
         Context::Console,
         Context::Prompt,
+        Context::Draft,
     ];
 
     pub fn name(self) -> &'static str {
@@ -362,6 +367,7 @@ impl Context {
             Context::Details => "details",
             Context::Console => "console",
             Context::Prompt => "prompt",
+            Context::Draft => "draft",
         }
     }
 }
@@ -1288,11 +1294,43 @@ mod tests {
     }
 
     #[test]
-    fn cmd_g_switches_the_agent_of_a_session_not_started_yet_wherever_the_keys_are() {
+    fn tab_switches_the_draft_agent_and_otherwise_keeps_the_areas_own_binding() {
         for area in [Context::Prompt, Context::Console, Context::Sidebar] {
-            let got = step(&Keymap::defaults(), &[area, Context::Global], &[], "Cmd+g");
+            let got = step(
+                &Keymap::defaults(),
+                &[Context::Draft, area, Context::Global],
+                &[],
+                "Tab",
+            );
             assert_eq!(got, Step::Run(Action::SessionAgentNext), "{area:?}");
+            assert_eq!(
+                step(&Keymap::defaults(), &[area, Context::Global], &[], "Cmd+g"),
+                Step::Nothing,
+                "{area:?}"
+            );
         }
+        assert_eq!(
+            step(
+                &Keymap::defaults(),
+                &[Context::Console, Context::Global],
+                &[],
+                "Tab"
+            ),
+            Step::Run(Action::ConsoleSend(None))
+        );
+        assert_eq!(
+            step(&Keymap::defaults(), &[Context::Prompt], &[], "Tab"),
+            Step::Nothing
+        );
+        assert_eq!(
+            step(
+                &Keymap::defaults(),
+                &[Context::Draft, Context::Prompt],
+                &[],
+                "Tab"
+            ),
+            Step::Run(Action::SessionAgentNext)
+        );
         assert_eq!("session.agent_next".parse(), Ok(Action::SessionAgentNext));
     }
 

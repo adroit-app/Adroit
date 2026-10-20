@@ -127,6 +127,17 @@ pub fn for_tab(
     }
 }
 
+/// Keep a draft's choice and remember it for subsequent drafts in this window.
+pub fn choose(
+    chosen: &mut HashMap<crate::tabs::Tab, Agent>,
+    draft: crate::tabs::Tab,
+    agent: Agent,
+    last: &mut Option<Agent>,
+) {
+    chosen.insert(draft, agent);
+    *last = Some(agent);
+}
+
 /// The same launch path is used by the window and the session command.
 pub fn start(
     agent: Agent,
@@ -249,6 +260,66 @@ mod tests {
         );
         assert_eq!(
             for_tab(&tree, Some(&draft("/web")), &chosen, Agent::Claude),
+            Agent::Claude
+        );
+    }
+
+    #[test]
+    fn choosing_an_agent_sets_the_next_draft_default_only_until_the_window_closes() {
+        use crate::tabs::{Role, Tab};
+        let draft = |dir: &str| Tab::Draft {
+            worktree: dir.into(),
+            role: Role::Worker,
+        };
+        let tree = adroit_model::Tree::default();
+        let mut chosen = HashMap::new();
+        let settings = Settings::default();
+        let mut last = None;
+
+        choose(&mut chosen, draft("/api"), Agent::Codex, &mut last);
+        assert_eq!(settings.agent, Agent::Claude);
+        assert_eq!(last, Some(Agent::Codex));
+        assert_eq!(
+            for_tab(
+                &tree,
+                Some(&draft("/api")),
+                &chosen,
+                last.unwrap_or(settings.agent)
+            ),
+            Agent::Codex
+        );
+        assert_eq!(
+            for_tab(
+                &tree,
+                Some(&draft("/web")),
+                &chosen,
+                last.unwrap_or(settings.agent)
+            ),
+            Agent::Codex
+        );
+        assert_eq!(
+            for_tab(&tree, Some(&draft("/web")), &HashMap::new(), settings.agent),
+            Agent::Claude
+        );
+
+        choose(&mut chosen, draft("/web"), Agent::Claude, &mut last);
+        assert_eq!(last, Some(Agent::Claude));
+        assert_eq!(
+            for_tab(
+                &tree,
+                Some(&draft("/api")),
+                &chosen,
+                last.unwrap_or(settings.agent)
+            ),
+            Agent::Codex
+        );
+        assert_eq!(
+            for_tab(
+                &tree,
+                Some(&draft("/other")),
+                &chosen,
+                last.unwrap_or(settings.agent)
+            ),
             Agent::Claude
         );
     }
