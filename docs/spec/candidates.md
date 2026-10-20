@@ -55,3 +55,17 @@ candidate. A late capture cannot restore it to the current plan.
 Capture records a prepared proof or a failure and notifies the Leader. Prepared
 file evidence is immutable. Verification and final completion must use the
 current selected candidate and current source revisions.
+
+## Background capture and public summaries
+
+The daemon executes pending capture outside the state owner, independently of
+the window and the Leader's model turn. These reads may be repeated after a
+controller restart. A failed candidate does not hold up another run's capture.
+Cancelling the run invalidates its pending candidate without closing its Agent
+or Terminal sessions.
+
+`candidate` takes `id` and returns a candidate summary within the caller's run.
+Snapshots, candidate responses, and candidate events expose the source artifact,
+state, error, and proof identity with its file count. They omit the full list of
+captured file hashes; detailed proof remains in durable state. The Leader is
+notified when capture finishes, and preparation alone is not run completion.

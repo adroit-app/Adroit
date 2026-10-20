@@ -96,6 +96,9 @@ pub enum Command {
         expected_revision: u64,
         summary: String,
     },
+    Candidate {
+        id: CandidateId,
+    },
     ProposeCandidate {
         expected_revision: u64,
         plan: CandidatePlan,

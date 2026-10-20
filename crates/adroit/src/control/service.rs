@@ -63,6 +63,7 @@ impl Service {
             let mut scheduler =
                 super::scheduler::Scheduler::new(actor.clone(), daemon.clone(), root, program);
             let mut dispatcher = super::dispatcher::Dispatcher::new(actor.clone());
+            let mut captures = super::capture::CaptureSupervisor::new(actor.clone());
             let mut interval = tokio::time::interval(std::time::Duration::from_millis(250));
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             let mut last_error = None;
@@ -70,6 +71,7 @@ impl Service {
                 interval.tick().await;
                 let result = async {
                     super::observer::tick(&actor, &daemon).await?;
+                    captures.tick().await?;
                     dispatcher.tick().await?;
                     let settings = settings().sane();
                     let capacity = settings.orchestration.max_workers;
@@ -391,10 +393,24 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
         Command::CancelRun { run_id } => {
             value(store.cancel_run(request.id, identity()?, run_id)?)
         }
+        Command::Candidate { id } => {
+            let candidate = store.candidate(id)?;
+            if !is_human
+                && store.context(identity()?)?.session.binding.run_id()
+                    != Some(candidate.plan.run_id)
+            {
+                return Err(denied("the candidate belongs to another run"));
+            }
+            value(candidate.summary())
+        }
         Command::ProposeCandidate {
             expected_revision,
             plan,
-        } => value(store.propose_candidate(request.id, identity()?, expected_revision, plan)?),
+        } => value(
+            store
+                .propose_candidate(request.id, identity()?, expected_revision, plan)?
+                .map(|candidate| candidate.summary()),
+        ),
         Command::AnnounceChange { intent } => {
             value(store.announce_change(request.id, identity()?, intent)?)
         }

@@ -145,6 +145,7 @@ impl Store {
                         event(connection, Some(run_id), "task_cancelled", &task)?;
                     }
                 }
+                super::candidates::invalidate_run(connection, run_id)?;
                 run.state = RunState::Cancelling;
                 save_run(connection, &run)?;
                 event(connection, Some(run_id), "run_cancel_requested", &run)?;

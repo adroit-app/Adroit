@@ -20,7 +20,7 @@ mod runs;
 mod runtime;
 mod workareas;
 
-const SCHEMA_VERSION: i64 = 9;
+const SCHEMA_VERSION: i64 = 10;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -79,6 +79,15 @@ type Result<T> = std::result::Result<T, ControlError>;
 pub struct Reply<T> {
     pub value: T,
     pub event_cursor: u64,
+}
+
+impl<T> Reply<T> {
+    pub fn map<U>(self, project: impl FnOnce(T) -> U) -> Reply<U> {
+        Reply {
+            value: project(self.value),
+            event_cursor: self.event_cursor,
+        }
+    }
 }
 
 pub struct Store {
@@ -532,6 +541,13 @@ impl Store {
             let transaction =
                 connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
             transaction.execute_batch("CREATE TABLE candidates (id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), source_task_id TEXT NOT NULL REFERENCES tasks(id), data TEXT NOT NULL);")?;
+            transaction.pragma_update(None, "user_version", 9)?;
+            transaction.commit()?;
+        }
+        if schema < 10 {
+            let transaction =
+                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            transaction.execute_batch("CREATE INDEX candidates_state ON candidates(json_extract(data,'$.state')); CREATE INDEX candidates_source_state ON candidates(source_task_id,json_extract(data,'$.state'));")?;
             transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
             transaction.commit()?;
         }
@@ -1415,7 +1431,10 @@ impl Store {
             deliveries,
             reports: all(&transaction, Table::Reports)?,
             completions: all(&transaction, Table::Completions)?,
-            candidates: all(&transaction, Table::Candidates)?,
+            candidates: all::<CandidateRecord>(&transaction, Table::Candidates)?
+                .iter()
+                .map(CandidateRecord::summary)
+                .collect(),
             coordination: all(&transaction, Table::Coordination)?,
             coordination_replies: all(&transaction, Table::CoordinationReplies)?,
             work_areas: all(&transaction, Table::WorkAreas)?,

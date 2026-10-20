@@ -60,28 +60,50 @@ fn source(connection: &Connection, plan: &CandidatePlan) -> Result<TaskReportRec
     Ok(report)
 }
 
-pub(super) fn invalidate_sources(connection: &Connection, tasks: &HashSet<TaskId>) -> Result<()> {
-    for mut candidate in all::<CandidateRecord>(connection, Table::Candidates)?
-        .into_iter()
-        .filter(|candidate| {
-            tasks.contains(&candidate.plan.source.task_id)
-                && matches!(
-                    candidate.state,
-                    CandidateState::Requested | CandidateState::Prepared | CandidateState::Verified
-                )
-        })
-    {
+fn invalidate(
+    connection: &Connection,
+    mut candidates: Vec<CandidateRecord>,
+    reason: &str,
+) -> Result<()> {
+    for candidate in &mut candidates {
         candidate.state = CandidateState::Stale;
-        candidate.error = Some("The candidate source was revised or cancelled".into());
-        save(connection, &candidate)?;
+        candidate.error = Some(reason.into());
+        save(connection, candidate)?;
         event(
             connection,
             Some(candidate.plan.run_id),
             "candidate_invalidated",
-            &candidate,
+            &candidate.summary(),
         )?;
     }
     Ok(())
+}
+
+pub(super) fn invalidate_sources(connection: &Connection, tasks: &HashSet<TaskId>) -> Result<()> {
+    let mut candidates = Vec::new();
+    let mut statement = connection.prepare("SELECT data FROM candidates WHERE source_task_id = ?1 AND json_extract(data,'$.state') IN ('requested','prepared','verified') ORDER BY rowid")?;
+    for task in tasks {
+        candidates.extend(
+            statement
+                .query_map([task.to_string()], |row| row.get::<_, String>(0))?
+                .map(|row| decode(&row?))
+                .collect::<Result<Vec<CandidateRecord>>>()?,
+        );
+    }
+    invalidate(
+        connection,
+        candidates,
+        "The candidate source was revised or cancelled",
+    )
+}
+
+pub(super) fn invalidate_run(connection: &Connection, run: RunId) -> Result<()> {
+    let mut statement = connection.prepare("SELECT data FROM candidates WHERE run_id = ?1 AND json_extract(data,'$.state') IN ('requested','prepared','verified') ORDER BY rowid")?;
+    let candidates = statement
+        .query_map([run.to_string()], |row| row.get::<_, String>(0))?
+        .map(|row| decode(&row?))
+        .collect::<Result<Vec<CandidateRecord>>>()?;
+    invalidate(connection, candidates, "The candidate run was cancelled")
 }
 
 fn notice(connection: &Connection, candidate: &CandidateRecord) -> Result<()> {
@@ -131,7 +153,7 @@ impl Store {
                 let mut previous: CandidateRecord = require(connection,Table::Candidates,previous)?;
                 previous.state = CandidateState::Superseded;
                 save(connection,&previous)?;
-                event(connection,Some(run.id),"candidate_superseded",&previous)?;
+                event(connection,Some(run.id),"candidate_superseded",&previous.summary())?;
             }
             let candidate = CandidateRecord {source_report:report.report.message_id,artifact:report.report.result.artifact.expect("validated change artifact"),plan,state:CandidateState::Requested,proof:None,error:None};
             save(connection,&candidate)?;
@@ -140,7 +162,7 @@ impl Store {
             run.plan_revision = run.plan_revision.checked_add(1).ok_or_else(||conflict("the plan revision is exhausted"))?;
             run.state = RunState::Active;
             save_run(connection,&run)?;
-            event(connection,Some(run.id),"candidate_requested",&candidate)?;
+            event(connection,Some(run.id),"candidate_requested",&candidate.summary())?;
             Ok(candidate)
         })
     }
@@ -203,11 +225,29 @@ impl Store {
                     connection,
                     Some(run.id),
                     "candidate_capture_finished",
-                    &candidate,
+                    &candidate.summary(),
                 )?;
                 notice(connection, &candidate)?;
                 Ok(candidate)
             },
         )
+    }
+}
+
+impl Store {
+    pub fn candidate(&self, id: CandidateId) -> Result<CandidateRecord> {
+        require(&self.connection, Table::Candidates, id)
+    }
+
+    pub fn pending_candidates(&self, limit: u32) -> Result<Vec<CandidateRecord>> {
+        let mut statement = self.connection.prepare("SELECT data FROM candidates WHERE json_extract(data,'$.state') = 'requested' ORDER BY rowid LIMIT ?1")?;
+        statement
+            .query_map([limit.min(64)], |row| row.get::<_, String>(0))?
+            .map(|row| decode(&row?))
+            .collect()
+    }
+
+    pub fn work_area(&self, id: WorkAreaId) -> Result<WorkArea> {
+        require(&self.connection, Table::WorkAreas, id)
     }
 }

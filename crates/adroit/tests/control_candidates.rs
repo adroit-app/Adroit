@@ -185,7 +185,7 @@ async fn a_candidate_proposal_and_its_exact_capture_survive_reopening_without_co
     drop(store);
     let mut store = Store::open(&path).unwrap();
     let snapshot = store.snapshot().unwrap();
-    assert_eq!(snapshot.candidates, vec![prepared]);
+    assert_eq!(snapshot.candidates, vec![prepared.summary()]);
     assert_eq!(snapshot.runs[0].candidate_id, Some(plan.id));
     assert_eq!(snapshot.runs[0].state, RunState::Active);
     assert_eq!(snapshot.runs[0].plan_revision, 3);
@@ -287,4 +287,230 @@ fn stale_plan_revisions_and_foreign_results_cannot_select_a_candidate() {
             .is_err()
     );
     assert_eq!(store.snapshot().unwrap(), before);
+}
+
+#[tokio::test]
+async fn pending_read_only_capture_resumes_after_supervisor_restart_without_a_window() {
+    use adroit::control::{capture::CaptureSupervisor, service::Service};
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("output.txt"), "Result").unwrap();
+    let root = dir.path().join("control");
+    let mut store = Store::open(&root.join("state.sqlite3")).unwrap();
+    let (owner, run, attempt, _, _) = finished_change(&mut store, dir.path());
+    let plan = plan(run, &attempt);
+    store
+        .propose_candidate(RequestId::new(), owner, 2, plan.clone())
+        .unwrap();
+    drop(store);
+    let service = Service::bind(&root).await.unwrap();
+    let mut capture = CaptureSupervisor::new(service.actor());
+    assert_eq!(capture.tick().await.unwrap(), vec![plan.id]);
+    drop(capture);
+    let id = plan.id;
+    assert_eq!(
+        service
+            .actor()
+            .call(move |store| store.candidate(id))
+            .await
+            .unwrap()
+            .state,
+        CandidateState::Requested
+    );
+    let mut capture = CaptureSupervisor::new(service.actor());
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            capture.tick().await.unwrap();
+            let candidate = service
+                .actor()
+                .call(move |store| store.candidate(id))
+                .await
+                .unwrap();
+            if candidate.state == CandidateState::Prepared {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let snapshot = service
+        .actor()
+        .call(|store| store.snapshot())
+        .await
+        .unwrap();
+    assert_eq!(snapshot.candidates.len(), 1);
+    assert_eq!(snapshot.runs[0].state, RunState::Active);
+    assert_eq!(
+        snapshot
+            .messages
+            .iter()
+            .filter(|message| message.body.contains("candidate_capture_finished"))
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn one_stale_directory_output_does_not_block_another_runs_capture() {
+    use adroit::control::{capture::CaptureSupervisor, service::Service};
+    let first = tempfile::tempdir().unwrap();
+    let second = tempfile::tempdir().unwrap();
+    for dir in [first.path(), second.path()] {
+        std::fs::write(dir.join("output.txt"), "Result").unwrap();
+    }
+    let root = first.path().join("control");
+    let mut store = Store::open(&root.join("state.sqlite3")).unwrap();
+    let mut ids = Vec::new();
+    for dir in [first.path(), second.path()] {
+        let (owner, run, attempt, _, _) = finished_change(&mut store, dir);
+        let plan = plan(run, &attempt);
+        store
+            .propose_candidate(RequestId::new(), owner, 2, plan.clone())
+            .unwrap();
+        ids.push(plan.id);
+    }
+    std::fs::write(first.path().join("output.txt"), "Changed after reporting").unwrap();
+    drop(store);
+    let service = Service::bind(&root).await.unwrap();
+    let mut capture = CaptureSupervisor::new(service.actor());
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            capture.tick().await.unwrap();
+            let snapshot = service
+                .actor()
+                .call(|store| store.snapshot())
+                .await
+                .unwrap();
+            if snapshot
+                .candidates
+                .iter()
+                .all(|candidate| candidate.state != CandidateState::Requested)
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let snapshot = service
+        .actor()
+        .call(|store| store.snapshot())
+        .await
+        .unwrap();
+    assert_eq!(
+        snapshot
+            .candidates
+            .iter()
+            .find(|candidate| candidate.plan.id == ids[0])
+            .unwrap()
+            .state,
+        CandidateState::Failed
+    );
+    assert_eq!(
+        snapshot
+            .candidates
+            .iter()
+            .find(|candidate| candidate.plan.id == ids[1])
+            .unwrap()
+            .state,
+        CandidateState::Prepared
+    );
+}
+
+#[tokio::test]
+async fn public_snapshots_summarize_large_file_evidence_instead_of_exceeding_the_frame_limit() {
+    use adroit::control::{client::Client, protocol::Command, service::Service};
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("output.txt"), "Result").unwrap();
+    let root = dir.path().join("control");
+    let mut store = Store::open(&root.join("state.sqlite3")).unwrap();
+    let (owner, run, attempt, area, artifact) = finished_change(&mut store, dir.path());
+    let plan = plan(run, &attempt);
+    store
+        .propose_candidate(RequestId::new(), owner, 2, plan.clone())
+        .unwrap();
+    let mut proof = adroit::candidates::capture_candidate(&area, &artifact, &plan.inputs)
+        .await
+        .unwrap();
+    // This layer receives reader evidence; its public projection must not repeat the full manifest.
+    proof.files.files = (0..16384)
+        .map(|index| CandidateFile {
+            path: format!("captured/file-{index:05}.txt"),
+            state: CandidateFileState::File {
+                sha256: "a".repeat(64),
+                executable: false,
+            },
+        })
+        .collect();
+    store
+        .record_candidate_capture(RequestId::new(), plan.id, Ok(proof))
+        .unwrap();
+    let token = store.grant(owner).unwrap();
+    drop(store);
+    let _service = Service::bind(&root).await.unwrap();
+    let client = Client::session(&root, token);
+    let value = client
+        .request(RequestId::new(), Command::Snapshot)
+        .await
+        .unwrap();
+    assert_eq!(value["candidates"][0]["proof"]["file_count"], 16384);
+    assert!(value["candidates"][0]["proof"].get("files").is_none());
+    assert!(serde_json::to_vec(&value).unwrap().len() < 64 * 1024);
+    client
+        .request(
+            RequestId::new(),
+            Command::ProposeCandidate {
+                expected_revision: 3,
+                plan: CandidatePlan {
+                    id: CandidateId::new(),
+                    ..plan
+                },
+            },
+        )
+        .await
+        .unwrap();
+    let events = client
+        .request(
+            RequestId::new(),
+            Command::Events {
+                after: 0,
+                limit: 1000,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(serde_json::to_vec(&events).unwrap().len() < 128 * 1024);
+    let superseded = events["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|event| event["kind"] == "candidate_superseded")
+        .unwrap();
+    assert_eq!(superseded["data"]["proof"]["file_count"], 16384);
+}
+
+#[test]
+fn cancelling_a_run_invalidates_its_pending_candidate_and_keeps_interactive_sessions_available() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("output.txt"), "Result").unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (owner, run, attempt, _, _) = finished_change(&mut store, dir.path());
+    let plan = plan(run, &attempt);
+    store
+        .propose_candidate(RequestId::new(), owner, 2, plan)
+        .unwrap();
+    store.cancel_run(RequestId::new(), owner, run).unwrap();
+    let snapshot = store.snapshot().unwrap();
+    assert_eq!(snapshot.runs[0].state, RunState::Cancelled);
+    assert_eq!(snapshot.candidates[0].state, CandidateState::Stale);
+    assert_eq!(
+        snapshot
+            .sessions
+            .iter()
+            .find(|session| session.binding.logical_id() == attempt.session_id)
+            .unwrap()
+            .state,
+        ManagedSessionState::Running
+    );
 }

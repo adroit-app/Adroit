@@ -331,7 +331,7 @@ pub struct ControlSnapshot {
     pub deliveries: Vec<DeliveryRecord>,
     pub reports: Vec<TaskReportRecord>,
     pub completions: Vec<RunCompletion>,
-    pub candidates: Vec<CandidateRecord>,
+    pub candidates: Vec<CandidateSummary>,
     pub coordination: Vec<CoordinationNotice>,
     pub coordination_replies: Vec<CoordinationReply>,
     pub work_areas: Vec<WorkArea>,
@@ -650,4 +650,44 @@ pub struct CandidateRecord {
     pub state: CandidateState,
     pub proof: Option<CandidateProof>,
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CandidateProofSummary {
+    pub work_area_id: WorkAreaId,
+    pub backend: WorkAreaBackend,
+    pub revision: Option<String>,
+    pub fingerprint: String,
+    pub file_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CandidateSummary {
+    pub plan: CandidatePlan,
+    pub source_report: MessageId,
+    pub artifact: TaskArtifact,
+    pub state: CandidateState,
+    pub proof: Option<CandidateProofSummary>,
+    pub error: Option<String>,
+}
+
+impl CandidateRecord {
+    pub fn summary(&self) -> CandidateSummary {
+        CandidateSummary {
+            plan: self.plan.clone(),
+            source_report: self.source_report,
+            artifact: self.artifact.clone(),
+            state: self.state,
+            error: self.error.clone(),
+            proof: self.proof.as_ref().map(|proof| CandidateProofSummary {
+                work_area_id: proof.work_area_id,
+                backend: proof.backend,
+                revision: proof.revision.clone(),
+                fingerprint: proof.files.fingerprint.clone(),
+                file_count: proof.files.files.len(),
+            }),
+        }
+    }
 }

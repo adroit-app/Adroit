@@ -32,3 +32,5 @@ pub mod dispatcher;
 pub mod observer;
 
 pub mod files;
+
+pub mod capture;
