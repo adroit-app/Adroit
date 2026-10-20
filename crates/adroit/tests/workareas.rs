@@ -373,3 +373,126 @@ async fn inspecting_an_existing_jj_workspace_preserves_its_files_and_history() {
         operations
     );
 }
+
+#[tokio::test]
+async fn inspecting_a_workspace_does_not_publish_a_merge_of_concurrent_operations() {
+    let dir = tempfile::tempdir().unwrap();
+    jj(dir.path(), &["git", "init", "--colocate"]);
+    jj(
+        dir.path(),
+        &["describe", "-m", "test: establish the operation fork"],
+    );
+    let base = jj(
+        dir.path(),
+        &["op", "log", "--no-graph", "--limit", "1", "-T", "id"],
+    );
+    jj(
+        dir.path(),
+        &[
+            "--at-operation",
+            base.trim(),
+            "describe",
+            "-m",
+            "test: first concurrent description",
+        ],
+    );
+    jj(
+        dir.path(),
+        &[
+            "--at-operation",
+            base.trim(),
+            "describe",
+            "-m",
+            "test: second concurrent description",
+        ],
+    );
+    let heads = || {
+        let output = Command::new("jj")
+            .args([
+                "--no-pager",
+                "--ignore-working-copy",
+                "--at-operation=@",
+                "op",
+                "log",
+            ])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        assert!(
+            !output.status.success(),
+            "the operation fork must still be unresolved"
+        );
+        let error = String::from_utf8(output.stderr).unwrap();
+        assert!(error.contains("more than one operation"), "{error}");
+        error
+    };
+    let before = heads();
+    let inspected = adroit::workareas::existing(
+        WorkAreaId::new(),
+        dir.path().into(),
+        "Inspect concurrent default".into(),
+    )
+    .await;
+    assert!(
+        inspected.is_err(),
+        "inspection must refuse ambiguous operation heads instead of publishing a merge"
+    );
+    assert_eq!(heads(), before);
+}
+
+#[test]
+fn machine_inspection_ignores_forced_color_without_rewriting_native_configuration() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args(["--ignored", "--exact", "native_color_inspection_fixture"])
+        .env("ADROIT_TEST_NATIVE_COLOR_ROOT", dir.path())
+        .env("XDG_CONFIG_HOME", dir.path().join("config"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[tokio::test]
+#[ignore = "subprocess fixture with its own native configuration directory"]
+async fn native_color_inspection_fixture() {
+    let root = std::path::PathBuf::from(
+        std::env::var_os("ADROIT_TEST_NATIVE_COLOR_ROOT").expect("subprocess fixture root"),
+    );
+    assert_eq!(
+        std::env::var_os("XDG_CONFIG_HOME").unwrap(),
+        root.join("config")
+    );
+    let source = root.join("source");
+    std::fs::create_dir(&source).unwrap();
+    jj(&source, &["git", "init", "--colocate"]);
+    jj(
+        &source,
+        &[
+            "describe",
+            "-m",
+            "test: inspect a colored native configuration",
+        ],
+    );
+    jj(&source, &["config", "set", "--repo", "ui.color", "always"]);
+    let config_path = jj(&source, &["config", "path", "--repo"]);
+    let config_path = Path::new(config_path.trim());
+    assert!(config_path.starts_with(root.join("config")));
+    let config = std::fs::read(config_path).unwrap();
+    let area = adroit::workareas::existing(
+        WorkAreaId::new(),
+        source,
+        "Inspect configured default".into(),
+    )
+    .await
+    .unwrap();
+    assert!(matches!(
+        area.base_revision.as_ref().unwrap().len(),
+        40 | 64
+    ));
+    assert_eq!(std::fs::read(config_path).unwrap(), config);
+}

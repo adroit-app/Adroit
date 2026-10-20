@@ -96,6 +96,7 @@ async fn matches_revision(root: &Path, backend: WorkAreaBackend, revision: &str)
                 &[
                     "--no-pager",
                     "--color=never",
+                    "--at-operation=@",
                     "--no-integrate-operation",
                     "diff",
                     "--from",
@@ -114,6 +115,8 @@ async fn matches_revision(root: &Path, backend: WorkAreaBackend, revision: &str)
                 "jj",
                 &[
                     "--no-pager",
+                    "--color=never",
+                    "--at-operation=@",
                     "--ignore-working-copy",
                     "log",
                     "-r",
@@ -170,6 +173,8 @@ async fn paths(root: &Path, backend: WorkAreaBackend, revision: &str) -> Result<
                 "jj",
                 &[
                     "--no-pager",
+                    "--color=never",
+                    "--at-operation=@",
                     "--ignore-working-copy",
                     "file",
                     "list",

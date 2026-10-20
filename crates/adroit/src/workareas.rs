@@ -157,6 +157,8 @@ fn destination(path: &Path) -> Result<PathBuf> {
 async fn jj(dir: &Path, args: &[&OsStr]) -> Result<String> {
     let mut full = vec![
         OsStr::new("--no-pager"),
+        OsStr::new("--color=never"),
+        OsStr::new("--at-operation=@"),
         OsStr::new("--ignore-working-copy"),
     ];
     full.extend_from_slice(args);
@@ -172,6 +174,8 @@ async fn revision(
     let output = match backend {
         WorkAreaBackend::Jj => {
             let args: &[&OsStr] = &[
+                "--no-pager".as_ref(),
+                "--color=never".as_ref(),
                 "log".as_ref(),
                 "-r".as_ref(),
                 requested.as_ref(),
