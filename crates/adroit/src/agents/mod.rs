@@ -39,6 +39,13 @@ pub trait ConversationReader: Send {
 
 /// A terminal agent owns its arguments, environment and optional integrations.
 pub trait AgentAdapter: Sync {
+    fn role_args(
+        &self,
+        settings: &mut Settings,
+        role: adroit_model::SessionRole,
+        instructions: &str,
+    ) -> Vec<String>;
+
     fn deliver(
         &self,
         _settings: Settings,

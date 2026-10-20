@@ -191,3 +191,104 @@ fn a_worker_launch_keeps_its_explicit_assignment_even_at_the_repository_root() {
         Some(launch.conversation.as_str())
     );
 }
+
+#[test]
+fn a_codex_leader_requests_native_delegation_restrictions_per_launch() {
+    use adroit_model::{LogicalSessionId, RunId, SessionBinding};
+    let mut request = request(Agent::Codex, None);
+    request.binding = Some(SessionBinding::leader(
+        LogicalSessionId::new(),
+        Some(RunId::new()),
+    ));
+    let launch = resolve(&Settings::default(), request, Path::new("/adroit")).unwrap();
+    assert_eq!(launch.role_version, Some(1));
+    for policy in [
+        "agents.enabled=false",
+        "features.multi_agent=false",
+        "features.multi_agent_v2=false",
+    ] {
+        assert!(
+            launch
+                .spawn
+                .args
+                .windows(2)
+                .any(|args| args == ["-c", policy])
+        );
+    }
+    assert!(
+        launch
+            .spawn
+            .args
+            .iter()
+            .any(|arg| arg.starts_with("developer_instructions=")
+                && arg.contains("Leader")
+                && arg.contains("internal subagents"))
+    );
+}
+
+#[test]
+fn a_claude_leader_combines_its_tool_restriction_with_custom_permissions() {
+    use adroit_model::{LogicalSessionId, RunId, SessionBinding};
+    let mut request = request(Agent::Claude, None);
+    request.binding = Some(SessionBinding::leader(
+        LogicalSessionId::new(),
+        Some(RunId::new()),
+    ));
+    request.permissions = AgentPermissions::Custom(Box::new(CustomPermissions::Claude {
+        permission_mode: "default".into(),
+        disallowed_tools: vec!["Write".into()],
+    }));
+    let launch = resolve(&Settings::default(), request, Path::new("/adroit")).unwrap();
+    let args = &launch.spawn.args;
+    assert!(
+        args.windows(2)
+            .any(|args| args[0] == "--append-system-prompt" && args[1].contains("Leader"))
+    );
+    let flags: Vec<_> = args
+        .windows(2)
+        .filter(|args| args[0] == "--disallowedTools")
+        .collect();
+    assert_eq!(flags.len(), 1);
+    for tool in ["Agent", "Task", "Write"] {
+        assert!(flags[0][1].split(',').any(|name| name == tool));
+    }
+}
+
+#[test]
+fn worker_policy_does_not_disable_delegation_and_unmanaged_sessions_get_no_role() {
+    use adroit_model::{AttemptId, LogicalSessionId, RunId, SessionBinding, TaskId};
+    let mut worker = request(Agent::Codex, None);
+    worker.binding = Some(
+        SessionBinding::worker(
+            LogicalSessionId::new(),
+            LogicalSessionId::new(),
+            RunId::new(),
+            TaskId::new(),
+            AttemptId::new(),
+        )
+        .unwrap(),
+    );
+    let launch = resolve(&Settings::default(), worker, Path::new("/adroit")).unwrap();
+    assert_eq!(launch.role_version, Some(1));
+    assert!(
+        !launch
+            .spawn
+            .args
+            .iter()
+            .any(|arg| arg == "agents.enabled=false")
+    );
+    let unmanaged = resolve(
+        &Settings::default(),
+        request(Agent::Codex, None),
+        Path::new("/adroit"),
+    )
+    .unwrap();
+    assert_eq!(unmanaged.role_version, None);
+    assert!(
+        !unmanaged
+            .spawn
+            .args
+            .iter()
+            .any(|arg| arg.starts_with("developer_instructions="))
+    );
+}

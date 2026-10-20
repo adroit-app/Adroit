@@ -35,6 +35,8 @@ pub struct ResolvedLaunch {
     pub model: Option<String>,
     pub model_source: ModelSource,
     pub conversation: String,
+    /// Policy requested at launch; this is not proof of runtime enforcement.
+    pub role_version: Option<u32>,
     pub spawn: Spawn,
 }
 
@@ -173,6 +175,14 @@ pub fn resolve(
     let adapter = agents::adapter(request.agent);
     let conversation = adapter.conversation();
     let mut args = adapter.integration_args(adroit_program);
+    let role_version = request.binding.as_ref().map(|binding| {
+        args.extend(adapter.role_args(
+            &mut settings,
+            binding.role(),
+            &crate::roles::instructions(binding),
+        ));
+        crate::roles::VERSION
+    });
     args.extend(adapter.image_args(&request.images));
     args.extend(adapter.start_args(
         &settings,
@@ -207,6 +217,7 @@ pub fn resolve(
         model,
         model_source: source,
         conversation,
+        role_version,
         spawn: Spawn {
             program,
             args,

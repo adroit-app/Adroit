@@ -3,6 +3,27 @@ use super::*;
 pub struct Claude;
 
 impl AgentAdapter for Claude {
+    fn role_args(
+        &self,
+        settings: &mut Settings,
+        role: adroit_model::SessionRole,
+        instructions: &str,
+    ) -> Vec<String> {
+        if role == adroit_model::SessionRole::Leader {
+            for tool in ["Agent", "Task"] {
+                if !settings
+                    .sessions
+                    .disallowed_tools
+                    .iter()
+                    .any(|held| held == tool)
+                {
+                    settings.sessions.disallowed_tools.push(tool.into());
+                }
+            }
+        }
+        vec!["--append-system-prompt".into(), instructions.into()]
+    }
+
     fn image_prompt(&self, text: &str, images: &[PathBuf]) -> String {
         let mut prompt = text.to_string();
         for image in images {

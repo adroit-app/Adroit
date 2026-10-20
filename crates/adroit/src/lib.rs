@@ -60,3 +60,5 @@ pub use app::launch;
 pub use daemon::cli as daemon_cli;
 pub use start::cli as session_cli;
 pub use terminals::cli as terminal_cli;
+
+mod roles;

@@ -20,6 +20,31 @@ pub struct CodexOptions {
 pub struct Codex;
 
 impl AgentAdapter for Codex {
+    fn role_args(
+        &self,
+        _settings: &mut Settings,
+        role: adroit_model::SessionRole,
+        instructions: &str,
+    ) -> Vec<String> {
+        let mut args = vec![
+            "-c".into(),
+            format!(
+                "developer_instructions={}",
+                serde_json::to_string(instructions).expect("serializable instructions")
+            ),
+        ];
+        if role == adroit_model::SessionRole::Leader {
+            for policy in [
+                "agents.enabled=false",
+                "features.multi_agent=false",
+                "features.multi_agent_v2=false",
+            ] {
+                args.extend(["-c".into(), policy.into()]);
+            }
+        }
+        args
+    }
+
     fn deliver(
         &self,
         settings: Settings,
