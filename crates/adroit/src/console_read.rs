@@ -124,6 +124,117 @@ mod tests {
         adroit_term::Key::new(name)
     }
 
+    #[tokio::test]
+    async fn read_mode_can_move_above_the_live_screen_into_terminal_scrollback() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::time::Duration;
+
+        use adroit_nvim::Embedded;
+        use adroit_term::{Daemon, Palette, Spawn};
+
+        let dir = tempfile::Builder::new()
+            .prefix("adroit-read-")
+            .tempdir_in("/tmp")
+            .unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let socket = dir.path().join("d.sock");
+        let serving = socket.clone();
+        let task = tokio::spawn(async move {
+            Daemon::serve(&serving, Duration::from_millis(20), |_| {}).await
+        });
+        let daemon = Daemon::new(socket);
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while daemon.sessions().await.is_err() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let id = daemon
+            .spawn(Spawn {
+                program: "/bin/sh".into(),
+                args: vec![
+                    "-c".into(),
+                    "i=1; while [ $i -le 40 ]; do echo line$i; i=$((i + 1)); done; printf ready; sleep 30".into(),
+                ],
+                cwd: dir.path().into(),
+                cols: 40,
+                rows: 6,
+                ..Spawn::default()
+            })
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let visible = daemon.visible(id).await.unwrap();
+                if visible.iter().any(|line| line == "ready") {
+                    assert!(!visible.iter().any(|line| line == "line1"));
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+
+        let palette = Palette::default();
+        let all = daemon.everything(id, 40, &palette).await.unwrap();
+        let (lines, marks, cursor) = reading(&all, palette.foreground);
+        assert_eq!(lines.first().map(String::as_str), Some("line1"));
+        assert_eq!(lines.last().map(String::as_str), Some("ready"));
+        let reader = Embedded::spawn_reader("nvim", &["--clean"], 40, 6, |_| {})
+            .await
+            .unwrap();
+        reader
+            .show(&lines, &marks, cursor, true, &all.background.hex())
+            .await
+            .unwrap();
+        reader.input("<C-u><C-u>").await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let above_live_screen = reader
+                    .state()
+                    .screen()
+                    .text()
+                    .first()
+                    .and_then(|line| line.strip_prefix("line"))
+                    .and_then(|number| number.parse::<usize>().ok())
+                    .is_some_and(|number| number < 36);
+                if above_live_screen {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        reader.input("gg").await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while reader.state().screen().text().first().map(String::as_str) != Some("line1") {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(reader.state().screen().cursor.map(|c| c.row), Some(0));
+        reader.input("G").await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !reader
+                .state()
+                .screen()
+                .text()
+                .iter()
+                .any(|line| line == "ready")
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        daemon.end(id).await.unwrap();
+        task.abort();
+    }
+
     #[test]
     fn moving_up_from_the_first_line_scrolls_the_session_back_by_as_much() {
         let at_top = Edge {
