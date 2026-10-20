@@ -85,6 +85,11 @@ pub enum Command {
     CancelRun {
         run_id: RunId,
     },
+    CompleteRun {
+        run_id: RunId,
+        expected_revision: u64,
+        summary: String,
+    },
     PutTask {
         plan: TaskPlan,
     },

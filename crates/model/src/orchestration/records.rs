@@ -123,10 +123,11 @@ pub struct TargetPreference {
     pub permissions: AgentPermissions,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct TaskBrief {
     pub instructions: String,
+    pub required: bool,
     pub scope: Vec<String>,
     pub inputs: Vec<String>,
     pub purpose: TaskPurpose,
@@ -134,6 +135,22 @@ pub struct TaskBrief {
     pub base_revision: Option<String>,
     pub workdir: WorkdirPolicy,
     pub target: TargetPreference,
+}
+
+impl Default for TaskBrief {
+    fn default() -> Self {
+        Self {
+            instructions: String::new(),
+            required: true,
+            scope: Vec::new(),
+            inputs: Vec::new(),
+            purpose: TaskPurpose::default(),
+            source_dir: None,
+            base_revision: None,
+            workdir: WorkdirPolicy::default(),
+            target: TargetPreference::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -310,6 +327,7 @@ pub struct ControlSnapshot {
     pub messages: Vec<AgentMessage>,
     pub deliveries: Vec<DeliveryRecord>,
     pub reports: Vec<TaskReportRecord>,
+    pub completions: Vec<RunCompletion>,
     pub work_areas: Vec<WorkArea>,
     pub run_work_areas: Vec<RunWorkArea>,
 }
@@ -477,4 +495,13 @@ pub struct TaskReportRecord {
     pub run_id: RunId,
     /// False when the assignment was revised or cancellation won the race.
     pub applied: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RunCompletion {
+    pub run_id: RunId,
+    pub plan_revision: u64,
+    pub summary: String,
+    pub reports: Vec<MessageId>,
 }

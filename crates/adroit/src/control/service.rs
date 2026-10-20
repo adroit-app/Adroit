@@ -309,6 +309,7 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
                 snapshot.runs.retain(|r| r.id == run);
                 snapshot.tasks.retain(|t| t.run_id == run);
                 snapshot.reports.retain(|r| r.run_id == run);
+                snapshot.completions.retain(|r| r.run_id == run);
                 snapshot.run_work_areas.retain(|area| area.run_id == run);
                 snapshot.work_areas.retain(|area| {
                     snapshot
@@ -364,6 +365,17 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
         Command::CancelRun { run_id } => {
             value(store.cancel_run(request.id, identity()?, run_id)?)
         }
+        Command::CompleteRun {
+            run_id,
+            expected_revision,
+            summary,
+        } => value(store.complete_run(
+            request.id,
+            identity()?,
+            run_id,
+            expected_revision,
+            summary,
+        )?),
         Command::PutTask { plan } => value(store.put_task(request.id, identity()?, plan)?),
         Command::QueueTask { version } => {
             value(store.queue_task(request.id, identity()?, version)?)

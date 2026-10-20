@@ -17,7 +17,7 @@ mod runs;
 mod runtime;
 mod workareas;
 
-const SCHEMA_VERSION: i64 = 6;
+const SCHEMA_VERSION: i64 = 7;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -159,6 +159,7 @@ enum Table {
     WorkAreas,
     RunWorkAreas,
     Reports,
+    Completions,
 }
 impl Table {
     fn name(self) -> &'static str {
@@ -171,6 +172,7 @@ impl Table {
             Self::WorkAreas => "work_areas",
             Self::RunWorkAreas => "run_work_areas",
             Self::Reports => "task_reports",
+            Self::Completions => "run_completions",
         }
     }
 }
@@ -500,6 +502,13 @@ impl Store {
             let transaction =
                 connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
             transaction.execute_batch("DROP INDEX one_active_run_per_leader; CREATE UNIQUE INDEX one_active_run_per_leader ON runs(leader_id) WHERE state IN ('active','verifying','cancelling');")?;
+            transaction.pragma_update(None, "user_version", 6)?;
+            transaction.commit()?;
+        }
+        if schema < 7 {
+            let transaction =
+                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            transaction.execute_batch("CREATE TABLE run_completions (id TEXT PRIMARY KEY REFERENCES runs(id), data TEXT NOT NULL);")?;
             transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
             transaction.commit()?;
         }
@@ -1087,13 +1096,13 @@ impl Store {
                     }
                 }
                 if sender.binding.role() == SessionRole::Worker
-                    && message.kind == MessageKind::Report
+                    && matches!(message.kind, MessageKind::Report | MessageKind::Question)
                     && (message.task_id.is_none()
                         || message.attempt_id.is_none()
                         || message.revision.is_none())
                 {
                     return Err(invalid(
-                        "a worker report needs its task, attempt and revision",
+                        "a worker report or question needs its task, attempt and revision",
                     ));
                 }
                 if message.body.trim().is_empty() {
@@ -1125,9 +1134,19 @@ impl Store {
                 }
                 if let Some(reply_to) = message.reply_to {
                     let parent: AgentMessage = require(connection, Table::Messages, reply_to)?;
-                    if parent.run_id != message.run_id {
-                        return Err(invalid("the reply belongs to another run"));
+                    if parent.run_id != message.run_id
+                        || parent.from != message.to
+                        || parent.to != message.from
+                    {
+                        return Err(invalid(
+                            "a reply must address the original sender and recipient",
+                        ));
                     }
+                    if message.kind == MessageKind::Answer && parent.kind != MessageKind::Question {
+                        return Err(invalid("an answer must reply to a question"));
+                    }
+                } else if message.kind == MessageKind::Answer {
+                    return Err(invalid("an answer needs the question message ID"));
                 }
                 if let Some(existing) =
                     load::<AgentMessage>(connection, Table::Messages, message.id)?
@@ -1372,6 +1391,7 @@ impl Store {
             messages: all(&transaction, Table::Messages)?,
             deliveries,
             reports: all(&transaction, Table::Reports)?,
+            completions: all(&transaction, Table::Completions)?,
             work_areas: all(&transaction, Table::WorkAreas)?,
             run_work_areas: all(&transaction, Table::RunWorkAreas)?,
         };

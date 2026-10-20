@@ -158,3 +158,18 @@ and Neovim resources available; explicit terminal stop remains separate.
 
 A Leader cannot open another run while its current run is still cancelling.
 Independent requests can start in separate Leaders without waiting for it.
+
+## Completing a report run
+
+`complete_run` takes `run_id`, `expected_revision`, and a nonempty `summary`.
+It records the Leader's final summary against the current plan and current
+required results. Required tasks default to true; supplementary tasks may set
+`brief.required` to false. Unstarted supplementary work is skipped on completion.
+
+Completion requires no active attempts or unanswered current blocking questions.
+An answer identifies its question with `reply_to` and addresses the original
+sender. Obsolete assignments cannot hold a revised request open. Finishing a
+run leaves its interactive Agent and tool terminals available.
+
+Report completion requires no VCS commit. Change runs and change artifacts
+require a separate verified candidate and cannot use report-only completion.
