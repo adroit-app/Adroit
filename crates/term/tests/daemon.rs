@@ -581,3 +581,62 @@ async fn only_input_sent_to_the_program_updates_the_last_input_time() {
     pane.paste("selection");
     assert!(pane.last_input_ms().unwrap() >= typed_at);
 }
+
+#[tokio::test]
+async fn session_ownership_is_prepared_before_its_program_can_edit() {
+    let (daemon, dir) = daemon().await;
+    let marker = dir.path().join("released-after-ownership");
+    let mut spawn = sh("printf ready > \"$ADROIT_RELEASE_PROOF\"; sleep 5");
+    spawn.env.push((
+        "ADROIT_RELEASE_PROOF".into(),
+        marker.to_string_lossy().into_owned(),
+    ));
+    let marker_check = marker.clone();
+    let pane = Pane::start_prepared(
+        &daemon,
+        spawn,
+        Size::new(40, 6),
+        &Palette::default(),
+        |_| || {},
+        move |id| async move {
+            assert!(!marker_check.exists());
+            assert_ne!(id, 0);
+            tokio::time::sleep(Duration::from_millis(30)).await;
+            assert!(!marker_check.exists());
+            Ok(())
+        },
+    )
+    .await
+    .unwrap();
+    for _ in 0..100 {
+        if marker.exists() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(marker.exists());
+    daemon.end(pane.id()).await.unwrap();
+}
+
+#[tokio::test]
+async fn refused_startup_preparation_never_releases_the_program_or_keeps_its_session() {
+    let (daemon, dir) = daemon().await;
+    let marker = dir.path().join("must-not-run");
+    let mut spawn = sh("printf bad > \"$ADROIT_RELEASE_PROOF\"; sleep 5");
+    spawn.env.push((
+        "ADROIT_RELEASE_PROOF".into(),
+        marker.to_string_lossy().into_owned(),
+    ));
+    let result = Pane::start_prepared(
+        &daemon,
+        spawn,
+        Size::new(40, 6),
+        &Palette::default(),
+        |_| || {},
+        |_| async { Err(adroit_term::Error::Protocol("assignment changed".into())) },
+    )
+    .await;
+    assert!(result.is_err());
+    assert!(!marker.exists());
+    assert!(daemon.sessions().await.unwrap().is_empty());
+}

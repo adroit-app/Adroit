@@ -222,6 +222,26 @@ impl Pane {
     where
         W: Fn() + Send + Sync + 'static,
     {
+        Self::start_prepared(daemon, spawn, size, palette, waker_for, |_| async {
+            Ok(())
+        })
+        .await
+    }
+
+    /// Record ownership while the child is gated, before it can edit or report.
+    /// A refused preparation destroys this newly created session.
+    pub async fn start_prepared<W, F>(
+        daemon: &Daemon,
+        spawn: Spawn,
+        size: Size,
+        palette: &Palette,
+        waker_for: impl FnOnce(u128) -> W,
+        prepare: impl FnOnce(u128) -> F,
+    ) -> Result<Self>
+    where
+        W: Fn() + Send + Sync + 'static,
+        F: std::future::Future<Output = Result<()>>,
+    {
         // Behind the gate the daemon starts a shell, which is always there,
         // so a program missing is told here, as the daemon would have.
         if !found(&spawn) {
@@ -231,6 +251,10 @@ impl Pane {
         args.dims = Some(size.dims());
         let mut conn = daemon.window().await?;
         let info = conn.create_with(args).await?;
+        if let Err(error) = prepare(info.id).await {
+            let _ = daemon.end(info.id).await;
+            return Err(error);
+        }
         let waker = waker_for(info.id);
         let pane = Self::over(conn, &info, size, palette, waker);
         pane.send(InputMsg::KeyBytes(RELEASE.to_vec()));
