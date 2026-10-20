@@ -91,7 +91,7 @@ pub fn cli() -> i32 {
     let running = move |n| keeper.keep(awake::wanted(n, Settings::load().keep_awake));
     let served = runtime().map_err(adroit_term::Error::from).and_then(|rt| {
         rt.block_on(async {
-            let _control =
+            let mut control =
                 match crate::control::service::Service::bind(&crate::control::root()).await {
                     Ok(service) => Some(service),
                     Err(error) => {
@@ -99,6 +99,12 @@ pub fn cli() -> i32 {
                         None
                     }
                 };
+            if let Some(service) = &mut control {
+                let program = std::env::current_exe().unwrap_or_else(|_| "adroit".into());
+                if let Err(error) = service.supervise(daemon(), program, Settings::load) {
+                    eprintln!("adroit: orchestration supervision is unavailable: {error}");
+                }
+            }
             Daemon::serve(&socket(), AWAKE_EVERY, running).await
         })
     });

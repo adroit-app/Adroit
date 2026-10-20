@@ -23,11 +23,15 @@ pub struct Service {
     socket: PathBuf,
     _claim: File,
     actor: Actor,
+    supervisor: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl Drop for Service {
     fn drop(&mut self) {
         self.task.abort();
+        if let Some(task) = &self.supervisor {
+            task.abort();
+        }
         let _ = std::fs::remove_file(&self.socket);
     }
 }
@@ -35,6 +39,57 @@ impl Drop for Service {
 impl Service {
     pub fn actor(&self) -> Actor {
         self.actor.clone()
+    }
+
+    pub fn supervise(
+        &mut self,
+        daemon: adroit_term::Daemon,
+        program: PathBuf,
+        settings: impl Fn() -> crate::settings::Settings + Send + Sync + 'static,
+    ) -> Result<()> {
+        if self.supervisor.is_some() {
+            return Err(ControlError::new(
+                ErrorCode::Conflict,
+                "the control supervisor is already running",
+            ));
+        }
+        let actor = self.actor.clone();
+        let root = self
+            .socket
+            .parent()
+            .expect("control endpoint directory")
+            .to_path_buf();
+        self.supervisor = Some(tokio::spawn(async move {
+            let mut scheduler =
+                super::scheduler::Scheduler::new(actor.clone(), daemon.clone(), root, program);
+            let mut dispatcher = super::dispatcher::Dispatcher::new(actor.clone());
+            let mut interval = tokio::time::interval(std::time::Duration::from_millis(250));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            let mut last_error = None;
+            loop {
+                interval.tick().await;
+                let result = async {
+                    super::observer::tick(&actor, &daemon).await?;
+                    dispatcher.tick().await?;
+                    let settings = settings().sane();
+                    let capacity = settings.orchestration.max_workers;
+                    scheduler.tick(settings, capacity).await?;
+                    Ok::<_, ControlError>(())
+                }
+                .await;
+                match result {
+                    Ok(()) => last_error = None,
+                    Err(error) => {
+                        let message = error.to_string();
+                        if last_error.as_ref() != Some(&message) {
+                            eprintln!("adroit: orchestration supervision: {message}");
+                            last_error = Some(message);
+                        }
+                    }
+                }
+            }
+        }));
+        Ok(())
     }
 
     pub async fn bind(root: &Path) -> Result<Self> {
@@ -93,6 +148,7 @@ impl Service {
             socket,
             _claim: claim,
             actor,
+            supervisor: None,
         })
     }
 }
@@ -208,6 +264,9 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
         } if is_human => {
             value(store.register_leader_launch(request.id, id, agent, cwd, permissions)?)
         }
+        Command::RememberLaunch { identity, runtime } if is_human => {
+            value(store.remember_launch(request.id, identity, *runtime)?)
+        }
         Command::AttachSession {
             identity,
             cwd,
@@ -224,6 +283,7 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
         }
         Command::Grant { identity } if is_human => value(store.grant(identity)?),
         Command::RegisterLeader { .. }
+        | Command::RememberLaunch { .. }
         | Command::Grant { .. }
         | Command::AttachSession { .. }
         | Command::StartUncertain { .. }

@@ -12,9 +12,10 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 
 mod results;
+mod runtime;
 mod workareas;
 
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -479,6 +480,13 @@ impl Store {
             let transaction =
                 connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
             transaction.execute_batch("CREATE TABLE task_reports (id TEXT PRIMARY KEY REFERENCES messages(id), attempt_id TEXT NOT NULL UNIQUE REFERENCES attempts(id), data TEXT NOT NULL);")?;
+            transaction.pragma_update(None, "user_version", 4)?;
+            transaction.commit()?;
+        }
+        if schema < 5 {
+            let transaction =
+                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            transaction.execute_batch("CREATE TABLE session_launches (session_id TEXT NOT NULL REFERENCES logical_sessions(id), generation TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(session_id,generation));")?;
             transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
             transaction.commit()?;
         }

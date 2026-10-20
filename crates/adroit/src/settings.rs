@@ -103,6 +103,7 @@ pub struct Settings {
     /// How Codex is started.
     pub codex: Launch,
     pub codex_sessions: CodexOptions,
+    pub orchestration: OrchestrationSettings,
     /// How far the window is zoomed when it opens.
     pub zoom: f64,
     /// The fewest lines the prompt shows.
@@ -143,6 +144,18 @@ pub struct Settings {
     pub usage: UsageSettings,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct OrchestrationSettings {
+    pub max_workers: usize,
+}
+
+impl Default for OrchestrationSettings {
+    fn default() -> Self {
+        Self { max_workers: 4 }
+    }
+}
+
 /// The fonts the console falls back to, a Japanese one among them for what a
 /// monospace font leaves out.
 pub const MONO: &str = r#""SF Mono", Menlo, ui-monospace, "Hiragino Kaku Gothic ProN", monospace"#;
@@ -153,6 +166,7 @@ impl Default for Settings {
             agent: adroit_model::Agent::Claude,
             codex: Launch::default(),
             codex_sessions: CodexOptions::default(),
+            orchestration: OrchestrationSettings::default(),
             zoom: 1.0,
             prompt_min_rows: 3,
             prompt_max_rows: 12,
@@ -223,6 +237,7 @@ impl Settings {
     /// The settings made sensible: rows of at least one and the most no fewer
     /// than the fewest, a zoom among the levels' range.
     pub fn sane(mut self) -> Self {
+        self.orchestration.max_workers = self.orchestration.max_workers.min(64);
         self.prompt_min_rows = self.prompt_min_rows.clamp(1, 40);
         self.prompt_max_rows = self.prompt_max_rows.clamp(self.prompt_min_rows, 60);
         let (least, most) = (
@@ -480,6 +495,7 @@ model = "chosen-model"
             agent: adroit_model::Agent::Claude,
             codex: Launch::default(),
             codex_sessions: CodexOptions::default(),
+            orchestration: OrchestrationSettings { max_workers: 8 },
             zoom: 1.1,
             prompt_min_rows: 2,
             prompt_max_rows: 20,

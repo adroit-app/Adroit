@@ -1266,6 +1266,9 @@ async fn read_sessions(
                 if let Some(title) = &s.title
                     && let Some(tag) = sessions::follow_title(&mut c, title)
                 {
+                    if c.binding.is_some() {
+                        learned.push((s.id, "adroit.binding-conversation", c.session_id.clone()));
+                    }
                     learned.push(tag);
                 }
                 if s.status.is_none()

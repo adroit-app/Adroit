@@ -173,6 +173,14 @@ async fn ready_runs_share_slots_and_acceptance_does_not_wait_for_native_startup(
     assert!(!source.join(".jj").exists());
     for session in snapshot.sessions {
         if let Some(id) = session.terminal_id {
+            assert_eq!(
+                daemon
+                    .visible(u128::from_str_radix(&id, 16).unwrap())
+                    .await
+                    .unwrap()
+                    .len(),
+                40
+            );
             daemon
                 .end(u128::from_str_radix(&id, 16).unwrap())
                 .await

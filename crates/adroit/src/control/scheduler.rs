@@ -279,8 +279,17 @@ impl Startup {
             SessionBinding::worker(identity.id, owner.id, run_id, self.task.id, attempt_id)
                 .map_err(failed)?;
         let credential = self.actor.call(move |store| store.grant(identity)).await?;
+        let runtime = super::runtime::RuntimeLaunch::new(self.settings.clone());
+        let captured = runtime.clone();
+        self.actor
+            .call(move |store| {
+                store
+                    .remember_launch(RequestId::new(), identity, captured)
+                    .map(|_| ())
+            })
+            .await?;
         let resolved = execution::resolve(
-            &self.settings,
+            &runtime.settings,
             execution::StartRequest {
                 agent: self.attempt.target.agent,
                 model: self.attempt.target.model.clone(),

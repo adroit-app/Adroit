@@ -127,7 +127,18 @@ pub async fn prepare(
         let token: String = serde_json::from_value(token).map_err(|error| error.to_string())?;
         request.binding = Some(SessionBinding::leader(id, Some(run_id)));
         request.control = Some(ControlContext::new(identity, root.into(), token));
-        execution::resolve(settings, request, program)
+        let runtime = super::runtime::RuntimeLaunch::new(settings.clone());
+        client
+            .request(
+                RequestId::new(),
+                Command::RememberLaunch {
+                    identity,
+                    runtime: Box::new(runtime.clone()),
+                },
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+        execution::resolve(&runtime.settings, request, program)
     }
     .await;
     match result {

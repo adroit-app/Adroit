@@ -32,6 +32,10 @@ pub enum Command {
         #[serde(default)]
         permissions: AgentPermissions,
     },
+    RememberLaunch {
+        identity: SessionRef,
+        runtime: Box<super::runtime::RuntimeLaunch>,
+    },
     AttachSession {
         identity: SessionRef,
         cwd: PathBuf,

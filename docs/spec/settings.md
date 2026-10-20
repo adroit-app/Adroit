@@ -87,6 +87,11 @@ reasoning_effort = ""
 approval_policy = ""
 sandbox_mode = ""
 
+# Active Worker attempts across runs, from 0 to 64. Zero pauses new starts
+# without stopping Workers already running. Leaders and terminals do not count.
+[orchestration]
+max_workers = 4
+
 # How a Neovim tab's Neovim starts, as Claude Code does: empty for `nvim`.
 [neovim]
 command = []

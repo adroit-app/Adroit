@@ -129,7 +129,10 @@ pub async fn spawn_headless_prepared<F>(
 where
     F: std::future::Future<Output = adroit_term::Result<()>>,
 {
-    let size = Size::new(spawn.cols, spawn.rows);
+    let size = Size::new(
+        if spawn.cols == 0 { 120 } else { spawn.cols },
+        if spawn.rows == 0 { 40 } else { spawn.rows },
+    );
     let pane = Pane::start_prepared(daemon, spawn, size, palette, |_| || {}, prepare).await?;
     Ok(pane.id())
 }

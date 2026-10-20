@@ -30,6 +30,7 @@ below; IDs are UUID strings and session references contain `id` and `generation`
 
 - `register_leader`: `id`, `agent`, `cwd`, optional `permissions` (human client).
 - `grant`: `identity` (human client; returns the session credential).
+- `remember_launch`: `identity`, `runtime` containing a `settings` snapshot (human client; recorded before startup and immutable for that generation).
 - `attach_session`: `identity`, `cwd`, `terminal_id`, `conversation_id` (human
   client; records a completed startup).
 - `fail_start`: `identity`, `reason` (human client; records a failed startup).
@@ -122,3 +123,14 @@ native queue for inbound notifications.
 `session start` creates human-owned sessions. A managed Agent delegates with
 `put_task` and `queue_task`; it cannot use `session start` to create a peer
 Leader without a task assignment.
+
+The daemon supervises queued tasks and native notifications without a window.
+It keeps a private snapshot of each session's launch settings, so editing the
+current provider settings does not change the route of an existing session.
+Routing snapshots are omitted from public snapshots and event payloads.
+Notifications to one native recipient are serialized, and an unobservable
+transport result remains uncertain until explicitly retried.
+
+A native conversation discovered after startup is associated with its existing
+logical session. A later conversation change requires reconciliation rather
+than transferring the previous task. This tracking does not require a window.

@@ -50,8 +50,10 @@ pub fn follow_title(session: &mut Session, title: &str) -> Option<(u128, &'stati
     if conversation == session.session_id {
         return None;
     }
+    if !session.session_id.is_empty() {
+        session.binding = None;
+    }
     session.session_id = conversation.clone();
-    session.binding = None;
     Some((id, CONVERSATION, conversation))
 }
 
