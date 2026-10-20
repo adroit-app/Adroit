@@ -13,7 +13,9 @@ Overview, Changes and Log.
   latest time stays with the running session when the window closes. For
   sessions in other terminals, only inputs recorded in the conversation can
   be recovered. Unreported metrics are omitted. The Processes group lists live
-  processes belonging to the session, excluding its main process. Opening one
+  work processes belonging to the session. The agent and its supporting
+  runtimes are excluded from both the list and kill targets; work processes
+  launched through those runtimes remain available. Opening one
   shows its command, process ID, parent, memory and working directory. Killing
   one from its row or its details opens a confirmation dialog. Confirming
   verifies that it is still the same process belonging to the session. A zombie has already exited and must be reaped by

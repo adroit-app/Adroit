@@ -19,6 +19,7 @@ pub struct Process {
     pub started_secs: u64,
     pub zombie: bool,
     owner: Option<String>,
+    executable: Option<PathBuf>,
 }
 
 #[derive(Default)]
@@ -33,6 +34,7 @@ impl Sampler {
             true,
             ProcessRefreshKind::nothing()
                 .with_cmd(UpdateKind::Always)
+                .with_exe(UpdateKind::Always)
                 .with_environ(UpdateKind::OnlyIfNotSet)
                 .with_cwd(UpdateKind::Always)
                 .with_memory(),
@@ -53,6 +55,10 @@ impl Sampler {
                     parent: p.parent().map(|p| p.as_u32()),
                     name: p.name().to_string_lossy().into_owned(),
                     command: crate::programs::format_command(&args),
+                    executable: p
+                        .exe()
+                        .map(PathBuf::from)
+                        .or_else(|| args.first().map(PathBuf::from)),
                     cwd: p.cwd().map(PathBuf::from),
                     memory: p.memory(),
                     started_secs: p.start_time(),
@@ -73,6 +79,22 @@ impl Sampler {
             .cloned()
             .collect()
     }
+}
+
+fn agent_runtime(process: &Process) -> bool {
+    let reserved = |name: &str| {
+        matches!(
+            name,
+            "codex" | "claude" | "node_repl" | "codex-code-mode-host"
+        )
+    };
+    reserved(&process.name)
+        || process
+            .executable
+            .as_ref()
+            .and_then(|path| path.file_name())
+            .and_then(|name| name.to_str())
+            .is_some_and(reserved)
 }
 
 fn associated<'a>(all: &'a [Process], session: &Session) -> Vec<&'a Process> {
@@ -105,6 +127,7 @@ fn associated<'a>(all: &'a [Process], session: &Session) -> Vec<&'a Process> {
         .iter()
         .filter(|p| {
             p.pid != root.pid
+                && !agent_runtime(p)
                 && (included.contains(&p.pid)
                     || (session.kind == Kind::Own
                         && owner.is_some()
@@ -207,6 +230,60 @@ mod tests {
             name: format!("process-{pid}"),
             ..Process::default()
         }
+    }
+
+    #[test]
+    fn an_agent_runtime_is_protected_by_its_executable_even_when_its_display_name_changes() {
+        let root = process(10, 1, None);
+        let mut runtime = process(11, 10, None);
+        runtime.name = "worker".into();
+        runtime.executable =
+            Some("/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl".into());
+        let session = Session {
+            pid: Some(10),
+            kind: Kind::Interactive,
+            ..Default::default()
+        };
+        assert!(verified(&[root, runtime.clone()], &session, &runtime).is_err());
+        for name in ["codex", "claude", "node_repl", "codex-code-mode-host"] {
+            runtime.executable = Some(PathBuf::from("/runtime/bin").join(name));
+            assert!(agent_runtime(&runtime), "{name}");
+        }
+    }
+
+    #[test]
+    fn agent_runtimes_are_never_listed_or_killable_but_their_work_processes_are() {
+        let mut all = vec![
+            process(100, 1, Some("session")),
+            process(110, 100, Some("session")),
+            process(120, 100, Some("session")),
+            process(130, 120, Some("session")),
+            process(140, 130, None),
+            process(150, 1, Some("session")),
+            process(160, 1, None),
+        ];
+        all[0].name = "codex".into();
+        all[1].name = "node_repl".into();
+        all[2].name = "codex-code-mode-host".into();
+        all[3].name = "zsh".into();
+        all[4].name = "node".into();
+        let session = Session {
+            id: "session".into(),
+            pid: Some(100),
+            kind: Kind::Own,
+            ..Default::default()
+        };
+        assert_eq!(
+            associated(&all, &session)
+                .iter()
+                .map(|p| p.pid)
+                .collect::<Vec<_>>(),
+            [130, 140, 150]
+        );
+        for runtime in &all[..3] {
+            assert!(verified(&all, &session, runtime).is_err());
+        }
+        assert!(verified(&all, &session, &all[3]).is_ok());
     }
 
     #[test]
