@@ -288,7 +288,7 @@ impl Store {
                     if attempt.state!=AttemptState::CancelRequested {attempt.state=AttemptState::Uncertain;}
                     save_attempt(connection,&attempt)?;
                     save_session(connection,&session)?;
-                    notify_uncertain(connection,&session,"The controller restarted after recording startup intent. Reconcile the native session before continuing; no replacement has been started.")?;
+                    notify_uncertain(connection,&session,"Startup was interrupted after recording startup intent. Reconcile the native session before continuing; no replacement has been started.")?;
                     event(connection,session.binding.run_id(),"startup_recovery_uncertain",&session)?;
                     return Ok(session);
                 }
@@ -302,7 +302,7 @@ impl Store {
                     }
                 }
             }
-            fail_start_record(connection,identity,"The controller restarted before the native program was released",None)
+            fail_start_record(connection,identity,"Startup was interrupted before the native program was released",None)
         })
     }
 }

@@ -18,6 +18,7 @@ pub struct Scheduler {
     root: PathBuf,
     program: PathBuf,
     jobs: tokio::task::JoinSet<()>,
+    active: std::collections::HashMap<tokio::task::Id, SessionRef>,
     last_run: Option<RunId>,
 }
 
@@ -29,12 +30,30 @@ impl Scheduler {
             root,
             program,
             jobs: tokio::task::JoinSet::new(),
+            active: std::collections::HashMap::new(),
             last_run: None,
         }
     }
 
     pub async fn tick(&mut self, settings: Settings, max_workers: usize) -> Result<Vec<AttemptId>> {
-        while self.jobs.try_join_next().is_some() {}
+        while let Some(result) = self.jobs.try_join_next_with_id() {
+            match result {
+                Ok((job, ())) => {
+                    self.active.remove(&job);
+                }
+                Err(error) => {
+                    if let Some(identity) = self.active.remove(&error.id()) {
+                        self.actor
+                            .call(move |store| {
+                                store
+                                    .recover_startup(RequestId::new(), identity)
+                                    .map(|_| ())
+                            })
+                            .await?;
+                    }
+                }
+            }
+        }
         let snapshot = self.actor.call(|store| store.snapshot()).await?;
         let occupied = snapshot
             .attempts
@@ -175,7 +194,11 @@ impl Scheduler {
                     attempt,
                     source: leader.cwd.clone(),
                 };
-                self.jobs.spawn(async move {
+                let identity = SessionRef {
+                    id: context.attempt.session_id,
+                    generation: 1,
+                };
+                let job = self.jobs.spawn(async move {
                     if let Err(error) = context.start().await {
                         let identity = SessionRef {
                             id: context.attempt.session_id,
@@ -192,6 +215,7 @@ impl Scheduler {
                             .await;
                     }
                 });
+                self.active.insert(job.id(), identity);
                 if remaining == 0 {
                     break;
                 }
@@ -456,4 +480,45 @@ impl Startup {
 
 fn failed(error: impl std::fmt::Display) -> ControlError {
     ControlError::new(ErrorCode::StorageFailure, error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_panicking_startup_job_recovers_its_assignment_without_starting_another_program() {
+        let dir = tempfile::tempdir().unwrap();
+        let actor = Actor::open(dir.path().join("control/store.sqlite3"))
+            .await
+            .unwrap();
+        let cwd = dir.path().to_path_buf();
+        let identity = actor
+            .call(move |store| {
+                store
+                    .register_leader(RequestId::new(), LogicalSessionId::new(), Agent::Codex, cwd)
+                    .map(|reply| reply.value.reference())
+            })
+            .await
+            .unwrap();
+        let mut scheduler = Scheduler::new(
+            actor.clone(),
+            Daemon::new(dir.path().join("absent.sock")),
+            dir.path().into(),
+            "/absent-adroit".into(),
+        );
+        let job = scheduler
+            .jobs
+            .spawn(async { panic!("interrupted startup fixture") });
+        scheduler.active.insert(job.id(), identity);
+        while !job.is_finished() {
+            tokio::task::yield_now().await;
+        }
+        scheduler.tick(Settings::default(), 0).await.unwrap();
+        let snapshot = actor.call(|store| store.snapshot()).await.unwrap();
+        assert_eq!(snapshot.sessions.len(), 1);
+        assert_eq!(snapshot.sessions[0].state, ManagedSessionState::Failed);
+        assert!(snapshot.attempts.is_empty());
+        assert!(scheduler.active.is_empty());
+    }
 }

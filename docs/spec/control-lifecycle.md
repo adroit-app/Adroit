@@ -36,6 +36,10 @@ requested. A partially prepared working area is kept for native reconciliation;
 a late preparation result cannot silently make it ready again. Late startup
 uncertainty cannot revive a confirmed exited or failed session.
 
+A background startup job that stops unexpectedly follows the same recovery
+boundary. It does not silently retain an unfinished preparation or launch a
+replacement when native startup remains uncertain.
+
 ## Refused startup gates
 
 If ownership preparation is refused and Adroit confirms stopping the gated
