@@ -90,6 +90,16 @@ pub enum Command {
         expected_revision: u64,
         summary: String,
     },
+    AnnounceChange {
+        intent: CoordinationIntent,
+    },
+    DiscussChange {
+        reply: CoordinationReply,
+    },
+    FinishChange {
+        notice_id: CoordinationId,
+        outcome: CoordinationOutcome,
+    },
     PutTask {
         plan: TaskPlan,
     },

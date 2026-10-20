@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Agent, AgentPermissions, AttemptId, LogicalSessionId, MessageId, RunId, SessionBinding, TaskId,
-    WorkAreaId,
+    Agent, AgentPermissions, AttemptId, CoordinationId, LogicalSessionId, MessageId, RunId,
+    SessionBinding, TaskId, WorkAreaId,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -328,6 +328,8 @@ pub struct ControlSnapshot {
     pub deliveries: Vec<DeliveryRecord>,
     pub reports: Vec<TaskReportRecord>,
     pub completions: Vec<RunCompletion>,
+    pub coordination: Vec<CoordinationNotice>,
+    pub coordination_replies: Vec<CoordinationReply>,
     pub work_areas: Vec<WorkArea>,
     pub run_work_areas: Vec<RunWorkArea>,
 }
@@ -504,4 +506,62 @@ pub struct RunCompletion {
     pub plan_revision: u64,
     pub summary: String,
     pub reports: Vec<MessageId>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CoordinationOperation {
+    Merge,
+    Apply,
+    Edit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CoordinationIntent {
+    pub id: CoordinationId,
+    pub run_id: RunId,
+    pub work_area_id: WorkAreaId,
+    pub operation: CoordinationOperation,
+    pub purpose: String,
+    pub scope: Vec<String>,
+    pub base: Option<String>,
+    pub candidate: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CoordinationOutcome {
+    pub summary: String,
+    pub scope: Vec<String>,
+    pub revision: Option<String>,
+    pub fingerprint: Option<String>,
+    pub unresolved: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CoordinationParticipant {
+    pub leader: SessionRef,
+    pub run_id: RunId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CoordinationNotice {
+    pub intent: CoordinationIntent,
+    pub leader: SessionRef,
+    pub participants: Vec<CoordinationParticipant>,
+    pub outcome: Option<CoordinationOutcome>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CoordinationReply {
+    pub id: MessageId,
+    pub notice_id: CoordinationId,
+    pub from: SessionRef,
+    pub run_id: RunId,
+    pub task_id: Option<TaskId>,
+    pub body: String,
 }

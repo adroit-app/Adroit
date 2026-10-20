@@ -310,12 +310,28 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
                 snapshot.tasks.retain(|t| t.run_id == run);
                 snapshot.reports.retain(|r| r.run_id == run);
                 snapshot.completions.retain(|r| r.run_id == run);
+                snapshot.coordination.retain(|notice| {
+                    notice
+                        .participants
+                        .iter()
+                        .any(|participant| participant.run_id == run)
+                });
+                snapshot.coordination_replies.retain(|reply| {
+                    snapshot
+                        .coordination
+                        .iter()
+                        .any(|notice| notice.intent.id == reply.notice_id)
+                });
                 snapshot.run_work_areas.retain(|area| area.run_id == run);
                 snapshot.work_areas.retain(|area| {
                     snapshot
                         .run_work_areas
                         .iter()
                         .any(|association| association.work_area_id == area.id)
+                        || snapshot
+                            .coordination
+                            .iter()
+                            .any(|notice| notice.intent.work_area_id == area.id)
                 });
                 snapshot
                     .attempts
@@ -364,6 +380,15 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
         )?),
         Command::CancelRun { run_id } => {
             value(store.cancel_run(request.id, identity()?, run_id)?)
+        }
+        Command::AnnounceChange { intent } => {
+            value(store.announce_change(request.id, identity()?, intent)?)
+        }
+        Command::DiscussChange { reply } => {
+            value(store.discuss_change(request.id, identity()?, reply)?)
+        }
+        Command::FinishChange { notice_id, outcome } => {
+            value(store.finish_change(request.id, identity()?, notice_id, outcome)?)
         }
         Command::CompleteRun {
             run_id,

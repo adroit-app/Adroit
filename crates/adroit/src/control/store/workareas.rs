@@ -57,6 +57,7 @@ impl Store {
             } else {
                 connection.execute("INSERT INTO run_work_areas(run_id, work_area_id, is_default, data) VALUES (?1, ?2, ?3, ?4)", params![run_id.to_string(), kept.id.to_string(), is_default, encode(&association)?])?;
                 event(connection, Some(run_id), "work_area_registered", &json!({"area":kept, "association":association}))?;
+                super::coordination::subscribe(connection, &association, &kept)?;
             }
             Ok(kept)
         })

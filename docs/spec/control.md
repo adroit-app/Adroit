@@ -173,3 +173,26 @@ run leaves its interactive Agent and tool terminals available.
 
 Report completion requires no VCS commit. Change runs and change artifacts
 require a separate verified candidate and cannot use report-only completion.
+
+## Shared default changes
+
+Before editing, applying, or merging into its default working area, a Leader
+uses `announce_change` with `intent`. The intent contains `id`, `run_id`,
+`work_area_id`, `operation` (`edit`, `apply`, or `merge`), `purpose`, `scope`, and
+nullable `base` and `candidate`. Its default area must already be ready.
+
+Related Leaders receive the saved intent through their ordinary message
+transport. Leaders sharing the physical location or repository are related;
+independent locations do not receive each other's coordination. The caller
+gets an immediate response after persistence. No reply grants permission or
+holds a directory lock, and unanswered notices do not block other runs.
+
+`discuss_change` takes a `reply` containing `id`, `notice_id`, `from` (a session
+reference), `run_id`, nullable `task_id`, and `body`. Related Leaders may discuss
+the concrete scope. Only the announcing Leader can use `finish_change` with
+`notice_id` and `outcome`. The outcome contains `summary`, actual `scope`, nullable
+`revision` and `fingerprint`, and `unresolved`. It records failures and conflicts
+as well as successful changes, and notifies the related Leaders.
+
+Snapshots retain these notices and discussions for the participating runs.
+Coordination does not reassign tasks or merge the participating requests.

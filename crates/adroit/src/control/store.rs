@@ -11,13 +11,14 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 
+mod coordination;
 mod dependencies;
 mod results;
 mod runs;
 mod runtime;
 mod workareas;
 
-const SCHEMA_VERSION: i64 = 7;
+const SCHEMA_VERSION: i64 = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -160,6 +161,8 @@ enum Table {
     RunWorkAreas,
     Reports,
     Completions,
+    Coordination,
+    CoordinationReplies,
 }
 impl Table {
     fn name(self) -> &'static str {
@@ -173,6 +176,8 @@ impl Table {
             Self::RunWorkAreas => "run_work_areas",
             Self::Reports => "task_reports",
             Self::Completions => "run_completions",
+            Self::Coordination => "coordination_notices",
+            Self::CoordinationReplies => "coordination_replies",
         }
     }
 }
@@ -509,6 +514,13 @@ impl Store {
             let transaction =
                 connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
             transaction.execute_batch("CREATE TABLE run_completions (id TEXT PRIMARY KEY REFERENCES runs(id), data TEXT NOT NULL);")?;
+            transaction.pragma_update(None, "user_version", 7)?;
+            transaction.commit()?;
+        }
+        if schema < 8 {
+            let transaction =
+                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            transaction.execute_batch("CREATE TABLE coordination_notices (id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), data TEXT NOT NULL); CREATE TABLE coordination_replies (id TEXT PRIMARY KEY, notice_id TEXT NOT NULL REFERENCES coordination_notices(id), data TEXT NOT NULL);")?;
             transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
             transaction.commit()?;
         }
@@ -1392,6 +1404,8 @@ impl Store {
             deliveries,
             reports: all(&transaction, Table::Reports)?,
             completions: all(&transaction, Table::Completions)?,
+            coordination: all(&transaction, Table::Coordination)?,
+            coordination_replies: all(&transaction, Table::CoordinationReplies)?,
             work_areas: all(&transaction, Table::WorkAreas)?,
             run_work_areas: all(&transaction, Table::RunWorkAreas)?,
         };
