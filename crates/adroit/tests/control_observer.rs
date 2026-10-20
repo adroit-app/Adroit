@@ -103,5 +103,25 @@ async fn a_daemon_observes_the_native_conversation_and_keeps_the_same_assignment
         Some(conversation)
     );
     daemon.end(terminal).await.unwrap();
+    Client::human(&root)
+        .unwrap()
+        .request(
+            RequestId::new(),
+            Command::ConfirmTerminalExit {
+                identity,
+                terminal_id: format!("{terminal:032x}"),
+            },
+        )
+        .await
+        .unwrap();
+    observer::tick(&service.actor(), &daemon).await.unwrap();
+    let snapshot = service
+        .actor()
+        .call(|store| store.snapshot())
+        .await
+        .unwrap();
+    assert_eq!(snapshot.sessions[0].state, ManagedSessionState::Exited);
+    assert_eq!(snapshot.runs[0].state, RunState::Active);
+    assert!(snapshot.completions.is_empty());
     task.abort();
 }

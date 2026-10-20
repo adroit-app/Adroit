@@ -47,6 +47,10 @@ pub enum Command {
         terminal_id: String,
         conversation_id: String,
     },
+    ConfirmTerminalExit {
+        identity: SessionRef,
+        terminal_id: String,
+    },
     StartUncertain {
         identity: SessionRef,
         reason: String,

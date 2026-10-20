@@ -46,6 +46,7 @@ impl Store {
                     }
                     save_session(connection,&session)?;
                     event(connection,session.binding.run_id(),"session_conversation_changed",&json!({"session":session,"observed_conversation":conversation}))?;
+                    super::lifecycle::notify_uncertain(connection,&session,"The native conversation changed. Reconcile the assignment before continuing; Adroit has not transferred task ownership.")?;
                 }
                 None => {
                     session.conversation_id = Some(conversation);

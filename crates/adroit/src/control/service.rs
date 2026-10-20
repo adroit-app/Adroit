@@ -257,6 +257,18 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
         Some(store.authenticate(&request.credential)?)
     };
     let identity = || actor.ok_or_else(|| denied("select a session for this operation"));
+    if !is_human
+        && !matches!(
+            &request.command,
+            Command::Context
+                | Command::Snapshot
+                | Command::Mailbox { .. }
+                | Command::Events { .. }
+                | Command::Candidate { .. }
+        )
+    {
+        store.require_available_session(identity()?)?;
+    }
     match request.command {
         Command::RegisterLeader {
             id,
@@ -282,6 +294,10 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
         } if is_human => {
             value(store.attach_session(request.id, identity, cwd, terminal_id, conversation_id)?)
         }
+        Command::ConfirmTerminalExit {
+            identity,
+            terminal_id,
+        } if is_human => value(store.observe_terminal_exit(request.id, identity, terminal_id)?),
         Command::StartUncertain { identity, reason } if is_human => {
             value(store.start_uncertain(request.id, identity, reason)?)
         }
@@ -294,6 +310,7 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
         | Command::RegisterDefaultArea { .. }
         | Command::Grant { .. }
         | Command::AttachSession { .. }
+        | Command::ConfirmTerminalExit { .. }
         | Command::StartUncertain { .. }
         | Command::FailStart { .. } => Err(denied("this operation requires a human client")),
         Command::Mailbox { after, limit } => value(store.mailbox(identity()?, after, limit)?),

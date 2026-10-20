@@ -17,6 +17,7 @@ mod completion;
 mod context;
 mod coordination;
 mod dependencies;
+mod lifecycle;
 mod results;
 mod runs;
 mod runtime;

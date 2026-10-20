@@ -16,7 +16,10 @@ pub async fn tick(actor: &Actor, daemon: &Daemon) -> Result<()> {
         .map_err(failed)?;
     let snapshot = actor.call(|store| store.snapshot()).await?;
     for session in snapshot.sessions {
-        if session.state != ManagedSessionState::Running {
+        if !matches!(
+            session.state,
+            ManagedSessionState::Running | ManagedSessionState::NeedsReconciliation
+        ) {
             continue;
         }
         let Some(terminal) = session
@@ -26,12 +29,33 @@ pub async fn tick(actor: &Actor, daemon: &Daemon) -> Result<()> {
         else {
             continue;
         };
-        let Some(native) = native
-            .iter()
-            .find(|native| native.id == terminal && !native.exited)
-        else {
+        let Some(native) = native.iter().find(|native| native.id == terminal) else {
+            let identity = session.reference();
+            let terminal_id = crate::sessions::hex(terminal);
+            actor
+                .call(move |store| {
+                    store
+                        .observe_terminal_missing(RequestId::new(), identity, terminal_id)
+                        .map(|_| ())
+                })
+                .await?;
             continue;
         };
+        if native.exited {
+            let identity = session.reference();
+            let terminal_id = crate::sessions::hex(terminal);
+            actor
+                .call(move |store| {
+                    store
+                        .observe_terminal_exit(RequestId::new(), identity, terminal_id)
+                        .map(|_| ())
+                })
+                .await?;
+            continue;
+        }
+        if session.state != ManagedSessionState::Running {
+            continue;
+        }
         let binding = tags::value(&native.tags, "adroit.binding")
             .and_then(|data| serde_json::from_str::<SessionBinding>(&data).ok());
         let generation = tags::value(&native.tags, "adroit.generation")

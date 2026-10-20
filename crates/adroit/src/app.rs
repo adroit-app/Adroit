@@ -3346,12 +3346,43 @@ fn App() -> Element {
         let hub = hub.clone();
         move |asked: Session| {
             let hub = hub.clone();
+            let identity = orchestration
+                .peek()
+                .sessions
+                .iter()
+                .find(|session| session.terminal_id.as_deref() == Some(asked.id.as_str()))
+                .map(adroit_model::ManagedSession::reference);
             spawn(async move {
                 let Some(id) = sessions::id_of(&asked.id) else {
                     return;
                 };
                 match hub.daemon.end(id).await {
-                    Ok(()) => notify.notice(format!("ended {}", asked.name)),
+                    Ok(()) => {
+                        notify.notice(format!("ended {}", asked.name));
+                        if let Some(identity) = identity {
+                            let result = match crate::control::client::Client::human(
+                                &crate::control::root(),
+                            ) {
+                                Ok(client) => client
+                                    .request(
+                                        adroit_model::RequestId::new(),
+                                        crate::control::protocol::Command::ConfirmTerminalExit {
+                                            identity,
+                                            terminal_id: asked.id.clone(),
+                                        },
+                                    )
+                                    .await
+                                    .map(|_| ()),
+                                Err(error) => Err(error),
+                            };
+                            if let Err(error) = result {
+                                status.set(Some(format!(
+                                    "ended {}, but cannot record its exit: {error}",
+                                    asked.name
+                                )));
+                            }
+                        }
+                    }
                     Err(e) => status.set(Some(format!("cannot end {}: {e}", asked.name))),
                 }
                 hub.refresh.notify_one();
