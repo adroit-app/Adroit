@@ -15,16 +15,41 @@ returned success. The existing TUI started a turn without an Enter key, replied
 was the UUID obtained from this probe's own session metadata, never a name.
 The probe session was then explicitly closed.
 
-Still unverified: Adroit-owned TUI, working and approval/question dialogs,
-resume, model changes in simultaneous sessions, and runtime enforcement of the
-Leader's subagent restriction. The installed version differs from the 0.163.0
-version recorded during planning.
+An Adroit-owned end-to-end probe subsequently started a Leader with
+`gpt-6-luna` and an external Worker with `gpt-6.1-sol`. The synthetic request
+classified the word blue. The Worker reported a JSON object
+`{"label":"color"}`; Adroit delivered the report to the idle Leader, which
+acknowledged it and completed the report run with `NATIVE-SMOKE-COMPLETE`.
+There was no manual input after the initial request. Both ordinary native
+TUIs remained alive. Requested models were visible in their respective
+native footers; the database's actual-model field remained unknown.
+
+In that same Adroit-owned Leader, a second synthetic notification produced
+`DRAFT-PRESERVED` while the unsent composer text
+`UNSENT-ADROIT-DRAFT-7419` remained unchanged. Its message was explicitly
+acknowledged and the completed run remained succeeded. The isolated
+sessions and daemon were then explicitly stopped.
+
+After the recovery review fixes, the synthetic workflow was repeated with
+Codex native-origin checks enabled. It again completed without human input.
+The Leader initially supplied a nonexistent source directory; startup failed
+before a native Worker was released. The failure notification woke the Leader,
+which revised the task, dispatched the replacement and completed revision 2.
+The failed attempt remained in history alongside the applied successful report.
+
+Still unverified: native working and approval/question dialogs, resume,
+Claude model execution, and runtime enforcement of the Leader's native
+subagent restriction. These probes used Codex 0.162.1, rather than the
+0.163.0 version recorded during planning.
 
 The exact release source was inspected locally at tag `rust-v0.162.1`.
-`session_queue_commands.rs` routes queue traffic through the shared app server
-and refuses `--no-daemon`; a separate embedded app server is not an equivalent
-transport. The CLI generates its own client message ID. A failed or interrupted
-queue command must therefore be treated as uncertain, without automatic retry.
+`session_queue_commands.rs` routes queue traffic through the shared app
+server and refuses `--no-daemon`. CLI configuration overrides can select an
+embedded server for the TUI; its queue service polls shared SQLite for
+external messages and wakes loaded threads. The actual probe confirmed
+cross-process delivery. The CLI generates its own client message ID. A
+failed or interrupted queue command must therefore be treated as uncertain,
+without automatic retry.
 
 Disabling only `features.multi_agent` is insufficient as an enforcement claim:
 model metadata can select V2. The release's configuration also has
@@ -40,7 +65,10 @@ sent while idle appeared in the existing TUI and started processing without
 pasting into its input buffer or pressing Enter.
 
 The model could not produce an acknowledgement: the CLI reported `Login
-expired`. Transport receipt and wake-up were observed; model acknowledgement,
+expired`. A later minimal `--print --no-session-persistence --model haiku --tools ""`
+probe also reported an OAuth session refresh failure. This describes the
+probe process, not the authentication state of the user's own terminal.
+Transport receipt and wake-up were observed; model acknowledgement,
 draft preservation, model isolation, role enforcement, and the Adroit-owned TUI
 remain unverified. The probe session was explicitly closed.
 
