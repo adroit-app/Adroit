@@ -20,3 +20,10 @@ repository root, coordinate the concrete scope through the Leader before and
 after the change. Do not introduce a directory lock or acknowledgement barrier
 for unrelated concurrent work. Preserve the session and its tools after reporting
 completion unless an explicit stop or cancellation requires otherwise.
+
+Read your current assignment with the context command. Use send_message for
+progress and questions, and report_task for the final structured attempt result;
+a plain report message does not finish the task. For directory changes, compute
+the output manifest's canonical candidate_fingerprint with fingerprint_files
+before reporting success. For native VCS changes, report the full immutable
+commit ID. Keep verification inputs explicit so later checks can detect changes.

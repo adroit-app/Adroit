@@ -10,7 +10,7 @@ Output is JSON containing `request_id` and a `result`, represented as either
 returns a nonzero exit status. `--request-id UUID` preserves an operation's ID
 across reconnections; retry state changes with the same ID and content.
 
-Commands use an `op` field. Read commands are `snapshot` and `events` (with
+Commands use an `op` field. Read commands are `context`, `snapshot`, and `events` (with
 `after` and `limit`). Event pages contain `events` and `next_cursor`; resume
 from that cursor even when a page contains no visible events. A snapshot carries
 its event cursor so subsequent changes can be replayed.
@@ -36,6 +36,7 @@ below; IDs are UUID strings and session references contain `id` and `generation`
   client; records a completed startup).
 - `fail_start`: `identity`, `reason` (human client; records a failed startup).
 - `start_uncertain`: `identity`, `reason` (human client; retains uncertain startup for reconciliation).
+- `context`: no additional fields; returns the credential's own session, current run and task, assigned attempt, and working area without message history.
 - `snapshot`: no additional fields.
 - `mailbox`: `after`, `limit`; returns a recipient-only page with `messages` and
   `next_cursor`. Its sequence cursor is independent of the event cursor.
@@ -204,3 +205,17 @@ Git worktree, or selected ordinary directory; it does not create another working
 area or record user edits in history. Independent Leaders at the same physical
 default share its working-area identity. A newly registered related Leader
 receives the saved coordination context without delaying existing work.
+
+## Worker file evidence
+
+Workers can call the MCP tool `fingerprint_files` with a `paths` array to obtain
+the canonical directory output fingerprint. The CLI equivalent is
+`adroit control fingerprint`, taking the same manifest array on standard input
+and returning a JSON result string. It requires a session credential and never
+falls back to the human client.
+
+The helper resolves the current assignment from that credential. It accepts no
+working-directory or session-ID override. Leaders, stopped attempts, and revised
+assignments are refused. File hashing runs outside the durable state owner;
+other sessions can continue issuing control requests. The helper returns the
+fingerprint rather than file contents.

@@ -24,6 +24,12 @@ struct Arguments {
     command: Command,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FileArguments {
+    paths: Vec<String>,
+}
+
 struct Background(tokio::task::JoinHandle<()>);
 impl Drop for Background {
     fn drop(&mut self) {
@@ -114,29 +120,42 @@ where
         let result = match method {
             "ping" => json!({}),
             "tools/list" => json!({"tools":[{
-                "name":"control", "description":"Submit one bounded Adroit control request. Keep the same request_id when retrying. Read context with snapshot, read incoming messages with mailbox, acknowledge message_id, or use open_run, update_run, cancel_run, complete_run, announce_change, discuss_change, finish_change, put_task, queue_task, report_task, cancel_task, send_message. Identity comes from this session's credential. Never wait for other agents in a Leader turn.",
+                "name":"control", "description":"Submit one bounded Adroit control request. Keep the same request_id when retrying. Read your current assignment with context or the run with snapshot, read incoming messages with mailbox, acknowledge message_id, or use open_run, update_run, cancel_run, complete_run, announce_change, discuss_change, finish_change, put_task, queue_task, report_task, cancel_task, send_message. Identity comes from this session's credential. Never wait for other agents in a Leader turn.",
                 "inputSchema":{"type":"object","properties":{
                     "request_id":{"type":"string","format":"uuid"},
                     "command":{"type":"object","properties":{"op":{"type":"string"}},"required":["op"]}
                 },"required":["request_id","command"],"additionalProperties":false}
+            },{
+                "name":"fingerprint_files", "description":"Worker only: compute the canonical output fingerprint for a directory change artifact. Paths are relative to your current assigned working area. No file contents are returned. Leaders delegate file work to Workers.",
+                "inputSchema":{"type":"object","properties":{"paths":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":16384}},"required":["paths"],"additionalProperties":false}
             }]}),
             "tools/call" => {
-                if request["params"]["name"] != "control" {
-                    rpc_error(&output, id, -32602, "Unknown tool").await?;
-                    continue;
-                }
-                let result = match serde_json::from_value::<Arguments>(
-                    request["params"]["arguments"].clone(),
-                ) {
-                    Ok(arguments) => {
-                        client
-                            .request(arguments.request_id, arguments.command)
+                let result = match request["params"]["name"].as_str() {
+                    Some("control") => match serde_json::from_value::<Arguments>(
+                        request["params"]["arguments"].clone(),
+                    ) {
+                        Ok(arguments) => {
+                            client
+                                .request(arguments.request_id, arguments.command)
+                                .await
+                        }
+                        Err(_) => Err(ControlError::new(
+                            ErrorCode::InvalidRequest,
+                            "invalid control tool arguments",
+                        )),
+                    },
+                    Some("fingerprint_files") => match serde_json::from_value::<FileArguments>(
+                        request["params"]["arguments"].clone(),
+                    ) {
+                        Ok(arguments) => super::files::capture(&client, arguments.paths)
                             .await
+                            .map(Value::String),
+                        Err(_) => Err(error("invalid file fingerprint arguments")),
+                    },
+                    _ => {
+                        rpc_error(&output, id, -32602, "Unknown tool").await?;
+                        continue;
                     }
-                    Err(_) => Err(ControlError::new(
-                        ErrorCode::InvalidRequest,
-                        "invalid control tool arguments",
-                    )),
                 };
                 json!({"isError":result.is_err(), "content":[{"type":"text","text":serde_json::to_string(&result).map_err(error)?}]})
             }

@@ -36,6 +36,9 @@ fn options(args: &[String]) -> Result<(RequestId, Option<SessionRef>), String> {
 }
 
 pub fn cli(args: &[String]) -> i32 {
+    if matches!(args,[mode] if mode == "fingerprint") {
+        return super::files::cli();
+    }
     if matches!(args, [mode] if mode == "mcp")
         || matches!(args, [mode, channel] if mode == "mcp" && channel == "--channel")
     {

@@ -58,6 +58,7 @@ pub enum Command {
     Grant {
         identity: SessionRef,
     },
+    Context,
     Snapshot,
     Mailbox {
         after: u64,

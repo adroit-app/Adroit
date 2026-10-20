@@ -304,6 +304,7 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
         Command::AcceptDelivery { message_id } => {
             value(store.accept_delivery(request.id, message_id, identity()?.id)?)
         }
+        Command::Context => value(store.context(identity()?)?),
         Command::Snapshot => {
             let mut snapshot = store.snapshot()?;
             if !is_human {

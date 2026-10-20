@@ -597,3 +597,13 @@ pub struct CandidateProof {
     pub revision: Option<String>,
     pub files: CandidateFiles,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentContext {
+    pub session: ManagedSession,
+    pub run: Option<RunRecord>,
+    pub task: Option<TaskRecord>,
+    pub attempt: Option<AttemptRecord>,
+    pub work_area: Option<WorkArea>,
+}
