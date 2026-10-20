@@ -103,3 +103,17 @@ close the Agent terminal or its associated Shell and Neovim terminals. Updating
 instructions invalidates the previous assignment and requests that it stop;
 its result cannot satisfy the new revision. A finished task revised for new
 work starts from the planned state.
+
+Managed provider sessions receive an MCP server named `adroit_control` in their
+launch configuration. It uses the assigned session credential and endpoint;
+provider configuration files are not rewritten. Reserved `ADROIT_` identity
+and control variables come from the assignment, taking precedence over inherited
+or configured values. Credentials are passed through the process environment,
+not through command arguments or terminal tags.
+
+The Claude channel transport uses Claude Code's development-channel opt-in and
+retains its native warning and organization policy checks. It is not an approved
+channel plugin, and unsupported or denied channel activation does not count as
+successful message delivery. Existing MCP servers remain configured alongside
+Adroit's bridge. Codex receives a session-local MCP configuration and uses its
+native queue for inbound notifications.

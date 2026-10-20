@@ -292,3 +292,127 @@ fn worker_policy_does_not_disable_delegation_and_unmanaged_sessions_get_no_role(
             .any(|arg| arg.starts_with("developer_instructions="))
     );
 }
+
+#[test]
+fn managed_control_uses_per_session_native_configuration_without_tokens_in_arguments() {
+    use adroit::execution::ControlContext;
+    use adroit_model::{LogicalSessionId, SessionBinding, SessionRef};
+    for agent in [Agent::Claude, Agent::Codex] {
+        let id = LogicalSessionId::new();
+        let identity = SessionRef { id, generation: 3 };
+        let mut request = request(agent, None);
+        request.binding = Some(SessionBinding::leader(id, None));
+        request.control = Some(ControlContext::new(
+            identity,
+            "/private/control".into(),
+            "test-secret-token".into(),
+        ));
+        request
+            .env
+            .push(("ADROIT_CONTROL_TOKEN".into(), "outer-token".into()));
+        let mut settings = Settings::default();
+        settings
+            .claude
+            .env
+            .insert("ADROIT_CONTROL_TOKEN".into(), "configured-token".into());
+        settings
+            .codex
+            .env
+            .insert("ADROIT_CONTROL_TOKEN".into(), "configured-token".into());
+        let before = settings.clone();
+        let launch = resolve(
+            &settings,
+            request,
+            Path::new("/Applications/Adroit.app/Contents/MacOS/adroit"),
+        )
+        .unwrap();
+        assert_eq!(settings, before);
+        let credentials: Vec<_> = launch
+            .spawn
+            .env
+            .iter()
+            .filter(|(name, _)| name == "ADROIT_CONTROL_TOKEN")
+            .collect();
+        assert_eq!(credentials.len(), 1);
+        assert_eq!(credentials[0].1, "test-secret-token");
+        assert!(
+            launch
+                .spawn
+                .env
+                .contains(&("ADROIT_SESSION_GENERATION".into(), "3".into()))
+        );
+        assert!(
+            launch
+                .spawn
+                .env
+                .contains(&("ADROIT_CONTROL_ROOT".into(), "/private/control".into()))
+        );
+        assert!(
+            launch
+                .spawn
+                .args
+                .iter()
+                .all(|arg| !arg.contains("test-secret-token"))
+        );
+        assert!(
+            launch
+                .spawn
+                .tags
+                .iter()
+                .all(|tag| !tag.contains("test-secret-token"))
+        );
+        match agent {
+            Agent::Claude => {
+                let config = launch
+                    .spawn
+                    .args
+                    .windows(2)
+                    .find(|pair| pair[0] == "--mcp-config")
+                    .unwrap();
+                let config: serde_json::Value = serde_json::from_str(&config[1]).unwrap();
+                assert_eq!(
+                    config["mcpServers"]["adroit_control"]["args"],
+                    serde_json::json!(["control", "mcp", "--channel"])
+                );
+                assert!(launch.spawn.args.windows(2).any(|pair| pair
+                    == [
+                        "--dangerously-load-development-channels",
+                        "server:adroit_control"
+                    ]));
+                assert!(
+                    !launch
+                        .spawn
+                        .args
+                        .iter()
+                        .any(|arg| arg == "--strict-mcp-config")
+                );
+            }
+            Agent::Codex => assert!(
+                launch
+                    .spawn
+                    .args
+                    .iter()
+                    .any(|arg| arg == "mcp_servers.adroit_control.required=true")
+            ),
+        }
+    }
+}
+
+#[test]
+fn a_control_context_must_match_the_explicit_session_assignment() {
+    use adroit::execution::ControlContext;
+    use adroit_model::{LogicalSessionId, SessionBinding, SessionRef};
+    let mut request = request(Agent::Codex, None);
+    request.binding = Some(SessionBinding::leader(LogicalSessionId::new(), None));
+    request.control = Some(ControlContext::new(
+        SessionRef {
+            id: LogicalSessionId::new(),
+            generation: 1,
+        },
+        "/private/control".into(),
+        "test-secret-token".into(),
+    ));
+    let error = resolve(&Settings::default(), request, Path::new("/adroit")).unwrap_err();
+    assert!(error.contains("assignment"));
+    assert!(!error.contains("test-secret-token"));
+}

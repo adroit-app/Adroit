@@ -227,7 +227,7 @@ pub fn cli(channel: bool) -> i32 {
     let result = (|| {
         let token = std::env::var("ADROIT_CONTROL_TOKEN")
             .map_err(|_| error("the MCP bridge requires a session credential"))?;
-        let client = Client::session(&super::root(), token);
+        let client = Client::session(&super::session_root(), token);
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()

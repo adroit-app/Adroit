@@ -56,3 +56,16 @@ Primary references:
 - [Claude cross-session messaging](https://code.claude.com/docs/en/cross-session-messaging)
 - [Codex CLI reference](https://learn.chatgpt.com/docs/cli/reference)
 - [Codex release source](https://github.com/openai/codex/tree/rust-v0.162.1)
+
+## Session-local MCP launch configuration
+
+A separate Codex 0.162.1 app-server, using a disposable `CODEX_HOME`, accepted
+Adroit's `-c mcp_servers.adroit_control.*` overrides through `config/read`.
+The observed server command, argument array and `required` value matched the
+launch configuration. No thread or model turn was started by this probe.
+
+The compiled `adroit control mcp` process is also exercised over real stdio
+against an isolated control service. It reaches the credential's run through
+`ADROIT_CONTROL_ROOT` even when its XDG state directory points elsewhere. This
+checks endpoint routing and tool requests; it does not establish that every
+native provider successfully loads the bridge or responds to notifications.

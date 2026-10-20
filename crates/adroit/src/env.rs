@@ -48,6 +48,20 @@ pub fn login_path(shell: &str) -> Option<String> {
     (out.status.success() && !path.trim().is_empty()).then(|| path.trim().to_string())
 }
 
+pub fn reserved_control(name: &str) -> bool {
+    matches!(
+        name,
+        "ADROIT_CONTROL_TOKEN"
+            | "ADROIT_CONTROL_ROOT"
+            | "ADROIT_SESSION_ID"
+            | "ADROIT_SESSION_GENERATION"
+            | "ADROIT_LEADER_ID"
+            | "ADROIT_RUN_ID"
+            | "ADROIT_TASK_ID"
+            | "ADROIT_ATTEMPT_ID"
+    )
+}
+
 /// The variables among `names` to remove before anything is started.
 ///
 /// Started from a terminal inside an editor, `NVIM` and the like point at that
@@ -62,10 +76,8 @@ pub fn inherited(names: impl IntoIterator<Item = String>) -> Vec<String> {
     names
         .into_iter()
         .filter(|n| {
-            matches!(
-                n.as_str(),
-                "ADROIT_CONTROL_TOKEN" | "ADROIT_SESSION_ID" | "ADROIT_SESSION_GENERATION"
-            ) || n == "CODEX_THREAD_ID"
+            reserved_control(n)
+                || n == "CODEX_THREAD_ID"
                 || n == "NVIM"
                 || n == "NVIM_LISTEN_ADDRESS"
                 || n.starts_with("GUISE_")

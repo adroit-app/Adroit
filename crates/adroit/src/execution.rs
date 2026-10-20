@@ -10,6 +10,9 @@ use adroit_term::{Daemon, Palette, Pane, Size, Spawn};
 
 use crate::{agents, sessions, settings::Settings};
 
+mod control;
+pub use control::ControlContext;
+
 #[derive(Debug, Clone, Default)]
 pub struct StartRequest {
     pub agent: Agent,
@@ -20,6 +23,7 @@ pub struct StartRequest {
     pub images: Vec<PathBuf>,
     pub permissions: AgentPermissions,
     pub binding: Option<adroit_model::SessionBinding>,
+    pub control: Option<ControlContext>,
     pub env: Vec<(String, String)>,
     pub started_ms: u64,
     pub started_from: Option<String>,
@@ -123,10 +127,16 @@ pub fn resolve(
     request: StartRequest,
     adroit_program: &Path,
 ) -> Result<ResolvedLaunch, String> {
+    if let Some(context) = &request.control {
+        context.validate(request.binding.as_ref())?;
+    }
     let (mut settings, target) = configured(settings, &request)?;
     let adapter = agents::adapter(request.agent);
     let conversation = adapter.conversation();
     let mut args = adapter.integration_args(adroit_program);
+    if let Some(context) = &request.control {
+        args.extend(context.args(request.agent, adroit_program));
+    }
     let role_version = request.binding.as_ref().map(|binding| {
         args.extend(adapter.role_args(
             &mut settings,
@@ -142,8 +152,12 @@ pub fn resolve(
         &conversation,
         &adapter.image_prompt(&request.prompt, &request.images),
     ));
-    let (program, args, env) =
+    let (program, args, mut env) =
         agents::launch_with_settings(&settings, request.agent, args, request.env);
+    if let (Some(context), Some(binding)) = (&request.control, &request.binding) {
+        env.retain(|(name, _)| !crate::env::reserved_control(name));
+        env.extend(context.environment(binding));
+    }
     let mut tags = sessions::agent_tags(
         request.agent,
         &request.name,

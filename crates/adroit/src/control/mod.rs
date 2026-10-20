@@ -15,3 +15,10 @@ pub fn root() -> std::path::PathBuf {
 }
 
 pub mod scheduler;
+
+/// An agent bridge keeps its launch endpoint even when the user changes settings.
+pub fn session_root() -> std::path::PathBuf {
+    std::env::var_os("ADROIT_CONTROL_ROOT")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(root)
+}

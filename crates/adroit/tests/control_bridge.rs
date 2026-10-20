@@ -148,3 +148,87 @@ async fn a_channel_write_is_accepted_and_only_an_agent_acknowledges_receipt() {
     drop(send);
     task.await.unwrap().unwrap();
 }
+
+#[tokio::test]
+async fn a_native_stdio_child_uses_the_scoped_launch_endpoint() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("control");
+    let mut store = Store::open(&root.join("state.sqlite3")).unwrap();
+    let session = store
+        .register_leader(
+            RequestId::new(),
+            LogicalSessionId::new(),
+            Agent::Codex,
+            dir.path().into(),
+        )
+        .unwrap()
+        .value;
+    let run = RunId::new();
+    store
+        .open_run(
+            RequestId::new(),
+            session.reference(),
+            run,
+            RunBrief {
+                title: "Scoped endpoint".into(),
+                goal: "Reach only this run".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let credential = store.grant(session.reference()).unwrap();
+    drop(store);
+    let _service = Service::bind(&root).await.unwrap();
+    let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_adroit"))
+        .args(["control", "mcp"])
+        .env("ADROIT_CONTROL_ROOT", &root)
+        .env("ADROIT_CONTROL_TOKEN", credential)
+        .env("XDG_STATE_HOME", dir.path().join("unrelated-state"))
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    let mut output = BufReader::new(child.stdout.take().unwrap());
+    input.write_all(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\"}}\n").await.unwrap();
+    let mut line = String::new();
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        output.read_line(&mut line),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(serde_json::from_str::<Value>(&line).unwrap()["result"].is_object());
+    let query = json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"control","arguments":{"request_id":RequestId::new(),"command":{"op":"snapshot"}}}});
+    input
+        .write_all(
+            format!("{{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}}\n{query}\n")
+                .as_bytes(),
+        )
+        .await
+        .unwrap();
+    line.clear();
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        output.read_line(&mut line),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let response: Value = serde_json::from_str(&line).unwrap();
+    assert_ne!(response["result"]["isError"], true, "{response}");
+    let snapshot: Value =
+        serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(snapshot["Ok"]["runs"][0]["id"], run.to_string());
+    drop(input);
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_secs(5), child.wait())
+            .await
+            .unwrap()
+            .unwrap()
+            .success()
+    );
+}

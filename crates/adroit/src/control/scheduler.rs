@@ -279,7 +279,7 @@ impl Startup {
             SessionBinding::worker(identity.id, owner.id, run_id, self.task.id, attempt_id)
                 .map_err(failed)?;
         let credential = self.actor.call(move |store| store.grant(identity)).await?;
-        let mut resolved = execution::resolve(
+        let resolved = execution::resolve(
             &self.settings,
             execution::StartRequest {
                 agent: self.attempt.target.agent,
@@ -295,24 +295,17 @@ impl Startup {
                 ),
                 permissions: self.attempt.target.permissions.clone(),
                 binding: Some(binding),
+                control: Some(execution::ControlContext::new(
+                    identity,
+                    self.root.clone(),
+                    credential,
+                )),
                 env: crate::daemon::terminal_env(),
                 ..Default::default()
             },
             &self.program,
         )
         .map_err(failed)?;
-        resolved.spawn.env.extend([
-            ("ADROIT_CONTROL_TOKEN".into(), credential),
-            ("ADROIT_SESSION_ID".into(), identity.id.to_string()),
-            (
-                "ADROIT_SESSION_GENERATION".into(),
-                identity.generation.to_string(),
-            ),
-            (
-                "ADROIT_CONTROL_ROOT".into(),
-                self.root.to_string_lossy().into_owned(),
-            ),
-        ]);
         let palette = crate::themes::palette(&self.settings.theme, &Settings::themes_dir())
             .map_err(failed)?;
         let conversation = resolved.conversation;
