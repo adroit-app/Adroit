@@ -5,8 +5,8 @@ description: Delegate work to an ordinary Adroit Worker session with its own age
 
 # Delegate work in Adroit
 
-First allocate request IDs with `new_ids`, then use Adroit's native `control`
-tool to read `context` using one of those IDs before planning. It identifies
+First allocate request IDs with `new_ids`, then call the native `context` tool
+with one of those IDs as `request_id` before planning. It identifies
 your role, run, task, attempt, and working area. Use the tool's complete input
 schema rather than guessing fields. A Leader normally already has a run: update
 its brief with `update_run` rather than opening another run.
@@ -18,14 +18,15 @@ ask its Leader with `send_message` when another external task is needed.
 
 ## Dispatch a task
 
-Use `new_ids` for fresh request and task IDs. `put_task` takes `plan` containing
-`id`, `run_id`, `expected_revision`, `brief`, and `dependencies`. New tasks have a
+Use `new_ids` for fresh request and task IDs. The native `put_task` tool takes
+`request_id`, `id`, `run_id`, `expected_revision`, `brief`, and `dependencies`
+directly, without a `plan`, `command`, or `op` wrapper. New tasks have a
 null expected revision. The brief carries instructions, scope, inputs, purpose,
 working-area policy, and target preference. `target.agent` and `target.model`
 select that Worker independently of the Leader. Omitted preferences use that
 provider's configured defaults, without changing another session.
 
-Use `queue_task` with the returned task ID and revision. The daemon reserves an
+Use `queue_task` with `request_id`, the returned `task_id` and `revision`. The daemon reserves an
 attempt, prepares a jj workspace or Git worktree when available, and opens the
 ordinary native Worker session. A plain directory is also supported. Existing
 working areas must be selected explicitly when a fresh native area is unsuitable.

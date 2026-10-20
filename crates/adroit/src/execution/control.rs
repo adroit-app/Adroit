@@ -63,7 +63,7 @@ impl ControlContext {
                 "--dangerously-load-development-channels".into(),
                 "server:adroit_control".into(),
                 "--allowedTools".into(),
-                "mcp__adroit_control__control,mcp__adroit_control__new_ids,mcp__adroit_control__fingerprint_files".into(),
+                "mcp__adroit_control__*".into(),
             ],
             Agent::Codex => {
                 let variables = [
@@ -85,10 +85,10 @@ impl ControlContext {
                     format!("mcp_servers.adroit_control.env_vars={}", json!(variables)),
                     "mcp_servers.adroit_control.enabled=true".into(),
                     "mcp_servers.adroit_control.required=true".into(),
+                    "mcp_servers.adroit_control.default_tools_approval_mode=\"approve\"".into(),
                     "mcp_servers.adroit_control.tool_input_schema_max_bytes=65536".into(),
                 ]
                 .into_iter()
-                .chain(["control", "new_ids", "fingerprint_files"].into_iter().map(|tool| format!("mcp_servers.adroit_control.tools.{tool}.approval_mode=\"approve\"")))
                 .flat_map(|value| ["-c".into(), value])
                 .collect()
             }

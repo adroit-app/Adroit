@@ -1,19 +1,37 @@
 # Native control tools
 
 Managed Agents receive the same scoped control API through native MCP tools.
-Their launch permits Adroit's three scoped MCP methods without a separate approval
+Their launch permits Adroit's scoped MCP methods without a separate approval
 for each internal request. This does not grant permission to unrelated MCP tools,
 shell commands, or filesystem operations.
-The published input schema describes the command variants and their nested run,
-task, result, permissions, candidate, and coordination formats. Human-only
-management operations are absent from that schema and remain refused to Agent
-credentials even if supplied manually.
+Each operation is a named tool with a generated input schema containing its
+fields and reachable types. Human-only management and internal delivery claims
+are absent from the catalog. Human management remains refused to Agent
+credentials even if supplied manually through the control protocol.
 
-Before the first `control` call, allocate request IDs with `new_ids`.
-`control` takes a UUID `request_id` and `command`. The command is an object tagged with
-`op`. The session credential supplies the actor; callers cannot choose another
-identity. A request ID identifies an immutable command, including retries after
-a lost response. Changed content needs a new request ID.
+Before the first operation, allocate request IDs with `new_ids`. Each named
+operation takes a UUID `request_id` alongside its fields. The session credential
+supplies the actor; callers cannot choose another identity. A request ID identifies
+an immutable command, including retries after a lost response. Changed content
+needs a new request ID.
+
+Native arguments use the control protocol's operation fields without `op` or
+`command`. The following single record wrappers are also flattened:
+
+| Native tool | Protocol wrapper whose fields become tool arguments |
+| --- | --- |
+| `put_task` | `plan` |
+| `queue_task` | `version` |
+| `report_task` | `report` |
+| `send_message` | `message` |
+| `propose_candidate` | `plan` |
+| `announce_change` | `intent` |
+
+For example, `put_task` takes `request_id`, `id`, `run_id`, `expected_revision`,
+`brief` and `dependencies`. A new task uses `expected_revision: null`.
+`queue_task` takes `request_id`, `task_id` and `revision`. Other operation fields
+retain the formats defined in the control protocol. The CLI continues to take
+its tagged command object; native tool arguments do not use that wrapper.
 
 Tool text results contain JSON with either `Ok` or `Err`. Successful mutations
 return their record in the reply's `value`; reads return their documented value.

@@ -132,7 +132,7 @@ async fn a_channel_write_is_accepted_and_only_an_agent_acknowledges_receipt() {
     })
     .await
     .unwrap();
-    let call = json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"control","arguments":{"request_id":RequestId::new(),"command":{"op":"acknowledge","message_id":message.id}}}});
+    let call = json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"acknowledge","arguments":{"request_id":RequestId::new(),"message_id":message.id}}});
     send.write_all(format!("{call}\n").as_bytes())
         .await
         .unwrap();
@@ -202,7 +202,7 @@ async fn a_native_stdio_child_uses_the_scoped_launch_endpoint() {
     .unwrap()
     .unwrap();
     assert!(serde_json::from_str::<Value>(&line).unwrap()["result"].is_object());
-    let query = json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"control","arguments":{"request_id":RequestId::new(),"command":{"op":"snapshot"}}}});
+    let query = json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"snapshot","arguments":{"request_id":RequestId::new()}}});
     input
         .write_all(
             format!("{{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}}\n{query}\n")
@@ -247,6 +247,19 @@ async fn native_tools_describe_complete_task_and_result_inputs_and_offer_typed_i
         )
         .unwrap()
         .value;
+    let run_id = RunId::new();
+    store
+        .open_run(
+            RequestId::new(),
+            leader.reference(),
+            run_id,
+            RunBrief {
+                title: "Native tools".into(),
+                goal: "Delegate through typed tools".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
     let token = store.grant(leader.reference()).unwrap();
     drop(store);
     let _service = Service::bind(&root).await.unwrap();
@@ -271,44 +284,57 @@ async fn native_tools_describe_complete_task_and_result_inputs_and_offer_typed_i
     receive.read_line(&mut line).await.unwrap();
     let reply: Value = serde_json::from_str(&line).unwrap();
     let tools = reply["result"]["tools"].as_array().unwrap();
-    let control = tools.iter().find(|tool| tool["name"] == "control").unwrap();
-    let schema = &control["inputSchema"];
+    let plan = &tools
+        .iter()
+        .find(|tool| tool["name"] == "put_task")
+        .unwrap()["inputSchema"];
+    assert!(plan["properties"].get("request_id").is_some());
+    assert!(plan["properties"].get("id").is_some());
+    assert!(plan["properties"].get("brief").is_some());
+    assert!(plan["properties"].get("plan").is_none());
+    assert!(plan["properties"].get("command").is_none());
     assert!(
-        serde_json::to_vec(schema).unwrap().len() < 32_768,
-        "keep headroom below the native 64 KiB Adroit schema budget"
+        plan["properties"]["expected_revision"]["description"]
+            .as_str()
+            .unwrap()
+            .contains("new task")
     );
+    let report = &tools
+        .iter()
+        .find(|tool| tool["name"] == "report_task")
+        .unwrap()["inputSchema"];
+    assert!(report["properties"].get("result").is_some());
     assert!(
-        schema["$defs"]["TaskPlan"]["properties"]
-            .get("brief")
-            .is_some()
-    );
-    assert!(
-        schema["$defs"]["TaskBrief"]["properties"]
-            .get("target")
-            .is_some()
-    );
-    assert!(
-        schema["$defs"]["TaskResult"]["properties"]
+        report["$defs"]["TaskResult"]["properties"]
             .get("checks")
             .is_some()
     );
-    let encoded = serde_json::to_string(schema).unwrap();
+    for tool in tools {
+        assert!(serde_json::to_vec(&tool["inputSchema"]).unwrap().len() < 32_768);
+        assert!(tool["inputSchema"]["$defs"].get("Command").is_none());
+    }
     for op in [
         "put_task",
         "report_task",
         "request_change_completion",
         "propose_candidate",
         "send_message",
+        "context",
+        "acknowledge",
     ] {
-        assert!(encoded.contains(op), "{op}");
+        assert!(tools.iter().any(|tool| tool["name"] == op), "{op}");
     }
     for op in [
+        "control",
         "register_leader",
         "remember_launch",
         "grant",
         "confirm_terminal_exit",
+        "restart_leader",
+        "claim_delivery",
+        "accept_delivery",
     ] {
-        assert!(!encoded.contains(&format!("\"{op}\"")), "{op}");
+        assert!(!tools.iter().any(|tool| tool["name"] == op), "{op}");
     }
     assert!(tools.iter().any(|tool| tool["name"] == "new_ids"));
     let call = json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"new_ids","arguments":{"requests":3,"tasks":2,"messages":1}}});
@@ -333,6 +359,33 @@ async fn native_tools_describe_complete_task_and_result_inputs_and_offer_typed_i
             assert!(unique.insert(id));
         }
     }
+    let create = json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"put_task","arguments":{
+        "request_id":ids["request_ids"][0], "id":ids["task_ids"][0], "run_id":run_id,
+        "expected_revision":null, "brief":{"instructions":"Classify blue as a color", "purpose":"classify"}, "dependencies":[]
+    }}});
+    send.write_all(format!("{create}\n").as_bytes())
+        .await
+        .unwrap();
+    line.clear();
+    receive.read_line(&mut line).await.unwrap();
+    let created: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(created["result"]["isError"], false, "{created}");
+    let body: Value =
+        serde_json::from_str(created["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(body["Ok"]["value"]["revision"], 1);
+    let queue = json!({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"queue_task","arguments":{
+        "request_id":ids["request_ids"][1], "task_id":ids["task_ids"][0], "revision":1
+    }}});
+    send.write_all(format!("{queue}\n").as_bytes())
+        .await
+        .unwrap();
+    line.clear();
+    receive.read_line(&mut line).await.unwrap();
+    let queued: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(queued["result"]["isError"], false, "{queued}");
+    let body: Value =
+        serde_json::from_str(queued["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(body["Ok"]["value"]["state"], "queued");
     drop(send);
     task.await.unwrap().unwrap();
 }

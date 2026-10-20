@@ -50,3 +50,8 @@ with read_message and message_id before handling it. Reading does not acknowledg
 it. Acknowledge explicitly and preserve the same message ID when deduplicating.
 Native internal subagents report to their parent Worker; only the assigned
 external Worker reports its overall Adroit attempt outcome to the Leader.
+
+Each operation is a named MCP tool. Pass request_id and its fields directly.
+report_task takes request_id, message_id, task (task_id and revision), attempt_id,
+and result. Do not add command, op or report wrappers. send_message takes the
+message fields directly with request_id.

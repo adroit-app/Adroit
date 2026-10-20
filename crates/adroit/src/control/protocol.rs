@@ -89,12 +89,14 @@ pub enum Command {
         after: u64,
         limit: u32,
     },
+    #[schemars(skip)]
     ClaimDelivery {
         message_id: MessageId,
     },
     RetryDelivery {
         message_id: MessageId,
     },
+    #[schemars(skip)]
     AcceptDelivery {
         message_id: MessageId,
     },
