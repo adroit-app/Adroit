@@ -240,14 +240,12 @@ mod tests {
         assert!(a.history(Path::new("/unused")).is_empty());
         assert!(a.list_sessions().await.unwrap().is_empty());
         assert!(a.commands("/unused".into()).await.is_none());
-        assert!(a.usage("/unused".into()).await.is_none());
         assert!(
             a.transcript(Path::new("/unused"), &Default::default())
                 .is_none()
         );
         assert!(a.resume_args(&Settings::default(), "uuid").is_none());
         assert!(a.rename_command("fix").is_none());
-        assert!(!a.capabilities().usage_limits);
     }
 
     #[test]

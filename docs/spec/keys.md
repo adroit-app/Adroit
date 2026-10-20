@@ -102,8 +102,8 @@ shows no prompt below it: a window move does not stop there, and the `prompt`
 actions do nothing. A
 session waiting on a permission prompt or a question does too, as its answer,
 from the prompt as well as the console; the prompt is Neovim's again once it
-is answered. So does a session showing a dialog of Claude Code's own in place
-of its input box, or above it while Claude works, such as the picker `/model`
+is answered. So does a session showing a dialog of its agent's own in place
+of its input box, or above it while the agent works, such as the picker `/model`
 opens, until the dialog closes.
 The dialog is told from what the console shows; one adroit does not
 recognise still takes `console.pass_every_key`.

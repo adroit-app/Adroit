@@ -935,7 +935,7 @@ fn starts_reading(area: Area, session: bool, passing: bool, reading: bool) -> bo
 fn mode_tip(mode: &str, dialog: bool) -> &'static str {
     match mode {
         "PASS" if dialog => {
-            "Claude Code shows a dialog: every key goes to it, but Ctrl+w sequences, until it closes"
+            "The session shows a dialog: every key goes to it, but Ctrl+w sequences, until it closes"
         }
         "TREE" => "The sidebar has the keys: j and k move, Enter opens. Ctrl+w l goes right",
         "DETAILS" => {
@@ -1918,7 +1918,7 @@ fn App() -> Element {
         }
     });
     // How much of the account's usage limits is left, for the foot of the
-    // overview: asked of Claude Code while the overview is in sight, again
+    // overview: asked of the session's agent while the overview is in sight, again
     // once the answer has aged.
     let mut usage_limits = use_signal(HashMap::<adroit_model::Agent, usage::Fresh>::new);
     let usage_wake = use_hook(|| Arc::new(Notify::new()));
@@ -1962,6 +1962,12 @@ fn App() -> Element {
         let wake = usage_wake.clone();
         move || {
             let _ = (drill().sheet(), layout().show_details);
+            let _ = agents::for_tab(
+                &tree.read(),
+                active.read().as_ref(),
+                &draft_agents.read(),
+                font.read().agent,
+            );
             wake.notify_one();
         }
     });
@@ -5607,7 +5613,7 @@ fn App() -> Element {
                     }
                     if !usage_now.is_empty() {
                         div { class: "details-usage",
-                            title: "Usage limits, as Claude Code's /usage reports them",
+                            title: "Usage limits reported by the session's agent",
                             span { class: "details-label", "Usage" }
                             for g in usage_now.into_iter() {
                                 div { key: "{g.label}", class: "usage-gauge",
@@ -5649,10 +5655,10 @@ fn App() -> Element {
                     span { class: "kbd-list", kbd { "Esc" } " clear it" }
                 }
                 if area == Area::Prompt && in_dialog {
-                    span { class: "kbd-list", "every key goes to Claude Code's dialog" }
+                    span { class: "kbd-list", "every key goes to the session's dialog" }
                     span { class: "kbd-list", "the prompt is back once it closes" }
                 } else if area == Area::Console && in_dialog && !passing {
-                    span { class: "kbd-list", "every key goes to Claude Code's dialog" }
+                    span { class: "kbd-list", "every key goes to the session's dialog" }
                     span { class: "kbd-list", "the window's moves leave" }
                 } else if area == Area::Prompt && answering {
                     span { class: "kbd-list", "every key answers the session" }

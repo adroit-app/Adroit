@@ -23,8 +23,9 @@ denied tools do not apply to it.
 
 Adroit currently lists only the Codex sessions it starts. Discovery and
 takeover of external Codex sessions, Codex prompt history in the embedded
-prompt, slash-command completion, usage limits and transcript-derived details
-are not available. Use Codex's own interface for its commands and menus:
+prompt, slash-command completion and transcript-derived details
+are not available. Codex menus, approvals and questions take keys directly
+while they are open. Use Codex's own interface for its commands and menus:
 `Ctrl-g i` passes keys through until `Esc`. Renaming in Adroit changes the
 Codex session's sidebar name only. A message with a leading `!` is pasted into
 Codex as it was written, so what Codex does with it is up to Codex.

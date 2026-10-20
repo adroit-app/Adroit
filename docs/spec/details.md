@@ -23,7 +23,7 @@ Overview, Changes and Log.
   that still exist, together, each beside a small picture of it. A shell or a
   draft has no conversation and lists none. At its foot, whatever is shown
   above, it tells how much of the account's usage limits is left: each limit
-  Claude Code's `/usage` reports, such as the current session and the week,
+  the session's agent reports, such as the current session and the week,
   as a bar of what is used, with what is left and when it resets.
 - **Changes** lists the files the worktree changes. Opening one shows its
   diff.
@@ -65,9 +65,9 @@ Back goes out one level at a time, to the list the shown row was opened from,
 with that row selected. A row opens by its keys or a click; the line above a
 row opened names what was opened, and a click on it goes back.
 
-The usage limits are asked of Claude Code while the overview is in sight,
+The usage limits are asked of the session's agent while the overview is in sight,
 again every few minutes, without starting a conversation or spending any of
-them. An account without such limits, or a Claude Code that does not answer,
+them. An account without such limits, or an agent that does not answer,
 shows none; one that stops answering keeps showing what it last said.
 
 The sheets follow what is read again while they are shown. A row opened that
