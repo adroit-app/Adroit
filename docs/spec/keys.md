@@ -170,7 +170,7 @@ another, the complete one runs.
 | `session.agent_next` | while a session not started yet is shown, switch the agent it is to run to the next one ([details](sessions.md#agents)) |
 | `session.take_over` | take over an interactive session ([details](interactive-sessions.md)) |
 | `session.stop` | end a session adroit runs after asking; Claude Code keeps its conversation, for `/resume` in a session started later |
-| `session.rename` | ask for a new name for a session adroit runs, with its name to change; the sidebar shows it, and the session is sent Claude Code's `/rename` so its own interface says it too |
+| `session.rename` | edit the name of a session adroit runs in place; the sidebar shows it, and the session is sent Claude Code's `/rename` so its own interface says it too |
 | `shell.open` | open a shell in the worktree |
 | `terminal.stop` | end the terminal selected in the sidebar, or else the one shown |
 | `neovim.open` | open Neovim, with your own configuration, in the worktree as `shell.open` opens a shell ([shells](terminals.md)) |

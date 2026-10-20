@@ -368,7 +368,9 @@ kbd { font-family: var(--mono); font-size: 10.5px; color: #c9ccd2; background: v
 .context-menu-sep { height: 1px; margin: 4px 8px; background: var(--line-strong); }
 .console-empty-start { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 8px; max-width: 360px; }
 .console-agents { display: flex; gap: 6px; }
-.dialog.rename-dialog .filter-field { margin: 0; min-height: 26px; }
+.session-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.session-rename-input { width: 100%; min-width: 48px; padding: 1px 3px; border: 1px solid var(--run); border-radius: 3px; outline: none; background: var(--ground); color: var(--text); font: inherit; user-select: text; }
+.tab .session-rename-input { width: 180px; }
 .button:disabled { opacity: 0.5; }
 .dialog.picker-dialog { width: 640px; height: min(520px, calc(100% - 48px)); padding: 16px 12px 12px; gap: 8px; }
 .dialog.picker-dialog .dialog-title { padding: 0 8px; }

@@ -49,7 +49,7 @@ use crate::picker_view::PickerView;
 use crate::pictures::{self, Gallery};
 use crate::programs;
 use crate::prompts::{self, Op, Prompts};
-use crate::rename::Rename;
+use crate::rename::{Place as RenamePlace, Rename, SessionName};
 use crate::scratch::{self, Moment};
 use crate::sessions::{self, Kept};
 use crate::settings;
@@ -3617,6 +3617,40 @@ fn App() -> Element {
         }
     };
 
+    let mut begin_rename = move |id: String, place: RenamePlace| {
+        let found = nav::find(&tree.peek(), &id).map(|(_, s)| s.clone());
+        match found {
+            Some(s) if s.state.takes_every_key() => {
+                notify.notice(format!("Answer {} first, then rename it", s.name))
+            }
+            Some(s) if s.kind == Kind::Own => renaming.set(Some(Rename::of(&s, place))),
+            Some(s) => notify.notice(format!(
+                "{} takes no message from here to rename it",
+                s.name
+            )),
+            None => {}
+        }
+    };
+
+    use_effect(move || {
+        let rename = renaming.read().clone();
+        if let Some(r) = rename {
+            let visible = match r.place {
+                RenamePlace::Sidebar => layout.read().show_sidebar
+                    && items.read().iter().any(
+                        |item| matches!(item, Item::Session(id) | Item::Waiting(id) if *id == r.id),
+                    ),
+                RenamePlace::Tab => tabs
+                    .read()
+                    .iter()
+                    .any(|(tab, ..)| matches!(tab, Tab::Session(id) if *id == r.id)),
+            };
+            if !visible {
+                renaming.set(None);
+            }
+        }
+    });
+
     // Ask to end a session adroit runs, chosen as for a take-over.
 
     let mut ask_stop = move |selection: bool| {
@@ -4216,22 +4250,13 @@ fn App() -> Element {
                             _ => None,
                         },
                     };
-                    let found = chosen
-                        .as_deref()
-                        .and_then(|id| nav::find(&tree.peek(), id).map(|(_, s)| s.clone()));
-                    match found {
-                        // `/rename` typed while it asks would answer it.
-                        Some(s) if s.state.takes_every_key() => {
-                            notify.notice(format!("Answer {} first, then rename it", s.name))
-                        }
-                        Some(s) if s.kind == Kind::Own => {
-                            renaming.set(Some(Rename::of(&s)));
-                        }
-                        Some(s) => notify.notice(format!(
-                            "{} takes no message from here to rename it",
-                            s.name
-                        )),
-                        None => {}
+                    if let Some(id) = chosen {
+                        let place = if on_list {
+                            RenamePlace::Sidebar
+                        } else {
+                            RenamePlace::Tab
+                        };
+                        begin_rename(id, place);
                     }
                 }
                 Action::ScrollDown if on_console => console_scroll(-1),
@@ -5844,6 +5869,7 @@ fn App() -> Element {
                                 };
                                 let here = target.clone();
                                 let badge = row_badge(&t, &it);
+                                let here_row = it.clone();
                                 rsx! {
                                     div {
                                         key: "{it:?}",
@@ -5863,7 +5889,15 @@ fn App() -> Element {
                                             span { class: "place-mark", IconView { icon } }
                                         }
                                         if let Some(runs) = terminal { Terminal { runs } }
-                                        span { class: "list-row-name", "{text}" }
+                                        span { class: "list-row-name",
+                                            if let Item::Session(id) = &here_row {
+                                                SessionName {
+                                                    id: id.clone(), name: text.clone(), place: RenamePlace::Sidebar, editing: renaming,
+                                                    onstart: move |(id, place)| begin_rename(id, place),
+                                                    onfinish: { let send = send_rename.clone(); move |r| send(r) },
+                                                }
+                                            } else { "{text}" }
+                                        }
                                         SessionMark { mark }
                                         if has_draft {
                                             span { class: "draft-mark", title: "Something is written for it in the prompt", "✎" }
@@ -5952,7 +5986,13 @@ fn App() -> Element {
                                         }
                                         if let Some(runs) = shell { Terminal { runs } }
                                         if matches!(tab, Tab::Draft { .. }) { span { class: "place-mark", IconView { icon: Icon::MessagePlus, size: 13 } } }
-                                        "{name}"
+                                        if let Tab::Session(id) = &tab {
+                                            SessionName {
+                                                id: id.clone(), name: name.clone(), place: RenamePlace::Tab, editing: renaming,
+                                                onstart: move |(id, place)| begin_rename(id, place),
+                                                onfinish: { let send = send_rename.clone(); move |r| send(r) },
+                                            }
+                                        } else { "{name}" }
                                         SessionMark { mark }
                                         if has_draft {
                                             span { class: "draft-mark", title: "Something is written for it in the prompt", "✎" }
@@ -6636,71 +6676,6 @@ fn App() -> Element {
                                                 }
                                             }
                                         }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            if let Some(r) = renaming() {
-                {
-                    let send = send_rename.clone();
-                    let ready = r.name().is_some();
-                    rsx! {
-                        div { class: "dialog-scrim", onclick: move |_| renaming.set(None),
-                            div { class: "dialog rename-dialog",
-                                onclick: move |e| e.stop_propagation(),
-                                div { class: "dialog-title", IconView { icon: Icon::Pencil, size: 16 } "Rename {r.was}" }
-                                div { class: "filter-field on",
-                                    input {
-                                        class: "filter-field-input",
-                                        value: "{r.text}",
-                                        autocomplete: "off",
-                                        spellcheck: "false",
-                                        "autocorrect": "off",
-                                        "autocapitalize": "off",
-                                        // Selected, so a new name is typed over the old one.
-                                        onmounted: move |e: MountedEvent| async move {
-                                            let _ = e.data().set_focus(true).await;
-                                            document::eval(
-                                                "document.querySelector('.rename-dialog .filter-field-input')?.select()",
-                                            );
-                                        },
-                                        oninput: move |e: Event<FormData>| {
-                                            if let Some(r) = renaming.write().as_mut() {
-                                                r.text = e.value();
-                                            }
-                                        },
-                                        onkeydown: {
-                                            let send = send_rename.clone();
-                                            move |e: Event<KeyboardData>| {
-                                                match keys::of_field(&e).map(|k| k.key).as_deref() {
-                                                    Some("Enter") => {
-                                                        if let Some(r) = renaming.take() {
-                                                            send(r);
-                                                        }
-                                                    }
-                                                    Some("Escape") => renaming.set(None),
-                                                    _ => {}
-                                                }
-                                            }
-                                        },
-                                    }
-                                }
-                                div { class: "dialog-actions",
-                                    button { class: "button", onclick: move |_| renaming.set(None),
-                                        kbd { "Esc" } "Cancel"
-                                    }
-                                    button {
-                                        class: "button primary",
-                                        disabled: !ready,
-                                        onclick: move |_| {
-                                            if let Some(r) = renaming.take() {
-                                                send(r);
-                                            }
-                                        },
-                                        kbd { "Enter" } "Rename"
                                     }
                                 }
                             }

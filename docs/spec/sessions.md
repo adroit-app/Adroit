@@ -147,3 +147,10 @@ activity supplies one.
 The completion check marks a result not yet viewed in this window. Viewing
 the session acknowledges it; a later turn completed out of view can be marked
 again. A window in the background does not acknowledge completions.
+
+## Renaming a session
+
+Double-clicking a session's name in the sidebar or its tab edits that name
+in place. The rename action from the keyboard or menu opens the same editor.
+Enter or leaving the field accepts the name; Escape cancels. An empty or
+unchanged name leaves the session's name as it was.
