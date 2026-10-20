@@ -73,6 +73,9 @@ pub trait AgentAdapter: Sync {
     fn conversation(&self) -> String {
         String::new()
     }
+    fn conversation_title(&self, _title: &str) -> Option<String> {
+        None
+    }
     fn start_args(
         &self,
         settings: &Settings,
@@ -214,7 +217,7 @@ mod tests {
             ["--no-alt-screen", "--sandbox", "read-only", "--", "read"]
         );
         assert!(a.conversation().is_empty());
-        assert!(!a.capabilities().transcript);
+        assert!(a.capabilities().transcript);
         assert!(a.capabilities().command_probe);
         assert!(!a.capabilities().shell_bang);
     }
@@ -388,7 +391,7 @@ mod tests {
     #[tokio::test]
     async fn unsupported_integrations_never_start_claude_for_codex() {
         let a = adapter(Agent::Codex);
-        assert!(a.integration_args(Path::new("/unused/adroit")).is_empty());
+        assert!(!a.integration_args(Path::new("/unused/adroit")).is_empty());
         assert!(a.environment().is_empty());
         assert!(a.history(Path::new("/unused")).is_empty());
         assert!(a.list_sessions().await.unwrap().is_empty());

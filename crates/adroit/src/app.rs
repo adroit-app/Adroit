@@ -1189,10 +1189,16 @@ async fn start(
 async fn read_sessions(daemon: &Daemon) -> Result<(Vec<Session>, Vec<Shell>), String> {
     let kept = daemon.sessions().await.map_err(|e| e.to_string())?;
     let (mut own, mut kept_shells) = (Vec::new(), Vec::new());
+    let mut learned = Vec::new();
     for s in &kept {
         match sessions::read(s) {
             Some(Kept::Agent(mut c)) => {
                 let adapter = agents::adapter(c.agent);
+                if let Some(title) = &s.title
+                    && let Some(tag) = sessions::follow_title(&mut c, title)
+                {
+                    learned.push(tag);
+                }
                 if s.status.is_none()
                     && adapter.capabilities().screen_state
                     && let Ok(Ok(screen)) =
@@ -1210,7 +1216,6 @@ async fn read_sessions(daemon: &Daemon) -> Result<(Vec<Session>, Vec<Shell>), St
     // Without Claude Code, or with a listing it cannot give, the sessions in
     // other terminals are not listed; adroit's own still are.
     let mut elsewhere = Vec::new();
-    let mut learned = Vec::new();
     for agent in adroit_model::Agent::ALL {
         let adapter = agents::adapter(agent);
         let listed = adapter.list_sessions().await.unwrap_or_default();

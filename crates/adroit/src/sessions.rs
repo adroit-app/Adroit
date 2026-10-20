@@ -13,9 +13,8 @@ pub const NAME: &str = "adroit.name";
 const CWD: &str = "adroit.cwd";
 const STARTED: &str = "adroit.started";
 const READER: &str = "adroit.reader";
-/// The conversation a Claude Code session holds, chosen by adroit when it
-/// starts or resumes the session, and followed when `/clear` or `/resume`
-/// moves the session to another.
+/// The conversation a session holds. The tag keeps its original spelling
+/// so sessions started by earlier versions still carry their conversation.
 const CONVERSATION: &str = "adroit.claude";
 /// The process Claude Code runs in, learned from its listing while the
 /// session still holds the conversation it was started with.
@@ -40,6 +39,18 @@ pub fn id_of(hex: &str) -> Option<u128> {
     (hex.len() == 32)
         .then(|| u128::from_str_radix(hex, 16).ok())
         .flatten()
+}
+
+/// Keep the conversation reported by the agent's terminal title on its
+/// daemon session, including when the agent switches conversations.
+pub fn follow_title(session: &mut Session, title: &str) -> Option<(u128, &'static str, String)> {
+    let conversation = crate::agents::adapter(session.agent).conversation_title(title)?;
+    let id = id_of(&session.id)?;
+    if conversation == session.session_id {
+        return None;
+    }
+    session.session_id = conversation.clone();
+    Some((id, CONVERSATION, conversation))
 }
 
 /// What `session` is, by its tags; `None` for one adroit did not start, and
@@ -193,6 +204,45 @@ pub fn shell_tags(name: &str, worktree: &std::path::Path, runs: Runs) -> Vec<Str
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn codex_titles_keep_separate_conversations_and_follow_switches() {
+        use adroit_model::{Agent, Session};
+        let first = "01234567-89ab-cdef-0123-456789abcdef";
+        let second = "11234567-89ab-cdef-0123-456789abcdef";
+        let mut session = Session {
+            id: super::hex(1),
+            agent: Agent::Codex,
+            ..Default::default()
+        };
+        assert_eq!(
+            super::follow_title(&mut session, &format!("Codex · {first}")),
+            Some((1, super::CONVERSATION, first.into()))
+        );
+        assert_eq!(
+            super::follow_title(&mut session, &format!("Codex · {first}")),
+            None
+        );
+        assert_eq!(super::follow_title(&mut session, "Codex · project"), None);
+        assert_eq!(session.session_id, first);
+        let mut other = session.clone();
+        other.id = super::hex(2);
+        assert_eq!(
+            super::follow_title(&mut other, &format!("Codex · {second}")),
+            Some((2, super::CONVERSATION, second.into()))
+        );
+        assert_eq!(session.session_id, first);
+        assert_eq!(
+            super::follow_title(&mut session, &format!("Codex · {second}")),
+            Some((1, super::CONVERSATION, second.into()))
+        );
+        session.agent = Agent::Claude;
+        assert_eq!(
+            super::follow_title(&mut session, &format!("Codex · {first}")),
+            None
+        );
+        assert_eq!(session.session_id, second);
+    }
+
     use adroit_model::Wait;
     use adroit_term::Status;
 

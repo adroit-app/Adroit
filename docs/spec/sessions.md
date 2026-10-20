@@ -24,11 +24,17 @@ Codex reader starts with the read-only sandbox. Codex's own configuration
 controls authentication and approvals; the Claude model, permission mode and
 denied tools do not apply to it.
 
+Codex sessions started by Adroit list their conversation's artifacts, images,
+links and files in the [overview](details.md). The list follows the current
+conversation, including after switching conversations in Codex.
+For a Codex session already running when Adroit was updated, run
+`/title app-name thread-id` in Codex to enable the overview's conversation list.
+
 Adroit currently lists only the Codex sessions it starts. Discovery and
-takeover of external Codex sessions, Codex prompt history in the embedded
-prompt and transcript-derived details
-are not available. Codex menus, approvals and questions take keys directly
-while they are open. Use Codex's own interface for its commands and menus:
+takeover of external Codex sessions and Codex prompt history in the embedded
+prompt are not available. Codex menus, approvals and questions take keys
+directly while they are open. Use Codex's own interface for its commands and
+menus:
 `Ctrl-g i` passes keys through until `Esc`. Renaming in Adroit changes the
 Codex session's sidebar name only. A message with a leading `!` is pasted into
 Codex as it was written, so what Codex does with it is up to Codex.

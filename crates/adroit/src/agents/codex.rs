@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 mod commands;
 mod rpc;
+mod transcript;
 mod usage;
 
 /// How Codex sessions start, apart from Claude Code's options.
@@ -28,13 +29,47 @@ impl AgentAdapter for Codex {
         Capabilities {
             command_probe: true,
             usage_limits: true,
-            transcript: false,
+            transcript: true,
             shell_bang: false,
             screen_state: true,
         }
     }
     fn usage_url(&self) -> Option<&'static str> {
         Some("https://chatgpt.com/settings/usage")
+    }
+    fn integration_args(&self, _program: &Path) -> Vec<String> {
+        vec![
+            "-c".into(),
+            "tui.terminal_title=[\"app-name\",\"thread-id\"]".into(),
+        ]
+    }
+    fn conversation_title(&self, title: &str) -> Option<String> {
+        title
+            .split_whitespace()
+            .find(|s| transcript::thread_id(s))
+            .map(str::to_string)
+    }
+    fn transcript(
+        &self,
+        home: &Path,
+        session: &adroit_model::Session,
+    ) -> Option<Box<dyn ConversationReader>> {
+        if !transcript::thread_id(&session.session_id) {
+            return None;
+        }
+        let root = crate::settings::current()
+            .codex
+            .env
+            .get("CODEX_HOME")
+            .map(PathBuf::from)
+            .or_else(|| std::env::var_os("CODEX_HOME").map(PathBuf::from))
+            .unwrap_or_else(|| home.join(".codex"));
+        Some(Box::new(transcript::Transcript::open(
+            root,
+            session.session_id.clone(),
+            &session.cwd,
+            home,
+        )))
     }
     fn commands(&self, dir: PathBuf) -> Probe<adroit_claude::commands::Command> {
         Box::pin(async move {
@@ -219,6 +254,26 @@ mod tests {
     #[test]
     fn codex_slash_completion_is_enabled() {
         assert!(Codex.capabilities().command_probe);
+    }
+
+    #[test]
+    fn codex_details_follow_the_thread_reported_in_its_terminal_title() {
+        let id = "01234567-89ab-cdef-0123-456789abcdef";
+        assert!(Codex.capabilities().transcript);
+        assert_eq!(
+            Codex.conversation_title(&format!("Codex · {id}")),
+            Some(id.into())
+        );
+        assert_eq!(Codex.conversation_title("Codex · project"), None);
+        assert_eq!(
+            Codex.conversation_title("01234567-89ab-cdef-0123-456789abcdeg"),
+            None
+        );
+        let args = Codex.integration_args(Path::new("/bin/adroit"));
+        assert_eq!(
+            args,
+            ["-c", "tui.terminal_title=[\"app-name\",\"thread-id\"]"]
+        );
     }
 
     #[tokio::test]
