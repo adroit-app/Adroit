@@ -588,3 +588,12 @@ pub struct CandidateFiles {
     pub fingerprint: String,
     pub files: Vec<CandidateFile>,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CandidateProof {
+    pub work_area_id: WorkAreaId,
+    pub backend: WorkAreaBackend,
+    pub revision: Option<String>,
+    pub files: CandidateFiles,
+}

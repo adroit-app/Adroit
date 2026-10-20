@@ -186,3 +186,6 @@ pub fn capture_files(root: &Path, paths: &[String]) -> Result<CandidateFiles> {
         files,
     })
 }
+
+mod native;
+pub use native::capture_candidate;

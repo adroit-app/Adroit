@@ -19,3 +19,16 @@ fingerprint identifies both the declared paths and their recorded states.
 Capture refuses unreadable files, unsupported file types, detected concurrent
 file changes, and manifests exceeding its bounds. It does not lock directories,
 provide rollback, or guarantee an atomic filesystem snapshot.
+
+## Native and directory candidates
+
+A native candidate names a full immutable commit ID and its assigned working
+area. Its current tree must match that commit, including the absence of
+unrecorded Git files and unresolved jj conflicts. An empty jj successor with
+the same tree is accepted. Checks leave the active history and working files
+unchanged; a missing native capability or a failed check refuses the candidate.
+
+Directory candidates use the reported output manifest and its canonical file
+fingerprint. A stale or unsupported reported fingerprint is refused. Additional
+verification inputs are captured with the outputs, so later verification can
+identify changes to those inputs independently of the output report.

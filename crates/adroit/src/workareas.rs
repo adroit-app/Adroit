@@ -213,7 +213,11 @@ async fn revision(
     }
 }
 
-async fn identify(id: WorkAreaId, source: PathBuf, description: String) -> Result<WorkArea> {
+pub(crate) async fn identify(
+    id: WorkAreaId,
+    source: PathBuf,
+    description: String,
+) -> Result<WorkArea> {
     if description.trim().is_empty() {
         return Err("a working area needs a task description".into());
     }
