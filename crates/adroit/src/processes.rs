@@ -160,7 +160,6 @@ pub fn ProcessView(
     on_back: dioxus::prelude::EventHandler<()>,
     on_kill: dioxus::prelude::EventHandler<Process>,
 ) -> dioxus::prelude::Element {
-    let mut confirming = use_signal(|| false);
     let pid = process.pid;
     let parent = process
         .parent
@@ -186,19 +185,8 @@ pub fn ProcessView(
             pre { class: "process-command", "{process.command}" }
             if process.zombie {
                 span { class: "dim", "Already exited (zombie). Parent PID {parent} must reap it." }
-            } else if confirming() {
-                div { class: "process-confirm",
-                    span { "Kill {process.name} (PID {pid}) with SIGKILL?" }
-                    div { class: "process-actions",
-                        button { class: "button", onclick: move |_| confirming.set(false), "Cancel" }
-                        button { class: "button danger", onclick: move |_| {
-                            confirming.set(false);
-                            on_kill.call(process.clone());
-                        }, "Kill process" }
-                    }
-                }
             } else {
-                button { class: "button danger", onclick: move |_| confirming.set(true), "Kill…" }
+                button { class: "button danger", onclick: move |_| on_kill.call(process.clone()), "Kill…" }
             }
         }
     }

@@ -268,8 +268,9 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .details-label { font-size: 12px; font-weight: 500; color: var(--text-2); }
 .details-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 12px; font-size: 12.5px; }
 .process-command { margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 11px var(--mono); user-select: text; }
-.process-confirm { display: flex; flex-direction: column; gap: 8px; }
-.process-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.process-kill { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 4px; color: var(--text-3); background: transparent; cursor: pointer; }
+.process-kill:hover { background: var(--line-strong); color: var(--fail); }
+.process-kill:focus-visible { outline: 2px solid var(--fail); outline-offset: 1px; }
 .details-facts-key { color: var(--text-3); }
 .details-facts-value { min-width: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .details-path { font-family: var(--mono); font-size: 11.5px; color: var(--text-3); word-break: break-all; user-select: text; }

@@ -905,6 +905,41 @@ fn adroit_program() -> PathBuf {
 enum Ask {
     TakeOver(Session),
     Stop(Session),
+    KillProcess(Session, crate::processes::Process),
+}
+
+impl Ask {
+    fn kill_process(session: Option<&Session>, entry: Option<&Entry>) -> Option<Self> {
+        match entry? {
+            Entry::Process(process) if !process.zombie => {
+                Some(Self::KillProcess(session?.clone(), process.clone()))
+            }
+            _ => None,
+        }
+    }
+
+    fn dialog(&self) -> (Icon, String, String, &'static str) {
+        match self {
+            Self::TakeOver(s) => (
+                Icon::TransferIn,
+                format!("Take over {}?", s.name),
+                "Claude Code stops in the terminal it runs in, and the conversation continues here. That terminal goes back to its shell.".into(),
+                "Take over",
+            ),
+            Self::Stop(s) => (
+                Icon::PlayerStop,
+                format!("End {}?", s.name),
+                "The agent exits where it runs. Its conversation remains in the provider's history.".into(),
+                "End",
+            ),
+            Self::KillProcess(s, p) => (
+                Icon::X,
+                format!("Kill {}?", p.name),
+                format!("Send SIGKILL to PID {} in session {}? Unsaved work in this process will be lost.", p.pid, s.name),
+                "Kill process",
+            ),
+        }
+    }
 }
 
 /// Now, in milliseconds since the Unix epoch.
@@ -3494,6 +3529,25 @@ fn App() -> Element {
         }
     };
 
+    let kill_process = {
+        let wake = processes_wake.clone();
+        move |session: Session, process: crate::processes::Process| {
+            let wake = wake.clone();
+            spawn(async move {
+                let pid = process.pid;
+                let result =
+                    tokio::task::spawn_blocking(move || crate::processes::kill(&session, &process))
+                        .await;
+                match result {
+                    Ok(Ok(())) => notify.notice(format!("Killed process {pid}")),
+                    Ok(Err(e)) => notify.notice(e),
+                    Err(e) => notify.notice(format!("Cannot kill process: {e}")),
+                }
+                wake.notify_one();
+            });
+        }
+    };
+
     // Ask to take over an interactive session: the selected one when
     // `selection` and a session is selected, else the one the console shows.
     let mut ask_take_over = move |selection: bool| {
@@ -4761,6 +4815,7 @@ fn App() -> Element {
         let take_over = take_over.clone();
         let mut picker_key = picker_key;
         let stop = stop.clone();
+        let kill_process = kill_process.clone();
         move |key: Key| {
             if key.key == "Process"
                 || key.key == "Dead"
@@ -4795,6 +4850,7 @@ fn App() -> Element {
                         match ask {
                             Ask::TakeOver(s) => take_over(s),
                             Ask::Stop(s) => stop(s),
+                            Ask::KillProcess(session, process) => kill_process(session, process),
                         }
                     }
                     "n" | "Escape" => confirm.set(None),
@@ -5290,28 +5346,6 @@ fn App() -> Element {
             .find(|p| p.key == key)
             .cloned()
     });
-    let kill_process = {
-        let session = shown_session.clone();
-        let wake = processes_wake.clone();
-        move |process: crate::processes::Process| {
-            let Some(session) = session.clone() else {
-                return;
-            };
-            let wake = wake.clone();
-            spawn(async move {
-                let pid = process.pid;
-                let result =
-                    tokio::task::spawn_blocking(move || crate::processes::kill(&session, &process))
-                        .await;
-                match result {
-                    Ok(Ok(())) => notify.notice(format!("Killed process {pid}")),
-                    Ok(Err(e)) => notify.notice(e),
-                    Err(e) => notify.notice(format!("Cannot kill process: {e}")),
-                }
-                wake.notify_one();
-            });
-        }
-    };
     let link_sections = {
         let entries = match &overview_now {
             // A subagent opened stands in for the rows.
@@ -6192,7 +6226,14 @@ fn App() -> Element {
                                 let mut d = drill.peek().clone();
                                 if d.back() { drill.set(d); }
                             },
-                            on_kill: kill_process,
+                            on_kill: {
+                                let session = shown_session.clone();
+                                move |process| {
+                                    if let Some(ask) = Ask::kill_process(session.as_ref(), Some(&Entry::Process(process))) {
+                                        confirm.set(Some(ask));
+                                    }
+                                }
+                            },
                         }
                     }
                     for section in link_sections.into_iter() {
@@ -6214,6 +6255,10 @@ fn App() -> Element {
                             for r in section.rows.into_iter() {
                                 {
                                     let (at, file) = (r.at, r.file);
+                                    let kill_request = match &overview_now {
+                                        Some(Listing::Links(entries)) => Ask::kill_process(shown_session.as_ref(), entries.get(at)),
+                                        _ => None,
+                                    };
                                     let class = match (link_selected == Some(at), r.thumb.is_some()) {
                                         (true, true) => "list-row details-link details-image selected",
                                         (true, false) => "list-row details-link selected",
@@ -6243,6 +6288,20 @@ fn App() -> Element {
                                             }
                                             if !r.tag.is_empty() {
                                                 span { class: "details-link-tag", "{r.tag}" }
+                                            }
+                                            if let Some(ask) = kill_request {
+                                                button {
+                                                    class: "process-kill",
+                                                    r#type: "button",
+                                                    title: "Kill process…",
+                                                    aria_label: "Kill {r.label}",
+                                                    onmousedown: move |e: Event<MouseData>| { e.stop_propagation(); e.prevent_default(); },
+                                                    onclick: move |e: Event<MouseData>| {
+                                                        e.stop_propagation();
+                                                        confirm.set(Some(ask.clone()));
+                                                    },
+                                                    IconView { icon: Icon::X, size: 12 }
+                                                }
                                             }
                                         }
                                     }
@@ -6640,36 +6699,24 @@ fn App() -> Element {
                 {
                     let take_over = take_over.clone();
                     let stop = stop.clone();
-                    let icon = Icon::of(&match ask { Ask::TakeOver(_) => Action::SessionTakeOver, Ask::Stop(_) => Action::SessionStop });
-                    let (title, body, act, s) = match ask.clone() {
-                        Ask::TakeOver(s) => (
-                            format!("Take over {}?", s.name),
-                            "Claude Code stops in the terminal it runs in, and the conversation continues here. That terminal goes back to its shell.",
-                            "Take over",
-                            s,
-                        ),
-                        Ask::Stop(s) => (
-                            format!("End {}?", s.name),
-                            "The agent exits where it runs. Its conversation remains in the provider's history.",
-                            "End",
-                            s,
-                        ),
-                    };
+                    let kill_process = kill_process.clone();
+                    let (icon, title, body, act) = ask.dialog();
                     rsx! {
                         div { class: "dialog-scrim",
                             div { class: "dialog",
-                                div { class: "dialog-title", if let Some(icon) = icon { IconView { icon, size: 16 } } "{title}" }
+                                div { class: "dialog-title", IconView { icon, size: 16 } "{title}" }
                                 div { "{body}" }
                                 div { class: "dialog-actions",
                                     button { class: "button", onclick: move |_| confirm.set(None),
                                         kbd { "n" } "Cancel"
                                     }
-                                    button { class: "button primary",
+                                    button { class: if matches!(ask, Ask::KillProcess(..)) { "button danger" } else { "button primary" },
                                         onclick: move |_| {
                                             confirm.set(None);
                                             match &ask {
-                                                Ask::TakeOver(_) => take_over(s.clone()),
-                                                Ask::Stop(_) => stop(s.clone()),
+                                                Ask::TakeOver(s) => take_over(s.clone()),
+                                                Ask::Stop(s) => stop(s.clone()),
+                                                Ask::KillProcess(session, process) => kill_process(session.clone(), process.clone()),
                                             }
                                         },
                                         kbd { "y" } "{act}"
@@ -6842,6 +6889,33 @@ mod tests {
             assert_eq!(session_mark(role, false), None);
         }
     }
+
+    #[test]
+    fn killing_an_overview_process_requires_a_confirmation_bound_to_its_session_and_identity() {
+        let session = Session {
+            id: "session-one".into(),
+            name: "work".into(),
+            ..Default::default()
+        };
+        let mut process = crate::processes::Process::default();
+        process.pid = 123;
+        process.started_secs = 456;
+        process.name = "node_repl".into();
+        let ask =
+            Ask::kill_process(Some(&session), Some(&Entry::Process(process.clone()))).unwrap();
+        assert_eq!(ask, Ask::KillProcess(session.clone(), process.clone()));
+        let (_, title, body, action) = ask.dialog();
+        assert!(title.contains("node_repl"));
+        assert!(body.contains("123"));
+        assert!(body.contains("work"));
+        assert!(body.contains("SIGKILL"));
+        assert_eq!(action, "Kill process");
+        assert!(Ask::kill_process(None, Some(&Entry::Process(process.clone()))).is_none());
+        assert!(Ask::kill_process(Some(&session), None).is_none());
+        process.zombie = true;
+        assert!(Ask::kill_process(Some(&session), Some(&Entry::Process(process))).is_none());
+    }
+
     #[test]
     fn process_rows_are_available_without_a_transcript_and_follow_only_the_shown_session() {
         let mut process = crate::processes::Process::default();
