@@ -37,16 +37,24 @@ async fn observe(shortened: bool) {
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
     let conversation = MessageId::new().to_string();
+    let next_conversation = dir.path().join("next-conversation");
     let mut settings = Settings::default();
     settings.codex.command = vec![
         "/bin/sh".into(),
         "-c".into(),
         support::codex_script(
-            if shortened {
-                r#"printf '\033]0;codex | %.29s...\007' "$ADROIT_TEST_THREAD"; sleep 10"#
-            } else {
-                r#"printf '\033]0;Codex · %s\007' "$ADROIT_TEST_THREAD"; sleep 10"#
-            },
+            &format!(
+                "{}\n{}",
+                if shortened {
+                    r#"printf '\033]0;codex | %.29s...\007' "$ADROIT_TEST_THREAD""#
+                } else {
+                    r#"printf '\033]0;Codex · %s\007' "$ADROIT_TEST_THREAD""#
+                },
+                r#"while [ ! -f "$ADROIT_TEST_NEXT_CONVERSATION" ]; do sleep 0.02; done
+IFS= read -r next < "$ADROIT_TEST_NEXT_CONVERSATION"
+printf '\033]0;Codex · %s\007' "$next"
+sleep 10"#
+            ),
             None,
         ),
         "native-provider".into(),
@@ -55,6 +63,10 @@ async fn observe(shortened: bool) {
         .codex
         .env
         .insert("ADROIT_TEST_THREAD".into(), conversation.clone());
+    settings.codex.env.insert(
+        "ADROIT_TEST_NEXT_CONVERSATION".into(),
+        next_conversation.to_string_lossy().into_owned(),
+    );
     settings.codex.env.insert(
         "ADROIT_TEST_THREAD_PAGE".into(),
         serde_json::json!({
@@ -78,6 +90,10 @@ async fn observe(shortened: bool) {
     .unwrap();
     let ownership = prepared.ownership.unwrap();
     let identity = ownership.identity();
+    let original_binding =
+        adroit_term::tags::holding(&prepared.resolved.spawn.tags, "adroit.binding");
+    let original_generation =
+        adroit_term::tags::holding(&prepared.resolved.spawn.tags, "adroit.generation");
     let terminal = execution::spawn_headless_prepared(
         &daemon,
         prepared.resolved.spawn,
@@ -132,13 +148,51 @@ async fn observe(shortened: bool) {
         .find(|session| session.id == terminal)
         .unwrap();
     assert_eq!(
+        adroit_term::tags::holding(&native.tags, "adroit.binding"),
+        original_binding
+    );
+    assert_eq!(
+        adroit_term::tags::holding(&native.tags, "adroit.generation"),
+        original_generation
+    );
+    let binding: SessionBinding =
+        serde_json::from_str(&adroit_term::tags::value(&native.tags, "adroit.binding").unwrap())
+            .unwrap();
+    assert_eq!(binding, snapshot.sessions[0].binding);
+    assert_eq!(
         adroit_term::tags::value(&native.tags, "adroit.claude"),
         Some(conversation.clone())
     );
     assert_eq!(
         adroit_term::tags::value(&native.tags, "adroit.binding-conversation"),
-        Some(conversation)
+        Some(conversation.clone())
     );
+    observer.tick(&service.actor(), &daemon).await.unwrap();
+    let replacement = MessageId::new().to_string();
+    let ready = next_conversation.with_extension("ready");
+    std::fs::write(&ready, format!("{replacement}\n")).unwrap();
+    std::fs::rename(ready, &next_conversation).unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            observer.tick(&service.actor(), &daemon).await.unwrap();
+            let snapshot = service
+                .actor()
+                .call(|store| store.snapshot())
+                .await
+                .unwrap();
+            if snapshot.sessions[0].state == ManagedSessionState::NeedsReconciliation {
+                assert_eq!(snapshot.sessions[0].reference(), identity);
+                assert_eq!(
+                    snapshot.sessions[0].conversation_id.as_deref(),
+                    Some(conversation.as_str())
+                );
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("a later native conversation change must still reach the assigned observer");
     daemon.end(terminal).await.unwrap();
     Client::human(&root)
         .unwrap()
