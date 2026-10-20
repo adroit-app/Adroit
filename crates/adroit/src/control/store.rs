@@ -1249,14 +1249,15 @@ impl Store {
         &mut self,
         request: RequestId,
         message_id: MessageId,
-        recipient: LogicalSessionId,
+        identity: SessionRef,
     ) -> Result<Reply<DeliveryRecord>> {
         self.transact(
             request,
-            json!({"op":"accept_delivery", "message_id":message_id, "recipient":recipient}),
+            json!({"op":"accept_delivery", "message_id":message_id, "caller":identity}),
             |connection| {
+                reference(connection, identity)?;
                 let message: AgentMessage = require(connection, Table::Messages, message_id)?;
-                let mut delivery = delivery(connection, &message, recipient)?;
+                let mut delivery = delivery(connection, &message, identity.id)?;
                 if matches!(
                     delivery.state,
                     DeliveryState::Acknowledged | DeliveryState::Accepted

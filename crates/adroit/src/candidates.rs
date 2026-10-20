@@ -71,6 +71,36 @@ fn stamp(metadata: &std::fs::Metadata) -> (u64, u64, u64, u32, i64, i64, i64, i6
     )
 }
 
+fn open_root(root: &Path) -> Result<File> {
+    if !root.is_absolute() {
+        return Err("the candidate working area must be absolute".into());
+    }
+    let mut directory = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open("/")
+        .map_err(|error| format!("cannot open the filesystem root: {error}"))?;
+    for component in root.components() {
+        let name = match component {
+            Component::RootDir => continue,
+            Component::Normal(name) => name,
+            _ => return Err("the candidate working area must have no relative components".into()),
+        };
+        use std::os::unix::ffi::OsStrExt;
+        let name = CString::new(name.as_bytes())
+            .map_err(|_| "the candidate working-area path contains NUL")?;
+        directory = open_at(
+            &directory,
+            &name,
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW,
+        )
+        .map_err(|error| {
+            format!("cannot open the candidate working area without following links: {error}")
+        })?;
+    }
+    Ok(directory)
+}
+
 fn capture_one(root: &File, path: &str, remaining: &mut u64) -> Result<CandidateFileState> {
     let parts: Vec<_> = Path::new(path).components().collect();
     if path.split('/').any(|name| {
@@ -159,11 +189,7 @@ pub fn capture_files(root: &Path, paths: &[String]) -> Result<CandidateFiles> {
     if paths.is_empty() || paths.len() > MAX_FILES {
         return Err("a candidate manifest needs between 1 and 16384 file paths".into());
     }
-    let directory = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
-        .open(root)
-        .map_err(|error| format!("cannot open the candidate working area: {error}"))?;
+    let directory = open_root(root)?;
     let mut paths = paths.to_vec();
     paths.sort();
     if paths.windows(2).any(|pair| pair[0] == pair[1]) {

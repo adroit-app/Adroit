@@ -159,9 +159,12 @@ async fn file_evidence_uses_the_credential_assignment_and_rejects_leaders_and_st
         .unwrap();
     assert_eq!(
         fingerprint,
-        adroit::candidates::capture_files(dir.path(), &["output.txt".into()])
-            .unwrap()
-            .fingerprint
+        adroit::candidates::capture_files(
+            &dir.path().canonicalize().unwrap(),
+            &["output.txt".into()]
+        )
+        .unwrap()
+        .fingerprint
     );
     assert!(
         adroit::control::files::capture(&leader, vec!["output.txt".into()])
@@ -236,9 +239,12 @@ async fn the_cli_ignores_a_forged_session_id_and_returns_the_assigned_output_fin
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(
         value["result"]["Ok"],
-        adroit::candidates::capture_files(dir.path(), &["output.txt".into()])
-            .unwrap()
-            .fingerprint
+        adroit::candidates::capture_files(
+            &dir.path().canonicalize().unwrap(),
+            &["output.txt".into()]
+        )
+        .unwrap()
+        .fingerprint
     );
 }
 
@@ -271,9 +277,12 @@ async fn the_native_mcp_tool_can_capture_a_workers_fingerprint_without_shell_acc
         serde_json::from_str(reply["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
     assert_eq!(
         result["Ok"],
-        adroit::candidates::capture_files(dir.path(), &["output.txt".into()])
-            .unwrap()
-            .fingerprint
+        adroit::candidates::capture_files(
+            &dir.path().canonicalize().unwrap(),
+            &["output.txt".into()]
+        )
+        .unwrap()
+        .fingerprint
     );
     drop(send);
     bridge.await.unwrap().unwrap();

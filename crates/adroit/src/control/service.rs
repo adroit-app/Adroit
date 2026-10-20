@@ -48,6 +48,18 @@ impl Service {
         program: PathBuf,
         settings: impl Fn() -> crate::settings::Settings + Send + Sync + 'static,
     ) -> Result<()> {
+        self.supervise_checked(daemon, program, move || Ok(settings()))
+    }
+
+    pub fn supervise_checked(
+        &mut self,
+        daemon: adroit_term::Daemon,
+        program: PathBuf,
+        settings: impl Fn() -> std::result::Result<crate::settings::Settings, String>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Result<()> {
         if self.supervisor.is_some() {
             return Err(ControlError::new(
                 ErrorCode::Conflict,
@@ -88,7 +100,9 @@ impl Service {
                     observer.tick(&actor, &daemon).await?;
                     captures.tick().await?;
                     dispatcher.tick().await?;
-                    let settings = settings().sane();
+                    let settings = settings()
+                        .map_err(|error| ControlError::new(ErrorCode::InvalidRequest, error))?
+                        .sane();
                     let capacity = settings.orchestration.max_workers;
                     scheduler.tick(settings, capacity).await?;
                     Ok::<_, ControlError>(())
@@ -352,7 +366,7 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
             value(store.retry_delivery(request.id, identity()?, message_id)?)
         }
         Command::AcceptDelivery { message_id } => {
-            value(store.accept_delivery(request.id, message_id, identity()?.id)?)
+            value(store.accept_delivery(request.id, message_id, identity()?)?)
         }
         Command::Context => value(store.context(identity()?)?),
         Command::Snapshot => {

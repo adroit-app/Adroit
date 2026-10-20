@@ -81,7 +81,7 @@ impl IdCounts {
     }
 }
 
-struct Background(tokio::task::JoinHandle<()>);
+struct Background(tokio::task::JoinHandle<Result<()>>);
 impl Drop for Background {
     fn drop(&mut self) {
         self.0.abort();
@@ -95,12 +95,27 @@ where
 {
     let output = Arc::new(Mutex::new(output));
     let mut initialized = false;
-    let mut background = None;
+    let mut background: Option<Background> = None;
     loop {
-        if input.fill_buf().await.map_err(error)?.is_empty() {
+        let bytes = tokio::select! {
+            frame = async {
+                if input.fill_buf().await.map_err(error)?.is_empty() {
+                    Ok(None)
+                } else {
+                    read_frame(&mut input).await.map(Some)
+                }
+            } => frame?,
+            stopped = async { (&mut background.as_mut().expect("active channel task").0).await }, if background.is_some() => {
+                return match stopped {
+                    Ok(Err(failure)) => Err(failure),
+                    Ok(Ok(())) => Err(error("the channel notification stream ended")),
+                    Err(failure) => Err(error(format!("the channel notification task stopped: {failure}"))),
+                };
+            }
+        };
+        let Some(bytes) = bytes else {
             return Ok(());
-        }
-        let bytes = read_frame(&mut input).await?;
+        };
         let request: Value = match serde_json::from_slice(&bytes) {
             Ok(request) => request,
             Err(_) => {
@@ -129,11 +144,7 @@ where
         if method == "notifications/initialized" && initialized {
             if channel && background.is_none() {
                 let (output, client) = (output.clone(), client.clone());
-                background = Some(Background(tokio::spawn(async move {
-                    if let Err(error) = notifications(output, client).await {
-                        eprintln!("adroit: channel delivery stopped: {error}");
-                    }
-                })));
+                background = Some(Background(tokio::spawn(notifications(output, client))));
             }
             continue;
         }
@@ -188,7 +199,18 @@ where
                     },
                     Some(name) if super::tools::contains(name) => {
                         match super::tools::decode(name, request["params"]["arguments"].clone()) {
-                            Ok((request_id, command)) => client.request(request_id, command).await,
+                            Ok((request_id, command)) => {
+                                match validate_native_origin(
+                                    &client,
+                                    &command,
+                                    &request["params"]["_meta"],
+                                )
+                                .await
+                                {
+                                    Ok(()) => client.request(request_id, command).await,
+                                    Err(failure) => Err(failure),
+                                }
+                            }
                             Err(message) => Err(error(message)),
                         }
                     }
@@ -206,6 +228,42 @@ where
         };
         send(&output, json!({"jsonrpc":"2.0","id":id,"result":result})).await?;
     }
+}
+
+async fn validate_native_origin(
+    client: &Client,
+    command: &Command,
+    metadata: &Value,
+) -> Result<()> {
+    if matches!(
+        command,
+        Command::Context
+            | Command::Snapshot
+            | Command::ReadMessage { .. }
+            | Command::Mailbox { .. }
+            | Command::Events { .. }
+            | Command::Candidate { .. }
+    ) {
+        return Ok(());
+    }
+    let context = client.request(RequestId::new(), Command::Context).await?;
+    let context: adroit_model::AgentContext = serde_json::from_value(context).map_err(error)?;
+    if context.session.agent != adroit_model::Agent::Codex {
+        return Ok(());
+    }
+    let Some(conversation) = context.session.conversation_id else {
+        return Err(ControlError::new(
+            ErrorCode::OwnershipMismatch,
+            "Adroit has not confirmed this Codex conversation yet; retry this operation after native conversation discovery completes",
+        ));
+    };
+    if metadata.get("threadId").and_then(Value::as_str) != Some(conversation.as_str()) {
+        return Err(ControlError::new(
+            ErrorCode::OwnershipMismatch,
+            "only the assigned Codex conversation may change orchestration state; native subagents must return results to their parent",
+        ));
+    }
+    Ok(())
 }
 
 fn published_tools() -> Vec<Value> {

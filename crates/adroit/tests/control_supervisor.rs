@@ -4,6 +4,10 @@ use adroit::execution::{self, StartRequest};
 use adroit::settings::Settings;
 use adroit_model::*;
 use adroit_term::{Daemon, Palette};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+};
 
 #[tokio::test]
 async fn the_daemon_starts_workers_and_delivers_their_results_without_a_window() {
@@ -126,13 +130,37 @@ sleep 10
         )
         .await
         .unwrap();
+    let invalid_settings = Arc::new(AtomicBool::new(true));
+    let rejected_settings = Arc::new(AtomicUsize::new(0));
     service
-        .supervise(
-            daemon.clone(),
-            env!("CARGO_BIN_EXE_adroit").into(),
-            move || settings.clone(),
-        )
+        .supervise_checked(daemon.clone(), env!("CARGO_BIN_EXE_adroit").into(), {
+            let invalid = invalid_settings.clone();
+            let rejected = rejected_settings.clone();
+            move || {
+                if invalid.load(Ordering::SeqCst) {
+                    rejected.fetch_add(1, Ordering::SeqCst);
+                    Err("Invalid configuration".into())
+                } else {
+                    Ok(settings.clone())
+                }
+            }
+        })
         .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while rejected_settings.load(Ordering::SeqCst) < 2 {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let paused = service
+        .actor()
+        .call(|store| store.snapshot())
+        .await
+        .unwrap();
+    assert!(paused.attempts.is_empty(), "{paused:?}");
+    assert_eq!(paused.tasks[0].state, TaskState::Queued);
+    invalid_settings.store(false, Ordering::SeqCst);
     let mut delivered = false;
     for _ in 0..400 {
         let snapshot = service
@@ -184,10 +212,33 @@ sleep 10
         )
         .await
         .unwrap();
+    invalid_settings.store(true, Ordering::SeqCst);
+    rejected_settings.store(0, Ordering::SeqCst);
     human
         .request(RequestId::new(), Command::RestartLeader { identity: owner })
         .await
         .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while rejected_settings.load(Ordering::SeqCst) < 2 {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let paused = service
+        .actor()
+        .call(|store| store.snapshot())
+        .await
+        .unwrap();
+    let waiting_leader = paused
+        .sessions
+        .iter()
+        .find(|session| session.reference().id == owner.id)
+        .unwrap();
+    assert_eq!(waiting_leader.generation, 2);
+    assert_eq!(waiting_leader.state, ManagedSessionState::Preparing);
+    assert!(waiting_leader.terminal_id.is_none());
+    invalid_settings.store(false, Ordering::SeqCst);
     let snapshot = tokio::time::timeout(std::time::Duration::from_secs(5), async {
         loop {
             let current = service

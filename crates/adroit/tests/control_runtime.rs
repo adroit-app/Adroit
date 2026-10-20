@@ -263,7 +263,7 @@ async fn native_notifications_use_the_recipients_saved_route_and_are_not_repeate
                         blocks_work: false,
                     },
                 )?;
-                store.accept_delivery(RequestId::new(), id, identity.id)?;
+                store.accept_delivery(RequestId::new(), id, identity)?;
             }
             let id = MessageId::new();
             store.send_message(

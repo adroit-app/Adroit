@@ -1,7 +1,7 @@
 //! The window's settings, kept in `settings.toml` in adroit's configuration
 //! folder, and told to every window as they change.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, RwLock};
 
 use serde::{Deserialize, Serialize};
@@ -310,23 +310,56 @@ impl Settings {
         Ok(Settings::deserialize(table)?.sane())
     }
 
-    /// The settings kept, or as designed when there are none or they cannot
-    /// be read.
+    fn read_path(path: &Path) -> Result<Self, String> {
+        match std::fs::read_to_string(path) {
+            Ok(text) => Self::parse(&text)
+                .map_err(|error| format!("Cannot load {}: {error}", path.display())),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
+            Err(error) => Err(format!("Cannot read {}: {error}", path.display())),
+        }
+    }
+
+    /// Keep the UI available for repairing an invalid configuration, with
+    /// its error reported separately and saving blocked until it is fixed.
     pub fn load() -> Self {
-        std::fs::read_to_string(Self::path())
-            .ok()
-            .and_then(|t| Self::parse(&t).ok())
-            .unwrap_or_default()
+        Self::load_path(&Self::path())
+    }
+
+    pub fn try_load() -> Result<Self, String> {
+        Self::read_path(&Self::path())
+    }
+
+    fn load_path(path: &Path) -> Self {
+        Self::read_path(path).unwrap_or_else(|error| {
+            eprintln!("adroit: {error}");
+            Self {
+                orchestration: OrchestrationSettings {
+                    max_workers: 0,
+                    max_workers_per_run: 0,
+                },
+                ..Self::default()
+            }
+        })
     }
 
     pub fn save(&self) -> Result<(), String> {
-        let path = Self::path();
+        self.save_path(&Self::path())
+    }
+
+    fn save_path(&self, path: &Path) -> Result<(), String> {
+        Self::read_path(path).map_err(|error| {
+            format!("{error}. Fix the configuration file before saving settings")
+        })?;
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
         let text = toml::to_string_pretty(self).map_err(|e| e.to_string())?;
         std::fs::write(path, text).map_err(|e| e.to_string())
     }
+}
+
+pub fn load_error() -> Option<String> {
+    Settings::read_path(&Settings::path()).err()
 }
 
 /// The settings every window works by.
@@ -363,15 +396,16 @@ pub fn watch(every: std::time::Duration) {
                 continue;
             }
             seen = now;
-            let Ok(text) = std::fs::read_to_string(Settings::path()) else {
-                continue;
-            };
-            if let Some(next) = reread(&current(), &text) {
-                if let Ok(mut s) = SETTINGS.write() {
-                    *s = next;
+            match Settings::read_path(&Settings::path()) {
+                Ok(next) if next != current() => {
+                    if let Ok(mut s) = SETTINGS.write() {
+                        *s = next;
+                    }
                 }
-                let _ = CHANGED.send(());
+                Err(error) => eprintln!("adroit: {error}"),
+                _ => {}
             }
+            let _ = CHANGED.send(());
         }
     });
 }
@@ -391,6 +425,52 @@ pub fn set(next: Settings) -> Result<(), String> {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn missing_settings_default_but_invalid_or_unreadable_settings_report_the_path() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("settings.toml");
+        assert_eq!(Settings::read_path(&path).unwrap(), Settings::default());
+        for text in ["[readers]\nmodel = 'haiku'\n", "zoom = "] {
+            std::fs::write(&path, text).unwrap();
+            let error = Settings::read_path(&path).unwrap_err();
+            assert!(error.contains(&path.display().to_string()), "{error}");
+        }
+        let error = Settings::read_path(directory.path()).unwrap_err();
+        assert!(
+            error.contains(&directory.path().display().to_string()),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn saving_refuses_invalid_existing_settings_until_the_file_is_fixed() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("settings.toml");
+        let invalid = "[codex_readers]\nmodel = 'review-model'\n";
+        std::fs::write(&path, invalid).unwrap();
+        let changed = Settings {
+            zoom: 1.25,
+            ..Settings::default()
+        };
+        assert!(changed.save_path(&path).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), invalid);
+        std::fs::write(&path, "zoom = 1.0\n").unwrap();
+        changed.save_path(&path).unwrap();
+        assert_eq!(Settings::read_path(&path).unwrap(), changed);
+    }
+
+    #[test]
+    fn an_invalid_configuration_never_turns_paused_workers_into_default_capacity() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("settings.toml");
+        std::fs::write(&path, "[orchestration]\nmax_workers = 0\n").unwrap();
+        assert_eq!(Settings::load_path(&path).orchestration.max_workers, 0);
+        std::fs::write(&path, "[orchestration]\nmax_workers = 0\nzoom = ").unwrap();
+        let recovery = Settings::load_path(&path).sane();
+        assert_eq!(recovery.orchestration.max_workers, 0);
+        assert_eq!(recovery.orchestration.max_workers_per_run, 0);
+    }
 
     #[test]
     fn machine_usage_is_enabled_by_default_and_each_resource_can_be_hidden() {

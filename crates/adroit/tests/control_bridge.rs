@@ -3,6 +3,239 @@ use adroit_model::*;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
+async fn exchange(
+    send: &mut tokio::io::DuplexStream,
+    receive: &mut BufReader<tokio::io::DuplexStream>,
+    request: Value,
+) -> Value {
+    send.write_all(format!("{request}\n").as_bytes())
+        .await
+        .unwrap();
+    let mut line = String::new();
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        receive.read_line(&mut line),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    serde_json::from_str(&line).unwrap()
+}
+
+#[tokio::test]
+async fn codex_mutations_require_the_observed_parent_thread_but_bootstrap_reads_remain_available() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("control");
+    let service = Service::bind(&root).await.unwrap();
+    let cwd = dir.path().to_owned();
+    let (owner, run, token) = service
+        .actor()
+        .call(move |store| {
+            let owner = store
+                .register_leader(
+                    RequestId::new(),
+                    LogicalSessionId::new(),
+                    Agent::Codex,
+                    cwd.clone(),
+                )?
+                .value
+                .reference();
+            let run = RunId::new();
+            store.open_run(
+                RequestId::new(),
+                owner,
+                run,
+                RunBrief {
+                    title: "Parent request".into(),
+                    goal: "Keep child results internal".into(),
+                    ..Default::default()
+                },
+            )?;
+            store.attach_session(
+                RequestId::new(),
+                owner,
+                cwd,
+                "0123456789abcdef0123456789abcdef".into(),
+                String::new(),
+            )?;
+            Ok((owner, run, store.grant(owner)?))
+        })
+        .await
+        .unwrap();
+    let (input, mut send) = tokio::io::duplex(8192);
+    let (output, receive) = tokio::io::duplex(8192);
+    let task = tokio::spawn(bridge::run(
+        BufReader::new(input),
+        output,
+        Client::session(&root, token),
+        false,
+    ));
+    let mut receive = BufReader::new(receive);
+    exchange(
+        &mut send,
+        &mut receive,
+        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}),
+    )
+    .await;
+    for (name, arguments) in [
+        ("new_ids", json!({"requests":1})),
+        ("context", json!({"request_id":RequestId::new()})),
+    ] {
+        let reply = exchange(&mut send, &mut receive, json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":name,"arguments":arguments}})).await;
+        assert_eq!(reply["result"]["isError"], false, "{reply}");
+    }
+    let parent = MessageId::new().to_string();
+    let mutation = |thread: Option<&str>| {
+        let mut request = json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"put_task","arguments":{
+            "request_id":RequestId::new(),"id":TaskId::new(),"run_id":run,"expected_revision":null,"brief":{"instructions":"Review the request"},"dependencies":[]
+        }}});
+        if let Some(thread) = thread {
+            request["params"]["_meta"] = json!({"threadId":thread});
+        }
+        request
+    };
+    let reply = exchange(&mut send, &mut receive, mutation(Some(&parent))).await;
+    assert_eq!(
+        reply["result"]["isError"], true,
+        "unobserved thread must not mutate: {reply}"
+    );
+    assert!(
+        reply["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("retry")
+    );
+    let observed = parent.clone();
+    service
+        .actor()
+        .call(move |store| {
+            store
+                .observe_conversation(
+                    RequestId::new(),
+                    owner,
+                    "0123456789abcdef0123456789abcdef".into(),
+                    observed,
+                )
+                .map(|_| ())
+        })
+        .await
+        .unwrap();
+    for thread in [None, Some(MessageId::new().to_string())] {
+        let reply = exchange(&mut send, &mut receive, mutation(thread.as_deref())).await;
+        assert_eq!(
+            reply["result"]["isError"], true,
+            "child or unknown origin must not mutate: {reply}"
+        );
+    }
+    assert!(
+        service
+            .actor()
+            .call(|store| store.snapshot())
+            .await
+            .unwrap()
+            .tasks
+            .is_empty()
+    );
+    let reply = exchange(&mut send, &mut receive, mutation(Some(&parent))).await;
+    assert_eq!(
+        reply["result"]["isError"], false,
+        "observed parent must retain control: {reply}"
+    );
+    assert_eq!(
+        service
+            .actor()
+            .call(|store| store.snapshot())
+            .await
+            .unwrap()
+            .tasks
+            .len(),
+        1
+    );
+    drop(send);
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn a_failed_notification_stream_terminates_the_mcp_connection() {
+    let dir = tempfile::tempdir().unwrap();
+    let (input, mut send) = tokio::io::duplex(8192);
+    let (output, receive) = tokio::io::duplex(8192);
+    let task = tokio::spawn(bridge::run(
+        BufReader::new(input),
+        output,
+        Client::session(&dir.path().join("absent-control"), "test-session".into()),
+        true,
+    ));
+    let mut receive = BufReader::new(receive);
+    send.write_all(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}\n")
+        .await
+        .unwrap();
+    let mut line = String::new();
+    receive.read_line(&mut line).await.unwrap();
+    send.write_all(b"{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n")
+        .await
+        .unwrap();
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), task)
+        .await
+        .expect("a failed notification task must close the connection")
+        .unwrap();
+    assert!(result.is_err());
+    line.clear();
+    assert_eq!(receive.read_line(&mut line).await.unwrap(), 0);
+}
+
+#[tokio::test]
+async fn a_failed_notification_stream_closes_a_connection_waiting_for_a_partial_frame() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("control");
+    let service = Service::bind(&root).await.unwrap();
+    let cwd = dir.path().to_owned();
+    let token = service
+        .actor()
+        .call(move |store| {
+            let identity = store
+                .register_leader(
+                    RequestId::new(),
+                    LogicalSessionId::new(),
+                    Agent::Claude,
+                    cwd,
+                )?
+                .value
+                .reference();
+            store.grant(identity)
+        })
+        .await
+        .unwrap();
+    let (input, mut send) = tokio::io::duplex(1);
+    let (output, receive) = tokio::io::duplex(8192);
+    let task = tokio::spawn(bridge::run(
+        BufReader::new(input),
+        output,
+        Client::session(&root, token),
+        true,
+    ));
+    let mut receive = BufReader::new(receive);
+    exchange(
+        &mut send,
+        &mut receive,
+        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}),
+    )
+    .await;
+    send.write_all(
+        b"{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n{\"jsonrpc\":",
+    )
+    .await
+    .unwrap();
+    drop(service);
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), task)
+        .await
+        .expect("channel failure must interrupt an unfinished input frame")
+        .unwrap();
+    assert!(result.is_err());
+    let mut line = String::new();
+    assert_eq!(receive.read_line(&mut line).await.unwrap(), 0);
+}
+
 #[tokio::test]
 async fn a_channel_write_is_accepted_and_only_an_agent_acknowledges_receipt() {
     let dir = tempfile::tempdir().unwrap();
@@ -260,6 +493,16 @@ async fn native_tools_describe_complete_task_and_result_inputs_and_offer_typed_i
             },
         )
         .unwrap();
+    let conversation = MessageId::new().to_string();
+    store
+        .attach_session(
+            RequestId::new(),
+            leader.reference(),
+            dir.path().into(),
+            "0123456789abcdef0123456789abcdef".into(),
+            conversation.clone(),
+        )
+        .unwrap();
     let token = store.grant(leader.reference()).unwrap();
     drop(store);
     let _service = Service::bind(&root).await.unwrap();
@@ -375,7 +618,7 @@ async fn native_tools_describe_complete_task_and_result_inputs_and_offer_typed_i
             assert!(unique.insert(id));
         }
     }
-    let create = json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"put_task","arguments":{
+    let create = json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"put_task","_meta":{"threadId":conversation},"arguments":{
         "request_id":ids["request_ids"][0], "id":ids["task_ids"][0], "run_id":run_id,
         "expected_revision":null, "brief":{"instructions":"Classify blue as a color", "purpose":"classify"}, "dependencies":[]
     }}});
@@ -389,7 +632,7 @@ async fn native_tools_describe_complete_task_and_result_inputs_and_offer_typed_i
     let body: Value =
         serde_json::from_str(created["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
     assert_eq!(body["Ok"]["value"]["revision"], 1);
-    let queue = json!({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"queue_task","arguments":{
+    let queue = json!({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"queue_task","_meta":{"threadId":conversation},"arguments":{
         "request_id":ids["request_ids"][1], "task_id":ids["task_ids"][0], "revision":1
     }}});
     send.write_all(format!("{queue}\n").as_bytes())

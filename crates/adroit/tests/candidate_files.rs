@@ -1,10 +1,41 @@
 use adroit::candidates::capture_files;
 use adroit_model::CandidateFileState;
 
+fn tempdir() -> tempfile::TempDir {
+    tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap()
+}
+
+#[test]
+fn a_registered_root_cannot_follow_a_replaced_ancestor_into_another_directory() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempdir();
+    let base = dir.path().canonicalize().unwrap();
+    let parent = base.join("parent");
+    let root = parent.join("work");
+    let outside = base.join("outside");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::create_dir_all(outside.join("work")).unwrap();
+    std::fs::write(root.join("output"), "Assigned output").unwrap();
+    std::fs::write(outside.join("work/output"), "Unrelated output").unwrap();
+    let before = capture_files(&root, &["output".into()]).unwrap();
+    assert!(matches!(
+        before.files[0].state,
+        CandidateFileState::File { .. }
+    ));
+    std::fs::rename(&parent, base.join("original-parent")).unwrap();
+    symlink(&outside, &parent).unwrap();
+    assert!(capture_files(&root, &["output".into()]).is_err());
+    assert_eq!(
+        capture_files(&base.join("original-parent/work"), &["output".into()]).unwrap(),
+        before
+    );
+}
+
 #[test]
 fn a_manifest_identifies_contents_permissions_links_and_deleted_files_in_stable_order() {
     use std::os::unix::fs::{PermissionsExt, symlink};
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     std::fs::write(dir.path().join("a.txt"), "alpha").unwrap();
     std::fs::write(dir.path().join("run.sh"), "echo hi\n").unwrap();
     std::fs::set_permissions(
@@ -55,8 +86,8 @@ fn a_manifest_identifies_contents_permissions_links_and_deleted_files_in_stable_
 #[test]
 fn paths_outside_the_working_area_and_symlinked_parent_directories_are_refused() {
     use std::os::unix::fs::symlink;
-    let dir = tempfile::tempdir().unwrap();
-    let outside = tempfile::tempdir().unwrap();
+    let dir = tempdir();
+    let outside = tempdir();
     std::fs::write(outside.path().join("secret"), "Do not read").unwrap();
     symlink(outside.path(), dir.path().join("external")).unwrap();
     for path in [
@@ -80,7 +111,7 @@ fn paths_outside_the_working_area_and_symlinked_parent_directories_are_refused()
 
 #[test]
 fn excluded_files_do_not_invalidate_scoped_evidence_but_new_declared_files_do() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     std::fs::write(dir.path().join("output"), "Result").unwrap();
     let inputs = vec!["output".into(), "new/input".into()];
     let before = capture_files(dir.path(), &inputs).unwrap();
@@ -96,7 +127,7 @@ fn excluded_files_do_not_invalidate_scoped_evidence_but_new_declared_files_do() 
 
 #[test]
 fn ambiguous_empty_duplicate_and_directory_manifests_are_refused() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     std::fs::create_dir(dir.path().join("folder")).unwrap();
     for paths in [
         vec![],
@@ -110,7 +141,7 @@ fn ambiguous_empty_duplicate_and_directory_manifests_are_refused() {
 
 #[test]
 fn alternate_path_spellings_and_case_insensitive_vcs_metadata_are_refused() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     for path in ["a//b", "a/./b", "gone/", ".GIT/config", "nested/.JJ/data"] {
         assert!(capture_files(dir.path(), &[path.into()]).is_err(), "{path}");
     }

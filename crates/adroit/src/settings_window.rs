@@ -132,6 +132,29 @@ pub(crate) fn open_with(how: &str, path: &Path, starter: &str) {
 const KEYS_STARTER: &str = "# Key bindings over the defaults, area by area, as in\n# [sidebar]\n# \"J\" = \"cursor.down\"\n";
 
 #[component]
+pub fn SettingsLoadError() -> Element {
+    let mut failure = use_signal(settings::load_error);
+    use_hook(move || {
+        spawn(async move {
+            let mut changed = settings::CHANGED.subscribe();
+            while changed.recv().await.is_ok() {
+                failure.set(settings::load_error());
+            }
+        });
+    });
+    rsx! {
+        if let Some(error) = failure() {
+            div {
+                class: "settings-error",
+                role: "alert",
+                style: "padding: 12px; color: var(--fail, #f08080); white-space: pre-wrap; flex: none; max-height: 30vh; overflow: auto; user-select: text",
+                "{error}. Fix the configuration file before saving settings."
+            }
+        }
+    }
+}
+
+#[component]
 fn SettingsWindow() -> Element {
     use_hook(|| {
         let me = window();
@@ -194,6 +217,7 @@ fn SettingsWindow() -> Element {
             }
             main { class: "settings-pane",
                 h1 { if pane() == Pane::Agents { "{crate::agents::adapter(agent()).label()}" } else { "{pane().title()}" } }
+                SettingsLoadError {}
                 if let Some(e) = failed() {
                     div { class: "settings-error", "Could not keep the settings: {e}" }
                 }

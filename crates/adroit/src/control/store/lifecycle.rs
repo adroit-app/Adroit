@@ -42,7 +42,7 @@ pub(super) fn notify_uncertain(
         Some((_, id)) => require::<AttemptRecord>(connection, Table::Attempts, id)?
             .state
             .holds_slot(),
-        None => true,
+        None => false,
     };
     notify(
         connection,

@@ -101,7 +101,8 @@ pub fn cli() -> i32 {
                 };
             if let Some(service) = &mut control {
                 let program = std::env::current_exe().unwrap_or_else(|_| "adroit".into());
-                if let Err(error) = service.supervise(daemon(), program, Settings::load) {
+                if let Err(error) = service.supervise_checked(daemon(), program, Settings::try_load)
+                {
                     eprintln!("adroit: orchestration supervision is unavailable: {error}");
                 }
             }

@@ -48,7 +48,7 @@ async fn directory_candidates_need_the_reported_output_fingerprint_and_capture_e
     let area = workareas::existing(WorkAreaId::new(), dir.path().into(), "Candidate".into())
         .await
         .unwrap();
-    let fingerprint = capture_files(dir.path(), &["output.txt".into()])
+    let fingerprint = capture_files(&dir.path().canonicalize().unwrap(), &["output.txt".into()])
         .unwrap()
         .fingerprint;
     let reported = artifact(&area, None, Some(fingerprint));

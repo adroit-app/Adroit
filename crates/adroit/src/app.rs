@@ -5366,6 +5366,7 @@ fn App() -> Element {
         style { "{root_style}" }
         div { class: "app",
             textarea { id: "adroit-keys", autofocus: true, readonly: !takes_text }
+            settings_window::SettingsLoadError {}
             div { class: "header",
                 span {
                     class: if layout().show_sidebar { "pane-toggle on" } else { "pane-toggle" },

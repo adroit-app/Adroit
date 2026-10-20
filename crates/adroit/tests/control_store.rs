@@ -124,7 +124,7 @@ fn transport_acceptance_is_distinct_from_agent_acknowledgment() {
     let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
     let (owner, message) = pending_report(&mut store, dir.path());
     let delivery = store
-        .accept_delivery(RequestId::new(), message.id, owner.id)
+        .accept_delivery(RequestId::new(), message.id, owner)
         .unwrap()
         .value;
     assert_eq!(delivery.state, DeliveryState::Accepted);
@@ -136,6 +136,66 @@ fn transport_acceptance_is_distinct_from_agent_acknowledgment() {
 }
 
 #[test]
+fn an_old_generation_cannot_accept_delivery_after_a_leader_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (owner, message) = pending_report(&mut store, dir.path());
+    store
+        .remember_launch(
+            RequestId::new(),
+            owner,
+            adroit::control::runtime::RuntimeLaunch::new(adroit::settings::Settings::default()),
+        )
+        .unwrap();
+    let terminal = "0123456789abcdef0123456789abcdef".to_owned();
+    store
+        .attach_session(
+            RequestId::new(),
+            owner,
+            dir.path().into(),
+            terminal.clone(),
+            MessageId::new().to_string(),
+        )
+        .unwrap();
+    store
+        .claim_delivery(RequestId::new(), owner, message.id)
+        .unwrap();
+    store
+        .observe_terminal_exit(RequestId::new(), owner, terminal)
+        .unwrap();
+    let replacement = store
+        .restart_leader(RequestId::new(), owner)
+        .unwrap()
+        .value
+        .reference();
+    assert!(
+        store
+            .accept_delivery(RequestId::new(), message.id, owner)
+            .is_err()
+    );
+    assert_eq!(
+        store.mailbox(replacement, 0, 100).unwrap().messages[0]
+            .delivery
+            .state,
+        DeliveryState::Uncertain
+    );
+    store
+        .retry_delivery(RequestId::new(), replacement, message.id)
+        .unwrap();
+    assert!(
+        store
+            .accept_delivery(RequestId::new(), message.id, owner)
+            .is_err()
+    );
+    assert_eq!(
+        store.mailbox(replacement, 0, 100).unwrap().messages[0]
+            .delivery
+            .state,
+        DeliveryState::Stored
+    );
+}
+
+#[test]
 fn a_late_acceptance_cannot_downgrade_an_acknowledged_message() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
@@ -144,7 +204,7 @@ fn a_late_acceptance_cannot_downgrade_an_acknowledged_message() {
         .acknowledge_message(RequestId::new(), owner, message.id)
         .unwrap();
     let delivery = store
-        .accept_delivery(RequestId::new(), message.id, owner.id)
+        .accept_delivery(RequestId::new(), message.id, owner)
         .unwrap()
         .value;
     assert_eq!(delivery.state, DeliveryState::Acknowledged);
@@ -645,7 +705,7 @@ fn only_one_dispatcher_can_claim_a_pending_message_and_a_crash_leaves_uncertaint
         DeliveryState::Uncertain
     );
     store
-        .accept_delivery(RequestId::new(), message.id, owner.id)
+        .accept_delivery(RequestId::new(), message.id, owner)
         .unwrap();
     let delivered = &store.snapshot().unwrap().deliveries[0];
     assert_eq!(delivered.state, DeliveryState::Accepted);

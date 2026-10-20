@@ -284,6 +284,80 @@ fn a_missing_terminal_after_a_successful_report_does_not_invalidate_the_result_o
         .unwrap();
 }
 
+#[test]
+fn a_reconciled_and_restarted_leader_can_complete_without_answering_its_own_notification() {
+    use adroit::control::runtime::RuntimeLaunch;
+    use adroit::settings::Settings;
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (owner, run, attempt, _) = running_worker(&mut store, dir.path());
+    store
+        .report_task(
+            RequestId::new(),
+            SessionRef {
+                id: attempt.session_id,
+                generation: 1,
+            },
+            success(&attempt),
+        )
+        .unwrap();
+    store
+        .remember_launch(
+            RequestId::new(),
+            owner,
+            RuntimeLaunch::new(Settings::default()),
+        )
+        .unwrap();
+    let terminal = MessageId::new().to_string().replace('-', "");
+    store
+        .attach_session(
+            RequestId::new(),
+            owner,
+            dir.path().into(),
+            terminal.clone(),
+            MessageId::new().to_string(),
+        )
+        .unwrap();
+    store
+        .observe_terminal_missing(RequestId::new(), owner, terminal.clone())
+        .unwrap();
+    store
+        .observe_terminal_exit(RequestId::new(), owner, terminal)
+        .unwrap();
+    let restarted = store
+        .restart_leader(RequestId::new(), owner)
+        .unwrap()
+        .value
+        .reference();
+    store
+        .attach_session(
+            RequestId::new(),
+            restarted,
+            dir.path().into(),
+            MessageId::new().to_string().replace('-', ""),
+            MessageId::new().to_string(),
+        )
+        .unwrap();
+    let revision = store.snapshot().unwrap().runs[0].plan_revision;
+    store
+        .complete_run(RequestId::new(), restarted, run, revision, "Done".into())
+        .unwrap();
+    let snapshot = store.snapshot().unwrap();
+    let notifications: Vec<_> = snapshot
+        .messages
+        .iter()
+        .filter(|message| message.from == owner.id && message.to == owner.id)
+        .collect();
+    assert!(!notifications.is_empty());
+    assert!(
+        notifications
+            .iter()
+            .all(|message| message.kind == MessageKind::Note && !message.blocks_work)
+    );
+    assert_eq!(snapshot.runs[0].state, RunState::Succeeded);
+}
+
 #[tokio::test]
 async fn an_unreconciled_agent_can_read_its_assignment_but_cannot_apply_results_or_claim_delivery()
 {

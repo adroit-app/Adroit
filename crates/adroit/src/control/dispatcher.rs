@@ -110,7 +110,7 @@ impl Dispatcher {
                 actor
                     .call(move |store| match outcome {
                         Ok(()) => store
-                            .accept_delivery(RequestId::new(), id, identity.id)
+                            .accept_delivery(RequestId::new(), id, identity)
                             .map(|_| ()),
                         Err(error) => store
                             .delivery_uncertain(RequestId::new(), identity, id, error.to_string())
