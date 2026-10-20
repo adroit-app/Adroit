@@ -1184,7 +1184,18 @@ async fn read_sessions(daemon: &Daemon) -> Result<(Vec<Session>, Vec<Shell>), St
     let (mut own, mut kept_shells) = (Vec::new(), Vec::new());
     for s in &kept {
         match sessions::read(s) {
-            Some(Kept::Agent(c)) => own.push(c),
+            Some(Kept::Agent(mut c)) => {
+                let adapter = agents::adapter(c.agent);
+                if s.status.is_none()
+                    && adapter.capabilities().screen_state
+                    && let Ok(Ok(screen)) =
+                        tokio::time::timeout(Duration::from_millis(300), daemon.visible(s.id)).await
+                    && let Some(state) = adapter.screen_state(&screen)
+                {
+                    c.state = state;
+                }
+                own.push(c);
+            }
             Some(Kept::Shell(sh)) => kept_shells.push(sh),
             None => {}
         }

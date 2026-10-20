@@ -105,5 +105,6 @@ sleeps when idle again.
 The state a session shows, working, waiting on you and for what, done or
 failed, is what its program reports with the
 [OSC 7501 program status protocol](https://www.superlogical.com/rex/docs/build/program-status),
-as the daemon keeps it. Claude Code reports it itself. A session whose program
-reports nothing shows as idle.
+as the daemon keeps it. When Codex reports no status, its visible activity and
+requests for approval or input supply the state instead. A session with no
+recognized state shows as idle.

@@ -17,6 +17,7 @@ pub struct Capabilities {
     pub usage_limits: bool,
     pub transcript: bool,
     pub shell_bang: bool,
+    pub screen_state: bool,
 }
 
 type Listing = std::pin::Pin<
@@ -91,6 +92,9 @@ pub trait AgentAdapter: Sync {
     }
     fn dialog_open(&self, _screen: &[String]) -> bool {
         false
+    }
+    fn screen_state(&self, _screen: &[String]) -> Option<adroit_model::State> {
+        None
     }
     fn rename_command(&self, _name: &str) -> Option<String> {
         None

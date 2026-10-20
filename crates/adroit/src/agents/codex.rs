@@ -30,6 +30,7 @@ impl AgentAdapter for Codex {
             usage_limits: true,
             transcript: false,
             shell_bang: false,
+            screen_state: true,
         }
     }
     fn usage_url(&self) -> Option<&'static str> {
@@ -93,6 +94,38 @@ impl AgentAdapter for Codex {
             .take(4)
             .any(|s| hint(s))
     }
+    fn screen_state(&self, screen: &[String]) -> Option<adroit_model::State> {
+        use adroit_model::{State, Wait};
+
+        let composer = screen
+            .iter()
+            .rposition(|s| s.trim_start().starts_with('›'))?;
+        let below = &screen[composer + 1..];
+        if self.dialog_open(screen) {
+            return Some(
+                if below
+                    .iter()
+                    .any(|s| s.contains("to submit answer") || s.contains("to submit all"))
+                {
+                    State::Waiting(Wait::Input)
+                } else if below
+                    .iter()
+                    .any(|s| s.contains("Press enter to confirm or esc to cancel"))
+                {
+                    State::Waiting(Wait::Permission)
+                } else {
+                    State::Idle
+                },
+            );
+        }
+        // A previous composer belongs to the transcript, not the live footer.
+        let working = screen[..composer]
+            .iter()
+            .rev()
+            .take_while(|s| !s.trim_start().starts_with('›'))
+            .any(|s| s.trim_start().starts_with("• ") && s.contains("esc to interrupt"));
+        Some(if working { State::Working } else { State::Idle })
+    }
     fn start_args(
         &self,
         settings: &Settings,
@@ -120,6 +153,53 @@ mod tests {
 
     fn screen(text: &str) -> Vec<String> {
         text.lines().map(String::from).collect()
+    }
+
+    #[test]
+    fn codex_activity_is_read_from_the_live_composer_when_no_status_is_reported() {
+        use adroit_model::{State, Wait};
+
+        for (text, expected) in [
+            (
+                "• Working (2s • esc to interrupt)\n\n› \n\n100% context left",
+                State::Working,
+            ),
+            (
+                "• Reading files (2s • esc to interrupt)\n\n› Ask Codex to do anything\n\n? for shortcuts",
+                State::Working,
+            ),
+            (
+                "Would you like to run the following command?\n\n› 1. Yes, proceed (y)\n  2. No (esc)\n\nPress enter to confirm or esc to cancel",
+                State::Waiting(Wait::Permission),
+            ),
+            (
+                "Question 1/1 (1 unanswered)\nYour answer:\n› \n\nenter to submit answer | esc to interrupt",
+                State::Waiting(Wait::Input),
+            ),
+            ("› \n\n? for shortcuts", State::Idle),
+            ("• Worked for 2s\n\n› \n\n100% context left", State::Idle),
+        ] {
+            assert_eq!(Codex.screen_state(&screen(text)), Some(expected), "{text}");
+        }
+    }
+
+    #[test]
+    fn codex_activity_ignores_quoted_status_and_does_not_call_pickers_approval_requests() {
+        use adroit_model::State;
+
+        for text in [
+            "• Working (2s • esc to interrupt)\n\n› old question\nAnswer\n\n› \n\n100% context left",
+            "Would you like to run the following command?\n› 1. Yes\nPress enter to confirm or esc to cancel\n\n› \n\n100% context left",
+            "Select Model and Effort\n\n› 1. gpt-5.1-codex\n  2. gpt-5.1-codex-mini\n\n↑/↓ to move, enter to select, esc to dismiss",
+        ] {
+            assert_eq!(
+                Codex.screen_state(&screen(text)),
+                Some(State::Idle),
+                "{text}"
+            );
+        }
+        assert_eq!(Codex.screen_state(&[]), None);
+        assert_eq!(Codex.screen_state(&screen("Starting Codex…")), None);
     }
 
     #[test]

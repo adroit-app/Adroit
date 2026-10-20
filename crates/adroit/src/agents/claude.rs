@@ -18,6 +18,7 @@ impl AgentAdapter for Claude {
             usage_limits: true,
             transcript: true,
             shell_bang: true,
+            screen_state: false,
         }
     }
     fn usage_url(&self) -> Option<&'static str> {
