@@ -42,6 +42,21 @@ impl Scheduler {
             .filter(|attempt| attempt.state.holds_slot())
             .count();
         let mut remaining = max_workers.saturating_sub(occupied);
+        let per_run = settings.orchestration.max_workers_per_run.min(64);
+        let mut run_occupied = std::collections::HashMap::<RunId, usize>::new();
+        for attempt in snapshot
+            .attempts
+            .iter()
+            .filter(|attempt| attempt.state.holds_slot())
+        {
+            if let Some(task) = snapshot
+                .tasks
+                .iter()
+                .find(|task| task.id == attempt.task_id)
+            {
+                *run_occupied.entry(task.run_id).or_default() += 1;
+            }
+        }
         let mut runs: Vec<_> = snapshot
             .runs
             .iter()
@@ -85,6 +100,11 @@ impl Scheduler {
         while remaining > 0 {
             let mut found = false;
             for tasks in &mut ready {
+                if tasks.front().is_some_and(|task| {
+                    run_occupied.get(&task.run_id).copied().unwrap_or_default() >= per_run
+                }) {
+                    continue;
+                }
                 let Some(task) = tasks.pop_front() else {
                     continue;
                 };
@@ -143,6 +163,7 @@ impl Scheduler {
                     continue;
                 }
                 remaining -= 1;
+                *run_occupied.entry(run.id).or_default() += 1;
                 let context = Startup {
                     actor: self.actor.clone(),
                     daemon: self.daemon.clone(),

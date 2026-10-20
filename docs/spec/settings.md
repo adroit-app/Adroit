@@ -91,6 +91,9 @@ sandbox_mode = ""
 # without stopping Workers already running. Leaders and terminals do not count.
 [orchestration]
 max_workers = 4
+# Active attempts for each independent request, also from 0 to 64.
+# This limits Worker capacity, not access to a working directory.
+max_workers_per_run = 2
 
 # How a Neovim tab's Neovim starts, as Claude Code does: empty for `nvim`.
 [neovim]

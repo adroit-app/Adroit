@@ -310,3 +310,85 @@ async fn one_invalid_provider_profile_does_not_block_another_run() {
         TaskState::Failed
     );
 }
+
+#[tokio::test]
+async fn per_run_capacity_leaves_other_leaders_room_without_locking_a_shared_directory() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let source = dir.path().join("source");
+    std::fs::create_dir(&source).unwrap();
+    let root = dir.path().join("control");
+    let service = adroit::control::service::Service::bind(&root)
+        .await
+        .unwrap();
+    let actor = service.actor();
+    let (_, first) = planned(&actor, &source, 3).await;
+    let (_, second) = planned(&actor, &source, 3).await;
+    let socket = dir.path().join("d.sock");
+    let serving = socket.clone();
+    let native = tokio::spawn(async move {
+        Daemon::serve(&serving, std::time::Duration::from_secs(60), |_| {}).await
+    });
+    let daemon = Daemon::new(socket);
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        while daemon.sessions().await.is_err() {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let mut settings = Settings::default();
+    settings.codex.command = vec![
+        "/bin/sh".into(),
+        "-c".into(),
+        support::codex_script("sleep 10", None),
+        "native-provider".into(),
+    ];
+    settings.orchestration.max_workers_per_run = 1;
+    let mut scheduler = Scheduler::new(actor.clone(), daemon.clone(), root, "/adroit".into());
+    assert_eq!(scheduler.tick(settings.clone(), 4).await.unwrap().len(), 2);
+    assert!(
+        scheduler
+            .tick(settings.clone(), 4)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    settings.orchestration.max_workers_per_run = 2;
+    assert_eq!(scheduler.tick(settings, 4).await.unwrap().len(), 2);
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let snapshot = actor.call(|store| store.snapshot()).await.unwrap();
+            if snapshot
+                .attempts
+                .iter()
+                .all(|attempt| attempt.state == AttemptState::Running)
+            {
+                assert_eq!(snapshot.attempts.len(), 4);
+                for run in [first, second] {
+                    assert_eq!(
+                        snapshot
+                            .attempts
+                            .iter()
+                            .filter(|attempt| snapshot
+                                .tasks
+                                .iter()
+                                .any(|task| task.id == attempt.task_id && task.run_id == run))
+                            .count(),
+                        2
+                    );
+                }
+                assert_eq!(snapshot.work_areas.len(), 1);
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    for session in daemon.sessions().await.unwrap() {
+        daemon.end(session.id).await.unwrap();
+    }
+    native.abort();
+}

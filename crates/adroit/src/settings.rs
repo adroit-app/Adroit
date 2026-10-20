@@ -148,11 +148,15 @@ pub struct Settings {
 #[serde(default, deny_unknown_fields)]
 pub struct OrchestrationSettings {
     pub max_workers: usize,
+    pub max_workers_per_run: usize,
 }
 
 impl Default for OrchestrationSettings {
     fn default() -> Self {
-        Self { max_workers: 4 }
+        Self {
+            max_workers: 4,
+            max_workers_per_run: 2,
+        }
     }
 }
 
@@ -238,6 +242,7 @@ impl Settings {
     /// than the fewest, a zoom among the levels' range.
     pub fn sane(mut self) -> Self {
         self.orchestration.max_workers = self.orchestration.max_workers.min(64);
+        self.orchestration.max_workers_per_run = self.orchestration.max_workers_per_run.min(64);
         self.prompt_min_rows = self.prompt_min_rows.clamp(1, 40);
         self.prompt_max_rows = self.prompt_max_rows.clamp(self.prompt_min_rows, 60);
         let (least, most) = (
@@ -495,7 +500,10 @@ model = "chosen-model"
             agent: adroit_model::Agent::Claude,
             codex: Launch::default(),
             codex_sessions: CodexOptions::default(),
-            orchestration: OrchestrationSettings { max_workers: 8 },
+            orchestration: OrchestrationSettings {
+                max_workers: 8,
+                max_workers_per_run: 3,
+            },
             zoom: 1.1,
             prompt_min_rows: 2,
             prompt_max_rows: 20,
