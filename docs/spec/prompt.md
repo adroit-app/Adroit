@@ -24,8 +24,11 @@ last opened, or in the only one declared; with more to choose from, or none, it
 starts a [scratch session](workspaces.md#scratch-sessions).
 
 What a session's tab kept follows the session when it goes by another id,
-as after a take-over. When the shown tab closes or its session is gone, what
-the prompt holds stays, for the tab shown next, before what that tab kept.
+as after a take-over. Hiding a session tab keeps its unsent text and attachments
+with that session. Stopping a Leader also preserves them; explicitly restarting
+the same Leader restores them in its replacement conversation, including after
+closing and reopening the window. Closing an unstarted draft transfers its
+prompt to the next available prompt.
 
 Text taken from Claude Code's input goes to the tab it was taken for, even
 when another tab is shown by the time it arrives. A message that cannot be

@@ -4,17 +4,20 @@ Adroit's settings are changed in its Settings window, opened with Command
 comma or the gear in the window's header. Each change applies at once, to
 every window, and is kept for the next run; there is nothing to save. The
 file they are kept in can be edited by hand as well: a change saved there
-applies within a second, while one that does not read leaves the settings as
-they were. The window also lists the key bindings in force, each of which
-can be changed there ([keys](keys.md#changing-them-in-the-settings-window)).
+applies within a second. The window also lists the key bindings in force, each
+of which can be changed there
+([keys](keys.md#changing-them-in-the-settings-window)).
 
 ## settings.toml
 
 The settings are kept in `settings.toml`, in `$XDG_CONFIG_HOME/adroit/`, or in
 `~/.config/adroit/` when `$XDG_CONFIG_HOME` is unset. Adroit
 writes it whenever a setting changes, so comments in it are not kept. A
-setting it does not name is as designed, and a file that cannot be read
-leaves every setting as designed. A value out of reason is brought into it.
+setting it does not name uses its default. Invalid or unreadable configuration
+is reported in the main window and Settings, and Adroit refuses to overwrite
+it until corrected. The window remains available, while scheduling new Workers
+and Leader restarts pauses. Sessions already running continue.
+A value out of reason is brought into it.
 
 ```toml
 # How large the window draws everything when it opens, from 0.67 to 1.75.

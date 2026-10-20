@@ -97,3 +97,41 @@ against an isolated control service. It reaches the credential's run through
 `ADROIT_CONTROL_ROOT` even when its XDG state directory points elsewhere. This
 checks endpoint routing and tool requests; it does not establish that every
 native provider successfully loads the bridge or responds to notifications.
+
+## Vitro macOS acceptance
+
+A dedicated disposable macOS 26.6.2 VM exercised the application with isolated
+XDG directories and a deterministic interactive provider. Those GUI checks do
+not call an external model or replace native provider acceptance above.
+
+Observed behavior:
+
+- Independent Leaders sharing a directory remain separate requests; each
+  external Worker is shown under its assigned Leader. Different requested
+  models are passed to separate provider processes.
+- Workspaces and Leader / Workers expose the same console and draft. Hiding
+  and reopening a session tab preserves its unsent prompt.
+- Invalid configuration is visibly reported in both windows; changing a
+  setting refuses to overwrite that file. Restoring a valid file recovers.
+- Shell and ordinary Neovim run as Terminal resources and do not create
+  Worker attempts. GUI-started Shell retained the selected Leader run;
+  GUI-started Neovim retained the selected Worker binding. The console's
+  embedded Neovim read mode remained available.
+- Product-driven task startup prepared real jj workspaces and Git worktrees,
+  preserving the selected base, repository association and Worker cwd.
+- Explicitly restarting a stopped Leader retains its logical ID, run, task,
+  existing Worker and attempt while advancing the Leader generation.
+  Its unsent prompt was recovered after both a GUI restart and a separate
+  CLI restart completed while the window was closed. Another request's
+  composer remained empty after the first Leader stopped.
+
+GUI testing uncovered ownership tags being removed during native conversation
+discovery, draft transfer when hiding or stopping sessions, and zero start
+timestamps on automatic launches. These received regression tests and
+independent review. The final packaged executable is compared by SHA-256 with
+the binary copied into the guest before accepting the rerun.
+
+The final guest executable SHA-256 was
+`0f50defdc9d865fbcaf63d0ae7da0a414e8b01c3ab9d55c8f224f937d55e65ca`.
+The existing Worker attempt remained running through Leader generations 1, 2
+and 3; starting its Shell and Neovim resources did not add attempts.
