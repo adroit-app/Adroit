@@ -187,13 +187,21 @@ pub fn resolve(
         env.retain(|(name, _)| !crate::env::reserved_control(name));
         env.extend(context.environment(binding));
     }
+    let started_ms = if request.started_ms == 0 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|error| format!("cannot determine the session start time: {error}"))?
+            .as_millis() as u64
+    } else {
+        request.started_ms
+    };
     let mut tags = sessions::agent_tags(
         request.agent,
         &request.name,
         &request.cwd,
         &conversation,
         &request.permissions,
-        request.started_ms,
+        started_ms,
         request.started_from.as_deref(),
     );
     if let Some(binding) = &request.binding {

@@ -16,6 +16,41 @@ fn request(agent: Agent, model: Option<&str>) -> StartRequest {
 }
 
 #[test]
+fn automatic_agent_launches_record_the_current_time_and_preserve_explicit_start_times() {
+    let now = || {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64
+    };
+    for agent in [Agent::Claude, Agent::Codex] {
+        let before = now();
+        let launch = resolve(
+            &Settings::default(),
+            request(agent, None),
+            Path::new("/adroit"),
+        )
+        .unwrap();
+        let started: u64 = adroit_term::tags::value(&launch.spawn.tags, "adroit.started")
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert!(
+            (before..=now()).contains(&started),
+            "unexpected start time: {started}"
+        );
+
+        let mut explicit = request(agent, None);
+        explicit.started_ms = 1234;
+        let launch = resolve(&Settings::default(), explicit, Path::new("/adroit")).unwrap();
+        assert_eq!(
+            adroit_term::tags::value(&launch.spawn.tags, "adroit.started").as_deref(),
+            Some("1234")
+        );
+    }
+}
+
+#[test]
 fn a_task_model_overrides_only_the_target_session() {
     let mut settings = Settings::default();
     settings.sessions.model = "opus".into();
