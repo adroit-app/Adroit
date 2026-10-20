@@ -94,6 +94,7 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .list-row { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 8px; border-radius: 6px; cursor: default; white-space: nowrap; overflow: hidden; }
 .list-row-name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
 .list-row-meta { color: var(--text-3); font-size: 11.5px; }
+.agent-badge { flex: none; padding: 0 5px; border: 1px solid var(--line); border-radius: 4px; color: var(--text-2); font-size: 10px; line-height: 16px; }
 .list-row.selected { background: var(--select); }
 .list-row.shown { box-shadow: inset 3px 0 0 var(--run); background: rgba(120,174,232,0.08); }
 .list-row.shown.selected { background: var(--select); }

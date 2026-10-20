@@ -956,6 +956,15 @@ fn mode_tip(mode: &str, dialog: bool) -> &'static str {
     }
 }
 
+fn row_badge(tree: &Tree, item: &Item) -> Option<&'static str> {
+    match item {
+        Item::Session(id) | Item::Waiting(id) => {
+            nav::find(tree, id).map(|(_, s)| agents::adapter(s.agent).label())
+        }
+        _ => None,
+    }
+}
+
 /// What a sidebar row is, told when the pointer rests on it.
 fn row_tip(item: &Item) -> &'static str {
     match item {
@@ -4929,6 +4938,7 @@ fn App() -> Element {
                                     );
                                     let mut open = open;
                                     let target = Target::Row(item.clone());
+                                    let badge = row_badge(&t, &item);
                                     rsx! {
                                         div {
                                             key: "w-{it.session.id}",
@@ -4953,6 +4963,9 @@ fn App() -> Element {
                                                     if it.session.reads_only() { Book {} }
                                                 }
                                                 span { class: "sidebar-inbox-sub", "{sub}" }
+                                            }
+                                            if let Some(label) = badge {
+                                                span { class: "agent-badge", title: "Session agent", "{label}" }
                                             }
                                         }
                                     }
@@ -5106,6 +5119,7 @@ fn App() -> Element {
                                     _ => false,
                                 };
                                 let here = target.clone();
+                                let badge = row_badge(&t, &it);
                                 rsx! {
                                     div {
                                         key: "{it:?}",
@@ -5131,6 +5145,9 @@ fn App() -> Element {
                                             span { class: "draft-mark", title: "Something is written for it in the prompt", "✎" }
                                         }
                                         span { class: "list-row-meta", "{meta}" }
+                                        if let Some(label) = badge {
+                                            span { class: "agent-badge", title: "Session agent", "{label}" }
+                                        }
                                         if starts {
                                             span {
                                                 class: "list-row-start",
@@ -5927,6 +5944,32 @@ fn App() -> Element {
 mod tests {
     use super::*;
     use crate::details::overview;
+
+    #[test]
+    fn sidebar_session_badges_identify_the_agent_even_when_names_match() {
+        use adroit_model::Agent;
+
+        let sessions = [Agent::Claude, Agent::Codex].map(|agent| Session {
+            id: agent.key().into(),
+            agent,
+            name: "Review".into(),
+            cwd: "/project".into(),
+            ..Session::default()
+        });
+        let tree = build(&sessions, &[], &HashMap::new(), &[], None);
+        for (id, label) in [("claude", "Claude Code"), ("codex", "Codex")] {
+            assert_eq!(row_badge(&tree, &Item::Session(id.into())), Some(label));
+            assert_eq!(row_badge(&tree, &Item::Waiting(id.into())), Some(label));
+        }
+        for item in [
+            Item::Workspace("/project".into()),
+            Item::Worktree("/project".into()),
+            Item::Shell(1),
+            Item::Session("missing".into()),
+        ] {
+            assert_eq!(row_badge(&tree, &item), None);
+        }
+    }
 
     #[test]
     fn an_empty_prompt_passes_ctrl_enter_to_its_session_alone() {
