@@ -17,6 +17,7 @@ image.workspace = true
 libc.workspace = true
 nucleo-matcher.workspace = true
 resvg.workspace = true
+rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 shell-words.workspace = true

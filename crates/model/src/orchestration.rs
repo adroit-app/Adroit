@@ -3,6 +3,9 @@ use std::{fmt, str::FromStr};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+mod records;
+pub use records::*;
+
 macro_rules! ids {
     ($($name:ident),+ $(,)?) => {$(
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -84,7 +87,8 @@ pub enum SessionRole {
 }
 
 /// Ownership assigned when an agent joins a request; never inferred from cwd.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "BindingData", into = "BindingData")]
 pub struct SessionBinding {
     logical_id: LogicalSessionId,
     assignment: Box<Assignment>,
@@ -101,6 +105,62 @@ enum Assignment {
         task_id: TaskId,
         attempt_id: AttemptId,
     },
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "role", rename_all = "snake_case", deny_unknown_fields)]
+enum BindingData {
+    Leader {
+        logical_id: LogicalSessionId,
+        run_id: Option<RunId>,
+    },
+    Worker {
+        logical_id: LogicalSessionId,
+        leader_id: LogicalSessionId,
+        run_id: RunId,
+        task_id: TaskId,
+        attempt_id: AttemptId,
+    },
+}
+
+impl From<SessionBinding> for BindingData {
+    fn from(binding: SessionBinding) -> Self {
+        match *binding.assignment {
+            Assignment::Leader { run_id } => Self::Leader {
+                logical_id: binding.logical_id,
+                run_id,
+            },
+            Assignment::Worker {
+                leader_id,
+                run_id,
+                task_id,
+                attempt_id,
+            } => Self::Worker {
+                logical_id: binding.logical_id,
+                leader_id,
+                run_id,
+                task_id,
+                attempt_id,
+            },
+        }
+    }
+}
+
+impl TryFrom<BindingData> for SessionBinding {
+    type Error = BindingError;
+
+    fn try_from(binding: BindingData) -> Result<Self, Self::Error> {
+        match binding {
+            BindingData::Leader { logical_id, run_id } => Ok(Self::leader(logical_id, run_id)),
+            BindingData::Worker {
+                logical_id,
+                leader_id,
+                run_id,
+                task_id,
+                attempt_id,
+            } => Self::worker(logical_id, leader_id, run_id, task_id, attempt_id),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]

@@ -24,12 +24,7 @@ pub struct StartRequest {
     pub started_from: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ModelSource {
-    Explicit,
-    Settings,
-    AgentDefault,
-}
+pub use adroit_model::ModelSource;
 
 #[derive(Debug)]
 pub struct ResolvedLaunch {
