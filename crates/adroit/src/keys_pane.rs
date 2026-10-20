@@ -40,6 +40,7 @@ fn area_hint(ctx: Context) -> &'static str {
         Context::Details => "The panel on the right.",
         Context::Console => "The console while it shows a session.",
         Context::Prompt => "The prompt, before Neovim takes the key.",
+        Context::Draft => "Before the area's bindings while a new session is shown.",
     }
 }
 
@@ -50,6 +51,7 @@ fn area_title(ctx: Context) -> &'static str {
         Context::Details => "Details",
         Context::Console => "Console",
         Context::Prompt => "Prompt",
+        Context::Draft => "New session",
     }
 }
 

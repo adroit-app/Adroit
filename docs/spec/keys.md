@@ -93,6 +93,7 @@ takes the keys away, so they do nothing there.
 | `details` | the details panel |
 | `console` | the console while it shows a session |
 | `prompt` | the prompt, before Neovim |
+| `draft` | before the area's bindings while a new session is shown, including the prompt in insert mode |
 
 A key that reaches a program in the console is sent as the program asked,
 as felis sends it: with the Kitty keyboard protocol once it asks for it, as
@@ -220,7 +221,6 @@ another, the complete one runs.
 "Cmd+n" = "session.new"
 "Cmd+N" = "session.new_reader"
 "Cmd+Alt+n" = "session.scratch"
-"Cmd+g" = "session.agent_next"
 "Cmd+s" = "shell.open"
 "Cmd+Alt+e" = "neovim.open"
 "Cmd+t" = "session.take_over"
@@ -235,6 +235,9 @@ another, the complete one runs.
 "Cmd+0" = "zoom.reset"
 "Cmd+b" = "sidebar.toggle"
 "Cmd+Alt+b" = "details.toggle"
+
+[draft]
+"Tab" = "session.agent_next"
 
 [sidebar]
 "j" = "cursor.down"

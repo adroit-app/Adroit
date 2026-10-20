@@ -1348,6 +1348,7 @@ fn App() -> Element {
     // The agent chosen for a session not started yet, by its draft; the
     // default for new sessions otherwise.
     let mut draft_agents = use_signal(HashMap::<Tab, adroit_model::Agent>::new);
+    let mut last_agent = use_signal(|| None::<adroit_model::Agent>);
     let mut place = use_signal(|| None::<Place>);
     let mut shells = use_signal(Vec::<Shell>::new);
     // The sessions opened in the window, which the tabs above the console
@@ -1856,7 +1857,12 @@ fn App() -> Element {
     let commands_here = use_memo(move || {
         let t = tree.read();
         let tab = active.read();
-        let agent = agents::for_tab(&t, tab.as_ref(), &draft_agents.read(), font.read().agent);
+        let agent = agents::for_tab(
+            &t,
+            tab.as_ref(),
+            &draft_agents.read(),
+            last_agent.read().unwrap_or(font.read().agent),
+        );
         agents::adapter(agent)
             .capabilities()
             .command_probe
@@ -1967,7 +1973,7 @@ fn App() -> Element {
                         &tree.peek(),
                         active.peek().as_ref(),
                         &draft_agents.peek(),
-                        settings::current().agent,
+                        last_agent.peek().unwrap_or(settings::current().agent),
                     );
                     let in_sight = drill.peek().sheet() == Sheet::Overview
                         && layout.peek().show_details
@@ -2002,7 +2008,7 @@ fn App() -> Element {
                 &tree.read(),
                 active.read().as_ref(),
                 &draft_agents.read(),
-                font.read().agent,
+                last_agent.read().unwrap_or(font.read().agent),
             );
             wake.notify_one();
         }
@@ -2619,7 +2625,7 @@ fn App() -> Element {
                     &t,
                     Some(&tab),
                     &draft_agents.peek(),
-                    settings::current().agent,
+                    last_agent.peek().unwrap_or(settings::current().agent),
                 );
                 let waiting = |id: &str| {
                     nav::find(&t, id).is_some_and(|(_, s)| matches!(s.state, State::Waiting(_)))
@@ -2757,6 +2763,15 @@ fn App() -> Element {
         }
     };
 
+    let mut choose_agent = move |draft: Tab, agent| {
+        agents::choose(
+            &mut draft_agents.write(),
+            draft,
+            agent,
+            &mut last_agent.write(),
+        );
+    };
+
     // Switch the agent the draft shown is to run; a session started already
     // keeps its own.
     let mut switch_agent = move || match active.peek().clone() {
@@ -2765,9 +2780,9 @@ fn App() -> Element {
                 &tree.peek(),
                 Some(&draft),
                 &draft_agents.peek(),
-                settings::current().agent,
+                last_agent.peek().unwrap_or(settings::current().agent),
             );
-            draft_agents.write().insert(draft, now.next());
+            choose_agent(draft, now.next());
         }
         _ => notify.notice("Only a session not started yet can change its agent".into()),
     };
@@ -3318,7 +3333,7 @@ fn App() -> Element {
                         &tree.read(),
                         Some(tab),
                         &draft_agents.read(),
-                        font.read().agent,
+                        last_agent.read().unwrap_or(font.read().agent),
                     );
                     active_pane()
                         .is_some_and(|p| agents::adapter(agent).dialog_open(&p.screen().text()))
@@ -3636,7 +3651,7 @@ fn App() -> Element {
                         &tree.peek(),
                         tab.as_ref(),
                         &draft_agents.peek(),
-                        settings::current().agent,
+                        last_agent.peek().unwrap_or(settings::current().agent),
                     );
                     let back = action == Action::HistoryPrev;
                     spawn(async move {
@@ -4402,6 +4417,11 @@ fn App() -> Element {
                 Area::Prompt if nvim_insert => &[Context::Prompt],
                 Area::Prompt => &[Context::Prompt, Context::Global],
             };
+            let contexts: Vec<_> = matches!(&*active.peek(), Some(Tab::Draft { .. }))
+                .then_some(Context::Draft)
+                .into_iter()
+                .chain(contexts.iter().copied())
+                .collect();
             keys::trace(|| {
                 format!(
                     "area={area:?} passing={passing} windowing={windowing} nvim_insert={nvim_insert} pending={:?}",
@@ -4409,7 +4429,7 @@ fn App() -> Element {
                 )
             });
             let seq = pending.peek().clone();
-            let action = match keymap.peek().resolve(contexts, &seq, &key) {
+            let action = match keymap.peek().resolve(&contexts, &seq, &key) {
                 Step::Wait => {
                     pending.write().push(key);
                     return;
@@ -4607,7 +4627,7 @@ fn App() -> Element {
         &t,
         active_tab.as_ref(),
         &draft_agents.read(),
-        font.read().agent,
+        last_agent.read().unwrap_or(font.read().agent),
     );
     let usage_now = match (
         sheet_now,
@@ -4860,7 +4880,7 @@ fn App() -> Element {
     let k_pick = km.keys_for(Context::Sidebar, &Action::SessionPick);
     let k_take_over = km.keys_for(Context::Console, &Action::SessionTakeOver);
     let k_send = km.keys_for(Context::Prompt, &Action::PromptSend);
-    let k_agent = km.keys_for(Context::Global, &Action::SessionAgentNext);
+    let k_agent = km.keys_for(Context::Draft, &Action::SessionAgentNext);
     let k_write = km.keys_for(Context::Console, &Action::PromptWrite);
     let k_escape = km.keys_for(
         Context::Console,
@@ -5308,7 +5328,7 @@ fn App() -> Element {
                                                     // so the keys go back to the prompt, not the console.
                                                     e.stop_propagation();
                                                     if let Some(d) = active.peek().clone() {
-                                                        draft_agents.write().insert(d, a);
+                                                        choose_agent(d, a);
                                                     }
                                                     focus.set(Area::Prompt);
                                                     let writing = nvim

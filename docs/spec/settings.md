@@ -22,7 +22,7 @@ leaves every setting as designed. A value out of reason is brought into it.
 zoom = 1.0
 
 # The agent a new session starts with, claude or codex; a session not started
-# yet can be switched to another.
+# yet can be switched to another for the current run of the window.
 agent = "claude"
 
 # The fewest lines the prompt shows, and the most it grows to before it
