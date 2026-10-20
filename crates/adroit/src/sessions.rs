@@ -75,6 +75,7 @@ pub fn read(session: &adroit_term::Session) -> Option<Kept> {
     let cwd = PathBuf::from(tags::value(t, CWD)?);
     match tags::value(t, KIND)?.as_str() {
         kind if adroit_model::Agent::parse(kind).is_some() => Some(Kept::Agent(Session {
+            binding: None,
             agent: adroit_model::Agent::parse(kind)?,
             id: hex(session.id),
             session_id: tags::value(t, CONVERSATION).unwrap_or_default(),

@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::SessionBinding;
+
 /// The program that owns a session's conversation.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -39,6 +41,8 @@ impl Agent {
 /// terminal that Claude Code lists.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Session {
+    /// Explicit task ownership, independent of terminal and conversation IDs.
+    pub binding: Option<SessionBinding>,
     pub agent: Agent,
     /// Which session this is: the daemon's id for one adroit runs, the
     /// conversation's for one in another terminal.
@@ -181,6 +185,7 @@ pub fn parse_agents(json: &str) -> Result<Vec<Session>, ParseError> {
         .map(|raw| {
             let status = raw.status.unwrap_or_default();
             Session {
+                binding: None,
                 agent: Agent::Claude,
                 id: raw.session_id.clone(),
                 name: raw.name.unwrap_or_else(|| raw.session_id.clone()),
