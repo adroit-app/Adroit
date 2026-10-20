@@ -76,6 +76,7 @@ pub struct Settings {
     /// How Codex is started.
     pub codex: Launch,
     pub codex_sessions: CodexOptions,
+    pub codex_readers: CodexOptions,
     /// How far the window is zoomed when it opens.
     pub zoom: f64,
     /// The fewest lines the prompt shows.
@@ -127,6 +128,7 @@ impl Default for Settings {
             agent: adroit_model::Agent::Claude,
             codex: Launch::default(),
             codex_sessions: CodexOptions::default(),
+            codex_readers: CodexOptions::reader(),
             zoom: 1.0,
             prompt_min_rows: 3,
             prompt_max_rows: 12,
@@ -261,7 +263,20 @@ impl Settings {
         for key in RETIRED {
             table.remove(*key);
         }
-        Settings::deserialize(table).map(Settings::sane)
+        let legacy_readers = !table.contains_key("codex_readers");
+        if let Some(readers) = table
+            .get_mut("codex_readers")
+            .and_then(toml::Value::as_table_mut)
+        {
+            readers
+                .entry("sandbox_mode")
+                .or_insert_with(|| "read-only".into());
+        }
+        let mut settings = Settings::deserialize(table)?.sane();
+        if legacy_readers {
+            settings.codex_readers.model = settings.codex_sessions.model.clone();
+        }
+        Ok(settings)
     }
 
     /// The settings kept, or as designed when there are none or they cannot
@@ -345,6 +360,43 @@ pub fn set(next: Settings) -> Result<(), String> {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn codex_readers_keep_legacy_models_until_their_own_options_are_saved() {
+        let legacy = Settings::parse("[codex_sessions]\nmodel = \"legacy\"\n").unwrap();
+        assert_eq!(legacy.codex_readers.model, "legacy");
+        assert_eq!(legacy.codex_readers.sandbox_mode, "read-only");
+        let settings = Settings::parse(
+            r#"
+[codex_sessions]
+model = "worker"
+reasoning_effort = "high"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+[codex_readers]
+model = "reader"
+reasoning_effort = "low"
+approval_policy = "never"
+sandbox_mode = "read-only"
+"#,
+        )
+        .unwrap();
+        assert_eq!(settings.codex_sessions.model, "worker");
+        assert_eq!(settings.codex_readers.model, "reader");
+        assert_eq!(settings.codex_readers.reasoning_effort, "low");
+        assert_eq!(
+            Settings::parse(&toml::to_string_pretty(&settings).unwrap()).unwrap(),
+            settings
+        );
+        let own =
+            Settings::parse("[codex_sessions]\nmodel = \"worker\"\n[codex_readers]\n").unwrap();
+        assert!(own.codex_readers.model.is_empty());
+        assert_eq!(own.codex_readers.sandbox_mode, "read-only");
+        let inherited = Settings::parse("[codex_readers]\nmodel = \"reader\"\n").unwrap();
+        assert_eq!(inherited.codex_readers.sandbox_mode, "read-only");
+        let explicit = Settings::parse("[codex_readers]\nsandbox_mode = \"\"\n").unwrap();
+        assert!(explicit.codex_readers.sandbox_mode.is_empty());
+    }
 
     #[test]
     fn codex_has_its_own_launch_and_model_and_claude_remains_the_default() {
@@ -438,6 +490,7 @@ model = "chosen-model"
             agent: adroit_model::Agent::Claude,
             codex: Launch::default(),
             codex_sessions: CodexOptions::default(),
+            codex_readers: CodexOptions::reader(),
             zoom: 1.1,
             prompt_min_rows: 2,
             prompt_max_rows: 20,

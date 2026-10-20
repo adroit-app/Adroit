@@ -11,6 +11,18 @@ mod usage;
 #[serde(default, deny_unknown_fields)]
 pub struct CodexOptions {
     pub model: String,
+    pub reasoning_effort: String,
+    pub approval_policy: String,
+    pub sandbox_mode: String,
+}
+
+impl CodexOptions {
+    pub fn reader() -> Self {
+        Self {
+            sandbox_mode: "read-only".into(),
+            ..Self::default()
+        }
+    }
 }
 
 pub struct Codex;
@@ -170,12 +182,32 @@ impl AgentAdapter for Codex {
         prompt: &str,
     ) -> Vec<String> {
         let mut args = vec!["--no-alt-screen".into()];
-        let model = settings.codex_sessions.model.trim();
+        let options = if reader {
+            &settings.codex_readers
+        } else {
+            &settings.codex_sessions
+        };
+        let model = options.model.trim();
         if !model.is_empty() {
             args.extend(["--model".into(), model.into()]);
         }
-        if reader {
-            args.extend(["--sandbox".into(), "read-only".into()]);
+        let effort = options.reasoning_effort.trim();
+        if !effort.is_empty() {
+            args.extend([
+                "-c".into(),
+                format!(
+                    "model_reasoning_effort={}",
+                    serde_json::to_string(effort).unwrap()
+                ),
+            ]);
+        }
+        for (flag, value) in [
+            ("--ask-for-approval", &options.approval_policy),
+            ("--sandbox", &options.sandbox_mode),
+        ] {
+            if !value.trim().is_empty() {
+                args.extend([flag.into(), value.trim().into()]);
+            }
         }
         args.extend(["--".into(), prompt.into()]);
         args
@@ -188,6 +220,51 @@ mod tests {
 
     fn screen(text: &str) -> Vec<String> {
         text.lines().map(String::from).collect()
+    }
+
+    #[test]
+    fn each_role_passes_its_own_codex_options_before_the_prompt() {
+        let mut settings = Settings {
+            codex_sessions: CodexOptions {
+                model: "worker".into(),
+                reasoning_effort: "high".into(),
+                approval_policy: "on-request".into(),
+                sandbox_mode: "workspace-write".into(),
+            },
+            codex_readers: CodexOptions {
+                model: "reader".into(),
+                reasoning_effort: "low".into(),
+                approval_policy: "never".into(),
+                sandbox_mode: "read-only".into(),
+            },
+            ..Settings::default()
+        };
+        for (reader, model, effort, approval, sandbox) in [
+            (false, "worker", "high", "on-request", "workspace-write"),
+            (true, "reader", "low", "never", "read-only"),
+        ] {
+            assert_eq!(
+                Codex.start_args(&settings, "", "", reader, "--help"),
+                [
+                    "--no-alt-screen",
+                    "--model",
+                    model,
+                    "-c",
+                    &format!("model_reasoning_effort=\"{effort}\""),
+                    "--ask-for-approval",
+                    approval,
+                    "--sandbox",
+                    sandbox,
+                    "--",
+                    "--help",
+                ]
+            );
+        }
+        settings.codex_readers = CodexOptions::default();
+        assert_eq!(
+            Codex.start_args(&settings, "", "", true, "read"),
+            ["--no-alt-screen", "--", "read"]
+        );
     }
 
     #[test]

@@ -77,11 +77,24 @@ via_shell = false
 
 [codex.env]
 
-# Codex model; empty for its own choice. Readers also use this model and
-# start with the read-only sandbox. Other Codex options can be included in
-# codex.command or in Codex's own configuration.
+# Codex's model and reasoning effort; empty for its own choice. Effort must
+# be supported by the selected model and Codex version. Approval policy is
+# empty, on-request or never. Sandbox is empty, read-only, workspace-write
+# or danger-full-access. Empty values leave Codex's own settings in effect.
 [codex_sessions]
 model = ""
+reasoning_effort = ""
+approval_policy = ""
+sandbox_mode = ""
+
+# Codex readers have independent options and default to a read-only sandbox.
+# An older file without this table keeps using the sessions' model for readers
+# until the reader options are saved.
+[codex_readers]
+model = ""
+reasoning_effort = ""
+approval_policy = ""
+sandbox_mode = "read-only"
 
 # How a Neovim tab's Neovim starts, as Claude Code does: empty for `nvim`.
 [neovim]
@@ -133,8 +146,13 @@ cursor_blink = false
 
 A program started through the shell is started by the shell `[shell]` names,
 or your login shell, with the program and its arguments handed over as they
-are; a POSIX shell or fish can do so. The Sessions and Programs panes of the
-Settings window change the same settings, a command written there as a shell would split it.
+are; a POSIX shell or fish can do so. The Settings window changes the same
+settings, a command written there as a shell would split it.
+
+Choose an agent under Agents to change its launch options and the defaults
+for its sessions and readers. Only that agent's options are offered; changes
+do not affect other agents or sessions already running. General sets the
+agent new sessions start with. Programs holds the shell and Neovim options.
 
 A theme is adroit's own, one of those it comes with (Nightfox, TokyoNight,
 Catppuccin, Gruvbox, Dracula, Nord, Kanagawa, Rose Pine and GitHub Light among

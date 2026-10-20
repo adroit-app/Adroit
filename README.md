@@ -63,10 +63,10 @@ idle sleep, so they go on with the display off
 ### Codex
 
 Start a session as usual and choose Codex on its draft, by clicking it or with
-`Cmd+g`; Settings → Sessions → Agent sets which a draft starts with.
-Settings → Programs configures its command and environment; Codex's model is
-set separately from Claude's. Sessions already running keep their agent, so
-both can run together. From a terminal:
+`Cmd+g`; Settings → General → Agent sets which a draft starts with.
+Settings → Agents → Codex configures its command and environment, with
+separate session and reader options for model, reasoning, approvals and
+sandbox. Sessions already running keep their agent, so both can run together. From a terminal:
 
 ```sh
 adroit session start --agent codex --dir ~/src/api -- "Review the API"

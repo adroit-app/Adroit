@@ -70,7 +70,7 @@ enum Pane {
     General,
     Console,
     Prompt,
-    Sessions,
+    Agents,
     Programs,
     Keys,
 }
@@ -80,7 +80,7 @@ impl Pane {
         Pane::General,
         Pane::Console,
         Pane::Prompt,
-        Pane::Sessions,
+        Pane::Agents,
         Pane::Programs,
         Pane::Keys,
     ];
@@ -90,7 +90,7 @@ impl Pane {
             Pane::General => "General",
             Pane::Console => "Console",
             Pane::Prompt => "Prompt",
-            Pane::Sessions => "Sessions",
+            Pane::Agents => "Agents",
             Pane::Programs => "Programs",
             Pane::Keys => "Keys",
         }
@@ -101,7 +101,7 @@ impl Pane {
             Pane::General => Icon::AdjustmentsHorizontal,
             Pane::Console => Icon::Terminal,
             Pane::Prompt => Icon::Pencil,
-            Pane::Sessions => Icon::Message,
+            Pane::Agents => Icon::Message,
             Pane::Programs => Icon::Terminal2,
             Pane::Keys => Icon::Keyboard,
         }
@@ -138,6 +138,7 @@ fn SettingsWindow() -> Element {
         OPEN.with(|o| *o.borrow_mut() = Rc::downgrade(&me));
     });
     let mut pane = use_signal(|| Pane::General);
+    let mut agent = use_signal(|| settings::current().agent);
     let mut now = use_signal(settings::current);
     let mut failed = use_signal(|| None::<String>);
     // Changes made elsewhere, such as in the file, show here as well.
@@ -168,17 +169,31 @@ fn SettingsWindow() -> Element {
         div { class: "settings",
             nav { class: "settings-nav",
                 for p in Pane::ALL {
-                    div {
+                    button {
                         key: "{p.title()}",
+                        r#type: "button",
+                        aria_current: if pane() == p { "page" } else { "false" },
                         class: if pane() == p { "settings-nav-item on" } else { "settings-nav-item" },
                         onclick: move |_| pane.set(p),
                         IconView { icon: p.icon(), size: 16 }
                         "{p.title()}"
                     }
+                    if p == Pane::Agents && pane() == Pane::Agents {
+                        for choice in adroit_model::Agent::ALL {
+                            button {
+                                key: "{choice.key()}",
+                                r#type: "button",
+                                class: if agent() == choice { "settings-nav-item settings-agent on" } else { "settings-nav-item settings-agent" },
+                                aria_current: if agent() == choice { "page" } else { "false" },
+                                onclick: move |_| agent.set(choice),
+                                "{crate::agents::adapter(choice).label()}"
+                            }
+                        }
+                    }
                 }
             }
             main { class: "settings-pane",
-                h1 { "{pane().title()}" }
+                h1 { if pane() == Pane::Agents { "{crate::agents::adapter(agent()).label()}" } else { "{pane().title()}" } }
                 if let Some(e) = failed() {
                     div { class: "settings-error", "Could not keep the settings: {e}" }
                 }
@@ -186,7 +201,7 @@ fn SettingsWindow() -> Element {
                     Pane::General => rsx! { General { now: now(), change } },
                     Pane::Console => rsx! { ConsolePane { now: now(), change } },
                     Pane::Prompt => rsx! { PromptPane { now: now(), change } },
-                    Pane::Sessions => rsx! { SessionsPane { now: now(), change } },
+                    Pane::Agents => rsx! { AgentsPane { agent: agent(), now: now(), change } },
                     Pane::Programs => rsx! { ProgramsPane { now: now(), change } },
                     Pane::Keys => rsx! { KeysPane {} },
                 }
@@ -252,6 +267,21 @@ fn General(now: Settings, change: Callback<Change>) -> Element {
                         let on = e.checked();
                         change(Box::new(move |s: &mut Settings| s.notify_waiting = on));
                     },
+                }
+            }
+        }
+        section { class: "settings-group",
+            h2 { "Default agent" }
+            Row { label: "Agent", hint: "The agent a new session starts with; each can be switched before its first prompt. Sessions already running keep their agent.",
+                select {
+                    onchange: move |e| {
+                        if let Some(agent) = adroit_model::Agent::parse(&e.value()) {
+                            change(Box::new(move |s: &mut Settings| s.agent = agent));
+                        }
+                    },
+                    for c in agent_choices(now.agent) {
+                        option { key: "{c.agent.key()}", value: "{c.agent.key()}", selected: c.selected, "{c.label}" }
+                    }
                 }
             }
         }
@@ -521,20 +551,6 @@ fn ProgramsPane(now: Settings, change: Callback<Change>) -> Element {
             }
         }
         LaunchGroup {
-            title: "Claude Code",
-            hint: "The program Claude Code sessions run, with the arguments it always gets ahead of adroit's own; empty for claude.",
-            placeholder: "claude",
-            launch: now.claude.clone(),
-            set: move |l: Launch| change(Box::new(move |s: &mut Settings| s.claude = l)),
-        }
-        LaunchGroup {
-            title: "Codex",
-            hint: "The program Codex sessions run, with its arguments; empty for codex.",
-            placeholder: "codex",
-            launch: now.codex.clone(),
-            set: move |l: Launch| change(Box::new(move |s: &mut Settings| s.codex = l)),
-        }
-        LaunchGroup {
             title: "Neovim",
             hint: "The Neovim a Neovim tab runs, with its arguments; empty for nvim. It reads your own configuration.",
             placeholder: "nvim",
@@ -621,47 +637,164 @@ fn agent_choices(chosen: adroit_model::Agent) -> Vec<AgentChoice> {
 /// The models offered to choose from; another can be typed.
 const MODELS: [&str; 3] = ["opus", "sonnet", "haiku"];
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AgentSection {
+    Sessions,
+    Readers,
+    Launch,
+}
+
+impl AgentSection {
+    const ALL: [Self; 3] = [Self::Sessions, Self::Readers, Self::Launch];
+
+    fn title(self) -> &'static str {
+        match self {
+            Self::Sessions => "Sessions",
+            Self::Readers => "Readers",
+            Self::Launch => "Launch",
+        }
+    }
+}
+
 #[component]
-fn SessionsPane(now: Settings, change: Callback<Change>) -> Element {
+fn AgentsPane(agent: adroit_model::Agent, now: Settings, change: Callback<Change>) -> Element {
+    use adroit_model::Agent;
+    let mut section = use_signal(|| AgentSection::Sessions);
+    let adapter = crate::agents::adapter(agent);
+    let reader = section() == AgentSection::Readers;
     rsx! {
-        section { class: "settings-group",
-            h2 { "New sessions" }
-            Row { label: "Agent", hint: "The agent a new session starts with; each can be switched before its first prompt. Sessions already running keep their agent.",
-                select {
-                    onchange: move |e| {
-                        if let Some(agent) = adroit_model::Agent::parse(&e.value()) {
-                            change(Box::new(move |s: &mut Settings| s.agent = agent));
-                        }
-                    },
-                    for c in agent_choices(now.agent) {
-                        option { key: "{c.agent.key()}", value: "{c.agent.key()}", selected: c.selected, "{c.label}" }
-                    }
+        div { class: "settings-agent-tabs", role: "group", aria_label: "Agent settings",
+            for item in AgentSection::ALL {
+                button {
+                    r#type: "button",
+                    key: "{item.title()}",
+                    class: if section() == item { "on" } else { "" },
+                    aria_pressed: section() == item,
+                    onclick: move |_| section.set(item),
+                    "{item.title()}"
                 }
             }
         }
+        p { class: "settings-agent-note",
+            match section() {
+                AgentSection::Launch => "How this agent starts for both sessions and readers.",
+                AgentSection::Sessions => "Defaults for new sessions. Running sessions keep their settings.",
+                AgentSection::Readers => "Defaults for new readers, separate from regular sessions.",
+            }
+        }
+        if section() == AgentSection::Launch {
+            LaunchGroup {
+                key: "launch-{agent.key()}",
+                title: "Launch",
+                hint: "The program and its arguments; empty for the agent's own command.",
+                placeholder: adapter.program(),
+                launch: adapter.launch(&now).clone(),
+                set: move |launch: Launch| change(Box::new(move |s: &mut Settings| match agent {
+                    Agent::Claude => s.claude = launch,
+                    Agent::Codex => s.codex = launch,
+                })),
+            }
+        } else {
+            match agent {
+                Agent::Claude => rsx! {
+                    SessionGroup {
+                        key: "claude-{reader}",
+                        title: section().title(),
+                        options: if reader { now.readers.clone().into() } else { now.sessions.clone() },
+                        set: move |options: SessionOptions| change(Box::new(move |s: &mut Settings| {
+                            if reader { s.readers = options.into(); } else { s.sessions = options; }
+                        })),
+                    }
+                },
+                Agent::Codex => rsx! {
+                    CodexGroup {
+                        key: "codex-{reader}",
+                        title: section().title(),
+                        options: if reader { now.codex_readers.clone() } else { now.codex_sessions.clone() },
+                        set: move |options: crate::agents::CodexOptions| change(Box::new(move |s: &mut Settings| {
+                            if reader { s.codex_readers = options; } else { s.codex_sessions = options; }
+                        })),
+                    }
+                },
+            }
+        }
+    }
+}
+
+#[component]
+fn CodexGroup(
+    title: String,
+    options: crate::agents::CodexOptions,
+    set: Callback<crate::agents::CodexOptions>,
+) -> Element {
+    let (model, effort, approval, sandbox) = (
+        options.clone(),
+        options.clone(),
+        options.clone(),
+        options.clone(),
+    );
+    rsx! {
         section { class: "settings-group",
-            h2 { "Codex sessions" }
-            Row { label: "Model", hint: "Empty for Codex's own model. Readers use Codex's read-only sandbox.",
+            h2 { "{title}" }
+            Row { label: "Model", hint: "Empty to use Codex's own model.",
                 input {
                     class: "settings-command",
                     r#type: "text",
-                    value: now.codex_sessions.model.clone(),
-                    onchange: move |e| {
-                        let model = e.value().trim().to_string();
-                        change(Box::new(move |s: &mut Settings| s.codex_sessions.model = model));
-                    },
+                    value: options.model,
+                    aria_label: "Model",
+                    placeholder: "Codex's own",
+                    onchange: move |e| set(crate::agents::CodexOptions { model: e.value().trim().into(), ..model.clone() }),
+                }
+            }
+            Row { label: "Reasoning effort", hint: "Use a level supported by the selected model, or leave empty for Codex's own.",
+                input {
+                    class: "settings-command",
+                    r#type: "text",
+                    list: "codex-efforts",
+                    aria_label: "Reasoning effort",
+                    value: options.reasoning_effort,
+                    placeholder: "Codex's own",
+                    onchange: move |e| set(crate::agents::CodexOptions { reasoning_effort: e.value().trim().into(), ..effort.clone() }),
+                }
+                datalist { id: "codex-efforts",
+                    for value in ["low", "medium", "high", "xhigh", "max", "ultra"] {
+                        option { key: "{value}", value: value }
+                    }
+                }
+            }
+            Row { label: "Approval policy", hint: "When Codex asks before running a command. Never ask keeps sandbox restrictions in place.",
+                Choice { label: "Approval policy", value: options.approval_policy,
+                    choices: vec![("", "Codex's own"), ("on-request", "Ask when needed"), ("never", "Never ask")],
+                    set: move |value| set(crate::agents::CodexOptions { approval_policy: value, ..approval.clone() }),
+                }
+            }
+            Row { label: "Sandbox", hint: "Where commands can write. Full access removes the sandbox.",
+                Choice { label: "Sandbox", value: options.sandbox_mode,
+                    choices: vec![("", "Codex's own"), ("read-only", "Read only"), ("workspace-write", "Workspace write"), ("danger-full-access", "Full access")],
+                    set: move |value| set(crate::agents::CodexOptions { sandbox_mode: value, ..sandbox.clone() }),
                 }
             }
         }
-        SessionGroup {
-            title: "Claude Code sessions",
-            options: now.sessions.clone(),
-            set: move |o: SessionOptions| change(Box::new(move |s: &mut Settings| s.sessions = o)),
-        }
-        SessionGroup {
-            title: "Claude Code readers",
-            options: SessionOptions::from(now.readers.clone()),
-            set: move |o: SessionOptions| change(Box::new(move |s: &mut Settings| s.readers = o.into())),
+    }
+}
+
+#[component]
+fn Choice(
+    label: String,
+    value: String,
+    choices: Vec<(&'static str, &'static str)>,
+    set: Callback<String>,
+) -> Element {
+    rsx! {
+        select {
+            aria_label: label,
+            onchange: move |e| set(e.value()),
+            if !choices.iter().any(|(key, _)| *key == value) {
+                option { value: value.clone(), selected: true, "{value}" }
+            }
+            for (key, label) in choices {
+                option { key: "{key}", value: key, selected: value == key, "{label}" }
+            }
         }
     }
 }
