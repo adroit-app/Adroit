@@ -113,7 +113,7 @@ struct State {
 /// A window onto one session.
 enum WriteRequest {
     Frame(OutgoingFrame),
-    Flushed(tokio::sync::oneshot::Sender<()>),
+    Fence(tokio::sync::oneshot::Sender<std::result::Result<(), String>>),
 }
 
 pub struct Pane {
@@ -234,7 +234,7 @@ impl Pane {
         let waker = waker_for(info.id);
         let pane = Self::over(conn, &info, size, palette, waker);
         pane.send(InputMsg::KeyBytes(RELEASE.to_vec()));
-        pane.flush().await?;
+        pane.input_fence().await?;
         Ok(pane)
     }
 
@@ -263,34 +263,42 @@ impl Pane {
             },
             closed: false,
         }));
-        let felis_client_core::Connection {
-            mut reader,
-            mut writer,
-            mut driver,
-            ..
-        } = conn;
+        let mut conn = conn;
         let (out, mut queue) = mpsc::unbounded_channel::<WriteRequest>();
-        tokio::spawn(async move {
-            while let Some(request) = queue.recv().await {
-                match request {
-                    WriteRequest::Frame(frame) => {
-                        if writer.send_checked_unflushed(frame.frame()).await.is_err()
-                            || writer.flush().await.is_err()
-                        {
-                            break;
-                        }
-                    }
-                    WriteRequest::Flushed(reply) => {
-                        let _ = reply.send(());
-                    }
-                }
-            }
-        });
         let waker: Waker = Arc::new(waker);
         let reading = state.clone();
         let reader = tokio::spawn(async move {
-            while let Ok(Some(frame)) = reader.next_frame().await {
-                let Ok(incoming) = driver.classify(&frame) else {
+            loop {
+                let frame = tokio::select! {
+                    request = queue.recv() => {
+                        match request {
+                            Some(WriteRequest::Frame(frame)) => {
+                                if conn.writer.send_checked_unflushed(frame.frame()).await.is_err()
+                                    || conn.writer.flush().await.is_err()
+                                {
+                                    break;
+                                }
+                            }
+                            Some(WriteRequest::Fence(reply)) => {
+                                let result = conn.input_fence().await.map_err(|error| error.to_string());
+                                let failed = result.is_err();
+                                let _ = reply.send(result);
+                                if failed {
+                                    break;
+                                }
+                            }
+                            None => break,
+                        }
+                        continue;
+                    }
+                    frame = conn.next_frame() => {
+                        match frame {
+                            Ok(Some(frame)) => frame,
+                            _ => break,
+                        }
+                    }
+                };
+                let Ok(incoming) = conn.driver.classify(&frame) else {
                     break;
                 };
                 let p = match incoming {
@@ -300,17 +308,17 @@ impl Pane {
                 };
                 let mut s = reading.lock().unwrap();
                 let ok = match p.kind {
-                    MessageKind::Grid => match driver.decode::<GridMsg>(&p) {
+                    MessageKind::Grid => match conn.driver.decode::<GridMsg>(&p) {
                         Ok(Delivery::Deliver(d)) => s.grid(&d.msg),
                         Ok(_) => true,
                         Err(_) => false,
                     },
-                    MessageKind::Image => match driver.decode::<ImageMsg>(&p) {
+                    MessageKind::Image => match conn.driver.decode::<ImageMsg>(&p) {
                         Ok(Delivery::Deliver(d)) => s.image(&d.msg),
                         Ok(_) => true,
                         Err(_) => false,
                     },
-                    MessageKind::Push => match driver.decode::<PushMsg>(&p) {
+                    MessageKind::Push => match conn.driver.decode::<PushMsg>(&p) {
                         Ok(Delivery::Deliver(d)) => {
                             if matches!(d.msg, PushMsg::SessionExited { .. }) {
                                 s.exited = true;
@@ -369,14 +377,15 @@ impl Pane {
         self.id
     }
 
-    async fn flush(&self) -> Result<()> {
-        let (reply, flushed) = tokio::sync::oneshot::channel();
+    async fn input_fence(&self) -> Result<()> {
+        let (reply, accepted) = tokio::sync::oneshot::channel();
         self.out
-            .send(WriteRequest::Flushed(reply))
+            .send(WriteRequest::Fence(reply))
             .map_err(|_| Error::Protocol("the terminal writer stopped".into()))?;
-        flushed
+        accepted
             .await
-            .map_err(|_| Error::Protocol("the terminal writer stopped before flushing".into()))
+            .map_err(|_| Error::Protocol("the terminal stopped before accepting input".into()))?
+            .map_err(Error::Protocol)
     }
 
     fn send(&self, msg: InputMsg) {

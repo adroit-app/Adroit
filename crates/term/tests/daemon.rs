@@ -84,44 +84,59 @@ async fn a_session_s_screen_shows_what_its_program_wrote() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_headless_start_is_released_before_its_command_runtime_exits() {
-    let (daemon, _dir) = daemon().await;
-    let starting = daemon.clone();
-    let id = tokio::task::spawn_blocking(move || {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        runtime.block_on(async {
-            let pane = Pane::start(
-                &starting,
-                sh("printf headless; sleep 5"),
-                Size::new(40, 6),
-                &Palette::default(),
-                |_| || {},
-            )
-            .await
-            .unwrap();
-            pane.id()
+    let (daemon, dir) = daemon().await;
+    for round in 0..20 {
+        let marker = dir.path().join(format!("released-{round}"));
+        let mut spawn =
+            sh(r#"printf headless > "$ADROIT_RELEASE_PROOF"; printf headless; sleep 5"#);
+        spawn.env.push((
+            "ADROIT_RELEASE_PROOF".into(),
+            marker.to_string_lossy().into_owned(),
+        ));
+        let starting = daemon.clone();
+        let id = tokio::task::spawn_blocking(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            runtime.block_on(async {
+                let pane = Pane::start(
+                    &starting,
+                    spawn,
+                    Size::new(40, 6),
+                    &Palette::default(),
+                    |_| || {},
+                )
+                .await
+                .unwrap();
+                pane.id()
+            })
         })
-    })
-    .await
-    .unwrap();
-    let mut released = false;
-    for _ in 0..100 {
-        if daemon
-            .visible(id)
-            .await
-            .unwrap()
-            .iter()
-            .any(|line| line.contains("headless"))
-        {
-            released = true;
-            break;
+        .await
+        .unwrap();
+        let mut released = false;
+        for _ in 0..100 {
+            if marker.exists()
+                && daemon
+                    .visible(id)
+                    .await
+                    .unwrap()
+                    .iter()
+                    .any(|line| line.contains("headless"))
+            {
+                released = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        let visible = daemon.visible(id).await.unwrap();
+        daemon.end(id).await.unwrap();
+        assert!(
+            released,
+            "startup round {round}: program ran = {}, visible = {visible:?}",
+            marker.exists()
+        );
     }
-    daemon.end(id).await.unwrap();
-    assert!(released, "the program remained behind the startup gate");
 }
 
 #[tokio::test]
