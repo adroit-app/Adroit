@@ -3013,7 +3013,7 @@ fn App() -> Element {
                     let face = |s: &settings::Settings| {
                         (s.font_family.clone(), s.font_size, s.font_weight)
                     };
-                    if face(&s) != face(&was) || s.agent != was.agent {
+                    if face(&s) != face(&was) || s.agent != was.agent || s.usage != was.usage {
                         font.set(s.clone());
                     }
                     // A new theme reaches every console open, what is drawn and
