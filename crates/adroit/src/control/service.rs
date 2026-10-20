@@ -76,6 +76,7 @@ impl Service {
             }
             let mut scheduler =
                 super::scheduler::Scheduler::new(actor.clone(), daemon.clone(), root, program);
+            let mut observer = super::observer::Observer::default();
             let mut dispatcher = super::dispatcher::Dispatcher::new(actor.clone());
             let mut captures = super::capture::CaptureSupervisor::new(actor.clone());
             let mut interval = tokio::time::interval(std::time::Duration::from_millis(250));
@@ -84,7 +85,7 @@ impl Service {
             loop {
                 interval.tick().await;
                 let result = async {
-                    super::observer::tick(&actor, &daemon).await?;
+                    observer.tick(&actor, &daemon).await?;
                     captures.tick().await?;
                     dispatcher.tick().await?;
                     let settings = settings().sane();

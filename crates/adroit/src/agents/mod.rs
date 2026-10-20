@@ -40,8 +40,28 @@ pub trait ConversationReader: Send {
 type DeveloperInstructions =
     std::pin::Pin<Box<dyn std::future::Future<Output = Result<Option<String>, String>> + Send>>;
 
+type ConversationLookup =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Option<String>> + Send>>;
+
 /// A terminal agent owns its arguments, environment and optional integrations.
 pub trait AgentAdapter: Sync {
+    fn conversation_title_needs_lookup(&self, _title: &str) -> bool {
+        false
+    }
+
+    fn conversation_matches_title(&self, title: &str, conversation: &str) -> bool {
+        self.conversation_title(title).as_deref() == Some(conversation)
+    }
+
+    fn resolve_conversation(
+        &self,
+        _settings: Settings,
+        _cwd: PathBuf,
+        _title: String,
+    ) -> ConversationLookup {
+        Box::pin(async { None })
+    }
+
     fn developer_instructions(&self, _settings: Settings, _cwd: PathBuf) -> DeveloperInstructions {
         Box::pin(async { Ok(None) })
     }

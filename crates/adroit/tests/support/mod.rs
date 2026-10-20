@@ -10,6 +10,7 @@ pub fn codex_script(main: &str, developer: Option<&str>) -> String {
     while IFS= read -r query; do
         case "$query" in
             *'"method":"config/read"'*) printf '%s\n' '{reply}'; exit 0 ;;
+            *'"method":"thread/list"'*) printf '%s\n' "$ADROIT_TEST_THREAD_PAGE"; exit 0 ;;
         esac
     done
     exit 1

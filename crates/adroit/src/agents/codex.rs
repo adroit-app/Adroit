@@ -2,6 +2,7 @@ use super::*;
 use serde::{Deserialize, Serialize};
 
 mod commands;
+mod identity;
 mod metrics;
 mod rpc;
 mod transcript;
@@ -20,6 +21,26 @@ pub struct CodexOptions {
 pub struct Codex;
 
 impl AgentAdapter for Codex {
+    fn conversation_title_needs_lookup(&self, title: &str) -> bool {
+        identity::prefix(title).is_some()
+    }
+
+    fn conversation_matches_title(&self, title: &str, conversation: &str) -> bool {
+        self.conversation_title(title).as_deref() == Some(conversation)
+            || identity::prefix(title).is_some_and(|prefix| {
+                transcript::thread_id(conversation) && conversation.starts_with(&prefix)
+            })
+    }
+
+    fn resolve_conversation(
+        &self,
+        settings: Settings,
+        cwd: PathBuf,
+        title: String,
+    ) -> ConversationLookup {
+        Box::pin(identity::resolve(settings, cwd, title))
+    }
+
     fn developer_instructions(&self, settings: Settings, cwd: PathBuf) -> DeveloperInstructions {
         Box::pin(async move {
             let start = super::launch_with_settings(
@@ -382,6 +403,92 @@ mod tests {
             args,
             ["-c", "tui.terminal_title=[\"app-name\",\"thread-id\"]"]
         );
+    }
+
+    #[test]
+    fn shortened_codex_titles_are_hints_and_never_full_conversation_ids() {
+        let id = "01a15b64-d462-7570-8a72-28a490123456";
+        let title = format!("codex | {}...", &id[..29]);
+        assert_eq!(Codex.conversation_title(&title), None);
+        assert!(Codex.conversation_title_needs_lookup(&title));
+        assert!(Codex.conversation_matches_title(&title, id));
+        assert!(!Codex.conversation_matches_title(&title, "01a15b65-d462-7570-8a72-28a490123456"));
+        assert!(!Codex.conversation_title_needs_lookup("codex | 01a..."));
+        assert!(!Codex.conversation_title_needs_lookup("codex | not-a-thread..."));
+    }
+
+    #[tokio::test]
+    async fn shortened_titles_resolve_only_one_native_thread_through_the_saved_route() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = dir.path().join("provider.sh");
+        let capture = dir.path().join("query.json");
+        std::fs::write(&program, r#"IFS= read -r init
+printf '%s\n' '{"id":"adroit-init","result":{}}'
+IFS= read -r initialized
+IFS= read -r query
+printf '%s' "$query" > "$ADROIT_TEST_CAPTURE"
+printf '%s\n' '{"id":"adroit-query","result":{"data":[{"id":"01a15b64-d462-7570-8a72-28a490123456"}],"nextCursor":null}}'
+"#).unwrap();
+        let mut settings = Settings::default();
+        settings.codex.command = vec!["/bin/sh".into(), program.to_string_lossy().into_owned()];
+        settings.codex.env.insert(
+            "ADROIT_TEST_CAPTURE".into(),
+            capture.to_string_lossy().into_owned(),
+        );
+        let got = Codex
+            .resolve_conversation(
+                settings,
+                dir.path().into(),
+                "codex | 01a15b64-d462-7570-8a72-28a49...".into(),
+            )
+            .await;
+        assert_eq!(got.as_deref(), Some("01a15b64-d462-7570-8a72-28a490123456"));
+        let query: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(capture).unwrap()).unwrap();
+        assert_eq!(query["method"], "thread/list");
+        assert_eq!(query["params"]["useStateDbOnly"], true);
+        assert_eq!(
+            query["params"]["cwd"],
+            dir.path().to_string_lossy().as_ref()
+        );
+    }
+
+    #[tokio::test]
+    async fn ambiguous_or_incomplete_native_thread_pages_never_supply_a_recipient() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = dir.path().join("provider.sh");
+        std::fs::write(
+            &program,
+            r#"IFS= read -r init
+printf '%s\n' '{"id":"adroit-init","result":{}}'
+IFS= read -r initialized
+IFS= read -r query
+printf '%s\n' "$ADROIT_TEST_PAGE"
+"#,
+        )
+        .unwrap();
+        let mut settings = Settings::default();
+        settings.codex.command = vec!["/bin/sh".into(), program.to_string_lossy().into_owned()];
+        for page in [
+            serde_json::json!({"data":[],"nextCursor":null}),
+            serde_json::json!({"data":[{"id":"01a15b64-d462-7570-8a72-28a490123456"},{"id":"01a15b64-d462-7570-8a72-28a49abcdef0"}],"nextCursor":null}),
+            serde_json::json!({"data":[{"id":"01a15b64-d462-7570-8a72-28a490123456"}],"nextCursor":"repeated"}),
+        ] {
+            settings.codex.env.insert(
+                "ADROIT_TEST_PAGE".into(),
+                serde_json::json!({"id":"adroit-query","result":page}).to_string(),
+            );
+            assert_eq!(
+                Codex
+                    .resolve_conversation(
+                        settings.clone(),
+                        dir.path().into(),
+                        "codex | 01a15b64-d462-7570-8a72-28a49...".into()
+                    )
+                    .await,
+                None
+            );
+        }
     }
 
     #[tokio::test]

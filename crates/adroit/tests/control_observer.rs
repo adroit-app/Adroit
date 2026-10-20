@@ -8,6 +8,15 @@ use adroit_term::{Daemon, Palette};
 #[tokio::test]
 async fn a_daemon_observes_the_native_conversation_and_keeps_the_same_assignment_without_a_window()
 {
+    observe(false).await;
+}
+
+#[tokio::test]
+async fn a_shortened_native_title_is_resolved_asynchronously_without_a_window() {
+    observe(true).await;
+}
+
+async fn observe(shortened: bool) {
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::Builder::new()
         .prefix("adroit-observe-")
@@ -33,7 +42,11 @@ async fn a_daemon_observes_the_native_conversation_and_keeps_the_same_assignment
         "/bin/sh".into(),
         "-c".into(),
         support::codex_script(
-            r#"printf '\033]0;Codex · %s\007' "$ADROIT_TEST_THREAD"; sleep 10"#,
+            if shortened {
+                r#"printf '\033]0;codex | %.29s...\007' "$ADROIT_TEST_THREAD"; sleep 10"#
+            } else {
+                r#"printf '\033]0;Codex · %s\007' "$ADROIT_TEST_THREAD"; sleep 10"#
+            },
             None,
         ),
         "native-provider".into(),
@@ -42,6 +55,13 @@ async fn a_daemon_observes_the_native_conversation_and_keeps_the_same_assignment
         .codex
         .env
         .insert("ADROIT_TEST_THREAD".into(), conversation.clone());
+    settings.codex.env.insert(
+        "ADROIT_TEST_THREAD_PAGE".into(),
+        serde_json::json!({
+            "id":"adroit-query", "result":{"data":[{"id":conversation}],"nextCursor":null}
+        })
+        .to_string(),
+    );
     let prepared = managed::prepare(
         &root,
         &settings,
@@ -71,13 +91,29 @@ async fn a_daemon_observes_the_native_conversation_and_keeps_the_same_assignment
             session
                 .title
                 .as_ref()
-                .is_some_and(|title| title.contains(&conversation))
+                .is_some_and(|title| title.contains(&conversation[..29]))
         }) {
             break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
-    observer::tick(&service.actor(), &daemon).await.unwrap();
+    let mut observer = observer::Observer::default();
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            observer.tick(&service.actor(), &daemon).await.unwrap();
+            let snapshot = service
+                .actor()
+                .call(|store| store.snapshot())
+                .await
+                .unwrap();
+            if snapshot.sessions[0].conversation_id.as_deref() == Some(conversation.as_str()) {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
     let snapshot = Client::human(&root)
         .unwrap()
         .request(RequestId::new(), Command::Snapshot)
@@ -115,7 +151,7 @@ async fn a_daemon_observes_the_native_conversation_and_keeps_the_same_assignment
         )
         .await
         .unwrap();
-    observer::tick(&service.actor(), &daemon).await.unwrap();
+    observer.tick(&service.actor(), &daemon).await.unwrap();
     let snapshot = service
         .actor()
         .call(|store| store.snapshot())

@@ -90,3 +90,16 @@ Leader / Workers shows a Restart Leader action for saved requests whose Leader
 has stopped, including requests with no visible Worker sessions. Closing a
 window or tab does not queue this action. Repeated requests with the same request
 ID cannot start another generation.
+
+## Native conversation discovery
+
+An explicitly assigned terminal may display a shortened conversation identifier.
+Adroit treats that fragment as a lookup hint and resolves it through the saved
+provider route, accepting only one matching native UUID. An ambiguous or
+incomplete response does not establish a recipient. Working directories and
+session names alone cannot establish that association.
+
+Discovery runs in bounded background jobs. A slow provider lookup does not hold
+an Agent turn, block control requests, or prevent other native observations.
+A result for an old generation, terminal, or changed title is not applied to its
+replacement. Repeated matching titles reuse the confirmed conversation identity.
