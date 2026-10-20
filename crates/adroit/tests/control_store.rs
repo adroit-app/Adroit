@@ -63,6 +63,23 @@ fn target() -> TargetSelection {
     }
 }
 
+fn directory_area(path: &Path) -> adroit_model::WorkArea {
+    let path = path.canonicalize().unwrap();
+    adroit_model::WorkArea {
+        id: adroit_model::WorkAreaId::new(),
+        backend: adroit_model::WorkAreaBackend::Directory,
+        path: path.clone(),
+        source: path.clone(),
+        source_root: path,
+        repository: None,
+        base_revision: None,
+        native_name: None,
+        description: "Shared source directory".into(),
+        state: adroit_model::WorkAreaState::Preparing,
+        error: None,
+    }
+}
+
 fn pending_report(store: &mut Store, cwd: &Path) -> (SessionRef, AgentMessage) {
     let (owner, run) = leader(store, cwd);
     let task = task(store, owner, run, vec![]);
@@ -451,11 +468,35 @@ fn attaching_a_started_worker_records_the_terminal_and_running_attempt_together(
         id: attempt.session_id,
         generation: 1,
     };
+    assert!(
+        store
+            .attach_session(
+                RequestId::new(),
+                identity,
+                dir.path().into(),
+                "00000000000000000000000000000001".into(),
+                "conversation".into()
+            )
+            .is_err()
+    );
+    let area = directory_area(dir.path());
+    store
+        .register_work_area(RequestId::new(), owner, run, area.clone(), false)
+        .unwrap();
+    store
+        .bind_work_area(RequestId::new(), owner, version, attempt.id, area.id)
+        .unwrap();
+    store
+        .finish_work_area(RequestId::new(), area.id, Ok(()))
+        .unwrap();
+    store
+        .begin_start(RequestId::new(), owner, version, attempt.id)
+        .unwrap();
     store
         .attach_session(
             RequestId::new(),
             identity,
-            dir.path().into(),
+            area.path.clone(),
             "00000000000000000000000000000001".into(),
             "conversation".into(),
         )
@@ -601,4 +642,98 @@ fn only_one_dispatcher_can_claim_a_pending_message_and_a_crash_leaves_uncertaint
     let delivered = &store.snapshot().unwrap().deliveries[0];
     assert_eq!(delivered.state, DeliveryState::Accepted);
     assert_eq!(delivered.attempts, 1);
+}
+
+#[test]
+fn shared_directory_registration_is_identity_matching_without_serializing_runs() {
+    use adroit_model::{WorkArea, WorkAreaBackend, WorkAreaId, WorkAreaState};
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().canonicalize().unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (first, run_a) = leader(&mut store, &source);
+    let (second, run_b) = leader(&mut store, &source);
+    let area = WorkArea {
+        id: WorkAreaId::new(),
+        backend: WorkAreaBackend::Directory,
+        path: source.clone(),
+        source: source.clone(),
+        source_root: source,
+        repository: None,
+        base_revision: None,
+        native_name: None,
+        description: "Shared input directory".into(),
+        state: WorkAreaState::Preparing,
+        error: None,
+    };
+    let kept = store
+        .register_work_area(RequestId::new(), first, run_a, area.clone(), true)
+        .unwrap()
+        .value;
+    let mut another = area;
+    another.id = WorkAreaId::new();
+    let reused = store
+        .register_work_area(RequestId::new(), second, run_b, another, true)
+        .unwrap()
+        .value;
+    assert_eq!(kept.id, reused.id);
+    assert_eq!(store.snapshot().unwrap().work_areas.len(), 1);
+    assert_eq!(store.snapshot().unwrap().run_work_areas.len(), 2);
+}
+
+#[test]
+fn a_worker_cannot_start_until_its_registered_working_area_is_ready() {
+    use adroit_model::{WorkArea, WorkAreaBackend, WorkAreaId, WorkAreaState};
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().canonicalize().unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (owner, run) = leader(&mut store, &source);
+    let task = task(&mut store, owner, run, vec![]);
+    let version = TaskVersion {
+        task_id: task,
+        revision: 1,
+    };
+    store.queue_task(RequestId::new(), owner, version).unwrap();
+    let attempt = store
+        .reserve_attempt(RequestId::new(), owner, version, target())
+        .unwrap()
+        .value;
+    let area = WorkArea {
+        id: WorkAreaId::new(),
+        backend: WorkAreaBackend::Directory,
+        path: source.clone(),
+        source: source.clone(),
+        source_root: source,
+        repository: None,
+        base_revision: None,
+        native_name: None,
+        description: "Shared input directory".into(),
+        state: WorkAreaState::Preparing,
+        error: None,
+    };
+    store
+        .register_work_area(RequestId::new(), owner, run, area.clone(), false)
+        .unwrap();
+    store
+        .bind_work_area(RequestId::new(), owner, version, attempt.id, area.id)
+        .unwrap();
+    assert!(
+        store
+            .begin_start(RequestId::new(), owner, version, attempt.id)
+            .is_err()
+    );
+    store
+        .finish_work_area(RequestId::new(), area.id, Ok(()))
+        .unwrap();
+    let started = store
+        .begin_start(RequestId::new(), owner, version, attempt.id)
+        .unwrap()
+        .value;
+    assert_eq!(started.state, adroit_model::AttemptState::Starting);
+    assert_eq!(started.work_area_id, Some(area.id));
+    drop(store);
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    assert_eq!(
+        store.snapshot().unwrap().work_areas[0].state,
+        WorkAreaState::Ready
+    );
 }

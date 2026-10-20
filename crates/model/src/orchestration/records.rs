@@ -128,6 +128,9 @@ pub struct TaskBrief {
     pub scope: Vec<String>,
     pub inputs: Vec<String>,
     pub purpose: TaskPurpose,
+    pub source_dir: Option<PathBuf>,
+    pub base_revision: Option<String>,
+    pub workdir: WorkdirPolicy,
     pub target: TargetPreference,
 }
 
@@ -302,6 +305,8 @@ pub struct ControlSnapshot {
     pub attempts: Vec<AttemptRecord>,
     pub messages: Vec<AgentMessage>,
     pub deliveries: Vec<DeliveryRecord>,
+    pub work_areas: Vec<WorkArea>,
+    pub run_work_areas: Vec<RunWorkArea>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -356,4 +361,53 @@ pub fn validate_dependencies(tasks: &[TaskRecord], plan: &TaskPlan) -> Result<()
         }
     }
     Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkAreaBackend {
+    Jj,
+    Git,
+    Directory,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkAreaState {
+    Preparing,
+    Ready,
+    Failed,
+    NeedsReconciliation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkArea {
+    pub id: WorkAreaId,
+    pub backend: WorkAreaBackend,
+    pub path: PathBuf,
+    pub source: PathBuf,
+    pub source_root: PathBuf,
+    pub repository: Option<PathBuf>,
+    pub base_revision: Option<String>,
+    pub native_name: Option<String>,
+    pub description: String,
+    pub state: WorkAreaState,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "policy", content = "work_area_id", rename_all = "snake_case")]
+pub enum WorkdirPolicy {
+    #[default]
+    Auto,
+    Existing(WorkAreaId),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RunWorkArea {
+    pub run_id: RunId,
+    pub work_area_id: WorkAreaId,
+    pub is_default: bool,
 }

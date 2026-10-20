@@ -62,3 +62,5 @@ pub use start::cli as session_cli;
 pub use terminals::cli as terminal_cli;
 
 mod roles;
+
+pub mod workareas;

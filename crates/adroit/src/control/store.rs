@@ -11,7 +11,9 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 
-const SCHEMA_VERSION: i64 = 2;
+mod workareas;
+
+const SCHEMA_VERSION: i64 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -150,6 +152,8 @@ enum Table {
     Tasks,
     Attempts,
     Messages,
+    WorkAreas,
+    RunWorkAreas,
 }
 impl Table {
     fn name(self) -> &'static str {
@@ -159,6 +163,8 @@ impl Table {
             Self::Tasks => "tasks",
             Self::Attempts => "attempts",
             Self::Messages => "messages",
+            Self::WorkAreas => "work_areas",
+            Self::RunWorkAreas => "run_work_areas",
         }
     }
 }
@@ -422,6 +428,15 @@ impl Store {
             let transaction =
                 connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
             transaction.execute_batch("CREATE TABLE session_credentials (session_id TEXT PRIMARY KEY REFERENCES logical_sessions(id), generation TEXT NOT NULL, token TEXT NOT NULL UNIQUE);")?;
+            transaction.pragma_update(None, "user_version", 2)?;
+            transaction.commit()?;
+        }
+        if schema < 3 {
+            let transaction =
+                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            transaction.execute_batch("CREATE TABLE work_areas (id TEXT PRIMARY KEY, path TEXT NOT NULL UNIQUE, data TEXT NOT NULL);
+                CREATE TABLE run_work_areas (run_id TEXT NOT NULL REFERENCES runs(id), work_area_id TEXT NOT NULL REFERENCES work_areas(id), is_default INTEGER NOT NULL CHECK(is_default IN (0, 1)), data TEXT NOT NULL, PRIMARY KEY(run_id, work_area_id));
+                CREATE UNIQUE INDEX one_default_work_area_per_run ON run_work_areas(run_id) WHERE is_default = 1;")?;
             transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
             transaction.commit()?;
         }
@@ -734,8 +749,14 @@ impl Store {
                 let mut task: TaskRecord = require(connection, Table::Tasks, task_id)?;
                 let mut attempt: AttemptRecord = require(connection, Table::Attempts, attempt_id)?;
                 if task.current_attempt != Some(attempt_id) || task.revision != attempt.task_revision
-                    || !matches!(attempt.state, AttemptState::Preparing | AttemptState::Starting) {
+                    || attempt.state != AttemptState::Starting {
                     return Err(conflict("the worker assignment changed before startup completed"));
+                }
+                let area_id = attempt.work_area_id.ok_or_else(|| conflict("the worker has no working area"))?;
+                let area: WorkArea = require(connection, Table::WorkAreas, area_id)?;
+                if area.state != WorkAreaState::Ready || !cwd.starts_with(&area.path)
+                    || cwd.components().any(|component| matches!(component, std::path::Component::ParentDir)) {
+                    return Err(conflict("the worker must start inside its prepared working area"));
                 }
                 attempt.state = AttemptState::Running;
                 task.state = TaskState::Running;
@@ -1107,6 +1128,8 @@ impl Store {
             attempts: all(&transaction, Table::Attempts)?,
             messages: all(&transaction, Table::Messages)?,
             deliveries,
+            work_areas: all(&transaction, Table::WorkAreas)?,
+            run_work_areas: all(&transaction, Table::RunWorkAreas)?,
         };
         transaction.commit()?;
         Ok(snapshot)

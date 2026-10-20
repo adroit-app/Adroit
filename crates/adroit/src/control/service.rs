@@ -231,6 +231,13 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
                     .retain(|s| s.binding.run_id() == Some(run));
                 snapshot.runs.retain(|r| r.id == run);
                 snapshot.tasks.retain(|t| t.run_id == run);
+                snapshot.run_work_areas.retain(|area| area.run_id == run);
+                snapshot.work_areas.retain(|area| {
+                    snapshot
+                        .run_work_areas
+                        .iter()
+                        .any(|association| association.work_area_id == area.id)
+                });
                 snapshot
                     .attempts
                     .retain(|a| snapshot.tasks.iter().any(|t| t.id == a.task_id));

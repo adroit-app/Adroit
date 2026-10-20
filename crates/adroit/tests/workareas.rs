@@ -1,0 +1,310 @@
+use adroit::workareas::{WorkAreaRequest, plan, prepare};
+use adroit_model::{WorkAreaBackend, WorkAreaId, WorkAreaState};
+use std::{path::Path, process::Command};
+
+fn jj(dir: &Path, args: &[&str]) -> String {
+    let output = Command::new("jj")
+        .args([
+            "--no-pager",
+            "--config",
+            "user.name=Test",
+            "--config",
+            "user.email=test@example.invalid",
+        ])
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap()
+}
+
+#[tokio::test]
+async fn a_plain_directory_is_used_without_initializing_or_copying_it() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("input.txt"), "Existing input").unwrap();
+    let destination = dir.path().join("unused");
+    let planned = plan(WorkAreaRequest {
+        id: WorkAreaId::new(),
+        source: dir.path().into(),
+        destination: Some(destination.clone()),
+        revision: None,
+        description: "Classify inputs".into(),
+    })
+    .await
+    .unwrap();
+    assert_eq!(planned.backend, WorkAreaBackend::Directory);
+    assert_eq!(planned.path, dir.path().canonicalize().unwrap());
+    assert_eq!(planned.state, WorkAreaState::Preparing);
+    let area = prepare(&planned).await.unwrap();
+    assert_eq!(area.state, WorkAreaState::Ready);
+    assert!(area.path.join("input.txt").is_file());
+    assert!(!destination.exists());
+    assert!(!dir.path().join(".jj").exists());
+    assert!(!dir.path().join(".git").exists());
+}
+
+#[tokio::test]
+async fn a_jj_worker_gets_a_named_native_workspace_at_the_recorded_base() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("source");
+    std::fs::create_dir(&source).unwrap();
+    jj(&source, &["git", "init", "--colocate"]);
+    jj(
+        &source,
+        &["describe", "-m", "test: prepare a workspace source"],
+    );
+    std::fs::write(source.join("input.txt"), "Existing input").unwrap();
+    let base = jj(
+        &source,
+        &["log", "-r", "@", "--no-graph", "-T", "commit_id"],
+    );
+    let destination = dir.path().join("worker");
+    let planned = plan(WorkAreaRequest {
+        id: WorkAreaId::new(),
+        source: source.clone(),
+        destination: Some(destination.clone()),
+        revision: Some(base.clone()),
+        description: "adroit: implement the assigned task".into(),
+    })
+    .await
+    .unwrap();
+    assert_eq!(planned.backend, WorkAreaBackend::Jj);
+    assert_eq!(planned.base_revision.as_deref(), Some(base.as_str()));
+    assert!(!destination.exists());
+    let ready = prepare(&planned).await.unwrap();
+    assert!(ready.path.join(".jj").exists());
+    assert_eq!(
+        std::fs::read_to_string(ready.path.join("input.txt")).unwrap(),
+        "Existing input"
+    );
+    assert_eq!(
+        jj(
+            &ready.path,
+            &["log", "-r", "@-", "--no-graph", "-T", "commit_id"]
+        ),
+        base
+    );
+    assert_eq!(
+        jj(
+            &ready.path,
+            &[
+                "log",
+                "-r",
+                "@",
+                "--no-graph",
+                "-T",
+                "description.first_line()"
+            ]
+        ),
+        "adroit: implement the assigned task"
+    );
+    let from_worker = plan(WorkAreaRequest {
+        id: WorkAreaId::new(),
+        source: ready.path.clone(),
+        destination: Some(dir.path().join("another")),
+        revision: None,
+        description: "Review".into(),
+    })
+    .await
+    .unwrap();
+    assert_eq!(planned.repository, from_worker.repository);
+    assert_eq!(
+        std::fs::read_to_string(source.join("input.txt")).unwrap(),
+        "Existing input"
+    );
+}
+
+#[tokio::test]
+async fn recognized_broken_vcs_and_existing_destinations_never_fall_back_to_the_source() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join(".jj")).unwrap();
+    assert!(
+        plan(WorkAreaRequest {
+            id: WorkAreaId::new(),
+            source: dir.path().into(),
+            destination: None,
+            revision: None,
+            description: "Implement".into()
+        })
+        .await
+        .is_err()
+    );
+    assert!(dir.path().join(".jj").is_dir());
+}
+
+#[tokio::test]
+async fn an_existing_destination_is_left_intact() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("source");
+    std::fs::create_dir(&source).unwrap();
+    jj(&source, &["git", "init", "--colocate"]);
+    jj(
+        &source,
+        &["describe", "-m", "test: prepare a destination collision"],
+    );
+    let destination = dir.path().join("worker");
+    let planned = plan(WorkAreaRequest {
+        id: WorkAreaId::new(),
+        source,
+        destination: Some(destination.clone()),
+        revision: None,
+        description: "Implement".into(),
+    })
+    .await
+    .unwrap();
+    std::fs::create_dir(&destination).unwrap();
+    std::fs::write(destination.join("human.txt"), "Keep me").unwrap();
+    assert!(prepare(&planned).await.is_err());
+    assert_eq!(
+        std::fs::read_to_string(destination.join("human.txt")).unwrap(),
+        "Keep me"
+    );
+}
+
+#[tokio::test]
+async fn the_default_jj_base_includes_the_sources_current_working_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("source");
+    std::fs::create_dir(&source).unwrap();
+    jj(&source, &["git", "init", "--colocate"]);
+    jj(
+        &source,
+        &["describe", "-m", "test: retain current source inputs"],
+    );
+    std::fs::write(source.join("current.txt"), "Current work").unwrap();
+    let planned = plan(WorkAreaRequest {
+        id: WorkAreaId::new(),
+        source,
+        destination: Some(dir.path().join("worker")),
+        revision: None,
+        description: "Review the current work".into(),
+    })
+    .await
+    .unwrap();
+    let ready = prepare(&planned).await.unwrap();
+    assert_eq!(
+        std::fs::read_to_string(ready.path.join("current.txt")).unwrap(),
+        "Current work"
+    );
+}
+
+#[tokio::test]
+async fn colocated_repositories_respect_the_configured_worktree_base_directory() {
+    use std::io::Write;
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("source");
+    std::fs::create_dir(&source).unwrap();
+    jj(&source, &["git", "init", "--colocate"]);
+    jj(
+        &source,
+        &[
+            "describe",
+            "-m",
+            "test: honor configured workspace placement",
+        ],
+    );
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(source.join(".git/config"))
+        .unwrap()
+        .write_all(b"\n[wt]\n basedir = ../worker-areas\n")
+        .unwrap();
+    let id = WorkAreaId::new();
+    let planned = plan(WorkAreaRequest {
+        id,
+        source,
+        destination: None,
+        revision: None,
+        description: "Implement".into(),
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        planned.path,
+        dir.path()
+            .canonicalize()
+            .unwrap()
+            .join("worker-areas")
+            .join(format!("adroit-{id}"))
+    );
+}
+
+#[tokio::test]
+async fn a_git_only_source_resolves_its_worktree_and_complete_base_without_initialization() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("source");
+    std::fs::create_dir(&source).unwrap();
+    jj(&source, &["git", "init", "--colocate"]);
+    jj(&source, &["describe", "-m", "test: prepare a Git source"]);
+    std::fs::write(source.join("input.txt"), "Existing input").unwrap();
+    let base = jj(
+        &source,
+        &["log", "-r", "@", "--no-graph", "-T", "commit_id"],
+    );
+    jj(
+        &source,
+        &["new", "-m", "test: inspect the recorded Git base"],
+    );
+    std::fs::rename(source.join(".jj"), dir.path().join("jj-metadata")).unwrap();
+    let planned = plan(WorkAreaRequest {
+        id: WorkAreaId::new(),
+        source: source.clone(),
+        destination: Some(dir.path().join("worker")),
+        revision: None,
+        description: "Implement".into(),
+    })
+    .await
+    .unwrap();
+    assert_eq!(planned.backend, WorkAreaBackend::Git);
+    assert_eq!(planned.base_revision.as_deref(), Some(base.as_str()));
+    assert_eq!(planned.source_root, source.canonicalize().unwrap());
+    assert!(!source.join(".jj").exists());
+    assert!(!planned.path.exists());
+}
+
+#[tokio::test]
+async fn an_explicit_destination_wins_over_an_invalid_default_placement() {
+    use std::io::Write;
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("source");
+    std::fs::create_dir(&source).unwrap();
+    jj(&source, &["git", "init", "--colocate"]);
+    jj(
+        &source,
+        &[
+            "describe",
+            "-m",
+            "test: prefer explicit working-area placement",
+        ],
+    );
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(source.join(".git/config"))
+        .unwrap()
+        .write_all(b"\n[wt]\n basedir = \n")
+        .unwrap();
+    let destination = dir.path().join("worker");
+    let area = plan(WorkAreaRequest {
+        id: WorkAreaId::new(),
+        source,
+        destination: Some(destination.clone()),
+        revision: None,
+        description: "Implement".into(),
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        area.path,
+        destination
+            .parent()
+            .unwrap()
+            .canonicalize()
+            .unwrap()
+            .join("worker")
+    );
+}
