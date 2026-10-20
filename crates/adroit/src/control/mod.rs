@@ -3,6 +3,7 @@
 pub mod store;
 
 pub mod actor;
+pub mod bridge;
 pub mod cli;
 pub mod client;
 pub mod protocol;

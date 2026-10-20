@@ -2,6 +2,8 @@
 
 mod claude;
 mod codex;
+mod delivery;
+pub use delivery::{DeliveryFailure, DeliveryFuture};
 
 pub use codex::CodexOptions;
 
@@ -37,6 +39,16 @@ pub trait ConversationReader: Send {
 
 /// A terminal agent owns its arguments, environment and optional integrations.
 pub trait AgentAdapter: Sync {
+    fn deliver(
+        &self,
+        _settings: Settings,
+        _cwd: PathBuf,
+        _conversation: String,
+        _envelope: String,
+    ) -> DeliveryFuture {
+        Box::pin(async { Err(DeliveryFailure::Unsupported) })
+    }
+
     fn image_prompt(&self, text: &str, images: &[PathBuf]) -> String;
     fn image_pastes(&self, _images: &[PathBuf]) -> Vec<String> {
         Vec::new()

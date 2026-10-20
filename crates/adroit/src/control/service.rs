@@ -211,6 +211,16 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
         | Command::Grant { .. }
         | Command::AttachSession { .. }
         | Command::FailStart { .. } => Err(denied("this operation requires a human client")),
+        Command::Mailbox { after, limit } => value(store.mailbox(identity()?, after, limit)?),
+        Command::ClaimDelivery { message_id } => {
+            value(store.claim_delivery(request.id, identity()?, message_id)?)
+        }
+        Command::RetryDelivery { message_id } => {
+            value(store.retry_delivery(request.id, identity()?, message_id)?)
+        }
+        Command::AcceptDelivery { message_id } => {
+            value(store.accept_delivery(request.id, message_id, identity()?.id)?)
+        }
         Command::Snapshot => {
             let mut snapshot = store.snapshot()?;
             if !is_human {

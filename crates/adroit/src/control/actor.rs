@@ -18,16 +18,21 @@ impl Actor {
         let (ready, result) = oneshot::channel();
         std::thread::Builder::new()
             .name("adroit-control".into())
-            .spawn(move || match Store::open(&path) {
-                Ok(mut store) => {
-                    if ready.send(Ok(())).is_ok() {
-                        while let Some(job) = receiver.blocking_recv() {
-                            job(&mut store);
+            .spawn(move || {
+                match Store::open(&path).and_then(|mut store| {
+                    store.recover_deliveries()?;
+                    Ok(store)
+                }) {
+                    Ok(mut store) => {
+                        if ready.send(Ok(())).is_ok() {
+                            while let Some(job) = receiver.blocking_recv() {
+                                job(&mut store);
+                            }
                         }
                     }
-                }
-                Err(error) => {
-                    let _ = ready.send(Err(error));
+                    Err(error) => {
+                        let _ = ready.send(Err(error));
+                    }
                 }
             })
             .map_err(|error| ControlError::new(ErrorCode::StorageFailure, error.to_string()))?;

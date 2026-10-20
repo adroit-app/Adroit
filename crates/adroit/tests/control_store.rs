@@ -523,3 +523,82 @@ fn a_failed_spawn_releases_its_attempt_without_succeeding_the_task() {
     assert_eq!(snapshot.tasks[0].state, adroit_model::TaskState::Failed);
     assert_eq!(snapshot.runs[0].state, adroit_model::RunState::Active);
 }
+
+#[test]
+fn mailbox_pages_keep_private_payloads_bounded_and_advance_without_skipping() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (owner, mut message) = pending_report(&mut store, dir.path());
+    for _ in 0..4 {
+        message.id = MessageId::new();
+        message.body = "\u{1}".repeat(64 * 1024);
+        store
+            .send_message(
+                RequestId::new(),
+                SessionRef {
+                    id: message.from,
+                    generation: 1,
+                },
+                message.clone(),
+            )
+            .unwrap();
+    }
+    let page = store.mailbox(owner, 0, 100).unwrap();
+    assert!(serde_json::to_vec(&page).unwrap().len() < 1_048_576);
+    assert!(page.messages.len() < 5);
+    let next = store.mailbox(owner, page.next_cursor, 100).unwrap();
+    assert!(
+        next.messages
+            .iter()
+            .all(|entry| entry.sequence > page.next_cursor)
+    );
+    message.id = MessageId::new();
+    message.body.push('x');
+    assert!(
+        store
+            .send_message(
+                RequestId::new(),
+                SessionRef {
+                    id: message.from,
+                    generation: 1
+                },
+                message
+            )
+            .is_err()
+    );
+}
+
+#[test]
+fn only_one_dispatcher_can_claim_a_pending_message_and_a_crash_leaves_uncertainty() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("control/state.sqlite3");
+    let mut store = Store::open(&path).unwrap();
+    let (owner, message) = pending_report(&mut store, dir.path());
+    let first = store
+        .claim_delivery(RequestId::new(), owner, message.id)
+        .unwrap()
+        .value
+        .unwrap();
+    assert_eq!(first.state, DeliveryState::Dispatching);
+    assert_eq!(first.attempts, 1);
+    assert!(
+        store
+            .claim_delivery(RequestId::new(), owner, message.id)
+            .unwrap()
+            .value
+            .is_none()
+    );
+    drop(store);
+    let mut store = Store::open(&path).unwrap();
+    store.recover_deliveries().unwrap();
+    assert_eq!(
+        store.snapshot().unwrap().deliveries[0].state,
+        DeliveryState::Uncertain
+    );
+    store
+        .accept_delivery(RequestId::new(), message.id, owner.id)
+        .unwrap();
+    let delivered = &store.snapshot().unwrap().deliveries[0];
+    assert_eq!(delivered.state, DeliveryState::Accepted);
+    assert_eq!(delivered.attempts, 1);
+}

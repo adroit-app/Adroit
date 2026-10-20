@@ -34,6 +34,12 @@ below; IDs are UUID strings and session references contain `id` and `generation`
   client; records a completed startup).
 - `fail_start`: `identity`, `reason` (human client; records a failed startup).
 - `snapshot`: no additional fields.
+- `mailbox`: `after`, `limit`; returns a recipient-only page with `messages` and
+  `next_cursor`. Its sequence cursor is independent of the event cursor.
+- `claim_delivery`: `message_id`; claims one stored message for transport.
+- `accept_delivery`: `message_id`; records transport acceptance for the caller.
+- `retry_delivery`: `message_id`; the run's Leader explicitly retries an accepted
+  or uncertain delivery using the same immutable message ID.
 - `events`: `after`, `limit`.
 - `open_run`: `id`, `brief`.
 - `put_task`: `plan`.
@@ -48,3 +54,22 @@ explicit recipient acknowledgement are separate facts.
 Frames are limited to 1 MiB including the terminating newline. Oversized
 responses return an error, rather than an incomplete snapshot. Attachments and
 large artifacts should be referenced from their working directories.
+
+## Native agent bridge
+
+`adroit control mcp` serves MCP tools over standard input and output using the
+session credential. It never falls back to a human credential. The `control`
+tool takes `request_id` and `command` using the command forms above.
+
+`adroit control mcp --channel` also exposes Claude channel notifications. The
+bridge reads the recipient's durable mailbox in the background; the Leader
+never needs to hold a model turn open waiting for messages. Writing a notification
+records transport acceptance. Only an explicit `acknowledge` command records
+receipt. Unacknowledged messages remain in the mailbox with their original IDs. After a
+daemon restart, unfinished dispatches become uncertain rather than being
+silently sent again. The Leader can inspect the state and request a retry.
+Receivers must avoid repeating effects for an ID they have already handled.
+
+Message bodies are limited to 64 KiB. Mailbox pages are bounded by encoded size
+as well as entry count, so one page cannot silently skip large messages. Use
+file references for larger artifacts.

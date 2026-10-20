@@ -217,3 +217,16 @@ pub fn resolve(
         },
     })
 }
+
+pub use crate::agents::{DeliveryFailure, DeliveryFuture};
+
+/// Submit to a native queue without touching the TUI's input buffer.
+pub fn deliver(
+    agent: Agent,
+    settings: Settings,
+    cwd: PathBuf,
+    conversation: String,
+    envelope: String,
+) -> DeliveryFuture {
+    agents::adapter(agent).deliver(settings, cwd, conversation, envelope)
+}

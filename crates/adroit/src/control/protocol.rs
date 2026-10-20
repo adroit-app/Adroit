@@ -44,6 +44,19 @@ pub enum Command {
         identity: SessionRef,
     },
     Snapshot,
+    Mailbox {
+        after: u64,
+        limit: u32,
+    },
+    ClaimDelivery {
+        message_id: MessageId,
+    },
+    RetryDelivery {
+        message_id: MessageId,
+    },
+    AcceptDelivery {
+        message_id: MessageId,
+    },
     Events {
         after: u64,
         limit: u32,

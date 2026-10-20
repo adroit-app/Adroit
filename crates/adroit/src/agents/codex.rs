@@ -20,6 +20,21 @@ pub struct CodexOptions {
 pub struct Codex;
 
 impl AgentAdapter for Codex {
+    fn deliver(
+        &self,
+        settings: Settings,
+        cwd: PathBuf,
+        conversation: String,
+        envelope: String,
+    ) -> DeliveryFuture {
+        Box::pin(super::delivery::codex_queue(
+            settings,
+            cwd,
+            conversation,
+            envelope,
+        ))
+    }
+
     fn image_prompt(&self, text: &str, _images: &[PathBuf]) -> String {
         text.into()
     }

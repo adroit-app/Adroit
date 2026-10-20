@@ -850,6 +850,7 @@ impl Store {
                 return Err(invalid("a worker report needs its task, attempt and revision"));
             }
             if message.body.trim().is_empty() { return Err(invalid("the message is empty")); }
+            if message.body.len() > 64 * 1024 { return Err(invalid("a message body exceeds 64 KiB; reference a file for large artifacts")); }
             if let Some(task_id) = message.task_id {
                 let task: TaskRecord = require(connection, Table::Tasks, task_id)?;
                 if task.run_id != message.run_id { return Err(invalid("the message task belongs to another run")); }
@@ -878,6 +879,106 @@ impl Store {
         })
     }
 
+    pub fn claim_delivery(
+        &mut self,
+        request: RequestId,
+        identity: SessionRef,
+        message_id: MessageId,
+    ) -> Result<Reply<Option<DeliveryRecord>>> {
+        self.transact(
+            request,
+            json!({"op":"claim_delivery", "caller":identity, "message_id":message_id}),
+            |connection| {
+                reference(connection, identity)?;
+                let message: AgentMessage = require(connection, Table::Messages, message_id)?;
+                let mut delivery = delivery(connection, &message, identity.id)?;
+                if delivery.state != DeliveryState::Stored {
+                    return Ok(None);
+                }
+                delivery.state = DeliveryState::Dispatching;
+                delivery.attempts = delivery
+                    .attempts
+                    .checked_add(1)
+                    .ok_or_else(|| conflict("the delivery attempt count is exhausted"))?;
+                save_delivery(connection, &delivery)?;
+                event(
+                    connection,
+                    Some(message.run_id),
+                    "delivery_dispatching",
+                    &delivery,
+                )?;
+                Ok(Some(delivery))
+            },
+        )
+    }
+
+    pub fn retry_delivery(
+        &mut self,
+        request: RequestId,
+        identity: SessionRef,
+        message_id: MessageId,
+    ) -> Result<Reply<DeliveryRecord>> {
+        self.transact(
+            request,
+            json!({"op":"retry_delivery", "caller":identity, "message_id":message_id}),
+            |connection| {
+                let message: AgentMessage = require(connection, Table::Messages, message_id)?;
+                owner(connection, identity, message.run_id)?;
+                let mut delivery = delivery(connection, &message, message.to)?;
+                match delivery.state {
+                    DeliveryState::Accepted | DeliveryState::Uncertain => {
+                        delivery.state = DeliveryState::Stored;
+                        delivery.last_error = None;
+                        save_delivery(connection, &delivery)?;
+                        event(
+                            connection,
+                            Some(message.run_id),
+                            "delivery_retried",
+                            &delivery,
+                        )?;
+                    }
+                    DeliveryState::Stored => {}
+                    _ => {
+                        return Err(conflict(
+                            "an active or acknowledged delivery cannot be retried",
+                        ));
+                    }
+                }
+                Ok(delivery)
+            },
+        )
+    }
+
+    pub fn recover_deliveries(&mut self) -> Result<()> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mut statement = transaction.prepare("SELECT data FROM deliveries")?;
+        let deliveries = statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .map(|row| decode::<DeliveryRecord>(&row?))
+            .collect::<Result<Vec<_>>>()?;
+        drop(statement);
+        for mut delivery in deliveries {
+            if delivery.state == DeliveryState::Dispatching {
+                delivery.state = DeliveryState::Uncertain;
+                delivery.last_error =
+                    Some("the daemon restarted before transport acceptance was recorded".into());
+                let message: AgentMessage =
+                    require(&transaction, Table::Messages, delivery.message_id)?;
+                save_delivery(&transaction, &delivery)?;
+                event(
+                    &transaction,
+                    Some(message.run_id),
+                    "delivery_uncertain",
+                    &delivery,
+                )?;
+            }
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
     pub fn accept_delivery(
         &mut self,
         request: RequestId,
@@ -896,11 +997,13 @@ impl Store {
                 ) {
                     return Ok(delivery);
                 }
+                if delivery.state == DeliveryState::Stored {
+                    delivery.attempts = delivery
+                        .attempts
+                        .checked_add(1)
+                        .ok_or_else(|| conflict("the delivery attempt count is exhausted"))?;
+                }
                 delivery.state = DeliveryState::Accepted;
-                delivery.attempts = delivery
-                    .attempts
-                    .checked_add(1)
-                    .ok_or_else(|| conflict("the delivery attempt count is exhausted"))?;
                 delivery.last_error = None;
                 save_delivery(connection, &delivery)?;
                 event(
@@ -942,6 +1045,49 @@ impl Store {
                 Ok(delivery)
             },
         )
+    }
+
+    pub fn mailbox(&mut self, identity: SessionRef, after: u64, limit: u32) -> Result<MailboxPage> {
+        let transaction = self.connection.transaction()?;
+        reference(&transaction, identity)?;
+        let after_sql: i64 = after
+            .try_into()
+            .map_err(|_| invalid("the mailbox cursor is too large"))?;
+        let mut statement = transaction.prepare("SELECT rowid, data FROM messages WHERE recipient = ?1 AND rowid > ?2 ORDER BY rowid LIMIT ?3")?;
+        let rows = statement.query_map(
+            params![identity.id.to_string(), after_sql, limit.min(100)],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+        )?;
+        let mut messages = Vec::new();
+        let mut bytes = 0;
+        for row in rows {
+            let (sequence, text) = row?;
+            let sequence = sequence.try_into().map_err(|_| {
+                ControlError::new(ErrorCode::CorruptStore, "negative mailbox sequence")
+            })?;
+            let message: AgentMessage = decode(&text)?;
+            let delivery = delivery(&transaction, &message, identity.id)?;
+            let entry = MailboxEntry {
+                sequence,
+                message,
+                delivery,
+            };
+            let size = encode(&entry)?.len();
+            if bytes + size > 512 * 1024 {
+                if messages.is_empty() {
+                    return Err(invalid("a mailbox message exceeds the page limit"));
+                }
+                break;
+            }
+            bytes += size;
+            messages.push(entry);
+        }
+        drop(statement);
+        transaction.commit()?;
+        Ok(MailboxPage {
+            next_cursor: messages.last().map_or(after, |entry| entry.sequence),
+            messages,
+        })
     }
 
     pub fn snapshot(&mut self) -> Result<ControlSnapshot> {

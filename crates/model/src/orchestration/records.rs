@@ -261,6 +261,7 @@ pub struct AgentMessage {
 #[serde(rename_all = "snake_case")]
 pub enum DeliveryState {
     Stored,
+    Dispatching,
     Accepted,
     Acknowledged,
     Uncertain,
@@ -274,6 +275,21 @@ pub struct DeliveryRecord {
     pub state: DeliveryState,
     pub attempts: u64,
     pub last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MailboxEntry {
+    pub sequence: u64,
+    pub message: AgentMessage,
+    pub delivery: DeliveryRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MailboxPage {
+    pub next_cursor: u64,
+    pub messages: Vec<MailboxEntry>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

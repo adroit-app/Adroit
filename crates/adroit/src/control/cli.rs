@@ -36,6 +36,11 @@ fn options(args: &[String]) -> Result<(RequestId, Option<SessionRef>), String> {
 }
 
 pub fn cli(args: &[String]) -> i32 {
+    if matches!(args, [mode] if mode == "mcp")
+        || matches!(args, [mode, channel] if mode == "mcp" && channel == "--channel")
+    {
+        return super::bridge::cli(args.len() == 2);
+    }
     let (request, actor) = match options(args) {
         Ok(options) => options,
         Err(error) => {
