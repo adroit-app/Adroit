@@ -31,10 +31,7 @@ sleep 10
     let root = dir.path().join("control");
     let mut service = Service::bind(&root).await.unwrap();
     let socket = dir.path().join("d.sock");
-    let serving = socket.clone();
-    let daemon_task = tokio::spawn(async move {
-        Daemon::serve(&serving, std::time::Duration::from_secs(60), |_| {}).await
-    });
+    let daemon_task = support::serve_process(socket.clone());
     let daemon = Daemon::new(socket);
     for _ in 0..100 {
         if daemon.sessions().await.is_ok() {

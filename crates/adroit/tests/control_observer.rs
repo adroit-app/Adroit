@@ -19,10 +19,7 @@ async fn a_daemon_observes_the_native_conversation_and_keeps_the_same_assignment
     let root = dir.path().join("control");
     let service = Service::bind(&root).await.unwrap();
     let socket = dir.path().join("d.sock");
-    let serving = socket.clone();
-    let task = tokio::spawn(async move {
-        Daemon::serve(&serving, std::time::Duration::from_secs(60), |_| {}).await
-    });
+    let task = support::serve_process(socket.clone());
     let daemon = Daemon::new(socket);
     for _ in 0..100 {
         if daemon.sessions().await.is_ok() {

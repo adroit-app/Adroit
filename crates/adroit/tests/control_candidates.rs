@@ -842,10 +842,7 @@ async fn the_native_program_starts_only_after_a_matching_candidate_preflight() {
         }
         let service = Service::bind(&root).await.unwrap();
         let socket = dir.path().join("terminal.sock");
-        let serving = socket.clone();
-        let daemon_task = tokio::spawn(async move {
-            Daemon::serve(&serving, std::time::Duration::from_secs(60), |_| {}).await
-        });
+        let daemon_task = support::serve_process(socket.clone());
         let daemon = Daemon::new(socket);
         for _ in 0..100 {
             if daemon.sessions().await.is_ok() {

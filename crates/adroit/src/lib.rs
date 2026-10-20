@@ -67,3 +67,7 @@ pub use terminals::cli as terminal_cli;
 mod roles;
 
 pub mod workareas;
+
+#[cfg(test)]
+#[path = "../tests/support/daemon.rs"]
+mod native_test_daemon;

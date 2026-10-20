@@ -157,10 +157,7 @@ mod tests {
             .unwrap();
         std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
         let socket = dir.path().join("d.sock");
-        let serving = socket.clone();
-        let task = tokio::spawn(async move {
-            Daemon::serve(&serving, Duration::from_millis(20), |_| {}).await
-        });
+        let task = crate::native_test_daemon::serve_process(socket.clone());
         let daemon = Daemon::new(socket);
         tokio::time::timeout(Duration::from_secs(5), async {
             while daemon.sessions().await.is_err() {

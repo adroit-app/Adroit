@@ -1,3 +1,5 @@
+#[path = "support/daemon.rs"]
+mod native_daemon;
 use adroit::control::store::Store;
 use adroit_model::*;
 use std::path::Path;
@@ -615,10 +617,7 @@ async fn supervisor_recovery_excludes_sessions_created_after_the_endpoint_was_bo
         .await
         .unwrap();
     let socket = dir.path().join("d.sock");
-    let serving = socket.clone();
-    let native = tokio::spawn(async move {
-        Daemon::serve(&serving, std::time::Duration::from_secs(60), |_| {}).await
-    });
+    let native = native_daemon::serve_process(socket.clone());
     service
         .supervise(Daemon::new(socket), "/adroit".into(), Settings::default)
         .unwrap();

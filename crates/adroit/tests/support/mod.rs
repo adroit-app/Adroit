@@ -1,3 +1,6 @@
+mod daemon;
+pub use daemon::serve_process;
+
 pub fn codex_script(main: &str, developer: Option<&str>) -> String {
     let reply=serde_json::json!({"id":"adroit-query","result":{"config":{"developer_instructions":developer}}}).to_string().replace('\'',"'\\''");
     format!(

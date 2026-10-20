@@ -82,10 +82,7 @@ async fn ready_runs_share_slots_and_acceptance_does_not_wait_for_native_startup(
     let (_, first) = planned(&actor, &source, 3).await;
     let (_, second) = planned(&actor, &source, 1).await;
     let socket = dir.path().join("felis.sock");
-    let serving = socket.clone();
-    let daemon_task = tokio::spawn(async move {
-        Daemon::serve(&serving, std::time::Duration::from_secs(60), |_| {}).await
-    });
+    let daemon_task = support::serve_process(socket.clone());
     for _ in 0..100 {
         if socket.exists() {
             break;
@@ -326,10 +323,7 @@ async fn per_run_capacity_leaves_other_leaders_room_without_locking_a_shared_dir
     let (_, first) = planned(&actor, &source, 3).await;
     let (_, second) = planned(&actor, &source, 3).await;
     let socket = dir.path().join("d.sock");
-    let serving = socket.clone();
-    let native = tokio::spawn(async move {
-        Daemon::serve(&serving, std::time::Duration::from_secs(60), |_| {}).await
-    });
+    let native = support::serve_process(socket.clone());
     let daemon = Daemon::new(socket);
     tokio::time::timeout(std::time::Duration::from_secs(3), async {
         while daemon.sessions().await.is_err() {

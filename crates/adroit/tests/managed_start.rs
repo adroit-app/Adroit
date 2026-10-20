@@ -217,10 +217,7 @@ async fn a_lost_ownership_reply_before_release_is_a_confirmed_abort_after_the_ga
     let root = dir.path().join("control");
     let service = Service::bind(&root).await.unwrap();
     let socket = dir.path().join("d.sock");
-    let serving = socket.clone();
-    let native = tokio::spawn(async move {
-        Daemon::serve(&serving, std::time::Duration::from_secs(60), |_| {}).await
-    });
+    let native = support::serve_process(socket.clone());
     let daemon = Daemon::new(socket);
     tokio::time::timeout(std::time::Duration::from_secs(3), async {
         while daemon.sessions().await.is_err() {
