@@ -22,9 +22,10 @@ pub struct Request {
     pub command: Command,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Command {
+    #[schemars(skip)]
     RegisterLeader {
         id: LogicalSessionId,
         agent: Agent,
@@ -32,33 +33,40 @@ pub enum Command {
         #[serde(default)]
         permissions: AgentPermissions,
     },
+    #[schemars(skip)]
     RememberLaunch {
         identity: SessionRef,
         runtime: Box<super::runtime::RuntimeLaunch>,
     },
+    #[schemars(skip)]
     RegisterDefaultArea {
         identity: SessionRef,
         run_id: RunId,
         area: WorkArea,
     },
+    #[schemars(skip)]
     AttachSession {
         identity: SessionRef,
         cwd: PathBuf,
         terminal_id: String,
         conversation_id: String,
     },
+    #[schemars(skip)]
     ConfirmTerminalExit {
         identity: SessionRef,
         terminal_id: String,
     },
+    #[schemars(skip)]
     StartUncertain {
         identity: SessionRef,
         reason: String,
     },
+    #[schemars(skip)]
     FailStart {
         identity: SessionRef,
         reason: String,
     },
+    #[schemars(skip)]
     Grant {
         identity: SessionRef,
     },

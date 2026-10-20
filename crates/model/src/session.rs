@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 use crate::{AgentPermissions, SessionBinding};
 
 /// The program that owns a session's conversation.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum Agent {
     #[default]

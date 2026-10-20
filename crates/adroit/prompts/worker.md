@@ -38,3 +38,8 @@ changes_requested, or blocked. Include findings in data, relevant files, and the
 full reviewed_revision for native VCS. Finishing a review is distinct from
 approving the change. Successful candidate results remain pending until Adroit
 confirms that their inputs are unchanged after the work.
+
+Use new_ids to allocate fresh request and report message IDs. Follow the native
+control tool's complete input schema. Tool text contains an Ok result or Err
+error, and mutation replies put their record in value. Keep a request ID for an
+identical retry; changed content or another operation requires a fresh ID.

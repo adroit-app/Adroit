@@ -232,3 +232,103 @@ async fn a_native_stdio_child_uses_the_scoped_launch_endpoint() {
             .success()
     );
 }
+
+#[tokio::test]
+async fn native_tools_describe_complete_task_and_result_inputs_and_offer_typed_ids() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("control");
+    let mut store = Store::open(&root.join("state.sqlite3")).unwrap();
+    let leader = store
+        .register_leader(
+            RequestId::new(),
+            LogicalSessionId::new(),
+            Agent::Codex,
+            dir.path().into(),
+        )
+        .unwrap()
+        .value;
+    let token = store.grant(leader.reference()).unwrap();
+    drop(store);
+    let _service = Service::bind(&root).await.unwrap();
+    let (input, mut send) = tokio::io::duplex(8192);
+    let (output, receive) = tokio::io::duplex(8192);
+    let task = tokio::spawn(bridge::run(
+        BufReader::new(input),
+        output,
+        Client::session(&root, token),
+        false,
+    ));
+    let mut receive = BufReader::new(receive);
+    let mut line = String::new();
+    send.write_all(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}\n")
+        .await
+        .unwrap();
+    receive.read_line(&mut line).await.unwrap();
+    send.write_all(b"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}\n")
+        .await
+        .unwrap();
+    line.clear();
+    receive.read_line(&mut line).await.unwrap();
+    let reply: Value = serde_json::from_str(&line).unwrap();
+    let tools = reply["result"]["tools"].as_array().unwrap();
+    let control = tools.iter().find(|tool| tool["name"] == "control").unwrap();
+    let schema = &control["inputSchema"];
+    assert!(
+        schema["$defs"]["TaskPlan"]["properties"]
+            .get("brief")
+            .is_some()
+    );
+    assert!(
+        schema["$defs"]["TaskBrief"]["properties"]
+            .get("target")
+            .is_some()
+    );
+    assert!(
+        schema["$defs"]["TaskResult"]["properties"]
+            .get("checks")
+            .is_some()
+    );
+    let encoded = serde_json::to_string(schema).unwrap();
+    for op in [
+        "put_task",
+        "report_task",
+        "request_change_completion",
+        "propose_candidate",
+        "send_message",
+    ] {
+        assert!(encoded.contains(op), "{op}");
+    }
+    for op in [
+        "register_leader",
+        "remember_launch",
+        "grant",
+        "confirm_terminal_exit",
+    ] {
+        assert!(!encoded.contains(&format!("\"{op}\"")), "{op}");
+    }
+    assert!(tools.iter().any(|tool| tool["name"] == "new_ids"));
+    let call = json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"new_ids","arguments":{"requests":3,"tasks":2,"messages":1}}});
+    send.write_all(format!("{call}\n").as_bytes())
+        .await
+        .unwrap();
+    line.clear();
+    receive.read_line(&mut line).await.unwrap();
+    let reply: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(reply["result"]["isError"], false);
+    let result: Value =
+        serde_json::from_str(reply["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    let ids = &result["Ok"];
+    assert_eq!(ids["request_ids"].as_array().unwrap().len(), 3);
+    assert_eq!(ids["task_ids"].as_array().unwrap().len(), 2);
+    assert_eq!(ids["message_ids"].as_array().unwrap().len(), 1);
+    let mut unique = std::collections::HashSet::new();
+    for values in ids.as_object().unwrap().values() {
+        for id in values.as_array().unwrap() {
+            let id = id.as_str().unwrap();
+            assert!(id.parse::<RequestId>().is_ok());
+            assert!(unique.insert(id));
+        }
+    }
+    drop(send);
+    task.await.unwrap().unwrap();
+}

@@ -32,3 +32,10 @@ review and verification Workers. After the candidate is verified, use
 request_change_completion with its ID and the current plan revision. End your
 turn while confirmation runs. Report completion to the user only after Adroit
 confirms success; resolve rejected checks before requesting completion again.
+
+Start by reading context; this Leader normally already has its run. Update its
+brief with update_run when needed. Use new_ids for fresh typed IDs, put_task to
+record each task plan, and queue_task with its returned task ID and revision.
+Use the control tool's complete input schema. Mutation responses carry their
+record in value inside the Ok result. Reuse a request ID only to retry the same
+immutable command, and use a fresh one for changed content.

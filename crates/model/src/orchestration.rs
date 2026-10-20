@@ -8,7 +8,7 @@ pub use records::*;
 
 macro_rules! ids {
     ($($name:ident),+ $(,)?) => {$(
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
         #[serde(transparent)]
         pub struct $name(Uuid);
 
@@ -54,7 +54,7 @@ ids!(
     TerminalResourceId,
 );
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(
     tag = "profile",
     content = "options",
@@ -68,7 +68,7 @@ pub enum AgentPermissions {
     Custom(Box<CustomPermissions>),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "agent", rename_all = "lowercase", deny_unknown_fields)]
 pub enum CustomPermissions {
     Claude {
