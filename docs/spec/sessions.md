@@ -108,3 +108,7 @@ failed, is what its program reports with the
 as the daemon keeps it. When Codex reports no status, its visible activity and
 requests for approval or input supply the state instead. A session with no
 recognized state shows as idle.
+
+The completion check marks a result not yet viewed in this window. Viewing
+the session acknowledges it; a later turn completed out of view can be marked
+again. A window in the background does not acknowledge completions.

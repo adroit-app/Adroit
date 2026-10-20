@@ -19,6 +19,7 @@ use tokio::sync::{Notify, mpsc, oneshot};
 use crate::agents;
 use crate::alerts;
 use crate::complete::{self, candidates};
+use crate::completion::Completions;
 use crate::console::{Composer, ConsoleScreen, Hub, Panes, ReaderScreen, mode_of};
 use crate::console_keys::direct_key;
 use crate::console_read;
@@ -1331,6 +1332,19 @@ fn App() -> Element {
             .unwrap_or_default()
     });
     let mut active = use_signal(|| None::<Tab>);
+    let mut window_focused = use_signal(|| dioxus::desktop::window().is_focused());
+    let mut completions = use_signal(Completions::default);
+    use_effect(move || {
+        let tab = active();
+        let shown = match (&tab, window_focused()) {
+            (Some(Tab::Session(id)), true) => Some(id.as_str()),
+            _ => None,
+        };
+        let next = completions.peek().updated(&tree.read(), shown);
+        if *completions.peek() != next {
+            completions.set(next);
+        }
+    });
     // The agent chosen for a session not started yet, by its draft; the
     // default for new sessions otherwise.
     let mut draft_agents = use_signal(HashMap::<Tab, adroit_model::Agent>::new);
@@ -2491,7 +2505,7 @@ fn App() -> Element {
                 (
                     Tab::Session(s.id.clone()),
                     s.name.clone(),
-                    Some(s.state.clone()),
+                    Some(completions.read().state(s).clone()),
                     s.reads_only(),
                 )
             })
@@ -4107,13 +4121,16 @@ fn App() -> Element {
             use dioxus::desktop::tao::event::Event;
             if let Event::WindowEvent {
                 window_id,
-                event: dioxus::desktop::WindowEvent::Focused(true),
+                event: dioxus::desktop::WindowEvent::Focused(on),
                 ..
             } = event
                 && *window_id == desktop.window.id()
             {
-                keys::trace(|| "window made key: the page takes the keys");
-                let _ = desktop.webview.focus();
+                window_focused.set(*on);
+                if *on {
+                    keys::trace(|| "window made key: the page takes the keys");
+                    let _ = desktop.webview.focus();
+                }
             }
         }
     });
@@ -5089,7 +5106,7 @@ fn App() -> Element {
                                             "list-row",
                                             s.as_ref().map(|s| s.name.clone()).unwrap_or_else(|| id.clone()),
                                             String::new(),
-                                            s.map(|s| glyph(&s.state)),
+                                            s.map(|s| glyph(completions.read().state(&s))),
                                         )
                                     }
                                     Item::Shell(id) => {

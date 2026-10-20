@@ -6,6 +6,7 @@ mod app;
 mod awake;
 pub mod cli;
 mod complete;
+mod completion;
 mod console;
 pub mod console_keys;
 mod console_read;
