@@ -309,6 +309,22 @@ async fn native_tools_describe_complete_task_and_result_inputs_and_offer_typed_i
             .get("checks")
             .is_some()
     );
+    for kind in ["report", "review"] {
+        let artifact = report["$defs"]["TaskArtifact"]["oneOf"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|variant| variant["properties"]["kind"]["const"] == kind)
+            .unwrap();
+        let alternatives = artifact["properties"]["data"]["anyOf"].as_array().unwrap();
+        assert!(
+            alternatives
+                .iter()
+                .any(|schema| schema["type"] == "object" && schema["additionalProperties"] == true)
+        );
+        assert!(alternatives.iter().any(|schema| schema["type"] == "array"));
+        assert!(alternatives.iter().any(|schema| schema["type"] == "null"));
+    }
     for tool in tools {
         assert!(serde_json::to_vec(&tool["inputSchema"]).unwrap().len() < 32_768);
         assert!(tool["inputSchema"]["$defs"].get("Command").is_none());

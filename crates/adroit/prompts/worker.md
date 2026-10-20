@@ -55,3 +55,5 @@ Each operation is a named MCP tool. Pass request_id and its fields directly.
 report_task takes request_id, message_id, task (task_id and revision), attempt_id,
 and result. Do not add command, op or report wrappers. send_message takes the
 message fields directly with request_id.
+Put structured objects and arrays directly in artifact data; do not JSON-encode
+them into a string unless the task explicitly requests text.

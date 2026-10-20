@@ -469,11 +469,13 @@ pub enum ReportStatus {
 pub enum TaskArtifact {
     Review {
         decision: ReviewDecision,
+        #[schemars(schema_with = "json_evidence_schema")]
         data: serde_json::Value,
         files: Vec<PathBuf>,
         reviewed_revision: Option<String>,
     },
     Report {
+        #[schemars(schema_with = "json_evidence_schema")]
         data: serde_json::Value,
         files: Vec<PathBuf>,
         reviewed_revision: Option<String>,
@@ -485,6 +487,21 @@ pub enum TaskArtifact {
         manifest: Vec<String>,
         candidate_fingerprint: Option<String>,
     },
+}
+
+fn json_evidence_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    // Native clients may lower a boolean accept-any schema to a string parameter.
+    schemars::json_schema!({
+        "description":"JSON evidence. Supply objects and arrays directly; do not JSON-encode structured evidence into a string.",
+        "anyOf":[
+            {"type":"object","additionalProperties":true},
+            {"type":"array","items":{}},
+            {"type":"string"},
+            {"type":"number"},
+            {"type":"boolean"},
+            {"type":"null"}
+        ]
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
