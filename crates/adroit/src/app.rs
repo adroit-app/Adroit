@@ -1984,7 +1984,9 @@ fn App() -> Element {
                     Ok((next, mut snapshot)) => {
                         sampler = next;
                         if settings.gpu {
-                            snapshot.gpu = crate::system_usage::gpu_usage().await;
+                            let gpu = crate::system_usage::gpu_usage().await;
+                            snapshot.gpu = gpu.used;
+                            snapshot.gpu_note = gpu.note;
                         }
                         system_snapshot.set(snapshot);
                     }
@@ -5756,6 +5758,9 @@ fn App() -> Element {
                                         }
                                         div { class: "usage-resource-track",
                                             div { class: "usage-resource-fill", style: "width:{g.used}%" }
+                                        }
+                                        if !g.note.is_empty() {
+                                            span { class: "usage-resource-note", title: "{g.note}", "{g.note}" }
                                         }
                                     }
                                 }

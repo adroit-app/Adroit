@@ -9,6 +9,10 @@ pub struct Snapshot {
     pub gpu: Option<f32>,
     pub memory: Option<f32>,
     pub storage: Option<f32>,
+    pub cpu_note: String,
+    pub gpu_note: String,
+    pub memory_note: String,
+    pub storage_note: String,
 }
 
 pub struct Gauge {
@@ -17,19 +21,35 @@ pub struct Gauge {
     pub class: String,
     pub value: String,
     pub used: f32,
+    pub note: String,
 }
 
 impl Snapshot {
     pub fn gauges(&self, settings: &UsageSettings) -> Vec<Gauge> {
         [
-            ("CPU", "cpu", Icon::Cpu, settings.cpu, self.cpu),
-            ("GPU", "gpu", Icon::Gpu, settings.gpu, self.gpu),
+            (
+                "CPU",
+                "cpu",
+                Icon::Cpu,
+                settings.cpu,
+                self.cpu,
+                &self.cpu_note,
+            ),
+            (
+                "GPU",
+                "gpu",
+                Icon::Gpu,
+                settings.gpu,
+                self.gpu,
+                &self.gpu_note,
+            ),
             (
                 "Memory",
                 "memory",
                 Icon::Memory,
                 settings.memory,
                 self.memory,
+                &self.memory_note,
             ),
             (
                 "Storage",
@@ -37,11 +57,12 @@ impl Snapshot {
                 Icon::Database,
                 settings.storage,
                 self.storage,
+                &self.storage_note,
             ),
         ]
         .into_iter()
-        .filter(|(_, _, _, enabled, _)| *enabled)
-        .map(|(label, kind, icon, _, used)| Gauge {
+        .filter(|(_, _, _, enabled, _, _)| *enabled)
+        .map(|(label, kind, icon, _, used, note)| Gauge {
             label,
             icon,
             class: format!(
@@ -54,6 +75,7 @@ impl Snapshot {
             ),
             value: used.map_or_else(|| "N/A".into(), |n| format!("{:.0}%", n.round())),
             used: used.unwrap_or(0.0),
+            note: note.clone(),
         })
         .collect()
     }
@@ -61,6 +83,48 @@ impl Snapshot {
 
 fn percent(used: u64, total: u64) -> Option<f32> {
     (total > 0).then(|| (used as f64 / total as f64 * 100.0).clamp(0.0, 100.0) as f32)
+}
+
+fn capacity_note(used: u64, total: u64) -> String {
+    if total == 0 {
+        return String::new();
+    }
+    fn amount(bytes: u64) -> (String, &'static str) {
+        let units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
+        let mut unit = 0;
+        let mut value = bytes as f64;
+        while value >= 1024.0 && unit < units.len() - 1 {
+            value /= 1024.0;
+            unit += 1;
+        }
+        let value = if unit == 0 {
+            format!("{value:.0}")
+        } else {
+            format!("{value:.1}")
+        };
+        (value, units[unit])
+    }
+    let (used, used_unit) = amount(used);
+    let (total, total_unit) = amount(total);
+    if used_unit == total_unit {
+        format!("{used} / {total} {total_unit}")
+    } else {
+        format!("{used} {used_unit} / {total} {total_unit}")
+    }
+}
+
+fn hardware_note(model: &str, count: usize, unit: &str) -> String {
+    let model = model.trim();
+    let count = if count > 0 {
+        format!("{count} {unit}{}", if count == 1 { "" } else { "s" })
+    } else {
+        String::new()
+    };
+    [model, &count]
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(" · ")
 }
 
 #[derive(Default)]
@@ -79,17 +143,37 @@ impl Sampler {
             self.cpu_ready = false;
             None
         };
-        let memory = if settings.memory {
+        let (memory, memory_note) = if settings.memory {
             self.system.refresh_memory();
-            percent(self.system.used_memory(), self.system.total_memory())
+            let (used, total) = (self.system.used_memory(), self.system.total_memory());
+            (percent(used, total), capacity_note(used, total))
         } else {
-            None
+            (None, String::new())
+        };
+        let (storage, storage_note) = if settings.storage {
+            storage_capacity()
+                .map(|(used, total)| (percent(used, total), capacity_note(used, total)))
+                .unwrap_or_default()
+        } else {
+            (None, String::new())
+        };
+        let cpu_note = if settings.cpu {
+            hardware_note(
+                self.system.cpus().first().map_or("", |cpu| cpu.brand()),
+                self.system.cpus().len(),
+                "thread",
+            )
+        } else {
+            String::new()
         };
         Snapshot {
             cpu,
             memory,
-            storage: settings.storage.then(storage_percent).flatten(),
-            gpu: None,
+            storage,
+            cpu_note,
+            memory_note,
+            storage_note,
+            ..Snapshot::default()
         }
     }
 }
@@ -97,7 +181,7 @@ impl Sampler {
 // fsblkcnt_t is u32 on macOS and u64 on Linux.
 #[cfg(unix)]
 #[allow(clippy::unnecessary_cast)]
-fn storage_percent() -> Option<f32> {
+fn storage_capacity() -> Option<(u64, u64)> {
     let mut stats = std::mem::MaybeUninit::<libc::statvfs>::uninit();
     // SAFETY: the path is NUL-terminated and stats points to writable storage.
     if unsafe { libc::statvfs(c"/".as_ptr(), stats.as_mut_ptr()) } != 0 {
@@ -105,14 +189,20 @@ fn storage_percent() -> Option<f32> {
     }
     // SAFETY: statvfs initialized stats on success.
     let stats = unsafe { stats.assume_init() };
-    percent(
-        (stats.f_blocks as u64).saturating_sub(stats.f_bavail as u64),
-        stats.f_blocks as u64,
-    )
+    let block_size = if stats.f_frsize > 0 {
+        stats.f_frsize
+    } else {
+        stats.f_bsize
+    } as u64;
+    let total = (stats.f_blocks as u64).checked_mul(block_size)?;
+    let used = (stats.f_blocks as u64)
+        .saturating_sub(stats.f_bavail as u64)
+        .checked_mul(block_size)?;
+    (total > 0).then_some((used, total))
 }
 
 #[cfg(not(unix))]
-fn storage_percent() -> Option<f32> {
+fn storage_capacity() -> Option<(u64, u64)> {
     None
 }
 
@@ -133,22 +223,59 @@ fn gpu_percent(report: &str) -> Option<f32> {
         .max_by(f32::total_cmp)
 }
 
-pub async fn gpu_usage() -> Option<f32> {
+#[derive(Default)]
+pub struct GpuSample {
+    pub used: Option<f32>,
+    pub note: String,
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn gpu_sample(report: &str) -> GpuSample {
+    fn property<'a>(report: &'a str, key: &str) -> Option<&'a str> {
+        let key = format!("\"{key}\"");
+        report.lines().find_map(|line| {
+            line.split_once(&key)?
+                .1
+                .trim_start()
+                .strip_prefix('=')
+                .map(str::trim)
+        })
+    }
+    report
+        .split("+-o ")
+        .map(|device| {
+            let model = property(device, "model")
+                .and_then(|s| s.strip_prefix('"'))
+                .and_then(|s| s.split('"').next())
+                .unwrap_or("");
+            let cores = property(device, "gpu-core-count")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            GpuSample {
+                used: gpu_percent(device),
+                note: hardware_note(model, cores, "core"),
+            }
+        })
+        .filter(|sample| sample.used.is_some() || !sample.note.is_empty())
+        .max_by(|a, b| a.used.unwrap_or(-1.0).total_cmp(&b.used.unwrap_or(-1.0)))
+        .unwrap_or_default()
+}
+
+pub async fn gpu_usage() -> GpuSample {
     #[cfg(target_os = "macos")]
     {
         let mut command = tokio::process::Command::new("/usr/sbin/ioreg");
         command
             .args(["-r", "-c", "IOAccelerator", "-l"])
             .kill_on_drop(true);
-        let output = tokio::time::timeout(std::time::Duration::from_secs(1), command.output())
-            .await
-            .ok()?
-            .ok()?;
-        if output.status.success() {
-            return gpu_percent(&String::from_utf8_lossy(&output.stdout));
+        if let Ok(Ok(output)) =
+            tokio::time::timeout(std::time::Duration::from_secs(1), command.output()).await
+            && output.status.success()
+        {
+            return gpu_sample(&String::from_utf8_lossy(&output.stdout));
         }
     }
-    None
+    GpuSample::default()
 }
 
 #[cfg(test)]
@@ -164,6 +291,9 @@ mod tests {
         assert!(first.cpu.is_none());
         assert!(first.memory.is_some_and(|n| (0.0..=100.0).contains(&n)));
         assert!(first.storage.is_some_and(|n| (0.0..=100.0).contains(&n)));
+        assert!(first.cpu_note.contains("thread"));
+        assert!(first.memory_note.contains(" / "));
+        assert!(first.storage_note.contains(" / "));
         std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
         let second = sampler.sample(settings);
         assert!(second.cpu.is_some_and(|n| (0.0..=100.0).contains(&n)));
@@ -187,6 +317,7 @@ mod tests {
             gpu: Some(90.01),
             memory: Some(95.0),
             storage: Some(95.01),
+            ..Snapshot::default()
         };
         let gauges = snapshot.gauges(&settings);
         assert_eq!(
@@ -203,6 +334,7 @@ mod tests {
             gpu: Some(30.0),
             memory: Some(40.0),
             storage: Some(50.0),
+            ..Snapshot::default()
         };
         assert_eq!(
             normal
@@ -222,6 +354,79 @@ mod tests {
                 .gauges(&settings)
                 .iter()
                 .all(|g| !g.class.contains("warning") && !g.class.contains("critical"))
+        );
+    }
+
+    #[test]
+    fn capacity_notes_keep_useful_precision_with_binary_units() {
+        assert_eq!(
+            capacity_note(34 * 1024_u64.pow(3), 64 * 1024_u64.pow(3)),
+            "34.0 / 64.0 GiB"
+        );
+        assert_eq!(
+            capacity_note(750 * 1024_u64.pow(3), 2 * 1024_u64.pow(4)),
+            "750.0 GiB / 2.0 TiB"
+        );
+        assert_eq!(capacity_note(0, 512), "0 / 512 B");
+        assert_eq!(capacity_note(0, 0), "");
+    }
+
+    #[test]
+    fn hardware_notes_keep_available_model_and_processor_counts() {
+        assert_eq!(
+            hardware_note("Apple M1 Max", 10, "thread"),
+            "Apple M1 Max · 10 threads"
+        );
+        assert_eq!(hardware_note("  ", 1, "core"), "1 core");
+        assert_eq!(hardware_note("Apple M1 Max", 0, "core"), "Apple M1 Max");
+        assert_eq!(hardware_note("", 0, "thread"), "");
+    }
+
+    #[test]
+    fn graphics_notes_describe_the_device_with_the_reported_usage() {
+        let report = r#"+-o Integrated
+  | "model" = "Integrated GPU"
+  | "gpu-core-count" = 8
+  | "PerformanceStatistics" = {"Device Utilization %"=25}
++-o Discrete
+  | "model" = "Discrete GPU"
+  | "gpu-core-count" = 32
+  | "PerformanceStatistics" = {"Device Utilization %"=75}"#;
+        let sample = gpu_sample(report);
+        assert_eq!(sample.used, Some(75.0));
+        assert_eq!(sample.note, "Discrete GPU · 32 cores");
+        let missing = gpu_sample("");
+        assert_eq!(missing.used, None);
+        assert!(missing.note.is_empty());
+        let model_only = gpu_sample(r#""model" = "GPU""#);
+        assert_eq!(model_only.used, None);
+        assert_eq!(model_only.note, "GPU");
+    }
+
+    #[test]
+    fn gauges_include_their_own_supplementary_information() {
+        let snapshot = Snapshot {
+            cpu_note: "CPU details".into(),
+            gpu_note: "GPU details".into(),
+            memory_note: "34.0 / 64.0 GiB".into(),
+            storage_note: "700.0 / 950.0 GiB".into(),
+            ..Snapshot::default()
+        };
+        let gauges = snapshot.gauges(&UsageSettings::default());
+        assert_eq!(
+            gauges.iter().map(|g| g.note.as_str()).collect::<Vec<_>>(),
+            [
+                "CPU details",
+                "GPU details",
+                "34.0 / 64.0 GiB",
+                "700.0 / 950.0 GiB"
+            ]
+        );
+        assert!(
+            Snapshot::default()
+                .gauges(&UsageSettings::default())
+                .iter()
+                .all(|g| g.note.is_empty())
         );
     }
 
@@ -253,6 +458,7 @@ mod tests {
             gpu: None,
             memory: Some(50.0),
             storage: Some(75.0),
+            ..Snapshot::default()
         };
         let settings = crate::settings::UsageSettings::default();
         let gauges = snapshot.gauges(&settings);

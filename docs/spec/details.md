@@ -76,7 +76,8 @@ for the whole machine and capacity used on the startup volume, including in
 Shell and Neovim tabs.
 Each resource can be hidden independently in Settings. A resource that cannot
 be read is marked unavailable. Resources have distinct colors; high usage
-overrides those colors with a warning.
+overrides those colors with a warning. Memory and storage include used and
+total capacity; CPU and GPU include hardware information when available.
 
 The Usage header links to the shown agent's account usage settings in the
 default browser, where available resets and account limits can be managed.

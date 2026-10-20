@@ -276,6 +276,7 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .usage-resource.warning .usage-resource-value, .usage-resource.critical .usage-resource-value { color: var(--resource-color); }
 .usage-resource-track { height: 5px; border-radius: 3px; background: var(--select); overflow: hidden; }
 .usage-resource-fill { height: 100%; border-radius: inherit; background: var(--resource-color); }
+.usage-resource-note { color: var(--text-3); font-size: 10px; line-height: 1.4; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .footer { height: 30px; display: flex; align-items: center; gap: 14px; padding: 0 16px; font-size: 11.5px; color: var(--text-3); flex: none; }
 .footer { overflow: hidden; }
