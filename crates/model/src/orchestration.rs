@@ -46,7 +46,35 @@ ids!(
     RequestId,
     WorkAreaId,
     CoordinationId,
+    DraftId,
 );
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "profile",
+    content = "options",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
+pub enum AgentPermissions {
+    #[default]
+    Default,
+    ReadOnly,
+    Custom(Box<CustomPermissions>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "agent", rename_all = "lowercase", deny_unknown_fields)]
+pub enum CustomPermissions {
+    Claude {
+        permission_mode: String,
+        disallowed_tools: Vec<String>,
+    },
+    Codex {
+        approval_policy: String,
+        sandbox_mode: String,
+    },
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionRole {
@@ -58,7 +86,7 @@ pub enum SessionRole {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionBinding {
     logical_id: LogicalSessionId,
-    assignment: Assignment,
+    assignment: Box<Assignment>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,7 +112,7 @@ impl SessionBinding {
     pub fn leader(logical_id: LogicalSessionId, run_id: Option<RunId>) -> Self {
         Self {
             logical_id,
-            assignment: Assignment::Leader { run_id },
+            assignment: Box::new(Assignment::Leader { run_id }),
         }
     }
 
@@ -100,12 +128,12 @@ impl SessionBinding {
         }
         Ok(Self {
             logical_id,
-            assignment: Assignment::Worker {
+            assignment: Box::new(Assignment::Worker {
                 leader_id,
                 run_id,
                 task_id,
                 attempt_id,
-            },
+            }),
         })
     }
 
@@ -114,7 +142,7 @@ impl SessionBinding {
     }
 
     pub fn role(&self) -> SessionRole {
-        match self.assignment {
+        match *self.assignment {
             Assignment::Leader { .. } => SessionRole::Leader,
             Assignment::Worker { .. } => SessionRole::Worker,
         }
@@ -122,21 +150,21 @@ impl SessionBinding {
 
     /// The owner of this request, including the session itself for a leader.
     pub fn leader_id(&self) -> LogicalSessionId {
-        match self.assignment {
+        match *self.assignment {
             Assignment::Leader { .. } => self.logical_id,
             Assignment::Worker { leader_id, .. } => leader_id,
         }
     }
 
     pub fn run_id(&self) -> Option<RunId> {
-        match self.assignment {
+        match *self.assignment {
             Assignment::Leader { run_id } => run_id,
             Assignment::Worker { run_id, .. } => Some(run_id),
         }
     }
 
     pub fn work(&self) -> Option<(TaskId, AttemptId)> {
-        match self.assignment {
+        match *self.assignment {
             Assignment::Leader { .. } => None,
             Assignment::Worker {
                 task_id,

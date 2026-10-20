@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::SessionBinding;
+use crate::{AgentPermissions, SessionBinding};
 
 /// The program that owns a session's conversation.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -64,8 +64,7 @@ pub struct Session {
     pub started_ms: Option<u64>,
     /// The most recent input sent through Adroit, kept on the daemon session.
     pub last_input_ms: Option<u64>,
-    /// Started to read only: in plan mode, without the editing tools.
-    pub reader: bool,
+    pub permissions: AgentPermissions,
     /// The conversation of the session this one was started from; empty for
     /// one the user started.
     pub started_from: String,
@@ -74,7 +73,7 @@ pub struct Session {
 impl Session {
     /// Whether the session was started to read only.
     pub fn reads_only(&self) -> bool {
-        self.reader
+        self.permissions == AgentPermissions::ReadOnly
     }
 
     /// Whether adroit may stop the session's process and resume it in a
@@ -200,7 +199,7 @@ pub fn parse_agents(json: &str) -> Result<Vec<Session>, ParseError> {
                 },
                 started_ms: raw.started_at,
                 last_input_ms: None,
-                reader: false,
+                permissions: AgentPermissions::default(),
                 started_from: String::new(),
             }
         })

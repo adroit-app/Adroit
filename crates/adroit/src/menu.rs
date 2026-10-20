@@ -24,7 +24,6 @@ pub enum Target {
 pub fn entries(target: &Target, session: Option<&Session>) -> Vec<(Action, &'static str)> {
     let here = [
         (Action::SessionNew, "New session here"),
-        (Action::SessionNewReader, "New reader here"),
         (Action::ShellOpen, "Open a shell here"),
         (Action::NeovimOpen, "Open Neovim here"),
     ];
@@ -78,7 +77,7 @@ pub fn entries(target: &Target, session: Option<&Session>) -> Vec<(Action, &'sta
 /// clicked, starting something beside it, and ending or closing it.
 pub fn groups(target: &Target, session: Option<&Session>) -> Vec<Vec<(Action, &'static str)>> {
     let kin = |a: &Action| match a {
-        Action::SessionNew | Action::SessionNewReader | Action::ShellOpen | Action::NeovimOpen => 1,
+        Action::SessionNew | Action::ShellOpen | Action::NeovimOpen => 1,
         Action::SessionTakeOver | Action::SessionStop | Action::TabClose => 2,
         _ => 0,
     };
@@ -151,12 +150,7 @@ mod tests {
                     Action::CursorShow,
                     Action::SessionRename
                 ],
-                vec![
-                    Action::SessionNew,
-                    Action::SessionNewReader,
-                    Action::ShellOpen,
-                    Action::NeovimOpen,
-                ],
+                vec![Action::SessionNew, Action::ShellOpen, Action::NeovimOpen,],
                 vec![Action::SessionStop],
             ]
         );
@@ -166,7 +160,7 @@ mod tests {
         );
         let draft = Tab::Draft {
             worktree: "/a".into(),
-            role: crate::tabs::Role::Worker,
+            id: Default::default(),
         };
         assert!(grouped(Target::Tab(draft), None).is_empty());
     }
@@ -193,7 +187,6 @@ mod tests {
                 Action::CursorShow,
                 Action::SessionRename,
                 Action::SessionNew,
-                Action::SessionNewReader,
                 Action::ShellOpen,
                 Action::NeovimOpen,
                 Action::SessionStop,
@@ -213,12 +206,7 @@ mod tests {
 
     #[test]
     fn a_workspace_or_worktree_starts_sessions_and_shells_in_it() {
-        let here = [
-            Action::SessionNew,
-            Action::SessionNewReader,
-            Action::ShellOpen,
-            Action::NeovimOpen,
-        ];
+        let here = [Action::SessionNew, Action::ShellOpen, Action::NeovimOpen];
         assert_eq!(
             actions(Target::Row(Item::Workspace("/api".into())), None),
             [&[Action::CursorOpen][..], &here].concat()
@@ -237,7 +225,6 @@ mod tests {
                 Action::CursorOpen,
                 Action::CursorShow,
                 Action::SessionNew,
-                Action::SessionNewReader,
                 Action::ShellOpen,
                 Action::NeovimOpen,
                 Action::TabClose,

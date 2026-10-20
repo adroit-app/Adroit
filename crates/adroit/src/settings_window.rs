@@ -683,17 +683,15 @@ const MODELS: [&str; 3] = ["opus", "sonnet", "haiku"];
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum AgentSection {
     Sessions,
-    Readers,
     Launch,
 }
 
 impl AgentSection {
-    const ALL: [Self; 3] = [Self::Sessions, Self::Readers, Self::Launch];
+    const ALL: [Self; 2] = [Self::Sessions, Self::Launch];
 
     fn title(self) -> &'static str {
         match self {
             Self::Sessions => "Sessions",
-            Self::Readers => "Readers",
             Self::Launch => "Launch",
         }
     }
@@ -704,7 +702,6 @@ fn AgentsPane(agent: adroit_model::Agent, now: Settings, change: Callback<Change
     use adroit_model::Agent;
     let mut section = use_signal(|| AgentSection::Sessions);
     let adapter = crate::agents::adapter(agent);
-    let reader = section() == AgentSection::Readers;
     rsx! {
         div { class: "settings-agent-tabs", role: "group", aria_label: "Agent settings",
             for item in AgentSection::ALL {
@@ -720,9 +717,8 @@ fn AgentsPane(agent: adroit_model::Agent, now: Settings, change: Callback<Change
         }
         p { class: "settings-agent-note",
             match section() {
-                AgentSection::Launch => "How this agent starts for both sessions and readers.",
+                AgentSection::Launch => "How this agent starts.",
                 AgentSection::Sessions => "Defaults for new sessions. Running sessions keep their settings.",
-                AgentSection::Readers => "Defaults for new readers, separate from regular sessions.",
             }
         }
         if section() == AgentSection::Launch {
@@ -741,21 +737,21 @@ fn AgentsPane(agent: adroit_model::Agent, now: Settings, change: Callback<Change
             match agent {
                 Agent::Claude => rsx! {
                     SessionGroup {
-                        key: "claude-{reader}",
+                        key: "claude-{agent.key()}",
                         title: section().title(),
-                        options: if reader { now.readers.clone().into() } else { now.sessions.clone() },
+                        options: now.sessions.clone(),
                         set: move |options: SessionOptions| change(Box::new(move |s: &mut Settings| {
-                            if reader { s.readers = options.into(); } else { s.sessions = options; }
+                            s.sessions = options;
                         })),
                     }
                 },
                 Agent::Codex => rsx! {
                     CodexGroup {
-                        key: "codex-{reader}",
+                        key: "codex-{agent.key()}",
                         title: section().title(),
-                        options: if reader { now.codex_readers.clone() } else { now.codex_sessions.clone() },
+                        options: now.codex_sessions.clone(),
                         set: move |options: crate::agents::CodexOptions| change(Box::new(move |s: &mut Settings| {
-                            if reader { s.codex_readers = options; } else { s.codex_sessions = options; }
+                            s.codex_sessions = options;
                         })),
                     }
                 },

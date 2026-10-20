@@ -56,7 +56,7 @@ use crate::shells::{Request, Response, answer, ask, bind, serve, socket_path};
 use crate::status;
 use crate::style::{CSS, CellHeight, DEFAULT_CELL_HEIGHT};
 use crate::subagent_view::{SubagentView, agent_glyph};
-use crate::tabs::{self, Role, Tab, fresh_name, label_from, named, shows_prompt};
+use crate::tabs::{self, Tab, fresh_name, label_from, named, shows_prompt};
 use crate::themes;
 use crate::view::Keys;
 use crate::zoom;
@@ -1400,7 +1400,7 @@ fn App() -> Element {
     });
     // The agent chosen for a session not started yet, by its draft; the
     // default for new sessions otherwise.
-    let mut draft_agents = use_signal(HashMap::<Tab, adroit_model::Agent>::new);
+    let mut draft_options = use_signal(HashMap::<Tab, tabs::DraftOptions>::new);
     let mut last_agent = use_signal(|| None::<adroit_model::Agent>);
     let mut place = use_signal(|| None::<Place>);
     let mut shells = use_signal(Vec::<Shell>::new);
@@ -1931,7 +1931,7 @@ fn App() -> Element {
         let agent = agents::for_tab(
             &t,
             tab.as_ref(),
-            &draft_agents.read(),
+            &draft_options.read(),
             last_agent.read().unwrap_or(font.read().agent),
         );
         agents::adapter(agent)
@@ -2070,7 +2070,7 @@ fn App() -> Element {
                     let agent = agents::for_tab(
                         &tree.peek(),
                         active.peek().as_ref(),
-                        &draft_agents.peek(),
+                        &draft_options.peek(),
                         last_agent.peek().unwrap_or(settings::current().agent),
                     );
                     let in_sight =
@@ -2104,7 +2104,7 @@ fn App() -> Element {
             let _ = agents::for_tab(
                 &tree.read(),
                 active.read().as_ref(),
-                &draft_agents.read(),
+                &draft_options.read(),
                 last_agent.read().unwrap_or(font.read().agent),
             );
             wake.notify_one();
@@ -2587,7 +2587,7 @@ fn App() -> Element {
     // elsewhere by hand.
     use_effect(move || {
         let now = active.read().clone();
-        if let Some(tab @ Tab::Session(_)) = &now
+        if let Some(tab @ (Tab::Session(_) | Tab::Draft { .. })) = &now
             && !opened.peek().contains(tab)
         {
             opened.write().insert(tab.clone());
@@ -2651,7 +2651,7 @@ fn App() -> Element {
                     .map(|s| Tab::Session(s.id.clone()));
                 active.set(Some(first.unwrap_or(Tab::Draft {
                     worktree: path.clone(),
-                    role: Role::Worker,
+                    id: Default::default(),
                 })));
                 place.set(Some(p));
             }
@@ -2680,13 +2680,13 @@ fn App() -> Element {
         for sh in shells.read().iter().filter(|s| s.worktree == p.worktree) {
             out.push((Tab::Shell(sh.id), sh.name.clone(), None, false));
         }
-        if let Some(draft @ Tab::Draft { .. }) = active()
-            && let Tab::Draft { worktree, role, .. } = &draft
-            && *worktree == p.worktree
-        {
-            let title = role.draft_title().to_string();
-            let reader = *role == Role::Reader;
-            out.push((draft, title, None, reader));
+        for draft in tabs::drafts_in(&open, &p.worktree) {
+            let title = "new session".to_string();
+            let reader = draft_options
+                .read()
+                .get(draft)
+                .is_some_and(|o| o.permissions == adroit_model::AgentPermissions::ReadOnly);
+            out.push((draft.clone(), title, None, reader));
         }
         out
     });
@@ -2777,7 +2777,7 @@ fn App() -> Element {
                         let p = nav::start_place(&tree.peek(), last.as_ref(), &scratch_dir());
                         let draft = Tab::Draft {
                             worktree: p.worktree.clone(),
-                            role: Role::Worker,
+                            id: Default::default(),
                         };
                         place.set(Some(p));
                         active.set(Some(draft.clone()));
@@ -2792,7 +2792,7 @@ fn App() -> Element {
                 let agent = agents::for_tab(
                     &t,
                     Some(&tab),
-                    &draft_agents.peek(),
+                    &draft_options.peek(),
                     last_agent.peek().unwrap_or(launch_settings.agent),
                 );
                 let waiting = |id: &str| {
@@ -2889,15 +2889,22 @@ fn App() -> Element {
                         );
                         false
                     }
-                    Tab::Draft { worktree, role } => {
+                    Tab::Draft { worktree, id } => {
                         let (given, text) = named(&text);
                         let label = given.unwrap_or_else(|| label_from(&text));
                         let taken: Vec<&str> = t.sessions().map(|(_, s)| s.name.as_str()).collect();
                         let name = fresh_name(&label, &taken);
-                        let reader = role == Role::Reader;
+                        let options = draft_options
+                            .peek()
+                            .get(&Tab::Draft {
+                                worktree: worktree.clone(),
+                                id,
+                            })
+                            .cloned()
+                            .unwrap_or_default();
                         let draft = Tab::Draft {
                             worktree: worktree.clone(),
-                            role,
+                            id,
                         };
                         // Made only now, so a draft left unsent leaves no
                         // empty directory behind.
@@ -2908,7 +2915,8 @@ fn App() -> Element {
                                         agent,
                                         name: name.clone(),
                                         cwd: worktree,
-                                        read_only: reader,
+                                        model: options.model,
+                                        permissions: options.permissions,
                                         prompt: text,
                                         images: images.clone(),
                                         env: session_env(),
@@ -2938,7 +2946,8 @@ fn App() -> Element {
                         match started {
                             Ok(id) => {
                                 let id = sessions::hex(id);
-                                draft_agents.write().remove(&draft);
+                                draft_options.write().remove(&draft);
+                                opened.write().remove(&draft);
                                 hub.refresh.notify_one();
                                 selected.set(Some(Item::Session(id.clone())));
                                 active.set(Some(Tab::Session(id)));
@@ -2965,7 +2974,7 @@ fn App() -> Element {
 
     let mut choose_agent = move |tab: Option<Tab>, agent| {
         agents::choose(
-            &mut draft_agents.write(),
+            &mut draft_options.write(),
             tab,
             agent,
             &mut last_agent.write(),
@@ -2978,7 +2987,7 @@ fn App() -> Element {
             let now = agents::for_tab(
                 &tree.peek(),
                 tab.as_ref(),
-                &draft_agents.peek(),
+                &draft_options.peek(),
                 last_agent.peek().unwrap_or(settings::current().agent),
             );
             choose_agent(tab, now.next());
@@ -3040,7 +3049,7 @@ fn App() -> Element {
                         &now.name,
                         &now.cwd,
                         &now.session_id,
-                        false,
+                        &adroit_model::AgentPermissions::Default,
                         now_ms(),
                         None,
                     ),
@@ -3142,7 +3151,7 @@ fn App() -> Element {
         }));
         active.set(Some(Tab::Draft {
             worktree: dir,
-            role: Role::Worker,
+            id: Default::default(),
         }));
         focus.set(Area::Prompt);
         start_writing(nvim);
@@ -3544,7 +3553,7 @@ fn App() -> Element {
                     let agent = agents::for_tab(
                         &tree.read(),
                         Some(tab),
-                        &draft_agents.read(),
+                        &draft_options.read(),
                         last_agent.read().unwrap_or(font.read().agent),
                     );
                     active_pane()
@@ -3873,7 +3882,7 @@ fn App() -> Element {
                     let agent = agents::for_tab(
                         &tree.peek(),
                         tab.as_ref(),
-                        &draft_agents.peek(),
+                        &draft_options.peek(),
                         last_agent.peek().unwrap_or(settings::current().agent),
                     );
                     let back = action == Action::HistoryPrev;
@@ -4142,21 +4151,16 @@ fn App() -> Element {
                 }
                 Action::SessionPick => open_picker(),
                 Action::SessionScratch => choose(scratch_dir()),
-                Action::SessionNew | Action::SessionNewReader => {
+                Action::SessionNew => {
                     let p = cur
                         .as_ref()
                         .filter(|_| on_list)
                         .and_then(|c| nav::place_of(&tree.peek(), c))
                         .or_else(|| place.peek().clone());
                     if let Some(p) = p {
-                        let role = if action == Action::SessionNewReader {
-                            Role::Reader
-                        } else {
-                            Role::Worker
-                        };
                         active.set(Some(Tab::Draft {
                             worktree: p.worktree.clone(),
-                            role,
+                            id: Default::default(),
                         }));
                         place.set(Some(p));
                         focus.set(Area::Prompt);
@@ -4239,11 +4243,12 @@ fn App() -> Element {
                             close_shell(id, &hub.panes, shells, active, place, tree, prompts);
                         }
                         // The session runs on; only its tab goes.
-                        Some(tab @ Tab::Session(_)) => {
+                        Some(tab @ (Tab::Session(_) | Tab::Draft { .. })) => {
                             let listed: Vec<Tab> =
                                 tabs.peek().iter().map(|(t, ..)| t.clone()).collect();
                             let next = nav::tab_after(&listed, &tab);
                             opened.write().remove(&tab);
+                            draft_options.write().remove(&tab);
                             let _ = prompts.send(Op::Close(next.clone()));
                             active.set(next);
                         }
@@ -4873,7 +4878,7 @@ fn App() -> Element {
     let current_agent = agents::for_tab(
         &t,
         active_tab.as_ref(),
-        &draft_agents.read(),
+        &draft_options.read(),
         last_agent.read().unwrap_or(font.read().agent),
     );
     let usage_now = match usage_limits
@@ -4916,7 +4921,7 @@ fn App() -> Element {
             .find(|s| s.id == *n)
             .map(|s| s.name.clone())
             .unwrap_or_default(),
-        Some(Tab::Draft { role, .. }) => role.draft_title().into(),
+        Some(Tab::Draft { .. }) => "new session".into(),
         // A prompt sent now starts a session where it can only mean, or else
         // a scratch session.
         None => {
@@ -5182,7 +5187,6 @@ fn App() -> Element {
         .keys_in(&[Context::Details, Context::Sidebar], &Action::CursorFold)
         .unwrap_or_default();
     let k_new = km.keys_for(Context::Sidebar, &Action::SessionNew);
-    let k_reader = km.keys_for(Context::Sidebar, &Action::SessionNewReader);
     let k_shell = km.keys_for(Context::Sidebar, &Action::ShellOpen);
     let k_pick = km.keys_for(Context::Sidebar, &Action::SessionPick);
     let k_take_over = km.keys_for(Context::Console, &Action::SessionTakeOver);
@@ -5566,7 +5570,7 @@ fn App() -> Element {
                                 let t2 = tab.clone();
                                 let target = Target::Tab(tab.clone());
                                 let closing = Target::Tab(tab.clone());
-                                let closes = !matches!(tab, Tab::Draft { .. });
+                                let closes = true;
                                 let has_draft = drafted.read().contains(&tab);
                                 rsx! {
                                     span {
@@ -5582,7 +5586,7 @@ fn App() -> Element {
                                             span { class: "{g}", title: "{tip}", IconView { icon, size: 13 } }
                                         }
                                         if let Some(runs) = shell { Terminal { runs } }
-                                        if matches!(tab, Tab::Draft { role: Role::Worker, .. }) { span { class: "place-mark", IconView { icon: Icon::MessagePlus, size: 13 } } }
+                                        if matches!(tab, Tab::Draft { .. }) { span { class: "place-mark", IconView { icon: Icon::MessagePlus, size: 13 } } }
                                         "{name}"
                                         if reader { Book {} }
                                         if has_draft {
@@ -5621,10 +5625,10 @@ fn App() -> Element {
                             }
                         },
                         match (&active_tab, has_pane) {
-                            (Some(Tab::Draft { worktree, role, .. }), _) => rsx! {
+                            (Some(tab @ Tab::Draft { worktree, .. }), _) => rsx! {
                                 div { class: "console-empty",
-                                    IconView { icon: if *role == Role::Reader { Icon::Book } else { Icon::MessagePlus }, size: 28 }
-                                    div { class: "console-empty-title", "{role.draft_heading()}" }
+                                    IconView { icon: Icon::MessagePlus, size: 28 }
+                                    div { class: "console-empty-title", "New session" }
                                     AgentChoices {
                                         current: current_agent,
                                         keys: k_agent.clone(),
@@ -5640,8 +5644,12 @@ fn App() -> Element {
                                             }
                                         },
                                     }
-                                    if *role == Role::Reader {
-                                        div { "A reader reads and reports: it plans, and edits no files." }
+                                    DraftLaunchOptions {
+                                        options: draft_options.read().get(tab).cloned().unwrap_or_default(),
+                                        onchange: {
+                                            let tab = tab.clone();
+                                            move |options| { draft_options.write().insert(tab.clone(), options); }
+                                        },
                                     }
                                     if let Some(k) = k_send.clone() {
                                         div { "Write the first prompt below and press " Keys { keys: k } "." }
@@ -5692,8 +5700,6 @@ fn App() -> Element {
                                         if let Some(k) = k_open.clone() { Keys { keys: k } }
                                         ". On a workspace's row, start a session with "
                                         if let Some(k) = k_new.clone() { Keys { keys: k } }
-                                        ", a reader with "
-                                        if let Some(k) = k_reader.clone() { Keys { keys: k } }
                                         ", a shell with "
                                         if let Some(k) = k_shell.clone() { Keys { keys: k } }
                                         "."
@@ -6354,6 +6360,48 @@ fn AgentChoices(
     }
 }
 
+#[component]
+fn DraftLaunchOptions(
+    options: tabs::DraftOptions,
+    onchange: Callback<tabs::DraftOptions>,
+) -> Element {
+    let model_options = options.clone();
+    let permission_options = options.clone();
+    rsx! {
+        div {
+            class: "agent-choices",
+            onmousedown: move |event| event.stop_propagation(),
+            onkeydown: move |event| event.stop_propagation(),
+            input {
+                r#type: "text",
+                aria_label: "Session model",
+                placeholder: "Model (agent default)",
+                value: options.model.clone().unwrap_or_default(),
+                oninput: move |event| {
+                    let mut next = model_options.clone();
+                    let value = event.value();
+                    next.model = (!value.trim().is_empty()).then(|| value.trim().to_string());
+                    onchange.call(next);
+                },
+            }
+            select {
+                aria_label: "Session permissions",
+                value: if options.permissions == adroit_model::AgentPermissions::ReadOnly { "read_only" } else { "default" },
+                oninput: move |event| {
+                    let mut next = permission_options.clone();
+                    next.permissions = match event.value().as_str() {
+                        "read_only" => adroit_model::AgentPermissions::ReadOnly,
+                        _ => adroit_model::AgentPermissions::Default,
+                    };
+                    onchange.call(next);
+                },
+                option { value: "default", "Default permissions" }
+                option { value: "read_only", "Read only" }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -6407,7 +6455,7 @@ mod tests {
                 Tab::Session("session".into()),
                 Tab::Draft {
                     worktree: "/project".into(),
-                    role: Role::Worker,
+                    id: Default::default(),
                 },
             ] {
                 assert!(shows_usage(Some(&tab), agent));
@@ -6452,7 +6500,7 @@ mod tests {
         let draft = (
             Some(Tab::Draft {
                 worktree: "/w".into(),
-                role: Role::Worker,
+                id: Default::default(),
             }),
             String::new(),
         );

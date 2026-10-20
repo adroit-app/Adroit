@@ -117,7 +117,6 @@ impl Icon {
         Some(match action {
             A::SettingsOpen => Icon::Settings,
             A::SessionNew => Icon::MessagePlus,
-            A::SessionNewReader => Icon::Book,
             A::SessionScratch => Icon::Notes,
             A::SessionPick => Icon::Search,
             A::SessionAgentNext => Icon::ArrowsExchange,

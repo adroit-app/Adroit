@@ -90,14 +90,9 @@ impl AgentAdapter for Claude {
         settings: &Settings,
         name: &str,
         conversation: &str,
-        reader: bool,
         prompt: &str,
     ) -> Vec<String> {
-        let options = if reader {
-            settings.readers.options()
-        } else {
-            settings.sessions.options()
-        };
+        let options = settings.sessions.options();
         adroit_claude::start_args(name, conversation, &options, prompt)
     }
     fn integration_args(&self, program: &Path) -> Vec<String> {

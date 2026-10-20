@@ -34,7 +34,6 @@ pub const DEFAULTS: &str = r#"
 "Cmd+p" = "session.pick"
 "Ctrl+w ." = "console.send Ctrl+w"
 "Cmd+n" = "session.new"
-"Cmd+N" = "session.new_reader"
 "Cmd+Alt+n" = "session.scratch"
 "Cmd+s" = "shell.open"
 "Cmd+Alt+e" = "neovim.open"
@@ -71,7 +70,6 @@ pub const DEFAULTS: &str = r#"
 "] w" = "waiting.next"
 "[ w" = "waiting.prev"
 "n" = "session.new"
-"N" = "session.new_reader"
 "s" = "shell.open"
 "v" = "neovim.open"
 "x" = "tab.close"
@@ -457,7 +455,6 @@ actions! {
     SessionPrev => "session.prev",
     SessionPick => "session.pick",
     SessionNew => "session.new",
-    SessionNewReader => "session.new_reader",
     SessionScratch => "session.scratch",
     SessionTakeOver => "session.take_over",
     SessionStop => "session.stop",
@@ -923,10 +920,7 @@ mod tests {
             Step::Run(Action::SessionNew)
         );
         // A key the details panel leaves alone falls through to the sidebar's.
-        assert_eq!(
-            step(&map, &both, &[], "N"),
-            Step::Run(Action::SessionNewReader)
-        );
+        assert_eq!(step(&map, &both, &[], "N"), Step::Nothing);
     }
 
     #[test]

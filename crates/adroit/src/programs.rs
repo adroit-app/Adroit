@@ -107,52 +107,6 @@ impl SessionOptions {
     }
 }
 
-/// How a reader runs: as [`SessionOptions`], but what a table leaves out is
-/// a reader's own, planning with the tools that edit files denied.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct ReaderOptions {
-    pub model: String,
-    pub permission_mode: String,
-    pub disallowed_tools: Vec<String>,
-}
-
-impl Default for ReaderOptions {
-    fn default() -> Self {
-        Self {
-            model: String::new(),
-            permission_mode: "plan".into(),
-            disallowed_tools: ["Edit", "Write", "NotebookEdit"].map(String::from).to_vec(),
-        }
-    }
-}
-
-impl From<ReaderOptions> for SessionOptions {
-    fn from(r: ReaderOptions) -> Self {
-        Self {
-            model: r.model,
-            permission_mode: r.permission_mode,
-            disallowed_tools: r.disallowed_tools,
-        }
-    }
-}
-
-impl From<SessionOptions> for ReaderOptions {
-    fn from(s: SessionOptions) -> Self {
-        Self {
-            model: s.model,
-            permission_mode: s.permission_mode,
-            disallowed_tools: s.disallowed_tools,
-        }
-    }
-}
-
-impl ReaderOptions {
-    pub fn options(&self) -> adroit_claude::Options {
-        SessionOptions::from(self.clone()).options()
-    }
-}
-
 /// A command written as a shell would split it into words; `None` while a
 /// quote is left open.
 pub fn parse_command(text: &str) -> Option<Vec<String>> {

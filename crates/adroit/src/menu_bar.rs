@@ -72,7 +72,6 @@ pub fn sections() -> Vec<Section> {
             title: "Session",
             entries: vec![
                 Run(Action::SessionNew, "New Session"),
-                Run(Action::SessionNewReader, "New Reader"),
                 Run(Action::SessionScratch, "New Scratch Session"),
                 Run(Action::SessionAgentNext, "Switch Agent of New Session"),
                 Run(Action::SessionPick, "Go to or Start Session…"),
@@ -439,7 +438,6 @@ mod tests {
     fn an_entry_shows_the_command_key_bound_to_its_action_everywhere() {
         let map = Keymap::defaults();
         assert_eq!(shown(&map, Action::SessionNew), Some("Cmd+n".into()));
-        assert_eq!(shown(&map, Action::SessionNewReader), Some("Cmd+N".into()));
         assert_eq!(shown(&map, Action::SessionPick), Some("Cmd+p".into()));
         assert_eq!(
             shown(&map, Action::SessionScratch),
@@ -546,15 +544,7 @@ mod tests {
         for letter in MENU_KEYS {
             assert!(held.contains(&letter.to_string()), "{letter}");
         }
-        for chord in [
-            "Cmd+n",
-            "Cmd+N",
-            "Cmd+p",
-            "Cmd+,",
-            "Cmd+Ctrl+f",
-            "Cmd+w",
-            "Cmd+W",
-        ] {
+        for chord in ["Cmd+n", "Cmd+p", "Cmd+,", "Cmd+Ctrl+f", "Cmd+w", "Cmd+W"] {
             assert!(held.contains(&chord.to_string()), "{chord}");
         }
         // The window takes what the menu does not show.
@@ -565,12 +555,7 @@ mod tests {
     #[test]
     fn a_held_key_is_written_as_the_window_reports_it() {
         let held = left_to_menu(&Keymap::defaults());
-        for (key, shift, alt) in [
-            ("n", false, false),
-            ("N", true, false),
-            ("b", false, true),
-            ("n", false, true),
-        ] {
+        for (key, shift, alt) in [("n", false, false), ("b", false, true), ("n", false, true)] {
             let pressed = Chord::pressed(key, false, alt, shift, true).unwrap();
             assert!(held.contains(&pressed), "{pressed}");
         }

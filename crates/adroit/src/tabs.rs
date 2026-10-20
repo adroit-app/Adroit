@@ -1,6 +1,9 @@
 //! The tabs above the console: the sessions and shells of one worktree.
 
-use std::path::PathBuf;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+
+use adroit_model::{Agent, AgentPermissions, DraftId};
 
 /// What a tab shows.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -10,7 +13,7 @@ pub enum Tab {
     /// A shell adroit started in a worktree, by the daemon's id.
     Shell(u128),
     /// A session not started yet: the next prompt sent from here starts it.
-    Draft { worktree: PathBuf, role: Role },
+    Draft { worktree: PathBuf, id: DraftId },
 }
 
 /// Whether the prompt is shown under the console while `tab` is: a shell
@@ -19,29 +22,41 @@ pub fn shows_prompt(tab: Option<&Tab>) -> bool {
     !matches!(tab, Some(Tab::Shell(_)))
 }
 
-/// What a session started from a draft is for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Role {
-    /// Works in its worktree.
-    Worker,
-    /// Reads and reports, without editing.
-    Reader,
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DraftOptions {
+    pub agent: Option<Agent>,
+    pub model: Option<String>,
+    pub permissions: AgentPermissions,
 }
 
-impl Role {
-    /// What the tab of a draft with this role says.
-    /// The title, as a heading starts.
-    pub fn draft_heading(self) -> String {
-        let title = self.draft_title();
-        title[..1].to_uppercase() + &title[1..]
-    }
-
-    pub fn draft_title(self) -> &'static str {
-        match self {
-            Role::Worker => "new session",
-            Role::Reader => "new reader",
+impl From<Agent> for DraftOptions {
+    fn from(agent: Agent) -> Self {
+        Self {
+            agent: Some(agent),
+            ..Self::default()
         }
     }
+}
+
+impl Tab {
+    pub fn draft(worktree: impl Into<PathBuf>) -> Self {
+        Self::Draft {
+            worktree: worktree.into(),
+            id: DraftId::new(),
+        }
+    }
+}
+
+pub fn drafts_in<'a>(opened: &'a HashSet<Tab>, worktree: &Path) -> Vec<&'a Tab> {
+    let mut drafts: Vec<_> = opened
+        .iter()
+        .filter(|tab| matches!(tab, Tab::Draft { worktree: path, .. } if path == worktree))
+        .collect();
+    drafts.sort_by_key(|tab| match tab {
+        Tab::Draft { id, .. } => id.to_string(),
+        _ => unreachable!(),
+    });
+    drafts
 }
 
 /// Words that say little about what a session is for.
@@ -169,7 +184,7 @@ mod tests {
     fn a_shell_shows_no_prompt_and_a_session_a_draft_or_nothing_open_does() {
         let draft = Tab::Draft {
             worktree: PathBuf::from("/w"),
-            role: Role::Worker,
+            id: Default::default(),
         };
         assert!(!shows_prompt(Some(&Tab::Shell(1))));
         assert!(shows_prompt(Some(&Tab::Session("a".into()))));
@@ -185,17 +200,11 @@ mod tests {
         }
         let draft = Tab::Draft {
             worktree: "/src".into(),
-            role: Role::Worker,
+            id: Default::default(),
         };
         assert_eq!(kept_name(&draft), None);
         assert_eq!(from_kept("shell:not hex"), None);
         assert_eq!(from_kept("something else"), None);
-    }
-
-    #[test]
-    fn a_draft_is_headed_with_what_it_starts() {
-        assert_eq!(Role::Worker.draft_heading(), "New session");
-        assert_eq!(Role::Reader.draft_heading(), "New reader");
     }
 
     #[test]

@@ -1124,7 +1124,7 @@ mod tests {
     fn a_reader_says_so_and_an_unknown_start_is_left_out() {
         let s = Session {
             name: "demo/look".into(),
-            reader: true,
+            permissions: adroit_model::AgentPermissions::ReadOnly,
             kind: Kind::Interactive,
             state: State::Idle,
             ..Default::default()

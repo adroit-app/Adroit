@@ -17,15 +17,6 @@ pub struct CodexOptions {
     pub sandbox_mode: String,
 }
 
-impl CodexOptions {
-    pub fn reader() -> Self {
-        Self {
-            sandbox_mode: "read-only".into(),
-            ..Self::default()
-        }
-    }
-}
-
 pub struct Codex;
 
 impl AgentAdapter for Codex {
@@ -197,15 +188,10 @@ impl AgentAdapter for Codex {
         settings: &Settings,
         _name: &str,
         _conversation: &str,
-        reader: bool,
         prompt: &str,
     ) -> Vec<String> {
         let mut args = vec!["--no-alt-screen".into()];
-        let options = if reader {
-            &settings.codex_readers
-        } else {
-            &settings.codex_sessions
-        };
+        let options = &settings.codex_sessions;
         let model = options.model.trim();
         if !model.is_empty() {
             args.extend(["--model".into(), model.into()]);
@@ -242,57 +228,10 @@ mod tests {
     }
 
     #[test]
-    fn each_role_passes_its_own_codex_options_before_the_prompt() {
-        let mut settings = Settings {
-            codex_sessions: CodexOptions {
-                model: "worker".into(),
-                reasoning_effort: "high".into(),
-                approval_policy: "on-request".into(),
-                sandbox_mode: "workspace-write".into(),
-            },
-            codex_readers: CodexOptions {
-                model: "reader".into(),
-                reasoning_effort: "low".into(),
-                approval_policy: "never".into(),
-                sandbox_mode: "read-only".into(),
-            },
-            ..Settings::default()
-        };
-        for (reader, model, effort, approval, sandbox) in [
-            (false, "worker", "high", "on-request", "workspace-write"),
-            (true, "reader", "low", "never", "read-only"),
-        ] {
-            assert_eq!(
-                Codex.start_args(&settings, "", "", reader, "--help"),
-                [
-                    "--no-alt-screen",
-                    "--model",
-                    model,
-                    "-c",
-                    &format!("model_reasoning_effort=\"{effort}\""),
-                    "--ask-for-approval",
-                    approval,
-                    "--sandbox",
-                    sandbox,
-                    "--",
-                    "--help",
-                ]
-            );
-        }
-        settings.codex_readers = CodexOptions::default();
-        assert_eq!(
-            Codex.start_args(&settings, "", "", true, "read"),
-            ["--no-alt-screen", "--", "read"]
-        );
-    }
-
-    #[test]
-    fn sessions_and_readers_keep_their_output_in_terminal_scrollback() {
-        for reader in [false, true] {
-            let args = Codex.start_args(&Settings::default(), "fix", "", reader, "hello");
-            let options = args.split(|arg| arg == "--").next().unwrap();
-            assert!(options.iter().any(|arg| arg == "--no-alt-screen"));
-        }
+    fn sessions_keep_their_output_in_terminal_scrollback() {
+        let args = Codex.start_args(&Settings::default(), "fix", "", "hello");
+        let options = args.split(|arg| arg == "--").next().unwrap();
+        assert!(options.iter().any(|arg| arg == "--no-alt-screen"));
     }
 
     #[test]

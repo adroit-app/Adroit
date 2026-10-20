@@ -87,15 +87,6 @@ reasoning_effort = ""
 approval_policy = ""
 sandbox_mode = ""
 
-# Codex readers have independent options and default to a read-only sandbox.
-# An older file without this table keeps using the sessions' model for readers
-# until the reader options are saved.
-[codex_readers]
-model = ""
-reasoning_effort = ""
-approval_policy = ""
-sandbox_mode = "read-only"
-
 # How a Neovim tab's Neovim starts, as Claude Code does: empty for `nvim`.
 [neovim]
 command = []
@@ -103,20 +94,14 @@ via_shell = false
 
 [neovim.env]
 
-# How Claude Code sessions run, and how a Claude Code reader runs: the model it starts with, as
+# How Claude Code sessions run: the model it starts with, as
 # Claude Code's `--model` takes it; its permission mode, one of `default`,
 # `acceptEdits`, `plan` and `bypassPermissions`; and the tools denied it.
-# What is left empty is Claude Code's own choice; a reader plans and edits
-# nothing unless told otherwise.
+# What is left empty is Claude Code's own choice.
 [sessions]
 model = ""
 permission_mode = ""
 disallowed_tools = []
-
-[readers]
-model = ""
-permission_mode = "plan"
-disallowed_tools = ["Edit", "Write", "NotebookEdit"]
 
 # Where the picker looks for directories to start a session in: the
 # repositories ghq keeps, and the folders in each of `roots`, `~` standing for
@@ -157,7 +142,7 @@ are; a POSIX shell or fish can do so. The Settings window changes the same
 settings, a command written there as a shell would split it.
 
 Choose an agent under Agents to change its launch options and the defaults
-for its sessions and readers. Only that agent's options are offered; changes
+for its sessions. Only that agent's options are offered; changes
 do not affect other agents or sessions already running. General sets the
 agent new sessions start with. Programs holds the shell and Neovim options.
 

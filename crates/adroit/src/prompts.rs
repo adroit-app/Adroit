@@ -435,7 +435,7 @@ mod tests {
     fn what_is_written_with_nothing_open_goes_to_the_draft_opened_next() {
         let draft = Some(Tab::Draft {
             worktree: "/src".into(),
-            role: crate::tabs::Role::Worker,
+            id: Default::default(),
         });
         let mut d = Drafts::default();
         assert_eq!(
@@ -466,7 +466,7 @@ mod tests {
     fn a_draft_tab_s_text_is_not_kept_past_the_window_but_nothing_open_s_is() {
         let draft = Some(Tab::Draft {
             worktree: "/src".into(),
-            role: crate::tabs::Role::Worker,
+            id: Default::default(),
         });
         let mut d = Drafts::default();
         d.show(draft, String::new());

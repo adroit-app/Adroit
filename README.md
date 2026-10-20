@@ -65,14 +65,14 @@ idle sleep, so they go on with the display off
 Start a session as usual and choose Codex on its draft, by clicking it or with
 `Cmd+g`; Settings → General → Agent sets which a draft starts with.
 Settings → Agents → Codex configures its command and environment, with
-separate session and reader options for model, reasoning, approvals and
-sandbox. Sessions already running keep their agent, so both can run together. From a terminal:
+session defaults for model, reasoning, approvals and sandbox. Each draft can
+override its model and select a permission profile. Sessions already running keep their agent, so both can run together. From a terminal:
 
 ```sh
 adroit session start --agent codex --dir ~/src/api -- "Review the API"
 ```
 
-Codex readers use its read-only sandbox. External Codex discovery and
+Read-only Codex sessions use its read-only sandbox. External Codex discovery and
 takeover, embedded prompt history and slash completion, usage limits and
 transcript-derived details are not yet supported. Use `Ctrl-g i` to operate
 Codex's commands and menus directly; `Esc` returns to Adroit. See
@@ -87,8 +87,7 @@ From anywhere, the prompt included: `Cmd-]` `Cmd-[` (or `Ctrl-w n` `Ctrl-w p`)
 show the next or previous tab of the panel the keys are in, the console's
 tabs or the details panel's overview, changes and log, which `Cmd-1` to
 `Cmd-3` also show one by one; `Cmd-o` chooses where a new session
-works, `Cmd-n` starts one where the console is (`Cmd-Shift-n` a reader,
-`Cmd-Option-n` a scratch session that needs no directory chosen),
+works, `Cmd-n` starts one where the console is (`Cmd-Option-n` a scratch session that needs no directory chosen),
 `Cmd-s` opens a shell there, `Cmd-f` filters the sidebar, `Cmd-e` lists every
 worktree, `Cmd-r` refreshes, `Cmd-t` takes over a session and
 `Cmd-Backspace` ends one.
@@ -102,7 +101,6 @@ worktree, `Cmd-r` refreshes, `Cmd-t` takes over a session and
 | `]w` `[w` | the next or previous session waiting on you, with the console ready to answer it; `Ctrl-w ]` `Ctrl-w [` from anywhere |
 | `w` | choose where a new session works |
 | `n` | start a session in the selected worktree or directory |
-| `N` | start a session that only reads |
 | `s` `x` | open a shell in the worktree; close the current tab, ending a shell or putting a session back to the sidebar only |
 | `t` | take over an interactive session ([details](docs/spec/interactive-sessions.md)) |
 | `X` | end a session; Claude Code keeps its conversation, for `/resume` |

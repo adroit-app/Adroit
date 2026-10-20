@@ -9,7 +9,7 @@ use tokio::sync::broadcast;
 
 pub use crate::agents::CodexOptions;
 use crate::paths::config_dir;
-pub use crate::programs::{Launch, ReaderOptions, SessionOptions, ShellLaunch};
+pub use crate::programs::{Launch, SessionOptions, ShellLaunch};
 
 /// Which Option keys count as Alt, sending Meta, in a console; the others type
 /// what macOS makes of the key with Option, as `Option-2` typing `™`.
@@ -103,7 +103,6 @@ pub struct Settings {
     /// How Codex is started.
     pub codex: Launch,
     pub codex_sessions: CodexOptions,
-    pub codex_readers: CodexOptions,
     /// How far the window is zoomed when it opens.
     pub zoom: f64,
     /// The fewest lines the prompt shows.
@@ -131,10 +130,8 @@ pub struct Settings {
     pub claude: Launch,
     /// How a Neovim tab's Neovim is started.
     pub neovim: Launch,
-    /// How every session but a reader runs.
+    /// How ordinary Claude Code sessions run.
     pub sessions: SessionOptions,
-    /// How a reader runs.
-    pub readers: ReaderOptions,
     /// Where scratch sessions run; empty for adroit's own folder.
     pub scratch_dir: String,
     /// Where the picker looks for directories to start a session in.
@@ -156,7 +153,6 @@ impl Default for Settings {
             agent: adroit_model::Agent::Claude,
             codex: Launch::default(),
             codex_sessions: CodexOptions::default(),
-            codex_readers: CodexOptions::reader(),
             zoom: 1.0,
             prompt_min_rows: 3,
             prompt_max_rows: 12,
@@ -170,7 +166,6 @@ impl Default for Settings {
             claude: Launch::default(),
             neovim: Launch::default(),
             sessions: SessionOptions::default(),
-            readers: ReaderOptions::default(),
             scratch_dir: String::new(),
             picker: PickerSettings::default(),
             console: ConsoleSettings::default(),
@@ -292,20 +287,7 @@ impl Settings {
         for key in RETIRED {
             table.remove(*key);
         }
-        let legacy_readers = !table.contains_key("codex_readers");
-        if let Some(readers) = table
-            .get_mut("codex_readers")
-            .and_then(toml::Value::as_table_mut)
-        {
-            readers
-                .entry("sandbox_mode")
-                .or_insert_with(|| "read-only".into());
-        }
-        let mut settings = Settings::deserialize(table)?.sane();
-        if legacy_readers {
-            settings.codex_readers.model = settings.codex_sessions.model.clone();
-        }
-        Ok(settings)
+        Ok(Settings::deserialize(table)?.sane())
     }
 
     /// The settings kept, or as designed when there are none or they cannot
@@ -407,43 +389,6 @@ mod tests {
     }
 
     #[test]
-    fn codex_readers_keep_legacy_models_until_their_own_options_are_saved() {
-        let legacy = Settings::parse("[codex_sessions]\nmodel = \"legacy\"\n").unwrap();
-        assert_eq!(legacy.codex_readers.model, "legacy");
-        assert_eq!(legacy.codex_readers.sandbox_mode, "read-only");
-        let settings = Settings::parse(
-            r#"
-[codex_sessions]
-model = "worker"
-reasoning_effort = "high"
-approval_policy = "on-request"
-sandbox_mode = "workspace-write"
-[codex_readers]
-model = "reader"
-reasoning_effort = "low"
-approval_policy = "never"
-sandbox_mode = "read-only"
-"#,
-        )
-        .unwrap();
-        assert_eq!(settings.codex_sessions.model, "worker");
-        assert_eq!(settings.codex_readers.model, "reader");
-        assert_eq!(settings.codex_readers.reasoning_effort, "low");
-        assert_eq!(
-            Settings::parse(&toml::to_string_pretty(&settings).unwrap()).unwrap(),
-            settings
-        );
-        let own =
-            Settings::parse("[codex_sessions]\nmodel = \"worker\"\n[codex_readers]\n").unwrap();
-        assert!(own.codex_readers.model.is_empty());
-        assert_eq!(own.codex_readers.sandbox_mode, "read-only");
-        let inherited = Settings::parse("[codex_readers]\nmodel = \"reader\"\n").unwrap();
-        assert_eq!(inherited.codex_readers.sandbox_mode, "read-only");
-        let explicit = Settings::parse("[codex_readers]\nsandbox_mode = \"\"\n").unwrap();
-        assert!(explicit.codex_readers.sandbox_mode.is_empty());
-    }
-
-    #[test]
     fn codex_has_its_own_launch_and_model_and_claude_remains_the_default() {
         assert_eq!(
             Settings::parse("").unwrap().agent,
@@ -535,7 +480,6 @@ model = "chosen-model"
             agent: adroit_model::Agent::Claude,
             codex: Launch::default(),
             codex_sessions: CodexOptions::default(),
-            codex_readers: CodexOptions::reader(),
             zoom: 1.1,
             prompt_min_rows: 2,
             prompt_max_rows: 20,
@@ -563,7 +507,6 @@ model = "chosen-model"
                 model: "opus".into(),
                 ..SessionOptions::default()
             },
-            readers: ReaderOptions::default(),
             scratch_dir: "~/notes".into(),
             picker: PickerSettings {
                 ghq: false,
@@ -629,27 +572,6 @@ model = "chosen-model"
         assert_eq!(reread(&now, &toml::to_string_pretty(&now).unwrap()), None);
         assert_eq!(reread(&now, "zoom = "), None);
         assert_eq!(reread(&now, "colour = \"red\"\n"), None);
-    }
-
-    #[test]
-    fn sessions_and_readers_run_with_the_model_mode_and_tools_the_settings_name() {
-        let s = Settings::parse("").unwrap();
-        assert_eq!(s.sessions, SessionOptions::default());
-        // A reader plans and edits nothing unless told otherwise.
-        assert_eq!(s.readers.permission_mode, "plan");
-        assert_eq!(
-            s.readers.disallowed_tools,
-            ["Edit", "Write", "NotebookEdit"]
-        );
-        let s = Settings::parse(
-            "[sessions]\nmodel = \"opus\"\npermission_mode = \"acceptEdits\"\n[readers]\ndisallowed_tools = []\n",
-        )
-        .unwrap();
-        assert_eq!(
-            s.sessions.options().args(),
-            ["--model", "opus", "--permission-mode", "acceptEdits"]
-        );
-        assert_eq!(s.readers.options().args(), ["--permission-mode", "plan"]);
     }
 
     #[test]

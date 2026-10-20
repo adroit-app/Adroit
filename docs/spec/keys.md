@@ -164,7 +164,6 @@ another, the complete one runs.
 | `session.next`, `session.prev` | open the session after or before the one shown, in the sidebar's order over every session, folded away or filtered out too, going round at the ends; the keys stay in the area they are in |
 | `session.pick` | open the picker, to go to a session or choose where a new one works ([details](workspaces.md#going-to-a-session-or-starting-one)) |
 | `session.new` | start a session, with the prompt ready to write its first message: in the selected row's worktree or directory from the sidebar, in the one the console shows from elsewhere |
-| `session.new_reader` | start a session that only reads, as `session.new` does |
 | `session.scratch` | start a scratch session, with the prompt ready: one that runs in a new directory of its own, for talking about something no project holds ([details](workspaces.md#scratch-sessions)) |
 | `session.agent_next` | while a session not started yet is shown, switch the agent it is to run to the next one ([details](sessions.md#agents)) |
 | `session.take_over` | take over an interactive session ([details](interactive-sessions.md)) |
@@ -221,7 +220,6 @@ another, the complete one runs.
 "Cmd+p" = "session.pick"
 "Ctrl+w ." = "console.send Ctrl+w"
 "Cmd+n" = "session.new"
-"Cmd+N" = "session.new_reader"
 "Cmd+Alt+n" = "session.scratch"
 "Cmd+s" = "shell.open"
 "Cmd+Alt+e" = "neovim.open"
@@ -258,7 +256,6 @@ another, the complete one runs.
 "] w" = "waiting.next"
 "[ w" = "waiting.prev"
 "n" = "session.new"
-"N" = "session.new_reader"
 "s" = "shell.open"
 "v" = "neovim.open"
 "x" = "tab.close"

@@ -13,7 +13,7 @@ pub const NAME: &str = "adroit.name";
 const CWD: &str = "adroit.cwd";
 const STARTED: &str = "adroit.started";
 const LAST_INPUT: &str = "adroit.last-input";
-const READER: &str = "adroit.reader";
+const PERMISSIONS: &str = "adroit.permissions";
 /// The conversation a session holds. The tag keeps its original spelling
 /// so sessions started by earlier versions still carry their conversation.
 const CONVERSATION: &str = "adroit.claude";
@@ -91,7 +91,10 @@ pub fn read(session: &adroit_term::Session) -> Option<Kept> {
                 .unwrap_or_default(),
             started_ms: tags::value(t, STARTED).and_then(|s| s.parse().ok()),
             last_input_ms: tags::value(t, LAST_INPUT).and_then(|s| s.parse().ok()),
-            reader: tags::value(t, READER).is_some(),
+            permissions: match tags::value(t, PERMISSIONS) {
+                Some(raw) => serde_json::from_str(&raw).ok()?,
+                None => adroit_model::AgentPermissions::Default,
+            },
             started_from: tags::value(t, STARTED_FROM).unwrap_or_default(),
         })),
         kind @ ("shell" | "nvim") => Some(Kept::Shell(Shell {
@@ -165,7 +168,7 @@ pub fn claude_tags(
     name: &str,
     cwd: &std::path::Path,
     conversation: &str,
-    reader: bool,
+    permissions: &adroit_model::AgentPermissions,
     started_ms: u64,
     started_from: Option<&str>,
 ) -> Vec<String> {
@@ -174,9 +177,10 @@ pub fn claude_tags(
     out.extend(tags::tagged(CWD, &cwd.to_string_lossy()));
     out.extend(tags::tagged(STARTED, &started_ms.to_string()));
     out.extend(tags::tagged(CONVERSATION, conversation));
-    if reader {
-        out.extend(tags::tagged(READER, "1"));
-    }
+    out.extend(tags::tagged(
+        PERMISSIONS,
+        &serde_json::to_string(permissions).expect("serializable permissions"),
+    ));
     if let Some(from) = started_from {
         out.extend(tags::tagged(STARTED_FROM, from));
     }
@@ -190,11 +194,18 @@ pub fn agent_tags(
     name: &str,
     cwd: &std::path::Path,
     conversation: &str,
-    reader: bool,
+    permissions: &adroit_model::AgentPermissions,
     started_ms: u64,
     started_from: Option<&str>,
 ) -> Vec<String> {
-    let mut out = claude_tags(name, cwd, conversation, reader, started_ms, started_from);
+    let mut out = claude_tags(
+        name,
+        cwd,
+        conversation,
+        permissions,
+        started_ms,
+        started_from,
+    );
     out.retain(|t| {
         !t.starts_with("adroit.kind=")
             && (!conversation.is_empty() || !t.starts_with("adroit.claude="))
@@ -305,7 +316,7 @@ mod tests {
                 "fix",
                 std::path::Path::new("/api"),
                 "",
-                true,
+                &adroit_model::AgentPermissions::ReadOnly,
                 42,
                 None,
             ),
@@ -320,7 +331,7 @@ mod tests {
         };
         assert_eq!(c.agent, adroit_model::Agent::Codex);
         assert_eq!(c.state, State::Working);
-        assert!(c.reader);
+        assert!(c.reads_only());
         assert!(c.session_id.is_empty());
         let mut own = [c];
         let (_, learned) = follow(&mut own, vec![listed("claude-uuid", 42)]);
@@ -331,7 +342,14 @@ mod tests {
     fn a_claude_session_is_read_back_from_its_tags_and_status() {
         let mut s = kept(
             7,
-            claude_tags("fix", std::path::Path::new("/api"), "uuid", true, 42, None),
+            claude_tags(
+                "fix",
+                std::path::Path::new("/api"),
+                "uuid",
+                &adroit_model::AgentPermissions::ReadOnly,
+                42,
+                None,
+            ),
         );
         s.status = Some(Status {
             state: "blocked".into(),
@@ -356,7 +374,14 @@ mod tests {
     fn a_session_goes_by_its_conversation_before_it_reports_anything() {
         let s = kept(
             7,
-            claude_tags("fix", std::path::Path::new("/api"), "uuid", false, 0, None),
+            claude_tags(
+                "fix",
+                std::path::Path::new("/api"),
+                "uuid",
+                &adroit_model::AgentPermissions::Default,
+                0,
+                None,
+            ),
         );
         let Some(Kept::Agent(c)) = read(&s) else {
             panic!("not a session");
@@ -374,7 +399,7 @@ mod tests {
                 "fix",
                 std::path::Path::new("/api"),
                 "uuid",
-                false,
+                &adroit_model::AgentPermissions::Default,
                 0,
                 Some("parent-uuid"),
             ),
@@ -389,7 +414,14 @@ mod tests {
     fn a_session_that_reported_nothing_is_idle() {
         let s = kept(
             7,
-            claude_tags("fix", std::path::Path::new("/api"), "uuid", false, 0, None),
+            claude_tags(
+                "fix",
+                std::path::Path::new("/api"),
+                "uuid",
+                &adroit_model::AgentPermissions::Default,
+                0,
+                None,
+            ),
         );
         let Some(Kept::Agent(c)) = read(&s) else {
             panic!("not a session");
@@ -430,7 +462,7 @@ mod tests {
             "fix",
             std::path::Path::new("/api"),
             conversation,
-            false,
+            &adroit_model::AgentPermissions::Default,
             0,
             None,
         );

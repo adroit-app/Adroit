@@ -91,7 +91,6 @@ pub trait AgentAdapter: Sync {
         settings: &Settings,
         name: &str,
         conversation: &str,
-        reader: bool,
         prompt: &str,
     ) -> Vec<String>;
     fn integration_args(&self, _program: &Path) -> Vec<String> {
@@ -126,16 +125,17 @@ pub fn adapter(agent: Agent) -> &'static dyn AgentAdapter {
 pub fn for_tab(
     tree: &adroit_model::Tree,
     tab: Option<&crate::tabs::Tab>,
-    chosen: &HashMap<crate::tabs::Tab, Agent>,
+    chosen: &HashMap<crate::tabs::Tab, crate::tabs::DraftOptions>,
     fallback: Agent,
 ) -> Agent {
     match tab {
         Some(crate::tabs::Tab::Session(id)) => {
             crate::nav::find(tree, id).map_or(fallback, |(_, s)| s.agent)
         }
-        Some(draft @ crate::tabs::Tab::Draft { .. }) => {
-            chosen.get(draft).copied().unwrap_or(fallback)
-        }
+        Some(draft @ crate::tabs::Tab::Draft { .. }) => chosen
+            .get(draft)
+            .and_then(|options| options.agent)
+            .unwrap_or(fallback),
         _ => fallback,
     }
 }
@@ -146,7 +146,7 @@ pub fn can_choose(tab: Option<&crate::tabs::Tab>) -> bool {
 
 /// Remember the choice for subsequent drafts, and for the open draft, if any.
 pub fn choose(
-    chosen: &mut HashMap<crate::tabs::Tab, Agent>,
+    chosen: &mut HashMap<crate::tabs::Tab, crate::tabs::DraftOptions>,
     tab: Option<crate::tabs::Tab>,
     agent: Agent,
     last: &mut Option<Agent>,
@@ -155,7 +155,7 @@ pub fn choose(
         return;
     }
     if let Some(draft) = tab {
-        chosen.insert(draft, agent);
+        chosen.entry(draft).or_default().agent = Some(agent);
     }
     *last = Some(agent);
 }
@@ -236,12 +236,12 @@ mod tests {
         settings.codex_sessions.model = "codex-model".into();
         let a = adapter(Agent::Codex);
         assert_eq!(
-            a.start_args(&settings, "fix", "", false, "--help"),
+            a.start_args(&settings, "fix", "", "--help"),
             ["--no-alt-screen", "--model", "codex-model", "--", "--help"]
         );
         assert_eq!(
-            a.start_args(&Settings::default(), "fix", "", true, "read"),
-            ["--no-alt-screen", "--sandbox", "read-only", "--", "read"]
+            a.start_args(&Settings::default(), "fix", "", "read"),
+            ["--no-alt-screen", "--", "read"]
         );
         assert!(a.conversation().is_empty());
         assert!(a.capabilities().transcript);
@@ -286,15 +286,16 @@ mod tests {
 
     #[test]
     fn a_draft_runs_the_agent_chosen_for_it_and_otherwise_the_default() {
-        use crate::tabs::{Role, Tab};
+        use crate::tabs::Tab;
         let draft = |dir: &str| Tab::Draft {
             worktree: dir.into(),
-            role: Role::Worker,
+            id: Default::default(),
         };
-        let chosen = HashMap::from([(draft("/api"), Agent::Codex)]);
+        let api = draft("/api");
+        let chosen = HashMap::from([(api.clone(), Agent::Codex.into())]);
         let tree = adroit_model::Tree::default();
         assert_eq!(
-            for_tab(&tree, Some(&draft("/api")), &chosen, Agent::Claude),
+            for_tab(&tree, Some(&api), &chosen, Agent::Claude),
             Agent::Codex
         );
         assert_eq!(
@@ -305,14 +306,14 @@ mod tests {
 
     #[test]
     fn choosing_an_agent_in_an_empty_window_sets_the_next_session_agent() {
-        use crate::tabs::{Role, Tab};
+        use crate::tabs::Tab;
 
         let tree = adroit_model::Tree::default();
         let draft = Tab::Draft {
             worktree: "/project".into(),
-            role: Role::Worker,
+            id: Default::default(),
         };
-        let mut chosen = HashMap::from([(draft.clone(), Agent::Claude)]);
+        let mut chosen = HashMap::from([(draft.clone(), Agent::Claude.into())]);
         let mut last = None;
 
         choose(&mut chosen, None, Agent::Codex, &mut last);
@@ -325,10 +326,10 @@ mod tests {
             for_tab(&tree, Some(&draft), &chosen, fallback),
             Agent::Claude
         );
-        for role in [Role::Worker, Role::Reader] {
+        for _ in 0..2 {
             let next = Tab::Draft {
                 worktree: "/next".into(),
-                role,
+                id: Default::default(),
             };
             assert_eq!(for_tab(&tree, Some(&next), &chosen, fallback), Agent::Codex);
         }
@@ -336,13 +337,13 @@ mod tests {
 
     #[test]
     fn agent_selection_is_available_only_before_a_session_starts() {
-        use crate::tabs::{Role, Tab};
+        use crate::tabs::Tab;
 
         assert!(can_choose(None));
-        for role in [Role::Worker, Role::Reader] {
+        for _ in 0..2 {
             assert!(can_choose(Some(&Tab::Draft {
                 worktree: "/project".into(),
-                role,
+                id: Default::default(),
             })));
         }
         for tab in [Tab::Session("running".into()), Tab::Shell(1)] {
@@ -357,51 +358,38 @@ mod tests {
 
     #[test]
     fn choosing_an_agent_sets_the_next_draft_default_only_until_the_window_closes() {
-        use crate::tabs::{Role, Tab};
+        use crate::tabs::Tab;
         let draft = |dir: &str| Tab::Draft {
             worktree: dir.into(),
-            role: Role::Worker,
+            id: Default::default(),
         };
+        let api = draft("/api");
+        let web = draft("/web");
         let tree = adroit_model::Tree::default();
         let mut chosen = HashMap::new();
         let settings = Settings::default();
         let mut last = None;
 
-        choose(&mut chosen, Some(draft("/api")), Agent::Codex, &mut last);
+        choose(&mut chosen, Some(api.clone()), Agent::Codex, &mut last);
         assert_eq!(settings.agent, Agent::Claude);
         assert_eq!(last, Some(Agent::Codex));
         assert_eq!(
-            for_tab(
-                &tree,
-                Some(&draft("/api")),
-                &chosen,
-                last.unwrap_or(settings.agent)
-            ),
+            for_tab(&tree, Some(&api), &chosen, last.unwrap_or(settings.agent)),
             Agent::Codex
         );
         assert_eq!(
-            for_tab(
-                &tree,
-                Some(&draft("/web")),
-                &chosen,
-                last.unwrap_or(settings.agent)
-            ),
+            for_tab(&tree, Some(&web), &chosen, last.unwrap_or(settings.agent)),
             Agent::Codex
         );
         assert_eq!(
-            for_tab(&tree, Some(&draft("/web")), &HashMap::new(), settings.agent),
+            for_tab(&tree, Some(&web), &HashMap::new(), settings.agent),
             Agent::Claude
         );
 
-        choose(&mut chosen, Some(draft("/web")), Agent::Claude, &mut last);
+        choose(&mut chosen, Some(web.clone()), Agent::Claude, &mut last);
         assert_eq!(last, Some(Agent::Claude));
         assert_eq!(
-            for_tab(
-                &tree,
-                Some(&draft("/api")),
-                &chosen,
-                last.unwrap_or(settings.agent)
-            ),
+            for_tab(&tree, Some(&api), &chosen, last.unwrap_or(settings.agent)),
             Agent::Codex
         );
         assert_eq!(
@@ -434,7 +422,7 @@ mod tests {
     fn claude_keeps_its_conversation_options_and_integrations() {
         let a = adapter(Agent::Claude);
         assert_eq!(
-            a.start_args(&Settings::default(), "fix", "uuid", false, "read"),
+            a.start_args(&Settings::default(), "fix", "uuid", "read"),
             ["--name", "fix", "--session-id", "uuid", "--", "read"]
         );
         assert!(!a.conversation().is_empty());

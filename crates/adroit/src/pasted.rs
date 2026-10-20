@@ -311,12 +311,12 @@ mod tests {
 
     #[test]
     fn attachments_written_with_nothing_open_follow_the_next_draft_and_session_successors() {
-        use crate::tabs::{Role, Tab};
+        use crate::tabs::Tab;
         let mut images = Attachments::default();
         images.add(vec!["/one.png".into()]);
         images.show(Some(Tab::Draft {
             worktree: "/src".into(),
-            role: Role::Worker,
+            id: Default::default(),
         }));
         assert_eq!(images.current(), &[PathBuf::from("/one.png")]);
         assert!(images.saved().is_empty());
@@ -332,10 +332,10 @@ mod tests {
 
     #[test]
     fn removing_all_images_leaves_a_draft_free_to_receive_the_empty_window_s_attachments() {
-        use crate::tabs::{Role, Tab};
+        use crate::tabs::Tab;
         let draft = Some(Tab::Draft {
             worktree: "/src".into(),
-            role: Role::Worker,
+            id: Default::default(),
         });
         let mut images = Attachments::default();
         images.show(draft.clone());

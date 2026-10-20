@@ -1,6 +1,7 @@
 use adroit::execution::{ModelSource, StartRequest, resolve};
 use adroit::settings::Settings;
 use adroit_model::Agent;
+use adroit_model::{AgentPermissions, CustomPermissions};
 use std::path::Path;
 
 fn request(agent: Agent, model: Option<&str>) -> StartRequest {
@@ -111,4 +112,57 @@ fn all_launch_arguments_and_environment_use_the_given_settings_snapshot() {
             .windows(2)
             .any(|a| a == ["--model", "chosen-model"])
     );
+}
+
+#[test]
+fn a_read_only_worker_keeps_its_permissions_when_its_model_changes() {
+    let mut settings = Settings::default();
+    settings.codex_sessions.sandbox_mode = "danger-full-access".into();
+    let mut request = request(Agent::Codex, Some("review-model"));
+    request.permissions = AgentPermissions::ReadOnly;
+    let launch = resolve(&settings, request, Path::new("/adroit")).unwrap();
+    assert!(
+        launch
+            .spawn
+            .args
+            .windows(2)
+            .any(|a| a == ["--sandbox", "read-only"])
+    );
+    assert!(!launch.spawn.args.iter().any(|a| a == "danger-full-access"));
+    assert_eq!(launch.model.as_deref(), Some("review-model"));
+}
+
+#[test]
+fn removed_reader_settings_are_rejected_instead_of_reinterpreted() {
+    assert!(Settings::parse("[readers]\nmodel = 'haiku'\n").is_err());
+    assert!(Settings::parse("[codex_readers]\nmodel = 'review-model'\n").is_err());
+}
+
+#[test]
+fn read_only_claude_is_refused_until_enforcement_is_supported() {
+    let mut request = request(Agent::Claude, None);
+    request.permissions = AgentPermissions::ReadOnly;
+    assert!(resolve(&Settings::default(), request, Path::new("/adroit")).is_err());
+}
+
+#[test]
+fn custom_permissions_do_not_cross_providers_or_replace_the_model() {
+    let permissions = AgentPermissions::Custom(Box::new(CustomPermissions::Codex {
+        approval_policy: "on-request".into(),
+        sandbox_mode: "workspace-write".into(),
+    }));
+    let mut codex = request(Agent::Codex, Some("chosen"));
+    codex.permissions = permissions.clone();
+    let launch = resolve(&Settings::default(), codex, Path::new("/adroit")).unwrap();
+    assert_eq!(launch.model.as_deref(), Some("chosen"));
+    assert!(
+        launch
+            .spawn
+            .args
+            .windows(2)
+            .any(|a| a == ["--sandbox", "workspace-write"])
+    );
+    let mut claude = request(Agent::Claude, None);
+    claude.permissions = permissions;
+    assert!(resolve(&Settings::default(), claude, Path::new("/adroit")).is_err());
 }

@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use adroit_model::Agent;
+use adroit_model::{Agent, AgentPermissions, CustomPermissions};
 use adroit_term::Spawn;
 
 use crate::{agents, sessions, settings::Settings};
@@ -15,7 +15,7 @@ pub struct StartRequest {
     pub cwd: PathBuf,
     pub prompt: String,
     pub images: Vec<PathBuf>,
-    pub read_only: bool,
+    pub permissions: AgentPermissions,
     pub env: Vec<(String, String)>,
     pub started_ms: u64,
     pub started_from: Option<String>,
@@ -45,11 +45,41 @@ pub fn resolve(
     adroit_program: &Path,
 ) -> Result<ResolvedLaunch, String> {
     let mut settings = settings.clone();
-    let model = match (request.agent, request.read_only) {
-        (Agent::Claude, false) => &mut settings.sessions.model,
-        (Agent::Claude, true) => &mut settings.readers.model,
-        (Agent::Codex, false) => &mut settings.codex_sessions.model,
-        (Agent::Codex, true) => &mut settings.codex_readers.model,
+    match (&request.permissions, request.agent) {
+        (AgentPermissions::Default, _) => {}
+        (AgentPermissions::ReadOnly, Agent::Codex) => {
+            settings.codex_sessions.sandbox_mode = "read-only".into();
+        }
+        (AgentPermissions::ReadOnly, Agent::Claude) => {
+            return Err("read-only enforcement is not supported for Claude Code; plan mode alone does not enforce it".into());
+        }
+        (AgentPermissions::Custom(profile), agent) => match (profile.as_ref(), agent) {
+            (
+                CustomPermissions::Claude {
+                    permission_mode,
+                    disallowed_tools,
+                },
+                Agent::Claude,
+            ) => {
+                settings.sessions.permission_mode = permission_mode.clone();
+                settings.sessions.disallowed_tools = disallowed_tools.clone();
+            }
+            (
+                CustomPermissions::Codex {
+                    approval_policy,
+                    sandbox_mode,
+                },
+                Agent::Codex,
+            ) => {
+                settings.codex_sessions.approval_policy = approval_policy.clone();
+                settings.codex_sessions.sandbox_mode = sandbox_mode.clone();
+            }
+            _ => return Err("custom permissions belong to another agent".into()),
+        },
+    }
+    let model = match request.agent {
+        Agent::Claude => &mut settings.sessions.model,
+        Agent::Codex => &mut settings.codex_sessions.model,
     };
     let source = match &request.model {
         Some(given) => {
@@ -71,7 +101,6 @@ pub fn resolve(
         &settings,
         &request.name,
         &conversation,
-        request.read_only,
         &adapter.image_prompt(&request.prompt, &request.images),
     ));
     let (program, args, env) =
@@ -81,7 +110,7 @@ pub fn resolve(
         &request.name,
         &request.cwd,
         &conversation,
-        request.read_only,
+        &request.permissions,
         request.started_ms,
         request.started_from.as_deref(),
     );

@@ -4,13 +4,14 @@
 use std::io::Read;
 use std::path::PathBuf;
 
+use adroit_model::{AgentPermissions, CustomPermissions};
 use adroit_term::Daemon;
 
 use crate::scratch::{self, Moment};
 use crate::sessions::{self, Kept};
 use crate::tabs::{fresh_name, label_from, label_of};
 
-const USAGE: &str = "usage: adroit session start [--dir <path>] [--name <name>] [--read-only] [--agent <claude|codex>] [--model <model>] [-- <prompt>]";
+const USAGE: &str = "usage: adroit session start [--dir <path>] [--name <name>] [--permissions <default|read_only> | --permissions-file <path>] [--agent <claude|codex>] [--model <model>] [-- <prompt>]";
 
 /// Where Claude Code tells a command it runs which conversation it is.
 const CONVERSATION_ENV: &str = "CLAUDE_CODE_SESSION_ID";
@@ -24,7 +25,8 @@ const ROWS: u16 = 40;
 struct Asked {
     dir: Option<PathBuf>,
     name: Option<String>,
-    read_only: bool,
+    permissions: AgentPermissions,
+    permissions_file: Option<PathBuf>,
     agent: Option<adroit_model::Agent>,
     model: Option<String>,
     /// `None` when the prompt is to be read from standard input.
@@ -34,11 +36,23 @@ struct Asked {
 fn parse(args: &[String]) -> Option<Asked> {
     let mut asked = Asked::default();
     let mut rest = args.iter();
+    let mut permissions_given = false;
     while let Some(arg) = rest.next() {
         match arg.as_str() {
             "--dir" => asked.dir = Some(rest.next()?.into()),
             "--name" => asked.name = Some(rest.next()?.clone()),
-            "--read-only" => asked.read_only = true,
+            "--permissions" if !permissions_given => {
+                asked.permissions = match rest.next()?.as_str() {
+                    "default" => AgentPermissions::Default,
+                    "read_only" => AgentPermissions::ReadOnly,
+                    _ => return None,
+                };
+                permissions_given = true;
+            }
+            "--permissions-file" if !permissions_given => {
+                asked.permissions_file = Some(rest.next()?.into());
+                permissions_given = true;
+            }
             "--agent" => asked.agent = Some(adroit_model::Agent::parse(rest.next()?)?),
             "--model" => {
                 let model = rest.next()?.trim();
@@ -103,7 +117,7 @@ async fn start(
         model: asked.model.clone(),
         name: name.clone(),
         cwd: dir,
-        read_only: asked.read_only,
+        permissions: asked.permissions.clone(),
         prompt: prompt.into(),
         env: crate::daemon::terminal_env(),
         started_ms: now_ms(),
@@ -123,13 +137,27 @@ async fn start(
 
 /// `adroit session <args>`. Returns the process exit code.
 pub fn cli(args: &[String]) -> i32 {
-    let Some(asked) = (match args {
+    let Some(mut asked) = (match args {
         [op, rest @ ..] if op == "start" => parse(rest),
         _ => None,
     }) else {
         eprintln!("{USAGE}");
         return 2;
     };
+    if let Some(path) = &asked.permissions_file {
+        let permissions = std::fs::read_to_string(path)
+            .map_err(|e| e.to_string())
+            .and_then(|text| {
+                serde_json::from_str::<CustomPermissions>(&text).map_err(|e| e.to_string())
+            });
+        match permissions {
+            Ok(options) => asked.permissions = AgentPermissions::Custom(Box::new(options)),
+            Err(e) => {
+                eprintln!("adroit: cannot read custom permissions: {e}");
+                return 2;
+            }
+        }
+    }
     let prompt = match &asked.prompt {
         Some(p) => p.clone(),
         None => {
@@ -208,7 +236,8 @@ mod tests {
                 "/src/api",
                 "--name",
                 "flaky",
-                "--read-only",
+                "--permissions",
+                "read_only",
                 "--",
                 "find why",
                 "--it fails"
@@ -216,7 +245,8 @@ mod tests {
             Some(Asked {
                 dir: Some("/src/api".into()),
                 name: Some("flaky".into()),
-                read_only: true,
+                permissions: AgentPermissions::ReadOnly,
+                permissions_file: None,
                 agent: None,
                 model: None,
                 prompt: Some("find why --it fails".into()),
@@ -249,6 +279,29 @@ mod tests {
     #[test]
     fn without_a_double_dash_the_prompt_is_left_to_standard_input() {
         assert_eq!(parse(&args(&[])), Some(Asked::default()));
+    }
+
+    #[test]
+    fn permissions_are_explicit_and_the_removed_reader_flag_is_not_an_alias() {
+        assert_eq!(parse(&args(&["--read-only"])), None);
+        assert_eq!(parse(&args(&["--permissions", "unknown"])), None);
+        assert_eq!(
+            parse(&args(&[
+                "--permissions",
+                "read_only",
+                "--permissions-file",
+                "/profile.json"
+            ])),
+            None
+        );
+        let asked = parse(&args(&[
+            "--permissions-file",
+            "/profile.json",
+            "--",
+            "review",
+        ]))
+        .unwrap();
+        assert_eq!(asked.permissions_file, Some("/profile.json".into()));
     }
 
     #[test]

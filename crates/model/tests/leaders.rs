@@ -227,7 +227,7 @@ fn changing_a_workers_provider_and_permissions_does_not_change_its_owner() {
     let leader = leader("plan", "/repo");
     let mut worker = worker("review", "/elsewhere", &leader);
     worker.agent = Agent::Codex;
-    worker.reader = true;
+    worker.permissions = adroit_model::AgentPermissions::ReadOnly;
     let tree = build(&[leader, worker], &[], &HashMap::new(), &[], None);
     let view = Leaders::from_tree(&tree).unwrap();
 

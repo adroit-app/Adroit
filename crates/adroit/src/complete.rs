@@ -216,7 +216,7 @@ mod tests {
     fn a_draft_s_commands_are_those_of_its_worktree() {
         let tab = Tab::Draft {
             worktree: "/api".into(),
-            role: crate::tabs::Role::Worker,
+            id: Default::default(),
         };
         assert_eq!(
             commands_dir(&Tree::default(), Some(&tab), None),

@@ -69,7 +69,7 @@ chooses the directory under the cursor. `Ctrl+f` goes back to the list and
 `Escape` closes the picker.
 
 `n` on a row starts a session in that row's worktree or directory without the
-picker, and `N` starts a reader there. `Cmd+}` and `Cmd+{` open the next and
+picker. `Cmd+}` and `Cmd+{` open the next and
 the previous session without asking.
 
 ## Scratch sessions
@@ -86,7 +86,7 @@ when `$XDG_DATA_HOME` is unset). One never sent makes no directory.
 
 The sidebar lists everything that runs in the scratch folder as one
 workspace, Scratch, after every other, its sessions and shells straight under
-it. Starting a session or a reader from it starts another scratch session in
+it. Starting a session from it starts another scratch session in
 a directory of its own; a shell opened from it runs in the scratch folder.
 
 adroit removes none of these directories. Claude Code keeps each conversation
@@ -99,11 +99,3 @@ question until it is answered there. Claude Code takes a folder outside git
 as trusted when a folder above it is, so trusting the scratch folder itself,
 by running `claude` once in a shell opened from Scratch, keeps the question
 from coming back.
-
-## Sessions that only read
-
-A session started as a reader runs in Claude Code's plan mode with the tools that
-edit files denied, unless the settings say otherwise
-([settings](settings.md#settingstoml)), for looking into something or reviewing
-without changing the worktree under the sessions working in it. It is marked
-with a book.

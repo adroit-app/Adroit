@@ -20,8 +20,12 @@ whose answer is all you need.
 
 - `--dir` is where it works; it defaults to the current directory.
 - `--name` names it; without one it is named from its prompt.
-- `--read-only` starts it to read only, in plan mode without the editing
-  tools.
+- `--agent claude|codex` chooses the agent independently of this session.
+- `--model <model>` selects only this launch's model.
+- `--permissions read_only` uses Codex's read-only sandbox. Claude Code
+  read-only enforcement is not supported; its plan mode alone is insufficient.
+- `--permissions-file <path>` passes an explicit provider-specific permission
+  profile as documented by `adroit session start`.
 - With no prompt after `--`, the prompt is read from standard input, which
   suits a long one:
 
