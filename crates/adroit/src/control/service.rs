@@ -231,6 +231,7 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
                     .retain(|s| s.binding.run_id() == Some(run));
                 snapshot.runs.retain(|r| r.id == run);
                 snapshot.tasks.retain(|t| t.run_id == run);
+                snapshot.reports.retain(|r| r.run_id == run);
                 snapshot.run_work_areas.retain(|area| area.run_id == run);
                 snapshot.work_areas.retain(|area| {
                     snapshot
@@ -273,6 +274,12 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
         Command::PutTask { plan } => value(store.put_task(request.id, identity()?, plan)?),
         Command::QueueTask { version } => {
             value(store.queue_task(request.id, identity()?, version)?)
+        }
+        Command::ReportTask { report } => {
+            value(store.report_task(request.id, identity()?, report)?)
+        }
+        Command::CancelTask { version } => {
+            value(store.cancel_task(request.id, identity()?, version)?)
         }
         Command::SendMessage { message } => {
             value(store.send_message(request.id, identity()?, message)?)

@@ -305,6 +305,7 @@ pub struct ControlSnapshot {
     pub attempts: Vec<AttemptRecord>,
     pub messages: Vec<AgentMessage>,
     pub deliveries: Vec<DeliveryRecord>,
+    pub reports: Vec<TaskReportRecord>,
     pub work_areas: Vec<WorkArea>,
     pub run_work_areas: Vec<RunWorkArea>,
 }
@@ -410,4 +411,66 @@ pub struct RunWorkArea {
     pub run_id: RunId,
     pub work_area_id: WorkAreaId,
     pub is_default: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReportStatus {
+    Succeeded,
+    Failed,
+    Blocked,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum TaskArtifact {
+    Report {
+        data: serde_json::Value,
+        files: Vec<PathBuf>,
+        reviewed_revision: Option<String>,
+    },
+    Change {
+        backend: WorkAreaBackend,
+        work_area_id: WorkAreaId,
+        revision: Option<String>,
+        manifest: Vec<String>,
+        candidate_fingerprint: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResultCheck {
+    pub command: Vec<String>,
+    pub exit_code: i32,
+    pub candidate: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TaskResult {
+    pub status: ReportStatus,
+    pub summary: String,
+    pub artifact: Option<TaskArtifact>,
+    pub checks: Vec<ResultCheck>,
+    pub unresolved: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TaskReport {
+    pub message_id: MessageId,
+    pub task: TaskVersion,
+    pub attempt_id: AttemptId,
+    pub result: TaskResult,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TaskReportRecord {
+    pub report: TaskReport,
+    pub run_id: RunId,
+    /// False when the assignment was revised or cancellation won the race.
+    pub applied: bool,
 }

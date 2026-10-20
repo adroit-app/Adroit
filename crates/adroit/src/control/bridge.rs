@@ -114,7 +114,7 @@ where
         let result = match method {
             "ping" => json!({}),
             "tools/list" => json!({"tools":[{
-                "name":"control", "description":"Submit one bounded Adroit control request. Keep the same request_id when retrying. Read context with snapshot, read incoming messages with mailbox, acknowledge message_id, or use open_run, put_task, queue_task, send_message. Identity comes from this session's credential. Never wait for other agents in a Leader turn.",
+                "name":"control", "description":"Submit one bounded Adroit control request. Keep the same request_id when retrying. Read context with snapshot, read incoming messages with mailbox, acknowledge message_id, or use open_run, put_task, queue_task, report_task, cancel_task, send_message. Identity comes from this session's credential. Never wait for other agents in a Leader turn.",
                 "inputSchema":{"type":"object","properties":{
                     "request_id":{"type":"string","format":"uuid"},
                     "command":{"type":"object","properties":{"op":{"type":"string"}},"required":["op"]}

@@ -11,9 +11,10 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 
+mod results;
 mod workareas;
 
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -154,6 +155,7 @@ enum Table {
     Messages,
     WorkAreas,
     RunWorkAreas,
+    Reports,
 }
 impl Table {
     fn name(self) -> &'static str {
@@ -165,6 +167,7 @@ impl Table {
             Self::Messages => "messages",
             Self::WorkAreas => "work_areas",
             Self::RunWorkAreas => "run_work_areas",
+            Self::Reports => "task_reports",
         }
     }
 }
@@ -221,6 +224,38 @@ fn event(
     )?;
     Ok(())
 }
+fn store_message(connection: &Connection, message: &AgentMessage) -> Result<()> {
+    if load::<AgentMessage>(connection, Table::Messages, message.id)?.is_some() {
+        return Err(conflict("the message ID is already in use"));
+    }
+    connection.execute(
+        "INSERT INTO messages(id, run_id, sender, recipient, data) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![
+            message.id.to_string(),
+            message.run_id.to_string(),
+            message.from.to_string(),
+            message.to.to_string(),
+            encode(message)?
+        ],
+    )?;
+    let delivery = DeliveryRecord {
+        message_id: message.id,
+        recipient: message.to,
+        state: DeliveryState::Stored,
+        attempts: 0,
+        last_error: None,
+    };
+    connection.execute(
+        "INSERT INTO deliveries(message_id, recipient, data) VALUES (?1, ?2, ?3)",
+        params![
+            message.id.to_string(),
+            message.to.to_string(),
+            encode(&delivery)?
+        ],
+    )?;
+    event(connection, Some(message.run_id), "message_stored", message)
+}
+
 fn save_session(connection: &Connection, session: &ManagedSession) -> Result<()> {
     connection.execute(
         "INSERT INTO logical_sessions(id, data) VALUES (?1, ?2)
@@ -437,6 +472,13 @@ impl Store {
             transaction.execute_batch("CREATE TABLE work_areas (id TEXT PRIMARY KEY, path TEXT NOT NULL UNIQUE, data TEXT NOT NULL);
                 CREATE TABLE run_work_areas (run_id TEXT NOT NULL REFERENCES runs(id), work_area_id TEXT NOT NULL REFERENCES work_areas(id), is_default INTEGER NOT NULL CHECK(is_default IN (0, 1)), data TEXT NOT NULL, PRIMARY KEY(run_id, work_area_id));
                 CREATE UNIQUE INDEX one_default_work_area_per_run ON run_work_areas(run_id) WHERE is_default = 1;")?;
+            transaction.pragma_update(None, "user_version", 3)?;
+            transaction.commit()?;
+        }
+        if schema < 4 {
+            let transaction =
+                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            transaction.execute_batch("CREATE TABLE task_reports (id TEXT PRIMARY KEY REFERENCES messages(id), attempt_id TEXT NOT NULL UNIQUE REFERENCES attempts(id), data TEXT NOT NULL);")?;
             transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
             transaction.commit()?;
         }
@@ -624,12 +666,30 @@ impl Store {
                                 "the task revision is outdated",
                             ));
                         }
+                        let current_attempt = match task.current_attempt {
+                            Some(id) => {
+                                let mut attempt: AttemptRecord =
+                                    require(connection, Table::Attempts, id)?;
+                                if attempt.state.holds_slot() {
+                                    results::request_stop(
+                                        connection,
+                                        &task,
+                                        &mut attempt,
+                                        "The task instructions changed",
+                                    )?;
+                                    Some(id)
+                                } else {
+                                    None
+                                }
+                            }
+                            None => None,
+                        };
                         (
                             task.revision
                                 .checked_add(1)
                                 .ok_or_else(|| conflict("the task revision is exhausted"))?,
-                            task.current_attempt,
-                            task.state,
+                            current_attempt,
+                            TaskState::Planned,
                         )
                     }
                     None => {
@@ -847,57 +907,96 @@ impl Store {
         identity: SessionRef,
         message: AgentMessage,
     ) -> Result<Reply<AgentMessage>> {
-        self.transact(request, json!({"op":"send_message", "caller":identity, "message":message}), |connection| {
-            let sender = reference(connection, identity)?;
-            let recipient: ManagedSession = require(connection, Table::Sessions, message.to)?;
-            if message.from != identity.id || message.from == message.to
-                || sender.binding.run_id() != Some(message.run_id) || recipient.binding.run_id() != Some(message.run_id) {
-                return Err(ControlError::new(ErrorCode::OwnershipMismatch, "messages must stay within their assigned run"));
-            }
-            if sender.binding.role() == SessionRole::Worker && sender.binding.leader_id() != message.to {
-                return Err(ControlError::new(ErrorCode::OwnershipMismatch, "a worker reports to its own leader"));
-            }
-            for endpoint in [&sender, &recipient] {
-                if let Some((task, attempt)) = endpoint.binding.work()
-                    && (message.task_id.is_some_and(|id| id != task)
-                        || message.attempt_id.is_some_and(|id| id != attempt))
+        self.transact(
+            request,
+            json!({"op":"send_message", "caller":identity, "message":message}),
+            |connection| {
+                let sender = reference(connection, identity)?;
+                let recipient: ManagedSession = require(connection, Table::Sessions, message.to)?;
+                if message.from != identity.id
+                    || message.from == message.to
+                    || sender.binding.run_id() != Some(message.run_id)
+                    || recipient.binding.run_id() != Some(message.run_id)
                 {
-                    return Err(ControlError::new(ErrorCode::OwnershipMismatch, "the message does not match the worker assignment"));
+                    return Err(ControlError::new(
+                        ErrorCode::OwnershipMismatch,
+                        "messages must stay within their assigned run",
+                    ));
                 }
-            }
-            if sender.binding.role() == SessionRole::Worker && message.kind == MessageKind::Report
-                && (message.task_id.is_none() || message.attempt_id.is_none() || message.revision.is_none())
-            {
-                return Err(invalid("a worker report needs its task, attempt and revision"));
-            }
-            if message.body.trim().is_empty() { return Err(invalid("the message is empty")); }
-            if message.body.len() > 64 * 1024 { return Err(invalid("a message body exceeds 64 KiB; reference a file for large artifacts")); }
-            if let Some(task_id) = message.task_id {
-                let task: TaskRecord = require(connection, Table::Tasks, task_id)?;
-                if task.run_id != message.run_id { return Err(invalid("the message task belongs to another run")); }
-                if let Some(attempt_id) = message.attempt_id {
-                    let attempt: AttemptRecord = require(connection, Table::Attempts, attempt_id)?;
-                    if attempt.task_id != task_id || message.revision.is_some_and(|r| r != attempt.task_revision) {
-                        return Err(invalid("the message attempt and revision do not match its task"));
+                if sender.binding.role() == SessionRole::Worker
+                    && sender.binding.leader_id() != message.to
+                {
+                    return Err(ControlError::new(
+                        ErrorCode::OwnershipMismatch,
+                        "a worker reports to its own leader",
+                    ));
+                }
+                for endpoint in [&sender, &recipient] {
+                    if let Some((task, attempt)) = endpoint.binding.work()
+                        && (message.task_id.is_some_and(|id| id != task)
+                            || message.attempt_id.is_some_and(|id| id != attempt))
+                    {
+                        return Err(ControlError::new(
+                            ErrorCode::OwnershipMismatch,
+                            "the message does not match the worker assignment",
+                        ));
                     }
                 }
-            } else if message.attempt_id.is_some() { return Err(invalid("an attempt message needs its task")); }
-            if let Some(reply_to) = message.reply_to {
-                let parent: AgentMessage = require(connection, Table::Messages, reply_to)?;
-                if parent.run_id != message.run_id { return Err(invalid("the reply belongs to another run")); }
-            }
-            if let Some(existing) = load::<AgentMessage>(connection, Table::Messages, message.id)? {
-                if existing != message { return Err(conflict("the message ID was reused with different content")); }
-                return Ok(existing);
-            }
-            connection.execute("INSERT INTO messages(id, run_id, sender, recipient, data) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![message.id.to_string(), message.run_id.to_string(), message.from.to_string(), message.to.to_string(), encode(&message)?])?;
-            let delivery = DeliveryRecord { message_id: message.id, recipient: message.to, state: DeliveryState::Stored, attempts: 0, last_error: None };
-            connection.execute("INSERT INTO deliveries(message_id, recipient, data) VALUES (?1, ?2, ?3)",
-                params![message.id.to_string(), message.to.to_string(), encode(&delivery)?])?;
-            event(connection, Some(message.run_id), "message_stored", &message)?;
-            Ok(message)
-        })
+                if sender.binding.role() == SessionRole::Worker
+                    && message.kind == MessageKind::Report
+                    && (message.task_id.is_none()
+                        || message.attempt_id.is_none()
+                        || message.revision.is_none())
+                {
+                    return Err(invalid(
+                        "a worker report needs its task, attempt and revision",
+                    ));
+                }
+                if message.body.trim().is_empty() {
+                    return Err(invalid("the message is empty"));
+                }
+                if message.body.len() > 64 * 1024 {
+                    return Err(invalid(
+                        "a message body exceeds 64 KiB; reference a file for large artifacts",
+                    ));
+                }
+                if let Some(task_id) = message.task_id {
+                    let task: TaskRecord = require(connection, Table::Tasks, task_id)?;
+                    if task.run_id != message.run_id {
+                        return Err(invalid("the message task belongs to another run"));
+                    }
+                    if let Some(attempt_id) = message.attempt_id {
+                        let attempt: AttemptRecord =
+                            require(connection, Table::Attempts, attempt_id)?;
+                        if attempt.task_id != task_id
+                            || message.revision.is_some_and(|r| r != attempt.task_revision)
+                        {
+                            return Err(invalid(
+                                "the message attempt and revision do not match its task",
+                            ));
+                        }
+                    }
+                } else if message.attempt_id.is_some() {
+                    return Err(invalid("an attempt message needs its task"));
+                }
+                if let Some(reply_to) = message.reply_to {
+                    let parent: AgentMessage = require(connection, Table::Messages, reply_to)?;
+                    if parent.run_id != message.run_id {
+                        return Err(invalid("the reply belongs to another run"));
+                    }
+                }
+                if let Some(existing) =
+                    load::<AgentMessage>(connection, Table::Messages, message.id)?
+                {
+                    if existing != message {
+                        return Err(conflict("the message ID was reused with different content"));
+                    }
+                    return Ok(existing);
+                }
+                store_message(connection, &message)?;
+                Ok(message)
+            },
+        )
     }
 
     pub fn claim_delivery(
@@ -1128,6 +1227,7 @@ impl Store {
             attempts: all(&transaction, Table::Attempts)?,
             messages: all(&transaction, Table::Messages)?,
             deliveries,
+            reports: all(&transaction, Table::Reports)?,
             work_areas: all(&transaction, Table::WorkAreas)?,
             run_work_areas: all(&transaction, Table::RunWorkAreas)?,
         };

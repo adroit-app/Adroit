@@ -737,3 +737,322 @@ fn a_worker_cannot_start_until_its_registered_working_area_is_ready() {
         WorkAreaState::Ready
     );
 }
+
+fn running_worker(
+    store: &mut Store,
+    cwd: &Path,
+) -> (SessionRef, RunId, adroit_model::AttemptRecord) {
+    let (owner, run) = leader(store, cwd);
+    let id = task(store, owner, run, vec![]);
+    let version = TaskVersion {
+        task_id: id,
+        revision: 1,
+    };
+    store.queue_task(RequestId::new(), owner, version).unwrap();
+    let attempt = store
+        .reserve_attempt(RequestId::new(), owner, version, target())
+        .unwrap()
+        .value;
+    let area = store
+        .register_work_area(RequestId::new(), owner, run, directory_area(cwd), true)
+        .unwrap()
+        .value;
+    store
+        .bind_work_area(RequestId::new(), owner, version, attempt.id, area.id)
+        .unwrap();
+    store
+        .finish_work_area(RequestId::new(), area.id, Ok(()))
+        .unwrap();
+    store
+        .begin_start(RequestId::new(), owner, version, attempt.id)
+        .unwrap();
+    store
+        .attach_session(
+            RequestId::new(),
+            SessionRef {
+                id: attempt.session_id,
+                generation: 1,
+            },
+            cwd.canonicalize().unwrap(),
+            "000000000000000000000000000000ab".into(),
+            "worker-conversation".into(),
+        )
+        .unwrap();
+    (owner, run, attempt)
+}
+
+fn successful_report(attempt: &adroit_model::AttemptRecord) -> adroit_model::TaskReport {
+    serde_json::from_value(serde_json::json!({
+        "message_id": MessageId::new(), "task": {"task_id": attempt.task_id, "revision": attempt.task_revision},
+        "attempt_id": attempt.id,
+        "result": {"status": "succeeded", "summary": "Reviewed the requested inputs", "artifact": {"kind":"report", "data": {"findings":[]}, "files":[], "reviewed_revision":null}, "checks":[], "unresolved":[]}
+    })).unwrap()
+}
+
+#[test]
+fn a_result_and_its_notification_are_committed_together() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("control/state.sqlite3");
+    let mut store = Store::open(&path).unwrap();
+    let (owner, run, attempt) = running_worker(&mut store, dir.path());
+    let report = successful_report(&attempt);
+    let worker = SessionRef {
+        id: attempt.session_id,
+        generation: 1,
+    };
+    let request = RequestId::new();
+    let result = store.report_task(request, worker, report.clone()).unwrap();
+    assert!(result.value.applied);
+    assert_eq!(
+        store.report_task(request, worker, report.clone()).unwrap(),
+        result
+    );
+    drop(store);
+    let mut store = Store::open(&path).unwrap();
+    let snapshot = store.snapshot().unwrap();
+    assert_eq!(snapshot.reports.len(), 1);
+    assert_eq!(snapshot.tasks[0].state, adroit_model::TaskState::Succeeded);
+    assert_eq!(
+        snapshot.attempts[0].state,
+        adroit_model::AttemptState::Succeeded
+    );
+    assert_eq!(snapshot.runs[0].state, adroit_model::RunState::Active);
+    let mailbox = store.mailbox(owner, 0, 10).unwrap();
+    assert_eq!(mailbox.messages.len(), 1);
+    assert_eq!(mailbox.messages[0].message.id, report.message_id);
+    assert_eq!(mailbox.messages[0].message.run_id, run);
+    assert_eq!(mailbox.messages[0].delivery.state, DeliveryState::Stored);
+}
+
+#[test]
+fn a_stale_attempt_cannot_complete_the_current_task() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (owner, run, attempt) = running_worker(&mut store, dir.path());
+    store
+        .put_task(
+            RequestId::new(),
+            owner,
+            TaskPlan {
+                id: attempt.task_id,
+                run_id: run,
+                expected_revision: Some(1),
+                brief: TaskBrief {
+                    instructions: "Review the changed inputs".into(),
+                    ..Default::default()
+                },
+                dependencies: vec![],
+            },
+        )
+        .unwrap();
+    let record = store
+        .report_task(
+            RequestId::new(),
+            SessionRef {
+                id: attempt.session_id,
+                generation: 1,
+            },
+            successful_report(&attempt),
+        )
+        .unwrap()
+        .value;
+    assert!(!record.applied);
+    let snapshot = store.snapshot().unwrap();
+    assert_eq!(snapshot.tasks[0].revision, 2);
+    assert_ne!(snapshot.tasks[0].state, adroit_model::TaskState::Succeeded);
+    assert_eq!(snapshot.reports.len(), 1);
+}
+
+#[test]
+fn a_cancel_request_does_not_release_a_running_attempt_slot() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (owner, _, attempt) = running_worker(&mut store, dir.path());
+    let wanted = TaskVersion {
+        task_id: attempt.task_id,
+        revision: 1,
+    };
+    store.cancel_task(RequestId::new(), owner, wanted).unwrap();
+    assert_eq!(
+        store.snapshot().unwrap().attempts[0].state,
+        adroit_model::AttemptState::CancelRequested
+    );
+    assert!(
+        store
+            .reserve_attempt(RequestId::new(), owner, wanted, target())
+            .is_err()
+    );
+    let mut report = successful_report(&attempt);
+    report.result.status = adroit_model::ReportStatus::Cancelled;
+    store
+        .report_task(
+            RequestId::new(),
+            SessionRef {
+                id: attempt.session_id,
+                generation: 1,
+            },
+            report,
+        )
+        .unwrap();
+    assert_eq!(
+        store.snapshot().unwrap().attempts[0].state,
+        adroit_model::AttemptState::Cancelled
+    );
+}
+
+#[test]
+fn another_worker_cannot_report_an_attempt_and_invalid_results_leave_no_notification() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (owner, _, attempt) = running_worker(&mut store, dir.path());
+    let report = successful_report(&attempt);
+    assert!(
+        store
+            .report_task(RequestId::new(), owner, report.clone())
+            .is_err()
+    );
+    let mut invalid = report;
+    invalid.result.summary.clear();
+    assert!(
+        store
+            .report_task(
+                RequestId::new(),
+                SessionRef {
+                    id: attempt.session_id,
+                    generation: 1
+                },
+                invalid
+            )
+            .is_err()
+    );
+    let snapshot = store.snapshot().unwrap();
+    assert!(snapshot.reports.is_empty());
+    assert!(snapshot.messages.is_empty());
+    assert_eq!(snapshot.tasks[0].state, adroit_model::TaskState::Running);
+}
+
+#[test]
+fn revising_finished_work_requires_a_fresh_attempt() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (owner, run, attempt) = running_worker(&mut store, dir.path());
+    store
+        .report_task(
+            RequestId::new(),
+            SessionRef {
+                id: attempt.session_id,
+                generation: 1,
+            },
+            successful_report(&attempt),
+        )
+        .unwrap();
+    let task = store
+        .put_task(
+            RequestId::new(),
+            owner,
+            TaskPlan {
+                id: attempt.task_id,
+                run_id: run,
+                expected_revision: Some(1),
+                brief: TaskBrief {
+                    instructions: "Review the new candidate".into(),
+                    ..Default::default()
+                },
+                dependencies: vec![],
+            },
+        )
+        .unwrap()
+        .value;
+    assert_eq!(task.state, adroit_model::TaskState::Planned);
+    assert_eq!(task.current_attempt, None);
+    let version = TaskVersion {
+        task_id: task.id,
+        revision: 2,
+    };
+    store.queue_task(RequestId::new(), owner, version).unwrap();
+    let fresh = store
+        .reserve_attempt(RequestId::new(), owner, version, target())
+        .unwrap()
+        .value;
+    assert_ne!(fresh.id, attempt.id);
+    assert_ne!(fresh.session_id, attempt.session_id);
+}
+
+#[test]
+fn a_late_success_cannot_override_an_accepted_cancellation() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (owner, _, attempt) = running_worker(&mut store, dir.path());
+    let version = TaskVersion {
+        task_id: attempt.task_id,
+        revision: 1,
+    };
+    store.cancel_task(RequestId::new(), owner, version).unwrap();
+    store.cancel_task(RequestId::new(), owner, version).unwrap();
+    let report = store
+        .report_task(
+            RequestId::new(),
+            SessionRef {
+                id: attempt.session_id,
+                generation: 1,
+            },
+            successful_report(&attempt),
+        )
+        .unwrap()
+        .value;
+    assert!(!report.applied);
+    let snapshot = store.snapshot().unwrap();
+    assert_eq!(snapshot.tasks[0].state, adroit_model::TaskState::Cancelled);
+    assert_eq!(
+        snapshot.attempts[0].state,
+        adroit_model::AttemptState::Cancelled
+    );
+    assert_eq!(
+        snapshot
+            .messages
+            .iter()
+            .filter(|message| message.kind == MessageKind::Cancel)
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn directory_change_results_need_evidence_from_the_assigned_working_area() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (_, _, attempt) = running_worker(&mut store, dir.path());
+    let area_id = store.snapshot().unwrap().attempts[0].work_area_id.unwrap();
+    let mut report = successful_report(&attempt);
+    report.result.artifact = Some(adroit_model::TaskArtifact::Change {
+        backend: adroit_model::WorkAreaBackend::Directory,
+        work_area_id: area_id,
+        revision: None,
+        manifest: vec!["result.txt".into()],
+        candidate_fingerprint: None,
+    });
+    let identity = SessionRef {
+        id: attempt.session_id,
+        generation: 1,
+    };
+    assert!(
+        store
+            .report_task(RequestId::new(), identity, report.clone())
+            .is_err()
+    );
+    assert!(store.snapshot().unwrap().reports.is_empty());
+    if let Some(adroit_model::TaskArtifact::Change {
+        candidate_fingerprint,
+        ..
+    }) = &mut report.result.artifact
+    {
+        *candidate_fingerprint = Some("manifest-sha256:1234".into());
+    }
+    assert!(
+        store
+            .report_task(RequestId::new(), identity, report)
+            .unwrap()
+            .value
+            .applied
+    );
+}

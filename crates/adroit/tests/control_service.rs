@@ -225,7 +225,7 @@ fn upgrading_an_existing_store_keeps_records_and_adds_session_credentials() {
     drop(store);
     let connection = rusqlite::Connection::open(&path).unwrap();
     connection
-        .execute_batch("DROP TABLE run_work_areas; DROP TABLE work_areas; DROP TABLE session_credentials; PRAGMA user_version=1;")
+        .execute_batch("DROP TABLE task_reports; DROP TABLE run_work_areas; DROP TABLE work_areas; DROP TABLE session_credentials; PRAGMA user_version=1;")
         .unwrap();
     drop(connection);
     let mut store = Store::open(&path).unwrap();

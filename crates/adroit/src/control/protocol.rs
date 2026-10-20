@@ -71,6 +71,12 @@ pub enum Command {
     QueueTask {
         version: TaskVersion,
     },
+    ReportTask {
+        report: TaskReport,
+    },
+    CancelTask {
+        version: TaskVersion,
+    },
     SendMessage {
         message: AgentMessage,
     },

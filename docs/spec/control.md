@@ -73,3 +73,33 @@ Receivers must avoid repeating effects for an ID they have already handled.
 Message bodies are limited to 64 KiB. Mailbox pages are bounded by encoded size
 as well as entry count, so one page cannot silently skip large messages. Use
 file references for larger artifacts.
+
+## Worker outcomes
+
+A Worker reports a finished attempt explicitly with `report_task`, whose `report`
+contains `message_id`, `task` (`task_id` and `revision`), `attempt_id`, and
+`result`. Results and their Leader notifications are durable together. A model
+turn ending does not finish the task, and a successful Worker does not complete
+the run. Late results remain inspectable without completing revised work.
+
+`result` contains:
+
+- `status`: `succeeded`, `failed`, `blocked`, or `cancelled`.
+- `summary`: a nonempty explanation.
+- `artifact`: nullable; required for success. A report artifact has `kind` equal
+  to `report`, arbitrary JSON `data`, a `files` array, and nullable
+  `reviewed_revision`. A change artifact has `kind` equal to `change`, `backend`
+  (`jj`, `git`, or `directory`), `work_area_id`, nullable `revision`, a `manifest`
+  array of file references, and nullable `candidate_fingerprint`. VCS artifacts
+  require a full immutable commit ID; directory artifacts require a nonempty
+  manifest and fingerprint.
+- `checks`: an array of objects containing a `command` argument array,
+  `exit_code`, and the `candidate` identity checked.
+- `unresolved`: an array of remaining issues; empty for success.
+
+`cancel_task` takes a task `version` and requests cooperative cancellation.
+The attempt remains active until stopping is confirmed. Cancellation does not
+close the Agent terminal or its associated Shell and Neovim terminals. Updating
+instructions invalidates the previous assignment and requests that it stop;
+its result cannot satisfy the new revision. A finished task revised for new
+work starts from the planned state.
