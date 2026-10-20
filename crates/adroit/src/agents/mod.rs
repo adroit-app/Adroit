@@ -37,6 +37,9 @@ pub trait AgentAdapter: Sync {
     fn program(&self) -> String;
     fn launch<'a>(&self, settings: &'a Settings) -> &'a Launch;
     fn capabilities(&self) -> Capabilities;
+    fn usage_url(&self) -> Option<&'static str> {
+        None
+    }
     fn commands(&self, _dir: PathBuf) -> Probe<adroit_claude::commands::Command> {
         Box::pin(async { None })
     }
@@ -158,6 +161,17 @@ mod tests {
     use super::*;
     use crate::settings::Settings;
     use adroit_model::Agent;
+    #[test]
+    fn usage_settings_open_the_account_page_for_each_agent() {
+        assert_eq!(
+            adapter(Agent::Claude).usage_url(),
+            Some("https://claude.ai/settings/usage")
+        );
+        assert_eq!(
+            adapter(Agent::Codex).usage_url(),
+            Some("https://chatgpt.com/settings/usage")
+        );
+    }
     #[test]
     fn codex_receives_only_its_own_options_and_preserves_flag_like_prompts() {
         let mut settings = Settings::default();

@@ -5614,7 +5614,25 @@ fn App() -> Element {
                     if !usage_now.is_empty() {
                         div { class: "details-usage",
                             title: "Usage limits reported by the session's agent",
-                            span { class: "details-label", "Usage" }
+                            div { class: "usage-header",
+                                span { class: "details-label", "Usage" }
+                                if let Some(url) = agents::adapter(current_agent).usage_url() {
+                                    button { class: "usage-web",
+                                        title: "Open {agents::adapter(current_agent).label()} usage settings in your browser",
+                                        onclick: move |ev| {
+                                            ev.stop_propagation();
+                                            let _ = use_link(&Link {
+                                                kind: LinkKind::Url,
+                                                target: url.into(),
+                                                title: None,
+                                                line: None,
+                                            }, Use::Open);
+                                        },
+                                        IconView { icon: Icon::Link, size: 12 }
+                                        "Web"
+                                    }
+                                }
+                            }
                             for g in usage_now.into_iter() {
                                 div { key: "{g.label}", class: "usage-gauge",
                                     div { class: "usage-gauge-head",

@@ -20,6 +20,9 @@ impl AgentAdapter for Claude {
             shell_bang: true,
         }
     }
+    fn usage_url(&self) -> Option<&'static str> {
+        Some("https://claude.ai/settings/usage")
+    }
     fn commands(&self, dir: PathBuf) -> Probe<adroit_claude::commands::Command> {
         Box::pin(async move {
             adroit_claude::commands::probe(

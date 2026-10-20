@@ -241,6 +241,9 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .details-link.details-image { height: 46px; }
 .details-thumb { flex: none; width: 56px; height: 40px; object-fit: contain; border-radius: 4px; background: var(--raised); }
 .details-usage { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 10px 16px 12px; border-top: 1px solid var(--line); cursor: default; }
+.usage-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.usage-web { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px; border: 0; background: transparent; color: var(--text-3); font: inherit; font-size: 11px; cursor: pointer; }
+.usage-web:hover, .usage-web:focus-visible { color: var(--text); background: var(--raised); border-radius: 3px; }
 .usage-gauge { display: flex; flex-direction: column; gap: 3px; }
 .usage-gauge-head { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
 .usage-gauge-label { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

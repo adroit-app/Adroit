@@ -69,6 +69,8 @@ The usage limits are asked of the session's agent while the overview is in sight
 again every few minutes, without starting a conversation or spending any of
 them. An account without such limits, or an agent that does not answer,
 shows none; one that stops answering keeps showing what it last said.
+The Usage header links to the shown agent's account usage settings in the
+default browser, where available resets and account limits can be managed.
 
 The sheets follow what is read again while they are shown. A row opened that
 is gone meanwhile, its file changed no more or its change rewritten out of

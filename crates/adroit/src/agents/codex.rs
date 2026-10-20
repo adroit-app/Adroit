@@ -31,6 +31,9 @@ impl AgentAdapter for Codex {
             shell_bang: false,
         }
     }
+    fn usage_url(&self) -> Option<&'static str> {
+        Some("https://chatgpt.com/settings/usage")
+    }
     fn commands(&self, _dir: PathBuf) -> Probe<adroit_claude::commands::Command> {
         Box::pin(async { Some(commands::builtins()) })
     }
