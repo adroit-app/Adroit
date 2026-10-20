@@ -391,6 +391,18 @@ impl Startup {
                 "the Worker program was not found: {program}"
             )));
         }
+        if let Err(adroit_term::Error::PreparationAborted { session, reason }) = &attached {
+            let terminal = format!("{session:032x}");
+            let reason = reason.clone();
+            self.actor
+                .call(move |store| {
+                    store
+                        .abort_prepared_start(RequestId::new(), identity, terminal, reason)
+                        .map(|_| ())
+                })
+                .await?;
+            return Ok(());
+        }
         if let Err(error) = attached {
             self.actor
                 .call(move |store| {

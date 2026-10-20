@@ -252,8 +252,15 @@ impl Pane {
         let mut conn = daemon.window().await?;
         let info = conn.create_with(args).await?;
         if let Err(error) = prepare(info.id).await {
-            let _ = daemon.end(info.id).await;
-            return Err(error);
+            return match daemon.end(info.id).await {
+                Ok(()) => Err(Error::PreparationAborted {
+                    session: info.id,
+                    reason: error.to_string(),
+                }),
+                Err(stopping) => Err(Error::Protocol(format!(
+                    "{error}; cannot confirm stopping the startup gate: {stopping}"
+                ))),
+            };
         }
         let waker = waker_for(info.id);
         let pane = Self::over(conn, &info, size, palette, waker);

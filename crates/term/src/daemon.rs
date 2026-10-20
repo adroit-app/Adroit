@@ -33,6 +33,8 @@ pub enum Error {
     OpenFolder(PathBuf),
     #[error("{0}")]
     Protocol(String),
+    #[error("startup preparation was refused and terminal {session:032x} was stopped: {reason}")]
+    PreparationAborted { session: u128, reason: String },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

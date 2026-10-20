@@ -201,3 +201,80 @@ async fn independent_leaders_at_one_native_workspace_share_its_default_identity(
                 && association.work_area_id == snapshot.work_areas[0].id)
     );
 }
+
+#[tokio::test]
+async fn a_lost_ownership_reply_before_release_is_a_confirmed_abort_after_the_gate_is_stopped() {
+    use adroit::execution;
+    use adroit_model::{ManagedSessionState, RunState};
+    use adroit_term::{Daemon, Palette};
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let source = dir.path().join("source");
+    std::fs::create_dir(&source).unwrap();
+    let marker = source.join("must-not-run");
+    let root = dir.path().join("control");
+    let service = Service::bind(&root).await.unwrap();
+    let socket = dir.path().join("d.sock");
+    let serving = socket.clone();
+    let native = tokio::spawn(async move {
+        Daemon::serve(&serving, std::time::Duration::from_secs(60), |_| {}).await
+    });
+    let daemon = Daemon::new(socket);
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        while daemon.sessions().await.is_err() {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let mut settings = Settings::default();
+    settings.codex.command = vec![
+        "/bin/sh".into(),
+        "-c".into(),
+        "touch \"$ADROIT_START_ABORT_MARKER\"; sleep 5".into(),
+        "native-provider".into(),
+    ];
+    settings.codex.env.insert(
+        "ADROIT_START_ABORT_MARKER".into(),
+        marker.to_string_lossy().into_owned(),
+    );
+    let prepared = managed::prepare(
+        &root,
+        &settings,
+        request(&source),
+        std::path::Path::new("/adroit"),
+    )
+    .await
+    .unwrap();
+    let ownership = prepared.ownership.unwrap();
+    let callback = ownership.clone();
+    let result = execution::spawn_headless_prepared(
+        &daemon,
+        prepared.resolved.spawn,
+        &Palette::default(),
+        move |terminal| async move {
+            callback.attach(terminal).await?;
+            Err(adroit_term::Error::Protocol(
+                "The ownership reply was lost".into(),
+            ))
+        },
+    )
+    .await;
+    let error = result.unwrap_err();
+    assert!(matches!(
+        &error,
+        adroit_term::Error::PreparationAborted { .. }
+    ));
+    ownership.failed(&error).await;
+    let snapshot = service
+        .actor()
+        .call(|store| store.snapshot())
+        .await
+        .unwrap();
+    assert_eq!(snapshot.sessions[0].state, ManagedSessionState::Failed);
+    assert_eq!(snapshot.runs[0].state, RunState::Failed);
+    assert!(!marker.exists());
+    assert!(daemon.sessions().await.unwrap().is_empty());
+    native.abort();
+}

@@ -30,6 +30,11 @@ impl StartOwnership {
 
     pub async fn failed(&self, error: &adroit_term::Error) {
         let command = match error {
+            adroit_term::Error::PreparationAborted { session, .. } => Command::AbortPreparedStart {
+                identity: self.identity,
+                terminal_id: format!("{session:032x}"),
+                reason: error.to_string(),
+            },
             adroit_term::Error::NotFound(_) => Command::FailStart {
                 identity: self.identity,
                 reason: error.to_string(),

@@ -139,25 +139,56 @@ pub(super) fn fail_start_record(
     connection: &Connection,
     identity: SessionRef,
     reason: &str,
+    stopped_terminal: Option<&str>,
 ) -> Result<ManagedSession> {
     if reason.trim().is_empty() {
         return Err(invalid("a failed startup needs a reason"));
     }
     let mut session = reference(connection, identity)?;
-    if session.state == ManagedSessionState::Failed {
+    if let Some(terminal) = stopped_terminal {
+        if terminal.len() != 32 || crate::sessions::id_of(terminal).is_none() {
+            return Err(invalid("the aborted startup needs its native terminal ID"));
+        }
+        if session
+            .terminal_id
+            .as_deref()
+            .is_some_and(|held| held != terminal)
+        {
+            return Err(ControlError::new(
+                ErrorCode::OwnershipMismatch,
+                "the stopped startup belongs to another terminal",
+            ));
+        }
+    }
+    if session.state == ManagedSessionState::Failed
+        || (stopped_terminal.is_some() && session.state == ManagedSessionState::Exited)
+    {
         return Ok(session);
     }
-    if session.state != ManagedSessionState::Preparing {
+    if session.state != ManagedSessionState::Preparing
+        && !(stopped_terminal.is_some()
+            && matches!(
+                session.state,
+                ManagedSessionState::Running | ManagedSessionState::NeedsReconciliation
+            ))
+    {
         return Err(conflict("the session is no longer preparing"));
+    }
+    if let Some(terminal) = stopped_terminal {
+        session.terminal_id = Some(terminal.to_owned());
     }
     if let Some((task_id, attempt_id)) = session.binding.work() {
         let mut task: TaskRecord = require(connection, Table::Tasks, task_id)?;
         let mut attempt: AttemptRecord = require(connection, Table::Attempts, attempt_id)?;
         if task.current_attempt != Some(attempt_id)
-            || !matches!(
+            || !(matches!(
                 attempt.state,
                 AttemptState::Preparing | AttemptState::Starting | AttemptState::CancelRequested
-            )
+            ) || (stopped_terminal.is_some()
+                && matches!(
+                    attempt.state,
+                    AttemptState::Running | AttemptState::Uncertain
+                )))
         {
             return Err(conflict("the worker assignment changed"));
         }
@@ -271,7 +302,19 @@ impl Store {
                     }
                 }
             }
-            fail_start_record(connection,identity,"The controller restarted before the native program was released")
+            fail_start_record(connection,identity,"The controller restarted before the native program was released",None)
         })
+    }
+}
+
+impl Store {
+    pub fn abort_prepared_start(
+        &mut self,
+        request: RequestId,
+        identity: SessionRef,
+        terminal: String,
+        reason: String,
+    ) -> Result<Reply<ManagedSession>> {
+        self.transact(request,json!({"op":"abort_prepared_start","caller":identity,"terminal":terminal,"reason":reason}),|connection|fail_start_record(connection,identity,&reason,Some(&terminal)))
     }
 }

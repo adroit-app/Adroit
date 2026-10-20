@@ -636,7 +636,9 @@ async fn refused_startup_preparation_never_releases_the_program_or_keeps_its_ses
         |_| async { Err(adroit_term::Error::Protocol("assignment changed".into())) },
     )
     .await;
-    assert!(result.is_err());
+    assert!(
+        matches!(&result,Err(adroit_term::Error::PreparationAborted {session,reason}) if *session != 0 && reason.contains("assignment changed"))
+    );
     assert!(!marker.exists());
     assert!(daemon.sessions().await.unwrap().is_empty());
 }

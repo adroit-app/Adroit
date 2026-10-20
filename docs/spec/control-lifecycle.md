@@ -35,3 +35,16 @@ uncertain and retains its slot, including when cancellation was already
 requested. A partially prepared working area is kept for native reconciliation;
 a late preparation result cannot silently make it ready again. Late startup
 uncertainty cannot revive a confirmed exited or failed session.
+
+## Refused startup gates
+
+If ownership preparation is refused and Adroit confirms stopping the gated
+terminal, the native provider was never released. That startup is failed or
+cancelled and its attempt slot is released, including when attachment was saved
+but its reply was lost. If stopping the gate cannot be confirmed, startup remains
+uncertain. A failure after release is not treated as a confirmed gate abort.
+
+The human-only `abort_prepared_start` command records this confirmed fact using
+`identity`, `terminal_id`, and `reason`. A different assigned terminal is refused.
+It does not turn a failed launch into successful work or overwrite a later task
+revision.

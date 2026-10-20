@@ -1033,7 +1033,7 @@ impl Store {
         self.transact(
             request,
             json!({"op":"fail_start", "caller":identity, "reason":reason}),
-            |connection| lifecycle::fail_start_record(connection, identity, &reason),
+            |connection| lifecycle::fail_start_record(connection, identity, &reason, None),
         )
     }
 

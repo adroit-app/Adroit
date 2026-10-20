@@ -57,6 +57,12 @@ pub enum Command {
         terminal_id: String,
     },
     #[schemars(skip)]
+    AbortPreparedStart {
+        identity: SessionRef,
+        terminal_id: String,
+        reason: String,
+    },
+    #[schemars(skip)]
     StartUncertain {
         identity: SessionRef,
         reason: String,

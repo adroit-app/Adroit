@@ -691,3 +691,61 @@ fn a_late_startup_uncertainty_cannot_revive_a_confirmed_exited_leader() {
         ManagedSessionState::Exited
     );
 }
+
+#[test]
+fn a_confirmed_gate_abort_after_attach_frees_the_slot_and_cannot_claim_success() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (_, _, attempt, terminal) = running_worker(&mut store, dir.path());
+    let worker = SessionRef {
+        id: attempt.session_id,
+        generation: 1,
+    };
+    store
+        .abort_prepared_start(
+            RequestId::new(),
+            worker,
+            terminal,
+            "The ownership response was lost before release".into(),
+        )
+        .unwrap();
+    let snapshot = store.snapshot().unwrap();
+    assert_eq!(snapshot.attempts[0].state, AttemptState::Failed);
+    assert_eq!(snapshot.tasks[0].state, TaskState::Failed);
+    assert_eq!(
+        snapshot
+            .sessions
+            .iter()
+            .find(|session| session.reference() == worker)
+            .unwrap()
+            .state,
+        ManagedSessionState::Failed
+    );
+    assert!(snapshot.completions.is_empty());
+}
+
+#[test]
+fn a_gate_abort_of_an_attached_leader_fails_its_unstarted_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (owner, _, _, _) = running_worker(&mut store, dir.path());
+    let terminal = MessageId::new().to_string().replace('-', "");
+    store
+        .attach_session(
+            RequestId::new(),
+            owner,
+            dir.path().into(),
+            terminal.clone(),
+            MessageId::new().to_string(),
+        )
+        .unwrap();
+    store
+        .abort_prepared_start(
+            RequestId::new(),
+            owner,
+            terminal,
+            "Preparation failed before release".into(),
+        )
+        .unwrap();
+    assert_eq!(store.snapshot().unwrap().runs[0].state, RunState::Failed);
+}

@@ -314,6 +314,13 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
             identity,
             terminal_id,
         } if is_human => value(store.observe_terminal_exit(request.id, identity, terminal_id)?),
+        Command::AbortPreparedStart {
+            identity,
+            terminal_id,
+            reason,
+        } if is_human => {
+            value(store.abort_prepared_start(request.id, identity, terminal_id, reason)?)
+        }
         Command::StartUncertain { identity, reason } if is_human => {
             value(store.start_uncertain(request.id, identity, reason)?)
         }
@@ -327,6 +334,7 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
         | Command::Grant { .. }
         | Command::AttachSession { .. }
         | Command::ConfirmTerminalExit { .. }
+        | Command::AbortPreparedStart { .. }
         | Command::StartUncertain { .. }
         | Command::FailStart { .. } => Err(denied("this operation requires a human client")),
         Command::Mailbox { after, limit } => value(store.mailbox(identity()?, after, limit)?),
