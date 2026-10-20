@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 
 mod candidates;
 mod checks;
+mod completion;
 mod context;
 mod coordination;
 mod dependencies;
@@ -21,7 +22,7 @@ mod runs;
 mod runtime;
 mod workareas;
 
-const SCHEMA_VERSION: i64 = 11;
+const SCHEMA_VERSION: i64 = 12;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -173,6 +174,7 @@ enum Table {
     RunWorkAreas,
     Reports,
     Completions,
+    CompletionRequests,
     Candidates,
     CandidateChecks,
     Coordination,
@@ -190,6 +192,7 @@ impl Table {
             Self::RunWorkAreas => "run_work_areas",
             Self::Reports => "task_reports",
             Self::Completions => "run_completions",
+            Self::CompletionRequests => "completion_requests",
             Self::Candidates => "candidates",
             Self::CandidateChecks => "candidate_checks",
             Self::Coordination => "coordination_notices",
@@ -558,6 +561,13 @@ impl Store {
             let transaction =
                 connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
             transaction.execute_batch("CREATE TABLE candidate_checks (id TEXT PRIMARY KEY REFERENCES attempts(id), candidate_id TEXT NOT NULL REFERENCES candidates(id), task_id TEXT NOT NULL REFERENCES tasks(id), report_id TEXT NOT NULL REFERENCES task_reports(id), state TEXT NOT NULL, data TEXT NOT NULL); CREATE INDEX candidate_checks_state ON candidate_checks(state); CREATE INDEX candidate_checks_candidate ON candidate_checks(candidate_id); CREATE INDEX candidate_checks_task ON candidate_checks(task_id);")?;
+            transaction.pragma_update(None, "user_version", 11)?;
+            transaction.commit()?;
+        }
+        if schema < 12 {
+            let transaction =
+                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            transaction.execute_batch("CREATE TABLE completion_requests (id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), state TEXT NOT NULL, data TEXT NOT NULL); CREATE INDEX completion_requests_state ON completion_requests(state); CREATE UNIQUE INDEX completion_requests_pending_run ON completion_requests(run_id) WHERE state = 'pending';")?;
             transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
             transaction.commit()?;
         }
@@ -1458,6 +1468,7 @@ impl Store {
                 .map(CandidateRecord::summary)
                 .collect(),
             candidate_checks: all(&transaction, Table::CandidateChecks)?,
+            completion_requests: all(&transaction, Table::CompletionRequests)?,
             coordination: all(&transaction, Table::Coordination)?,
             coordination_replies: all(&transaction, Table::CoordinationReplies)?,
             work_areas: all(&transaction, Table::WorkAreas)?,

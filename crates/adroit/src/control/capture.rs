@@ -11,6 +11,7 @@ const MAX_JOBS: usize = 4;
 enum Capture {
     Candidate(CandidateId),
     Check(AttemptId),
+    Completion(RequestId),
 }
 
 pub struct CaptureSupervisor {
@@ -139,6 +140,55 @@ impl CaptureSupervisor {
             });
             self.active.insert(job.id(), capture);
         }
+        let pending = self
+            .actor
+            .call(|store| store.pending_completions(64))
+            .await?;
+        for ticket in pending {
+            if self.active.len() >= MAX_JOBS {
+                break;
+            }
+            let capture = Capture::Completion(ticket.id);
+            if self.active.values().any(|active| *active == capture) {
+                continue;
+            }
+            let id = ticket.candidate_id;
+            let source = self
+                .actor
+                .call(move |store| {
+                    let candidate = store.candidate(id)?;
+                    let area_id = match candidate.artifact {
+                        TaskArtifact::Change { work_area_id, .. } => work_area_id,
+                        _ => {
+                            return Err(ControlError::new(
+                                super::store::ErrorCode::InvalidRequest,
+                                "the candidate lost its change artifact",
+                            ));
+                        }
+                    };
+                    Ok((store.work_area(area_id)?, candidate))
+                })
+                .await;
+            let (area, candidate) = match source {
+                Ok(source) => source,
+                Err(error) => {
+                    self.finish(capture, Err(error.to_string())).await?;
+                    continue;
+                }
+            };
+            let job = self.jobs.spawn(async move {
+                (
+                    capture,
+                    crate::candidates::capture_candidate(
+                        &area,
+                        &candidate.artifact,
+                        &candidate.plan.inputs,
+                    )
+                    .await,
+                )
+            });
+            self.active.insert(job.id(), capture);
+        }
         Ok(started)
     }
 
@@ -150,6 +200,9 @@ impl CaptureSupervisor {
                     .map(|_| ()),
                 Capture::Check(id) => store
                     .record_candidate_check(RequestId::new(), id, outcome)
+                    .map(|_| ()),
+                Capture::Completion(id) => store
+                    .record_change_completion(RequestId::new(), id, outcome)
                     .map(|_| ()),
             })
             .await

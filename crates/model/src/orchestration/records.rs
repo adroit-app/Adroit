@@ -336,6 +336,7 @@ pub struct ControlSnapshot {
     pub deliveries: Vec<DeliveryRecord>,
     pub reports: Vec<TaskReportRecord>,
     pub completions: Vec<RunCompletion>,
+    pub completion_requests: Vec<ChangeCompletionRequest>,
     pub candidates: Vec<CandidateSummary>,
     pub candidate_checks: Vec<CandidateCheckRecord>,
     pub coordination: Vec<CoordinationNotice>,
@@ -522,6 +523,29 @@ pub struct RunCompletion {
     pub plan_revision: u64,
     pub summary: String,
     pub reports: Vec<MessageId>,
+    #[serde(default)]
+    pub candidate_id: Option<CandidateId>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CompletionRequestState {
+    Pending,
+    Succeeded,
+    Rejected,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChangeCompletionRequest {
+    pub id: crate::RequestId,
+    pub leader: SessionRef,
+    pub run_id: RunId,
+    pub plan_revision: u64,
+    pub candidate_id: CandidateId,
+    pub summary: String,
+    pub state: CompletionRequestState,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -91,6 +91,12 @@ pub enum Command {
     CancelRun {
         run_id: RunId,
     },
+    RequestChangeCompletion {
+        run_id: RunId,
+        expected_revision: u64,
+        candidate_id: CandidateId,
+        summary: String,
+    },
     CompleteRun {
         run_id: RunId,
         expected_revision: u64,

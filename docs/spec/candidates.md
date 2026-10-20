@@ -100,3 +100,23 @@ A candidate becomes verified only when current confirmed results satisfy its
 quality commands and required reviews. Superseded assignments and results for
 another candidate do not establish verification. Verification alone does not
 complete the run or close its sessions.
+
+## Final change completion
+
+`request_change_completion` takes `run_id`, `expected_revision`, `candidate_id`,
+and a nonempty `summary`. It requires the selected verified candidate and returns
+a durable request in state `pending`. The Leader can finish its turn while the
+daemon checks the inputs again. Pending final checks survive controller restart.
+
+Final confirmation rechecks the plan, selected candidate, current required task
+results, quality evidence, active attempts, and unanswered blocking questions.
+A changed plan, cancellation, or changed inputs refuses completion. A rejected
+request cannot later become successful; the Leader must resolve its cause and
+request completion again. Tasks explicitly cancelled or belonging to superseded
+candidates do not count as current required results.
+
+A successful request records the final summary, evidence report IDs, and
+`candidate_id` with the run's completion. The daemon notifies the Leader of either
+outcome. The request has `id`, `leader`, `run_id`, `plan_revision`, `candidate_id`,
+`summary`, `state` (`pending`, `succeeded`, or `rejected`), and nullable `error`.
+Final confirmation leaves Agent and Terminal sessions available.

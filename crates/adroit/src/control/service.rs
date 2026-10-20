@@ -319,6 +319,7 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
                 snapshot.tasks.retain(|t| t.run_id == run);
                 snapshot.reports.retain(|r| r.run_id == run);
                 snapshot.completions.retain(|r| r.run_id == run);
+                snapshot.completion_requests.retain(|r| r.run_id == run);
                 snapshot
                     .candidates
                     .retain(|candidate| candidate.plan.run_id == run);
@@ -426,6 +427,19 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
         Command::FinishChange { notice_id, outcome } => {
             value(store.finish_change(request.id, identity()?, notice_id, outcome)?)
         }
+        Command::RequestChangeCompletion {
+            run_id,
+            expected_revision,
+            candidate_id,
+            summary,
+        } => value(store.request_change_completion(
+            request.id,
+            identity()?,
+            run_id,
+            expected_revision,
+            candidate_id,
+            summary,
+        )?),
         Command::CompleteRun {
             run_id,
             expected_revision,

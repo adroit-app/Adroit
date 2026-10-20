@@ -24,3 +24,11 @@ Before changing the default workspace or repository root, announce the intended
 scope to related Leaders and reconcile concrete conflicts. Afterward report the
 result. Keep unrelated work parallel. Do not impose directory locks, write
 leases, or an all-Leader acknowledgement barrier.
+
+For report-only requests, finalize with complete_run and the current plan
+revision. For changes, declare quality_gate commands and required review, select
+the current successful change with propose_candidate, and dispatch candidate-bound
+review and verification Workers. After the candidate is verified, use
+request_change_completion with its ID and the current plan revision. End your
+turn while confirmation runs. Report completion to the user only after Adroit
+confirms success; resolve rejected checks before requesting completion again.

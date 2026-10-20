@@ -1335,3 +1335,289 @@ async fn a_scoped_snapshot_never_exposes_another_runs_quality_check() {
         assert_eq!(checks[0]["candidate_id"], candidate.to_string());
     }
 }
+
+async fn verified_candidate(
+    store: &mut Store,
+    path: &Path,
+) -> (SessionRef, RunId, CandidateId, CandidateProof) {
+    let (owner, run, candidate, attempt, proof) =
+        running_quality_check(store, path, TaskPurpose::Verify).await;
+    store
+        .report_task(
+            RequestId::new(),
+            SessionRef {
+                id: attempt.session_id,
+                generation: 1,
+            },
+            check_report(&attempt, candidate),
+        )
+        .unwrap();
+    store
+        .record_candidate_check(RequestId::new(), attempt.id, Ok(proof.clone()))
+        .unwrap();
+    (owner, run, candidate, proof)
+}
+
+#[tokio::test]
+async fn change_completion_waits_for_a_durable_final_input_check_without_closing_sessions() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("output.txt"), "Result").unwrap();
+    let path = dir.path().join("control/state.sqlite3");
+    let mut store = Store::open(&path).unwrap();
+    let (owner, run, candidate, proof) = verified_candidate(&mut store, dir.path()).await;
+    let revision = store.snapshot().unwrap().runs[0].plan_revision;
+    let ticket = store
+        .request_change_completion(
+            RequestId::new(),
+            owner,
+            run,
+            revision,
+            candidate,
+            "Implemented and verified".into(),
+        )
+        .unwrap()
+        .value;
+    assert_eq!(ticket.state, CompletionRequestState::Pending);
+    assert!(store.snapshot().unwrap().completions.is_empty());
+    drop(store);
+    let mut store = Store::open(&path).unwrap();
+    assert_eq!(store.pending_completions(64).unwrap(), vec![ticket.clone()]);
+    let confirmed = store
+        .record_change_completion(RequestId::new(), ticket.id, Ok(proof))
+        .unwrap()
+        .value;
+    assert_eq!(confirmed.state, CompletionRequestState::Succeeded);
+    let snapshot = store.snapshot().unwrap();
+    assert_eq!(snapshot.runs[0].state, RunState::Succeeded);
+    assert_eq!(snapshot.completions[0].summary, "Implemented and verified");
+    assert_eq!(snapshot.completions[0].candidate_id, Some(candidate));
+    assert!(
+        snapshot
+            .sessions
+            .iter()
+            .filter(|session| session.binding.role() == SessionRole::Worker)
+            .all(|session| session.state == ManagedSessionState::Running)
+    );
+}
+
+#[tokio::test]
+async fn final_completion_refuses_changed_files_and_cannot_succeed_after_they_are_restored() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("output.txt"), "Result").unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (owner, run, candidate, original) = verified_candidate(&mut store, dir.path()).await;
+    let revision = store.snapshot().unwrap().runs[0].plan_revision;
+    let ticket = store
+        .request_change_completion(
+            RequestId::new(),
+            owner,
+            run,
+            revision,
+            candidate,
+            "Done".into(),
+        )
+        .unwrap()
+        .value;
+    let mut changed = original.clone();
+    changed.files.fingerprint = "sha256:changed".into();
+    assert_eq!(
+        store
+            .record_change_completion(RequestId::new(), ticket.id, Ok(changed))
+            .unwrap()
+            .value
+            .state,
+        CompletionRequestState::Rejected
+    );
+    assert_eq!(
+        store
+            .record_change_completion(RequestId::new(), ticket.id, Ok(original))
+            .unwrap()
+            .value
+            .state,
+        CompletionRequestState::Rejected
+    );
+    let snapshot = store.snapshot().unwrap();
+    assert!(snapshot.completions.is_empty());
+    assert_eq!(snapshot.candidates[0].state, CandidateState::Stale);
+}
+
+#[tokio::test]
+async fn a_plan_update_while_final_confirmation_runs_keeps_the_new_request_active() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("output.txt"), "Result").unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (owner, run, candidate, proof) = verified_candidate(&mut store, dir.path()).await;
+    let current = store.snapshot().unwrap().runs[0].clone();
+    let ticket = store
+        .request_change_completion(
+            RequestId::new(),
+            owner,
+            run,
+            current.plan_revision,
+            candidate,
+            "Done".into(),
+        )
+        .unwrap()
+        .value;
+    let mut brief = current.brief;
+    brief.constraints.push("Include another result".into());
+    store
+        .update_run(
+            RequestId::new(),
+            owner,
+            run,
+            current.plan_revision,
+            brief,
+            vec![],
+        )
+        .unwrap();
+    assert_eq!(
+        store
+            .record_change_completion(RequestId::new(), ticket.id, Ok(proof))
+            .unwrap()
+            .value
+            .state,
+        CompletionRequestState::Rejected
+    );
+    assert!(store.snapshot().unwrap().completions.is_empty());
+    assert_eq!(store.snapshot().unwrap().runs[0].state, RunState::Active);
+}
+
+#[tokio::test]
+async fn daemon_final_confirmation_completes_a_scoped_request_without_a_window_or_model_turn() {
+    use adroit::control::{
+        capture::CaptureSupervisor, client::Client, protocol::Command, service::Service,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("output.txt"), "Result").unwrap();
+    let root = dir.path().join("control");
+    let mut store = Store::open(&root.join("state.sqlite3")).unwrap();
+    let (owner, run, candidate, _) = verified_candidate(&mut store, dir.path()).await;
+    let revision = store.snapshot().unwrap().runs[0].plan_revision;
+    let client = Client::session(&root, store.grant(owner).unwrap());
+    drop(store);
+    let service = Service::bind(&root).await.unwrap();
+    let response = client
+        .request(
+            RequestId::new(),
+            Command::RequestChangeCompletion {
+                run_id: run,
+                expected_revision: revision,
+                candidate_id: candidate,
+                summary: "Verified change".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(response["value"]["state"], "pending");
+    let mut capture = CaptureSupervisor::new(service.actor());
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            capture.tick().await.unwrap();
+            let snapshot = client
+                .request(RequestId::new(), Command::Snapshot)
+                .await
+                .unwrap();
+            if snapshot["completion_requests"][0]["state"] == "succeeded" {
+                assert_eq!(snapshot["runs"][0]["state"], "succeeded");
+                assert_eq!(
+                    snapshot["completions"][0]["candidate_id"],
+                    candidate.to_string()
+                );
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn cancellation_during_final_confirmation_cannot_reactivate_or_complete_the_run() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("output.txt"), "Result").unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (owner, run, candidate, proof) = verified_candidate(&mut store, dir.path()).await;
+    let revision = store.snapshot().unwrap().runs[0].plan_revision;
+    let ticket = store
+        .request_change_completion(
+            RequestId::new(),
+            owner,
+            run,
+            revision,
+            candidate,
+            "Done".into(),
+        )
+        .unwrap()
+        .value;
+    store.cancel_run(RequestId::new(), owner, run).unwrap();
+    assert_eq!(
+        store
+            .record_change_completion(RequestId::new(), ticket.id, Ok(proof))
+            .unwrap()
+            .value
+            .state,
+        CompletionRequestState::Rejected
+    );
+    assert_eq!(store.snapshot().unwrap().runs[0].state, RunState::Cancelled);
+    assert!(store.snapshot().unwrap().completions.is_empty());
+}
+
+#[tokio::test]
+async fn a_new_blocking_question_after_completion_was_requested_still_prevents_success() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("output.txt"), "Result").unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (owner, run, candidate, proof) = verified_candidate(&mut store, dir.path()).await;
+    let snapshot = store.snapshot().unwrap();
+    let revision = snapshot.runs[0].plan_revision;
+    let attempt = snapshot
+        .attempts
+        .iter()
+        .find(|attempt| attempt.candidate_input.is_some())
+        .unwrap();
+    let ticket = store
+        .request_change_completion(
+            RequestId::new(),
+            owner,
+            run,
+            revision,
+            candidate,
+            "Done".into(),
+        )
+        .unwrap()
+        .value;
+    store
+        .send_message(
+            RequestId::new(),
+            SessionRef {
+                id: attempt.session_id,
+                generation: 1,
+            },
+            AgentMessage {
+                id: MessageId::new(),
+                run_id: run,
+                from: attempt.session_id,
+                to: owner.id,
+                task_id: Some(attempt.task_id),
+                attempt_id: Some(attempt.id),
+                revision: Some(attempt.task_revision),
+                kind: MessageKind::Question,
+                body: "A final decision is still required".into(),
+                reply_to: None,
+                blocks_work: true,
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        store
+            .record_change_completion(RequestId::new(), ticket.id, Ok(proof))
+            .unwrap()
+            .value
+            .state,
+        CompletionRequestState::Rejected
+    );
+    assert!(store.snapshot().unwrap().completions.is_empty());
+    assert_eq!(store.snapshot().unwrap().runs[0].state, RunState::Active);
+}

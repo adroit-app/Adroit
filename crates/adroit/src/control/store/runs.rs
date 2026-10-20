@@ -16,6 +16,168 @@ pub(super) fn settle_cancellation(connection: &Connection, run_id: RunId) -> Res
     Ok(())
 }
 
+pub(super) fn finish(
+    connection: &Connection,
+    identity: SessionRef,
+    run_id: RunId,
+    expected_revision: u64,
+    summary: String,
+    candidate_id: Option<CandidateId>,
+) -> Result<RunCompletion> {
+    let mut run = owner(connection, identity, run_id)?;
+    if run.plan_revision != expected_revision {
+        return Err(ControlError::new(
+            ErrorCode::RevisionConflict,
+            "the plan revision is outdated",
+        ));
+    }
+    if summary.trim().is_empty() || summary.len() > 64 * 1024 {
+        return Err(invalid(
+            "a completion summary must contain at most 64 KiB of nonempty text",
+        ));
+    }
+    if !run.brief.unresolved.is_empty() {
+        return Err(conflict("the run has unresolved questions"));
+    }
+    match candidate_id {
+        None if run.brief.completion_kind != CompletionKind::Report => {
+            return Err(conflict("a change run needs a verified candidate"));
+        }
+        Some(id)
+            if run.brief.completion_kind != CompletionKind::Change
+                || run.candidate_id != Some(id) =>
+        {
+            return Err(conflict("the completion candidate is no longer selected"));
+        }
+        _ => {}
+    }
+    let tasks: Vec<TaskRecord> = all::<TaskRecord>(connection, Table::Tasks)?
+        .into_iter()
+        .filter(|task| task.run_id == run_id)
+        .collect();
+    let attempts = all::<AttemptRecord>(connection, Table::Attempts)?;
+    if attempts.iter().any(|attempt| {
+        attempt.state.holds_slot() && tasks.iter().any(|task| task.id == attempt.task_id)
+    }) {
+        return Err(conflict("the run still has an active attempt"));
+    }
+    let outcomes = all::<TaskReportRecord>(connection, Table::Reports)?;
+    let mut reports = Vec::new();
+    for task in &tasks {
+        if task.state == TaskState::Cancelled
+            || task
+                .brief
+                .candidate_id
+                .is_some_and(|id| Some(id) != candidate_id)
+        {
+            continue;
+        }
+        let current = task
+            .current_attempt
+            .and_then(|id| attempts.iter().find(|attempt| attempt.id == id));
+        let result = current.and_then(|attempt| {
+            outcomes.iter().find(|record| {
+                record.applied
+                    && record.report.attempt_id == attempt.id
+                    && record.report.task
+                        == TaskVersion {
+                            task_id: task.id,
+                            revision: task.revision,
+                        }
+            })
+        });
+        if candidate_id.is_none()
+            && result.is_some_and(|record| {
+                matches!(
+                    record.report.result.artifact,
+                    Some(TaskArtifact::Change { .. })
+                )
+            })
+        {
+            return Err(conflict("change evidence needs a verified candidate"));
+        }
+        if !task.brief.required {
+            continue;
+        }
+        let attempt = current.ok_or_else(|| conflict("a required task has no current attempt"))?;
+        let record = result.ok_or_else(|| conflict("a required task has no current report"))?;
+        if task.state != TaskState::Succeeded
+            || attempt.state != AttemptState::Succeeded
+            || attempt.task_revision != task.revision
+            || record.report.result.status != ReportStatus::Succeeded
+            || !super::dependencies::current_inputs(connection, task, attempt)?
+        {
+            return Err(conflict(
+                "a required task has not succeeded with current inputs",
+            ));
+        }
+        reports.push(record.report.message_id);
+    }
+    if reports.is_empty() {
+        return Err(conflict("completion needs at least one required result"));
+    }
+    let messages = all::<AgentMessage>(connection, Table::Messages)?;
+    for question in messages.iter().filter(|message| {
+        message.run_id == run_id && message.kind == MessageKind::Question && message.blocks_work
+    }) {
+        if let Some(task_id) = question.task_id {
+            let Some(task) = tasks.iter().find(|task| task.id == task_id) else {
+                continue;
+            };
+            if task.state == TaskState::Cancelled
+                || task
+                    .brief
+                    .candidate_id
+                    .is_some_and(|id| Some(id) != candidate_id)
+                || question
+                    .revision
+                    .is_some_and(|revision| revision != task.revision)
+                || question
+                    .attempt_id
+                    .is_some_and(|id| Some(id) != task.current_attempt)
+            {
+                continue;
+            }
+        }
+        if !messages.iter().any(|answer| {
+            answer.kind == MessageKind::Answer
+                && answer.reply_to == Some(question.id)
+                && answer.from == question.to
+                && answer.to == question.from
+        }) {
+            return Err(conflict(
+                "a current blocking question has no addressed answer",
+            ));
+        }
+    }
+    for mut task in tasks.into_iter().filter(|task| {
+        !task.brief.required
+            && matches!(
+                task.state,
+                TaskState::Planned | TaskState::Queued | TaskState::Blocked
+            )
+    }) {
+        task.state = TaskState::Cancelled;
+        save_task(connection, &task)?;
+        event(connection, Some(run_id), "optional_task_skipped", &task)?;
+    }
+    let completion = RunCompletion {
+        run_id,
+        plan_revision: run.plan_revision,
+        summary,
+        reports,
+        candidate_id,
+    };
+    connection.execute(
+        "INSERT INTO run_completions(id,data) VALUES (?1,?2)",
+        params![run_id.to_string(), encode(&completion)?],
+    )?;
+    run.state = RunState::Succeeded;
+    save_run(connection, &run)?;
+    event(connection, Some(run_id), "run_completed", &completion)?;
+    Ok(completion)
+}
+
 impl Store {
     pub fn complete_run(
         &mut self,
@@ -26,48 +188,7 @@ impl Store {
         summary: String,
     ) -> Result<Reply<RunCompletion>> {
         self.transact(request,json!({"op":"complete_run","caller":identity,"run_id":run_id,"expected_revision":expected_revision,"summary":summary}),|connection| {
-            let mut run = owner(connection,identity,run_id)?;
-            if run.plan_revision != expected_revision { return Err(ControlError::new(ErrorCode::RevisionConflict,"the plan revision is outdated")); }
-            if summary.trim().is_empty() || summary.len() > 64 * 1024 { return Err(invalid("a completion summary must contain at most 64 KiB of nonempty text")); }
-            if !run.brief.unresolved.is_empty() { return Err(conflict("the run has unresolved questions")); }
-            if run.brief.completion_kind != CompletionKind::Report { return Err(conflict("a change run needs a verified candidate")); }
-            let tasks: Vec<TaskRecord> = all::<TaskRecord>(connection,Table::Tasks)?.into_iter().filter(|task|task.run_id == run_id).collect();
-            let attempts = all::<AttemptRecord>(connection,Table::Attempts)?;
-            if attempts.iter().any(|attempt|attempt.state.holds_slot() && tasks.iter().any(|task|task.id == attempt.task_id)) { return Err(conflict("the run still has an active attempt")); }
-            let outcomes = all::<TaskReportRecord>(connection,Table::Reports)?;
-            let mut reports = Vec::new();
-            for task in &tasks {
-                let current = task.current_attempt.and_then(|id| attempts.iter().find(|attempt|attempt.id == id));
-                let result = current.and_then(|attempt| outcomes.iter().find(|record|record.applied && record.report.attempt_id == attempt.id && record.report.task == TaskVersion {task_id:task.id,revision:task.revision}));
-                if result.is_some_and(|record|matches!(record.report.result.artifact,Some(TaskArtifact::Change {..}))) { return Err(conflict("change evidence needs a verified candidate")); }
-                if !task.brief.required { continue; }
-                let attempt = current.ok_or_else(||conflict("a required task has no current attempt"))?;
-                let record = result.ok_or_else(||conflict("a required task has no current report"))?;
-                if task.state != TaskState::Succeeded || attempt.state != AttemptState::Succeeded || attempt.task_revision != task.revision || record.report.result.status != ReportStatus::Succeeded || !super::dependencies::current_inputs(connection,task,attempt)? {
-                    return Err(conflict("a required task has not succeeded with current inputs"));
-                }
-                reports.push(record.report.message_id);
-            }
-            if reports.is_empty() { return Err(conflict("completion needs at least one required result")); }
-            let messages = all::<AgentMessage>(connection,Table::Messages)?;
-            for question in messages.iter().filter(|message| message.run_id == run_id && message.kind == MessageKind::Question && message.blocks_work) {
-                if let Some(task_id) = question.task_id {
-                    let Some(task) = tasks.iter().find(|task|task.id == task_id) else { continue; };
-                    if task.state == TaskState::Cancelled || question.revision.is_some_and(|revision|revision != task.revision) || question.attempt_id.is_some_and(|id|Some(id) != task.current_attempt) { continue; }
-                }
-                if !messages.iter().any(|answer|answer.kind == MessageKind::Answer && answer.reply_to == Some(question.id) && answer.from == question.to && answer.to == question.from) { return Err(conflict("a current blocking question has no addressed answer")); }
-            }
-            for mut task in tasks.into_iter().filter(|task|!task.brief.required && matches!(task.state,TaskState::Planned|TaskState::Queued|TaskState::Blocked)) {
-                task.state = TaskState::Cancelled;
-                save_task(connection,&task)?;
-                event(connection,Some(run_id),"optional_task_skipped",&task)?;
-            }
-            let completion = RunCompletion {run_id,plan_revision:run.plan_revision,summary,reports};
-            connection.execute("INSERT INTO run_completions(id,data) VALUES (?1,?2)",params![run_id.to_string(),encode(&completion)?])?;
-            run.state = RunState::Succeeded;
-            save_run(connection,&run)?;
-            event(connection,Some(run_id),"run_completed",&completion)?;
-            Ok(completion)
+            finish(connection,identity,run_id,expected_revision,summary,None)
         })
     }
 
