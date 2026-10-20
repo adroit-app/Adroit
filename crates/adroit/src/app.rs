@@ -1970,6 +1970,31 @@ fn App() -> Element {
             wake.notify_one();
         }
     });
+    let mut system_snapshot = use_signal(crate::system_usage::Snapshot::default);
+    use_future(move || async move {
+        let mut sampler = crate::system_usage::Sampler::default();
+        loop {
+            let settings = font.peek().usage;
+            if layout.peek().show_details && settings.any() {
+                let result = tokio::task::spawn_blocking(move || {
+                    let snapshot = sampler.sample(settings);
+                    (sampler, snapshot)
+                })
+                .await;
+                match result {
+                    Ok((next, mut snapshot)) => {
+                        sampler = next;
+                        if settings.gpu {
+                            snapshot.gpu = crate::system_usage::gpu_usage().await;
+                        }
+                        system_snapshot.set(snapshot);
+                    }
+                    Err(_) => sampler = crate::system_usage::Sampler::default(),
+                }
+            }
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+    });
     // How much of the account's usage limits is left, for the foot of the
     // overview: asked of the session's agent while the overview is in sight, again
     // once the answer has aged.
@@ -4652,6 +4677,7 @@ fn App() -> Element {
         }
         _ => Vec::new(),
     };
+    let system_gauges = system_snapshot.read().gauges(&font.read().usage);
     let spot_now = spot();
     let git_now = git_view()
         .filter(|v| {
@@ -5679,12 +5705,12 @@ fn App() -> Element {
                         }
                     }
                     }
-                    if !usage_now.is_empty() {
+                    if !usage_now.is_empty() || !system_gauges.is_empty() {
                         div { class: "details-usage",
-                            title: "Usage limits reported by the session's agent",
+                            title: "Account limits and whole-machine resource usage",
                             div { class: "usage-header",
                                 span { class: "details-label", "Usage" }
-                                if let Some(url) = agents::adapter(current_agent).usage_url() {
+                                if let Some(url) = agents::adapter(current_agent).usage_url().filter(|_| !usage_now.is_empty()) {
                                     button { class: "usage-web",
                                         title: "Open {agents::adapter(current_agent).label()} usage settings in your browser",
                                         onclick: move |ev| {
@@ -5698,6 +5724,17 @@ fn App() -> Element {
                                         },
                                         IconView { icon: Icon::Link, size: 12 }
                                         "Web"
+                                    }
+                                }
+                            }
+                            for g in system_gauges {
+                                div { key: "{g.label}", class: "usage-gauge",
+                                    div { class: "usage-gauge-head",
+                                        span { class: "usage-gauge-label", "{g.label}" }
+                                        span { class: "usage-gauge-left", "{g.value}" }
+                                    }
+                                    div { class: "usage-gauge-track",
+                                        div { class: "usage-gauge-fill", style: "width:{g.used}%" }
                                     }
                                 }
                             }

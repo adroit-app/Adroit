@@ -322,6 +322,49 @@ fn General(now: Settings, change: Callback<Change>) -> Element {
             }
         }
         section { class: "settings-group",
+            h2 { "System usage" }
+            Row { label: "CPU", hint: "Whole-machine CPU utilization.",
+                input {
+                    r#type: "checkbox",
+                    checked: now.usage.cpu,
+                    onchange: move |e| {
+                        let on = e.checked();
+                        change(Box::new(move |s: &mut Settings| s.usage.cpu = on));
+                    },
+                }
+            }
+            Row { label: "GPU", hint: "GPU utilization, when the system reports it.",
+                input {
+                    r#type: "checkbox",
+                    checked: now.usage.gpu,
+                    onchange: move |e| {
+                        let on = e.checked();
+                        change(Box::new(move |s: &mut Settings| s.usage.gpu = on));
+                    },
+                }
+            }
+            Row { label: "Memory", hint: "Used physical memory as a percentage of total memory.",
+                input {
+                    r#type: "checkbox",
+                    checked: now.usage.memory,
+                    onchange: move |e| {
+                        let on = e.checked();
+                        change(Box::new(move |s: &mut Settings| s.usage.memory = on));
+                    },
+                }
+            }
+            Row { label: "Storage", hint: "Used capacity on the startup volume.",
+                input {
+                    r#type: "checkbox",
+                    checked: now.usage.storage,
+                    onchange: move |e| {
+                        let on = e.checked();
+                        change(Box::new(move |s: &mut Settings| s.usage.storage = on));
+                    },
+                }
+            }
+        }
+        section { class: "settings-group",
             h2 { "Details panel" }
             Row { label: "Changes in Log", hint: "How many changes the Log sheet lists.",
                 input {

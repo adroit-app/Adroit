@@ -59,6 +59,33 @@ impl Default for DetailsSettings {
     }
 }
 
+/// Machine resources shown in Usage, independently of the active program.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct UsageSettings {
+    pub cpu: bool,
+    pub gpu: bool,
+    pub memory: bool,
+    pub storage: bool,
+}
+
+impl Default for UsageSettings {
+    fn default() -> Self {
+        Self {
+            cpu: true,
+            gpu: true,
+            memory: true,
+            storage: true,
+        }
+    }
+}
+
+impl UsageSettings {
+    pub fn any(self) -> bool {
+        self.cpu || self.gpu || self.memory || self.storage
+    }
+}
+
 /// How the console takes keys and draws its cursor.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -116,6 +143,7 @@ pub struct Settings {
     pub console: ConsoleSettings,
     /// How much the details panel reads and shows.
     pub details: DetailsSettings,
+    pub usage: UsageSettings,
 }
 
 /// The fonts the console falls back to, a Japanese one among them for what a
@@ -147,6 +175,7 @@ impl Default for Settings {
             picker: PickerSettings::default(),
             console: ConsoleSettings::default(),
             details: DetailsSettings::default(),
+            usage: UsageSettings::default(),
         }
     }
 }
@@ -362,6 +391,22 @@ mod tests {
     use std::collections::BTreeMap;
 
     #[test]
+    fn machine_usage_is_enabled_by_default_and_each_resource_can_be_hidden() {
+        let defaults = Settings::parse("").unwrap().usage;
+        assert!(defaults.cpu && defaults.gpu && defaults.memory && defaults.storage);
+        let settings =
+            Settings::parse("[usage]\ncpu = false\ngpu = false\nmemory = true\nstorage = false\n")
+                .unwrap();
+        assert!(!settings.usage.cpu && !settings.usage.gpu && !settings.usage.storage);
+        assert!(settings.usage.memory);
+        assert_eq!(
+            Settings::parse(&toml::to_string_pretty(&settings).unwrap()).unwrap(),
+            settings
+        );
+        assert!(Settings::parse("[usage]\nmemroy = false\n").is_err());
+    }
+
+    #[test]
     fn codex_readers_keep_legacy_models_until_their_own_options_are_saved() {
         let legacy = Settings::parse("[codex_sessions]\nmodel = \"legacy\"\n").unwrap();
         assert_eq!(legacy.codex_readers.model, "legacy");
@@ -528,6 +573,7 @@ model = "chosen-model"
                 option_as_alt: OptionAsAlt::Right,
                 cursor_blink: true,
             },
+            usage: UsageSettings::default(),
             details: DetailsSettings {
                 log_commits: 10,
                 diff_lines: 300,

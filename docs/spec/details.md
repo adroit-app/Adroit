@@ -70,6 +70,11 @@ The usage limits are asked of the session's agent while the overview is in sight
 again every few minutes, without starting a conversation or spending any of
 them. An account without such limits, or an agent that does not answer,
 shows none; one that stops answering keeps showing what it last said.
+Usage also shows live CPU, GPU and memory usage for the whole machine and
+capacity used on the startup volume, including in Shell and Neovim tabs.
+Each resource can be hidden independently in Settings. A resource that cannot
+be read is marked unavailable.
+
 The Usage header links to the shown agent's account usage settings in the
 default browser, where available resets and account limits can be managed.
 

@@ -135,6 +135,13 @@ diff_lines = 2000
 links_kept = 100
 links_shown = 5
 
+# Machine resources shown in Usage across all tabs.
+[usage]
+cpu = true
+gpu = true
+memory = true
+storage = true
+
 # How the console takes keys and draws its cursor: which Option keys send Alt
 # to what runs there, `both`, `left`, `right` or `none`, the others typing what
 # macOS makes of the key; and whether the cursor blinks when the program lets
