@@ -195,10 +195,22 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
         Command::RegisterLeader { id, agent, cwd } if is_human => {
             value(store.register_leader(request.id, id, agent, cwd)?)
         }
-        Command::Grant { identity } if is_human => value(store.grant(identity)?),
-        Command::RegisterLeader { .. } | Command::Grant { .. } => {
-            Err(denied("this operation requires a human client"))
+        Command::AttachSession {
+            identity,
+            cwd,
+            terminal_id,
+            conversation_id,
+        } if is_human => {
+            value(store.attach_session(request.id, identity, cwd, terminal_id, conversation_id)?)
         }
+        Command::FailStart { identity, reason } if is_human => {
+            value(store.fail_start(request.id, identity, reason)?)
+        }
+        Command::Grant { identity } if is_human => value(store.grant(identity)?),
+        Command::RegisterLeader { .. }
+        | Command::Grant { .. }
+        | Command::AttachSession { .. }
+        | Command::FailStart { .. } => Err(denied("this operation requires a human client")),
         Command::Snapshot => {
             let mut snapshot = store.snapshot()?;
             if !is_human {

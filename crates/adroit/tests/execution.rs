@@ -166,3 +166,28 @@ fn custom_permissions_do_not_cross_providers_or_replace_the_model() {
     claude.permissions = permissions;
     assert!(resolve(&Settings::default(), claude, Path::new("/adroit")).is_err());
 }
+
+#[test]
+fn a_worker_launch_keeps_its_explicit_assignment_even_at_the_repository_root() {
+    use adroit_model::{AttemptId, LogicalSessionId, RunId, SessionBinding, TaskId};
+    let binding = SessionBinding::worker(
+        LogicalSessionId::new(),
+        LogicalSessionId::new(),
+        RunId::new(),
+        TaskId::new(),
+        AttemptId::new(),
+    )
+    .unwrap();
+    let mut request = request(Agent::Codex, None);
+    request.binding = Some(binding.clone());
+    let launch = resolve(&Settings::default(), request, Path::new("/adroit")).unwrap();
+    let raw = adroit_term::tags::value(&launch.spawn.tags, "adroit.binding").unwrap();
+    assert_eq!(
+        serde_json::from_str::<SessionBinding>(&raw).unwrap(),
+        binding
+    );
+    assert_eq!(
+        adroit_term::tags::value(&launch.spawn.tags, "adroit.binding-conversation").as_deref(),
+        Some(launch.conversation.as_str())
+    );
+}

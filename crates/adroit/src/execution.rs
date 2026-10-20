@@ -19,6 +19,7 @@ pub struct StartRequest {
     pub prompt: String,
     pub images: Vec<PathBuf>,
     pub permissions: AgentPermissions,
+    pub binding: Option<adroit_model::SessionBinding>,
     pub env: Vec<(String, String)>,
     pub started_ms: u64,
     pub started_from: Option<String>,
@@ -181,7 +182,7 @@ pub fn resolve(
     ));
     let (program, args, env) =
         agents::launch_with_settings(&settings, request.agent, args, request.env);
-    let tags = sessions::agent_tags(
+    let mut tags = sessions::agent_tags(
         request.agent,
         &request.name,
         &request.cwd,
@@ -190,6 +191,16 @@ pub fn resolve(
         request.started_ms,
         request.started_from.as_deref(),
     );
+    if let Some(binding) = &request.binding {
+        tags.extend(adroit_term::tags::tagged(
+            "adroit.binding",
+            &serde_json::to_string(binding).expect("serializable assignment"),
+        ));
+        tags.extend(adroit_term::tags::tagged(
+            "adroit.binding-conversation",
+            &conversation,
+        ));
+    }
     Ok(ResolvedLaunch {
         agent: request.agent,
         requested_model: request.model,

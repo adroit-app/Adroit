@@ -431,3 +431,95 @@ fn a_truncated_existing_store_is_not_treated_as_a_fresh_instance() {
     assert!(Store::open(&path).is_err());
     assert_eq!(std::fs::metadata(&path).unwrap().len(), 0);
 }
+
+#[test]
+fn attaching_a_started_worker_records_the_terminal_and_running_attempt_together() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (owner, run) = leader(&mut store, dir.path());
+    let task = task(&mut store, owner, run, vec![]);
+    let version = TaskVersion {
+        task_id: task,
+        revision: 1,
+    };
+    store.queue_task(RequestId::new(), owner, version).unwrap();
+    let attempt = store
+        .reserve_attempt(RequestId::new(), owner, version, target())
+        .unwrap()
+        .value;
+    let identity = SessionRef {
+        id: attempt.session_id,
+        generation: 1,
+    };
+    store
+        .attach_session(
+            RequestId::new(),
+            identity,
+            dir.path().into(),
+            "00000000000000000000000000000001".into(),
+            "conversation".into(),
+        )
+        .unwrap();
+    let snapshot = store.snapshot().unwrap();
+    let session = snapshot
+        .sessions
+        .iter()
+        .find(|session| session.reference() == identity)
+        .unwrap();
+    assert_eq!(
+        session.terminal_id.as_deref(),
+        Some("00000000000000000000000000000001")
+    );
+    assert_eq!(session.state, adroit_model::ManagedSessionState::Running);
+    assert_eq!(
+        snapshot.attempts[0].state,
+        adroit_model::AttemptState::Running
+    );
+    assert_eq!(snapshot.tasks[0].state, adroit_model::TaskState::Running);
+    assert!(
+        store
+            .attach_session(
+                RequestId::new(),
+                identity,
+                dir.path().into(),
+                "00000000000000000000000000000002".into(),
+                "another".into()
+            )
+            .is_err()
+    );
+}
+
+#[test]
+fn a_failed_spawn_releases_its_attempt_without_succeeding_the_task() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (owner, run) = leader(&mut store, dir.path());
+    let task = task(&mut store, owner, run, vec![]);
+    let version = TaskVersion {
+        task_id: task,
+        revision: 1,
+    };
+    store.queue_task(RequestId::new(), owner, version).unwrap();
+    let attempt = store
+        .reserve_attempt(RequestId::new(), owner, version, target())
+        .unwrap()
+        .value;
+    store
+        .fail_start(
+            RequestId::new(),
+            SessionRef {
+                id: attempt.session_id,
+                generation: 1,
+            },
+            "program not found".into(),
+        )
+        .unwrap();
+    let snapshot = store.snapshot().unwrap();
+    assert_eq!(
+        snapshot.attempts[0].state,
+        adroit_model::AttemptState::Failed
+    );
+    assert!(!snapshot.attempts[0].state.holds_slot());
+    assert_eq!(snapshot.tasks[0].state, adroit_model::TaskState::Failed);
+    assert_eq!(snapshot.runs[0].state, adroit_model::RunState::Active);
+}

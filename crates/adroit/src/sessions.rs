@@ -51,6 +51,7 @@ pub fn follow_title(session: &mut Session, title: &str) -> Option<(u128, &'stati
         return None;
     }
     session.session_id = conversation.clone();
+    session.binding = None;
     Some((id, CONVERSATION, conversation))
 }
 
@@ -75,7 +76,15 @@ pub fn read(session: &adroit_term::Session) -> Option<Kept> {
     let cwd = PathBuf::from(tags::value(t, CWD)?);
     match tags::value(t, KIND)?.as_str() {
         kind if adroit_model::Agent::parse(kind).is_some() => Some(Kept::Agent(Session {
-            binding: None,
+            binding: match tags::value(t, "adroit.binding") {
+                Some(raw)
+                    if tags::value(t, "adroit.binding-conversation")
+                        == tags::value(t, CONVERSATION) =>
+                {
+                    Some(serde_json::from_str(&raw).ok()?)
+                }
+                _ => None,
+            },
             agent: adroit_model::Agent::parse(kind)?,
             id: hex(session.id),
             session_id: tags::value(t, CONVERSATION).unwrap_or_default(),
@@ -139,6 +148,7 @@ pub fn follow(
                     .filter(|l| !l.session_id.is_empty() && l.session_id != s.session_id);
                 if let Some(l) = moved {
                     s.session_id = l.session_id.clone();
+                    s.binding = None;
                     learned.push((id, CONVERSATION, s.session_id.clone()));
                 }
             }
@@ -249,6 +259,48 @@ pub fn terminal_tags(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn changing_conversation_does_not_transfer_a_worker_assignment() {
+        use adroit_model::{AttemptId, LogicalSessionId, RunId, SessionBinding, TaskId};
+        let binding = SessionBinding::worker(
+            LogicalSessionId::new(),
+            LogicalSessionId::new(),
+            RunId::new(),
+            TaskId::new(),
+            AttemptId::new(),
+        )
+        .unwrap();
+        let mut tags = agent_tags(
+            adroit_model::Agent::Codex,
+            "review",
+            std::path::Path::new("/repo"),
+            "first",
+            &adroit_model::AgentPermissions::Default,
+            1,
+            None,
+        );
+        tags.extend(adroit_term::tags::tagged(
+            "adroit.binding",
+            &serde_json::to_string(&binding).unwrap(),
+        ));
+        tags.extend(adroit_term::tags::tagged(
+            "adroit.binding-conversation",
+            "first",
+        ));
+        let Some(Kept::Agent(mut session)) = read(&kept(42, tags.clone())) else {
+            panic!("agent")
+        };
+        assert_eq!(session.binding, Some(binding));
+        follow_title(&mut session, "Codex · 11234567-89ab-cdef-0123-456789abcdef");
+        assert!(session.binding.is_none());
+        tags.retain(|tag| !tag.starts_with(&format!("{CONVERSATION}=")));
+        tags.extend(adroit_term::tags::tagged(CONVERSATION, "second"));
+        let Some(Kept::Agent(session)) = read(&kept(42, tags)) else {
+            panic!("agent")
+        };
+        assert!(session.binding.is_none());
+    }
+
     #[test]
     fn user_input_times_are_kept_on_the_session_and_older_windows_cannot_replace_them() {
         let mut session = Session {

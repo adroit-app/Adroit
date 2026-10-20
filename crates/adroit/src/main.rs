@@ -11,6 +11,13 @@ fn main() {
         eprintln!("adroit: {e}");
         std::process::exit(2);
     }
+    if matches!(asked, Some(Command::Daemon)) {
+        let names = std::env::vars_os().map(|(key, _)| key.to_string_lossy().into_owned());
+        for key in adroit::env::inherited(names) {
+            // SAFETY: the daemon runtime has not created any threads yet.
+            unsafe { std::env::remove_var(key) };
+        }
+    }
     match asked {
         None => {
             eprintln!("{USAGE}");

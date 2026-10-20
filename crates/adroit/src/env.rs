@@ -62,7 +62,10 @@ pub fn inherited(names: impl IntoIterator<Item = String>) -> Vec<String> {
     names
         .into_iter()
         .filter(|n| {
-            n == "CODEX_THREAD_ID"
+            matches!(
+                n.as_str(),
+                "ADROIT_CONTROL_TOKEN" | "ADROIT_SESSION_ID" | "ADROIT_SESSION_GENERATION"
+            ) || n == "CODEX_THREAD_ID"
                 || n == "NVIM"
                 || n == "NVIM_LISTEN_ADDRESS"
                 || n.starts_with("GUISE_")
@@ -74,6 +77,23 @@ pub fn inherited(names: impl IntoIterator<Item = String>) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_new_application_does_not_inherit_its_callers_control_identity() {
+        assert_eq!(
+            dropped(&[
+                "ADROIT_CONTROL_TOKEN",
+                "ADROIT_SESSION_ID",
+                "ADROIT_SESSION_GENERATION",
+                "ADROIT_INSTANCE"
+            ]),
+            [
+                "ADROIT_CONTROL_TOKEN",
+                "ADROIT_SESSION_ID",
+                "ADROIT_SESSION_GENERATION"
+            ]
+        );
+    }
 
     #[test]
     fn the_account_s_login_shell_is_its_own_whatever_shell_started_adroit() {

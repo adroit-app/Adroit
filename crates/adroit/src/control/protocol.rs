@@ -30,6 +30,16 @@ pub enum Command {
         agent: Agent,
         cwd: PathBuf,
     },
+    AttachSession {
+        identity: SessionRef,
+        cwd: PathBuf,
+        terminal_id: String,
+        conversation_id: String,
+    },
+    FailStart {
+        identity: SessionRef,
+        reason: String,
+    },
     Grant {
         identity: SessionRef,
     },

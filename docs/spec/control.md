@@ -30,6 +30,9 @@ below; IDs are UUID strings and session references contain `id` and `generation`
 
 - `register_leader`: `id`, `agent`, `cwd` (human client).
 - `grant`: `identity` (human client; returns the session credential).
+- `attach_session`: `identity`, `cwd`, `terminal_id`, `conversation_id` (human
+  client; records a completed startup).
+- `fail_start`: `identity`, `reason` (human client; records a failed startup).
 - `snapshot`: no additional fields.
 - `events`: `after`, `limit`.
 - `open_run`: `id`, `brief`.

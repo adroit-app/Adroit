@@ -255,6 +255,18 @@ fn save_task(connection: &Connection, task: &TaskRecord) -> Result<()> {
     Ok(())
 }
 
+fn save_attempt(connection: &Connection, attempt: &AttemptRecord) -> Result<()> {
+    connection.execute(
+        "UPDATE attempts SET active = ?1, data = ?2 WHERE id = ?3",
+        params![
+            attempt.state.holds_slot(),
+            encode(attempt)?,
+            attempt.id.to_string()
+        ],
+    )?;
+    Ok(())
+}
+
 fn delivery(
     connection: &Connection,
     message: &AgentMessage,
@@ -530,6 +542,8 @@ impl Store {
                     binding: SessionBinding::leader(id, None),
                     agent,
                     generation: 1,
+                    state: ManagedSessionState::Preparing,
+                    permissions: AgentPermissions::Default,
                     cwd: Some(cwd),
                     terminal_id: None,
                     conversation_id: None,
@@ -679,7 +693,7 @@ impl Store {
             let session = ManagedSession {
                 binding: SessionBinding::worker(session_id, identity.id, task.run_id, task.id, id)
                     .map_err(|error| invalid(error.to_string()))?,
-                agent: target.agent, generation: 1, cwd: None, terminal_id: None, conversation_id: None,
+                agent: target.agent, generation: 1, state: ManagedSessionState::Preparing, permissions: target.permissions.clone(), cwd: None, terminal_id: None, conversation_id: None,
             };
             save_session(connection, &session)?;
             let attempt = AttemptRecord { id, task_id: task.id, task_revision: task.revision, session_id,
@@ -691,6 +705,119 @@ impl Store {
             event(connection, Some(task.run_id), "attempt_reserved", &attempt)?;
             Ok(attempt)
         })
+    }
+
+    pub fn attach_session(
+        &mut self,
+        request: RequestId,
+        identity: SessionRef,
+        cwd: PathBuf,
+        terminal_id: String,
+        conversation_id: String,
+    ) -> Result<Reply<ManagedSession>> {
+        self.transact(request, json!({"op":"attach_session", "caller":identity, "cwd":cwd, "terminal_id":terminal_id, "conversation_id":conversation_id}), |connection| {
+            if crate::sessions::id_of(&terminal_id).is_none() || conversation_id.trim().is_empty() {
+                return Err(invalid("a started session needs a terminal ID and conversation"));
+            }
+            let mut session = reference(connection, identity)?;
+            if session.state != ManagedSessionState::Preparing {
+                if session.state == ManagedSessionState::Running && session.terminal_id.as_ref() == Some(&terminal_id)
+                    && session.conversation_id.as_ref() == Some(&conversation_id) && session.cwd.as_ref() == Some(&cwd) {
+                    return Ok(session);
+                }
+                return Err(conflict("the session is already attached or cannot be started"));
+            }
+            if all::<ManagedSession>(connection, Table::Sessions)?.iter().any(|s| s.terminal_id.as_ref() == Some(&terminal_id) && s.binding.logical_id() != identity.id) {
+                return Err(conflict("the terminal already belongs to another session"));
+            }
+            if let Some((task_id, attempt_id)) = session.binding.work() {
+                let mut task: TaskRecord = require(connection, Table::Tasks, task_id)?;
+                let mut attempt: AttemptRecord = require(connection, Table::Attempts, attempt_id)?;
+                if task.current_attempt != Some(attempt_id) || task.revision != attempt.task_revision
+                    || !matches!(attempt.state, AttemptState::Preparing | AttemptState::Starting) {
+                    return Err(conflict("the worker assignment changed before startup completed"));
+                }
+                attempt.state = AttemptState::Running;
+                task.state = TaskState::Running;
+                save_attempt(connection, &attempt)?;
+                save_task(connection, &task)?;
+                event(connection, session.binding.run_id(), "attempt_started", &attempt)?;
+                event(connection, session.binding.run_id(), "task_running", &task)?;
+            }
+            session.cwd = Some(cwd);
+            session.terminal_id = Some(terminal_id);
+            session.conversation_id = Some(conversation_id);
+            session.state = ManagedSessionState::Running;
+            save_session(connection, &session)?;
+            event(connection, session.binding.run_id(), "session_attached", &session)?;
+            Ok(session)
+        })
+    }
+
+    pub fn fail_start(
+        &mut self,
+        request: RequestId,
+        identity: SessionRef,
+        reason: String,
+    ) -> Result<Reply<ManagedSession>> {
+        self.transact(
+            request,
+            json!({"op":"fail_start", "caller":identity, "reason":reason}),
+            |connection| {
+                if reason.trim().is_empty() {
+                    return Err(invalid("a failed startup needs a reason"));
+                }
+                let mut session = reference(connection, identity)?;
+                if session.state == ManagedSessionState::Failed {
+                    return Ok(session);
+                }
+                if session.state != ManagedSessionState::Preparing {
+                    return Err(conflict("the session is no longer preparing"));
+                }
+                if let Some((task_id, attempt_id)) = session.binding.work() {
+                    let mut task: TaskRecord = require(connection, Table::Tasks, task_id)?;
+                    let mut attempt: AttemptRecord =
+                        require(connection, Table::Attempts, attempt_id)?;
+                    if task.current_attempt != Some(attempt_id)
+                        || !matches!(
+                            attempt.state,
+                            AttemptState::Preparing | AttemptState::Starting
+                        )
+                    {
+                        return Err(conflict("the worker assignment changed"));
+                    }
+                    attempt.state = AttemptState::Failed;
+                    task.state = TaskState::Failed;
+                    save_attempt(connection, &attempt)?;
+                    save_task(connection, &task)?;
+                    event(
+                        connection,
+                        session.binding.run_id(),
+                        "attempt_start_failed",
+                        &json!({"attempt":attempt, "reason":reason}),
+                    )?;
+                } else if let Some(run_id) = session.binding.run_id() {
+                    let mut run: RunRecord = require(connection, Table::Runs, run_id)?;
+                    run.state = RunState::Failed;
+                    save_run(connection, &run)?;
+                    event(
+                        connection,
+                        Some(run_id),
+                        "run_start_failed",
+                        &json!({"run":run, "reason":reason}),
+                    )?;
+                }
+                session.state = ManagedSessionState::Failed;
+                save_session(connection, &session)?;
+                event(
+                    connection,
+                    session.binding.run_id(),
+                    "session_start_failed",
+                    &json!({"session":session, "reason":reason}),
+                )?;
+                Ok(session)
+            },
+        )
     }
 
     pub fn send_message(

@@ -14,12 +14,27 @@ pub struct SessionRef {
     pub generation: u64,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ManagedSessionState {
+    #[default]
+    Preparing,
+    Running,
+    NeedsReconciliation,
+    Exited,
+    Failed,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ManagedSession {
     pub binding: SessionBinding,
     pub agent: Agent,
     pub generation: u64,
+    #[serde(default)]
+    pub state: ManagedSessionState,
+    #[serde(default)]
+    pub permissions: AgentPermissions,
     pub cwd: Option<PathBuf>,
     pub terminal_id: Option<String>,
     pub conversation_id: Option<String>,
