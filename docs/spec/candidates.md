@@ -69,3 +69,17 @@ Snapshots, candidate responses, and candidate events expose the source artifact,
 state, error, and proof identity with its file count. They omit the full list of
 captured file hashes; detailed proof remains in durable state. The Leader is
 notified when capture finishes, and preparation alone is not run completion.
+
+## Quality Worker inputs
+
+A review or verification task can set `brief.candidate_id` to the selected
+candidate. It must name that candidate's existing working area and depend on its
+source task. A different run, automatic fresh area, or implementation task cannot
+claim these quality inputs.
+
+The Leader may queue this task before capture finishes. Scheduling waits for
+prepared evidence while unrelated work remains eligible. Immediately before
+startup the daemon captures the candidate again and records its input identity
+on the attempt. It releases the native program only after that identity matches.
+Changed or unreadable inputs invalidate the candidate and report startup failure;
+they never fall back to another working area.

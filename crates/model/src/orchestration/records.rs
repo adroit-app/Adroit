@@ -131,6 +131,7 @@ pub struct TargetPreference {
 pub struct TaskBrief {
     pub instructions: String,
     pub required: bool,
+    pub candidate_id: Option<CandidateId>,
     pub scope: Vec<String>,
     pub inputs: Vec<String>,
     pub purpose: TaskPurpose,
@@ -145,6 +146,7 @@ impl Default for TaskBrief {
         Self {
             instructions: String::new(),
             required: true,
+            candidate_id: None,
             scope: Vec::new(),
             inputs: Vec::new(),
             purpose: TaskPurpose::default(),
@@ -253,6 +255,8 @@ pub struct AttemptRecord {
     pub session_id: LogicalSessionId,
     pub target: TargetSelection,
     pub actual_model: Option<String>,
+    #[serde(default)]
+    pub candidate_input: Option<CandidateProofSummary>,
     pub work_area_id: Option<WorkAreaId>,
     pub base_revision: Option<String>,
     pub state: AttemptState,
@@ -681,13 +685,19 @@ impl CandidateRecord {
             artifact: self.artifact.clone(),
             state: self.state,
             error: self.error.clone(),
-            proof: self.proof.as_ref().map(|proof| CandidateProofSummary {
-                work_area_id: proof.work_area_id,
-                backend: proof.backend,
-                revision: proof.revision.clone(),
-                fingerprint: proof.files.fingerprint.clone(),
-                file_count: proof.files.files.len(),
-            }),
+            proof: self.proof.as_ref().map(CandidateProof::summary),
+        }
+    }
+}
+
+impl CandidateProof {
+    pub fn summary(&self) -> CandidateProofSummary {
+        CandidateProofSummary {
+            work_area_id: self.work_area_id,
+            backend: self.backend,
+            revision: self.revision.clone(),
+            fingerprint: self.files.fingerprint.clone(),
+            file_count: self.files.files.len(),
         }
     }
 }

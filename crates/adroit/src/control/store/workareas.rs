@@ -121,6 +121,10 @@ impl Store {
                 return Err(conflict("the attempt no longer matches the task preparation"));
             }
             associated(connection, task.run_id, area_id)?;
+            if let Some(candidate) = super::candidates::task_candidate(connection,task.run_id,&task.brief,&task.dependencies,true)? {
+                let proof = candidate.proof.as_ref().expect("prepared candidate");
+                if proof.work_area_id != area_id { return Err(invalid("a candidate check cannot bind a different working area")); }
+            }
             let area: WorkArea = require(connection, Table::WorkAreas, area_id)?;
             if !matches!(area.state, WorkAreaState::Preparing | WorkAreaState::Ready) { return Err(conflict("the working area is unavailable")); }
             if let Some(existing) = attempt.work_area_id {
@@ -157,6 +161,19 @@ impl Store {
                     )
                 {
                     return Err(conflict("the attempt no longer matches the task startup"));
+                }
+                if let Some(candidate) = super::candidates::task_candidate(
+                    connection,
+                    task.run_id,
+                    &task.brief,
+                    &task.dependencies,
+                    true,
+                )? && attempt.candidate_input
+                    != candidate.proof.as_ref().map(CandidateProof::summary)
+                {
+                    return Err(conflict(
+                        "the check needs a confirmed candidate input before startup",
+                    ));
                 }
                 let area_id = attempt
                     .work_area_id

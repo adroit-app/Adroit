@@ -61,6 +61,17 @@ impl Scheduler {
                         task.run_id == run.id
                             && task.state == TaskState::Queued
                             && task.current_attempt.is_none()
+                            && task.brief.candidate_id.is_none_or(|id| {
+                                snapshot.candidates.iter().any(|candidate| {
+                                    candidate.plan.id == id
+                                        && candidate.plan.run_id == run.id
+                                        && run.candidate_id == Some(id)
+                                        && matches!(
+                                            candidate.state,
+                                            CandidateState::Prepared | CandidateState::Verified
+                                        )
+                                })
+                            })
                             && task.dependencies.iter().all(|id| {
                                 snapshot.tasks.iter().any(|dependency| {
                                     dependency.id == *id && dependency.state == TaskState::Succeeded
@@ -278,6 +289,32 @@ impl Startup {
         let binding =
             SessionBinding::worker(identity.id, owner.id, run_id, self.task.id, attempt_id)
                 .map_err(failed)?;
+        if let Some(id) = self.task.brief.candidate_id {
+            let candidate = self.actor.call(move |store| store.candidate(id)).await?;
+            let outcome = crate::candidates::capture_candidate(
+                &area,
+                &candidate.artifact,
+                &candidate.plan.inputs,
+            )
+            .await;
+            let recorded = self
+                .actor
+                .call(move |store| {
+                    store
+                        .record_candidate_input(
+                            RequestId::new(),
+                            owner,
+                            wanted,
+                            attempt_id,
+                            outcome,
+                        )
+                        .map(|reply| reply.value)
+                })
+                .await?;
+            if recorded.is_none() {
+                return Err(failed("the candidate inputs changed before Worker startup"));
+            }
+        }
         let credential = self.actor.call(move |store| store.grant(identity)).await?;
         let runtime = super::runtime::RuntimeLaunch::new(self.settings.clone());
         let captured = runtime.clone();

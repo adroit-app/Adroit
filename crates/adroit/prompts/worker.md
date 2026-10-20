@@ -27,3 +27,8 @@ a plain report message does not finish the task. For directory changes, compute
 the output manifest's canonical candidate_fingerprint with fingerprint_files
 before reporting success. For native VCS changes, report the full immutable
 commit ID. Keep verification inputs explicit so later checks can detect changes.
+
+For a candidate review or verification task, read candidate_id and the confirmed
+candidate_input from context. Report the actual check commands and exit codes,
+and use that candidate ID as each check's candidate identity. Preserve the
+candidate inputs; changing them requires a new candidate and verification.

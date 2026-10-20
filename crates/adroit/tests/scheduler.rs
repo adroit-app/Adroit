@@ -120,20 +120,24 @@ async fn ready_runs_share_slots_and_acceptance_does_not_wait_for_native_startup(
         .collect();
     assert_eq!(runs, [first, second].into_iter().collect());
     assert!(scheduler.tick(settings, 2).await.unwrap().is_empty());
-    for _ in 0..200 {
-        let snapshot = actor.call(|store| store.snapshot()).await.unwrap();
-        if snapshot.attempts.iter().all(|attempt| {
-            attempt.state == AttemptState::Running
-                && source.join("started").exists()
-                && std::fs::read(source.join(format!("observed-{}.json", attempt.session_id)))
-                    .ok()
-                    .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-                    .is_some()
-        }) {
-            break;
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            let snapshot = actor.call(|store| store.snapshot()).await.unwrap();
+            if snapshot.attempts.iter().all(|attempt| {
+                attempt.state == AttemptState::Running
+                    && source.join("started").exists()
+                    && std::fs::read(source.join(format!("observed-{}.json", attempt.session_id)))
+                        .ok()
+                        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+                        .is_some()
+            }) {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    }
+    })
+    .await
+    .expect("Workers must finish their first scoped control request");
     let snapshot = actor.call(|store| store.snapshot()).await.unwrap();
     assert_eq!(snapshot.attempts.len(), 2);
     assert!(

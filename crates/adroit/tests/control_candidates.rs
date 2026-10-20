@@ -514,3 +514,420 @@ fn cancelling_a_run_invalidates_its_pending_candidate_and_keeps_interactive_sess
         ManagedSessionState::Running
     );
 }
+
+fn quality_plan(
+    run: RunId,
+    source: &AttemptRecord,
+    area: WorkAreaId,
+    candidate: CandidateId,
+) -> TaskPlan {
+    TaskPlan {
+        id: TaskId::new(),
+        run_id: run,
+        expected_revision: None,
+        brief: TaskBrief {
+            instructions: "Run the declared checks on this candidate".into(),
+            purpose: TaskPurpose::Verify,
+            candidate_id: Some(candidate),
+            workdir: WorkdirPolicy::Existing(area),
+            target: TargetPreference {
+                agent: Some(Agent::Codex),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        dependencies: vec![source.task_id],
+    }
+}
+
+#[tokio::test]
+async fn a_quality_worker_can_queue_early_but_needs_captured_candidate_inputs_before_starting() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("output.txt"), "Result").unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (owner, run, source, area, artifact) = finished_change(&mut store, dir.path());
+    let candidate = plan(run, &source);
+    store
+        .propose_candidate(RequestId::new(), owner, 2, candidate.clone())
+        .unwrap();
+    let task = store
+        .put_task(
+            RequestId::new(),
+            owner,
+            quality_plan(run, &source, area.id, candidate.id),
+        )
+        .unwrap()
+        .value;
+    let wanted = TaskVersion {
+        task_id: task.id,
+        revision: 1,
+    };
+    store.queue_task(RequestId::new(), owner, wanted).unwrap();
+    assert!(
+        store
+            .reserve_attempt(RequestId::new(), owner, wanted, TargetSelection::default())
+            .is_err()
+    );
+    let proof = adroit::candidates::capture_candidate(&area, &artifact, &candidate.inputs)
+        .await
+        .unwrap();
+    store
+        .record_candidate_capture(RequestId::new(), candidate.id, Ok(proof.clone()))
+        .unwrap();
+    let attempt = store
+        .reserve_attempt(RequestId::new(), owner, wanted, TargetSelection::default())
+        .unwrap()
+        .value;
+    store
+        .bind_work_area(RequestId::new(), owner, wanted, attempt.id, area.id)
+        .unwrap();
+    assert!(
+        store
+            .begin_start(RequestId::new(), owner, wanted, attempt.id)
+            .is_err()
+    );
+    let recorded = store
+        .record_candidate_input(RequestId::new(), owner, wanted, attempt.id, Ok(proof))
+        .unwrap()
+        .value
+        .unwrap();
+    assert!(recorded.candidate_input.is_some());
+    assert_eq!(
+        store
+            .begin_start(RequestId::new(), owner, wanted, attempt.id)
+            .unwrap()
+            .value
+            .state,
+        AttemptState::Starting
+    );
+}
+
+#[tokio::test]
+async fn a_changed_verification_input_invalidates_the_candidate_without_releasing_the_program() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("output.txt"), "Result").unwrap();
+    std::fs::write(dir.path().join("rules.txt"), "Original rules").unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (owner, run, source, area, artifact) = finished_change(&mut store, dir.path());
+    let candidate = plan(run, &source);
+    store
+        .propose_candidate(RequestId::new(), owner, 2, candidate.clone())
+        .unwrap();
+    let proof = adroit::candidates::capture_candidate(&area, &artifact, &candidate.inputs)
+        .await
+        .unwrap();
+    store
+        .record_candidate_capture(RequestId::new(), candidate.id, Ok(proof))
+        .unwrap();
+    let task = store
+        .put_task(
+            RequestId::new(),
+            owner,
+            quality_plan(run, &source, area.id, candidate.id),
+        )
+        .unwrap()
+        .value;
+    let wanted = TaskVersion {
+        task_id: task.id,
+        revision: 1,
+    };
+    store.queue_task(RequestId::new(), owner, wanted).unwrap();
+    let attempt = store
+        .reserve_attempt(RequestId::new(), owner, wanted, TargetSelection::default())
+        .unwrap()
+        .value;
+    store
+        .bind_work_area(RequestId::new(), owner, wanted, attempt.id, area.id)
+        .unwrap();
+    std::fs::write(dir.path().join("rules.txt"), "New rules").unwrap();
+    let changed = adroit::candidates::capture_candidate(&area, &artifact, &candidate.inputs)
+        .await
+        .unwrap();
+    assert!(
+        store
+            .record_candidate_input(RequestId::new(), owner, wanted, attempt.id, Ok(changed))
+            .unwrap()
+            .value
+            .is_none()
+    );
+    assert_eq!(
+        store.snapshot().unwrap().candidates[0].state,
+        CandidateState::Stale
+    );
+    assert!(
+        store
+            .begin_start(RequestId::new(), owner, wanted, attempt.id)
+            .is_err()
+    );
+}
+
+#[test]
+fn candidate_checks_cannot_use_another_run_a_fresh_working_area_or_implementation_purpose() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("output.txt"), "Result").unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (owner, run, source, area, _) = finished_change(&mut store, dir.path());
+    let candidate = plan(run, &source);
+    store
+        .propose_candidate(RequestId::new(), owner, 2, candidate.clone())
+        .unwrap();
+    let (other, other_run, other_source, _, _) = finished_change(&mut store, dir.path());
+    let before = store.snapshot().unwrap();
+    assert!(
+        store
+            .put_task(
+                RequestId::new(),
+                other,
+                quality_plan(other_run, &other_source, area.id, candidate.id)
+            )
+            .is_err()
+    );
+    let mut automatic = quality_plan(run, &source, area.id, candidate.id);
+    automatic.brief.workdir = WorkdirPolicy::Auto;
+    assert!(store.put_task(RequestId::new(), owner, automatic).is_err());
+    let mut implementation = quality_plan(run, &source, area.id, candidate.id);
+    implementation.brief.purpose = TaskPurpose::Implement;
+    assert!(
+        store
+            .put_task(RequestId::new(), owner, implementation)
+            .is_err()
+    );
+    let mut detached = quality_plan(run, &source, area.id, candidate.id);
+    detached.dependencies.clear();
+    assert!(store.put_task(RequestId::new(), owner, detached).is_err());
+    assert_eq!(store.snapshot().unwrap(), before);
+}
+
+#[tokio::test]
+async fn waiting_for_candidate_capture_does_not_block_unrelated_ready_work() {
+    use adroit::control::{scheduler::Scheduler, service::Service};
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("output.txt"), "Result").unwrap();
+    let root = dir.path().join("control");
+    let mut store = Store::open(&root.join("state.sqlite3")).unwrap();
+    let (owner, run, source, area, _) = finished_change(&mut store, dir.path());
+    let candidate = plan(run, &source);
+    store
+        .propose_candidate(RequestId::new(), owner, 2, candidate.clone())
+        .unwrap();
+    let check = store
+        .put_task(
+            RequestId::new(),
+            owner,
+            quality_plan(run, &source, area.id, candidate.id),
+        )
+        .unwrap()
+        .value;
+    store
+        .queue_task(
+            RequestId::new(),
+            owner,
+            TaskVersion {
+                task_id: check.id,
+                revision: 1,
+            },
+        )
+        .unwrap();
+    let ready = TaskId::new();
+    store
+        .put_task(
+            RequestId::new(),
+            owner,
+            TaskPlan {
+                id: ready,
+                run_id: run,
+                expected_revision: None,
+                brief: TaskBrief {
+                    instructions: "Classify unrelated input".into(),
+                    target: TargetPreference {
+                        agent: Some(Agent::Codex),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+                dependencies: vec![],
+            },
+        )
+        .unwrap();
+    store
+        .queue_task(
+            RequestId::new(),
+            owner,
+            TaskVersion {
+                task_id: ready,
+                revision: 1,
+            },
+        )
+        .unwrap();
+    drop(store);
+    let service = Service::bind(&root).await.unwrap();
+    let mut scheduler = Scheduler::new(
+        service.actor(),
+        adroit_term::Daemon::new(dir.path().join("not-running.sock")),
+        root,
+        "/adroit".into(),
+    );
+    let started = scheduler
+        .tick(adroit::settings::Settings::default(), 4)
+        .await
+        .unwrap();
+    assert_eq!(started.len(), 1);
+    let snapshot = service
+        .actor()
+        .call(|store| store.snapshot())
+        .await
+        .unwrap();
+    let attempt = snapshot
+        .attempts
+        .iter()
+        .find(|attempt| attempt.id == started[0])
+        .unwrap();
+    assert_eq!(attempt.task_id, ready);
+    assert!(
+        snapshot
+            .tasks
+            .iter()
+            .find(|task| task.id == check.id)
+            .unwrap()
+            .current_attempt
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn the_native_program_starts_only_after_a_matching_candidate_preflight() {
+    use adroit::control::{scheduler::Scheduler, service::Service};
+    use adroit_term::Daemon;
+    for changed in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::write(dir.path().join("output.txt"), "Result").unwrap();
+        std::fs::write(dir.path().join("rules.txt"), "Original rules").unwrap();
+        let root = dir.path().join("control");
+        let mut store = Store::open(&root.join("state.sqlite3")).unwrap();
+        let (owner, run, source, area, artifact) = finished_change(&mut store, dir.path());
+        let candidate = plan(run, &source);
+        store
+            .propose_candidate(RequestId::new(), owner, 2, candidate.clone())
+            .unwrap();
+        let proof = adroit::candidates::capture_candidate(&area, &artifact, &candidate.inputs)
+            .await
+            .unwrap();
+        store
+            .record_candidate_capture(RequestId::new(), candidate.id, Ok(proof))
+            .unwrap();
+        let task = store
+            .put_task(
+                RequestId::new(),
+                owner,
+                quality_plan(run, &source, area.id, candidate.id),
+            )
+            .unwrap()
+            .value;
+        store
+            .queue_task(
+                RequestId::new(),
+                owner,
+                TaskVersion {
+                    task_id: task.id,
+                    revision: 1,
+                },
+            )
+            .unwrap();
+        drop(store);
+        if changed {
+            std::fs::write(dir.path().join("rules.txt"), "Changed rules").unwrap();
+        }
+        let service = Service::bind(&root).await.unwrap();
+        let socket = dir.path().join("terminal.sock");
+        let serving = socket.clone();
+        let daemon_task = tokio::spawn(async move {
+            Daemon::serve(&serving, std::time::Duration::from_secs(60), |_| {}).await
+        });
+        let daemon = Daemon::new(socket);
+        for _ in 0..100 {
+            if daemon.sessions().await.is_ok() {
+                break;
+            }
+            assert!(
+                !daemon_task.is_finished(),
+                "terminal daemon failed: {:?}",
+                daemon_task.await
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert!(
+            daemon.sessions().await.is_ok(),
+            "terminal daemon must be ready before scheduling"
+        );
+        let marker = dir.path().join("program-started");
+        let mut settings = adroit::settings::Settings::default();
+        settings.codex.command = vec![
+            "/bin/sh".into(),
+            "-c".into(),
+            "printf started > \"$ADROIT_TEST_START_MARKER\"; sleep 10".into(),
+            "quality-worker".into(),
+        ];
+        settings.codex.env.insert(
+            "ADROIT_TEST_START_MARKER".into(),
+            marker.to_string_lossy().into_owned(),
+        );
+        let mut scheduler = Scheduler::new(service.actor(), daemon.clone(), root, "/adroit".into());
+        assert_eq!(scheduler.tick(settings, 4).await.unwrap().len(), 1);
+        let observed = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let snapshot = service
+                    .actor()
+                    .call(|store| store.snapshot())
+                    .await
+                    .unwrap();
+                let state = snapshot
+                    .tasks
+                    .iter()
+                    .find(|current| current.id == task.id)
+                    .unwrap()
+                    .state;
+                if (changed && state == TaskState::Failed) || (!changed && marker.exists()) {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await;
+        let snapshot = service
+            .actor()
+            .call(|store| store.snapshot())
+            .await
+            .unwrap();
+        assert!(
+            observed.is_ok(),
+            "changed={changed}, snapshot={snapshot:?}, events={:?}",
+            service
+                .actor()
+                .call(|store| store.events_after(0, 100))
+                .await
+                .unwrap()
+        );
+        let attempt = snapshot
+            .attempts
+            .iter()
+            .find(|attempt| attempt.task_id == task.id)
+            .unwrap();
+        if changed {
+            assert!(!marker.exists());
+            assert_eq!(attempt.state, AttemptState::Failed);
+            assert_eq!(snapshot.candidates[0].state, CandidateState::Stale);
+            assert!(daemon.sessions().await.unwrap().is_empty());
+        } else {
+            assert!(attempt.candidate_input.is_some());
+            assert_eq!(attempt.state, AttemptState::Running);
+            assert_eq!(daemon.sessions().await.unwrap().len(), 1);
+        }
+        drop(scheduler);
+        for session in daemon.sessions().await.unwrap() {
+            daemon.end(session.id).await.unwrap();
+        }
+        daemon_task.abort();
+    }
+}

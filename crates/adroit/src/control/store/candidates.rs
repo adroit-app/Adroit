@@ -251,3 +251,94 @@ impl Store {
         require(&self.connection, Table::WorkAreas, id)
     }
 }
+
+pub(super) fn task_candidate(
+    connection: &Connection,
+    run_id: RunId,
+    brief: &TaskBrief,
+    dependencies: &[TaskId],
+    prepared: bool,
+) -> Result<Option<CandidateRecord>> {
+    let Some(id) = brief.candidate_id else {
+        return Ok(None);
+    };
+    let candidate: CandidateRecord = require(connection, Table::Candidates, id)?;
+    if candidate.plan.run_id != run_id {
+        return Err(ControlError::new(
+            ErrorCode::OwnershipMismatch,
+            "the check candidate belongs to another run",
+        ));
+    }
+    let run: RunRecord = require(connection, Table::Runs, run_id)?;
+    if run.candidate_id != Some(id)
+        || !matches!(
+            candidate.state,
+            CandidateState::Requested | CandidateState::Prepared | CandidateState::Verified
+        )
+    {
+        return Err(conflict("the check needs the selected current candidate"));
+    }
+    if !matches!(brief.purpose, TaskPurpose::Review | TaskPurpose::Verify) {
+        return Err(invalid(
+            "candidate inputs belong to review or verification tasks",
+        ));
+    }
+    let TaskArtifact::Change { work_area_id, .. } = candidate.artifact else {
+        return Err(invalid("the candidate lost its change artifact"));
+    };
+    if brief.workdir != WorkdirPolicy::Existing(work_area_id)
+        || !dependencies.contains(&candidate.plan.source.task_id)
+    {
+        return Err(invalid(
+            "a candidate check needs its existing working area and source dependency",
+        ));
+    }
+    source(connection, &candidate.plan)?;
+    if prepared
+        && (candidate.proof.is_none()
+            || !matches!(
+                candidate.state,
+                CandidateState::Prepared | CandidateState::Verified
+            ))
+    {
+        return Err(conflict("the check candidate is not prepared"));
+    }
+    Ok(Some(candidate))
+}
+
+impl Store {
+    pub fn record_candidate_input(
+        &mut self,
+        request: RequestId,
+        identity: SessionRef,
+        wanted: TaskVersion,
+        attempt_id: AttemptId,
+        outcome: std::result::Result<CandidateProof, String>,
+    ) -> Result<Reply<Option<AttemptRecord>>> {
+        self.transact(request,json!({"op":"record_candidate_input","caller":identity,"task":wanted,"attempt_id":attempt_id,"outcome":outcome}),|connection| {
+            let task = version(connection,identity,wanted)?;
+            let mut attempt: AttemptRecord = require(connection,Table::Attempts,attempt_id)?;
+            if task.current_attempt != Some(attempt_id) || attempt.task_id != task.id || attempt.task_revision != task.revision || attempt.state != AttemptState::Preparing { return Err(conflict("the check attempt no longer matches preparation")); }
+            let mut candidate = task_candidate(connection,task.run_id,&task.brief,&task.dependencies,true)?.ok_or_else(||invalid("the task has no candidate inputs"))?;
+            let expected = candidate.proof.as_ref().expect("prepared proof").summary();
+            if attempt.work_area_id != Some(expected.work_area_id) { return Err(invalid("the check attempt has a different working area")); }
+            let observation = match outcome {
+                Ok(proof) if proof.files.version == 1 && proof.summary() == expected => Some(proof.summary()),
+                Ok(_) => {candidate.error = Some("The candidate inputs changed before check startup".into());None},
+                Err(error) => {candidate.error = Some(format!("Cannot confirm candidate inputs before check startup: {error}"));None},
+            };
+            if let Some(observation) = observation {
+                attempt.candidate_input = Some(observation);
+                save_attempt(connection,&attempt)?;
+                event(connection,Some(task.run_id),"candidate_input_recorded",&attempt)?;
+                Ok(Some(attempt))
+            } else {
+                candidate.state = CandidateState::Stale;
+                save(connection,&candidate)?;
+                event(connection,Some(task.run_id),"candidate_inputs_changed",&candidate.summary())?;
+                notice(connection,&candidate)?;
+                Ok(None)
+            }
+        })
+    }
+}

@@ -731,6 +731,13 @@ impl Store {
                 if plan.brief.instructions.trim().is_empty() {
                     return Err(invalid("a task needs instructions"));
                 }
+                candidates::task_candidate(
+                    connection,
+                    plan.run_id,
+                    &plan.brief,
+                    &plan.dependencies,
+                    false,
+                )?;
                 let previous: Option<TaskRecord> = load(connection, Table::Tasks, plan.id)?;
                 let (revision, current_attempt, state) = match previous {
                     Some(task) => {
@@ -840,6 +847,7 @@ impl Store {
         self.transact(request, json!({"op":"reserve_attempt", "caller":identity, "task":wanted, "target":target}), |connection| {
             let mut task = version(connection, identity, wanted)?;
             if task.state != TaskState::Queued || task.current_attempt.is_some() { return Err(conflict("the task already has an execution or is not queued")); }
+            candidates::task_candidate(connection,task.run_id,&task.brief,&task.dependencies,true)?;
             let mut input_versions = Vec::new();
             for dependency in &task.dependencies {
                 let dependency: TaskRecord = require(connection, Table::Tasks, dependency)?;
@@ -855,7 +863,7 @@ impl Store {
             };
             save_session(connection, &session)?;
             let attempt = AttemptRecord { id, task_id: task.id, task_revision: task.revision, input_versions, session_id,
-                target, actual_model: None, work_area_id: None, base_revision: None, state: AttemptState::Preparing };
+                target, actual_model: None, candidate_input: None, work_area_id: None, base_revision: None, state: AttemptState::Preparing };
             connection.execute("INSERT INTO attempts(id, task_id, session_id, active, data) VALUES (?1, ?2, ?3, 1, ?4)",
                 params![id.to_string(), task.id.to_string(), session_id.to_string(), encode(&attempt)?])?;
             task.current_attempt = Some(id);
