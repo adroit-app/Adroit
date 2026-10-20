@@ -134,7 +134,7 @@ impl AgentAdapter for Codex {
         reader: bool,
         prompt: &str,
     ) -> Vec<String> {
-        let mut args = Vec::new();
+        let mut args = vec!["--no-alt-screen".into()];
         let model = settings.codex_sessions.model.trim();
         if !model.is_empty() {
             args.extend(["--model".into(), model.into()]);
@@ -153,6 +153,15 @@ mod tests {
 
     fn screen(text: &str) -> Vec<String> {
         text.lines().map(String::from).collect()
+    }
+
+    #[test]
+    fn sessions_and_readers_keep_their_output_in_terminal_scrollback() {
+        for reader in [false, true] {
+            let args = Codex.start_args(&Settings::default(), "fix", "", reader, "hello");
+            let options = args.split(|arg| arg == "--").next().unwrap();
+            assert!(options.iter().any(|arg| arg == "--no-alt-screen"));
+        }
     }
 
     #[test]

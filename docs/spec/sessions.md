@@ -18,7 +18,8 @@ A session keeps its agent once it runs, whatever the default becomes. Both
 kinds can run in the same workspace.
 
 Codex sessions use the embedded prompt and report their working and waiting
-states through the terminal, including permission and question prompts. A
+states through the terminal, including permission and question prompts. Their
+output stays in the terminal scrollback for scrolling and reading in Neovim. A
 Codex reader starts with the read-only sandbox. Codex's own configuration
 controls authentication and approvals; the Claude model, permission mode and
 denied tools do not apply to it.

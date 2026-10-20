@@ -198,11 +198,11 @@ mod tests {
         let a = adapter(Agent::Codex);
         assert_eq!(
             a.start_args(&settings, "fix", "", false, "--help"),
-            ["--model", "codex-model", "--", "--help"]
+            ["--no-alt-screen", "--model", "codex-model", "--", "--help"]
         );
         assert_eq!(
             a.start_args(&Settings::default(), "fix", "", true, "read"),
-            ["--sandbox", "read-only", "--", "read"]
+            ["--no-alt-screen", "--sandbox", "read-only", "--", "read"]
         );
         assert!(a.conversation().is_empty());
         assert!(!a.capabilities().transcript);
