@@ -1,3 +1,4 @@
+mod support;
 use adroit::control::{client::Client, managed, observer, protocol::Command, service::Service};
 use adroit::execution::{self, StartRequest};
 use adroit::settings::Settings;
@@ -34,7 +35,10 @@ async fn a_daemon_observes_the_native_conversation_and_keeps_the_same_assignment
     settings.codex.command = vec![
         "/bin/sh".into(),
         "-c".into(),
-        r#"printf '\033]0;Codex · %s\007' "$ADROIT_TEST_THREAD"; sleep 10"#.into(),
+        support::codex_script(
+            r#"printf '\033]0;Codex · %s\007' "$ADROIT_TEST_THREAD"; sleep 10"#,
+            None,
+        ),
         "native-provider".into(),
     ];
     settings

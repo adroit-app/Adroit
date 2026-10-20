@@ -59,3 +59,11 @@ assigned attempt's target, and is immutable within its generation.
 
 These values describe launch intent. They do not establish the actual model
 used by the provider; an unreported actual model remains unknown.
+
+Codex role instructions are appended to the effective developer instructions
+read from its native configuration for the working area. The original base is
+kept in the private launch snapshot. Managed startup refuses an unavailable or
+unsupported configuration response rather than replacing an unknown user policy.
+An oversized composed instruction is refused without truncating that policy.
+The configuration read does not create a model thread or turn, and does not
+change user or project configuration files.

@@ -1,3 +1,4 @@
+mod support;
 use adroit::control::{client::Client, managed, protocol::Command, service::Service};
 use adroit::execution::StartRequest;
 use adroit::settings::Settings;
@@ -21,7 +22,7 @@ async fn human_starts_at_one_root_receive_independent_leaders_and_runs() {
     let _service = Service::bind(&root).await.unwrap();
     let first = managed::prepare(
         &root,
-        &Settings::default(),
+        &native_settings(),
         request(dir.path()),
         std::path::Path::new("/adroit"),
     )
@@ -29,7 +30,7 @@ async fn human_starts_at_one_root_receive_independent_leaders_and_runs() {
     .unwrap();
     let second = managed::prepare(
         &root,
-        &Settings::default(),
+        &native_settings(),
         request(dir.path()),
         std::path::Path::new("/adroit"),
     )
@@ -85,7 +86,7 @@ async fn a_nested_repository_directory_does_not_infer_a_new_leader() {
     std::fs::create_dir(&nested).unwrap();
     let prepared = managed::prepare(
         &dir.path().join("no-service"),
-        &Settings::default(),
+        &native_settings(),
         request(&nested),
         std::path::Path::new("/adroit"),
     )
@@ -110,7 +111,7 @@ async fn a_failed_human_launch_is_recorded_without_a_dangling_active_run() {
     let _service = Service::bind(&root).await.unwrap();
     let prepared = managed::prepare(
         &root,
-        &Settings::default(),
+        &native_settings(),
         request(dir.path()),
         std::path::Path::new("/adroit"),
     )
@@ -173,7 +174,7 @@ async fn independent_leaders_at_one_native_workspace_share_its_default_identity(
     for _ in 0..2 {
         managed::prepare(
             &root,
-            &Settings::default(),
+            &native_settings(),
             request(&source),
             std::path::Path::new("/adroit"),
         )
@@ -228,11 +229,11 @@ async fn a_lost_ownership_reply_before_release_is_a_confirmed_abort_after_the_ga
     })
     .await
     .unwrap();
-    let mut settings = Settings::default();
+    let mut settings = native_settings();
     settings.codex.command = vec![
         "/bin/sh".into(),
         "-c".into(),
-        "touch \"$ADROIT_START_ABORT_MARKER\"; sleep 5".into(),
+        support::codex_script("touch \"$ADROIT_START_ABORT_MARKER\"; sleep 5", None),
         "native-provider".into(),
     ];
     settings.codex.env.insert(
@@ -285,7 +286,7 @@ async fn private_launch_snapshots_preserve_requested_and_settings_selected_model
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("control");
         let service = Service::bind(&root).await.unwrap();
-        let mut settings = Settings::default();
+        let mut settings = native_settings();
         settings.codex_sessions.model = "settings-model".into();
         let mut requested = request(dir.path());
         requested.model = explicit.then(|| "explicit-model".into());
@@ -328,4 +329,83 @@ async fn private_launch_snapshots_preserve_requested_and_settings_selected_model
         assert_eq!(target.permissions, AgentPermissions::ReadOnly);
         assert_eq!(prepared.resolved.requested_model, target.requested_model);
     }
+}
+
+#[tokio::test]
+async fn managed_roles_append_to_effective_codex_developer_instructions_without_replacing_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("control");
+    let service = Service::bind(&root).await.unwrap();
+    let base = "Keep the user's developer policy.\nPreserve literal 'quoted' content.";
+    let mut settings = native_settings();
+    settings.codex.command = vec![
+        "/bin/sh".into(),
+        "-c".into(),
+        support::codex_script("sleep 10", Some(base)),
+        "native-provider".into(),
+    ];
+    let prepared = managed::prepare(
+        &root,
+        &settings,
+        request(dir.path()),
+        std::path::Path::new("/adroit"),
+    )
+    .await
+    .unwrap();
+    let encoded = prepared
+        .resolved
+        .spawn
+        .args
+        .iter()
+        .find_map(|arg| arg.strip_prefix("developer_instructions="))
+        .unwrap();
+    let instructions: String = serde_json::from_str(encoded).unwrap();
+    assert!(instructions.starts_with(base));
+    assert!(instructions.contains("You are the Leader of one Adroit request"));
+    let identity = prepared.ownership.unwrap().identity();
+    let runtime = service
+        .actor()
+        .call(move |store| store.runtime(identity))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(runtime.developer_instructions.as_deref(), Some(base));
+}
+
+#[tokio::test]
+async fn unavailable_effective_codex_configuration_refuses_the_managed_launch_without_losing_user_policy()
+ {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("control");
+    let service = Service::bind(&root).await.unwrap();
+    let mut settings = native_settings();
+    settings.codex.command = vec!["/usr/bin/false".into()];
+    assert!(
+        managed::prepare(
+            &root,
+            &settings,
+            request(dir.path()),
+            std::path::Path::new("/adroit")
+        )
+        .await
+        .is_err()
+    );
+    let snapshot = service
+        .actor()
+        .call(|store| store.snapshot())
+        .await
+        .unwrap();
+    assert_eq!(snapshot.sessions[0].state, ManagedSessionState::Failed);
+    assert_eq!(snapshot.runs[0].state, RunState::Failed);
+}
+
+fn native_settings() -> Settings {
+    let mut settings = Settings::default();
+    settings.codex.command = vec![
+        "/bin/sh".into(),
+        "-c".into(),
+        support::codex_script("sleep 10", None),
+        "native-provider".into(),
+    ];
+    settings
 }

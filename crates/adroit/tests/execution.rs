@@ -1,7 +1,7 @@
 use adroit::execution::{ModelSource, StartRequest, resolve};
 use adroit::settings::Settings;
 use adroit_model::Agent;
-use adroit_model::{AgentPermissions, CustomPermissions};
+use adroit_model::{AgentPermissions, CustomPermissions, LogicalSessionId, RunId, SessionBinding};
 use std::path::Path;
 
 fn request(agent: Agent, model: Option<&str>) -> StartRequest {
@@ -415,4 +415,28 @@ fn a_control_context_must_match_the_explicit_session_assignment() {
     let error = resolve(&Settings::default(), request, Path::new("/adroit")).unwrap_err();
     assert!(error.contains("assignment"));
     assert!(!error.contains("test-secret-token"));
+}
+
+#[test]
+fn role_composition_refuses_oversized_user_instructions_without_truncating_them() {
+    let base = "x".repeat(64 * 1024);
+    let result = adroit::execution::resolve(
+        &Settings::default(),
+        StartRequest {
+            agent: Agent::Codex,
+            cwd: "/tmp".into(),
+            binding: Some(SessionBinding::leader(
+                LogicalSessionId::new(),
+                Some(RunId::new()),
+            )),
+            developer_instructions: Some(base),
+            ..Default::default()
+        },
+        std::path::Path::new("/adroit"),
+    );
+    assert!(
+        result
+            .unwrap_err()
+            .contains("safe per-session launch limit")
+    );
 }

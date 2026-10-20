@@ -9,6 +9,8 @@ pub struct RuntimeLaunch {
     pub settings: Settings,
     #[serde(default)]
     pub target: Option<adroit_model::TargetSelection>,
+    #[serde(default)]
+    pub developer_instructions: Option<String>,
 }
 
 impl std::fmt::Debug for RuntimeLaunch {
@@ -36,6 +38,7 @@ impl RuntimeLaunch {
         Self {
             settings,
             target: None,
+            developer_instructions: None,
         }
     }
 

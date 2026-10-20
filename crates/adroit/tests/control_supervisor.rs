@@ -1,3 +1,4 @@
+mod support;
 use adroit::control::{client::Client, managed, protocol::Command, service::Service};
 use adroit::execution::{self, StartRequest};
 use adroit::settings::Settings;
@@ -15,7 +16,7 @@ async fn the_daemon_starts_workers_and_delivers_their_results_without_a_window()
     let source = dir.path().join("source");
     std::fs::create_dir(&source).unwrap();
     let program = dir.path().join("provider");
-    std::fs::write(&program,r#"#!/bin/sh
+    std::fs::write(&program,support::codex_script(r#"#!/bin/sh
 if [ "$1" = queue ]; then
     printf '%s\n' "$@" > "$ADROIT_TEST_RECEIPT"
     exit 0
@@ -25,7 +26,7 @@ if [ -n "$ADROIT_TASK_ID" ]; then
     printf '{"op":"report_task","report":{"message_id":"%s","task":{"task_id":"%s","revision":1},"attempt_id":"%s","result":{"status":"succeeded","summary":"Classified the inputs","artifact":{"kind":"report","data":{"label":"ok"},"files":[],"reviewed_revision":null},"checks":[],"unresolved":[]}}}' "$ADROIT_TEST_REPORT_ID" "$ADROIT_TASK_ID" "$ADROIT_ATTEMPT_ID" | "$ADROIT_TEST_BINARY" control > report.json
 fi
 sleep 10
-"#).unwrap();
+"#,None)).unwrap();
     std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
     let root = dir.path().join("control");
     let mut service = Service::bind(&root).await.unwrap();

@@ -84,7 +84,16 @@ pub async fn prepare(
     program: &Path,
 ) -> Result<PreparedStart, String> {
     request.cwd = std::fs::canonicalize(&request.cwd).map_err(|error| error.to_string())?;
-    if request.binding.is_some() || !is_root(&request.cwd)? {
+    if request.binding.is_some() {
+        request.developer_instructions = crate::agents::adapter(request.agent)
+            .developer_instructions(settings.clone(), request.cwd.clone())
+            .await?;
+        return execution::resolve(settings, request, program).map(|resolved| PreparedStart {
+            resolved,
+            ownership: None,
+        });
+    }
+    if !is_root(&request.cwd)? {
         return execution::resolve(settings, request, program).map(|resolved| PreparedStart {
             resolved,
             ownership: None,
@@ -155,7 +164,11 @@ pub async fn prepare(
             request.model.clone(),
             request.permissions.clone(),
         )?;
-        let runtime = super::runtime::RuntimeLaunch::new(settings.clone()).with_target(target);
+        let mut runtime = super::runtime::RuntimeLaunch::new(settings.clone()).with_target(target);
+        runtime.developer_instructions = crate::agents::adapter(request.agent)
+            .developer_instructions(runtime.settings.clone(), request.cwd.clone())
+            .await?;
+        request.developer_instructions = runtime.developer_instructions.clone();
         client
             .request(
                 RequestId::new(),

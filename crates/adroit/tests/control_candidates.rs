@@ -1,3 +1,4 @@
+mod support;
 use adroit::control::store::Store;
 use adroit_model::*;
 use std::path::Path;
@@ -866,7 +867,10 @@ async fn the_native_program_starts_only_after_a_matching_candidate_preflight() {
         settings.codex.command = vec![
             "/bin/sh".into(),
             "-c".into(),
-            "printf started > \"$ADROIT_TEST_START_MARKER\"; sleep 10".into(),
+            support::codex_script(
+                "printf started > \"$ADROIT_TEST_START_MARKER\"; sleep 10",
+                None,
+            ),
             "quality-worker".into(),
         ];
         settings.codex.env.insert(

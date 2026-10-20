@@ -1,3 +1,4 @@
+mod support;
 use adroit::control::{actor::Actor, scheduler::Scheduler};
 use adroit::settings::Settings;
 use adroit_model::*;
@@ -101,7 +102,10 @@ async fn ready_runs_share_slots_and_acceptance_does_not_wait_for_native_startup(
     settings.codex.command = vec![
         "/bin/sh".into(),
         "-c".into(),
-        r#"printf '{"op":"snapshot"}' | "$ADROIT_TEST_BINARY" control > "observed-$ADROIT_SESSION_ID.json"; printf '%s' "$ADROIT_SESSION_ID" > started; sleep 10"#.into(),
+        support::codex_script(
+            r#"printf '{"op":"snapshot"}' | "$ADROIT_TEST_BINARY" control > "observed-$ADROIT_SESSION_ID.json"; printf '%s' "$ADROIT_SESSION_ID" > started; sleep 10"#,
+            None,
+        ),
         "worker".into(),
     ];
     settings.codex.env.insert(

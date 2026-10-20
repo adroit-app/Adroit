@@ -37,8 +37,15 @@ pub trait ConversationReader: Send {
     }
 }
 
+type DeveloperInstructions =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<Option<String>, String>> + Send>>;
+
 /// A terminal agent owns its arguments, environment and optional integrations.
 pub trait AgentAdapter: Sync {
+    fn developer_instructions(&self, _settings: Settings, _cwd: PathBuf) -> DeveloperInstructions {
+        Box::pin(async { Ok(None) })
+    }
+
     fn role_args(
         &self,
         settings: &mut Settings,

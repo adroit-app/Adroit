@@ -20,6 +20,39 @@ pub struct CodexOptions {
 pub struct Codex;
 
 impl AgentAdapter for Codex {
+    fn developer_instructions(&self, settings: Settings, cwd: PathBuf) -> DeveloperInstructions {
+        Box::pin(async move {
+            let start = super::launch_with_settings(
+                &settings,
+                Agent::Codex,
+                vec!["app-server".into()],
+                Vec::new(),
+            );
+            let result = rpc::request(
+                start,
+                &cwd,
+                std::time::Duration::from_secs(3),
+                "config/read",
+                serde_json::json!({"cwd":cwd,"includeLayers":false}),
+            )
+            .await
+            .ok_or_else(|| {
+                "cannot read effective Codex configuration before managed startup".to_owned()
+            })?;
+            let config = result
+                .get("config")
+                .and_then(serde_json::Value::as_object)
+                .ok_or_else(|| {
+                    "Codex returned an unsupported effective configuration".to_owned()
+                })?;
+            match config.get("developer_instructions") {
+                None | Some(serde_json::Value::Null) => Ok(None),
+                Some(serde_json::Value::String(instructions)) => Ok(Some(instructions.clone())),
+                _ => Err("Codex returned invalid developer instructions".into()),
+            }
+        })
+    }
+
     fn role_args(
         &self,
         _settings: &mut Settings,

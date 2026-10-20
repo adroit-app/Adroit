@@ -24,6 +24,7 @@ pub struct StartRequest {
     pub permissions: AgentPermissions,
     pub binding: Option<adroit_model::SessionBinding>,
     pub control: Option<ControlContext>,
+    pub developer_instructions: Option<String>,
     pub env: Vec<(String, String)>,
     pub started_ms: u64,
     pub started_from: Option<String>,
@@ -152,14 +153,27 @@ pub fn resolve(
     if let Some(context) = &request.control {
         args.extend(context.args(request.agent, adroit_program));
     }
-    let role_version = request.binding.as_ref().map(|binding| {
-        args.extend(adapter.role_args(
-            &mut settings,
-            binding.role(),
-            &crate::roles::instructions(binding),
-        ));
-        crate::roles::VERSION
-    });
+    let role_version = if let Some(binding) = &request.binding {
+        let role = crate::roles::instructions(binding);
+        let instructions = match (&request.developer_instructions, request.agent) {
+            (Some(base), Agent::Codex) => format!("{base}\n\n{role}"),
+            _ => role,
+        };
+        if request.agent == Agent::Codex
+            && serde_json::to_string(&instructions)
+                .map_err(|error| error.to_string())?
+                .len()
+                > 64 * 1024
+        {
+            return Err(
+                "Codex developer instructions exceed the safe per-session launch limit".into(),
+            );
+        }
+        args.extend(adapter.role_args(&mut settings, binding.role(), &instructions));
+        Some(crate::roles::VERSION)
+    } else {
+        None
+    };
     args.extend(adapter.image_args(&request.images));
     args.extend(adapter.start_args(
         &settings,
