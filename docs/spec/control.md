@@ -134,3 +134,9 @@ transport result remains uncertain until explicitly retried.
 A native conversation discovered after startup is associated with its existing
 logical session. A later conversation change requires reconciliation rather
 than transferring the previous task. This tracking does not require a window.
+
+Task attempts record the revisions of their dependency inputs. Revising an input
+invalidates dependent work, including completed results, while independent work
+remains scheduled. Running dependents receive a stop request and keep their
+execution slots until stopping is confirmed. Old results remain in history;
+they cannot restore the new plan to success or invalidate it a second time.

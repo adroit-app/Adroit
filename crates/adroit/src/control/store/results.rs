@@ -139,6 +139,7 @@ impl Store {
                 if task.state != TaskState::Cancelled {
                     task.state = TaskState::Cancelled;
                     save_task(connection, &task)?;
+                    super::dependencies::invalidate_dependents(connection, task.id)?;
                     event(connection, Some(task.run_id), "task_cancelled", &task)?;
                 }
                 Ok(task)
@@ -195,10 +196,14 @@ impl Store {
                 }
                 validate_result(connection, &attempt, &report.result)?;
                 let mut task: TaskRecord = require(connection, Table::Tasks, report.task.task_id)?;
-                let run: RunRecord = require(connection, Table::Runs, task.run_id)?;
-                let current = task.revision == attempt.task_revision
-                    && task.current_attempt == Some(attempt.id)
-                    && matches!(run.state, RunState::Active | RunState::Verifying);
+                let mut run: RunRecord = require(connection, Table::Runs, task.run_id)?;
+                let assignment_current = task.revision == attempt.task_revision
+                    && task.current_attempt == Some(attempt.id);
+                let active_run = matches!(run.state, RunState::Active | RunState::Verifying);
+                let inputs_current =
+                    super::dependencies::current_inputs(connection, &task, &attempt)?;
+                let current = assignment_current && active_run && inputs_current;
+                let invalidate_inputs = assignment_current && active_run && !inputs_current;
                 let cancelled = attempt.state == AttemptState::CancelRequested;
                 let applied =
                     current && (!cancelled || report.result.status == ReportStatus::Cancelled);
@@ -227,7 +232,28 @@ impl Store {
                     event(connection, Some(task.run_id), "task_result_applied", &task)?;
                 } else if task.current_attempt == Some(attempt.id) {
                     task.current_attempt = None;
+                    if invalidate_inputs {
+                        task.state = TaskState::Planned;
+                        task.revision = task
+                            .revision
+                            .checked_add(1)
+                            .ok_or_else(|| conflict("the task revision is exhausted"))?;
+                        run.plan_revision = run
+                            .plan_revision
+                            .checked_add(1)
+                            .ok_or_else(|| conflict("the plan revision is exhausted"))?;
+                        save_run(connection, &run)?;
+                        event(
+                            connection,
+                            Some(task.run_id),
+                            "task_inputs_invalidated",
+                            &task,
+                        )?;
+                    }
                     save_task(connection, &task)?;
+                    if invalidate_inputs {
+                        super::dependencies::invalidate_dependents(connection, task.id)?;
+                    }
                 }
                 let record = TaskReportRecord {
                     report,

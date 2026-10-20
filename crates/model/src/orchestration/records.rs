@@ -226,6 +226,8 @@ pub struct AttemptRecord {
     pub id: AttemptId,
     pub task_id: TaskId,
     pub task_revision: u64,
+    #[serde(default)]
+    pub input_versions: Vec<TaskVersion>,
     pub session_id: LogicalSessionId,
     pub target: TargetSelection,
     pub actual_model: Option<String>,

@@ -11,6 +11,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 
+mod dependencies;
 mod results;
 mod runtime;
 mod workareas;
@@ -733,6 +734,7 @@ impl Store {
                     current_attempt,
                 };
                 save_task(connection, &task)?;
+                dependencies::invalidate_dependents(connection, task.id)?;
                 run.plan_revision = run
                     .plan_revision
                     .checked_add(1)
@@ -778,9 +780,11 @@ impl Store {
         self.transact(request, json!({"op":"reserve_attempt", "caller":identity, "task":wanted, "target":target}), |connection| {
             let mut task = version(connection, identity, wanted)?;
             if task.state != TaskState::Queued || task.current_attempt.is_some() { return Err(conflict("the task already has an execution or is not queued")); }
+            let mut input_versions = Vec::new();
             for dependency in &task.dependencies {
                 let dependency: TaskRecord = require(connection, Table::Tasks, dependency)?;
                 if dependency.state != TaskState::Succeeded { return Err(conflict("a task dependency has not succeeded")); }
+                input_versions.push(TaskVersion {task_id:dependency.id,revision:dependency.revision});
             }
             let id = AttemptId::new();
             let session_id = LogicalSessionId::new();
@@ -790,7 +794,7 @@ impl Store {
                 agent: target.agent, generation: 1, state: ManagedSessionState::Preparing, permissions: target.permissions.clone(), cwd: None, terminal_id: None, conversation_id: None,
             };
             save_session(connection, &session)?;
-            let attempt = AttemptRecord { id, task_id: task.id, task_revision: task.revision, session_id,
+            let attempt = AttemptRecord { id, task_id: task.id, task_revision: task.revision, input_versions, session_id,
                 target, actual_model: None, work_area_id: None, base_revision: None, state: AttemptState::Preparing };
             connection.execute("INSERT INTO attempts(id, task_id, session_id, active, data) VALUES (?1, ?2, ?3, 1, ?4)",
                 params![id.to_string(), task.id.to_string(), session_id.to_string(), encode(&attempt)?])?;
@@ -949,11 +953,14 @@ impl Store {
                     if task.current_attempt != Some(attempt_id)
                         || !matches!(
                             attempt.state,
-                            AttemptState::Preparing | AttemptState::Starting
+                            AttemptState::Preparing
+                                | AttemptState::Starting
+                                | AttemptState::CancelRequested
                         )
                     {
                         return Err(conflict("the worker assignment changed"));
                     }
+                    let cancelled = attempt.state == AttemptState::CancelRequested;
                     store_message(
                         connection,
                         &AgentMessage {
@@ -965,13 +972,29 @@ impl Store {
                             attempt_id: Some(attempt.id),
                             revision: Some(attempt.task_revision),
                             kind: MessageKind::Report,
-                            body: format!("Worker startup failed: {reason}"),
+                            body: if cancelled {
+                                format!("Worker startup cancelled before release: {reason}")
+                            } else {
+                                format!("Worker startup failed: {reason}")
+                            },
                             reply_to: None,
                             blocks_work: false,
                         },
                     )?;
-                    attempt.state = AttemptState::Failed;
-                    task.state = TaskState::Failed;
+                    attempt.state = if cancelled {
+                        AttemptState::Cancelled
+                    } else {
+                        AttemptState::Failed
+                    };
+                    if task.revision == attempt.task_revision {
+                        task.state = if cancelled {
+                            TaskState::Cancelled
+                        } else {
+                            TaskState::Failed
+                        };
+                    } else {
+                        task.current_attempt = None;
+                    }
                     save_attempt(connection, &attempt)?;
                     save_task(connection, &task)?;
                     event(

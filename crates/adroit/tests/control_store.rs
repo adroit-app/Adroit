@@ -1108,3 +1108,296 @@ fn an_uncertain_start_keeps_its_slot_until_the_terminal_is_reconciled() {
     );
     assert_eq!(store.mailbox(owner, 0, 10).unwrap().messages.len(), 1);
 }
+
+fn running_dependent(
+    store: &mut Store,
+    cwd: &Path,
+    owner: SessionRef,
+    run: RunId,
+    dependency: TaskId,
+) -> adroit_model::AttemptRecord {
+    let id = task(store, owner, run, vec![dependency]);
+    let wanted = TaskVersion {
+        task_id: id,
+        revision: 1,
+    };
+    store.queue_task(RequestId::new(), owner, wanted).unwrap();
+    let attempt = store
+        .reserve_attempt(RequestId::new(), owner, wanted, target())
+        .unwrap()
+        .value;
+    let area = store
+        .register_work_area(RequestId::new(), owner, run, directory_area(cwd), true)
+        .unwrap()
+        .value;
+    store
+        .bind_work_area(RequestId::new(), owner, wanted, attempt.id, area.id)
+        .unwrap();
+    store
+        .begin_start(RequestId::new(), owner, wanted, attempt.id)
+        .unwrap();
+    store
+        .attach_session(
+            RequestId::new(),
+            SessionRef {
+                id: attempt.session_id,
+                generation: 1,
+            },
+            cwd.canonicalize().unwrap(),
+            "000000000000000000000000000000cd".into(),
+            "dependent-conversation".into(),
+        )
+        .unwrap();
+    attempt
+}
+
+#[test]
+fn revising_an_input_invalidates_completed_dependents_but_leaves_unrelated_work_queued() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (owner, run, producer) = running_worker(&mut store, dir.path());
+    store
+        .report_task(
+            RequestId::new(),
+            SessionRef {
+                id: producer.session_id,
+                generation: 1,
+            },
+            successful_report(&producer),
+        )
+        .unwrap();
+    let dependent = running_dependent(&mut store, dir.path(), owner, run, producer.task_id);
+    assert_eq!(
+        dependent.input_versions,
+        vec![TaskVersion {
+            task_id: producer.task_id,
+            revision: 1
+        }]
+    );
+    store
+        .report_task(
+            RequestId::new(),
+            SessionRef {
+                id: dependent.session_id,
+                generation: 1,
+            },
+            successful_report(&dependent),
+        )
+        .unwrap();
+    let unrelated = task(&mut store, owner, run, vec![]);
+    store
+        .queue_task(
+            RequestId::new(),
+            owner,
+            TaskVersion {
+                task_id: unrelated,
+                revision: 1,
+            },
+        )
+        .unwrap();
+    store
+        .put_task(
+            RequestId::new(),
+            owner,
+            TaskPlan {
+                id: producer.task_id,
+                run_id: run,
+                expected_revision: Some(1),
+                brief: TaskBrief {
+                    instructions: "Use the corrected inputs".into(),
+                    ..Default::default()
+                },
+                dependencies: vec![],
+            },
+        )
+        .unwrap();
+    let snapshot = store.snapshot().unwrap();
+    let changed = snapshot
+        .tasks
+        .iter()
+        .find(|task| task.id == dependent.task_id)
+        .unwrap();
+    assert_eq!(changed.revision, 2);
+    assert_eq!(changed.state, adroit_model::TaskState::Planned);
+    assert_eq!(changed.current_attempt, None);
+    let unchanged = snapshot
+        .tasks
+        .iter()
+        .find(|task| task.id == unrelated)
+        .unwrap();
+    assert_eq!(unchanged.revision, 1);
+    assert_eq!(unchanged.state, adroit_model::TaskState::Queued);
+}
+
+#[test]
+fn an_input_change_stops_a_running_dependent_and_its_late_report_stays_historical() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (owner, run, producer) = running_worker(&mut store, dir.path());
+    store
+        .report_task(
+            RequestId::new(),
+            SessionRef {
+                id: producer.session_id,
+                generation: 1,
+            },
+            successful_report(&producer),
+        )
+        .unwrap();
+    let dependent = running_dependent(&mut store, dir.path(), owner, run, producer.task_id);
+    let grandchild = task(&mut store, owner, run, vec![dependent.task_id]);
+    store
+        .put_task(
+            RequestId::new(),
+            owner,
+            TaskPlan {
+                id: producer.task_id,
+                run_id: run,
+                expected_revision: Some(1),
+                brief: TaskBrief {
+                    instructions: "Use the corrected inputs".into(),
+                    ..Default::default()
+                },
+                dependencies: vec![],
+            },
+        )
+        .unwrap();
+    let snapshot = store.snapshot().unwrap();
+    assert_eq!(
+        snapshot
+            .attempts
+            .iter()
+            .find(|attempt| attempt.id == dependent.id)
+            .unwrap()
+            .state,
+        adroit_model::AttemptState::CancelRequested
+    );
+    let result = store
+        .report_task(
+            RequestId::new(),
+            SessionRef {
+                id: dependent.session_id,
+                generation: 1,
+            },
+            successful_report(&dependent),
+        )
+        .unwrap();
+    assert!(!result.value.applied);
+    let snapshot = store.snapshot().unwrap();
+    let changed = snapshot
+        .tasks
+        .iter()
+        .find(|task| task.id == dependent.task_id)
+        .unwrap();
+    assert_eq!(changed.revision, 2);
+    assert_eq!(changed.state, adroit_model::TaskState::Planned);
+    assert_eq!(changed.current_attempt, None);
+    assert_eq!(
+        snapshot
+            .tasks
+            .iter()
+            .find(|task| task.id == grandchild)
+            .unwrap()
+            .revision,
+        2
+    );
+}
+
+#[test]
+fn stopping_preparation_releases_a_cancelled_attempt_without_failing_the_new_task_revision() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (owner, run) = leader(&mut store, dir.path());
+    let id = task(&mut store, owner, run, vec![]);
+    let wanted = TaskVersion {
+        task_id: id,
+        revision: 1,
+    };
+    store.queue_task(RequestId::new(), owner, wanted).unwrap();
+    let attempt = store
+        .reserve_attempt(RequestId::new(), owner, wanted, target())
+        .unwrap()
+        .value;
+    store
+        .put_task(
+            RequestId::new(),
+            owner,
+            TaskPlan {
+                id,
+                run_id: run,
+                expected_revision: Some(1),
+                brief: TaskBrief {
+                    instructions: "Use the corrected inputs".into(),
+                    ..Default::default()
+                },
+                dependencies: vec![],
+            },
+        )
+        .unwrap();
+    let result = store.fail_start(
+        RequestId::new(),
+        SessionRef {
+            id: attempt.session_id,
+            generation: 1,
+        },
+        "Preparation stopped before the program started".into(),
+    );
+    assert!(result.is_ok(), "{result:?}");
+    let snapshot = store.snapshot().unwrap();
+    assert_eq!(
+        snapshot.attempts[0].state,
+        adroit_model::AttemptState::Cancelled
+    );
+    assert_eq!(snapshot.tasks[0].revision, 2);
+    assert_eq!(snapshot.tasks[0].state, adroit_model::TaskState::Planned);
+    assert_eq!(snapshot.tasks[0].current_attempt, None);
+}
+
+#[test]
+fn an_attempt_without_recorded_input_versions_cannot_succeed_using_unknown_inputs() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("control/state.sqlite3");
+    let mut store = Store::open(&path).unwrap();
+    let (owner, run, producer) = running_worker(&mut store, dir.path());
+    store
+        .report_task(
+            RequestId::new(),
+            SessionRef {
+                id: producer.session_id,
+                generation: 1,
+            },
+            successful_report(&producer),
+        )
+        .unwrap();
+    let dependent = running_dependent(&mut store, dir.path(), owner, run, producer.task_id);
+    drop(store);
+    let connection = rusqlite::Connection::open(&path).unwrap();
+    connection
+        .execute(
+            "UPDATE attempts SET data = json_remove(data,'$.input_versions') WHERE id = ?1",
+            [dependent.id.to_string()],
+        )
+        .unwrap();
+    drop(connection);
+    let mut store = Store::open(&path).unwrap();
+    let result = store
+        .report_task(
+            RequestId::new(),
+            SessionRef {
+                id: dependent.session_id,
+                generation: 1,
+            },
+            successful_report(&dependent),
+        )
+        .unwrap();
+    assert!(!result.value.applied);
+    let snapshot = store.snapshot().unwrap();
+    let task = snapshot
+        .tasks
+        .iter()
+        .find(|task| task.id == dependent.task_id)
+        .unwrap();
+    assert_eq!(task.state, adroit_model::TaskState::Planned);
+    assert_eq!(task.revision, 2);
+    assert_eq!(task.current_attempt, None);
+}
