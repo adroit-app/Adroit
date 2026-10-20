@@ -149,36 +149,51 @@ fn overview_listing(
     opened: &HashSet<Group>,
     tree: &Tree,
     gallery: &Gallery,
+    processes: Option<&(String, Vec<crate::processes::Process>)>,
 ) -> Option<Listing> {
-    match (read, shown) {
-        (Some((id, links)), Some(Tab::Session(s))) if id == s => {
-            let rows: Vec<Link> = links.rows().cloned().collect();
-            let sessions: Vec<&Session> = tree.sessions().map(|(_, s)| s).collect();
-            let ties = match nav::find(tree, s) {
-                Some((_, shown)) => related(shown, &sessions, &links.peers),
-                None => Vec::new(),
-            };
-            let d = settings::current().details;
-            let entries = overview_shown(
-                &ties,
-                &capped(&rows, d.links_kept),
-                folded,
-                opened,
-                d.links_shown,
-            );
-            let mut shots = pictures::shots(&gallery.store, s, &links.images, &gallery.thumbs);
-            shots.truncate(d.links_kept);
-            let entries = with_agents(entries, &links.agents, folded);
-            Some(Listing::Links(with_images(
-                entries,
-                &shots,
-                folded,
-                opened,
-                d.links_shown,
-            )))
-        }
-        _ => None,
+    let Some(Tab::Session(id)) = shown else {
+        return None;
+    };
+    let read = read.filter(|(held, _)| held == id);
+    let processes = processes.filter(|(held, _)| held == id);
+    if read.is_none() && processes.is_none() {
+        return None;
     }
+    let empty = Links::default();
+    let links = read.map(|(_, links)| links).unwrap_or(&empty);
+    let rows: Vec<Link> = links.rows().cloned().collect();
+    let sessions: Vec<&Session> = tree.sessions().map(|(_, s)| s).collect();
+    let ties = match nav::find(tree, id) {
+        Some((_, shown)) => related(shown, &sessions, &links.peers),
+        None => Vec::new(),
+    };
+    let d = settings::current().details;
+    let entries = overview_shown(
+        &ties,
+        &capped(&rows, d.links_kept),
+        folded,
+        opened,
+        d.links_shown,
+    );
+    let mut shots = pictures::shots(&gallery.store, id, &links.images, &gallery.thumbs);
+    shots.truncate(d.links_kept);
+    let entries = with_agents(entries, &links.agents, folded);
+    let entries = crate::details::with_processes(
+        entries,
+        processes
+            .map(|(_, rows)| rows.as_slice())
+            .unwrap_or_default(),
+        folded,
+        opened,
+        d.links_shown,
+    );
+    Some(Listing::Links(with_images(
+        entries,
+        &shots,
+        folded,
+        opened,
+        d.links_shown,
+    )))
 }
 
 /// The session an empty prompt sent passes Ctrl+Enter to: the one whose tab
@@ -310,6 +325,26 @@ fn link_sections(entries: &[Entry], worktree: &Path, home: &Path) -> Vec<LinkSec
                         target,
                         file,
                         thumb: shot.thumb.clone(),
+                    });
+                }
+            }
+            Entry::Process(p) => {
+                if let Some(section) = out.last_mut() {
+                    section.rows.push(LinkRow {
+                        at,
+                        icon: Icon::Terminal2,
+                        tone: if p.zombie { "state-glyph fail" } else { "" },
+                        label: p.name.clone(),
+                        badge: None,
+                        tag: format!(
+                            "{} · {:.0} MiB{}",
+                            p.pid,
+                            p.memory as f64 / (1024.0 * 1024.0),
+                            if p.zombie { " · zombie" } else { "" }
+                        ),
+                        target: format!("PID {} · {}", p.pid, p.command),
+                        file: false,
+                        thumb: None,
                     });
                 }
             }
@@ -1454,6 +1489,9 @@ fn App() -> Element {
     let mut overview_stats =
         use_signal(|| None::<(adroit_model::Agent, String, adroit_model::ConversationStats)>);
     let mut overview_clock = use_signal(now_ms);
+    let mut process_rows = use_signal(|| None::<(String, Vec<crate::processes::Process>)>);
+    let processes_wake = use_hook(|| Arc::new(Notify::new()));
+
     // The images the consoles drew, and the small copies of image files.
     let mut gallery = use_signal(Gallery::default);
     // The overview's groups of links shown by their headings alone.
@@ -2141,6 +2179,54 @@ fn App() -> Element {
             wake.notify_one();
         }
     });
+    use_hook({
+        let wake = processes_wake.clone();
+        move || {
+            spawn(async move {
+                let mut sampler = crate::processes::Sampler::default();
+                loop {
+                    let session = if layout.peek().show_details
+                        && drill.peek().sheet() == Sheet::Overview
+                    {
+                        active.peek().as_ref().and_then(|tab| match tab {
+                            Tab::Session(id) => nav::find(&tree.peek(), id).map(|(_, s)| s.clone()),
+                            _ => None,
+                        })
+                    } else {
+                        None
+                    };
+                    if let Some(session) = session {
+                        let id = session.id.clone();
+                        if let Ok((next, rows)) = tokio::task::spawn_blocking(move || {
+                            let rows = sampler.sample(&session);
+                            (sampler, rows)
+                        })
+                        .await
+                        {
+                            sampler = next;
+                            let next = Some((id, rows));
+                            if *process_rows.peek() != next {
+                                process_rows.set(next);
+                            }
+                        } else {
+                            sampler = crate::processes::Sampler::default();
+                        }
+                    }
+                    tokio::select! {
+                        _ = tokio::time::sleep(Duration::from_secs(2)) => {}
+                        _ = wake.notified() => {}
+                    }
+                }
+            });
+        }
+    });
+    use_effect({
+        let wake = processes_wake.clone();
+        move || {
+            let _ = (active(), drill().sheet(), layout().show_details);
+            wake.notify_one();
+        }
+    });
     // A subagent opened that the overview no longer lists is gone back from.
     use_effect(move || {
         let mut d = drill();
@@ -2150,6 +2236,14 @@ fn App() -> Element {
                 .as_ref()
                 .is_some_and(|(_, l)| l.agents.iter().any(|a| a.call == call))
         });
+        let gone = gone
+            || d.process().is_some_and(|key| {
+                let rows = process_rows();
+                !rows.as_ref().is_some_and(|(id, rows)| {
+                    active.peek().as_ref() == Some(&Tab::Session(id.clone()))
+                        && rows.iter().any(|p| p.key == key)
+                })
+            });
         if gone && d.back() {
             drill.set(d);
         }
@@ -3601,6 +3695,7 @@ fn App() -> Element {
                             &opened_groups.peek(),
                             &tree.peek(),
                             &gallery.peek(),
+                            process_rows.peek().as_ref(),
                         );
                     }
                     git_view
@@ -3784,16 +3879,20 @@ fn App() -> Element {
                     match (&action, &details_list) {
                         // A subagent opened shows no list: the keys scroll,
                         // and those that fold go back to the overview.
-                        (_, Some(Listing::Links(_))) if d.agent().is_some() => match action {
-                            Action::CursorFold => {
-                                d.back();
+                        (_, Some(Listing::Links(_)))
+                            if d.agent().is_some() || d.process().is_some() =>
+                        {
+                            match action {
+                                Action::CursorFold => {
+                                    d.back();
+                                }
+                                Action::CursorDown => scroll("17"),
+                                Action::CursorUp => scroll("-17"),
+                                Action::CursorFirst => scroll("-b.scrollHeight"),
+                                Action::CursorLast => scroll("b.scrollHeight"),
+                                _ => {}
                             }
-                            Action::CursorDown => scroll("17"),
-                            Action::CursorUp => scroll("-17"),
-                            Action::CursorFirst => scroll("-b.scrollHeight"),
-                            Action::CursorLast => scroll("b.scrollHeight"),
-                            _ => {}
-                        },
+                        }
                         (_, Some(l @ Listing::Links(entries))) => {
                             let chosen = d.selected(l).map(|at| &entries[at]);
                             // A heading folds and unfolds as a workspace's row
@@ -3827,6 +3926,7 @@ fn App() -> Element {
                                         &opened_groups.peek(),
                                         &tree.peek(),
                                         &gallery.peek(),
+                                        process_rows.peek().as_ref(),
                                     );
                                     if let Some(now) = now
                                         && let Some(at) = now.heading(group)
@@ -3862,6 +3962,18 @@ fn App() -> Element {
                                 (None, Some(Use::Open), Some(Entry::More { group, .. })) => {
                                     opened_groups.write().insert(*group);
                                 }
+                                (None, Some(how), Some(Entry::Process(p))) => match how {
+                                    Use::Open => {
+                                        d.open(l);
+                                    }
+                                    Use::Copy => {
+                                        notify.notice(match copy_to_clipboard(&p.command) {
+                                            Ok(()) => "Copied the process command".into(),
+                                            Err(e) => format!("cannot copy: {e}"),
+                                        });
+                                    }
+                                    Use::Reveal => {}
+                                },
                                 (None, Some(how), Some(Entry::Agent(a))) => match how {
                                     Use::Open => {
                                         d.open(l);
@@ -4145,6 +4257,7 @@ fn App() -> Element {
                         &opened_groups.peek(),
                         &tree.peek(),
                         &gallery.peek(),
+                        process_rows.peek().as_ref(),
                     );
                     if let Some(l) = listing {
                         let mut d = drill.peek().clone();
@@ -4798,6 +4911,7 @@ fn App() -> Element {
             &opened_groups(),
             &t,
             &gallery.read(),
+            process_rows.peek().as_ref(),
         )
     } else {
         None
@@ -4812,10 +4926,46 @@ fn App() -> Element {
             .find(|a| a.call == call)
             .cloned()
     });
+    let opened_process = drill_now.process().and_then(|key| {
+        process_rows
+            .read()
+            .as_ref()
+            .filter(|(id, _)| Some(id) == shown_id.as_ref())?
+            .1
+            .iter()
+            .find(|p| p.key == key)
+            .cloned()
+    });
+    let kill_process = {
+        let session = shown_session.clone();
+        let wake = processes_wake.clone();
+        move |process: crate::processes::Process| {
+            let Some(session) = session.clone() else {
+                return;
+            };
+            let wake = wake.clone();
+            spawn(async move {
+                let pid = process.pid;
+                let result =
+                    tokio::task::spawn_blocking(move || crate::processes::kill(&session, &process))
+                        .await;
+                match result {
+                    Ok(Ok(())) => notify.notice(format!("Killed process {pid}")),
+                    Ok(Err(e)) => notify.notice(e),
+                    Err(e) => notify.notice(format!("Cannot kill process: {e}")),
+                }
+                wake.notify_one();
+            });
+        }
+    };
     let link_sections = {
         let entries = match &overview_now {
             // A subagent opened stands in for the rows.
-            Some(Listing::Links(entries)) if drill_now.agent().is_none() => entries.as_slice(),
+            Some(Listing::Links(entries))
+                if drill_now.agent().is_none() && drill_now.process().is_none() =>
+            {
+                entries.as_slice()
+            }
             _ => &[],
         };
         let worktree = current
@@ -4835,6 +4985,7 @@ fn App() -> Element {
             &opened_groups.peek(),
             &tree.peek(),
             &gallery.peek(),
+            process_rows.peek().as_ref(),
         ) else {
             return;
         };
@@ -4865,7 +5016,7 @@ fn App() -> Element {
                 Went::Told(told) => notify.notice(told),
                 Went::Nowhere => {}
             },
-            Some(Entry::Agent(_)) => {
+            Some(Entry::Agent(_) | Entry::Process(_)) => {
                 let mut d = drill.peek().clone();
                 if d.open(&l) {
                     drill.set(d);
@@ -5596,6 +5747,17 @@ fn App() -> Element {
                             },
                         }
                     }
+                    if let Some(process) = opened_process {
+                        crate::processes::ProcessView {
+                            key: "{process.key}",
+                            process,
+                            on_back: move |_| {
+                                let mut d = drill.peek().clone();
+                                if d.back() { drill.set(d); }
+                            },
+                            on_kill: kill_process,
+                        }
+                    }
                     for section in link_sections.into_iter() {
                         div { key: "{section.group.title()}", class: "details-block details-links",
                             {
@@ -6116,6 +6278,45 @@ mod tests {
     use crate::details::overview;
 
     #[test]
+    fn process_rows_are_available_without_a_transcript_and_follow_only_the_shown_session() {
+        let mut process = crate::processes::Process::default();
+        process.key = "process-123".into();
+        process.pid = 123;
+        process.name = "server".into();
+        let read = ("session-one".into(), vec![process]);
+        let folded = HashSet::new();
+        let listing = overview_listing(
+            None,
+            Some(&Tab::Session("session-one".into())),
+            &folded,
+            &folded,
+            &Tree::default(),
+            &Gallery::default(),
+            Some(&read),
+        );
+        let Some(Listing::Links(entries)) = listing else {
+            panic!("processes without transcript links")
+        };
+        assert!(
+            entries
+                .iter()
+                .any(|e| matches!(e,Entry::Process(p) if p.pid == 123))
+        );
+        assert!(
+            overview_listing(
+                None,
+                Some(&Tab::Session("session-two".into())),
+                &folded,
+                &folded,
+                &Tree::default(),
+                &Gallery::default(),
+                Some(&read)
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
     fn usage_depends_only_on_the_console_agent() {
         use adroit_model::Agent;
 
@@ -6322,6 +6523,7 @@ mod tests {
             &open,
             &Tree::default(),
             &gallery,
+            None,
         ) else {
             panic!("no overview");
         };
@@ -6354,7 +6556,8 @@ mod tests {
                 &open,
                 &open,
                 &t,
-                &Gallery::default()
+                &Gallery::default(),
+                None,
             )
             .is_some()
         );
@@ -6365,7 +6568,8 @@ mod tests {
                 &open,
                 &open,
                 &t,
-                &Gallery::default()
+                &Gallery::default(),
+                None,
             )
             .is_none()
         );
@@ -6376,7 +6580,8 @@ mod tests {
                 &open,
                 &open,
                 &t,
-                &Gallery::default()
+                &Gallery::default(),
+                None,
             )
             .is_none()
         );

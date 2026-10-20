@@ -11,7 +11,13 @@ Overview, Changes and Log.
   Input sent through Adroit includes answers to approvals and choices; its
   latest time stays with the running session when the window closes. For
   sessions in other terminals, only inputs recorded in the conversation can
-  be recovered. Unreported metrics are omitted. Below, it lists the other sessions it worked with:
+  be recovered. Unreported metrics are omitted. The Processes group lists live
+  processes belonging to the session, excluding its main process. Opening one
+  shows its command, process ID, parent, memory and working directory. Killing
+  one requires confirmation and verifies that it is still the same process
+  belonging to the session. A zombie has already exited and must be reaped by
+  its parent. Processes that cannot be associated with the session are omitted.
+  Below, it lists the other sessions it worked with:
   the one it was started from and those it started
   ([sessions](sessions.md#started-by-a-session)) while they run, then those it
   messaged or heard from through Claude Code, newest first, each saying how

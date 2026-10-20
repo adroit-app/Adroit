@@ -408,6 +408,7 @@ impl Listing {
 pub enum Group {
     Sessions,
     Agents,
+    Processes,
     Artifacts,
     Images,
     Links,
@@ -427,6 +428,7 @@ impl Group {
         match self {
             Group::Sessions => "Sessions",
             Group::Agents => "Subagents",
+            Group::Processes => "Processes",
             Group::Artifacts => "Artifacts",
             Group::Images => "Images",
             Group::Links => "Links",
@@ -445,6 +447,7 @@ pub enum Entry {
     },
     Session(Related),
     Agent(Agent),
+    Process(crate::processes::Process),
     Link(Link),
     Image(Shot),
     /// The row standing for a group's links not shown, which shows them all.
@@ -462,6 +465,7 @@ impl Entry {
             Entry::Heading { group, .. } => match group {
                 Group::Sessions => "\0sessions",
                 Group::Agents => "\0agents",
+                Group::Processes => "\0processes",
                 Group::Artifacts => "\0artifacts",
                 Group::Images => "\0images",
                 Group::Links => "\0links",
@@ -469,11 +473,13 @@ impl Entry {
             },
             Entry::Session(r) => r.name.as_str(),
             Entry::Agent(a) => a.call.as_str(),
+            Entry::Process(p) => &p.key,
             Entry::Link(l) => l.target.as_str(),
             Entry::Image(s) => s.key.as_str(),
             Entry::More { group, .. } => match group {
                 Group::Sessions => "\0more sessions",
                 Group::Agents => "\0more agents",
+                Group::Processes => "\0more processes",
                 Group::Artifacts => "\0more artifacts",
                 Group::Images => "\0more images",
                 Group::Links => "\0more links",
@@ -488,6 +494,7 @@ impl Entry {
             Entry::Heading { group, .. } => *group,
             Entry::Session(_) => Group::Sessions,
             Entry::Agent(_) => Group::Agents,
+            Entry::Process(_) => Group::Processes,
             Entry::Link(l) => Group::of(&l.kind),
             Entry::Image(_) => Group::Images,
             Entry::More { group, .. } => *group,
@@ -661,6 +668,46 @@ pub fn with_agents(
     entries
 }
 
+/// Live processes appear as a foldable group after related sessions and subagents.
+pub fn with_processes(
+    mut entries: Vec<Entry>,
+    processes: &[crate::processes::Process],
+    folded: &HashSet<Group>,
+    opened: &HashSet<Group>,
+    first: usize,
+) -> Vec<Entry> {
+    if processes.is_empty() {
+        return entries;
+    }
+    let at = entries
+        .iter()
+        .position(|e| !matches!(e.group(), Group::Sessions | Group::Agents))
+        .unwrap_or(entries.len());
+    let group = Group::Processes;
+    let shut = folded.contains(&group);
+    let mut rows = vec![Entry::Heading {
+        group,
+        count: processes.len(),
+        folded: shut,
+    }];
+    if !shut {
+        let shown = if opened.contains(&group) {
+            processes.len()
+        } else {
+            first.min(processes.len())
+        };
+        rows.extend(processes[..shown].iter().cloned().map(Entry::Process));
+        if shown < processes.len() {
+            rows.push(Entry::More {
+                group,
+                hidden: processes.len() - shown,
+            });
+        }
+    }
+    entries.splice(at..at, rows);
+    entries
+}
+
 /// The overview's `entries` with `shots` under their heading after the
 /// artifacts, showing their `first` and a row for the rest unless the group
 /// is among those `opened`; a `folded` group shows its heading alone.
@@ -716,6 +763,7 @@ enum Opened {
     File(Change),
     /// A subagent of the overview, by its call, and its description.
     Agent(String, String),
+    Process(String, String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -754,6 +802,13 @@ impl Drill {
         }
     }
 
+    pub fn process(&self) -> Option<&str> {
+        match self.opened.last() {
+            Some(Opened::Process(key, _)) => Some(key),
+            _ => None,
+        }
+    }
+
     /// What to read for what is shown; the overview is not read.
     pub fn spot(&self) -> Option<Spot> {
         let rev = |c: &Commit| Rev::Commit(c.id.clone());
@@ -779,6 +834,7 @@ impl Drill {
                 Opened::Commit(c) => format!("{} {}", c.short, c.subject),
                 Opened::File(f) => f.shown(),
                 Opened::Agent(_, description) => description.clone(),
+                Opened::Process(_, name) => name.clone(),
             })
             .collect()
     }
@@ -834,6 +890,7 @@ impl Drill {
             Listing::Log(commits) => Opened::Commit(commits[at].clone()),
             Listing::Links(entries) => match &entries[at] {
                 Entry::Agent(a) => Opened::Agent(a.call.clone(), shown_agent(a, 0).0),
+                Entry::Process(p) => Opened::Process(p.key.clone(), p.name.clone()),
                 _ => return false,
             },
             Listing::Diff(_) | Listing::Error(_) => return false,
@@ -862,6 +919,7 @@ impl Drill {
             Opened::Commit(c) => c.id,
             Opened::File(f) => f.path,
             Opened::Agent(call, _) => call,
+            Opened::Process(key, _) => key,
         };
         // Where it was is not kept; should it be gone meanwhile, the list's
         // first row stands in.
@@ -953,6 +1011,65 @@ mod tests {
     use adroit_claude::git::DiffKind;
 
     use adroit_model::{Session, State, Wait};
+
+    #[test]
+    fn processes_fold_expand_and_open_with_the_same_overview_navigation() {
+        let rows: Vec<_> = (1..=3)
+            .map(|pid| {
+                let mut process = crate::processes::Process::default();
+                process.key = format!("process-{pid}");
+                process.pid = pid;
+                process.name = format!("command-{pid}");
+                process
+            })
+            .collect();
+        let folded = HashSet::new();
+        let entries = with_processes(Vec::new(), &rows, &folded, &folded, 1);
+        assert!(matches!(
+            entries[0],
+            Entry::Heading {
+                group: Group::Processes,
+                count: 3,
+                folded: false
+            }
+        ));
+        assert!(matches!(entries[1], Entry::Process(_)));
+        assert!(matches!(
+            entries[2],
+            Entry::More {
+                group: Group::Processes,
+                hidden: 2
+            }
+        ));
+        let list = Listing::Links(entries);
+        let mut drill = Drill::new(Sheet::Overview);
+        assert!(drill.open_at(&list, 1));
+        assert_eq!(drill.process(), Some("process-1"));
+        assert!(drill.back());
+        assert_eq!(drill.selected(&list), Some(1));
+        assert_eq!(
+            with_processes(
+                Vec::new(),
+                &rows,
+                &HashSet::from([Group::Processes]),
+                &folded,
+                1
+            )
+            .len(),
+            1
+        );
+        assert_eq!(
+            with_processes(
+                Vec::new(),
+                &rows,
+                &folded,
+                &HashSet::from([Group::Processes]),
+                1
+            )
+            .len(),
+            4
+        );
+    }
 
     #[test]
     fn conversation_facts_show_reported_tokens_and_the_latest_user_operation() {

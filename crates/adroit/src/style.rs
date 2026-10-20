@@ -232,6 +232,9 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .details-block { padding: 0 16px 14px; display: flex; flex-direction: column; gap: 6px; line-height: 1.6; }
 .details-label { font-size: 12px; font-weight: 500; color: var(--text-2); }
 .details-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 12px; font-size: 12.5px; }
+.process-command { margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 11px var(--mono); user-select: text; }
+.process-confirm { display: flex; flex-direction: column; gap: 8px; }
+.process-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .details-facts-key { color: var(--text-3); }
 .details-facts-value { min-width: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .details-path { font-family: var(--mono); font-size: 11.5px; color: var(--text-3); word-break: break-all; user-select: text; }

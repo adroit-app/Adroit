@@ -34,6 +34,7 @@ pub mod picker;
 mod picker_view;
 mod pictures;
 mod plugin;
+mod processes;
 mod programs;
 pub mod prompts;
 pub mod rename;
