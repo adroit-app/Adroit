@@ -259,20 +259,20 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .usage-gauge-fill.critical { background: var(--fail); }
 .usage-gauge-note { font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
 .details-system-usage { flex: none; container: system-usage / inline-size; display: flex; flex-direction: column; gap: 10px; padding: 12px 16px; border-top: 1px solid var(--line); cursor: default; }
-.system-usage-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.system-usage-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px 16px; }
 @container system-usage (min-width: 300px) {
   .system-usage-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-.usage-resource { --resource-color: var(--usage-cpu); min-width: 0; display: flex; flex-direction: column; gap: 10px; padding: 10px; border: 1px solid var(--line-strong); border-radius: 7px; background: var(--raised); }
+.usage-resource { --resource-color: var(--usage-cpu); min-width: 0; display: flex; flex-direction: column; gap: 5px; }
 .usage-resource.gpu { --resource-color: var(--usage-gpu); }
 .usage-resource.memory { --resource-color: var(--usage-memory); }
 .usage-resource.storage { --resource-color: var(--usage-storage); }
 .usage-resource.warning { --resource-color: var(--wait); }
 .usage-resource.critical { --resource-color: var(--fail); }
 .usage-resource-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-.usage-resource-label { display: flex; align-items: center; gap: 6px; color: var(--text-2); font-size: 11px; font-weight: 500; }
-.usage-resource-label::before { content: ""; width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--resource-color); }
-.usage-resource-value { color: var(--text); font-size: 18px; line-height: 1; font-weight: 600; font-variant-numeric: tabular-nums; }
+.usage-resource-label { display: flex; align-items: center; gap: 6px; color: var(--text-2); font-size: 12px; }
+.usage-resource-label .icon { color: var(--resource-color); }
+.usage-resource-value { color: var(--text); font-size: 12px; font-variant-numeric: tabular-nums; }
 .usage-resource.warning .usage-resource-value, .usage-resource.critical .usage-resource-value { color: var(--resource-color); }
 .usage-resource-track { height: 5px; border-radius: 3px; background: var(--select); overflow: hidden; }
 .usage-resource-fill { height: 100%; border-radius: inherit; background: var(--resource-color); }

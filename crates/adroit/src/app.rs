@@ -5744,12 +5744,14 @@ fn App() -> Element {
                     if !system_gauges.is_empty() {
                         div { class: "details-system-usage",
                             title: "Whole-machine resource usage",
-                            span { class: "details-label", "System usage" }
                             div { class: "system-usage-grid",
                                 for g in system_gauges {
                                     div { key: "{g.label}", class: "{g.class}",
                                         div { class: "usage-resource-head",
-                                            span { class: "usage-resource-label", "{g.label}" }
+                                            span { class: "usage-resource-label",
+                                                IconView { icon: g.icon, size: 14 }
+                                                "{g.label}"
+                                            }
                                             span { class: "usage-resource-value", "{g.value}" }
                                         }
                                         div { class: "usage-resource-track",

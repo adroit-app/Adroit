@@ -1,5 +1,6 @@
 //! Whole-machine usage, sampled away from the UI thread.
 
+use crate::icons::Icon;
 use crate::settings::UsageSettings;
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -12,6 +13,7 @@ pub struct Snapshot {
 
 pub struct Gauge {
     pub label: &'static str,
+    pub icon: Icon,
     pub class: String,
     pub value: String,
     pub used: f32,
@@ -20,15 +22,28 @@ pub struct Gauge {
 impl Snapshot {
     pub fn gauges(&self, settings: &UsageSettings) -> Vec<Gauge> {
         [
-            ("CPU", "cpu", settings.cpu, self.cpu),
-            ("GPU", "gpu", settings.gpu, self.gpu),
-            ("Memory", "memory", settings.memory, self.memory),
-            ("Storage", "storage", settings.storage, self.storage),
+            ("CPU", "cpu", Icon::Cpu, settings.cpu, self.cpu),
+            ("GPU", "gpu", Icon::Gpu, settings.gpu, self.gpu),
+            (
+                "Memory",
+                "memory",
+                Icon::Memory,
+                settings.memory,
+                self.memory,
+            ),
+            (
+                "Storage",
+                "storage",
+                Icon::Database,
+                settings.storage,
+                self.storage,
+            ),
         ]
         .into_iter()
-        .filter(|(_, _, enabled, _)| *enabled)
-        .map(|(label, kind, _, used)| Gauge {
+        .filter(|(_, _, _, enabled, _)| *enabled)
+        .map(|(label, kind, icon, _, used)| Gauge {
             label,
+            icon,
             class: format!(
                 "usage-resource {kind}{}",
                 match used {
@@ -244,6 +259,10 @@ mod tests {
         assert_eq!(
             gauges.iter().map(|g| g.label).collect::<Vec<_>>(),
             ["CPU", "GPU", "Memory", "Storage"]
+        );
+        assert_eq!(
+            gauges.iter().map(|g| g.icon.name()).collect::<Vec<_>>(),
+            ["cpu", "gpu", "memory", "database"]
         );
         assert_eq!(gauges[0].value, "13%");
         assert_eq!(gauges[1].value, "N/A");
