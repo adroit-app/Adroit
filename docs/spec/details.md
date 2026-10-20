@@ -22,10 +22,7 @@ Overview, Changes and Log.
   a file it wrote, read or searched is the file's, not brought up. The images
   are those the session's console drew and the image files it came across
   that still exist, together, each beside a small picture of it. A shell or a
-  draft has no conversation and lists none. At its foot, whatever is shown
-  above, it tells how much of the account's usage limits is left: each limit
-  the session's agent reports, such as the current session and the week,
-  as a bar of what is used, with what is left and when it resets.
+  draft has no conversation and lists none.
 - **Changes** lists the files the worktree changes. Opening one shows its
   diff.
 - **Log** lists the changes that lead to the worktree, drawn as a graph: each
@@ -66,14 +63,20 @@ Back goes out one level at a time, to the list the shown row was opened from,
 with that row selected. A row opens by its keys or a click; the line above a
 row opened names what was opened, and a click on it goes back.
 
-The usage limits are asked of the session's agent while the overview is in sight,
-again every few minutes, without starting a conversation or spending any of
+Account usage follows the agent shown in Console on every details sheet.
+It shows each reported limit as a bar of what is used, with what is left and
+when it resets. Shell and Neovim tabs show no account limits.
+
+The usage limits are asked of the session's agent while the details panel is
+in sight, again every few minutes, without starting a conversation or spending any of
 them. An account without such limits, or an agent that does not answer,
 shows none; one that stops answering keeps showing what it last said.
-Usage also shows live CPU, GPU and memory usage for the whole machine and
-capacity used on the startup volume, including in Shell and Neovim tabs.
+A separate section below account usage shows live CPU, GPU and memory usage
+for the whole machine and capacity used on the startup volume, including in
+Shell and Neovim tabs.
 Each resource can be hidden independently in Settings. A resource that cannot
-be read is marked unavailable.
+be read is marked unavailable. Resources have distinct colors; high usage
+overrides those colors with a warning.
 
 The Usage header links to the shown agent's account usage settings in the
 default browser, where available resets and account limits can be managed.

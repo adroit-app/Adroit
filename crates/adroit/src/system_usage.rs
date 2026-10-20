@@ -12,6 +12,7 @@ pub struct Snapshot {
 
 pub struct Gauge {
     pub label: &'static str,
+    pub class: String,
     pub value: String,
     pub used: f32,
 }
@@ -19,15 +20,23 @@ pub struct Gauge {
 impl Snapshot {
     pub fn gauges(&self, settings: &UsageSettings) -> Vec<Gauge> {
         [
-            ("CPU", settings.cpu, self.cpu),
-            ("GPU", settings.gpu, self.gpu),
-            ("Memory", settings.memory, self.memory),
-            ("Storage", settings.storage, self.storage),
+            ("CPU", "cpu", settings.cpu, self.cpu),
+            ("GPU", "gpu", settings.gpu, self.gpu),
+            ("Memory", "memory", settings.memory, self.memory),
+            ("Storage", "storage", settings.storage, self.storage),
         ]
         .into_iter()
-        .filter(|(_, enabled, _)| *enabled)
-        .map(|(label, _, used)| Gauge {
+        .filter(|(_, _, enabled, _)| *enabled)
+        .map(|(label, kind, _, used)| Gauge {
             label,
+            class: format!(
+                "usage-resource {kind}{}",
+                match used {
+                    Some(n) if n > 95.0 => " critical",
+                    Some(n) if n > 90.0 => " warning",
+                    _ => "",
+                }
+            ),
             value: used.map_or_else(|| "N/A".into(), |n| format!("{:.0}%", n.round())),
             used: used.unwrap_or(0.0),
         })
@@ -153,6 +162,52 @@ mod tests {
             Snapshot::default()
         );
         assert!(sampler.sample(settings).cpu.is_none());
+    }
+
+    #[test]
+    fn resource_colors_remain_distinct_until_usage_exceeds_warning_thresholds() {
+        let settings = UsageSettings::default();
+        let snapshot = Snapshot {
+            cpu: Some(90.0),
+            gpu: Some(90.01),
+            memory: Some(95.0),
+            storage: Some(95.01),
+        };
+        let gauges = snapshot.gauges(&settings);
+        assert_eq!(
+            gauges.iter().map(|g| g.class.as_str()).collect::<Vec<_>>(),
+            [
+                "usage-resource cpu",
+                "usage-resource gpu warning",
+                "usage-resource memory warning",
+                "usage-resource storage critical",
+            ]
+        );
+        let normal = Snapshot {
+            cpu: Some(20.0),
+            gpu: Some(30.0),
+            memory: Some(40.0),
+            storage: Some(50.0),
+        };
+        assert_eq!(
+            normal
+                .gauges(&settings)
+                .iter()
+                .map(|g| g.class.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "usage-resource cpu",
+                "usage-resource gpu",
+                "usage-resource memory",
+                "usage-resource storage",
+            ]
+        );
+        assert!(
+            Snapshot::default()
+                .gauges(&settings)
+                .iter()
+                .all(|g| !g.class.contains("warning") && !g.class.contains("critical"))
+        );
     }
 
     #[test]

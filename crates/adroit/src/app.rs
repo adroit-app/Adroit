@@ -61,9 +61,8 @@ use crate::themes;
 use crate::view::Keys;
 use crate::zoom;
 
-fn shows_usage(tab: Option<&Tab>, sheet: Sheet, agent: adroit_model::Agent) -> bool {
+fn shows_usage(tab: Option<&Tab>, agent: adroit_model::Agent) -> bool {
     matches!(tab, Some(Tab::Session(_) | Tab::Draft { .. }))
-        && sheet == Sheet::Overview
         && agents::adapter(agent).capabilities().usage_limits
 }
 
@@ -1996,7 +1995,7 @@ fn App() -> Element {
         }
     });
     // How much of the account's usage limits is left, for the foot of the
-    // overview: asked of the session's agent while the overview is in sight, again
+    // details panel: asked of the console's agent while details are in sight, again
     // once the answer has aged.
     let mut usage_limits = use_signal(HashMap::<adroit_model::Agent, usage::Fresh>::new);
     let usage_wake = use_hook(|| Arc::new(Notify::new()));
@@ -2011,8 +2010,8 @@ fn App() -> Element {
                         &draft_agents.peek(),
                         last_agent.peek().unwrap_or(settings::current().agent),
                     );
-                    let in_sight = layout.peek().show_details
-                        && shows_usage(active.peek().as_ref(), drill.peek().sheet(), agent);
+                    let in_sight =
+                        layout.peek().show_details && shows_usage(active.peek().as_ref(), agent);
                     if in_sight
                         && usage_limits
                             .write()
@@ -2038,7 +2037,7 @@ fn App() -> Element {
     use_effect({
         let wake = usage_wake.clone();
         move || {
-            let _ = (drill().sheet(), layout().show_details);
+            let _ = layout().show_details;
             let _ = agents::for_tab(
                 &tree.read(),
                 active.read().as_ref(),
@@ -4663,18 +4662,12 @@ fn App() -> Element {
         &draft_agents.read(),
         last_agent.read().unwrap_or(font.read().agent),
     );
-    let usage_now = match (
-        sheet_now,
-        usage_limits
-            .read()
-            .get(&current_agent)
-            .and_then(|fresh| fresh.get()),
-    ) {
-        (Sheet::Overview, Some(limits))
-            if shows_usage(active_tab.as_ref(), sheet_now, current_agent) =>
-        {
-            gauges(limits, now_ms())
-        }
+    let usage_now = match usage_limits
+        .read()
+        .get(&current_agent)
+        .and_then(|fresh| fresh.get())
+    {
+        Some(limits) if shows_usage(active_tab.as_ref(), current_agent) => gauges(limits, now_ms()),
         _ => Vec::new(),
     };
     let system_gauges = system_snapshot.read().gauges(&font.read().usage);
@@ -5705,9 +5698,9 @@ fn App() -> Element {
                         }
                     }
                     }
-                    if !usage_now.is_empty() || !system_gauges.is_empty() {
+                    if !usage_now.is_empty() {
                         div { class: "details-usage",
-                            title: "Account limits and whole-machine resource usage",
+                            title: "Usage limits reported by the session's agent",
                             div { class: "usage-header",
                                 span { class: "details-label", "Usage" }
                                 if let Some(url) = agents::adapter(current_agent).usage_url().filter(|_| !usage_now.is_empty()) {
@@ -5724,17 +5717,6 @@ fn App() -> Element {
                                         },
                                         IconView { icon: Icon::Link, size: 12 }
                                         "Web"
-                                    }
-                                }
-                            }
-                            for g in system_gauges {
-                                div { key: "{g.label}", class: "usage-gauge",
-                                    div { class: "usage-gauge-head",
-                                        span { class: "usage-gauge-label", "{g.label}" }
-                                        span { class: "usage-gauge-left", "{g.value}" }
-                                    }
-                                    div { class: "usage-gauge-track",
-                                        div { class: "usage-gauge-fill", style: "width:{g.used}%" }
                                     }
                                 }
                             }
@@ -5755,6 +5737,25 @@ fn App() -> Element {
                                         }
                                     }
                                     span { class: "usage-gauge-note", "{g.note}" }
+                                }
+                            }
+                        }
+                    }
+                    if !system_gauges.is_empty() {
+                        div { class: "details-system-usage",
+                            title: "Whole-machine resource usage",
+                            span { class: "details-label", "System usage" }
+                            div { class: "system-usage-grid",
+                                for g in system_gauges {
+                                    div { key: "{g.label}", class: "{g.class}",
+                                        div { class: "usage-resource-head",
+                                            span { class: "usage-resource-label", "{g.label}" }
+                                            span { class: "usage-resource-value", "{g.value}" }
+                                        }
+                                        div { class: "usage-resource-track",
+                                            div { class: "usage-resource-fill", style: "width:{g.used}%" }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -6058,7 +6059,7 @@ mod tests {
     use crate::details::overview;
 
     #[test]
-    fn usage_is_shown_only_in_agent_tab_overviews() {
+    fn usage_depends_only_on_the_console_agent() {
         use adroit_model::Agent;
 
         for agent in [Agent::Claude, Agent::Codex] {
@@ -6069,11 +6070,10 @@ mod tests {
                     role: Role::Worker,
                 },
             ] {
-                assert!(shows_usage(Some(&tab), Sheet::Overview, agent));
-                assert!(!shows_usage(Some(&tab), Sheet::Changes, agent));
+                assert!(shows_usage(Some(&tab), agent));
             }
-            assert!(!shows_usage(Some(&Tab::Shell(1)), Sheet::Overview, agent));
-            assert!(!shows_usage(None, Sheet::Overview, agent));
+            assert!(!shows_usage(Some(&Tab::Shell(1)), agent));
+            assert!(!shows_usage(None, agent));
         }
     }
 

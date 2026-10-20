@@ -106,6 +106,10 @@ pub fn window(p: &Palette) -> Window {
             ("--done", p.ansi[2].hex()),
             ("--fail", p.ansi[1].hex()),
             ("--coord", p.ansi[5].hex()),
+            ("--usage-cpu", p.ansi[6].hex()),
+            ("--usage-gpu", p.ansi[5].hex()),
+            ("--usage-memory", p.ansi[2].hex()),
+            ("--usage-storage", mix(p.ansi[3], p.ansi[1], 0.25).hex()),
         ],
         dark,
     }
