@@ -160,41 +160,6 @@ pub fn choose(
     *last = Some(agent);
 }
 
-/// The same launch path is used by the window and the session command.
-pub fn start(
-    agent: Agent,
-    name: &str,
-    reader: bool,
-    prompt: &str,
-    env: Vec<(String, String)>,
-) -> (String, adroit_claude::Started) {
-    start_with_images(agent, name, reader, prompt, &[], env)
-}
-
-pub fn start_with_images(
-    agent: Agent,
-    name: &str,
-    reader: bool,
-    prompt: &str,
-    images: &[PathBuf],
-    env: Vec<(String, String)>,
-) -> (String, adroit_claude::Started) {
-    let settings = crate::settings::current();
-    let a = adapter(agent);
-    let conversation = a.conversation();
-    let own = std::env::current_exe().unwrap_or_else(|_| "adroit".into());
-    let mut args = a.integration_args(&own);
-    args.extend(a.image_args(images));
-    args.extend(a.start_args(
-        &settings,
-        name,
-        &conversation,
-        reader,
-        &a.image_prompt(prompt, images),
-    ));
-    (conversation, launch(agent, args, env))
-}
-
 /// Apply the provider's launch command and environment to its arguments.
 pub fn launch(
     agent: Agent,
@@ -202,8 +167,17 @@ pub fn launch(
     env: Vec<(String, String)>,
 ) -> adroit_claude::Started {
     let settings = crate::settings::current();
+    launch_with_settings(&settings, agent, args, env)
+}
+
+pub fn launch_with_settings(
+    settings: &Settings,
+    agent: Agent,
+    args: Vec<String>,
+    env: Vec<(String, String)>,
+) -> adroit_claude::Started {
     let a = adapter(agent);
-    let launch = a.launch(&settings);
+    let launch = a.launch(settings);
     let shell = settings.shell.program(&crate::programs::login_shell());
     let (program, args) = launch.command_line(&a.program(), &args, &shell);
     let env = env

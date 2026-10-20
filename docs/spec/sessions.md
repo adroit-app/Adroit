@@ -89,6 +89,10 @@ none follows `--`.
 - `--dir <path>` is where it works, the current directory when not given.
 - `--name <name>` names it; without one it is named from its prompt, as the
   window names a session. A name already taken gets a number.
+- `--model <model>` selects the model for this launch, overriding the selected
+  agent's configured model without changing defaults for other sessions. If
+  neither specifies a model, the agent uses its own default. The agent's TUI
+  can still change its model after launch.
 - `--read-only` starts it as one that only reads, as `session.new_reader`
   does ([keys](keys.md)).
 

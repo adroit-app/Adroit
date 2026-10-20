@@ -4,13 +4,13 @@
 use std::io::Read;
 use std::path::PathBuf;
 
-use adroit_term::{Daemon, Spawn};
+use adroit_term::Daemon;
 
 use crate::scratch::{self, Moment};
 use crate::sessions::{self, Kept};
 use crate::tabs::{fresh_name, label_from, label_of};
 
-const USAGE: &str = "usage: adroit session start [--dir <path>] [--name <name>] [--read-only] [--agent <claude|codex>] [-- <prompt>]";
+const USAGE: &str = "usage: adroit session start [--dir <path>] [--name <name>] [--read-only] [--agent <claude|codex>] [--model <model>] [-- <prompt>]";
 
 /// Where Claude Code tells a command it runs which conversation it is.
 const CONVERSATION_ENV: &str = "CLAUDE_CODE_SESSION_ID";
@@ -26,6 +26,7 @@ struct Asked {
     name: Option<String>,
     read_only: bool,
     agent: Option<adroit_model::Agent>,
+    model: Option<String>,
     /// `None` when the prompt is to be read from standard input.
     prompt: Option<String>,
 }
@@ -39,6 +40,13 @@ fn parse(args: &[String]) -> Option<Asked> {
             "--name" => asked.name = Some(rest.next()?.clone()),
             "--read-only" => asked.read_only = true,
             "--agent" => asked.agent = Some(adroit_model::Agent::parse(rest.next()?)?),
+            "--model" => {
+                let model = rest.next()?.trim();
+                if model.is_empty() {
+                    return None;
+                }
+                asked.model = Some(model.into());
+            }
             "--" => {
                 let words: Vec<&str> = rest.by_ref().map(String::as_str).collect();
                 asked.prompt = Some(words.join(" "));
@@ -89,29 +97,23 @@ async fn start(
         .collect();
     let taken: Vec<&str> = names.iter().map(String::as_str).collect();
     let name = name_for(asked.name.as_deref(), prompt, &taken);
-    let agent = asked
-        .agent
-        .unwrap_or_else(|| crate::settings::current().agent);
-    let env = crate::daemon::terminal_env();
-    let (conversation, (program, args, env)) =
-        crate::agents::start(agent, &name, asked.read_only, prompt, env);
-    let spawn = Spawn {
-        program,
-        args,
-        cwd: dir.clone(),
-        env,
-        tags: sessions::agent_tags(
-            agent,
-            &name,
-            &dir,
-            &conversation,
-            asked.read_only,
-            now_ms(),
-            from,
-        ),
-        cols: COLS,
-        rows: ROWS,
+    let settings = crate::settings::current();
+    let request = crate::execution::StartRequest {
+        agent: asked.agent.unwrap_or(settings.agent),
+        model: asked.model.clone(),
+        name: name.clone(),
+        cwd: dir,
+        read_only: asked.read_only,
+        prompt: prompt.into(),
+        env: crate::daemon::terminal_env(),
+        started_ms: now_ms(),
+        started_from: from.map(String::from),
+        ..Default::default()
     };
+    let program = std::env::current_exe().unwrap_or_else(|_| "adroit".into());
+    let mut spawn = crate::execution::resolve(&settings, request, &program)?.spawn;
+    spawn.cols = COLS;
+    spawn.rows = ROWS;
     daemon
         .spawn(spawn)
         .await
@@ -216,6 +218,7 @@ mod tests {
                 name: Some("flaky".into()),
                 read_only: true,
                 agent: None,
+                model: None,
                 prompt: Some("find why --it fails".into()),
             })
         );
@@ -249,8 +252,26 @@ mod tests {
     }
 
     #[test]
+    fn a_model_is_specific_to_the_requested_launch_and_not_part_of_the_prompt() {
+        let asked = parse(&args(&[
+            "--agent", "codex", "--model", "my model", "--", "review",
+        ]))
+        .unwrap();
+        assert_eq!(asked.model.as_deref(), Some("my model"));
+        assert_eq!(asked.prompt.as_deref(), Some("review"));
+        assert_eq!(parse(&args(&["--model"])), None);
+        assert_eq!(parse(&args(&["--model", " "])), None);
+        assert!(
+            parse(&args(&["--", "--model", "haiku"]))
+                .unwrap()
+                .model
+                .is_none()
+        );
+    }
+
+    #[test]
     fn an_unknown_option_or_one_missing_its_value_is_refused() {
-        assert_eq!(parse(&args(&["--model", "x"])), None);
+        assert_eq!(parse(&args(&["--unknown", "x"])), None);
         assert_eq!(parse(&args(&["find why"])), None);
         assert_eq!(parse(&args(&["--dir"])), None);
     }

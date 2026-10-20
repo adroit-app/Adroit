@@ -2788,11 +2788,12 @@ fn App() -> Element {
                 let sent_to = Some(tab.clone());
                 let size = *console_size.peek();
                 let t = tree.peek().clone();
+                let launch_settings = settings::current();
                 let agent = agents::for_tab(
                     &t,
                     Some(&tab),
                     &draft_agents.peek(),
-                    last_agent.peek().unwrap_or(settings::current().agent),
+                    last_agent.peek().unwrap_or(launch_settings.agent),
                 );
                 let waiting = |id: &str| {
                     nav::find(&t, id).is_some_and(|(_, s)| matches!(s.state, State::Waiting(_)))
@@ -2903,35 +2904,34 @@ fn App() -> Element {
                         let started =
                             match scratch::start_dir(&worktree, &scratch_dir(), Moment::now()) {
                                 Ok(worktree) => {
-                                    let (conversation, (program, args, env)) =
-                                        agents::start_with_images(
-                                            agent,
-                                            &name,
-                                            reader,
-                                            &text,
-                                            &images,
-                                            session_env(),
-                                        );
-                                    let spawn = Spawn {
-                                        program,
-                                        args,
-                                        cwd: worktree.clone(),
-                                        env,
-                                        tags: sessions::agent_tags(
-                                            agent,
-                                            &name,
-                                            &worktree,
-                                            &conversation,
-                                            reader,
-                                            now_ms(),
-                                            None,
-                                        ),
-                                        cols: size.cols,
-                                        rows: size.rows,
+                                    let request = crate::execution::StartRequest {
+                                        agent,
+                                        name: name.clone(),
+                                        cwd: worktree,
+                                        read_only: reader,
+                                        prompt: text,
+                                        images: images.clone(),
+                                        env: session_env(),
+                                        started_ms: now_ms(),
+                                        ..Default::default()
                                     };
-                                    start(&hub, spawn, size, |id| Tab::Session(sessions::hex(id)))
-                                        .await
-                                        .map_err(|e| format!("cannot start {name}: {e}"))
+                                    match crate::execution::resolve(
+                                        &launch_settings,
+                                        request,
+                                        &adroit_program(),
+                                    ) {
+                                        Ok(resolved) => {
+                                            let mut spawn = resolved.spawn;
+                                            spawn.cols = size.cols;
+                                            spawn.rows = size.rows;
+                                            start(&hub, spawn, size, |id| {
+                                                Tab::Session(sessions::hex(id))
+                                            })
+                                            .await
+                                            .map_err(|e| format!("cannot start {name}: {e}"))
+                                        }
+                                        Err(e) => Err(e),
+                                    }
                                 }
                                 Err(e) => Err(format!("cannot make a directory for {name}: {e}")),
                             };
