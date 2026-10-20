@@ -13,3 +13,5 @@ pub mod service;
 pub fn root() -> std::path::PathBuf {
     crate::paths::instance_state().join("control")
 }
+
+pub mod scheduler;

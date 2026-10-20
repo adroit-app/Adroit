@@ -563,6 +563,14 @@ fn a_failed_spawn_releases_its_attempt_without_succeeding_the_task() {
     assert!(!snapshot.attempts[0].state.holds_slot());
     assert_eq!(snapshot.tasks[0].state, adroit_model::TaskState::Failed);
     assert_eq!(snapshot.runs[0].state, adroit_model::RunState::Active);
+    let notifications = store.mailbox(owner, 0, 10).unwrap();
+    assert_eq!(notifications.messages.len(), 1);
+    assert!(
+        notifications.messages[0]
+            .message
+            .body
+            .contains("program not found")
+    );
 }
 
 #[test]
@@ -1055,4 +1063,48 @@ fn directory_change_results_need_evidence_from_the_assigned_working_area() {
             .value
             .applied
     );
+}
+
+#[test]
+fn an_uncertain_start_keeps_its_slot_until_the_terminal_is_reconciled() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (owner, run) = leader(&mut store, dir.path());
+    let id = task(&mut store, owner, run, vec![]);
+    let wanted = TaskVersion {
+        task_id: id,
+        revision: 1,
+    };
+    store.queue_task(RequestId::new(), owner, wanted).unwrap();
+    let attempt = store
+        .reserve_attempt(RequestId::new(), owner, wanted, target())
+        .unwrap()
+        .value;
+    let identity = SessionRef {
+        id: attempt.session_id,
+        generation: 1,
+    };
+    store
+        .start_uncertain(
+            RequestId::new(),
+            identity,
+            "The terminal acknowledgement was lost".into(),
+        )
+        .unwrap();
+    let snapshot = store.snapshot().unwrap();
+    assert_eq!(
+        snapshot.attempts[0].state,
+        adroit_model::AttemptState::Uncertain
+    );
+    assert!(snapshot.attempts[0].state.holds_slot());
+    assert_eq!(
+        snapshot.sessions[1].state,
+        adroit_model::ManagedSessionState::NeedsReconciliation
+    );
+    assert!(
+        store
+            .reserve_attempt(RequestId::new(), owner, wanted, target())
+            .is_err()
+    );
+    assert_eq!(store.mailbox(owner, 0, 10).unwrap().messages.len(), 1);
 }

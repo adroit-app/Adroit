@@ -791,13 +791,15 @@ impl Store {
         conversation_id: String,
     ) -> Result<Reply<ManagedSession>> {
         self.transact(request, json!({"op":"attach_session", "caller":identity, "cwd":cwd, "terminal_id":terminal_id, "conversation_id":conversation_id}), |connection| {
-            if crate::sessions::id_of(&terminal_id).is_none() || conversation_id.trim().is_empty() {
+            let mut session = reference(connection, identity)?;
+            if crate::sessions::id_of(&terminal_id).is_none() || (conversation_id.trim().is_empty() && session.agent != Agent::Codex) {
                 return Err(invalid("a started session needs a terminal ID and conversation"));
             }
-            let mut session = reference(connection, identity)?;
+            let conversation_id = (!conversation_id.is_empty()).then_some(conversation_id);
+
             if session.state != ManagedSessionState::Preparing {
                 if session.state == ManagedSessionState::Running && session.terminal_id.as_ref() == Some(&terminal_id)
-                    && session.conversation_id.as_ref() == Some(&conversation_id) && session.cwd.as_ref() == Some(&cwd) {
+                    && session.conversation_id == conversation_id && session.cwd.as_ref() == Some(&cwd) {
                     return Ok(session);
                 }
                 return Err(conflict("the session is already attached or cannot be started"));
@@ -827,12 +829,71 @@ impl Store {
             }
             session.cwd = Some(cwd);
             session.terminal_id = Some(terminal_id);
-            session.conversation_id = Some(conversation_id);
+            session.conversation_id = conversation_id;
             session.state = ManagedSessionState::Running;
             save_session(connection, &session)?;
             event(connection, session.binding.run_id(), "session_attached", &session)?;
             Ok(session)
         })
+    }
+
+    pub fn start_uncertain(
+        &mut self,
+        request: RequestId,
+        identity: SessionRef,
+        reason: String,
+    ) -> Result<Reply<ManagedSession>> {
+        self.transact(
+            request,
+            json!({"op":"start_uncertain", "caller":identity, "reason":reason}),
+            |connection| {
+                if reason.trim().is_empty() {
+                    return Err(invalid("uncertain startup needs a reason"));
+                }
+                let mut session = reference(connection, identity)?;
+                if session.state == ManagedSessionState::NeedsReconciliation {
+                    return Ok(session);
+                }
+                let (task_id, attempt_id) = session
+                    .binding
+                    .work()
+                    .ok_or_else(|| invalid("startup uncertainty needs a Worker attempt"))?;
+                let task: TaskRecord = require(connection, Table::Tasks, task_id)?;
+                let mut attempt: AttemptRecord = require(connection, Table::Attempts, attempt_id)?;
+                if !attempt.state.holds_slot() {
+                    return Err(conflict("the attempt already finished"));
+                }
+                if attempt.state != AttemptState::CancelRequested {
+                    attempt.state = AttemptState::Uncertain;
+                }
+                save_attempt(connection, &attempt)?;
+                session.state = ManagedSessionState::NeedsReconciliation;
+                save_session(connection, &session)?;
+                store_message(
+                    connection,
+                    &AgentMessage {
+                        id: MessageId::new(),
+                        run_id: task.run_id,
+                        from: identity.id,
+                        to: session.binding.leader_id(),
+                        task_id: Some(task_id),
+                        attempt_id: Some(attempt_id),
+                        revision: Some(attempt.task_revision),
+                        kind: MessageKind::Question,
+                        body: format!("Worker startup needs reconciliation: {reason}"),
+                        reply_to: None,
+                        blocks_work: true,
+                    },
+                )?;
+                event(
+                    connection,
+                    Some(task.run_id),
+                    "session_start_uncertain",
+                    &json!({"session":session,"reason":reason}),
+                )?;
+                Ok(session)
+            },
+        )
     }
 
     pub fn fail_start(
@@ -867,6 +928,22 @@ impl Store {
                     {
                         return Err(conflict("the worker assignment changed"));
                     }
+                    store_message(
+                        connection,
+                        &AgentMessage {
+                            id: MessageId::new(),
+                            run_id: task.run_id,
+                            from: identity.id,
+                            to: session.binding.leader_id(),
+                            task_id: Some(task.id),
+                            attempt_id: Some(attempt.id),
+                            revision: Some(attempt.task_revision),
+                            kind: MessageKind::Report,
+                            body: format!("Worker startup failed: {reason}"),
+                            reply_to: None,
+                            blocks_work: false,
+                        },
+                    )?;
                     attempt.state = AttemptState::Failed;
                     task.state = TaskState::Failed;
                     save_attempt(connection, &attempt)?;

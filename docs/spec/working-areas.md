@@ -29,3 +29,10 @@ startup state survive closing the window and reopening the controller.
 A Worker starts only inside a ready area associated with its run. Shell and
 Neovim resources can use that same directory without creating another native
 working area.
+
+Queued work is prepared and started in the background. Execution slots belong to
+attempts across runs; sharing a directory does not create another slot limit.
+Working-area preparation failures are reported to the Leader without launching
+a Worker in the source as a fallback. When startup may already have happened,
+Adroit retains the attempt for reconciliation instead of treating a missing
+acknowledgement as proof that no process exists.

@@ -123,6 +123,68 @@ pub fn resolve(
     request: StartRequest,
     adroit_program: &Path,
 ) -> Result<ResolvedLaunch, String> {
+    let (mut settings, target) = configured(settings, &request)?;
+    let adapter = agents::adapter(request.agent);
+    let conversation = adapter.conversation();
+    let mut args = adapter.integration_args(adroit_program);
+    let role_version = request.binding.as_ref().map(|binding| {
+        args.extend(adapter.role_args(
+            &mut settings,
+            binding.role(),
+            &crate::roles::instructions(binding),
+        ));
+        crate::roles::VERSION
+    });
+    args.extend(adapter.image_args(&request.images));
+    args.extend(adapter.start_args(
+        &settings,
+        &request.name,
+        &conversation,
+        &adapter.image_prompt(&request.prompt, &request.images),
+    ));
+    let (program, args, env) =
+        agents::launch_with_settings(&settings, request.agent, args, request.env);
+    let mut tags = sessions::agent_tags(
+        request.agent,
+        &request.name,
+        &request.cwd,
+        &conversation,
+        &request.permissions,
+        request.started_ms,
+        request.started_from.as_deref(),
+    );
+    if let Some(binding) = &request.binding {
+        tags.extend(adroit_term::tags::tagged(
+            "adroit.binding",
+            &serde_json::to_string(binding).expect("serializable assignment"),
+        ));
+        tags.extend(adroit_term::tags::tagged(
+            "adroit.binding-conversation",
+            &conversation,
+        ));
+    }
+    Ok(ResolvedLaunch {
+        agent: request.agent,
+        requested_model: request.model,
+        model: target.model,
+        model_source: target.model_source,
+        conversation,
+        role_version,
+        spawn: Spawn {
+            program,
+            args,
+            env,
+            cwd: request.cwd,
+            tags,
+            ..Spawn::default()
+        },
+    })
+}
+
+fn configured(
+    settings: &Settings,
+    request: &StartRequest,
+) -> Result<(Settings, adroit_model::TargetSelection), String> {
     let mut settings = settings.clone();
     match (&request.permissions, request.agent) {
         (AgentPermissions::Default, _) => {}
@@ -172,61 +234,32 @@ pub fn resolve(
         None => ModelSource::Settings,
     };
     let model = (!model.trim().is_empty()).then(|| model.trim().to_string());
-    let adapter = agents::adapter(request.agent);
-    let conversation = adapter.conversation();
-    let mut args = adapter.integration_args(adroit_program);
-    let role_version = request.binding.as_ref().map(|binding| {
-        args.extend(adapter.role_args(
-            &mut settings,
-            binding.role(),
-            &crate::roles::instructions(binding),
-        ));
-        crate::roles::VERSION
-    });
-    args.extend(adapter.image_args(&request.images));
-    args.extend(adapter.start_args(
-        &settings,
-        &request.name,
-        &conversation,
-        &adapter.image_prompt(&request.prompt, &request.images),
-    ));
-    let (program, args, env) =
-        agents::launch_with_settings(&settings, request.agent, args, request.env);
-    let mut tags = sessions::agent_tags(
-        request.agent,
-        &request.name,
-        &request.cwd,
-        &conversation,
-        &request.permissions,
-        request.started_ms,
-        request.started_from.as_deref(),
-    );
-    if let Some(binding) = &request.binding {
-        tags.extend(adroit_term::tags::tagged(
-            "adroit.binding",
-            &serde_json::to_string(binding).expect("serializable assignment"),
-        ));
-        tags.extend(adroit_term::tags::tagged(
-            "adroit.binding-conversation",
-            &conversation,
-        ));
-    }
-    Ok(ResolvedLaunch {
+    let target = adroit_model::TargetSelection {
         agent: request.agent,
-        requested_model: request.model,
+        requested_model: request.model.clone(),
         model,
         model_source: source,
-        conversation,
-        role_version,
-        spawn: Spawn {
-            program,
-            args,
-            env,
-            cwd: request.cwd,
-            tags,
-            ..Spawn::default()
+        permissions: request.permissions.clone(),
+    };
+    Ok((settings, target))
+}
+
+pub fn select_target(
+    settings: &Settings,
+    agent: Agent,
+    model: Option<String>,
+    permissions: AgentPermissions,
+) -> Result<adroit_model::TargetSelection, String> {
+    configured(
+        settings,
+        &StartRequest {
+            agent,
+            model,
+            permissions,
+            ..Default::default()
         },
-    })
+    )
+    .map(|(_, target)| target)
 }
 
 pub use crate::agents::{DeliveryFailure, DeliveryFuture};

@@ -1,0 +1,372 @@
+//! Background preparation and startup. Slots count attempts, never directories.
+use std::path::PathBuf;
+
+use adroit_model::*;
+use adroit_term::Daemon;
+
+use super::{
+    actor::Actor,
+    store::{ControlError, ErrorCode},
+};
+use crate::{execution, settings::Settings, workareas};
+
+type Result<T> = std::result::Result<T, ControlError>;
+
+pub struct Scheduler {
+    actor: Actor,
+    daemon: Daemon,
+    root: PathBuf,
+    program: PathBuf,
+    jobs: tokio::task::JoinSet<()>,
+    last_run: Option<RunId>,
+}
+
+impl Scheduler {
+    pub fn new(actor: Actor, daemon: Daemon, root: PathBuf, program: PathBuf) -> Self {
+        Self {
+            actor,
+            daemon,
+            root,
+            program,
+            jobs: tokio::task::JoinSet::new(),
+            last_run: None,
+        }
+    }
+
+    pub async fn tick(&mut self, settings: Settings, max_workers: usize) -> Result<Vec<AttemptId>> {
+        while self.jobs.try_join_next().is_some() {}
+        let snapshot = self.actor.call(|store| store.snapshot()).await?;
+        let occupied = snapshot
+            .attempts
+            .iter()
+            .filter(|attempt| attempt.state.holds_slot())
+            .count();
+        let mut remaining = max_workers.saturating_sub(occupied);
+        let mut runs: Vec<_> = snapshot
+            .runs
+            .iter()
+            .filter(|run| run.state == RunState::Active)
+            .collect();
+        if let Some(index) = runs.iter().position(|run| Some(run.id) == self.last_run) {
+            let length = runs.len();
+            runs.rotate_left((index + 1) % length);
+        }
+        let mut ready: Vec<_> = runs
+            .iter()
+            .map(|run| {
+                snapshot
+                    .tasks
+                    .iter()
+                    .filter(|task| {
+                        task.run_id == run.id
+                            && task.state == TaskState::Queued
+                            && task.current_attempt.is_none()
+                            && task.dependencies.iter().all(|id| {
+                                snapshot.tasks.iter().any(|dependency| {
+                                    dependency.id == *id && dependency.state == TaskState::Succeeded
+                                })
+                            })
+                    })
+                    .collect::<std::collections::VecDeque<_>>()
+            })
+            .collect();
+        let mut launched = Vec::new();
+        while remaining > 0 {
+            let mut found = false;
+            for tasks in &mut ready {
+                let Some(task) = tasks.pop_front() else {
+                    continue;
+                };
+                found = true;
+                let run = snapshot
+                    .runs
+                    .iter()
+                    .find(|run| run.id == task.run_id)
+                    .expect("selected active run");
+                let leader = snapshot
+                    .sessions
+                    .iter()
+                    .find(|session| session.binding.logical_id() == run.leader_id)
+                    .ok_or_else(|| failed("the task's Leader is missing"))?;
+                let agent = task.brief.target.agent.unwrap_or(settings.agent);
+                let selected = execution::select_target(
+                    &settings,
+                    agent,
+                    task.brief.target.model.clone(),
+                    task.brief.target.permissions.clone(),
+                );
+                let selection_error = selected.as_ref().err().cloned();
+                let target = selected.unwrap_or_else(|_| TargetSelection {
+                    agent,
+                    requested_model: task.brief.target.model.clone(),
+                    permissions: task.brief.target.permissions.clone(),
+                    ..Default::default()
+                });
+                let wanted = TaskVersion {
+                    task_id: task.id,
+                    revision: task.revision,
+                };
+                let owner = leader.reference();
+                let attempt = self
+                    .actor
+                    .call(move |store| {
+                        store
+                            .reserve_attempt(RequestId::new(), owner, wanted, target)
+                            .map(|reply| reply.value)
+                    })
+                    .await?;
+                self.last_run = Some(run.id);
+                launched.push(attempt.id);
+                if let Some(reason) = selection_error {
+                    let identity = SessionRef {
+                        id: attempt.session_id,
+                        generation: 1,
+                    };
+                    self.actor
+                        .call(move |store| {
+                            store
+                                .fail_start(RequestId::new(), identity, reason)
+                                .map(|_| ())
+                        })
+                        .await?;
+                    continue;
+                }
+                remaining -= 1;
+                let context = Startup {
+                    actor: self.actor.clone(),
+                    daemon: self.daemon.clone(),
+                    root: self.root.clone(),
+                    program: self.program.clone(),
+                    settings: settings.clone(),
+                    owner,
+                    task: task.clone(),
+                    attempt,
+                    source: leader.cwd.clone(),
+                };
+                self.jobs.spawn(async move {
+                    if let Err(error) = context.start().await {
+                        let identity = SessionRef {
+                            id: context.attempt.session_id,
+                            generation: 1,
+                        };
+                        let reason = error.to_string();
+                        let _ = context
+                            .actor
+                            .call(move |store| {
+                                store
+                                    .fail_start(RequestId::new(), identity, reason)
+                                    .map(|_| ())
+                            })
+                            .await;
+                    }
+                });
+                if remaining == 0 {
+                    break;
+                }
+            }
+            if !found {
+                break;
+            }
+        }
+        Ok(launched)
+    }
+}
+
+struct Startup {
+    actor: Actor,
+    daemon: Daemon,
+    root: PathBuf,
+    program: PathBuf,
+    settings: Settings,
+    owner: SessionRef,
+    task: TaskRecord,
+    attempt: AttemptRecord,
+    source: Option<PathBuf>,
+}
+
+impl Startup {
+    async fn start(&self) -> Result<()> {
+        let source = self
+            .task
+            .brief
+            .source_dir
+            .clone()
+            .or_else(|| self.source.clone())
+            .ok_or_else(|| failed("the task has no source directory"))?;
+        let wanted = TaskVersion {
+            task_id: self.task.id,
+            revision: self.task.revision,
+        };
+        let owner = self.owner;
+        let run_id = self.task.run_id;
+        let attempt_id = self.attempt.id;
+        let area = match self.task.brief.workdir {
+            WorkdirPolicy::Auto => {
+                let planned = workareas::plan(workareas::WorkAreaRequest {
+                    id: WorkAreaId::new(),
+                    source,
+                    destination: None,
+                    revision: self.task.brief.base_revision.clone(),
+                    description: format!(
+                        "adroit: {}",
+                        self.task
+                            .brief
+                            .instructions
+                            .lines()
+                            .next()
+                            .unwrap_or("worker task")
+                    ),
+                })
+                .await
+                .map_err(failed)?;
+                let area = self
+                    .actor
+                    .call(move |store| {
+                        store
+                            .register_work_area(RequestId::new(), owner, run_id, planned, false)
+                            .map(|reply| reply.value)
+                    })
+                    .await?;
+                self.bind(wanted, &area).await?;
+                if area.state == WorkAreaState::Preparing {
+                    let outcome = workareas::prepare(&area).await.map(|_| ());
+                    let id = area.id;
+                    self.actor
+                        .call(move |store| {
+                            store
+                                .finish_work_area(RequestId::new(), id, outcome)
+                                .map(|reply| reply.value)
+                        })
+                        .await?
+                } else {
+                    area
+                }
+            }
+            WorkdirPolicy::Existing(id) => {
+                let snapshot = self.actor.call(|store| store.snapshot()).await?;
+                let area = snapshot
+                    .work_areas
+                    .into_iter()
+                    .find(|area| area.id == id)
+                    .ok_or_else(|| failed("the selected working area is missing"))?;
+                if snapshot.run_work_areas.iter().any(|association| {
+                    association.run_id == run_id && association.work_area_id == id
+                }) {
+                    area
+                } else {
+                    self.actor
+                        .call(move |store| {
+                            store
+                                .register_work_area(RequestId::new(), owner, run_id, area, false)
+                                .map(|reply| reply.value)
+                        })
+                        .await?
+                }
+            }
+        };
+        if area.state != WorkAreaState::Ready {
+            return Err(failed(
+                area.error
+                    .unwrap_or_else(|| "the working area is not ready".into()),
+            ));
+        }
+        self.bind(wanted, &area).await?;
+        let identity = SessionRef {
+            id: self.attempt.session_id,
+            generation: 1,
+        };
+        let binding =
+            SessionBinding::worker(identity.id, owner.id, run_id, self.task.id, attempt_id)
+                .map_err(failed)?;
+        let credential = self.actor.call(move |store| store.grant(identity)).await?;
+        let mut resolved = execution::resolve(
+            &self.settings,
+            execution::StartRequest {
+                agent: self.attempt.target.agent,
+                model: self.attempt.target.model.clone(),
+                name: format!("worker-{}", attempt_id),
+                cwd: area.path.clone(),
+                prompt: format!(
+                    "{}\n\nTask revision: {}\nScope: {}\nInputs: {}",
+                    self.task.brief.instructions,
+                    self.task.revision,
+                    self.task.brief.scope.join("\n"),
+                    self.task.brief.inputs.join("\n")
+                ),
+                permissions: self.attempt.target.permissions.clone(),
+                binding: Some(binding),
+                env: crate::daemon::terminal_env(),
+                ..Default::default()
+            },
+            &self.program,
+        )
+        .map_err(failed)?;
+        resolved.spawn.env.extend([
+            ("ADROIT_CONTROL_TOKEN".into(), credential),
+            ("ADROIT_SESSION_ID".into(), identity.id.to_string()),
+            (
+                "ADROIT_SESSION_GENERATION".into(),
+                identity.generation.to_string(),
+            ),
+            (
+                "ADROIT_CONTROL_ROOT".into(),
+                self.root.to_string_lossy().into_owned(),
+            ),
+        ]);
+        let palette = crate::themes::palette(&self.settings.theme, &Settings::themes_dir())
+            .map_err(failed)?;
+        let conversation = resolved.conversation;
+        self.actor
+            .call(move |store| {
+                store
+                    .begin_start(RequestId::new(), owner, wanted, attempt_id)
+                    .map(|_| ())
+            })
+            .await?;
+        let started = execution::spawn_headless(&self.daemon, resolved.spawn, &palette).await;
+        let attached = match started {
+            Ok(terminal) => {
+                let cwd = area.path;
+                self.actor
+                    .call(move |store| {
+                        store
+                            .attach_session(
+                                RequestId::new(),
+                                identity,
+                                cwd,
+                                format!("{terminal:032x}"),
+                                conversation,
+                            )
+                            .map(|_| ())
+                    })
+                    .await
+            }
+            Err(error) => Err(failed(error)),
+        };
+        if let Err(error) = attached {
+            self.actor
+                .call(move |store| {
+                    store
+                        .start_uncertain(RequestId::new(), identity, error.to_string())
+                        .map(|_| ())
+                })
+                .await?;
+        }
+        Ok(())
+    }
+
+    async fn bind(&self, wanted: TaskVersion, area: &WorkArea) -> Result<()> {
+        let (owner, attempt, area) = (self.owner, self.attempt.id, area.id);
+        self.actor
+            .call(move |store| {
+                store
+                    .bind_work_area(RequestId::new(), owner, wanted, attempt, area)
+                    .map(|_| ())
+            })
+            .await
+    }
+}
+
+fn failed(error: impl std::fmt::Display) -> ControlError {
+    ControlError::new(ErrorCode::StorageFailure, error.to_string())
+}
