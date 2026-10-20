@@ -58,6 +58,8 @@ pub struct Session {
     pub state: State,
     /// When the session started, in milliseconds since the Unix epoch.
     pub started_ms: Option<u64>,
+    /// The most recent input sent through Adroit, kept on the daemon session.
+    pub last_input_ms: Option<u64>,
     /// Started to read only: in plan mode, without the editing tools.
     pub reader: bool,
     /// The conversation of the session this one was started from; empty for
@@ -192,6 +194,7 @@ pub fn parse_agents(json: &str) -> Result<Vec<Session>, ParseError> {
                     _ => State::Idle,
                 },
                 started_ms: raw.started_at,
+                last_input_ms: None,
                 reader: false,
                 started_from: String::new(),
             }

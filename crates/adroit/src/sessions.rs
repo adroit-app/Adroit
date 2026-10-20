@@ -12,6 +12,7 @@ pub const NAME: &str = "adroit.name";
 /// (felis-terminal/felis#7).
 const CWD: &str = "adroit.cwd";
 const STARTED: &str = "adroit.started";
+const LAST_INPUT: &str = "adroit.last-input";
 const READER: &str = "adroit.reader";
 /// The conversation a session holds. The tag keeps its original spelling
 /// so sessions started by earlier versions still carry their conversation.
@@ -53,6 +54,16 @@ pub fn follow_title(session: &mut Session, title: &str) -> Option<(u128, &'stati
     Some((id, CONVERSATION, conversation))
 }
 
+/// Keep newer user input on the daemon session so another window can recover it.
+pub fn note_input(session: &mut Session, at: u64) -> Option<(u128, &'static str, String)> {
+    let id = id_of(&session.id)?;
+    if at == 0 || session.last_input_ms.is_some_and(|held| held >= at) {
+        return None;
+    }
+    session.last_input_ms = Some(at);
+    Some((id, LAST_INPUT, at.to_string()))
+}
+
 /// What `session` is, by its tags; `None` for one adroit did not start, and
 /// for one whose program has exited, which is gone but for a moment.
 pub fn read(session: &adroit_term::Session) -> Option<Kept> {
@@ -78,6 +89,7 @@ pub fn read(session: &adroit_term::Session) -> Option<Kept> {
                 .map(|s| State::reported(&s.state, s.kind.as_deref()))
                 .unwrap_or_default(),
             started_ms: tags::value(t, STARTED).and_then(|s| s.parse().ok()),
+            last_input_ms: tags::value(t, LAST_INPUT).and_then(|s| s.parse().ok()),
             reader: tags::value(t, READER).is_some(),
             started_from: tags::value(t, STARTED_FROM).unwrap_or_default(),
         })),
@@ -204,6 +216,30 @@ pub fn shell_tags(name: &str, worktree: &std::path::Path, runs: Runs) -> Vec<Str
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn user_input_times_are_kept_on_the_session_and_older_windows_cannot_replace_them() {
+        let mut session = Session {
+            id: hex(42),
+            kind: Kind::Own,
+            ..Session::default()
+        };
+        let tag = note_input(&mut session, 1000).unwrap();
+        assert_eq!(session.last_input_ms, Some(1000));
+        assert_eq!(tag, (42, LAST_INPUT, "1000".into()));
+        assert!(note_input(&mut session, 999).is_none());
+        assert!(note_input(&mut session, 1000).is_none());
+        let tags = [
+            tags::tagged(KIND, "claude"),
+            tags::tagged(CWD, "/tmp"),
+            tags::tagged(LAST_INPUT, "1000"),
+        ]
+        .concat();
+        let Some(Kept::Agent(restored)) = read(&kept(42, tags)) else {
+            panic!("an agent session")
+        };
+        assert_eq!(restored.last_input_ms, Some(1000));
+    }
+
     #[test]
     fn codex_titles_keep_separate_conversations_and_follow_switches() {
         use adroit_model::{Agent, Session};

@@ -62,6 +62,7 @@ pub(super) struct Transcript {
     rest: Vec<u8>,
     found: Collector,
     results: HashSet<String>,
+    metrics: super::metrics::Collector,
 }
 
 impl Transcript {
@@ -76,6 +77,7 @@ impl Transcript {
             rest: Vec::new(),
             found: Collector::new(cwd, home),
             results: HashSet::new(),
+            metrics: super::metrics::Collector::default(),
         }
     }
 
@@ -91,6 +93,7 @@ impl Transcript {
         self.rest.clear();
         self.found = Collector::new(&self.cwd, &self.home);
         self.results.clear();
+        self.metrics = super::metrics::Collector::default();
     }
 
     fn refresh(&mut self) {
@@ -156,6 +159,7 @@ impl Transcript {
     }
 
     fn take(&mut self, record: &Value) {
+        self.metrics.feed(record);
         let timestamp = &record["timestamp"];
         let payload = &record["payload"];
         match record["type"].as_str() {
@@ -327,6 +331,9 @@ fn local_path(path: &str) -> String {
 }
 
 impl ConversationReader for Transcript {
+    fn stats(&self) -> adroit_model::ConversationStats {
+        self.metrics.stats()
+    }
     fn read(&mut self) -> Links {
         self.refresh();
         self.found.links()
@@ -457,6 +464,50 @@ mod tests {
         assert!(files.contains(&("other.rs", Kind::File(Touch::Read))));
         assert!(files.contains(&("new.rs", Kind::File(Touch::Edited))));
         assert!(!files.iter().any(|(p, _)| *p == "failed.rs"));
+    }
+
+    #[test]
+    fn conversation_metrics_follow_complete_rollout_appends_and_reset_on_replacement() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("metrics.jsonl");
+        let usage = |n| {
+            record(
+                "event_msg",
+                json!({"type":"token_count","info":{
+            "total_token_usage":{"input_tokens":n,"output_tokens":2}}}),
+            )
+        };
+        std::fs::write(&path, usage(10)).unwrap();
+        let mut reader = Transcript::new(path.clone(), dir.path(), dir.path());
+        reader.read();
+        assert_eq!(reader.stats().tokens.unwrap().total(), 12);
+        reader.read();
+        assert_eq!(reader.stats().tokens.unwrap().total(), 12);
+        let next = usage(20);
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap()
+            .write_all(next.trim_end().as_bytes())
+            .unwrap();
+        reader.read();
+        assert_eq!(reader.stats().tokens.unwrap().total(), 12);
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap()
+            .write_all(b"\n")
+            .unwrap();
+        reader.read();
+        assert_eq!(reader.stats().tokens.unwrap().total(), 22);
+        let replacement = dir.path().join("new.jsonl");
+        std::fs::write(&replacement, usage(5)).unwrap();
+        std::fs::rename(replacement, &path).unwrap();
+        reader.read();
+        assert_eq!(reader.stats().tokens.unwrap().total(), 7);
+        std::fs::remove_file(&path).unwrap();
+        reader.read();
+        assert_eq!(reader.stats(), adroit_model::ConversationStats::default());
     }
 
     #[test]

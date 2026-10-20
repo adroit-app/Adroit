@@ -3,11 +3,13 @@
 //! about the directories they run in.
 
 mod inbox;
+mod metrics;
 mod session;
 mod shell;
 mod tree;
 
 pub use inbox::*;
+pub use metrics::*;
 pub use session::*;
 pub use shell::*;
 pub use tree::*;

@@ -30,6 +30,9 @@ type Probe<T> = std::pin::Pin<Box<dyn std::future::Future<Output = Option<Vec<T>
 /// A provider reader produces the details the overview can display.
 pub trait ConversationReader: Send {
     fn read(&mut self) -> adroit_claude::links::Links;
+    fn stats(&self) -> adroit_model::ConversationStats {
+        adroit_model::ConversationStats::default()
+    }
 }
 
 /// A terminal agent owns its arguments, environment and optional integrations.

@@ -115,6 +115,9 @@ impl AgentAdapter for Claude {
 struct ClaudeConversation(adroit_claude::links::Transcript);
 
 impl ConversationReader for ClaudeConversation {
+    fn stats(&self) -> adroit_model::ConversationStats {
+        self.0.stats()
+    }
     fn read(&mut self) -> adroit_claude::links::Links {
         self.0.read(&|p: &Path| p.is_file());
         self.0.links()

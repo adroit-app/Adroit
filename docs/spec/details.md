@@ -6,7 +6,12 @@ Overview, Changes and Log.
 ## Sheets
 
 - **Overview** names the session shown, how it stands, and the workspace and
-  worktree it works in. Below, it lists the other sessions it worked with:
+  worktree it works in. Conversation facts include token totals, the latest
+  model, turn and tool counts, and elapsed time since the last user input.
+  Input sent through Adroit includes answers to approvals and choices; its
+  latest time stays with the running session when the window closes. For
+  sessions in other terminals, only inputs recorded in the conversation can
+  be recovered. Unreported metrics are omitted. Below, it lists the other sessions it worked with:
   the one it was started from and those it started
   ([sessions](sessions.md#started-by-a-session)) while they run, then those it
   messaged or heard from through Claude Code, newest first, each saying how

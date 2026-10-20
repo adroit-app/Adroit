@@ -1185,13 +1185,21 @@ async fn start(
 /// Every session to list: those the daemon runs for adroit, with the shells,
 /// and those Claude Code lists in other terminals, but for adroit's own,
 /// which Claude Code lists too.
-async fn read_sessions(daemon: &Daemon) -> Result<(Vec<Session>, Vec<Shell>), String> {
+async fn read_sessions(
+    daemon: &Daemon,
+    inputs: &HashMap<u128, u64>,
+) -> Result<(Vec<Session>, Vec<Shell>), String> {
     let kept = daemon.sessions().await.map_err(|e| e.to_string())?;
     let (mut own, mut kept_shells) = (Vec::new(), Vec::new());
     let mut learned = Vec::new();
     for s in &kept {
         match sessions::read(s) {
             Some(Kept::Agent(mut c)) => {
+                if let Some(at) = inputs.get(&s.id)
+                    && let Some(tag) = sessions::note_input(&mut c, *at)
+                {
+                    learned.push(tag);
+                }
                 let adapter = agents::adapter(c.agent);
                 if let Some(title) = &s.title
                     && let Some(tag) = sessions::follow_title(&mut c, title)
@@ -1443,6 +1451,9 @@ fn App() -> Element {
     let mut git_view = use_signal(|| None::<View>);
     // What the conversation of a session brought up, by the session's id.
     let mut overview_links = use_signal(|| None::<(String, Links)>);
+    let mut overview_stats =
+        use_signal(|| None::<(adroit_model::Agent, String, adroit_model::ConversationStats)>);
+    let mut overview_clock = use_signal(now_ms);
     // The images the consoles drew, and the small copies of image files.
     let mut gallery = use_signal(Gallery::default);
     // The overview's groups of links shown by their headings alone.
@@ -1605,7 +1616,13 @@ fn App() -> Element {
                         notify.while_failing(&mut keys_err, failed);
                         keys_read = Some(keys_text);
                     }
-                    match read_sessions(&daemon).await {
+                    let inputs = panes
+                        .borrow()
+                        .iter()
+                        .filter(|(tab, _)| matches!(tab, Tab::Session(_)))
+                        .filter_map(|(_, pane)| pane.last_input_ms().map(|at| (pane.id(), at)))
+                        .collect();
+                    match read_sessions(&daemon, &inputs).await {
                         Ok((sessions, kept_shells)) => {
                             notify.while_failing(&mut list_err, None);
                             if *shells.peek() != kept_shells {
@@ -2071,6 +2088,9 @@ fn App() -> Element {
                         agents::adapter(s.agent).capabilities().transcript
                             && !s.session_id.is_empty()
                     });
+                    if layout.peek().show_details && drill.peek().sheet() == Sheet::Overview {
+                        overview_clock.set(now_ms());
+                    }
                     if let Some(s) = shown {
                         let key = (s.agent, s.cwd.clone(), s.session_id.clone());
                         let reader = match held.take() {
@@ -2084,10 +2104,15 @@ fn App() -> Element {
                                 let mut links = t.read();
                                 let mut thumbs = thumbs;
                                 pictures::refresh_thumbs(&mut links.images, &mut thumbs);
-                                (t, links, thumbs)
+                                let stats = t.stats();
+                                (t, links, thumbs, stats)
                             })
                             .await;
-                            if let Ok((t, links, thumbs)) = read {
+                            if let Ok((t, links, thumbs, stats)) = read {
+                                let next_stats = Some((s.agent, s.session_id.clone(), stats));
+                                if *overview_stats.peek() != next_stats {
+                                    overview_stats.set(next_stats);
+                                }
                                 held = Some((key, t));
                                 if gallery.peek().thumbs != thumbs {
                                     gallery.write().thumbs = thumbs;
@@ -4740,6 +4765,31 @@ fn App() -> Element {
         Some(Tab::Session(id)) => nav::find(&t, id).map(|(_, s)| s.clone()),
         _ => None,
     };
+    let session_facts = shown_session
+        .as_ref()
+        .map(|s| {
+            let stats = overview_stats.read();
+            let stats = stats
+                .as_ref()
+                .filter(|(agent, id, _)| *agent == s.agent && *id == s.session_id)
+                .map(|(_, _, stats)| stats.clone())
+                .unwrap_or_default();
+            let live_input = active_tab.as_ref().and_then(|tab| {
+                hub.panes
+                    .borrow()
+                    .get(tab)
+                    .and_then(|pane| pane.last_input_ms())
+            });
+            let now = overview_clock();
+            let mut out = facts(s, now);
+            out.extend(crate::details::conversation_facts(
+                &stats,
+                s.last_input_ms.max(live_input),
+                now,
+            ));
+            out
+        })
+        .unwrap_or_default();
     let overview_now = if sheet_now == Sheet::Overview {
         overview_listing(
             overview_links().as_ref(),
@@ -5513,9 +5563,9 @@ fn App() -> Element {
                         div { class: "details-block",
                             span { class: "details-label", "{s.name}" }
                             div { class: "details-facts",
-                                for (label , value) in facts(s, now_ms()) {
+                                for (label , value) in session_facts {
                                     span { class: "details-facts-key", "{label}" }
-                                    span { "{value}" }
+                                    span { class: "details-facts-value", title: "{value}", "{value}" }
                                 }
                             }
                         }

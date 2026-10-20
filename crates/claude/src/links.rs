@@ -494,6 +494,7 @@ pub struct Transcript {
     rest: Vec<u8>,
     found: Collector,
     agents: Subagents,
+    metrics: crate::metrics::Collector,
 }
 
 impl Transcript {
@@ -506,6 +507,7 @@ impl Transcript {
         let path = path.into();
         Transcript {
             agents: Subagents::new(&path),
+            metrics: crate::metrics::Collector::default(),
             path,
             read_to: 0,
             file: None,
@@ -562,6 +564,7 @@ impl Transcript {
             if let Ok(v) = serde_json::from_str::<Value>(line) {
                 self.found.take(&v, exists);
                 self.agents.feed(&v);
+                self.metrics.feed(&v);
             }
         }
         true
@@ -574,7 +577,12 @@ impl Transcript {
         }
     }
 
+    pub fn stats(&self) -> adroit_model::ConversationStats {
+        self.metrics.stats()
+    }
+
     fn restart(&mut self) {
+        self.metrics = crate::metrics::Collector::default();
         self.read_to = 0;
         self.file = None;
         self.rest.clear();
@@ -1109,6 +1117,34 @@ mod tests {
     }
 
     const NOWHERE: &dyn Fn(&Path) -> bool = &|_| false;
+
+    #[test]
+    fn conversation_metrics_follow_complete_appends_and_reset_with_the_transcript() {
+        let path = scratch("metrics");
+        let first = json!({"type":"assistant","message":{"id":"m1","usage":{"input_tokens":10,"output_tokens":2}}}).to_string();
+        std::fs::write(&path, format!("{first}\n")).unwrap();
+        let mut transcript = Transcript::new(&path, "/w", "/home/me");
+        transcript.read(NOWHERE);
+        assert_eq!(transcript.stats().tokens.unwrap().total(), 12);
+        assert!(!transcript.read(NOWHERE));
+        assert_eq!(transcript.stats().tokens.unwrap().total(), 12);
+        let next = json!({"type":"assistant","message":{"id":"m2","usage":{"input_tokens":20,"output_tokens":3}}}).to_string();
+        append(&path, &next);
+        transcript.read(NOWHERE);
+        assert_eq!(transcript.stats().tokens.unwrap().total(), 12);
+        append(&path, "\n");
+        transcript.read(NOWHERE);
+        assert_eq!(transcript.stats().tokens.unwrap().total(), 35);
+        std::fs::write(&path, format!("{next}\n")).unwrap();
+        transcript.read(NOWHERE);
+        assert_eq!(transcript.stats().tokens.unwrap().total(), 23);
+        std::fs::remove_file(&path).unwrap();
+        transcript.read(NOWHERE);
+        assert_eq!(
+            transcript.stats(),
+            adroit_model::ConversationStats::default()
+        );
+    }
 
     #[test]
     fn a_transcript_is_read_on_from_where_it_was_left_a_partial_line_awaiting_its_end() {

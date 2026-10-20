@@ -501,3 +501,26 @@ async fn a_program_that_cannot_be_found_is_not_started() {
     assert!(started.is_err());
     assert!(d.sessions().await.unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn only_input_sent_to_the_program_updates_the_last_input_time() {
+    let (d, _dir) = daemon().await;
+    let id = d.spawn(sh("printf ready; cat")).await.unwrap();
+    let pane = attach(&d, id).await;
+    until(&pane, |t| t[0].contains("ready")).await;
+    assert_eq!(pane.last_input_ms(), None);
+    assert!(!pane.key(&Key::new("Shift")));
+    pane.click(1, 1);
+    pane.wheel(1, 1, 1);
+    pane.resize(Size::new(50, 6));
+    assert_eq!(pane.last_input_ms(), None);
+    assert!(pane.key(&Key::new("Enter")));
+    let key_at = pane.last_input_ms().unwrap();
+    tokio::time::sleep(Duration::from_millis(2)).await;
+    pane.type_text("answer");
+    let typed_at = pane.last_input_ms().unwrap();
+    assert!(typed_at >= key_at);
+    tokio::time::sleep(Duration::from_millis(2)).await;
+    pane.paste("selection");
+    assert!(pane.last_input_ms().unwrap() >= typed_at);
+}

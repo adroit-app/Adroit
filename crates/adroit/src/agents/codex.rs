@@ -2,6 +2,7 @@ use super::*;
 use serde::{Deserialize, Serialize};
 
 mod commands;
+mod metrics;
 mod rpc;
 mod transcript;
 mod usage;

@@ -2,6 +2,7 @@
 //! mirrored as they change, and the input sent to it.
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use base64::Engine;
@@ -112,6 +113,7 @@ struct State {
 /// A window onto one session.
 pub struct Pane {
     id: u128,
+    last_input_ms: AtomicU64,
     state: Arc<Mutex<State>>,
     out: mpsc::UnboundedSender<OutgoingFrame>,
     reader: tokio::task::JoinHandle<()>,
@@ -321,6 +323,7 @@ impl Pane {
         });
         let pane = Self {
             id,
+            last_input_ms: AtomicU64::new(0),
             state,
             out,
             reader,
@@ -331,6 +334,22 @@ impl Pane {
         });
         pane.resize(size);
         pane
+    }
+
+    /// The latest key, text, paste or mouse input sent to the program since
+    /// this pane attached, in milliseconds since the Unix epoch.
+    pub fn last_input_ms(&self) -> Option<u64> {
+        match self.last_input_ms.load(Ordering::Relaxed) {
+            0 => None,
+            at => Some(at),
+        }
+    }
+
+    fn record_input(&self) {
+        if let Ok(elapsed) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+            self.last_input_ms
+                .fetch_max(elapsed.as_millis() as u64, Ordering::Relaxed);
+        }
     }
 
     pub fn id(&self) -> u128 {
@@ -422,6 +441,7 @@ impl Pane {
             Some(e) => {
                 self.to_bottom();
                 self.send(InputMsg::Key(e));
+                self.record_input();
                 true
             }
             None => false,
@@ -432,12 +452,16 @@ impl Pane {
     pub fn type_text(&self, text: &str) {
         self.to_bottom();
         self.send(InputMsg::KeyBytes(text.as_bytes().to_vec()));
+        if !text.is_empty() {
+            self.record_input();
+        }
     }
 
     /// Paste text, bracketed when the program asks for it.
     pub fn paste(&self, text: &str) {
         self.to_bottom();
         self.send(InputMsg::Paste(text.as_bytes().to_vec()));
+        self.record_input();
     }
 
     /// Show the bottom again, as a terminal does when typed into.
@@ -471,6 +495,9 @@ impl Pane {
     /// Click the cell at `col` and `row`, counted from 0, for a program
     /// that asked for the mouse.
     pub fn click(&self, col: usize, row: usize) {
+        if self.takes_mouse() {
+            self.record_input();
+        }
         self.mouse(MouseButton::Left, MouseAction::Press, col, row);
         self.mouse(MouseButton::Left, MouseAction::Release, col, row);
     }
@@ -484,6 +511,9 @@ impl Pane {
             (s.shadow.mouse_protocol_active(), s.shadow.alt_screen())
         };
         let notches = lines.unsigned_abs().min(200);
+        if notches > 0 && (mouse || alternate) {
+            self.record_input();
+        }
         if mouse {
             let button = if lines > 0 {
                 MouseButton::WheelUp

@@ -30,6 +30,64 @@ pub fn facts(s: &Session, now_ms: u64) -> Vec<(&'static str, String)> {
     out
 }
 
+/// Conversation facts omit fields the provider has not reported.
+pub fn conversation_facts(
+    stats: &adroit_model::ConversationStats,
+    last_input_ms: Option<u64>,
+    now_ms: u64,
+) -> Vec<(&'static str, String)> {
+    let mut out = Vec::new();
+    if let Some(at) = last_input_ms.max(stats.last_user_ms) {
+        out.push((
+            "Last input",
+            format!("{} ago", lasted(now_ms.saturating_sub(at))),
+        ));
+    }
+    if let Some(model) = &stats.model {
+        out.push(("Model", model.clone()));
+    }
+    if let Some(tokens) = stats.tokens {
+        out.push(("Tokens", count(tokens.total())));
+        out.push((
+            "In / out",
+            format!("{} / {}", count(tokens.input), count(tokens.output)),
+        ));
+        if tokens.cached > 0 {
+            out.push(("Cached input", count(tokens.cached)));
+        }
+    }
+    if stats.user_turns > 0 || stats.tool_calls > 0 {
+        out.push((
+            "Turns / tools",
+            format!("{} / {}", count(stats.user_turns), count(stats.tool_calls)),
+        ));
+    }
+    if let Some((used, total)) = stats.context.filter(|(_, total)| *total > 0) {
+        out.push((
+            "Context",
+            format!(
+                "{:.0}% · {} / {}",
+                used as f64 / total as f64 * 100.0,
+                count(used),
+                count(total)
+            ),
+        ));
+    }
+    out
+}
+
+fn count(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// `ms` milliseconds back, in the largest whole unit.
 fn ago(ms: u64) -> String {
     let min = ms / 60_000;
@@ -895,6 +953,35 @@ mod tests {
     use adroit_claude::git::DiffKind;
 
     use adroit_model::{Session, State, Wait};
+
+    #[test]
+    fn conversation_facts_show_reported_tokens_and_the_latest_user_operation() {
+        let stats = adroit_model::ConversationStats {
+            model: Some("model-name".into()),
+            tokens: Some(adroit_model::Tokens {
+                input: 1000,
+                output: 250,
+                cached: 400,
+            }),
+            last_user_ms: Some(1000),
+            user_turns: 3,
+            tool_calls: 7,
+            context: Some((500, 2000)),
+        };
+        let got = conversation_facts(&stats, Some(5000), 17000);
+        assert!(got.contains(&("Last input", "12 s ago".into())));
+        assert!(got.contains(&("Tokens", "1,250".into())));
+        assert!(got.contains(&("In / out", "1,000 / 250".into())));
+        assert!(got.contains(&("Cached input", "400".into())));
+        assert!(got.contains(&("Model", "model-name".into())));
+        assert!(got.contains(&("Turns / tools", "3 / 7".into())));
+        assert!(got.contains(&("Context", "25% · 500 / 2,000".into())));
+        assert!(
+            conversation_facts(&adroit_model::ConversationStats::default(), None, 0).is_empty()
+        );
+        let future = conversation_facts(&stats, Some(20000), 17000);
+        assert!(future.contains(&("Last input", "0 s ago".into())));
+    }
 
     #[test]
     fn a_session_is_told_by_its_state_how_it_runs_and_when_it_started() {
