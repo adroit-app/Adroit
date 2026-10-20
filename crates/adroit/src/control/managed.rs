@@ -149,7 +149,13 @@ pub async fn prepare(
         let token: String = serde_json::from_value(token).map_err(|error| error.to_string())?;
         request.binding = Some(SessionBinding::leader(id, Some(run_id)));
         request.control = Some(ControlContext::new(identity, root.into(), token));
-        let runtime = super::runtime::RuntimeLaunch::new(settings.clone());
+        let target = execution::select_target(
+            settings,
+            request.agent,
+            request.model.clone(),
+            request.permissions.clone(),
+        )?;
+        let runtime = super::runtime::RuntimeLaunch::new(settings.clone()).with_target(target);
         client
             .request(
                 RequestId::new(),

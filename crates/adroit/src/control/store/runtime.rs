@@ -75,6 +75,13 @@ impl Store {
     ) -> Result<Reply<()>> {
         self.transact(request,json!({"op":"remember_launch","caller":identity,"runtime":runtime}),|connection| {
             let session = reference(connection,identity)?;
+            if let Some(target) = &runtime.target {
+                if target.agent != session.agent || target.permissions != session.permissions {return Err(ControlError::new(ErrorCode::OwnershipMismatch,"the launch selection does not match the session's agent and permissions"));}
+                if let Some((_,id))=session.binding.work() {
+                    let attempt:AttemptRecord=require(connection,Table::Attempts,id)?;
+                    if attempt.target != *target {return Err(conflict("the launch selection does not match the assigned attempt"));}
+                }
+            }
             let previous: Option<String> = connection.query_row("SELECT data FROM session_launches WHERE session_id = ?1 AND generation = ?2", params![identity.id.to_string(),identity.generation.to_string()],|row|row.get(0)).optional()?;
             if let Some(previous) = previous {
                 if decode::<RuntimeLaunch>(&previous)? != runtime { return Err(conflict("the session's native routing snapshot is immutable")); }

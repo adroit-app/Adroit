@@ -316,7 +316,8 @@ impl Startup {
             }
         }
         let credential = self.actor.call(move |store| store.grant(identity)).await?;
-        let runtime = super::runtime::RuntimeLaunch::new(self.settings.clone());
+        let runtime = super::runtime::RuntimeLaunch::new(self.settings.clone())
+            .with_target(self.attempt.target.clone());
         let captured = runtime.clone();
         self.actor
             .call(move |store| {
@@ -329,7 +330,7 @@ impl Startup {
             &runtime.settings,
             execution::StartRequest {
                 agent: self.attempt.target.agent,
-                model: self.attempt.target.model.clone(),
+                model: self.attempt.target.requested_model.clone(),
                 name: format!("worker-{}", attempt_id),
                 cwd: area.path.clone(),
                 prompt: format!(

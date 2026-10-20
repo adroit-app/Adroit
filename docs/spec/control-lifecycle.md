@@ -48,3 +48,14 @@ The human-only `abort_prepared_start` command records this confirmed fact using
 `identity`, `terminal_id`, and `reason`. A different assigned terminal is refused.
 It does not turn a failed launch into successful work or overwrite a later task
 revision.
+
+## Launch snapshots
+
+Before startup, native routing settings and the original target selection are
+saved for that session generation. Requested model, selected model, selection
+source, agent, and permissions remain distinct and do not follow later changes
+to global settings. A snapshot cannot substitute another agent, permissions, or
+assigned attempt's target, and is immutable within its generation.
+
+These values describe launch intent. They do not establish the actual model
+used by the provider; an unreported actual model remains unknown.

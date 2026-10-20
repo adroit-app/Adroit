@@ -7,6 +7,8 @@ use crate::settings::Settings;
 #[serde(deny_unknown_fields)]
 pub struct RuntimeLaunch {
     pub settings: Settings,
+    #[serde(default)]
+    pub target: Option<adroit_model::TargetSelection>,
 }
 
 impl std::fmt::Debug for RuntimeLaunch {
@@ -31,6 +33,14 @@ impl RuntimeLaunch {
                         .into_owned()
                 })
             });
-        Self { settings }
+        Self {
+            settings,
+            target: None,
+        }
+    }
+
+    pub fn with_target(mut self, target: adroit_model::TargetSelection) -> Self {
+        self.target = Some(target);
+        self
     }
 }

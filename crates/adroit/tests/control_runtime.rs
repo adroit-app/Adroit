@@ -360,3 +360,43 @@ fn the_first_native_conversation_is_learned_but_a_switch_requires_reconciliation
     assert_eq!(switched.state, ManagedSessionState::NeedsReconciliation);
     assert_eq!(switched.binding, session.binding);
 }
+
+#[test]
+fn a_private_launch_selection_cannot_change_the_sessions_agent_or_permissions() {
+    for wrong_agent in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+        let session = store
+            .register_leader(
+                RequestId::new(),
+                LogicalSessionId::new(),
+                Agent::Codex,
+                dir.path().into(),
+            )
+            .unwrap()
+            .value;
+        let target = TargetSelection {
+            agent: if wrong_agent {
+                Agent::Claude
+            } else {
+                Agent::Codex
+            },
+            permissions: if wrong_agent {
+                AgentPermissions::Default
+            } else {
+                AgentPermissions::ReadOnly
+            },
+            ..Default::default()
+        };
+        assert!(
+            store
+                .remember_launch(
+                    RequestId::new(),
+                    session.reference(),
+                    RuntimeLaunch::new(Settings::default()).with_target(target)
+                )
+                .is_err()
+        );
+        assert!(store.runtime(session.reference()).unwrap().is_none());
+    }
+}

@@ -278,3 +278,54 @@ async fn a_lost_ownership_reply_before_release_is_a_confirmed_abort_after_the_ga
     assert!(daemon.sessions().await.unwrap().is_empty());
     native.abort();
 }
+
+#[tokio::test]
+async fn private_launch_snapshots_preserve_requested_and_settings_selected_models_separately() {
+    for explicit in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("control");
+        let service = Service::bind(&root).await.unwrap();
+        let mut settings = Settings::default();
+        settings.codex_sessions.model = "settings-model".into();
+        let mut requested = request(dir.path());
+        requested.model = explicit.then(|| "explicit-model".into());
+        let prepared =
+            managed::prepare(&root, &settings, requested, std::path::Path::new("/adroit"))
+                .await
+                .unwrap();
+        let identity = prepared.ownership.unwrap().identity();
+        let runtime = service
+            .actor()
+            .call(move |store| store.runtime(identity))
+            .await
+            .unwrap()
+            .unwrap();
+        let target = runtime.target.unwrap();
+        assert_eq!(target.agent, Agent::Codex);
+        assert_eq!(
+            target.requested_model,
+            explicit.then(|| "explicit-model".into())
+        );
+        assert_eq!(
+            target.model,
+            Some(
+                if explicit {
+                    "explicit-model"
+                } else {
+                    "settings-model"
+                }
+                .into()
+            )
+        );
+        assert_eq!(
+            target.model_source,
+            if explicit {
+                ModelSource::Explicit
+            } else {
+                ModelSource::Settings
+            }
+        );
+        assert_eq!(target.permissions, AgentPermissions::ReadOnly);
+        assert_eq!(prepared.resolved.requested_model, target.requested_model);
+    }
+}
