@@ -316,11 +316,14 @@ impl Startup {
                     .map(|_| ())
             })
             .await?;
-        let started = execution::spawn_headless(&self.daemon, resolved.spawn, &palette).await;
-        let attached = match started {
-            Ok(terminal) => {
-                let cwd = area.path;
-                self.actor
+        let actor = self.actor.clone();
+        let cwd = area.path;
+        let attached = execution::spawn_headless_prepared(
+            &self.daemon,
+            resolved.spawn,
+            &palette,
+            move |terminal| async move {
+                actor
                     .call(move |store| {
                         store
                             .attach_session(
@@ -333,9 +336,15 @@ impl Startup {
                             .map(|_| ())
                     })
                     .await
-            }
-            Err(error) => Err(failed(error)),
-        };
+                    .map_err(|error| adroit_term::Error::Protocol(error.to_string()))
+            },
+        )
+        .await;
+        if let Err(adroit_term::Error::NotFound(program)) = &attached {
+            return Err(failed(format!(
+                "the Worker program was not found: {program}"
+            )));
+        }
         if let Err(error) = attached {
             self.actor
                 .call(move |store| {

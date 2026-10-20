@@ -74,7 +74,10 @@ async fn ready_runs_share_slots_and_acceptance_does_not_wait_for_native_startup(
     let source = dir.path().join("source");
     std::fs::create_dir(&source).unwrap();
     let root = dir.path().join("control");
-    let actor = Actor::open(root.join("state.sqlite3")).await.unwrap();
+    let service = adroit::control::service::Service::bind(&root)
+        .await
+        .unwrap();
+    let actor = service.actor();
     let (_, first) = planned(&actor, &source, 3).await;
     let (_, second) = planned(&actor, &source, 1).await;
     let socket = dir.path().join("felis.sock");
@@ -98,9 +101,13 @@ async fn ready_runs_share_slots_and_acceptance_does_not_wait_for_native_startup(
     settings.codex.command = vec![
         "/bin/sh".into(),
         "-c".into(),
-        "printf '%s' \"$ADROIT_SESSION_ID\" > started; sleep 10".into(),
+        r#"printf '{"op":"snapshot"}' | "$ADROIT_TEST_BINARY" control > "observed-$ADROIT_SESSION_ID.json"; printf '%s' "$ADROIT_SESSION_ID" > started; sleep 10"#.into(),
         "worker".into(),
     ];
+    settings.codex.env.insert(
+        "ADROIT_TEST_BINARY".into(),
+        env!("CARGO_BIN_EXE_adroit").into(),
+    );
     let mut scheduler = Scheduler::new(actor.clone(), daemon.clone(), root, "/adroit".into());
     let dispatched = scheduler.tick(settings.clone(), 2).await.unwrap();
     assert_eq!(dispatched.len(), 2);
@@ -115,11 +122,14 @@ async fn ready_runs_share_slots_and_acceptance_does_not_wait_for_native_startup(
     assert!(scheduler.tick(settings, 2).await.unwrap().is_empty());
     for _ in 0..200 {
         let snapshot = actor.call(|store| store.snapshot()).await.unwrap();
-        if snapshot
-            .attempts
-            .iter()
-            .all(|attempt| attempt.state == AttemptState::Running)
-        {
+        if snapshot.attempts.iter().all(|attempt| {
+            attempt.state == AttemptState::Running
+                && source.join("started").exists()
+                && std::fs::read(source.join(format!("observed-{}.json", attempt.session_id)))
+                    .ok()
+                    .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+                    .is_some()
+        }) {
             break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -144,6 +154,20 @@ async fn ready_runs_share_slots_and_acceptance_does_not_wait_for_native_startup(
             .all(|attempt| attempt.target.model.as_deref() == Some("test-small"))
     );
     assert_eq!(snapshot.work_areas.len(), 1);
+    for attempt in &snapshot.attempts {
+        let path = source.join(format!("observed-{}.json", attempt.session_id));
+        let observed: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        let sessions = observed["result"]["Ok"]["sessions"].as_array().unwrap();
+        assert!(
+            sessions
+                .iter()
+                .any(
+                    |session| session["binding"]["logical_id"] == attempt.session_id.to_string()
+                        && session["state"] == "running"
+                )
+        );
+    }
     assert!(source.join("started").exists());
     assert!(!source.join(".git").exists());
     assert!(!source.join(".jj").exists());

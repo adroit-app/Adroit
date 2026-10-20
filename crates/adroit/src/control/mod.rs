@@ -22,3 +22,5 @@ pub fn session_root() -> std::path::PathBuf {
         .map(std::path::PathBuf::from)
         .unwrap_or_else(root)
 }
+
+pub mod managed;

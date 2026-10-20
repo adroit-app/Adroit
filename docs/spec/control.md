@@ -28,11 +28,12 @@ The underlying socket protocol is versioned JSON lines. Requests contain
 `version`, nullable `id`, and `result`. Version 1 supports the command forms
 below; IDs are UUID strings and session references contain `id` and `generation`.
 
-- `register_leader`: `id`, `agent`, `cwd` (human client).
+- `register_leader`: `id`, `agent`, `cwd`, optional `permissions` (human client).
 - `grant`: `identity` (human client; returns the session credential).
 - `attach_session`: `identity`, `cwd`, `terminal_id`, `conversation_id` (human
   client; records a completed startup).
 - `fail_start`: `identity`, `reason` (human client; records a failed startup).
+- `start_uncertain`: `identity`, `reason` (human client; retains uncertain startup for reconciliation).
 - `snapshot`: no additional fields.
 - `mailbox`: `after`, `limit`; returns a recipient-only page with `messages` and
   `next_cursor`. Its sequence cursor is independent of the event cursor.
@@ -117,3 +118,7 @@ channel plugin, and unsupported or denied channel activation does not count as
 successful message delivery. Existing MCP servers remain configured alongside
 Adroit's bridge. Codex receives a session-local MCP configuration and uses its
 native queue for inbound notifications.
+
+`session start` creates human-owned sessions. A managed Agent delegates with
+`put_task` and `queue_task`; it cannot use `session start` to create a peer
+Leader without a task assignment.

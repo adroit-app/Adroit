@@ -115,10 +115,22 @@ pub async fn spawn_headless(
     spawn: Spawn,
     palette: &Palette,
 ) -> Result<u128, String> {
-    let size = Size::new(spawn.cols, spawn.rows);
-    let pane = Pane::start(daemon, spawn, size, palette, |_| || {})
+    spawn_headless_prepared(daemon, spawn, palette, |_| async { Ok(()) })
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|error| error.to_string())
+}
+
+pub async fn spawn_headless_prepared<F>(
+    daemon: &Daemon,
+    spawn: Spawn,
+    palette: &Palette,
+    prepare: impl FnOnce(u128) -> F,
+) -> adroit_term::Result<u128>
+where
+    F: std::future::Future<Output = adroit_term::Result<()>>,
+{
+    let size = Size::new(spawn.cols, spawn.rows);
+    let pane = Pane::start_prepared(daemon, spawn, size, palette, |_| || {}, prepare).await?;
     Ok(pane.id())
 }
 
@@ -175,6 +187,12 @@ pub fn resolve(
         tags.extend(adroit_term::tags::tagged(
             "adroit.binding-conversation",
             &conversation,
+        ));
+    }
+    if let Some(context) = &request.control {
+        tags.extend(adroit_term::tags::tagged(
+            "adroit.generation",
+            &context.identity.generation.to_string(),
         ));
     }
     Ok(ResolvedLaunch {

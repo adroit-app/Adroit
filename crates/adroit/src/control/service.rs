@@ -22,6 +22,7 @@ pub struct Service {
     task: tokio::task::JoinHandle<()>,
     socket: PathBuf,
     _claim: File,
+    actor: Actor,
 }
 
 impl Drop for Service {
@@ -32,6 +33,10 @@ impl Drop for Service {
 }
 
 impl Service {
+    pub fn actor(&self) -> Actor {
+        self.actor.clone()
+    }
+
     pub async fn bind(root: &Path) -> Result<Self> {
         DirBuilder::new()
             .recursive(true)
@@ -61,7 +66,9 @@ impl Service {
         let listener = tokio::net::UnixListener::bind(&socket).map_err(storage)?;
         std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600))
             .map_err(storage)?;
+        let serving_actor = actor.clone();
         let task = tokio::spawn(async move {
+            let actor = serving_actor;
             let mut clients = tokio::task::JoinSet::new();
             let permits = std::sync::Arc::new(tokio::sync::Semaphore::new(128));
             loop {
@@ -85,6 +92,7 @@ impl Service {
             task,
             socket,
             _claim: claim,
+            actor,
         })
     }
 }
@@ -192,8 +200,13 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
     };
     let identity = || actor.ok_or_else(|| denied("select a session for this operation"));
     match request.command {
-        Command::RegisterLeader { id, agent, cwd } if is_human => {
-            value(store.register_leader(request.id, id, agent, cwd)?)
+        Command::RegisterLeader {
+            id,
+            agent,
+            cwd,
+            permissions,
+        } if is_human => {
+            value(store.register_leader_launch(request.id, id, agent, cwd, permissions)?)
         }
         Command::AttachSession {
             identity,
@@ -203,6 +216,9 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
         } if is_human => {
             value(store.attach_session(request.id, identity, cwd, terminal_id, conversation_id)?)
         }
+        Command::StartUncertain { identity, reason } if is_human => {
+            value(store.start_uncertain(request.id, identity, reason)?)
+        }
         Command::FailStart { identity, reason } if is_human => {
             value(store.fail_start(request.id, identity, reason)?)
         }
@@ -210,6 +226,7 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
         Command::RegisterLeader { .. }
         | Command::Grant { .. }
         | Command::AttachSession { .. }
+        | Command::StartUncertain { .. }
         | Command::FailStart { .. } => Err(denied("this operation requires a human client")),
         Command::Mailbox { after, limit } => value(store.mailbox(identity()?, after, limit)?),
         Command::ClaimDelivery { message_id } => {

@@ -588,9 +588,20 @@ impl Store {
         agent: Agent,
         cwd: PathBuf,
     ) -> Result<Reply<ManagedSession>> {
+        self.register_leader_launch(request, id, agent, cwd, AgentPermissions::Default)
+    }
+
+    pub fn register_leader_launch(
+        &mut self,
+        request: RequestId,
+        id: LogicalSessionId,
+        agent: Agent,
+        cwd: PathBuf,
+        permissions: AgentPermissions,
+    ) -> Result<Reply<ManagedSession>> {
         self.transact(
             request,
-            json!({"op":"register_leader", "id":id, "agent":agent, "cwd":cwd}),
+            json!({"op":"register_leader", "id":id, "agent":agent, "cwd":cwd, "permissions":permissions}),
             |connection| {
                 if load::<ManagedSession>(connection, Table::Sessions, id)?.is_some() {
                     return Err(conflict("the logical session already exists"));
@@ -600,7 +611,7 @@ impl Store {
                     agent,
                     generation: 1,
                     state: ManagedSessionState::Preparing,
-                    permissions: AgentPermissions::Default,
+                    permissions,
                     cwd: Some(cwd),
                     terminal_id: None,
                     conversation_id: None,
@@ -854,10 +865,17 @@ impl Store {
                 if session.state == ManagedSessionState::NeedsReconciliation {
                     return Ok(session);
                 }
-                let (task_id, attempt_id) = session
-                    .binding
-                    .work()
-                    .ok_or_else(|| invalid("startup uncertainty needs a Worker attempt"))?;
+                let Some((task_id, attempt_id)) = session.binding.work() else {
+                    session.state = ManagedSessionState::NeedsReconciliation;
+                    save_session(connection, &session)?;
+                    event(
+                        connection,
+                        session.binding.run_id(),
+                        "session_start_uncertain",
+                        &json!({"session":session,"reason":reason}),
+                    )?;
+                    return Ok(session);
+                };
                 let task: TaskRecord = require(connection, Table::Tasks, task_id)?;
                 let mut attempt: AttemptRecord = require(connection, Table::Attempts, attempt_id)?;
                 if !attempt.state.holds_slot() {

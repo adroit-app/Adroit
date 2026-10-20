@@ -1201,16 +1201,39 @@ async fn start(
     spawn: Spawn,
     size: Size,
     tab_of: impl Fn(u128) -> Tab,
+    ownership: Option<crate::control::managed::StartOwnership>,
 ) -> adroit_term::Result<u128> {
     let palette = hub.palette.peek().clone();
     let wake = hub.wake.clone();
-    let pane = Pane::start(&hub.daemon, spawn, size, &palette, |id| {
-        let tab = tab_of(id);
-        move || {
-            let _ = wake.send(tab.clone());
+    let failure_owner = ownership.clone();
+    let pane = Pane::start_prepared(
+        &hub.daemon,
+        spawn,
+        size,
+        &palette,
+        |id| {
+            let tab = tab_of(id);
+            move || {
+                let _ = wake.send(tab.clone());
+            }
+        },
+        move |id| async move {
+            match ownership {
+                Some(ownership) => ownership.attach(id).await,
+                None => Ok(()),
+            }
+        },
+    )
+    .await;
+    let pane = match pane {
+        Ok(pane) => pane,
+        Err(error) => {
+            if let Some(owner) = failure_owner {
+                owner.failed(&error).await;
+            }
+            return Err(error);
         }
-    })
-    .await?;
+    };
     // A theme chosen while the session was being started passed it by.
     let now = hub.palette.peek().clone();
     if now != palette {
@@ -2919,18 +2942,25 @@ fn App() -> Element {
                                         started_ms: now_ms(),
                                         ..Default::default()
                                     };
-                                    match crate::execution::resolve(
+                                    match crate::control::managed::prepare(
+                                        &crate::control::root(),
                                         &launch_settings,
                                         request,
                                         &adroit_program(),
-                                    ) {
-                                        Ok(resolved) => {
-                                            let mut spawn = resolved.spawn;
+                                    )
+                                    .await
+                                    {
+                                        Ok(prepared) => {
+                                            let mut spawn = prepared.resolved.spawn;
                                             spawn.cols = size.cols;
                                             spawn.rows = size.rows;
-                                            start(&hub, spawn, size, |id| {
-                                                Tab::Session(sessions::hex(id))
-                                            })
+                                            start(
+                                                &hub,
+                                                spawn,
+                                                size,
+                                                |id| Tab::Session(sessions::hex(id)),
+                                                prepared.ownership,
+                                            )
                                             .await
                                             .map_err(|e| format!("cannot start {name}: {e}"))
                                         }
@@ -3052,7 +3082,15 @@ fn App() -> Element {
                     cols: size.cols,
                     rows: size.rows,
                 };
-                match start(&hub, spawn, size, |id| Tab::Session(sessions::hex(id))).await {
+                match start(
+                    &hub,
+                    spawn,
+                    size,
+                    |id| Tab::Session(sessions::hex(id)),
+                    None,
+                )
+                .await
+                {
                     Ok(id) => {
                         status.set(None);
                         let id = sessions::hex(id);
@@ -4203,7 +4241,7 @@ fn App() -> Element {
                         resolved.spawn.rows = size.rows;
                         let hub = hub.clone();
                         spawn(async move {
-                            match start(&hub, resolved.spawn, size, Tab::Terminal).await {
+                            match start(&hub, resolved.spawn, size, Tab::Terminal, None).await {
                                 Ok(id) => {
                                     resolved.terminal.id = id;
                                     terminals.write().push(resolved.terminal);

@@ -126,18 +126,40 @@ async fn start(
         ..Default::default()
     };
     let program = std::env::current_exe().unwrap_or_else(|_| "adroit".into());
-    let mut spawn = crate::execution::resolve(&settings, request, &program)?.spawn;
+    let prepared =
+        crate::control::managed::prepare(&crate::control::root(), &settings, request, &program)
+            .await?;
+    let mut spawn = prepared.resolved.spawn;
     spawn.cols = COLS;
     spawn.rows = ROWS;
     let palette = crate::themes::palette(&settings.theme, &Settings::themes_dir())?;
-    crate::execution::spawn_headless(daemon, spawn, &palette)
-        .await
-        .map_err(|e| format!("cannot start {name}: {e}"))?;
+    let failure_owner = prepared.ownership.clone();
+    let started =
+        crate::execution::spawn_headless_prepared(daemon, spawn, &palette, move |id| async move {
+            match prepared.ownership {
+                Some(ownership) => ownership.attach(id).await,
+                None => Ok(()),
+            }
+        })
+        .await;
+    if let Err(error) = &started
+        && let Some(owner) = failure_owner
+    {
+        owner.failed(error).await;
+    }
+    started.map_err(|e| format!("cannot start {name}: {e}"))?;
     Ok(name)
 }
 
 /// `adroit session <args>`. Returns the process exit code.
 pub fn cli(args: &[String]) -> i32 {
+    if std::env::var_os("ADROIT_CONTROL_TOKEN").is_some() {
+        eprintln!(
+            "adroit: managed agents delegate using put_task and queue_task; session start creates a human-owned session"
+        );
+        return 2;
+    }
+
     let Some(mut asked) = (match args {
         [op, rest @ ..] if op == "start" => parse(rest),
         _ => None,

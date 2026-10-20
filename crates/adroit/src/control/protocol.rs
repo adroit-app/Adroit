@@ -29,12 +29,18 @@ pub enum Command {
         id: LogicalSessionId,
         agent: Agent,
         cwd: PathBuf,
+        #[serde(default)]
+        permissions: AgentPermissions,
     },
     AttachSession {
         identity: SessionRef,
         cwd: PathBuf,
         terminal_id: String,
         conversation_id: String,
+    },
+    StartUncertain {
+        identity: SessionRef,
+        reason: String,
     },
     FailStart {
         identity: SessionRef,

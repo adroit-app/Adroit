@@ -11,6 +11,7 @@ async fn requests_survive_reconnection_and_daemon_restart_without_a_window() {
     let id = LogicalSessionId::new();
     let request = RequestId::new();
     let command = Command::RegisterLeader {
+        permissions: adroit_model::AgentPermissions::Default,
         id,
         agent: Agent::Codex,
         cwd: dir.path().into(),
@@ -61,6 +62,7 @@ async fn credentials_determine_the_actor_and_cannot_grant_another_identity() {
             .request(
                 RequestId::new(),
                 Command::RegisterLeader {
+                    permissions: adroit_model::AgentPermissions::Default,
                     id,
                     agent: Agent::Claude,
                     cwd: dir.path().into(),
@@ -163,6 +165,7 @@ async fn a_session_grant_survives_restart_and_cannot_select_another_actor() {
         .request(
             RequestId::new(),
             Command::RegisterLeader {
+                permissions: adroit_model::AgentPermissions::Default,
                 id: LogicalSessionId::new(),
                 agent: Agent::Codex,
                 cwd: dir.path().into(),
