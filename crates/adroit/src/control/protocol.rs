@@ -75,6 +75,16 @@ pub enum Command {
         id: RunId,
         brief: RunBrief,
     },
+    UpdateRun {
+        run_id: RunId,
+        expected_revision: u64,
+        brief: RunBrief,
+        #[serde(default)]
+        affected: Vec<TaskVersion>,
+    },
+    CancelRun {
+        run_id: RunId,
+    },
     PutTask {
         plan: TaskPlan,
     },

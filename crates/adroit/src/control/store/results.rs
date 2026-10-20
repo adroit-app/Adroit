@@ -202,9 +202,10 @@ impl Store {
                 let active_run = matches!(run.state, RunState::Active | RunState::Verifying);
                 let inputs_current =
                     super::dependencies::current_inputs(connection, &task, &attempt)?;
-                let current = assignment_current && active_run && inputs_current;
+                let stopping_run = run.state == RunState::Cancelling;
+                let current = assignment_current && (active_run || stopping_run) && inputs_current;
                 let invalidate_inputs = assignment_current && active_run && !inputs_current;
-                let cancelled = attempt.state == AttemptState::CancelRequested;
+                let cancelled = attempt.state == AttemptState::CancelRequested || stopping_run;
                 let applied =
                     current && (!cancelled || report.result.status == ReportStatus::Cancelled);
                 attempt.state = if cancelled {
@@ -232,6 +233,9 @@ impl Store {
                     event(connection, Some(task.run_id), "task_result_applied", &task)?;
                 } else if task.current_attempt == Some(attempt.id) {
                     task.current_attempt = None;
+                    if stopping_run {
+                        task.state = TaskState::Cancelled;
+                    }
                     if invalidate_inputs {
                         task.state = TaskState::Planned;
                         task.revision = task
@@ -255,6 +259,7 @@ impl Store {
                         super::dependencies::invalidate_dependents(connection, task.id)?;
                     }
                 }
+                super::runs::settle_cancellation(connection, task.run_id)?;
                 let record = TaskReportRecord {
                     report,
                     run_id: task.run_id,

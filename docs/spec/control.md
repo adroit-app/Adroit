@@ -140,3 +140,21 @@ invalidates dependent work, including completed results, while independent work
 remains scheduled. Running dependents receive a stop request and keep their
 execution slots until stopping is confirmed. Old results remain in history;
 they cannot restore the new plan to success or invalidate it a second time.
+
+## Updating and cancelling a request
+
+`update_run` takes `run_id`, `expected_revision` (the current plan revision),
+`brief`, and an optional `affected` array of task versions. The caller declares
+which tasks are affected by the new direction. Those tasks and their dependents
+are invalidated together; independent tasks retain their progress. A stale
+revision or a foreign task refuses the whole update.
+
+`cancel_run` takes `run_id`. It cancels pending work and requests that active
+Workers stop. The run stays `cancelling` while any attempt still holds an
+execution slot, and becomes `cancelled` after stopping is confirmed. A late
+success does not override cancellation. A different run in the same directory
+keeps running. Cancellation leaves the native Agent terminals and their Shell
+and Neovim resources available; explicit terminal stop remains separate.
+
+A Leader cannot open another run while its current run is still cancelling.
+Independent requests can start in separate Leaders without waiting for it.

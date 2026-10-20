@@ -45,7 +45,7 @@ impl Scheduler {
         let mut runs: Vec<_> = snapshot
             .runs
             .iter()
-            .filter(|run| run.state == RunState::Active)
+            .filter(|run| matches!(run.state, RunState::Active | RunState::Verifying))
             .collect();
         if let Some(index) = runs.iter().position(|run| Some(run.id) == self.last_run) {
             let length = runs.len();

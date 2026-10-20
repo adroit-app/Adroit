@@ -13,10 +13,11 @@ use serde_json::{Value, json};
 
 mod dependencies;
 mod results;
+mod runs;
 mod runtime;
 mod workareas;
 
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -350,7 +351,7 @@ fn reference(connection: &Connection, identity: SessionRef) -> Result<ManagedSes
     }
     Ok(session)
 }
-fn owner(connection: &Connection, identity: SessionRef, run_id: RunId) -> Result<RunRecord> {
+fn run_owner(connection: &Connection, identity: SessionRef, run_id: RunId) -> Result<RunRecord> {
     let session = reference(connection, identity)?;
     let run: RunRecord = require(connection, Table::Runs, run_id)?;
     if session.binding.role() != SessionRole::Leader
@@ -362,7 +363,11 @@ fn owner(connection: &Connection, identity: SessionRef, run_id: RunId) -> Result
             "the caller does not lead this run",
         ));
     }
-    if run.state != RunState::Active {
+    Ok(run)
+}
+fn owner(connection: &Connection, identity: SessionRef, run_id: RunId) -> Result<RunRecord> {
+    let run = run_owner(connection, identity, run_id)?;
+    if !matches!(run.state, RunState::Active | RunState::Verifying) {
         return Err(conflict("the run is not active"));
     }
     Ok(run)
@@ -488,6 +493,13 @@ impl Store {
             let transaction =
                 connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
             transaction.execute_batch("CREATE TABLE session_launches (session_id TEXT NOT NULL REFERENCES logical_sessions(id), generation TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(session_id,generation));")?;
+            transaction.pragma_update(None, "user_version", 5)?;
+            transaction.commit()?;
+        }
+        if schema < 6 {
+            let transaction =
+                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            transaction.execute_batch("DROP INDEX one_active_run_per_leader; CREATE UNIQUE INDEX one_active_run_per_leader ON runs(leader_id) WHERE state IN ('active','verifying','cancelling');")?;
             transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
             transaction.commit()?;
         }
@@ -646,7 +658,7 @@ impl Store {
             }
             if brief.title.trim().is_empty() || brief.goal.trim().is_empty() { return Err(invalid("a run needs a title and goal")); }
             if load::<RunRecord>(connection, Table::Runs, id)?.is_some() { return Err(conflict("the run already exists")); }
-            let active: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM runs WHERE leader_id = ?1 AND state IN ('active', 'verifying'))", [identity.id.to_string()], |row| row.get(0))?;
+            let active: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM runs WHERE leader_id = ?1 AND state IN ('active', 'verifying', 'cancelling'))", [identity.id.to_string()], |row| row.get(0))?;
             if active { return Err(conflict("the leader already has an active run")); }
             let run = RunRecord { id, leader_id: identity.id, brief, plan_revision: 1, state: RunState::Active };
             save_run(connection, &run)?;
@@ -986,7 +998,10 @@ impl Store {
                     } else {
                         AttemptState::Failed
                     };
-                    if task.revision == attempt.task_revision {
+                    let run: RunRecord = require(connection, Table::Runs, task.run_id)?;
+                    if run.state == RunState::Cancelling {
+                        task.state = TaskState::Cancelled;
+                    } else if task.revision == attempt.task_revision {
                         task.state = if cancelled {
                             TaskState::Cancelled
                         } else {
@@ -997,6 +1012,7 @@ impl Store {
                     }
                     save_attempt(connection, &attempt)?;
                     save_task(connection, &task)?;
+                    runs::settle_cancellation(connection, task.run_id)?;
                     event(
                         connection,
                         session.binding.run_id(),
@@ -1005,8 +1021,10 @@ impl Store {
                     )?;
                 } else if let Some(run_id) = session.binding.run_id() {
                     let mut run: RunRecord = require(connection, Table::Runs, run_id)?;
-                    run.state = RunState::Failed;
-                    save_run(connection, &run)?;
+                    if matches!(run.state, RunState::Active | RunState::Verifying) {
+                        run.state = RunState::Failed;
+                        save_run(connection, &run)?;
+                    }
                     event(
                         connection,
                         Some(run_id),
@@ -1169,7 +1187,7 @@ impl Store {
             json!({"op":"retry_delivery", "caller":identity, "message_id":message_id}),
             |connection| {
                 let message: AgentMessage = require(connection, Table::Messages, message_id)?;
-                owner(connection, identity, message.run_id)?;
+                run_owner(connection, identity, message.run_id)?;
                 let mut delivery = delivery(connection, &message, message.to)?;
                 match delivery.state {
                     DeliveryState::Accepted | DeliveryState::Uncertain => {

@@ -73,6 +73,7 @@ pub struct RunBrief {
 pub enum RunState {
     Active,
     Verifying,
+    Cancelling,
     Succeeded,
     Failed,
     Cancelled,
@@ -83,6 +84,7 @@ impl RunState {
         match self {
             Self::Active => "active",
             Self::Verifying => "verifying",
+            Self::Cancelling => "cancelling",
             Self::Succeeded => "succeeded",
             Self::Failed => "failed",
             Self::Cancelled => "cancelled",

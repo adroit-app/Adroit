@@ -27,52 +27,58 @@ pub(super) fn current_inputs(
 }
 
 pub(super) fn invalidate_dependents(connection: &Connection, changed: TaskId) -> Result<()> {
+    invalidate_tasks(connection, &HashSet::from([changed]), false)
+}
+
+pub(super) fn invalidate_tasks(
+    connection: &Connection,
+    roots: &HashSet<TaskId>,
+    include_roots: bool,
+) -> Result<()> {
     let tasks = all::<TaskRecord>(connection, Table::Tasks)?;
-    let mut invalidated = HashSet::from([changed]);
+    let mut affected = roots.clone();
     loop {
-        let mut progress = false;
-        for original in &tasks {
-            if invalidated.contains(&original.id)
-                || !original
-                    .dependencies
-                    .iter()
-                    .any(|id| invalidated.contains(id))
-            {
-                continue;
+        let previous = affected.len();
+        for task in &tasks {
+            if task.dependencies.iter().any(|id| affected.contains(id)) {
+                affected.insert(task.id);
             }
-            let mut task = original.clone();
-            if let Some(id) = task.current_attempt {
-                let mut attempt: AttemptRecord = require(connection, Table::Attempts, id)?;
-                if attempt.state.holds_slot() {
-                    super::results::request_stop(
-                        connection,
-                        &task,
-                        &mut attempt,
-                        "A task input changed; stop and report cancellation",
-                    )?;
-                } else {
-                    task.current_attempt = None;
-                }
-            }
-            task.revision = task
-                .revision
-                .checked_add(1)
-                .ok_or_else(|| conflict("the task revision is exhausted"))?;
-            if task.state != TaskState::Cancelled {
-                task.state = TaskState::Planned;
-            }
-            save_task(connection, &task)?;
-            event(
-                connection,
-                Some(task.run_id),
-                "task_inputs_invalidated",
-                &task,
-            )?;
-            invalidated.insert(task.id);
-            progress = true;
         }
-        if !progress {
-            return Ok(());
+        if affected.len() == previous {
+            break;
         }
     }
+    for mut task in tasks
+        .into_iter()
+        .filter(|task| affected.contains(&task.id) && (include_roots || !roots.contains(&task.id)))
+    {
+        if let Some(id) = task.current_attempt {
+            let mut attempt: AttemptRecord = require(connection, Table::Attempts, id)?;
+            if attempt.state.holds_slot() {
+                super::results::request_stop(
+                    connection,
+                    &task,
+                    &mut attempt,
+                    "The request or a task input changed; stop and report cancellation",
+                )?;
+            } else {
+                task.current_attempt = None;
+            }
+        }
+        task.revision = task
+            .revision
+            .checked_add(1)
+            .ok_or_else(|| conflict("the task revision is exhausted"))?;
+        if task.state != TaskState::Cancelled {
+            task.state = TaskState::Planned;
+        }
+        save_task(connection, &task)?;
+        event(
+            connection,
+            Some(task.run_id),
+            "task_inputs_invalidated",
+            &task,
+        )?;
+    }
+    Ok(())
 }

@@ -348,6 +348,22 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
         Command::OpenRun { id, brief } => {
             value(store.open_run(request.id, identity()?, id, brief)?)
         }
+        Command::UpdateRun {
+            run_id,
+            expected_revision,
+            brief,
+            affected,
+        } => value(store.update_run(
+            request.id,
+            identity()?,
+            run_id,
+            expected_revision,
+            brief,
+            affected,
+        )?),
+        Command::CancelRun { run_id } => {
+            value(store.cancel_run(request.id, identity()?, run_id)?)
+        }
         Command::PutTask { plan } => value(store.put_task(request.id, identity()?, plan)?),
         Command::QueueTask { version } => {
             value(store.queue_task(request.id, identity()?, version)?)
