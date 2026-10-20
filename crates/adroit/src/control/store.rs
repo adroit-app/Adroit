@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 
 mod candidates;
+mod checks;
 mod context;
 mod coordination;
 mod dependencies;
@@ -20,7 +21,7 @@ mod runs;
 mod runtime;
 mod workareas;
 
-const SCHEMA_VERSION: i64 = 10;
+const SCHEMA_VERSION: i64 = 11;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -173,6 +174,7 @@ enum Table {
     Reports,
     Completions,
     Candidates,
+    CandidateChecks,
     Coordination,
     CoordinationReplies,
 }
@@ -189,6 +191,7 @@ impl Table {
             Self::Reports => "task_reports",
             Self::Completions => "run_completions",
             Self::Candidates => "candidates",
+            Self::CandidateChecks => "candidate_checks",
             Self::Coordination => "coordination_notices",
             Self::CoordinationReplies => "coordination_replies",
         }
@@ -548,6 +551,13 @@ impl Store {
             let transaction =
                 connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
             transaction.execute_batch("CREATE INDEX candidates_state ON candidates(json_extract(data,'$.state')); CREATE INDEX candidates_source_state ON candidates(source_task_id,json_extract(data,'$.state'));")?;
+            transaction.pragma_update(None, "user_version", 10)?;
+            transaction.commit()?;
+        }
+        if schema < 11 {
+            let transaction =
+                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            transaction.execute_batch("CREATE TABLE candidate_checks (id TEXT PRIMARY KEY REFERENCES attempts(id), candidate_id TEXT NOT NULL REFERENCES candidates(id), task_id TEXT NOT NULL REFERENCES tasks(id), report_id TEXT NOT NULL REFERENCES task_reports(id), state TEXT NOT NULL, data TEXT NOT NULL); CREATE INDEX candidate_checks_state ON candidate_checks(state); CREATE INDEX candidate_checks_candidate ON candidate_checks(candidate_id); CREATE INDEX candidate_checks_task ON candidate_checks(task_id);")?;
             transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
             transaction.commit()?;
         }
@@ -705,6 +715,7 @@ impl Store {
                 return Err(ControlError::new(ErrorCode::OwnershipMismatch, "only a leader can open a run"));
             }
             if brief.title.trim().is_empty() || brief.goal.trim().is_empty() { return Err(invalid("a run needs a title and goal")); }
+            checks::validate_gate(&brief.quality_gate)?;
             if load::<RunRecord>(connection, Table::Runs, id)?.is_some() { return Err(conflict("the run already exists")); }
             let active: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM runs WHERE leader_id = ?1 AND state IN ('active', 'verifying', 'cancelling'))", [identity.id.to_string()], |row| row.get(0))?;
             if active { return Err(conflict("the leader already has an active run")); }
@@ -802,6 +813,9 @@ impl Store {
                 };
                 save_task(connection, &task)?;
                 dependencies::invalidate_dependents(connection, task.id)?;
+                if let Some(candidate) = task.brief.candidate_id {
+                    checks::refresh(connection, candidate)?;
+                }
                 run.plan_revision = run
                     .plan_revision
                     .checked_add(1)
@@ -1443,6 +1457,7 @@ impl Store {
                 .iter()
                 .map(CandidateRecord::summary)
                 .collect(),
+            candidate_checks: all(&transaction, Table::CandidateChecks)?,
             coordination: all(&transaction, Table::Coordination)?,
             coordination_replies: all(&transaction, Table::CoordinationReplies)?,
             work_areas: all(&transaction, Table::WorkAreas)?,

@@ -83,3 +83,20 @@ startup the daemon captures the candidate again and records its input identity
 on the attempt. It releases the native program only after that identity matches.
 Changed or unreadable inputs invalidate the candidate and report startup failure;
 they never fall back to another working area.
+
+## Confirming quality results
+
+A successful candidate check waits in task state `verifying` until the daemon
+confirms its input identity again. Pending confirmations survive controller
+restart. Changed or unreadable inputs invalidate the candidate; restoring files
+later does not turn a rejected check into accepted evidence.
+
+A successful review carries a `review` artifact with `decision` equal to
+`approved`, `changes_requested`, or `blocked`, plus `data`, `files`, and optional
+`reviewed_revision`. Native reviews require the full immutable revision.
+Completing review work does not imply approval of the change.
+
+A candidate becomes verified only when current confirmed results satisfy its
+quality commands and required reviews. Superseded assignments and results for
+another candidate do not establish verification. Verification alone does not
+complete the run or close its sessions.

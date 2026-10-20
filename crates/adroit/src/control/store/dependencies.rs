@@ -81,5 +81,6 @@ pub(super) fn invalidate_tasks(
             &task,
         )?;
     }
+    super::checks::refresh_tasks(connection, &affected)?;
     Ok(())
 }

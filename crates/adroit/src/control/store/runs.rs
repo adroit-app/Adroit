@@ -84,6 +84,7 @@ impl Store {
             let mut run = owner(connection,identity,run_id)?;
             if run.plan_revision != expected_revision { return Err(ControlError::new(ErrorCode::RevisionConflict,"the plan revision is outdated")); }
             if brief.title.trim().is_empty() || brief.goal.trim().is_empty() { return Err(invalid("a run needs a title and goal")); }
+            super::checks::validate_gate(&brief.quality_gate)?;
             let mut roots = HashSet::new();
             for wanted in affected {
                 let task = version(connection,identity,wanted)?;
@@ -95,6 +96,7 @@ impl Store {
             run.plan_revision = run.plan_revision.checked_add(1).ok_or_else(||conflict("the plan revision is exhausted"))?;
             run.state = RunState::Active;
             save_run(connection,&run)?;
+            if let Some(candidate) = run.candidate_id { super::checks::refresh(connection,candidate)?; }
             event(connection,Some(run_id),"run_updated",&run)?;
             Ok(run)
         })
@@ -138,7 +140,10 @@ impl Store {
                     }
                     if matches!(
                         task.state,
-                        TaskState::Planned | TaskState::Queued | TaskState::Blocked
+                        TaskState::Planned
+                            | TaskState::Queued
+                            | TaskState::Blocked
+                            | TaskState::Verifying
                     ) {
                         task.state = TaskState::Cancelled;
                         save_task(connection, &task)?;

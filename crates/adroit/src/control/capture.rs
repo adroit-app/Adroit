@@ -7,10 +7,16 @@ type Outcome = std::result::Result<CandidateProof, String>;
 type Result<T> = std::result::Result<T, ControlError>;
 const MAX_JOBS: usize = 4;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Capture {
+    Candidate(CandidateId),
+    Check(AttemptId),
+}
+
 pub struct CaptureSupervisor {
     actor: Actor,
-    jobs: tokio::task::JoinSet<(CandidateId, Outcome)>,
-    active: HashMap<tokio::task::Id, CandidateId>,
+    jobs: tokio::task::JoinSet<(Capture, Outcome)>,
+    active: HashMap<tokio::task::Id, Capture>,
 }
 
 impl CaptureSupervisor {
@@ -48,27 +54,31 @@ impl CaptureSupervisor {
                 break;
             }
             let id = candidate.plan.id;
-            if self.active.values().any(|active| *active == id) {
+            let capture = Capture::Candidate(id);
+            if self.active.values().any(|active| *active == capture) {
                 continue;
             }
             let area_id = match &candidate.artifact {
                 TaskArtifact::Change { work_area_id, .. } => *work_area_id,
-                TaskArtifact::Report { .. } => {
-                    self.finish(id, Err("the candidate lost its change artifact".into()))
-                        .await?;
+                TaskArtifact::Report { .. } | TaskArtifact::Review { .. } => {
+                    self.finish(
+                        capture,
+                        Err("the candidate lost its change artifact".into()),
+                    )
+                    .await?;
                     continue;
                 }
             };
             let area = match self.actor.call(move |store| store.work_area(area_id)).await {
                 Ok(area) => area,
                 Err(error) => {
-                    self.finish(id, Err(error.to_string())).await?;
+                    self.finish(capture, Err(error.to_string())).await?;
                     continue;
                 }
             };
             let job = self.jobs.spawn(async move {
                 (
-                    id,
+                    capture,
                     crate::candidates::capture_candidate(
                         &area,
                         &candidate.artifact,
@@ -77,18 +87,70 @@ impl CaptureSupervisor {
                     .await,
                 )
             });
-            self.active.insert(job.id(), id);
+            self.active.insert(job.id(), capture);
             started.push(id);
+        }
+        let pending = self
+            .actor
+            .call(|store| store.pending_candidate_checks(64))
+            .await?;
+        for check in pending {
+            if self.active.len() >= MAX_JOBS {
+                break;
+            }
+            let capture = Capture::Check(check.attempt_id);
+            if self.active.values().any(|active| *active == capture) {
+                continue;
+            }
+            let id = check.candidate_id;
+            let source = self
+                .actor
+                .call(move |store| {
+                    let candidate = store.candidate(id)?;
+                    let area_id = match candidate.artifact {
+                        TaskArtifact::Change { work_area_id, .. } => work_area_id,
+                        _ => {
+                            return Err(ControlError::new(
+                                super::store::ErrorCode::InvalidRequest,
+                                "the candidate lost its change artifact",
+                            ));
+                        }
+                    };
+                    Ok((store.work_area(area_id)?, candidate))
+                })
+                .await;
+            let (area, candidate) = match source {
+                Ok(source) => source,
+                Err(error) => {
+                    self.finish(capture, Err(error.to_string())).await?;
+                    continue;
+                }
+            };
+            let job = self.jobs.spawn(async move {
+                (
+                    capture,
+                    crate::candidates::capture_candidate(
+                        &area,
+                        &candidate.artifact,
+                        &candidate.plan.inputs,
+                    )
+                    .await,
+                )
+            });
+            self.active.insert(job.id(), capture);
         }
         Ok(started)
     }
 
-    async fn finish(&self, id: CandidateId, outcome: Outcome) -> Result<()> {
+    async fn finish(&self, capture: Capture, outcome: Outcome) -> Result<()> {
         self.actor
-            .call(move |store| {
-                store
+            .call(move |store| match capture {
+                Capture::Candidate(id) => store
                     .record_candidate_capture(RequestId::new(), id, outcome)
-                    .map(|_| ())
+                    .map(|_| ()),
+                Capture::Check(id) => store
+                    .record_candidate_check(RequestId::new(), id, outcome)
+                    .map(|_| ()),
             })
             .await
     }

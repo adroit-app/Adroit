@@ -181,6 +181,7 @@ pub enum TaskState {
     Planned,
     Queued,
     Running,
+    Verifying,
     Blocked,
     Succeeded,
     Failed,
@@ -336,6 +337,7 @@ pub struct ControlSnapshot {
     pub reports: Vec<TaskReportRecord>,
     pub completions: Vec<RunCompletion>,
     pub candidates: Vec<CandidateSummary>,
+    pub candidate_checks: Vec<CandidateCheckRecord>,
     pub coordination: Vec<CoordinationNotice>,
     pub coordination_replies: Vec<CoordinationReply>,
     pub work_areas: Vec<WorkArea>,
@@ -457,6 +459,12 @@ pub enum ReportStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum TaskArtifact {
+    Review {
+        decision: ReviewDecision,
+        data: serde_json::Value,
+        files: Vec<PathBuf>,
+        reviewed_revision: Option<String>,
+    },
     Report {
         data: serde_json::Value,
         files: Vec<PathBuf>,
@@ -700,4 +708,44 @@ impl CandidateProof {
             file_count: self.files.files.len(),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReviewDecision {
+    Approved,
+    ChangesRequested,
+    Blocked,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CandidateCheckState {
+    Pending,
+    Validated,
+    Rejected,
+    Obsolete,
+}
+
+impl CandidateCheckState {
+    pub fn word(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Validated => "validated",
+            Self::Rejected => "rejected",
+            Self::Obsolete => "obsolete",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CandidateCheckRecord {
+    pub attempt_id: AttemptId,
+    pub candidate_id: CandidateId,
+    pub task: TaskVersion,
+    pub report_id: MessageId,
+    pub state: CandidateCheckState,
+    pub observed: Option<CandidateProofSummary>,
+    pub error: Option<String>,
 }

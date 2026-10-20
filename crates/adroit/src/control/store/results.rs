@@ -203,11 +203,20 @@ impl Store {
                 let inputs_current =
                     super::dependencies::current_inputs(connection, &task, &attempt)?;
                 let stopping_run = run.state == RunState::Cancelling;
-                let current = assignment_current && (active_run || stopping_run) && inputs_current;
+                let candidate_current =
+                    super::checks::current_candidate(connection, &task, &attempt)?;
+                let current = assignment_current
+                    && (active_run || stopping_run)
+                    && inputs_current
+                    && candidate_current;
                 let invalidate_inputs = assignment_current && active_run && !inputs_current;
                 let cancelled = attempt.state == AttemptState::CancelRequested || stopping_run;
                 let applied =
                     current && (!cancelled || report.result.status == ReportStatus::Cancelled);
+                if assignment_current && active_run && !cancelled {
+                    super::checks::validate_report(connection, &task, &attempt, &report.result)?;
+                }
+
                 attempt.state = if cancelled {
                     AttemptState::Cancelled
                 } else {
@@ -223,6 +232,9 @@ impl Store {
                         TaskState::Cancelled
                     } else {
                         match report.result.status {
+                            ReportStatus::Succeeded if task.brief.candidate_id.is_some() => {
+                                TaskState::Verifying
+                            }
                             ReportStatus::Succeeded => TaskState::Succeeded,
                             ReportStatus::Failed => TaskState::Failed,
                             ReportStatus::Blocked => TaskState::Blocked,
@@ -233,8 +245,10 @@ impl Store {
                     event(connection, Some(task.run_id), "task_result_applied", &task)?;
                 } else if task.current_attempt == Some(attempt.id) {
                     task.current_attempt = None;
-                    if stopping_run {
+                    if stopping_run || (assignment_current && !candidate_current) {
                         task.state = TaskState::Cancelled;
+                    } else if assignment_current && !active_run {
+                        task.state = TaskState::Failed;
                     }
                     if invalidate_inputs {
                         task.state = TaskState::Planned;
@@ -289,6 +303,10 @@ impl Store {
                         encode(&record)?
                     ],
                 )?;
+                super::checks::queue(connection, &task, &record.report)?;
+                if let Some(candidate) = task.brief.candidate_id {
+                    super::checks::refresh(connection, candidate)?;
+                }
                 event(
                     connection,
                     Some(task.run_id),

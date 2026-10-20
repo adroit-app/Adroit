@@ -32,3 +32,9 @@ For a candidate review or verification task, read candidate_id and the confirmed
 candidate_input from context. Report the actual check commands and exit codes,
 and use that candidate ID as each check's candidate identity. Preserve the
 candidate inputs; changing them requires a new candidate and verification.
+
+For review work, use a review artifact with an explicit decision: approved,
+changes_requested, or blocked. Include findings in data, relevant files, and the
+full reviewed_revision for native VCS. Finishing a review is distinct from
+approving the change. Successful candidate results remain pending until Adroit
+confirms that their inputs are unchanged after the work.

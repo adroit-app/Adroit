@@ -322,6 +322,12 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
                 snapshot
                     .candidates
                     .retain(|candidate| candidate.plan.run_id == run);
+                snapshot.candidate_checks.retain(|check| {
+                    snapshot
+                        .candidates
+                        .iter()
+                        .any(|candidate| candidate.plan.id == check.candidate_id)
+                });
                 snapshot.coordination.retain(|notice| {
                     notice
                         .participants

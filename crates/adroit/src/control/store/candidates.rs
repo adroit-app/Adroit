@@ -2,12 +2,12 @@
 use super::*;
 use std::collections::HashSet;
 
-fn save(connection: &Connection, candidate: &CandidateRecord) -> Result<()> {
+pub(super) fn save(connection: &Connection, candidate: &CandidateRecord) -> Result<()> {
     connection.execute("INSERT INTO candidates(id,run_id,source_task_id,data) VALUES (?1,?2,?3,?4) ON CONFLICT(id) DO UPDATE SET data=excluded.data",params![candidate.plan.id.to_string(),candidate.plan.run_id.to_string(),candidate.plan.source.task_id.to_string(),encode(candidate)?])?;
     Ok(())
 }
 
-fn source(connection: &Connection, plan: &CandidatePlan) -> Result<TaskReportRecord> {
+pub(super) fn source(connection: &Connection, plan: &CandidatePlan) -> Result<TaskReportRecord> {
     let task: TaskRecord = require(connection, Table::Tasks, plan.source.task_id)?;
     if task.run_id != plan.run_id {
         return Err(ControlError::new(

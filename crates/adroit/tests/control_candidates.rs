@@ -931,3 +931,407 @@ async fn the_native_program_starts_only_after_a_matching_candidate_preflight() {
         daemon_task.abort();
     }
 }
+
+async fn running_quality_check(
+    store: &mut Store,
+    path: &Path,
+    purpose: TaskPurpose,
+) -> (
+    SessionRef,
+    RunId,
+    CandidateId,
+    AttemptRecord,
+    CandidateProof,
+) {
+    let (owner, run, source, area, artifact) = finished_change(store, path);
+    let candidate = plan(run, &source);
+    store
+        .propose_candidate(RequestId::new(), owner, 2, candidate.clone())
+        .unwrap();
+    let proof = adroit::candidates::capture_candidate(&area, &artifact, &candidate.inputs)
+        .await
+        .unwrap();
+    store
+        .record_candidate_capture(RequestId::new(), candidate.id, Ok(proof.clone()))
+        .unwrap();
+    let mut plan = quality_plan(run, &source, area.id, candidate.id);
+    plan.brief.purpose = purpose;
+    let task = store.put_task(RequestId::new(), owner, plan).unwrap().value;
+    let wanted = TaskVersion {
+        task_id: task.id,
+        revision: 1,
+    };
+    store.queue_task(RequestId::new(), owner, wanted).unwrap();
+    let attempt = store
+        .reserve_attempt(
+            RequestId::new(),
+            owner,
+            wanted,
+            TargetSelection {
+                agent: Agent::Codex,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .value;
+    store
+        .bind_work_area(RequestId::new(), owner, wanted, attempt.id, area.id)
+        .unwrap();
+    store
+        .record_candidate_input(
+            RequestId::new(),
+            owner,
+            wanted,
+            attempt.id,
+            Ok(proof.clone()),
+        )
+        .unwrap();
+    store
+        .begin_start(RequestId::new(), owner, wanted, attempt.id)
+        .unwrap();
+    store
+        .attach_session(
+            RequestId::new(),
+            SessionRef {
+                id: attempt.session_id,
+                generation: 1,
+            },
+            area.path,
+            attempt.id.to_string().replace('-', ""),
+            MessageId::new().to_string(),
+        )
+        .unwrap();
+    (owner, run, candidate.id, attempt, proof)
+}
+
+fn check_report(attempt: &AttemptRecord, candidate: CandidateId) -> TaskReport {
+    TaskReport {
+        message_id: MessageId::new(),
+        task: TaskVersion {
+            task_id: attempt.task_id,
+            revision: attempt.task_revision,
+        },
+        attempt_id: attempt.id,
+        result: TaskResult {
+            status: ReportStatus::Succeeded,
+            summary: "The quality command passed".into(),
+            artifact: Some(TaskArtifact::Report {
+                data: serde_json::json!({"checks":"passed"}),
+                files: vec![],
+                reviewed_revision: None,
+            }),
+            checks: vec![ResultCheck {
+                command: vec!["just".into(), "ci".into()],
+                exit_code: 0,
+                candidate: candidate.to_string(),
+            }],
+            unresolved: vec![],
+        },
+    }
+}
+
+#[tokio::test]
+async fn a_successful_quality_report_waits_for_post_check_input_confirmation() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("output.txt"), "Result").unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (_, _, candidate, attempt, proof) =
+        running_quality_check(&mut store, dir.path(), TaskPurpose::Verify).await;
+    store
+        .report_task(
+            RequestId::new(),
+            SessionRef {
+                id: attempt.session_id,
+                generation: 1,
+            },
+            check_report(&attempt, candidate),
+        )
+        .unwrap();
+    let snapshot = store.snapshot().unwrap();
+    assert_eq!(
+        snapshot
+            .tasks
+            .iter()
+            .find(|task| task.id == attempt.task_id)
+            .unwrap()
+            .state,
+        TaskState::Verifying
+    );
+    assert_eq!(snapshot.candidates[0].state, CandidateState::Prepared);
+    assert_eq!(
+        snapshot.candidate_checks[0].state,
+        CandidateCheckState::Pending
+    );
+    let checked = store
+        .record_candidate_check(RequestId::new(), attempt.id, Ok(proof))
+        .unwrap()
+        .value;
+    assert_eq!(checked.state, CandidateCheckState::Validated);
+    let snapshot = store.snapshot().unwrap();
+    assert_eq!(
+        snapshot
+            .tasks
+            .iter()
+            .find(|task| task.id == attempt.task_id)
+            .unwrap()
+            .state,
+        TaskState::Succeeded
+    );
+    assert_eq!(snapshot.candidates[0].state, CandidateState::Verified);
+}
+
+#[tokio::test]
+async fn a_report_for_changed_inputs_cannot_validate_now_or_when_the_files_are_later_restored() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("output.txt"), "Result").unwrap();
+    std::fs::write(dir.path().join("rules.txt"), "Original rules").unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (_, _, candidate, attempt, original) =
+        running_quality_check(&mut store, dir.path(), TaskPurpose::Verify).await;
+    store
+        .report_task(
+            RequestId::new(),
+            SessionRef {
+                id: attempt.session_id,
+                generation: 1,
+            },
+            check_report(&attempt, candidate),
+        )
+        .unwrap();
+    let record = store.candidate(candidate).unwrap();
+    let area = store.work_area(original.work_area_id).unwrap();
+    std::fs::write(dir.path().join("rules.txt"), "Changed during verification").unwrap();
+    let changed =
+        adroit::candidates::capture_candidate(&area, &record.artifact, &record.plan.inputs)
+            .await
+            .unwrap();
+    assert_eq!(
+        store
+            .record_candidate_check(RequestId::new(), attempt.id, Ok(changed))
+            .unwrap()
+            .value
+            .state,
+        CandidateCheckState::Rejected
+    );
+    std::fs::write(dir.path().join("rules.txt"), "Original rules").unwrap();
+    assert_eq!(
+        store
+            .record_candidate_check(RequestId::new(), attempt.id, Ok(original))
+            .unwrap()
+            .value
+            .state,
+        CandidateCheckState::Rejected
+    );
+    let snapshot = store.snapshot().unwrap();
+    assert_eq!(snapshot.candidates[0].state, CandidateState::Stale);
+    assert_eq!(
+        snapshot
+            .tasks
+            .iter()
+            .find(|task| task.id == attempt.task_id)
+            .unwrap()
+            .state,
+        TaskState::Failed
+    );
+}
+
+#[tokio::test]
+async fn a_completed_review_requesting_changes_is_not_candidate_approval() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("output.txt"), "Result").unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (owner, run, candidate, attempt, proof) =
+        running_quality_check(&mut store, dir.path(), TaskPurpose::Review).await;
+    let current = store.snapshot().unwrap().runs[0].clone();
+    store
+        .update_run(
+            RequestId::new(),
+            owner,
+            run,
+            current.plan_revision,
+            RunBrief {
+                quality_gate: QualityGate {
+                    commands: vec![],
+                    review_required: true,
+                },
+                ..current.brief
+            },
+            vec![],
+        )
+        .unwrap();
+    let mut report = check_report(&attempt, candidate);
+    report.result.checks.clear();
+    report.result.summary = "Review completed with one issue".into();
+    report.result.artifact = Some(TaskArtifact::Review {
+        decision: ReviewDecision::ChangesRequested,
+        data: serde_json::json!({"findings":["The output does not meet the goal"]}),
+        files: vec![],
+        reviewed_revision: None,
+    });
+    store
+        .report_task(
+            RequestId::new(),
+            SessionRef {
+                id: attempt.session_id,
+                generation: 1,
+            },
+            report,
+        )
+        .unwrap();
+    store
+        .record_candidate_check(RequestId::new(), attempt.id, Ok(proof))
+        .unwrap();
+    let snapshot = store.snapshot().unwrap();
+    assert_eq!(
+        snapshot
+            .tasks
+            .iter()
+            .find(|task| task.id == attempt.task_id)
+            .unwrap()
+            .state,
+        TaskState::Succeeded
+    );
+    assert_eq!(snapshot.candidates[0].state, CandidateState::Prepared);
+}
+
+#[tokio::test]
+async fn a_failed_check_cannot_be_disguised_as_success_or_attached_to_another_candidate() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("output.txt"), "Result").unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (_, _, candidate, attempt, _) =
+        running_quality_check(&mut store, dir.path(), TaskPurpose::Verify).await;
+    let mut failed = check_report(&attempt, candidate);
+    failed.result.checks[0].exit_code = 1;
+    assert!(
+        store
+            .report_task(
+                RequestId::new(),
+                SessionRef {
+                    id: attempt.session_id,
+                    generation: 1
+                },
+                failed
+            )
+            .is_err()
+    );
+    let mut foreign = check_report(&attempt, candidate);
+    foreign.result.checks[0].candidate = CandidateId::new().to_string();
+    assert!(
+        store
+            .report_task(
+                RequestId::new(),
+                SessionRef {
+                    id: attempt.session_id,
+                    generation: 1
+                },
+                foreign
+            )
+            .is_err()
+    );
+    assert!(store.snapshot().unwrap().candidate_checks.is_empty());
+    assert_eq!(
+        store
+            .snapshot()
+            .unwrap()
+            .tasks
+            .iter()
+            .find(|task| task.id == attempt.task_id)
+            .unwrap()
+            .state,
+        TaskState::Running
+    );
+}
+
+#[tokio::test]
+async fn pending_quality_confirmation_resumes_after_restart_without_a_leader_turn() {
+    use adroit::control::{capture::CaptureSupervisor, service::Service};
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("output.txt"), "Result").unwrap();
+    let root = dir.path().join("control");
+    let mut store = Store::open(&root.join("state.sqlite3")).unwrap();
+    let (_, _, candidate, attempt, _) =
+        running_quality_check(&mut store, dir.path(), TaskPurpose::Verify).await;
+    store
+        .report_task(
+            RequestId::new(),
+            SessionRef {
+                id: attempt.session_id,
+                generation: 1,
+            },
+            check_report(&attempt, candidate),
+        )
+        .unwrap();
+    drop(store);
+    let service = Service::bind(&root).await.unwrap();
+    let mut capture = CaptureSupervisor::new(service.actor());
+    capture.tick().await.unwrap();
+    drop(capture);
+    let mut capture = CaptureSupervisor::new(service.actor());
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            capture.tick().await.unwrap();
+            let snapshot = service
+                .actor()
+                .call(|store| store.snapshot())
+                .await
+                .unwrap();
+            if snapshot.candidate_checks[0].state == CandidateCheckState::Validated {
+                assert_eq!(snapshot.candidates[0].state, CandidateState::Verified);
+                assert_eq!(
+                    snapshot
+                        .tasks
+                        .iter()
+                        .find(|task| task.id == attempt.task_id)
+                        .unwrap()
+                        .state,
+                    TaskState::Succeeded
+                );
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn a_scoped_snapshot_never_exposes_another_runs_quality_check() {
+    use adroit::control::{client::Client, protocol::Command, service::Service};
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("output.txt"), "Result").unwrap();
+    let root = dir.path().join("control");
+    let mut store = Store::open(&root.join("state.sqlite3")).unwrap();
+    let mut clients = Vec::new();
+    for _ in 0..2 {
+        let (owner, _, candidate, attempt, _) =
+            running_quality_check(&mut store, dir.path(), TaskPurpose::Verify).await;
+        store
+            .report_task(
+                RequestId::new(),
+                SessionRef {
+                    id: attempt.session_id,
+                    generation: 1,
+                },
+                check_report(&attempt, candidate),
+            )
+            .unwrap();
+        clients.push((
+            Client::session(&root, store.grant(owner).unwrap()),
+            candidate,
+        ));
+    }
+    assert_eq!(store.snapshot().unwrap().candidate_checks.len(), 2);
+    drop(store);
+    let _service = Service::bind(&root).await.unwrap();
+    for (client, candidate) in clients {
+        let snapshot = client
+            .request(RequestId::new(), Command::Snapshot)
+            .await
+            .unwrap();
+        let checks = snapshot["candidate_checks"].as_array().unwrap();
+        assert_eq!(checks.len(), 1);
+        assert_eq!(checks[0]["candidate_id"], candidate.to_string());
+    }
+}
