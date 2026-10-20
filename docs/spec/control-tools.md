@@ -1,12 +1,16 @@
 # Native control tools
 
 Managed Agents receive the same scoped control API through native MCP tools.
+Their launch permits Adroit's three scoped MCP methods without a separate approval
+for each internal request. This does not grant permission to unrelated MCP tools,
+shell commands, or filesystem operations.
 The published input schema describes the command variants and their nested run,
 task, result, permissions, candidate, and coordination formats. Human-only
 management operations are absent from that schema and remain refused to Agent
 credentials even if supplied manually.
 
-`control` takes `request_id` and `command`. The command is an object tagged with
+Before the first `control` call, allocate request IDs with `new_ids`.
+`control` takes a UUID `request_id` and `command`. The command is an object tagged with
 `op`. The session credential supplies the actor; callers cannot choose another
 identity. A request ID identifies an immutable command, including retries after
 a lost response. Changed content needs a new request ID.

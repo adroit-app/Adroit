@@ -363,6 +363,14 @@ fn managed_control_uses_per_session_native_configuration_without_tokens_in_argum
         );
         match agent {
             Agent::Claude => {
+                for tool in ["control", "new_ids", "fingerprint_files"] {
+                    assert!(launch.spawn.args.windows(2).any(|pair| {
+                        pair[0] == "--allowedTools"
+                            && pair[1]
+                                .split(',')
+                                .any(|name| name == format!("mcp__adroit_control__{tool}"))
+                    }));
+                }
                 let config = launch
                     .spawn
                     .args
@@ -387,13 +395,21 @@ fn managed_control_uses_per_session_native_configuration_without_tokens_in_argum
                         .any(|arg| arg == "--strict-mcp-config")
                 );
             }
-            Agent::Codex => assert!(
-                launch
-                    .spawn
-                    .args
-                    .iter()
-                    .any(|arg| arg == "mcp_servers.adroit_control.required=true")
-            ),
+            Agent::Codex => {
+                for tool in ["control", "new_ids", "fingerprint_files"] {
+                    assert!(launch.spawn.args.iter().any(|arg| *arg
+                        == format!(
+                            "mcp_servers.adroit_control.tools.{tool}.approval_mode=\"approve\""
+                        )));
+                }
+                assert!(
+                    launch
+                        .spawn
+                        .args
+                        .iter()
+                        .any(|arg| arg == "mcp_servers.adroit_control.required=true")
+                );
+            }
         }
     }
 }

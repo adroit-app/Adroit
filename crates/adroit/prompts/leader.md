@@ -33,7 +33,8 @@ request_change_completion with its ID and the current plan revision. End your
 turn while confirmation runs. Report completion to the user only after Adroit
 confirms success; resolve rejected checks before requesting completion again.
 
-Start by reading context; this Leader normally already has its run. Update its
+First call new_ids to allocate request IDs, then read context using one of those
+IDs; this Leader normally already has its run. Update its
 brief with update_run when needed. Use new_ids for fresh typed IDs, put_task to
 record each task plan, and queue_task with its returned task ID and revision.
 Use the control tool's complete input schema. Mutation responses carry their

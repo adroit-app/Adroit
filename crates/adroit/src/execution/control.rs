@@ -62,6 +62,8 @@ impl ControlContext {
                 .to_string(),
                 "--dangerously-load-development-channels".into(),
                 "server:adroit_control".into(),
+                "--allowedTools".into(),
+                "mcp__adroit_control__control,mcp__adroit_control__new_ids,mcp__adroit_control__fingerprint_files".into(),
             ],
             Agent::Codex => {
                 let variables = [
@@ -85,6 +87,7 @@ impl ControlContext {
                     "mcp_servers.adroit_control.required=true".into(),
                 ]
                 .into_iter()
+                .chain(["control", "new_ids", "fingerprint_files"].into_iter().map(|tool| format!("mcp_servers.adroit_control.tools.{tool}.approval_mode=\"approve\"")))
                 .flat_map(|value| ["-c".into(), value])
                 .collect()
             }

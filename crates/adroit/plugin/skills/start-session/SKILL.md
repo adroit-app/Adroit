@@ -5,7 +5,8 @@ description: Delegate work to an ordinary Adroit Worker session with its own age
 
 # Delegate work in Adroit
 
-Use Adroit's native `control` tool to read `context` before planning. It identifies
+First allocate request IDs with `new_ids`, then use Adroit's native `control`
+tool to read `context` using one of those IDs before planning. It identifies
 your role, run, task, attempt, and working area. Use the tool's complete input
 schema rather than guessing fields. A Leader normally already has a run: update
 its brief with `update_run` rather than opening another run.
