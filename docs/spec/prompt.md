@@ -73,7 +73,9 @@ take a shell line; its session is started with a message first.
 An image pasted into the prompt, with no text beside it on the clipboard, is
 saved as an attachment, separate from the words being written. Attachments
 show previews and can be selected and removed with the mouse or keyboard.
-They belong to their tab, stay with a prompt set aside or restored after a
+While images are attached, the text area fits its actual screen lines, up to
+the configured maximum, without reserving the minimum text rows. Attachments
+belong to their tab, stay with a prompt set aside or restored after a
 failed send, and are kept past the window alongside saved prompts.
 
 Sending delivers the words and images in the receiving agent's format;

@@ -1618,8 +1618,24 @@ fn App() -> Element {
         let _ = prompts.send(Op::ObserveLeaders(Box::new(orchestration.read().clone())));
     });
     use_effect(move || {
-        let _ = shown_images.read();
+        let has_images = !shown_images.read().is_empty();
         selected_image.set(None);
+        let s = settings::current();
+        let rows = crate::console::prompt_rows(
+            *prompt_height.peek(),
+            has_images,
+            s.prompt_min_rows,
+            s.prompt_max_rows,
+        );
+        if rows != *prompt_rows.peek() {
+            prompt_rows.set(rows);
+            if let Some(nv) = nvim.peek().clone() {
+                let cols = *prompt_cols.peek();
+                spawn(async move {
+                    let _ = nv.resize(cols, rows as u16).await;
+                });
+            }
+        }
     });
     let mut status = use_signal(|| None::<String>);
     let notices = use_signal(|| 0u64);
@@ -2573,7 +2589,12 @@ fn App() -> Element {
                         NvimEvent::Height(h) => {
                             prompt_height.set(h);
                             let s = settings::current();
-                            let rows = h.clamp(s.prompt_min_rows, s.prompt_max_rows);
+                            let rows = crate::console::prompt_rows(
+                                h,
+                                !shown_images.peek().is_empty(),
+                                s.prompt_min_rows,
+                                s.prompt_max_rows,
+                            );
                             if rows != *prompt_rows.peek() {
                                 prompt_rows.set(rows);
                                 let cols = *prompt_cols.peek();
@@ -3461,9 +3482,12 @@ fn App() -> Element {
                             Err(e) => status.set(Some(e)),
                         }
                     }
-                    let rows = prompt_height
-                        .peek()
-                        .clamp(s.prompt_min_rows, s.prompt_max_rows);
+                    let rows = crate::console::prompt_rows(
+                        *prompt_height.peek(),
+                        !shown_images.peek().is_empty(),
+                        s.prompt_min_rows,
+                        s.prompt_max_rows,
+                    );
                     if rows != *prompt_rows.peek() {
                         prompt_rows.set(rows);
                         let embedded = nvim.peek().clone();

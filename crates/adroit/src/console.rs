@@ -240,6 +240,10 @@ fn lines_back(rest: f64, by: f64) -> (i32, f64) {
     (whole as i32, total - whole)
 }
 
+pub fn prompt_rows(text_rows: usize, has_images: bool, min: usize, max: usize) -> usize {
+    text_rows.clamp(if has_images { 1 } else { min }, max)
+}
+
 /// The prompt card: Neovim's grid, its completion menu, command line and
 /// messages, redrawn whenever `prompt_frame` moves.
 #[component]
@@ -426,6 +430,17 @@ pub fn Composer(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn attached_prompts_use_their_actual_text_rows_instead_of_the_minimum() {
+        assert_eq!(prompt_rows(1, true, 3, 12), 1);
+        assert_eq!(prompt_rows(2, true, 3, 12), 2);
+        assert_eq!(prompt_rows(5, true, 3, 12), 5);
+        assert_eq!(prompt_rows(20, true, 3, 12), 12);
+        assert_eq!(prompt_rows(0, true, 3, 12), 1);
+        assert_eq!(prompt_rows(1, false, 3, 12), 3);
+        assert_eq!(prompt_rows(20, false, 3, 12), 12);
+    }
 
     #[test]
     fn a_click_lands_on_the_cell_under_it() {
