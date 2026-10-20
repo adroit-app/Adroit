@@ -11,7 +11,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -403,6 +403,13 @@ impl Store {
             let transaction =
                 connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
             transaction.execute_batch(SCHEMA)?;
+            transaction.pragma_update(None, "user_version", 1)?;
+            transaction.commit()?;
+        }
+        if schema < 2 {
+            let transaction =
+                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            transaction.execute_batch("CREATE TABLE session_credentials (session_id TEXT PRIMARY KEY REFERENCES logical_sessions(id), generation TEXT NOT NULL, token TEXT NOT NULL UNIQUE);")?;
             transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
             transaction.commit()?;
         }
@@ -453,6 +460,56 @@ impl Store {
         )?;
         transaction.commit()?;
         result
+    }
+
+    pub fn grant(&mut self, identity: SessionRef) -> Result<String> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        reference(&transaction, identity)?;
+        let kept: Option<String> = transaction
+            .query_row(
+                "SELECT token FROM session_credentials WHERE session_id = ?1 AND generation = ?2",
+                params![identity.id.to_string(), identity.generation.to_string()],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let token = match kept {
+            Some(token) => token,
+            None => {
+                let token = format!("{}{}", RequestId::new(), RequestId::new());
+                transaction.execute("INSERT INTO session_credentials(session_id, generation, token) VALUES (?1, ?2, ?3) ON CONFLICT(session_id) DO UPDATE SET generation = excluded.generation, token = excluded.token",
+                    params![identity.id.to_string(), identity.generation.to_string(), token])?;
+                token
+            }
+        };
+        transaction.commit()?;
+        Ok(token)
+    }
+
+    pub fn authenticate(&self, token: &str) -> Result<SessionRef> {
+        let found: Option<(String, String)> = self
+            .connection
+            .query_row(
+                "SELECT session_id, generation FROM session_credentials WHERE token = ?1",
+                [token],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        let (id, generation) = found.ok_or_else(|| {
+            ControlError::new(ErrorCode::OwnershipMismatch, "invalid session credential")
+        })?;
+        let generation = generation.parse().map_err(|_| {
+            ControlError::new(ErrorCode::CorruptStore, "invalid credential generation")
+        })?;
+        let identity = SessionRef {
+            id: id.parse().map_err(|_| {
+                ControlError::new(ErrorCode::CorruptStore, "invalid credential identity")
+            })?,
+            generation,
+        };
+        reference(&self.connection, identity)?;
+        Ok(identity)
     }
 
     pub fn register_leader(

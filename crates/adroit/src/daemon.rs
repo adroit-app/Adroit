@@ -89,9 +89,19 @@ pub fn cli() -> i32 {
     // The setting is read from its file each time, as the window that
     // changes it is another process, which may not be open.
     let running = move |n| keeper.keep(awake::wanted(n, Settings::load().keep_awake));
-    let served = runtime()
-        .map_err(adroit_term::Error::from)
-        .and_then(|rt| rt.block_on(Daemon::serve(&socket(), AWAKE_EVERY, running)));
+    let served = runtime().map_err(adroit_term::Error::from).and_then(|rt| {
+        rt.block_on(async {
+            let _control =
+                match crate::control::service::Service::bind(&crate::control::root()).await {
+                    Ok(service) => Some(service),
+                    Err(error) => {
+                        eprintln!("adroit: orchestration is unavailable: {error}");
+                        None
+                    }
+                };
+            Daemon::serve(&socket(), AWAKE_EVERY, running).await
+        })
+    });
     match served {
         Ok(()) => 0,
         Err(e) => {
