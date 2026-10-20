@@ -68,11 +68,17 @@ take a shell line; its session is started with a message first.
 ## A pasted image
 
 An image pasted into the prompt, with no text beside it on the clipboard, is
-saved by adroit, and the prompt names it at the cursor in the form Claude Code
-attaches as an image when the message is sent. Claude Code takes PNG, JPEG,
-GIF and WebP images; another kind is refused with a notice. A video is not
-taken, as Claude Code reads none. A saved image is kept for a week after it is
-pasted, so a prompt kept longer names an image that is gone.
+saved as an attachment, separate from the words being written. Attachments
+show previews and can be selected and removed with the mouse or keyboard.
+They belong to their tab, stay with a prompt set aside or restored after a
+failed send, and are kept past the window alongside saved prompts.
+
+Sending delivers the words and images in the receiving agent's format;
+image paths are added only at sending, never to the Neovim buffer. Images
+can be sent without text. A shell command cannot carry images.
+PNG, JPEG, GIF and WebP images are accepted; another kind is refused with a
+notice. A video is not taken. A saved image is kept for a week after it is
+pasted, so an older attachment may need to be pasted again.
 
 Where the console's program has the text instead, as in a shell or while
 Claude Code is answered from the prompt or passed every key, the program is

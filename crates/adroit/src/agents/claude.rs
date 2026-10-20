@@ -3,6 +3,14 @@ use super::*;
 pub struct Claude;
 
 impl AgentAdapter for Claude {
+    fn image_prompt(&self, text: &str, images: &[PathBuf]) -> String {
+        let mut prompt = text.to_string();
+        for image in images {
+            prompt.push_str(&format!(" @\"{}\"", image.display()));
+        }
+        prompt
+    }
+
     fn label(&self) -> &'static str {
         "Claude Code"
     }

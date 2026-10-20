@@ -189,6 +189,8 @@ impl History {
     }
 }
 
+pub type Taken = (Option<Tab>, String, Vec<PathBuf>);
+
 /// What the prompt is asked to do, one after another.
 pub enum Op {
     Show(Option<Tab>),
@@ -198,7 +200,10 @@ pub enum Op {
     Follow(Vec<Session>),
     /// The shown tab's text, with the tab it was written for, leaving the
     /// prompt empty.
-    Take(oneshot::Sender<(Option<Tab>, String)>),
+    Take(oneshot::Sender<Taken>),
+    Attach(PathBuf),
+    RemoveImage(PathBuf),
+    RestoreImages(Option<Tab>, Vec<PathBuf>),
     /// A prompt was sent: recalling starts again from the newest.
     Sent,
     /// Put the prompt sent one before, or one after when false, among those
@@ -232,7 +237,11 @@ impl Prompts {
 /// at a time, so that taking a tab's text and putting another's never cross.
 /// `drafted` follows the tabs that have text kept aside, for the window to
 /// mark.
-pub fn keeper(nvim: Signal<Option<Arc<Embedded>>>, mut drafted: Signal<HashSet<Tab>>) -> Prompts {
+pub fn keeper(
+    nvim: Signal<Option<Arc<Embedded>>>,
+    mut drafted: Signal<HashSet<Tab>>,
+    mut shown_images: Signal<Vec<PathBuf>>,
+) -> Prompts {
     let (tx, mut ops) = unbounded_channel();
     {
         let tx = tx.clone();
@@ -251,6 +260,13 @@ pub fn keeper(nvim: Signal<Option<Arc<Embedded>>>, mut drafted: Signal<HashSet<T
             .and_then(|text| serde_json::from_str(&text).ok())
             .map(Drafts::restored)
             .unwrap_or_default();
+        let images_path = instance_state().join("attachments.json");
+        let mut images = std::fs::read_to_string(&images_path)
+            .ok()
+            .and_then(|json| serde_json::from_str(&json).ok())
+            .map(crate::pasted::Attachments::restored)
+            .unwrap_or_default();
+        let mut saved_images = None;
         let mut saved = None::<BTreeMap<String, String>>;
         let mut opened = false;
         let mut history = History::default();
@@ -271,9 +287,11 @@ pub fn keeper(nvim: Signal<Option<Arc<Embedded>>>, mut drafted: Signal<HashSet<T
                     if now == drafts.shown {
                         continue;
                     }
+                    images.show(now.clone());
                     history.reset();
                     let Some(nv) = &nv else {
                         drafts.turn_to(now);
+                        shown_images.set(images.current().to_vec());
                         continue;
                     };
                     let taken = nv.take_text().await.unwrap_or_default();
@@ -282,6 +300,7 @@ pub fn keeper(nvim: Signal<Option<Arc<Embedded>>>, mut drafted: Signal<HashSet<T
                     }
                 }
                 Op::Close(now) => {
+                    images.close(now.clone());
                     history.reset();
                     if nv.is_none() {
                         drafts.turn_to(now);
@@ -299,7 +318,13 @@ pub fn keeper(nvim: Signal<Option<Arc<Embedded>>>, mut drafted: Signal<HashSet<T
                         let _ = reply.send(took);
                     }
                 }
-                Op::Follow(sessions) => drafts.follow(&sessions),
+                Op::Follow(sessions) => {
+                    images.follow(&sessions);
+                    drafts.follow(&sessions);
+                }
+                Op::Attach(path) => images.add(vec![path]),
+                Op::RemoveImage(path) => images.remove(&path),
+                Op::RestoreImages(tab, paths) => images.restore(tab, paths),
                 Op::Sent => history.reset(),
                 Op::Recall(tab, back, sent) => {
                     let Some(nv) = nv.as_ref().filter(|_| tab == drafts.shown) else {
@@ -314,9 +339,16 @@ pub fn keeper(nvim: Signal<Option<Arc<Embedded>>>, mut drafted: Signal<HashSet<T
                         Some(nv) => nv.take_text().await.unwrap_or_default(),
                         None => String::new(),
                     };
-                    let _ = reply.send((drafts.shown.clone(), text));
+                    let _ = reply.send((drafts.shown.clone(), text, images.take()));
                 }
                 Op::Save => {
+                    let now_images = images.saved();
+                    if saved_images.as_ref() != Some(&now_images) {
+                        if let Ok(json) = serde_json::to_string(&now_images) {
+                            let _ = std::fs::write(&images_path, json);
+                        }
+                        saved_images = Some(now_images);
+                    }
                     let Some(nv) = &nv else { continue };
                     if !opened {
                         opened = true;
@@ -333,7 +365,11 @@ pub fn keeper(nvim: Signal<Option<Arc<Embedded>>>, mut drafted: Signal<HashSet<T
                     }
                 }
             }
-            let holding = drafts.holding();
+            if *shown_images.peek() != images.current() {
+                shown_images.set(images.current().to_vec());
+            }
+            let mut holding = drafts.holding();
+            holding.extend(images.holding());
             if *drafted.peek() != holding {
                 drafted.set(holding);
             }

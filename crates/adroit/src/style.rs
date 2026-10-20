@@ -165,6 +165,13 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .prompt-shell { display: inline-flex; align-items: center; flex: none; height: 18px; padding: 0 7px; border-radius: 5px; font-family: var(--mono); font-weight: 500; font-size: 11px; background: rgba(240,128,190,0.14); color: #f080be; }
 .prompt-foot { display: flex; align-items: center; gap: 10px; padding: 2px 12px 6px; font-size: 11.5px; color: var(--text-3); }
 .prompt-foot-target { color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.prompt-attachments { display: flex; gap: 10px; overflow-x: auto; padding: 8px 14px 12px; }
+.prompt-attachment { position: relative; flex: 0 0 96px; height: 80px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--ground); cursor: pointer; }
+.prompt-attachment img { width: 100%; height: 100%; object-fit: contain; border-radius: 5px; }
+.prompt-attachment.selected { outline: 2px solid var(--run); outline-offset: 2px; }
+.attachment-remove { position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; display: grid; place-items: center; padding: 0; border: 1px solid var(--line-strong); border-radius: 50%; background: var(--raised); color: var(--text); font-size: 17px; line-height: 1; cursor: pointer; }
+.attachment-remove:hover, .attachment-remove:focus-visible { background: var(--select); outline: 2px solid var(--run); }
+.attachment-missing { display: grid; place-items: center; height: 100%; padding: 6px; color: var(--text-2); font-size: 11px; text-align: center; }
 .prompt-foot-target .icon { vertical-align: -2px; margin-right: 4px; }
 .prompt-foot-message { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .mode-chip { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 5px; font-family: var(--mono); font-weight: 500; font-size: 11px; }

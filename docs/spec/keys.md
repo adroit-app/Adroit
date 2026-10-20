@@ -4,7 +4,7 @@ Every key adroit handles itself runs a named action. adroit ships bindings of
 its own, and a file you write changes, adds to or takes away from them. The
 prompt's keys are Neovim's and are set up in Neovim; the dialog that asks
 before taking over a session always answers to `y`, `Enter`, `n` and `Escape`,
-and the picker's keys are its own ([workspaces](workspaces.md#going-to-a-session-or-starting-one)).
+and attachment selection and the picker have their own keys ([workspaces](workspaces.md#going-to-a-session-or-starting-one)).
 
 ## In the menu bar
 
@@ -183,6 +183,7 @@ another, the complete one runs.
 | `prompt.focus` | give the prompt the keys |
 | `prompt.write` | give the prompt the keys, and the key pressed with them |
 | `prompt.send` | send what the prompt holds |
+| `prompt.images` | select an attached image |
 | `prompt.history_prev`, `prompt.history_next` | put the prompt sent before or after the one shown in the prompt, to change and send again: those Claude Code recalls with its Up arrow where the shown tab works. In the prompt, while Neovim shows its completions or its command line, the key is Neovim's |
 | `console.send` | send the key pressed to the session |
 | `console.send <key>` | send the key named instead, as in `console.send Escape` |
@@ -315,6 +316,7 @@ another, the complete one runs.
 "X" = "session.stop"
 
 [prompt]
+"Ctrl+Shift+a" = "prompt.images"
 "Ctrl+c" = "console.send Escape"
 "Ctrl+Enter" = "prompt.send"
 "Ctrl+p" = "prompt.history_prev"

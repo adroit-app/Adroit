@@ -1,6 +1,6 @@
 # Name a pasted image in the prompt by a file adroit saves
 
-Status: Accepted
+Status: Superseded by [Keep pasted images apart from the prompt text until sending](20261020-keep-pasted-images-apart-from-the-prompt-text-until-sending.md)
 
 ## Context
 

@@ -37,6 +37,13 @@ pub trait ConversationReader: Send {
 
 /// A terminal agent owns its arguments, environment and optional integrations.
 pub trait AgentAdapter: Sync {
+    fn image_prompt(&self, text: &str, images: &[PathBuf]) -> String;
+    fn image_pastes(&self, _images: &[PathBuf]) -> Vec<String> {
+        Vec::new()
+    }
+    fn image_args(&self, _images: &[PathBuf]) -> Vec<String> {
+        Vec::new()
+    }
     fn label(&self) -> &'static str;
     fn program(&self) -> String;
     fn launch<'a>(&self, settings: &'a Settings) -> &'a Launch;
@@ -161,12 +168,30 @@ pub fn start(
     prompt: &str,
     env: Vec<(String, String)>,
 ) -> (String, adroit_claude::Started) {
+    start_with_images(agent, name, reader, prompt, &[], env)
+}
+
+pub fn start_with_images(
+    agent: Agent,
+    name: &str,
+    reader: bool,
+    prompt: &str,
+    images: &[PathBuf],
+    env: Vec<(String, String)>,
+) -> (String, adroit_claude::Started) {
     let settings = crate::settings::current();
     let a = adapter(agent);
     let conversation = a.conversation();
     let own = std::env::current_exe().unwrap_or_else(|_| "adroit".into());
     let mut args = a.integration_args(&own);
-    args.extend(a.start_args(&settings, name, &conversation, reader, prompt));
+    args.extend(a.image_args(images));
+    args.extend(a.start_args(
+        &settings,
+        name,
+        &conversation,
+        reader,
+        &a.image_prompt(prompt, images),
+    ));
     (conversation, launch(agent, args, env))
 }
 
@@ -194,6 +219,31 @@ mod tests {
     use super::*;
     use crate::settings::Settings;
     use adroit_model::Agent;
+    #[test]
+    fn images_are_prepared_for_the_receiving_agent_only_when_sent() {
+        let images = vec![
+            PathBuf::from("/tmp/my shot.png"),
+            PathBuf::from("/tmp/two.png"),
+        ];
+        let claude = adapter(Agent::Claude);
+        assert_eq!(
+            claude.image_prompt("look", &images),
+            "look @\"/tmp/my shot.png\" @\"/tmp/two.png\""
+        );
+        assert!(claude.image_pastes(&images).is_empty());
+        let codex = adapter(Agent::Codex);
+        assert_eq!(codex.image_prompt("look", &images), "look");
+        assert_eq!(
+            codex.image_pastes(&images),
+            ["\"/tmp/my shot.png\"", "\"/tmp/two.png\""]
+        );
+        assert_eq!(
+            codex.image_args(&images),
+            ["--image", "/tmp/my shot.png", "--image", "/tmp/two.png"]
+        );
+        assert_eq!(claude.image_prompt("", &[]), "");
+    }
+
     #[test]
     fn usage_settings_open_the_account_page_for_each_agent() {
         assert_eq!(

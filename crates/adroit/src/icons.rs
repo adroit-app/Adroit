@@ -122,6 +122,7 @@ impl Icon {
             A::SessionPick => Icon::Search,
             A::SessionAgentNext => Icon::ArrowsExchange,
             A::PromptSend => Icon::Send,
+            A::PromptImages => Icon::Photo,
             A::ShellOpen => Icon::Terminal2,
             A::NeovimOpen => Icon::Code,
             A::ShellClose => Icon::SquareX,

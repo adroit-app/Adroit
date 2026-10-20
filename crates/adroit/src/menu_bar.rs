@@ -78,6 +78,7 @@ pub fn sections() -> Vec<Section> {
                 Run(Action::SessionPick, "Go to or Start Session…"),
                 Separator,
                 Run(Action::PromptSend, "Send Prompt"),
+                Run(Action::PromptImages, "Select Attached Image"),
                 Separator,
                 Run(Action::ShellOpen, "Open Shell"),
                 Run(Action::NeovimOpen, "Open Neovim"),

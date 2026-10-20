@@ -129,6 +129,7 @@ pub const DEFAULTS: &str = r#"
 "X" = "session.stop"
 
 [prompt]
+"Ctrl+Shift+a" = "prompt.images"
 "Ctrl+c" = "console.send Escape"
 "Ctrl+Enter" = "prompt.send"
 "Ctrl+p" = "prompt.history_prev"
@@ -484,6 +485,7 @@ actions! {
     PromptFocus => "prompt.focus",
     PromptWrite => "prompt.write",
     PromptSend => "prompt.send",
+    PromptImages => "prompt.images",
     HistoryPrev => "prompt.history_prev",
     HistoryNext => "prompt.history_next",
     SettingsOpen => "settings.open",
@@ -1202,6 +1204,14 @@ mod tests {
             pending,
             key,
         )
+    }
+
+    #[test]
+    fn prompt_attachments_have_a_named_selection_action() {
+        assert_eq!(
+            step(&Keymap::defaults(), &[Context::Prompt], &[], "Ctrl+Shift+a"),
+            Step::Run(Action::PromptImages)
+        );
     }
 
     #[test]

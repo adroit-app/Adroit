@@ -1467,7 +1467,13 @@ fn App() -> Element {
     };
     // The tabs with something written for them kept aside.
     let drafted = use_signal(HashSet::<Tab>::new);
-    let prompts = use_hook(|| prompts::keeper(nvim, drafted));
+    let shown_images = use_signal(Vec::<PathBuf>::new);
+    let mut selected_image = use_signal(|| None::<PathBuf>);
+    let prompts = use_hook(|| prompts::keeper(nvim, drafted, shown_images));
+    use_effect(move || {
+        let _ = shown_images.read();
+        selected_image.set(None);
+    });
     let mut status = use_signal(|| None::<String>);
     let notices = use_signal(|| 0u64);
     let notify = Status {
@@ -2742,13 +2748,19 @@ fn App() -> Element {
                 };
                 // Sent empty, the key itself goes to the session, as it would in
                 // Claude Code's own input.
-                if let Some(id) = passes_enter(taken.as_ref()) {
+                if let Some(id) = taken
+                    .as_ref()
+                    .filter(|(_, _, images)| images.is_empty())
+                    .and_then(|(tab, text, _)| passes_enter(Some(&(tab.clone(), text.clone()))))
+                {
                     let size = *console_size.peek();
                     if let Some(p) = pane_for(&hub, &Tab::Session(id), size).await {
                         p.key(&Key::new("Enter").ctrl());
                     }
                 }
-                let Some((shown, text)) = taken.filter(|(_, text)| !text.trim().is_empty()) else {
+                let Some((shown, text, images)) =
+                    taken.filter(|(_, text, images)| !text.trim().is_empty() || !images.is_empty())
+                else {
                     sending.set(false);
                     return;
                 };
@@ -2797,6 +2809,19 @@ fn App() -> Element {
                         );
                         false
                     }
+                    _ if !images.is_empty()
+                        && agents::adapter(agent).capabilities().shell_bang
+                        && adroit_claude::shell_line(&text).is_some() =>
+                    {
+                        notify.notice("Images cannot be sent with a shell command".into());
+                        false
+                    }
+                    _ if images.iter().any(|path| !path.is_file()) => {
+                        notify.notice(
+                            "An attached image is unavailable; remove it or paste it again".into(),
+                        );
+                        false
+                    }
                     tab @ Tab::Session(_) => match pane_for(&hub, &tab, size).await {
                         Some(p) => {
                             // Claude Code turns on bracketed paste once it is
@@ -2821,7 +2846,17 @@ fn App() -> Element {
                                         tokio::time::sleep(Duration::from_millis(40)).await;
                                         p.paste(command);
                                     }
-                                    None => p.paste(&text),
+                                    None => {
+                                        let adapter = agents::adapter(agent);
+                                        for image in adapter.image_pastes(&images) {
+                                            p.paste(&image);
+                                            tokio::time::sleep(Duration::from_millis(80)).await;
+                                        }
+                                        let message = adapter.image_prompt(&text, &images);
+                                        if !message.is_empty() {
+                                            p.paste(&message);
+                                        }
+                                    }
                                 }
                                 tokio::time::sleep(Duration::from_millis(40)).await;
                                 p.key(&Key::new("Enter"));
@@ -2835,7 +2870,9 @@ fn App() -> Element {
                     },
                     Tab::Shell(_) => false,
                     Tab::Draft { .. }
-                        if named(&text).0.is_some() && named(&text).1.trim().is_empty() =>
+                        if named(&text).0.is_some()
+                            && named(&text).1.trim().is_empty()
+                            && images.is_empty() =>
                     {
                         notify.notice("Write what the session is to do below its name".into());
                         false
@@ -2867,7 +2904,14 @@ fn App() -> Element {
                             match scratch::start_dir(&worktree, &scratch_dir(), Moment::now()) {
                                 Ok(worktree) => {
                                     let (conversation, (program, args, env)) =
-                                        agents::start(agent, &name, reader, &text, session_env());
+                                        agents::start_with_images(
+                                            agent,
+                                            &name,
+                                            reader,
+                                            &text,
+                                            &images,
+                                            session_env(),
+                                        );
                                     let spawn = Spawn {
                                         program,
                                         args,
@@ -2911,6 +2955,7 @@ fn App() -> Element {
                     let _ = prompts.send(Op::Sent);
                 } else {
                     let lines: Vec<String> = text.lines().map(String::from).collect();
+                    let _ = prompts.send(Op::RestoreImages(sent_to.clone(), images));
                     let _ = prompts.send(Op::Add(sent_to, lines, None));
                 }
                 sending.set(false);
@@ -3643,8 +3688,7 @@ fn App() -> Element {
         }
     };
 
-    // An image pasted into the prompt is saved for Claude Code to read and
-    // named there. The console's program is handed an empty paste, as a
+    // The console's program is handed an empty paste, as a
     // terminal hands on an image paste: Claude Code then reads the image off
     // the clipboard itself.
     let paste_image = {
@@ -3655,7 +3699,9 @@ fn App() -> Element {
                 let now = std::time::SystemTime::now();
                 pasted::prune(&dir, now);
                 match pasted::save(&dir, &mime, &data, now) {
-                    Ok(path) => type_text(pasted::reference(&path), true),
+                    Ok(path) => {
+                        let _ = prompts.send(Op::Attach(path));
+                    }
                     Err(e) => notify.notice(e.to_string()),
                 }
             }
@@ -3776,6 +3822,7 @@ fn App() -> Element {
                 Action::PromptFocus
                 | Action::PromptWrite
                 | Action::PromptSend
+                | Action::PromptImages
                 | Action::HistoryPrev
                 | Action::HistoryNext
                     if !prompt => {}
@@ -3793,6 +3840,12 @@ fn App() -> Element {
                     }
                 }
                 Action::PromptSend => submit(),
+                Action::PromptImages => {
+                    if matches!(text_goes(), Typed::Prompt) {
+                        focus.set(Area::Prompt);
+                        selected_image.set(shown_images.peek().first().cloned());
+                    }
+                }
                 Action::HistoryPrev | Action::HistoryNext => {
                     // In the prompt the same keys choose among Neovim's
                     // completions and its command-line history.
@@ -4481,6 +4534,20 @@ fn App() -> Element {
                 return;
             }
             let area = *focus.peek();
+            if area == Area::Prompt && matches!(text_goes(), Typed::Prompt) {
+                let images = shown_images.peek();
+                let chosen = selected_image.peek().clone();
+                if let Some(action) = pasted::image_key(&images, chosen.as_ref(), &key) {
+                    match action {
+                        pasted::ImageKey::Select(path) => selected_image.set(path),
+                        pasted::ImageKey::Remove(path) => {
+                            let _ = prompts.send(Op::RemoveImage(path));
+                        }
+                    }
+                    return;
+                }
+                selected_image.set(None);
+            }
             let pane = active_pane().filter(|_| area == Area::Console);
             let write = |p: &Pane, k: &Key| {
                 p.key(k);
@@ -5054,7 +5121,9 @@ fn App() -> Element {
         _ if picking.read().is_some() || renaming().is_some() => false,
         _ if confirm().is_some() => false,
         Area::Console => passing || answering || !session_shown,
-        Area::Prompt => answering || matches!(mode.0, "insert" | "cmd"),
+        Area::Prompt => {
+            answering || (selected_image().is_none() && matches!(mode.0, "insert" | "cmd"))
+        }
         Area::Sidebar | Area::Details => false,
     };
     let (footer_mode, footer_class) = match area {
@@ -5657,6 +5726,7 @@ fn App() -> Element {
                                 composer_height,
                                 prompt_width,
                                 onpick: move |_| {
+                                    selected_image.set(None);
                                     focus.set(Area::Prompt);
                                     // A click on the prompt is to write there; the
                                     // first key typed would otherwise run as a command.
@@ -5673,6 +5743,11 @@ fn App() -> Element {
                                 rows: prompt_rows(),
                                 shell: prompt_shell(),
                                 answering,
+                                images: shown_images(),
+                                image_keys: km.keys_for(Context::Prompt, &Action::PromptImages),
+                                selected_image: selected_image(),
+                                onselectimage: move |path| { focus.set(Area::Prompt); selected_image.set(Some(path)); },
+                                onremoveimage: move |path| { let _ = prompts.send(Op::RemoveImage(path)); },
                             }
                         }
                     }

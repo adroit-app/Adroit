@@ -29,6 +29,24 @@ impl CodexOptions {
 pub struct Codex;
 
 impl AgentAdapter for Codex {
+    fn image_prompt(&self, text: &str, _images: &[PathBuf]) -> String {
+        text.into()
+    }
+
+    fn image_pastes(&self, images: &[PathBuf]) -> Vec<String> {
+        images
+            .iter()
+            .map(|image| format!("\"{}\"", image.display()))
+            .collect()
+    }
+
+    fn image_args(&self, images: &[PathBuf]) -> Vec<String> {
+        images
+            .iter()
+            .flat_map(|image| ["--image".into(), image.to_string_lossy().into_owned()])
+            .collect()
+    }
+
     fn label(&self) -> &'static str {
         "Codex"
     }

@@ -263,7 +263,21 @@ pub fn Composer(
     shell: bool,
     /// Whether the keys typed here answer the session waiting above instead.
     answering: bool,
+    images: Vec<std::path::PathBuf>,
+    selected_image: Option<std::path::PathBuf>,
+    image_keys: Option<String>,
+    onselectimage: EventHandler<std::path::PathBuf>,
+    onremoveimage: EventHandler<std::path::PathBuf>,
 ) -> Element {
+    let previews = use_memo(use_reactive((&images,), |(images,)| {
+        images
+            .into_iter()
+            .map(|path| {
+                let thumb = crate::pictures::file_thumb(&path);
+                (path, thumb)
+            })
+            .collect::<Vec<_>>()
+    }));
     let ch = use_cell_height();
     let thumb = scroll_thumb(view.0, rows, view.1);
     let _ = prompt_frame();
@@ -326,7 +340,7 @@ pub fn Composer(
                     }
                 }
                 if let Some((screen, popup, cmd, _)) = &prompt {
-                    ScreenView { screen: screen.clone(), cell_width: cw, show_cursor: focused && cmd.is_none() && !answering }
+                    ScreenView { screen: screen.clone(), cell_width: cw, show_cursor: focused && cmd.is_none() && !answering && selected_image.is_none() }
                     if let (Some(pm), Some((left, least, most))) = (popup, menu) {
                         div {
                             class: "vim-menu",
@@ -346,6 +360,39 @@ pub fn Composer(
                     }
                 }
             }
+            if !images.is_empty() {
+                div {
+                    class: "prompt-attachments",
+                    role: "group",
+                    aria_label: "Attached images",
+                    for (path, preview) in previews().iter() {
+                        div {
+                            key: "{path.display()}",
+                            class: if selected_image.as_ref() == Some(path) { "prompt-attachment selected" } else { "prompt-attachment" },
+                            title: "{path.file_name().unwrap_or_default().to_string_lossy()} — arrows move; Delete removes; Esc returns",
+                            onmousedown: { let path = path.clone(); move |e: Event<MouseData>| {
+                                e.stop_propagation();
+                                e.prevent_default();
+                                onselectimage.call(path.clone());
+                            } },
+                            if let Some(preview) = preview {
+                                img { src: "{preview}", alt: "Attached image: {path.file_name().unwrap_or_default().to_string_lossy()}" }
+                            } else {
+                                span { class: "attachment-missing", "Image unavailable" }
+                            }
+                            button {
+                                class: "attachment-remove",
+                                r#type: "button",
+                                aria_label: "Remove attached image {path.file_name().unwrap_or_default().to_string_lossy()}",
+                                title: "Remove image",
+                                onmousedown: move |e: Event<MouseData>| { e.stop_propagation(); e.prevent_default(); },
+                                onclick: { let path = path.clone(); move |e: Event<MouseData>| { e.stop_propagation(); onremoveimage.call(path.clone()); } },
+                                "×"
+                            }
+                        }
+                    }
+                }
+            }
             div { class: "prompt-foot",
                 if shell {
                     span {
@@ -359,6 +406,13 @@ pub fn Composer(
                     span { class: "prompt-foot-message", "{msg}" }
                 }
                 span { class: "flex-spacer" }
+                if !images.is_empty() {
+                    if selected_image.is_some() {
+                        span { class: "kbd-list", "← → select · Delete remove · Esc return" }
+                    } else if let Some(k) = image_keys {
+                        span { class: "kbd-list", Keys { keys: k } " images" }
+                    }
+                }
                 if answering {
                     span { class: "prompt-foot-answering", "keys answer above" }
                 } else if let Some(k) = send_keys {
