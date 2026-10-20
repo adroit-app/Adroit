@@ -230,6 +230,9 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .list-rows.details-git { flex: 1; user-select: text; }
 .details-file-status { color: var(--wait); white-space: pre; flex: none; }
 .commit { display: flex; align-items: center; gap: 6px; height: 40px; padding: 0 8px 0 4px; font-size: 12.5px; border-radius: 6px; cursor: default; }
+.revision-description { padding: 8px; margin-bottom: 8px; border-bottom: 1px solid var(--line); }
+.revision-heading { display: flex; gap: 8px; align-items: baseline; margin-bottom: 6px; }
+.revision-description pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.5; }
 .commit-graph { flex: none; display: flex; }
 .commit-text { flex: 1; min-width: 120px; display: grid; grid-template-columns: auto 1fr; gap: 0 8px; }
 .graph path { fill: none; stroke-width: 2; }

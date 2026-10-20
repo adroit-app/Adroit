@@ -5212,12 +5212,12 @@ fn App() -> Element {
     let has_account_usage = !usage_now.is_empty();
     let system_gauges = system_snapshot.read().gauges(&font.read().usage);
     let spot_now = spot();
-    let git_now = git_view()
-        .filter(|v| {
-            spot_now.as_ref() == Some(&v.spot)
-                && current.as_ref().is_some_and(|p| p.worktree == v.worktree)
-        })
-        .map(|v| v.listing);
+    let view_now = git_view().filter(|v| {
+        spot_now.as_ref() == Some(&v.spot)
+            && current.as_ref().is_some_and(|p| p.worktree == v.worktree)
+    });
+    let revision_now = view_now.as_ref().and_then(|v| v.revision.clone());
+    let git_now = view_now.map(|v| v.listing);
     let crumbs = drill_now.crumbs();
     let selected_row = git_now.as_ref().and_then(|l| drill_now.selected(l));
     // A row clicked opens as `Enter` on it would.
@@ -6336,6 +6336,19 @@ fn App() -> Element {
                                             span { class: "details-crumb-sep", IconView { icon: Icon::ChevronRight, size: 12 } }
                                         }
                                         span { class: "details-crumb", "{c}" }
+                                    }
+                                }
+                            }
+                            if let Some(revision) = &revision_now {
+                                div { class: "revision-description",
+                                    div { class: "revision-heading",
+                                        span { class: "details-label", "Description" }
+                                        span { class: "commit-hash", title: "{revision.id}", "{revision.short}" }
+                                    }
+                                    if revision.description.is_empty() {
+                                        div { class: "commit-none", "(no description)" }
+                                    } else {
+                                        pre { "{revision.description}" }
                                     }
                                 }
                             }

@@ -60,6 +60,44 @@ pub struct Commit {
     pub bookmarks: Vec<String>,
 }
 
+/// The identity and full description of a single revision.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Revision {
+    pub id: String,
+    pub short: String,
+    pub description: String,
+}
+
+pub fn parse_revision(out: &str) -> Option<Revision> {
+    let mut fields = out.splitn(3, '\0');
+    Some(Revision {
+        id: fields.next()?.to_string(),
+        short: fields.next()?.to_string(),
+        description: fields.next()?.trim_end_matches('\n').to_string(),
+    })
+}
+
+pub async fn revision(path: &Path, rev: &str) -> Result<Revision, Error> {
+    let out = run(
+        "git",
+        &[
+            "show",
+            "--no-patch",
+            "--no-show-signature",
+            "--format=%H%x00%h%x00%B",
+            "--end-of-options",
+            rev,
+            "--",
+        ],
+        Some(path),
+    )
+    .await?;
+    parse_revision(&out).ok_or_else(|| Error::Failed {
+        program: "git".into(),
+        stderr: "Cannot read the commit description".into(),
+    })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiffKind {
     File,
@@ -400,6 +438,46 @@ pub async fn files(path: &Path) -> Result<Vec<String>, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn revision_details_keep_the_whole_message_and_read_the_selected_commit() {
+        let dir = repo("revision-description");
+        git(
+            &dir,
+            &[
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "first subject",
+                "-m",
+                "Why this matters.\n\n日本語 and \"quotes\".",
+            ],
+        );
+        let first = revision(&dir, "HEAD").await.unwrap();
+        assert_eq!(
+            first.description,
+            "first subject\n\nWhy this matters.\n\n日本語 and \"quotes\"."
+        );
+        assert!(first.id.starts_with(&first.short));
+        git(
+            &dir,
+            &["commit", "-q", "--allow-empty", "-m", "second subject"],
+        );
+        assert_eq!(
+            revision(&dir, "HEAD").await.unwrap().description,
+            "second subject"
+        );
+        assert_eq!(revision(&dir, &first.id).await.unwrap(), first);
+    }
+
+    #[test]
+    fn revision_descriptions_keep_blank_lines_and_separator_characters() {
+        let detail = parse_revision("full\0short\0subject\n\nbody\t日本語\u{1f}\u{1e}\n").unwrap();
+        assert_eq!(detail.description, "subject\n\nbody\t日本語\u{1f}\u{1e}");
+        assert_eq!(parse_revision("id\0id\0").unwrap().description, "");
+        assert!(parse_revision("invalid").is_none());
+    }
 
     #[test]
     fn every_worktree_belongs_to_the_main_checkout_listed_first() {

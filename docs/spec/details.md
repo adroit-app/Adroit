@@ -35,8 +35,9 @@ Overview, Changes and Log.
   are those the session's console drew and the image files it came across
   that still exist, together, each beside a small picture of it. A shell or a
   draft has no conversation and lists none.
-- **Changes** lists the files the worktree changes. Opening one shows its
-  diff.
+- **Changes** shows the current jj change’s full description, or the HEAD
+  commit’s full message in Git, alongside the files the worktree changes.
+  Opening a file shows its diff.
 - **Log** lists the changes that lead to the worktree, drawn as a graph: each
   change is joined by lines to its parents, so forks and merges show. A line
   running off the end leads to a change not listed. Opening a change lists

@@ -808,6 +808,7 @@ pub struct View {
     pub spot: Spot,
     pub worktree: PathBuf,
     pub listing: Listing,
+    pub revision: Option<adroit_claude::git::Revision>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1008,6 +1009,7 @@ pub async fn load(spot: Spot, worktree: PathBuf) -> View {
     use adroit_claude::{Error, git, jj};
     let diff_lines = crate::settings::current().details.diff_lines;
     let mut listing = None;
+    let mut read_with_jj = false;
     if jj::is_jj(&worktree) {
         let rev = |r: &Rev| match r {
             Rev::WorkingCopy => "@".to_string(),
@@ -1024,6 +1026,7 @@ pub async fn load(spot: Spot, worktree: PathBuf) -> View {
         };
         // Without jj, a colocated repository still reads through git.
         if !matches!(read, Err(Error::Spawn { .. })) {
+            read_with_jj = true;
             listing = Some(read);
         }
     }
@@ -1050,10 +1053,30 @@ pub async fn load(spot: Spot, worktree: PathBuf) -> View {
             }
         }
     };
+    let revision = if read.is_ok() {
+        match &spot {
+            Spot::Files(rev) => {
+                let target = match rev {
+                    Rev::WorkingCopy if read_with_jj => "@",
+                    Rev::WorkingCopy => "HEAD",
+                    Rev::Commit(id) => id,
+                };
+                if read_with_jj {
+                    jj::revision(&worktree, target).await.ok()
+                } else {
+                    git::revision(&worktree, target).await.ok()
+                }
+            }
+            _ => None,
+        }
+    } else {
+        None
+    };
     View {
         spot,
         worktree,
         listing: read.unwrap_or_else(|e| Listing::Error(e.to_string())),
+        revision,
     }
 }
 
@@ -1064,6 +1087,68 @@ mod tests {
     use adroit_claude::git::DiffKind;
 
     use adroit_model::{Kind, Session, State, Wait};
+
+    #[tokio::test]
+    async fn changes_and_opened_log_entries_show_their_full_descriptions_even_without_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let jj = |args: &[&str]| {
+            std::process::Command::new("jj")
+                .args([
+                    "--config",
+                    "user.name=test",
+                    "--config",
+                    "user.email=test@example.com",
+                ])
+                .args(args)
+                .current_dir(dir.path())
+                .output()
+                .unwrap()
+                .status
+                .success()
+        };
+        assert!(jj(&["git", "init", "."]));
+        assert!(jj(&[
+            "describe",
+            "-m",
+            "first subject",
+            "-m",
+            "The reason for this change."
+        ]));
+        let changes = load(Spot::Files(Rev::WorkingCopy), dir.path().into()).await;
+        assert!(matches!(changes.listing, Listing::Files(ref files) if files.is_empty()));
+        let first = changes.revision.unwrap();
+        assert_eq!(
+            first.description,
+            "first subject\n\nThe reason for this change."
+        );
+        assert!(jj(&["new", "-m", "second subject"]));
+        let opened = load(
+            Spot::Files(Rev::Commit(first.id.clone())),
+            dir.path().into(),
+        )
+        .await;
+        assert_eq!(opened.revision, Some(first));
+        let changes = load(Spot::Files(Rev::WorkingCopy), dir.path().into()).await;
+        assert_eq!(changes.revision.unwrap().description, "second subject");
+        assert!(load(Spot::Log, dir.path().into()).await.revision.is_none());
+    }
+
+    #[tokio::test]
+    async fn an_unborn_git_worktree_lists_its_files_without_a_commit_description() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(
+            std::process::Command::new("git")
+                .args(["init", "-q"])
+                .current_dir(dir.path())
+                .status()
+                .unwrap()
+                .success()
+        );
+        std::fs::write(dir.path().join("new.txt"), "new").unwrap();
+        let view = load(Spot::Files(Rev::WorkingCopy), dir.path().into()).await;
+        assert!(matches!(view.listing, Listing::Files(ref files) if files.len() == 1));
+        assert!(view.revision.is_none());
+    }
 
     #[test]
     fn processes_fold_expand_and_open_with_the_same_overview_navigation() {

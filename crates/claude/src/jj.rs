@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use crate::git::{Change, Commit, DIFF_BYTES, DiffLine, parse_diff};
+use crate::git::{Change, Commit, DIFF_BYTES, DiffLine, Revision, parse_diff, parse_revision};
 use crate::{Error, run, run_head};
 
 /// Whether `dir` belongs to a jj workspace: the nearest directory holding
@@ -114,6 +114,23 @@ pub async fn history(path: &Path, n: usize) -> Result<Vec<Commit>, Error> {
     Ok(parse_log(&out))
 }
 
+pub async fn revision(path: &Path, rev: &str) -> Result<Revision, Error> {
+    let mut args = PLAIN.to_vec();
+    args.extend([
+        "log",
+        "--no-graph",
+        "-r",
+        rev,
+        "-T",
+        r#"change_id ++ "\0" ++ change_id.shortest(8) ++ "\0" ++ description"#,
+    ]);
+    let out = run("jj", &args, Some(path)).await?;
+    parse_revision(&out).ok_or_else(|| Error::Failed {
+        program: "jj".into(),
+        stderr: "Cannot read the change description".into(),
+    })
+}
+
 /// The files change `rev` touches.
 pub async fn files(path: &Path, rev: &str) -> Result<Vec<Change>, Error> {
     let mut args = PLAIN.to_vec();
@@ -149,6 +166,37 @@ mod tests {
             path: path.into(),
             from: from.map(Into::into),
         }
+    }
+
+    #[tokio::test]
+    async fn revision_details_read_full_descriptions_for_the_working_copy_and_an_older_change() {
+        let dir = scratch("revision-description");
+        if !jj(&dir, &["git", "init", "."]) {
+            return;
+        }
+        assert!(jj(
+            &dir,
+            &[
+                "describe",
+                "-m",
+                "first subject",
+                "-m",
+                "Why this matters.\n\n日本語 and \"quotes\"."
+            ]
+        ));
+        let first = revision(&dir, "@").await.unwrap();
+        assert_eq!(
+            first.description,
+            "first subject\n\nWhy this matters.\n\n日本語 and \"quotes\"."
+        );
+        assert!(jj(&dir, &["new", "-m", "second subject"]));
+        assert_eq!(
+            revision(&dir, "@").await.unwrap().description,
+            "second subject"
+        );
+        assert_eq!(revision(&dir, &first.id).await.unwrap(), first);
+        assert!(jj(&dir, &["describe", "-m", ""]));
+        assert_eq!(revision(&dir, "@").await.unwrap().description, "");
     }
 
     #[test]
