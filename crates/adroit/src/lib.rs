@@ -28,6 +28,8 @@ mod keys;
 mod keys_edit;
 mod keys_pane;
 mod layout;
+mod leader_details;
+pub mod leader_navigation;
 pub mod menu;
 pub mod menu_bar;
 pub mod nav;

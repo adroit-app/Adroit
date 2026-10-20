@@ -61,6 +61,26 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
    character leaves short of its two cells. */
 #adroit-compose span { display: inline-block; flex: none; overflow: hidden; height: calc(var(--cell-h) - 1px); box-shadow: inset 0 -1px 0 currentColor; }
 .app { height: 100%; display: flex; flex-direction: column; }
+.request-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.request-state, .request-muted { color: var(--text-2); font-size: 11px; }
+.request-prose { white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0; line-height: 1.5; user-select: text; }
+.request-attention { color: var(--wait); }
+.request-task, .request-question, .request-notice { border-top: 1px solid var(--line); padding: 8px 0; }
+.request-task summary { display: flex; align-items: baseline; gap: 8px; cursor: pointer; }
+.request-task-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.request-task[open] .request-task-title { white-space: normal; overflow-wrap: anywhere; }
+.request-task summary:focus-visible, .request-notice summary:focus-visible { outline: 1px solid var(--run); }
+.request-open { padding: 4px 6px; margin: 6px 0; background: var(--raised); color: var(--text); border: 1px solid var(--line-strong); font: inherit; cursor: pointer; }
+.request-open:focus-visible { outline: 1px solid var(--run); }
+.request-evidence { display: flex; flex-direction: column; gap: 4px; padding-top: 8px; }
+.request-check { font-family: var(--mono); font-size: 11px; }
+.sidebar-views { display: flex; gap: 3px; padding: 8px 8px 0; flex: none; }
+.sidebar-view { flex: 1; padding: 6px 3px; border: 0; border-bottom: 2px solid transparent; color: var(--text-2); background: transparent; font: inherit; cursor: pointer; }
+.sidebar-view.active { color: var(--text); border-bottom-color: var(--run); }
+.sidebar-view:hover { background: var(--raised); }
+.sidebar-view:focus-visible { outline: 1px solid var(--run); outline-offset: -1px; }
+.leader-controller-error { padding: 6px 12px; color: var(--wait); overflow-wrap: anywhere; }
+
 .header { height: 40px; display: flex; align-items: center; gap: 14px; padding: 0 16px; flex: none; }
 .header-crumbs { display: flex; gap: 6px; color: var(--text-2); align-items: center; min-width: 0; overflow: hidden; white-space: nowrap; }
 .header-crumbs-sep { color: #5d636c; display: inline-flex; }

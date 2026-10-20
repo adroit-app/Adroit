@@ -1374,6 +1374,51 @@ fn Terminal(runs: TerminalProgram) -> Element {
 #[component]
 fn App() -> Element {
     let mut tree = use_signal(Tree::default);
+    let mut leader_view = use_signal(|| false);
+    let mut orchestration = use_signal(adroit_model::ControlSnapshot::default);
+    let mut orchestration_error = use_signal(|| None::<String>);
+    use_hook(move || {
+        spawn(async move {
+            loop {
+                let result = match crate::control::client::Client::human(&crate::control::root()) {
+                    Ok(client) => client
+                        .request(
+                            adroit_model::RequestId::new(),
+                            crate::control::protocol::Command::Snapshot,
+                        )
+                        .await
+                        .and_then(|value| {
+                            serde_json::from_value::<adroit_model::ControlSnapshot>(value).map_err(
+                                |error| {
+                                    crate::control::store::ControlError::new(
+                                        crate::control::store::ErrorCode::InvalidRequest,
+                                        error.to_string(),
+                                    )
+                                },
+                            )
+                        }),
+                    Err(error) => Err(error),
+                };
+                match result {
+                    Ok(next) => {
+                        if *orchestration.peek() != next {
+                            orchestration.set(next);
+                        }
+                        if orchestration_error.peek().is_some() {
+                            orchestration_error.set(None);
+                        }
+                    }
+                    Err(error) => {
+                        let error = Some(format!("Controller unavailable: {error}"));
+                        if *orchestration_error.peek() != error {
+                            orchestration_error.set(error);
+                        }
+                    }
+                }
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        });
+    });
     let mut selected = use_signal(|| None::<Item>);
     let mut collapsed = use_signal(HashSet::<String>::new);
     let mut focus = use_signal(|| Area::Sidebar);
@@ -2578,8 +2623,43 @@ fn App() -> Element {
     });
     let shown_tree = use_memo(move || nav::narrowed(&tree.read(), &filter.read()));
     let shown_ib = use_memo(move || inbox(&shown_tree.read()));
-    let items =
-        use_memo(move || nav::items(&shown_tree.read(), &shown_ib.read(), &collapsed.read()));
+    let leader_rows =
+        use_memo(move || crate::leader_navigation::project(&tree.read(), &orchestration.read()));
+    let items = use_memo(move || {
+        if !leader_view() {
+            return nav::items(&shown_tree.read(), &shown_ib.read(), &collapsed.read());
+        }
+        let narrowed = shown_tree.read();
+        let rows = leader_rows.read();
+        let matching: HashSet<_> = rows
+            .iter()
+            .filter(|row| match &row.item {
+                Item::Session(id) => narrowed.find(id).is_some(),
+                Item::Terminal(id) => narrowed.terminal(*id).is_some(),
+                _ => false,
+            })
+            .filter_map(|row| row.run_id)
+            .collect();
+        let mut out: Vec<_> = shown_ib
+            .read()
+            .iter()
+            .map(|item| Item::Waiting(item.session.id.clone()))
+            .collect();
+        out.extend(
+            rows.iter()
+                .filter(|row| match &row.item {
+                    Item::Session(id) => {
+                        narrowed.find(id).is_some()
+                            || (row.role == crate::leader_navigation::RowRole::Leader
+                                && row.run_id.is_some_and(|id| matching.contains(&id)))
+                    }
+                    Item::Terminal(id) => narrowed.terminal(*id).is_some(),
+                    _ => false,
+                })
+                .map(|row| row.item.clone()),
+        );
+        out
+    });
 
     // A selected row that leaves the sidebar, as an inbox row does once its
     // session stops waiting, gives way to another rather than to nothing.
@@ -4235,7 +4315,26 @@ fn App() -> Element {
                                 name,
                                 cwd: p.worktree.clone(),
                                 program: runs,
-                                binding: None,
+                                binding: {
+                                    let context = if on_list {
+                                        cur.clone()
+                                    } else {
+                                        match active.peek().as_ref() {
+                                            Some(Tab::Session(id)) => {
+                                                Some(Item::Session(id.clone()))
+                                            }
+                                            Some(Tab::Terminal(id)) => Some(Item::Terminal(*id)),
+                                            _ => None,
+                                        }
+                                    };
+                                    context.as_ref().and_then(|item| {
+                                        crate::leader_navigation::terminal_binding(
+                                            &tree.peek(),
+                                            &orchestration.peek(),
+                                            item,
+                                        )
+                                    })
+                                },
                                 env: daemon::terminal_env(),
                             },
                             &programs::login_shell(),
@@ -5362,8 +5461,12 @@ fn App() -> Element {
                         }
                         div { class: "sidebar-divider" }
                     }
+                    div { class: "sidebar-views", role: "group", "aria-label": "Session view",
+                        button { class: if leader_view() { "sidebar-view" } else { "sidebar-view active" }, "aria-pressed": !leader_view(), onclick: move |_| leader_view.set(false), "Workspaces" }
+                        button { class: if leader_view() { "sidebar-view active" } else { "sidebar-view" }, "aria-pressed": leader_view(), onclick: move |_| leader_view.set(true), "Leader / Workers" }
+                    }
                     div { class: "sidebar-title",
-                        span { "Workspaces" }
+                        span { if leader_view() { "Requests" } else { "Workspaces" } }
                         span { class: "sidebar-tools",
                             span {
                                 class: if all_worktrees() { "sidebar-tool on" } else { "sidebar-tool" },
@@ -5424,6 +5527,11 @@ fn App() -> Element {
                             },
                         }
                     }
+                    if leader_view() {
+                        if let Some(error) = orchestration_error() {
+                            div { class: "leader-controller-error", role: "status", "{error}" }
+                        }
+                    }
                     div { class: "list-rows", style: "flex:1",
                         if t.workspaces.is_empty() {
                             div { class: "list-row dim", "No sessions yet" }
@@ -5434,6 +5542,8 @@ fn App() -> Element {
                                 let is_sel = sel.as_ref() == Some(&it);
                                 let mut open = open;
                                 let reader = matches!(&it, Item::Session(id) if nav::find(&t, id).is_some_and(|(_, s)| s.reads_only()));
+                                let ownership = leader_view().then(|| leader_rows.read().iter().find(|row| row.item == it).cloned()).flatten();
+                                let request = ownership.as_ref().and_then(|row| row.run_id).and_then(|id| orchestration.read().runs.iter().find(|run| run.id == id).cloned());
                                 let (indent, class, text, meta, glyph_class) = match &it {
                                     Item::Workspace(root) => {
                                         let name = t
@@ -5479,6 +5589,16 @@ fn App() -> Element {
                                     }
                                     Item::Waiting(_) => (0, "list-row", String::new(), String::new(), None),
                                 };
+                                let (indent, class, text, meta) = if let Some(row) = &ownership {
+                                    use crate::leader_navigation::RowRole;
+                                    match row.role {
+                                        RowRole::Leader => (0, "list-row head", request.as_ref().map(|run| run.brief.title.clone()).unwrap_or(text), request.as_ref().map(|run| run.state.word().to_owned()).unwrap_or_else(|| "Leader".into())),
+                                        RowRole::Worker => (14, class, text, "Worker".to_owned()),
+                                        RowRole::Terminal => (if row.run_id.is_some() {14} else {0}, class, text, "Terminal".to_owned()),
+                                        RowRole::Unassigned => (0, class, text, "Unassigned".to_owned()),
+                                    }
+                                } else { (indent, class, text, meta) };
+                                let row_title = ownership.as_ref().and_then(|row| row.reason.clone()).unwrap_or_else(|| row_tip(&it).to_owned());
                                 let terminal = match &it {
                                     Item::Terminal(id) => Some(runs_of(&terminals.read(), *id)),
                                     _ => None,
@@ -5513,7 +5633,7 @@ fn App() -> Element {
                                         key: "{it:?}",
                                         class: "{class}",
                                         style: "padding-left:{8 + indent}px",
-                                        title: "{row_tip(&it)}",
+                                        title: "{row_title}",
                                         onclick: move |_| open(it.clone()),
                                         oncontextmenu: move |e: Event<MouseData>| {
                                             e.prevent_default();
@@ -5827,6 +5947,18 @@ fn App() -> Element {
                     }
                     div { class: "details-scroll",
                     if sheet_now == Sheet::Overview {
+                    if leader_view() {
+                        if let Some(item) = match &active_tab {
+                            Some(Tab::Session(id)) => Some(Item::Session(id.clone())),
+                            Some(Tab::Terminal(id)) => Some(Item::Terminal(*id)),
+                            _ => None,
+                        } {
+                            crate::leader_details::RequestDetails {
+                                snapshot: orchestration(), tree: t.clone(), item,
+                                on_open: move |id: String| open(Item::Session(id)),
+                            }
+                        }
+                    }
                     if let Some(s) = &shown_session {
                         div { class: "details-block",
                             span { class: "details-label", "{s.name}" }

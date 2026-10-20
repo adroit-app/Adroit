@@ -20,9 +20,9 @@ it runs in, a shell marked as a terminal; a worktree where only shells run is
 listed for them. A workspace where everything runs in its main checkout shows
 it straight under it, with no worktree row; one outside git always does.
 
-Opening a shell's row shows that shell in the console and moves the keys
-there, as opening a session's row does. Closing it from its row ends the
-shell, as closing its tab does ([shells](terminals.md)). Going from session to
+Opening a terminal's row shows it in the console and moves the keys there,
+as opening a session's row does. Closing its tab hides it; Stop Terminal
+explicitly ends its program ([terminals](terminals.md)). Going from session to
 session, the waiting sessions and the picker pass shells over.
 
 `!` in the sidebar shows every worktree git knows of each workspace, those

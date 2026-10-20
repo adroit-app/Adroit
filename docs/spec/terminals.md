@@ -13,8 +13,11 @@ window leaves terminals running.
 
 Terminal resources have identities independent of their names and working
 directories. They may carry an explicit request and worker association; a
-shared terminal without one remains unassigned. A terminal does not count as
-an agent or worker, and changing focus does not change its association.
+shared terminal without one remains unassigned. A terminal opened from an
+Agent inherits that Agent's current request and optional Worker association.
+Starting from a directory alone does not guess an association. A terminal does
+not count as an agent or worker, and changing focus does not change its
+association.
 
 ## Commands
 
