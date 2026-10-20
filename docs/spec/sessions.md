@@ -10,8 +10,8 @@ closed, if that still runs.
 
 A session runs Claude Code or Codex CLI in its own terminal interface. Each
 session is given its agent while it is still a draft, before its first prompt
-is sent: the draft names the choices, and `session.agent_next` switches
-between them. Choosing an agent, by button or key, also makes it the default
+is sent. The empty window and drafts offer the agent choices, and
+`session.agent_next` switches between them. Choosing an agent, by button or key, also makes it the default
 for new sessions while the window is open. Reopening the app starts with the
 default in Settings under Sessions, or `agent` in [settings.toml](settings.md).
 A session keeps its agent once it runs, whatever the default becomes. Both

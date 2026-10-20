@@ -127,14 +127,23 @@ pub fn for_tab(
     }
 }
 
-/// Keep a draft's choice and remember it for subsequent drafts in this window.
+pub fn can_choose(tab: Option<&crate::tabs::Tab>) -> bool {
+    matches!(tab, None | Some(crate::tabs::Tab::Draft { .. }))
+}
+
+/// Remember the choice for subsequent drafts, and for the open draft, if any.
 pub fn choose(
     chosen: &mut HashMap<crate::tabs::Tab, Agent>,
-    draft: crate::tabs::Tab,
+    tab: Option<crate::tabs::Tab>,
     agent: Agent,
     last: &mut Option<Agent>,
 ) {
-    chosen.insert(draft, agent);
+    if !can_choose(tab.as_ref()) {
+        return;
+    }
+    if let Some(draft) = tab {
+        chosen.insert(draft, agent);
+    }
     *last = Some(agent);
 }
 
@@ -265,6 +274,58 @@ mod tests {
     }
 
     #[test]
+    fn choosing_an_agent_in_an_empty_window_sets_the_next_session_agent() {
+        use crate::tabs::{Role, Tab};
+
+        let tree = adroit_model::Tree::default();
+        let draft = Tab::Draft {
+            worktree: "/project".into(),
+            role: Role::Worker,
+        };
+        let mut chosen = HashMap::from([(draft.clone(), Agent::Claude)]);
+        let mut last = None;
+
+        choose(&mut chosen, None, Agent::Codex, &mut last);
+
+        assert_eq!(last, Some(Agent::Codex));
+        assert_eq!(chosen.len(), 1);
+        let fallback = last.unwrap_or(Agent::Claude);
+        assert_eq!(for_tab(&tree, None, &chosen, fallback), Agent::Codex);
+        assert_eq!(
+            for_tab(&tree, Some(&draft), &chosen, fallback),
+            Agent::Claude
+        );
+        for role in [Role::Worker, Role::Reader] {
+            let next = Tab::Draft {
+                worktree: "/next".into(),
+                role,
+            };
+            assert_eq!(for_tab(&tree, Some(&next), &chosen, fallback), Agent::Codex);
+        }
+    }
+
+    #[test]
+    fn agent_selection_is_available_only_before_a_session_starts() {
+        use crate::tabs::{Role, Tab};
+
+        assert!(can_choose(None));
+        for role in [Role::Worker, Role::Reader] {
+            assert!(can_choose(Some(&Tab::Draft {
+                worktree: "/project".into(),
+                role,
+            })));
+        }
+        for tab in [Tab::Session("running".into()), Tab::Shell(1)] {
+            assert!(!can_choose(Some(&tab)));
+            let mut chosen = HashMap::new();
+            let mut last = Some(Agent::Claude);
+            choose(&mut chosen, Some(tab), Agent::Codex, &mut last);
+            assert_eq!(last, Some(Agent::Claude));
+            assert!(chosen.is_empty());
+        }
+    }
+
+    #[test]
     fn choosing_an_agent_sets_the_next_draft_default_only_until_the_window_closes() {
         use crate::tabs::{Role, Tab};
         let draft = |dir: &str| Tab::Draft {
@@ -276,7 +337,7 @@ mod tests {
         let settings = Settings::default();
         let mut last = None;
 
-        choose(&mut chosen, draft("/api"), Agent::Codex, &mut last);
+        choose(&mut chosen, Some(draft("/api")), Agent::Codex, &mut last);
         assert_eq!(settings.agent, Agent::Claude);
         assert_eq!(last, Some(Agent::Codex));
         assert_eq!(
@@ -302,7 +363,7 @@ mod tests {
             Agent::Claude
         );
 
-        choose(&mut chosen, draft("/web"), Agent::Claude, &mut last);
+        choose(&mut chosen, Some(draft("/web")), Agent::Claude, &mut last);
         assert_eq!(last, Some(Agent::Claude));
         assert_eq!(
             for_tab(

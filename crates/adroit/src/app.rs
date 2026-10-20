@@ -2768,26 +2768,25 @@ fn App() -> Element {
         }
     };
 
-    let mut choose_agent = move |draft: Tab, agent| {
+    let mut choose_agent = move |tab: Option<Tab>, agent| {
         agents::choose(
             &mut draft_agents.write(),
-            draft,
+            tab,
             agent,
             &mut last_agent.write(),
         );
     };
 
-    // Switch the agent the draft shown is to run; a session started already
-    // keeps its own.
+    // A session started already keeps its own agent.
     let mut switch_agent = move || match active.peek().clone() {
-        Some(draft @ Tab::Draft { .. }) => {
+        tab if agents::can_choose(tab.as_ref()) => {
             let now = agents::for_tab(
                 &tree.peek(),
-                Some(&draft),
+                tab.as_ref(),
                 &draft_agents.peek(),
                 last_agent.peek().unwrap_or(settings::current().agent),
             );
-            choose_agent(draft, now.next());
+            choose_agent(tab, now.next());
         }
         _ => notify.notice("Only a session not started yet can change its agent".into()),
     };
@@ -4422,7 +4421,7 @@ fn App() -> Element {
                 Area::Prompt if nvim_insert => &[Context::Prompt],
                 Area::Prompt => &[Context::Prompt, Context::Global],
             };
-            let contexts: Vec<_> = matches!(&*active.peek(), Some(Tab::Draft { .. }))
+            let contexts: Vec<_> = agents::can_choose(active.peek().as_ref())
                 .then_some(Context::Draft)
                 .into_iter()
                 .chain(contexts.iter().copied())
@@ -5323,33 +5322,20 @@ fn App() -> Element {
                                 div { class: "console-empty",
                                     IconView { icon: if *role == Role::Reader { Icon::Book } else { Icon::MessagePlus }, size: 28 }
                                     div { class: "console-empty-title", "{role.draft_heading()}" }
-                                    div { class: "console-agents",
-                                        for a in adroit_model::Agent::ALL {
-                                            button {
-                                                key: "{a.key()}",
-                                                class: if a == current_agent { "button primary" } else { "button" },
-                                                onclick: move |e| {
-                                                    // Chosen on the way to writing the first prompt,
-                                                    // so the keys go back to the prompt, not the console.
-                                                    e.stop_propagation();
-                                                    if let Some(d) = active.peek().clone() {
-                                                        choose_agent(d, a);
-                                                    }
-                                                    focus.set(Area::Prompt);
-                                                    let writing = nvim
-                                                        .peek()
-                                                        .as_ref()
-                                                        .is_some_and(|n| n.state().mode().starts_with("insert"));
-                                                    if !writing {
-                                                        start_writing(nvim);
-                                                    }
-                                                },
-                                                "{agents::adapter(a).label()}"
+                                    AgentChoices {
+                                        current: current_agent,
+                                        keys: k_agent.clone(),
+                                        onchoose: move |a| {
+                                            choose_agent(active.peek().clone(), a);
+                                            focus.set(Area::Prompt);
+                                            let writing = nvim
+                                                .peek()
+                                                .as_ref()
+                                                .is_some_and(|n| n.state().mode().starts_with("insert"));
+                                            if !writing {
+                                                start_writing(nvim);
                                             }
-                                        }
-                                    }
-                                    if let Some(k) = k_agent.clone() {
-                                        div { class: "console-empty-hint", Keys { keys: k } " switches the agent it runs." }
+                                        },
                                     }
                                     if *role == Role::Reader {
                                         div { "A reader reads and reports: it plans, and edits no files." }
@@ -5389,6 +5375,11 @@ fn App() -> Element {
                                 div { class: "console-empty",
                                     IconView { icon: Icon::LayoutDashboard, size: 28 }
                                     div { class: "console-empty-title", "Nothing open" }
+                                    AgentChoices {
+                                        current: current_agent,
+                                        keys: k_agent.clone(),
+                                        onchoose: move |a| choose_agent(None, a),
+                                    }
                                     div {
                                         "Move with "
                                         if let Some(k) = k_down.clone() { Keys { keys: k } }
@@ -5989,6 +5980,32 @@ fn App() -> Element {
                     }
                 }
             }
+        }
+    }
+}
+
+#[component]
+fn AgentChoices(
+    current: adroit_model::Agent,
+    keys: Option<String>,
+    onchoose: EventHandler<adroit_model::Agent>,
+) -> Element {
+    rsx! {
+        div { class: "console-agents",
+            for agent in adroit_model::Agent::ALL {
+                button {
+                    key: "{agent.key()}",
+                    class: if agent == current { "button primary" } else { "button" },
+                    onclick: move |e| {
+                        e.stop_propagation();
+                        onchoose.call(agent);
+                    },
+                    "{agents::adapter(agent).label()}"
+                }
+            }
+        }
+        if let Some(keys) = keys {
+            div { class: "console-empty-hint", Keys { keys } " switches the agent it runs." }
         }
     }
 }
