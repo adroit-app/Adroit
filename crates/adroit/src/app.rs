@@ -1545,11 +1545,8 @@ fn App() -> Element {
     let shown_images = use_signal(Vec::<PathBuf>::new);
     let mut selected_image = use_signal(|| None::<PathBuf>);
     let prompts = use_hook(|| prompts::keeper(nvim, drafted, shown_images));
-    let leader_drafts = use_hook(|| Rc::new(RefCell::new(prompts::LeaderDrafts::default())));
     use_effect(move || {
-        for (previous, next) in leader_drafts.borrow_mut().update(&orchestration.read()) {
-            let _ = prompts.send(Op::Rebind(previous, next));
-        }
+        let _ = prompts.send(Op::ObserveLeaders(Box::new(orchestration.read().clone())));
     });
     use_effect(move || {
         let _ = shown_images.read();

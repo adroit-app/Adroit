@@ -1,14 +1,15 @@
 //! What is written in the prompt for each tab. The prompt holds the shown
 //! tab's text; the others' is kept aside until their tab is shown again.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::PathBuf;
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use adroit_model::Session;
 use adroit_nvim::Embedded;
 use dioxus::prelude::*;
+use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use tokio::sync::oneshot;
@@ -159,17 +160,17 @@ impl Drafts {
     }
 }
 
-#[derive(Default)]
-pub struct LeaderDrafts(HashMap<adroit_model::LogicalSessionId, LeaderDraft>);
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct LeaderDrafts(HashMap<adroit_model::LogicalSessionId, LeaderDraft>);
 
-#[derive(Default)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct LeaderDraft {
     generation: u64,
     terminal: Option<(u64, String)>,
 }
 
 impl LeaderDrafts {
-    pub fn update(&mut self, snapshot: &adroit_model::ControlSnapshot) -> Vec<(Tab, Tab)> {
+    fn update(&mut self, snapshot: &adroit_model::ControlSnapshot) -> Vec<(Tab, Tab)> {
         let mut moved = Vec::new();
         for session in &snapshot.sessions {
             if session.binding.role() != adroit_model::SessionRole::Leader {
@@ -262,7 +263,7 @@ pub enum Op {
     /// Lines for a tab; answered with whether the prompt took them.
     Add(Option<Tab>, Vec<String>, Option<oneshot::Sender<bool>>),
     Follow(Vec<Session>),
-    Rebind(Tab, Tab),
+    ObserveLeaders(Box<adroit_model::ControlSnapshot>),
     /// The shown tab's text, with the tab it was written for, leaving the
     /// prompt empty.
     Take(oneshot::Sender<Taken>),
@@ -279,9 +280,90 @@ pub enum Op {
     Save,
 }
 
+async fn restore_before_op<F, Fut>(
+    drafts: &mut Drafts,
+    opened: &mut bool,
+    op: Op,
+    mut put: F,
+) -> Result<Op, Op>
+where
+    F: FnMut(String) -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    if !*opened {
+        if let Some(text) = drafts.first()
+            && !put(text.clone()).await
+        {
+            drafts.kept.insert(drafts.shown.clone(), text);
+            return Err(op);
+        }
+        *opened = true;
+    }
+    Ok(op)
+}
+
 /// Where what is written is kept past the window.
-fn drafts_path() -> PathBuf {
-    instance_state().join("drafts.json")
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct DraftCheckpoint {
+    text: BTreeMap<String, String>,
+    images: BTreeMap<String, Vec<PathBuf>>,
+    leaders: LeaderDrafts,
+}
+
+impl DraftCheckpoint {
+    fn read<T: serde::de::DeserializeOwned>(path: &Path) -> Result<Option<T>, String> {
+        match std::fs::read(path) {
+            Ok(bytes) => serde_json::from_slice(&bytes)
+                .map(Some)
+                .map_err(|error| format!("cannot read {}: {error}", path.display())),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(format!("cannot read {}: {error}", path.display())),
+        }
+    }
+
+    fn load(directory: &Path) -> Result<Self, String> {
+        if let Some(checkpoint) = Self::read(&directory.join("draft-checkpoint.json"))? {
+            return Ok(checkpoint);
+        }
+        Ok(Self {
+            text: Self::read(&directory.join("drafts.json"))?.unwrap_or_default(),
+            images: Self::read(&directory.join("attachments.json"))?.unwrap_or_default(),
+            leaders: LeaderDrafts::default(),
+        })
+    }
+
+    fn keep(&self, directory: &Path, saved: &mut Option<Self>) -> Result<(), String> {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        if saved.as_ref() == Some(self) {
+            return Ok(());
+        }
+        let temporary = directory.join(format!(
+            ".draft-checkpoint-{}.tmp",
+            adroit_model::RequestId::new()
+        ));
+        let result = (|| {
+            std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&temporary)
+                .map_err(|error| error.to_string())?;
+            file.write_all(&serde_json::to_vec(self).map_err(|error| error.to_string())?)
+                .map_err(|error| error.to_string())?;
+            file.sync_all().map_err(|error| error.to_string())?;
+            std::fs::rename(&temporary, directory.join("draft-checkpoint.json"))
+                .map_err(|error| error.to_string())
+        })();
+        if result.is_err() {
+            let _ = std::fs::remove_file(&temporary);
+        }
+        result?;
+        *saved = Some(self.clone());
+        Ok(())
+    }
 }
 
 /// How often what is written is kept, so a window that ends however it ends
@@ -320,151 +402,190 @@ pub fn keeper(
         });
     }
     spawn(async move {
-        let mut drafts = std::fs::read_to_string(drafts_path())
-            .ok()
-            .and_then(|text| serde_json::from_str(&text).ok())
-            .map(Drafts::restored)
-            .unwrap_or_default();
-        let images_path = instance_state().join("attachments.json");
-        let mut images = std::fs::read_to_string(&images_path)
-            .ok()
-            .and_then(|json| serde_json::from_str(&json).ok())
-            .map(crate::pasted::Attachments::restored)
-            .unwrap_or_default();
-        let mut saved_images = None;
-        let mut saved = None::<BTreeMap<String, String>>;
+        let directory = instance_state();
+        let (checkpoint, writable) = match DraftCheckpoint::load(&directory) {
+            Ok(checkpoint) => (checkpoint, true),
+            Err(error) => {
+                eprintln!(
+                    "adroit: {error}; draft checkpoint saving is disabled to preserve the existing file"
+                );
+                (DraftCheckpoint::default(), false)
+            }
+        };
+        let mut drafts = Drafts::restored(checkpoint.text);
+        let mut images = crate::pasted::Attachments::restored(checkpoint.images);
+        let mut leaders = checkpoint.leaders;
+        let mut saved = None;
+        let mut pending_observation = None;
         let mut opened = false;
         let mut history = History::default();
-        while let Some(op) = ops.recv().await {
-            let nv = nvim.peek().clone();
-            let put = |text: String| {
-                let nv = nv.clone();
-                async move {
-                    let lines: Vec<String> = text.lines().map(String::from).collect();
-                    match nv {
-                        Some(nv) => nv.append(&lines).await.is_ok(),
-                        None => false,
-                    }
-                }
-            };
-            match op {
-                Op::Show(now) => {
-                    if now == drafts.shown {
-                        continue;
-                    }
-                    images.show(now.clone());
-                    history.reset();
-                    let Some(nv) = &nv else {
-                        drafts.turn_to(now);
-                        shown_images.set(images.current().to_vec());
-                        continue;
-                    };
-                    let taken = nv.take_text().await.unwrap_or_default();
-                    if let Some(text) = drafts.show(now, taken) {
-                        put(text).await;
-                    }
-                }
-                Op::Close(now) => {
-                    images.close(now.clone());
-                    history.reset();
-                    if nv.is_none() {
-                        drafts.turn_to(now);
-                    } else if let Some(text) = drafts.close(now) {
-                        put(text).await;
-                    }
-                }
-                Op::Add(tab, lines, reply) => {
-                    let took = if drafts.add(&tab, &lines) {
-                        put(lines.join("\n")).await
-                    } else {
-                        true
-                    };
-                    if let Some(reply) = reply {
-                        let _ = reply.send(took);
-                    }
-                }
-                Op::Follow(sessions) => {
-                    images.follow(&sessions);
-                    drafts.follow(&sessions);
-                }
-                Op::Rebind(previous, next) => {
-                    let visible = drafts
-                        .shown
-                        .as_ref()
-                        .is_some_and(|tab| tab == &previous || tab == &next);
-                    if visible {
-                        history.reset();
-                    }
-                    let text = if visible {
-                        match &nv {
-                            Some(nv) => match nv.take_text().await {
-                                Ok(text) => Some(text),
-                                Err(_) => continue,
-                            },
-                            None => None,
+        let mut deferred = VecDeque::new();
+        while let Some(incoming) = ops.recv().await {
+            deferred.push_back(incoming);
+            while let Some(op) = deferred.pop_front() {
+                let nv = nvim.peek().clone();
+                let put = |text: String| {
+                    let nv = nv.clone();
+                    async move {
+                        let lines: Vec<String> = text.lines().map(String::from).collect();
+                        match nv {
+                            Some(nv) => nv.append(&lines).await.is_ok(),
+                            None => false,
                         }
-                    } else {
-                        None
-                    };
-                    if let Some(text) = drafts.rebind(&previous, &next, text) {
-                        if nv.is_some() {
-                            put(text).await;
+                    }
+                };
+                let op = if nv.is_some() {
+                    match restore_before_op(&mut drafts, &mut opened, op, put).await {
+                        Ok(op) => op,
+                        Err(op) => {
+                            eprintln!(
+                                "adroit: cannot restore the saved prompt; its draft remains saved"
+                            );
+                            deferred.push_front(op);
+                            break;
+                        }
+                    }
+                } else {
+                    op
+                };
+                let checkpoint_due = matches!(&op, Op::Save | Op::ObserveLeaders(_));
+                let observation = match &op {
+                    Op::ObserveLeaders(snapshot) => Some(snapshot.clone()),
+                    Op::Save => pending_observation.take(),
+                    _ => None,
+                };
+                if let Some(snapshot) = observation {
+                    let mut staged = leaders.clone();
+                    let mut accepted = true;
+                    for (previous, next) in staged.update(&snapshot) {
+                        let visible = drafts
+                            .shown
+                            .as_ref()
+                            .is_some_and(|tab| tab == &previous || tab == &next);
+                        let text = if visible {
+                            history.reset();
+                            match &nv {
+                                Some(nv) => match nv.take_text().await {
+                                    Ok(text) => Some(text),
+                                    Err(error) => {
+                                        eprintln!(
+                                            "adroit: cannot recover the Leader draft: {error}"
+                                        );
+                                        accepted = false;
+                                        break;
+                                    }
+                                },
+                                None => None,
+                            }
                         } else {
+                            None
+                        };
+                        if let Some(text) = drafts.rebind(&previous, &next, text)
+                            && (nv.is_none() || !put(text.clone()).await)
+                        {
                             drafts.kept.insert(drafts.shown.clone(), text);
+                            opened = false;
                         }
+                        images.rebind(&previous, &next);
                     }
-                    images.rebind(&previous, &next);
-                }
-                Op::Attach(path) => images.add(vec![path]),
-                Op::RemoveImage(path) => images.remove(&path),
-                Op::RestoreImages(tab, paths) => images.restore(tab, paths),
-                Op::Sent => history.reset(),
-                Op::Recall(tab, back, sent) => {
-                    let Some(nv) = nv.as_ref().filter(|_| tab == drafts.shown) else {
+                    if !accepted {
+                        pending_observation = Some(snapshot);
                         continue;
-                    };
-                    let now = nv.take_text().await.unwrap_or_default();
-                    let text = history.step(back, now.clone(), &sent).unwrap_or(now);
-                    put(text).await;
-                }
-                Op::Take(reply) => {
-                    let text = match &nv {
-                        Some(nv) => nv.take_text().await.unwrap_or_default(),
-                        None => String::new(),
-                    };
-                    let _ = reply.send((drafts.shown.clone(), text, images.take()));
-                }
-                Op::Save => {
-                    let now_images = images.saved();
-                    if saved_images.as_ref() != Some(&now_images) {
-                        if let Ok(json) = serde_json::to_string(&now_images) {
-                            let _ = std::fs::write(&images_path, json);
-                        }
-                        saved_images = Some(now_images);
                     }
-                    let Some(nv) = &nv else { continue };
-                    if !opened {
-                        opened = true;
-                        if let Some(text) = drafts.first() {
+                    leaders = staged;
+                    pending_observation = None;
+                }
+                match op {
+                    Op::Show(now) => {
+                        if now == drafts.shown {
+                            continue;
+                        }
+                        images.show(now.clone());
+                        history.reset();
+                        let Some(nv) = &nv else {
+                            drafts.turn_to(now);
+                            shown_images.set(images.current().to_vec());
+                            continue;
+                        };
+                        let taken = nv.take_text().await.unwrap_or_default();
+                        if let Some(text) = drafts.show(now, taken) {
                             put(text).await;
                         }
                     }
-                    let now = drafts.saved(&nv.text().await.unwrap_or_default());
-                    if saved.as_ref() != Some(&now) {
-                        if let Ok(json) = serde_json::to_string(&now) {
-                            let _ = std::fs::write(drafts_path(), json);
+                    Op::Close(now) => {
+                        images.close(now.clone());
+                        history.reset();
+                        if nv.is_none() {
+                            drafts.turn_to(now);
+                        } else if let Some(text) = drafts.close(now) {
+                            put(text).await;
                         }
-                        saved = Some(now);
+                    }
+                    Op::Add(tab, lines, reply) => {
+                        let took = if drafts.add(&tab, &lines) {
+                            put(lines.join("\n")).await
+                        } else {
+                            true
+                        };
+                        if let Some(reply) = reply {
+                            let _ = reply.send(took);
+                        }
+                    }
+                    Op::Follow(sessions) => {
+                        images.follow(&sessions);
+                        drafts.follow(&sessions);
+                    }
+                    Op::ObserveLeaders(_) => {}
+                    Op::Attach(path) => images.add(vec![path]),
+                    Op::RemoveImage(path) => images.remove(&path),
+                    Op::RestoreImages(tab, paths) => images.restore(tab, paths),
+                    Op::Sent => history.reset(),
+                    Op::Recall(tab, back, sent) => {
+                        let Some(nv) = nv.as_ref().filter(|_| tab == drafts.shown) else {
+                            continue;
+                        };
+                        let now = nv.take_text().await.unwrap_or_default();
+                        let text = history.step(back, now.clone(), &sent).unwrap_or(now);
+                        put(text).await;
+                    }
+                    Op::Take(reply) => {
+                        let text = match &nv {
+                            Some(nv) => nv.take_text().await.unwrap_or_default(),
+                            None => String::new(),
+                        };
+                        let _ = reply.send((drafts.shown.clone(), text, images.take()));
+                    }
+                    Op::Save => {}
+                }
+                if checkpoint_due {
+                    let text = if let Some(nv) = &nv {
+                        match nv.text().await {
+                            Ok(text) => text,
+                            Err(error) => {
+                                eprintln!("adroit: cannot save the prompt checkpoint: {error}");
+                                continue;
+                            }
+                        }
+                    } else {
+                        String::new()
+                    };
+                    let checkpoint = DraftCheckpoint {
+                        text: drafts.saved(&text),
+                        images: images.saved(),
+                        leaders: leaders.clone(),
+                    };
+                    if writable && let Err(error) = checkpoint.keep(&directory, &mut saved) {
+                        eprintln!("adroit: cannot save the prompt checkpoint: {error}");
                     }
                 }
-            }
-            if *shown_images.peek() != images.current() {
-                shown_images.set(images.current().to_vec());
-            }
-            let mut holding = drafts.holding();
-            holding.extend(images.holding());
-            if *drafted.peek() != holding {
-                drafted.set(holding);
+                if *shown_images.peek() != images.current() {
+                    shown_images.set(images.current().to_vec());
+                }
+                let mut holding = drafts.holding();
+                holding.extend(images.holding());
+                if *drafted.peek() != holding {
+                    drafted.set(holding);
+                }
             }
         }
     });
@@ -474,6 +595,177 @@ pub fn keeper(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn failed_initial_restore_retains_the_identity_switch_and_take_reply_for_retry() {
+        let old = Some(Tab::Session("old".into()));
+        let next = Some(Tab::Session("next".into()));
+        let mut drafts =
+            Drafts::restored(BTreeMap::from([("session:old".into(), "old draft".into())]));
+        drafts.turn_to(old.clone());
+        let mut opened = false;
+        let queued = restore_before_op(&mut drafts, &mut opened, Op::Show(next.clone()), |_| {
+            std::future::ready(false)
+        })
+        .await;
+        let Err(op @ Op::Show(_)) = queued else {
+            panic!("the failed operation must remain available")
+        };
+        assert!(!opened);
+        assert_eq!(drafts.shown, old);
+        assert_eq!(
+            drafts.saved("").get("session:old").map(String::as_str),
+            Some("old draft")
+        );
+        let mut restored = String::new();
+        let result = restore_before_op(&mut drafts, &mut opened, op, |text| {
+            restored = text;
+            std::future::ready(true)
+        })
+        .await;
+        let Ok(Op::Show(next)) = result else {
+            panic!("the retried identity switch must survive")
+        };
+        drafts.show(next, restored);
+        assert_eq!(
+            drafts.saved("").get("session:old").map(String::as_str),
+            Some("old draft")
+        );
+
+        drafts.turn_to(old);
+        opened = false;
+        let (reply, received) = oneshot::channel();
+        let Err(op) = restore_before_op(&mut drafts, &mut opened, Op::Take(reply), |_| {
+            std::future::ready(false)
+        })
+        .await
+        else {
+            panic!("the failed take must remain queued")
+        };
+        let Ok(Op::Take(reply)) =
+            restore_before_op(&mut drafts, &mut opened, op, |_| std::future::ready(true)).await
+        else {
+            panic!("the take reply must survive retry")
+        };
+        reply
+            .send((drafts.shown.clone(), "old draft".into(), vec![]))
+            .unwrap();
+        assert_eq!(received.await.unwrap().1, "old draft");
+    }
+
+    #[test]
+    fn a_checkpoint_restores_a_leaders_draft_after_restart_while_the_window_was_closed() {
+        use adroit_model::*;
+        let directory = tempfile::tempdir().unwrap();
+        let logical = LogicalSessionId::new();
+        let other = LogicalSessionId::new();
+        let record = |id, generation, terminal: &str| ManagedSession {
+            binding: SessionBinding::leader(id, Some(RunId::new())),
+            agent: Agent::Codex,
+            generation,
+            state: ManagedSessionState::Running,
+            permissions: AgentPermissions::Default,
+            cwd: Some("/same-root".into()),
+            terminal_id: Some(terminal.into()),
+            conversation_id: None,
+        };
+        let snapshot = |sessions| ControlSnapshot {
+            sessions,
+            ..Default::default()
+        };
+        let mut leaders = LeaderDrafts::default();
+        leaders.update(&snapshot(vec![
+            record(logical, 1, "old"),
+            record(other, 1, "other"),
+        ]));
+        let checkpoint = DraftCheckpoint {
+            text: BTreeMap::from([
+                ("session:old".into(), "saved request draft".into()),
+                ("session:other".into(), "unrelated draft".into()),
+            ]),
+            images: BTreeMap::from([("session:old".into(), vec![PathBuf::from("/old.png")])]),
+            leaders,
+        };
+        let mut saved = None;
+        checkpoint.keep(directory.path(), &mut saved).unwrap();
+        std::fs::write(
+            directory.path().join("drafts.json"),
+            "stale invalid legacy file",
+        )
+        .unwrap();
+        let restored = DraftCheckpoint::load(directory.path()).unwrap();
+        assert_eq!(restored, checkpoint);
+        let mut drafts = Drafts::restored(restored.text);
+        let mut images = crate::pasted::Attachments::restored(restored.images);
+        let mut leaders = restored.leaders;
+        for (previous, next) in leaders.update(&snapshot(vec![
+            record(logical, 2, "new"),
+            record(other, 1, "other"),
+        ])) {
+            drafts.rebind(&previous, &next, None);
+            images.rebind(&previous, &next);
+        }
+        assert_eq!(
+            drafts.show(Some(Tab::Session("new".into())), String::new()),
+            Some("saved request draft".into())
+        );
+        images.show(Some(Tab::Session("new".into())));
+        assert_eq!(images.current(), &[PathBuf::from("/old.png")]);
+        assert_eq!(
+            drafts.show(Some(Tab::Session("other".into())), String::new()),
+            Some("unrelated draft".into())
+        );
+        assert!(
+            leaders
+                .update(&snapshot(vec![record(logical, 1, "old")]))
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn failed_checkpoint_writes_do_not_advance_the_saved_baseline_and_can_retry() {
+        let directory = tempfile::tempdir().unwrap();
+        let blocked = directory.path().join("not-a-directory");
+        std::fs::write(&blocked, "Keep me").unwrap();
+        let checkpoint = DraftCheckpoint::default();
+        let mut saved = None;
+        assert!(checkpoint.keep(&blocked, &mut saved).is_err());
+        assert!(saved.is_none());
+        assert_eq!(std::fs::read_to_string(&blocked).unwrap(), "Keep me");
+        checkpoint.keep(directory.path(), &mut saved).unwrap();
+        assert_eq!(saved, Some(checkpoint.clone()));
+        assert_eq!(DraftCheckpoint::load(directory.path()).unwrap(), checkpoint);
+    }
+
+    #[test]
+    fn legacy_files_are_read_only_until_a_checkpoint_exists_and_never_mask_a_broken_checkpoint() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(
+            directory.path().join("drafts.json"),
+            r#"{"session:old":"legacy draft"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("attachments.json"),
+            r#"{"session:old":["/legacy.png"]}"#,
+        )
+        .unwrap();
+        let checkpoint = DraftCheckpoint::load(directory.path()).unwrap();
+        assert_eq!(
+            checkpoint.text.get("session:old").map(String::as_str),
+            Some("legacy draft")
+        );
+        assert_eq!(
+            checkpoint.images.get("session:old"),
+            Some(&vec![PathBuf::from("/legacy.png")])
+        );
+        std::fs::write(
+            directory.path().join("draft-checkpoint.json"),
+            "incomplete checkpoint",
+        )
+        .unwrap();
+        assert!(DraftCheckpoint::load(directory.path()).is_err());
+    }
 
     #[test]
     fn leader_draft_recovery_uses_only_authoritative_identity_and_forward_generations() {
