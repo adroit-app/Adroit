@@ -4,6 +4,7 @@ mod agents;
 mod alerts;
 mod app;
 mod awake;
+pub mod candidates;
 pub mod cli;
 mod complete;
 mod completion;

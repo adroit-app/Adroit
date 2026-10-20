@@ -565,3 +565,26 @@ pub struct CoordinationReply {
     pub task_id: Option<TaskId>,
     pub body: String,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CandidateFileState {
+    File { sha256: String, executable: bool },
+    Symlink { target: String },
+    Missing,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CandidateFile {
+    pub path: String,
+    pub state: CandidateFileState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CandidateFiles {
+    pub version: u32,
+    pub fingerprint: String,
+    pub files: Vec<CandidateFile>,
+}
