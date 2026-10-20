@@ -61,6 +61,12 @@ use crate::themes;
 use crate::view::Keys;
 use crate::zoom;
 
+fn shows_usage(tab: Option<&Tab>, sheet: Sheet, agent: adroit_model::Agent) -> bool {
+    matches!(tab, Some(Tab::Session(_) | Tab::Draft { .. }))
+        && sheet == Sheet::Overview
+        && agents::adapter(agent).capabilities().usage_limits
+}
+
 /// The most directories the picker lists at once.
 const PICKS: usize = 40;
 
@@ -1975,9 +1981,8 @@ fn App() -> Element {
                         &draft_agents.peek(),
                         last_agent.peek().unwrap_or(settings::current().agent),
                     );
-                    let in_sight = drill.peek().sheet() == Sheet::Overview
-                        && layout.peek().show_details
-                        && agents::adapter(agent).capabilities().usage_limits;
+                    let in_sight = layout.peek().show_details
+                        && shows_usage(active.peek().as_ref(), drill.peek().sheet(), agent);
                     if in_sight
                         && usage_limits
                             .write()
@@ -4637,7 +4642,7 @@ fn App() -> Element {
             .and_then(|fresh| fresh.get()),
     ) {
         (Sheet::Overview, Some(limits))
-            if agents::adapter(current_agent).capabilities().usage_limits =>
+            if shows_usage(active_tab.as_ref(), sheet_now, current_agent) =>
         {
             gauges(limits, now_ms())
         }
@@ -5992,6 +5997,26 @@ fn App() -> Element {
 mod tests {
     use super::*;
     use crate::details::overview;
+
+    #[test]
+    fn usage_is_shown_only_in_agent_tab_overviews() {
+        use adroit_model::Agent;
+
+        for agent in [Agent::Claude, Agent::Codex] {
+            for tab in [
+                Tab::Session("session".into()),
+                Tab::Draft {
+                    worktree: "/project".into(),
+                    role: Role::Worker,
+                },
+            ] {
+                assert!(shows_usage(Some(&tab), Sheet::Overview, agent));
+                assert!(!shows_usage(Some(&tab), Sheet::Changes, agent));
+            }
+            assert!(!shows_usage(Some(&Tab::Shell(1)), Sheet::Overview, agent));
+            assert!(!shows_usage(None, Sheet::Overview, agent));
+        }
+    }
 
     #[test]
     fn sidebar_session_badges_identify_the_agent_even_when_names_match() {
