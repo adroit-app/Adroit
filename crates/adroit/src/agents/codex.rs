@@ -1,6 +1,7 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 
+mod commands;
 mod usage;
 
 /// How Codex sessions start, apart from Claude Code's options.
@@ -24,11 +25,14 @@ impl AgentAdapter for Codex {
     }
     fn capabilities(&self) -> Capabilities {
         Capabilities {
-            command_probe: false,
+            command_probe: true,
             usage_limits: true,
             transcript: false,
             shell_bang: false,
         }
+    }
+    fn commands(&self, _dir: PathBuf) -> Probe<adroit_claude::commands::Command> {
+        Box::pin(async { Some(commands::builtins()) })
     }
     fn usage(&self, home: PathBuf) -> Probe<adroit_claude::usage::Limit> {
         Box::pin(async move {
@@ -107,6 +111,52 @@ mod tests {
     #[test]
     fn codex_account_limits_are_available_to_the_overview() {
         assert!(Codex.capabilities().usage_limits);
+    }
+
+    #[test]
+    fn codex_slash_completion_is_enabled() {
+        assert!(Codex.capabilities().command_probe);
+    }
+
+    #[tokio::test]
+    async fn codex_slash_commands_reach_the_embedded_prompt() {
+        let list = Codex
+            .commands("/unused".into())
+            .await
+            .expect("Codex commands");
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let editor = adroit_nvim::Embedded::spawn(
+            "nvim",
+            &["-u", "NONE", "-i", "NONE", "--noplugin"],
+            80,
+            10,
+            move |event| {
+                let _ = tx.send(event);
+            },
+        )
+        .await
+        .unwrap();
+        editor
+            .set_commands(&crate::complete::commands(&list))
+            .await
+            .unwrap();
+        editor.input("/mo").await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                if editor
+                    .state()
+                    .popup()
+                    .is_some_and(|p| p.items.iter().any(|c| c.word == "/model"))
+                {
+                    break;
+                }
+                rx.recv().await.expect("editor event");
+            }
+        })
+        .await
+        .expect("/model completion");
+        editor.input("<C-y>").await.unwrap();
+        assert_eq!(editor.take_text().await.unwrap(), "/model ");
     }
 
     #[test]

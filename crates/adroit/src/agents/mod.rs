@@ -174,7 +174,7 @@ mod tests {
         );
         assert!(a.conversation().is_empty());
         assert!(!a.capabilities().transcript);
-        assert!(!a.capabilities().command_probe);
+        assert!(a.capabilities().command_probe);
         assert!(!a.capabilities().shell_bang);
     }
     #[test]
@@ -239,7 +239,6 @@ mod tests {
         assert!(a.environment().is_empty());
         assert!(a.history(Path::new("/unused")).is_empty());
         assert!(a.list_sessions().await.unwrap().is_empty());
-        assert!(a.commands("/unused".into()).await.is_none());
         assert!(
             a.transcript(Path::new("/unused"), &Default::default())
                 .is_none()

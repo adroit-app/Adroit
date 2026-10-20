@@ -1815,7 +1815,7 @@ fn App() -> Element {
         });
     });
 
-    // What `/` offers: Claude Code's commands where the shown tab's session
+    // What `/` offers: the agent's commands where the shown tab's session
     // runs, asked for when such a tab is shown or a `/` is typed and the list
     // there is missing or old; the old list is offered meanwhile.
     let mut command_cache = use_signal(HashMap::<adroit_model::Agent, commands::Cache>::new);

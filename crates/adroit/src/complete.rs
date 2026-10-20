@@ -42,7 +42,7 @@ pub fn commands_dir(tree: &Tree, tab: Option<&Tab>, place: Option<&Place>) -> Op
 /// The most characters of a command's description shown beside it.
 const DESCRIPTION_SHOWN: usize = 60;
 
-/// What `/` offers of Claude Code's commands: each by name, what it does
+/// What `/` offers of an agent's commands: each by name, what it does
 /// shortened beside it, and while picked, its arguments and what it does whole.
 pub fn commands(list: &[Command]) -> Vec<Candidate> {
     list.iter()

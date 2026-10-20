@@ -43,9 +43,15 @@ any part of their path. What follows the `@` narrows the offer. Picking a
 directory goes on to offer what is in it. Hidden entries are not offered but
 can be typed.
 
-`/` at the start of a word offers Claude Code's commands, the account's own
+`/` at the start of a word offers the shown session's agent's commands,
+narrowed by what follows the `/`. A Codex session or draft offers Adroit's
+catalog of Codex built-in commands; availability in Codex depends on the
+installed release and its configuration. Custom Codex commands and skills
+are not included in this catalog.
+
+A Claude Code session or draft offers Claude Code's commands, the account's own
 skills and plugins among them, as Claude Code lists them for where the shown
-session runs or a draft would start, narrowed by what follows the `/`. Until
+session runs or a draft would start. Until
 Claude Code has answered there, or when it cannot, `/` offers nothing. The list
 is asked for again once it is a minute old, the older one offered meanwhile.
 
