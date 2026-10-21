@@ -737,3 +737,95 @@ fn viewed_completions_can_fold_and_selected_or_active_rows_reveal_without_reorde
         .is_some()
     );
 }
+
+#[test]
+fn ordinary_startup_prompt_and_acknowledged_final_report_do_not_prevent_grouping() {
+    use adroit::leader_navigation::{Completions, group_completed};
+    for agent in Agent::ALL {
+        let (mut tree, mut snapshot) = completed_fixture();
+        let worker = tree
+            .workspaces
+            .iter_mut()
+            .flat_map(|ws| &mut ws.worktrees)
+            .flat_map(|wt| &mut wt.sessions)
+            .find(|s| s.binding.as_ref().unwrap().role() == SessionRole::Worker)
+            .unwrap();
+        worker.agent = agent;
+        snapshot.sessions[1].agent = agent;
+        let prompt = "Complete ordinary work\n\nTask revision: 1\nScope: \nInputs: ";
+        let launch = adroit::execution::resolve(
+            &adroit::settings::Settings::default(),
+            adroit::execution::StartRequest {
+                agent,
+                name: worker.name.clone(),
+                cwd: worker.cwd.clone(),
+                binding: worker.binding.clone(),
+                prompt: prompt.into(),
+                ..Default::default()
+            },
+            std::path::Path::new("/tmp/adroit-regression"),
+        )
+        .unwrap();
+        assert!(launch.spawn.args.iter().any(|arg| arg == prompt));
+        assert!(adroit_term::tags::value(&launch.spawn.tags, "adroit.last-input").is_none());
+        worker.last_input_ms = adroit_term::tags::value(&launch.spawn.tags, "adroit.last-input")
+            .map(|x| x.parse().unwrap());
+        let worker_id = worker.binding.as_ref().unwrap().logical_id();
+        let native_id = worker.id.clone();
+        let report = &snapshot.reports[0];
+        let message = AgentMessage {
+            id: report.report.message_id,
+            run_id: report.run_id,
+            from: worker_id,
+            to: snapshot.runs[0].leader_id,
+            task_id: Some(report.report.task.task_id),
+            attempt_id: Some(report.report.attempt_id),
+            revision: Some(report.report.task.revision),
+            kind: MessageKind::Report,
+            body: "ordinary final applied report".into(),
+            reply_to: None,
+            blocks_work: false,
+        };
+        snapshot.messages.push(message.clone());
+        snapshot.deliveries.push(DeliveryRecord {
+            message_id: message.id,
+            recipient: message.to,
+            state: DeliveryState::Accepted,
+            attempts: 1,
+            last_error: None,
+        });
+        let rows = project(&tree, &snapshot);
+        let grouped = group_completed(
+            &rows,
+            &tree,
+            &snapshot,
+            &Completions::default(),
+            &Default::default(),
+            &Default::default(),
+        );
+        assert!(
+            !grouped
+                .iter()
+                .any(|row| matches!(row.item, Item::Completed(_)))
+        );
+        assert!(
+            grouped
+                .iter()
+                .any(|row| row.item == Item::Session(native_id.clone()))
+        );
+        snapshot.deliveries[0].state = DeliveryState::Acknowledged;
+        let before = (tree.clone(), snapshot.clone());
+        let grouped = group_completed(
+            &rows,
+            &tree,
+            &snapshot,
+            &Completions::default(),
+            &Default::default(),
+            &Default::default(),
+        );
+        assert_eq!(grouped.len(), 2);
+        assert_eq!(grouped[1].role, RowRole::Completed(1));
+        assert_eq!(snapshot.sessions[1].state, ManagedSessionState::Running);
+        assert_eq!((tree, snapshot), before);
+    }
+}
