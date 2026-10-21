@@ -5236,7 +5236,7 @@ fn App() -> Element {
             })
     });
     if let Some(gauge) = context_now {
-        usage_now.push(gauge);
+        usage_now.insert(0, gauge);
     }
     let session_facts = shown_session
         .as_ref()
@@ -6380,6 +6380,7 @@ fn App() -> Element {
                                     div { class: "usage-gauge-track",
                                         div {
                                             class: match g.severity {
+                                                _ if g.context => "usage-gauge-fill context",
                                                 Severity::Normal => "usage-gauge-fill",
                                                 Severity::Warning => "usage-gauge-fill warning",
                                                 Severity::Critical => "usage-gauge-fill critical",
@@ -6387,10 +6388,7 @@ fn App() -> Element {
                                             style: "width:{g.used}%",
                                         }
                                     }
-                                    span { class: "usage-gauge-note", "{g.note}" }
-                                    if !g.detail.is_empty() {
-                                        span { class: "usage-gauge-note", "{g.detail}" }
-                                    }
+                                    span { class: "usage-gauge-note", title: "{g.note}", "{g.note}" }
                                 }
                             }
                         }

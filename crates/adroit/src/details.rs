@@ -40,6 +40,26 @@ pub fn conversation_facts(
     if let Some(model) = &stats.model {
         out.push(("Model", model.clone()));
     }
+    if let Some(t) = stats.tokens {
+        let mut used = vec![
+            format!("{} in", tokens(t.input)),
+            format!("{} out", tokens(t.output)),
+        ];
+        if t.cached > 0 {
+            used.push(format!("{} cached", tokens(t.cached)));
+        }
+        out.push(("Tokens used", used.join(" · ")));
+    }
+    let mut activity = Vec::new();
+    if stats.user_turns > 0 {
+        activity.push(plural(stats.user_turns, "prompt", "prompts"));
+    }
+    if stats.tool_calls > 0 {
+        activity.push(plural(stats.tool_calls, "tool", "tools"));
+    }
+    if !activity.is_empty() {
+        out.push(("Activity", activity.join(" · ")));
+    }
     out
 }
 
@@ -89,44 +109,25 @@ pub struct Gauge {
     pub used: u32,
     pub left: String,
     pub note: String,
-    /// A further line under the note; empty for none.
-    pub detail: String,
+    /// Whether this is the conversation's context, not an account limit.
+    pub context: bool,
     pub severity: Severity,
 }
 
-/// Context utilization alongside the agent's account usage limits, with what
-/// the whole conversation has used under it.
+/// Context utilization alongside the agent's account usage limits.
 pub fn context_gauge(stats: &adroit_model::ConversationStats) -> Option<Gauge> {
     let (used, total) = stats.context.filter(|(_, total)| *total > 0)?;
     let percent = ((used as f64 / total as f64 * 100.0).round() as u32).min(100);
-    let mut totals = Vec::new();
-    if let Some(t) = stats.tokens {
-        totals.push(format!("{} in", tokens(t.input)));
-        totals.push(format!("{} out", tokens(t.output)));
-        if t.cached > 0 {
-            totals.push(format!("{} cached", tokens(t.cached)));
-        }
-    }
-    if stats.user_turns > 0 {
-        totals.push(plural(stats.user_turns, "prompt", "prompts"));
-    }
-    if stats.tool_calls > 0 {
-        totals.push(plural(stats.tool_calls, "tool call", "tool calls"));
-    }
     Some(Gauge {
         label: "Context".into(),
         used: percent,
         left: format!("{}% left", 100 - percent),
         note: format!(
-            "{percent}% used · {} of {} tokens",
+            "{percent}% used · {} / {} tokens",
             tokens(used),
             tokens(total)
         ),
-        detail: if totals.is_empty() {
-            String::new()
-        } else {
-            format!("Total {}", totals.join(" · "))
-        },
+        context: true,
         severity: Severity::Normal,
     })
 }
@@ -158,7 +159,7 @@ pub fn gauges(limits: &[Limit], now_ms: u64) -> Vec<Gauge> {
                 used: percent.min(100),
                 left: format!("{}% left", 100u32.saturating_sub(percent)),
                 note,
-                detail: String::new(),
+                context: false,
                 severity: l.severity,
             }
         })
@@ -1106,13 +1107,18 @@ mod tests {
     }
 
     #[test]
-    fn conversation_facts_are_the_model_and_the_latest_user_operation() {
+    fn conversation_facts_are_the_model_the_latest_user_operation_and_the_totals() {
         let got = conversation_facts(&stats(), Some(5000), 17000);
         assert_eq!(
             got,
             [
                 ("Last input", "12 s ago".to_string()),
                 ("Model", "model-name".to_string()),
+                (
+                    "Tokens used",
+                    "12.3M in · 45.2k out · 10.1M cached".to_string()
+                ),
+                ("Activity", "12 prompts · 340 tools".to_string()),
             ]
         );
         assert!(
@@ -1126,9 +1132,10 @@ mod tests {
     fn context_utilization_is_a_usage_gauge_when_the_window_is_reported() {
         let gauge = context_gauge(&stats()).expect("reported window");
         assert_eq!(gauge.label, "Context");
+        assert!(gauge.context);
         assert_eq!(gauge.used, 22);
         assert_eq!(gauge.left, "78% left");
-        assert_eq!(gauge.note, "22% used · 219k of 1M tokens");
+        assert_eq!(gauge.note, "22% used · 219k / 1M tokens");
         let windowless = adroit_model::ConversationStats {
             context: Some((500, 0)),
             ..stats()
@@ -1138,12 +1145,7 @@ mod tests {
     }
 
     #[test]
-    fn the_context_gauge_sums_up_the_conversation_in_one_line() {
-        let gauge = context_gauge(&stats()).expect("reported window");
-        assert_eq!(
-            gauge.detail,
-            "Total 12.3M in · 45.2k out · 10.1M cached · 12 prompts · 340 tool calls"
-        );
+    fn the_totals_leave_out_what_was_not_reported_and_count_in_the_singular() {
         let quiet = adroit_model::ConversationStats {
             tokens: Some(adroit_model::Tokens {
                 input: 900,
@@ -1151,20 +1153,23 @@ mod tests {
                 cached: 0,
             }),
             user_turns: 1,
-            tool_calls: 0,
+            tool_calls: 1,
             ..stats()
         };
-        assert_eq!(
-            context_gauge(&quiet).unwrap().detail,
-            "Total 900 in · 20 out · 1 prompt"
-        );
-        let unreported = adroit_model::ConversationStats {
+        let got = conversation_facts(&quiet, None, 0);
+        assert!(got.contains(&("Tokens used", "900 in · 20 out".into())));
+        assert!(got.contains(&("Activity", "1 prompt · 1 tool".into())));
+        let silent = adroit_model::ConversationStats {
             tokens: None,
             user_turns: 0,
             tool_calls: 0,
             ..stats()
         };
-        assert_eq!(context_gauge(&unreported).unwrap().detail, "");
+        let got = conversation_facts(&silent, None, 0);
+        assert!(
+            !got.iter()
+                .any(|(k, _)| *k == "Tokens used" || *k == "Activity")
+        );
     }
 
     #[test]
@@ -1249,7 +1254,7 @@ mod tests {
                 used: 3,
                 left: "97% left".into(),
                 note: "3% used · resets in 4 h 13 min".into(),
-                detail: String::new(),
+                context: false,
                 severity: Severity::Normal,
             }]
         );

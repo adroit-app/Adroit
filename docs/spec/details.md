@@ -6,8 +6,9 @@ Overview, Changes and Log.
 ## Sheets
 
 - **Overview** names the session shown, how it stands, and the workspace and
-  worktree it works in. Conversation facts include the latest model and
-  elapsed time since the last user input.
+  worktree it works in. Conversation facts include the latest model, elapsed
+  time since the last user input, the tokens the whole conversation has used,
+  and its prompt and tool call counts.
   Input sent through Adroit includes answers to approvals and choices; its
   latest time stays with the running session when the window closes. For
   sessions in other terminals, only inputs recorded in the conversation can
@@ -77,9 +78,7 @@ row opened names what was opened, and a click on it goes back.
 Usage follows the agent shown in Console on every details sheet. It shows
 each reported account limit as a bar of what is used, with what is left and
 when it resets. A session's reported context utilization appears with those
-limits, together with the conversation's token totals and its prompt and tool
-call counts. Shell and Neovim tabs show no account limits or context
-utilization.
+limits. Shell and Neovim tabs show no account limits or context utilization.
 
 The usage limits are asked of the session's agent while the details panel is
 in sight, again every few minutes, without starting a conversation or spending any of

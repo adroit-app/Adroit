@@ -37,6 +37,7 @@ pub const CSS: &str = r#"
   --usage-gpu: #b9a2ec;
   --usage-memory: #8fc6a4;
   --usage-storage: #e8a275;
+  --usage-context: #58c9df;
   --mono: "SF Mono", Menlo, ui-monospace, "Hiragino Kaku Gothic ProN", monospace;
   /* The console's font and line height, set from the settings. */
   --term-font: var(--mono); --term-size: 13px; --term-weight: 400; --cell-h: 17px;
@@ -289,7 +290,8 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .usage-gauge-fill { height: 100%; border-radius: 3px; background: var(--run); }
 .usage-gauge-fill.warning { background: var(--wait); }
 .usage-gauge-fill.critical { background: var(--fail); }
-.usage-gauge-note { font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.usage-gauge-fill.context { background: var(--usage-context); }
+.usage-gauge-note { font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .details-system-usage { flex: none; container: system-usage / inline-size; display: flex; flex-direction: column; gap: 10px; padding: 12px 16px; border-top: 1px solid var(--line); cursor: default; }
 .system-usage-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px 16px; }
 @container system-usage (min-width: 300px) {
