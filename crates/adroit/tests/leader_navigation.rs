@@ -185,3 +185,175 @@ fn a_terminal_uses_the_selected_agent_context_without_guessing_from_its_director
         .is_none()
     );
 }
+
+fn worker_fixture() -> (Session, ControlSnapshot) {
+    let (tree, mut snapshot) = fixture();
+    let mut session = tree.find("worker-0").unwrap().2.clone();
+    session.name = format!("worker-{}", LogicalSessionId::new());
+    let binding = session.binding.as_ref().unwrap();
+    let (task_id, attempt_id) = binding.work().unwrap();
+    snapshot.tasks.push(TaskRecord {
+        id: task_id,
+        run_id: binding.run_id().unwrap(),
+        revision: 1,
+        brief: TaskBrief {
+            instructions: "\n \t\n  読みやすい\u{3000}Worker\t names  \n\nKeep full details.\n"
+                .into(),
+            purpose: TaskPurpose::Implement,
+            ..Default::default()
+        },
+        dependencies: vec![],
+        state: TaskState::Running,
+        current_attempt: Some(attempt_id),
+    });
+    snapshot.attempts.push(AttemptRecord {
+        id: attempt_id,
+        task_id,
+        task_revision: 1,
+        input_versions: vec![],
+        session_id: binding.logical_id(),
+        target: TargetSelection::default(),
+        actual_model: None,
+        candidate_input: None,
+        work_area_id: None,
+        base_revision: None,
+        state: AttemptState::Running,
+    });
+    (session, snapshot)
+}
+
+#[test]
+fn worker_labels_normalize_the_first_nonempty_line_and_keep_full_instructions() {
+    use adroit::leader_navigation::worker_presentation;
+    let (session, snapshot) = worker_fixture();
+    let before = session.clone();
+    let display = worker_presentation(&session, &snapshot).unwrap();
+    assert_eq!(display.label, "読みやすい Worker names");
+    assert_eq!(display.metadata, "Worker 1");
+    assert_eq!(
+        display.instructions.as_deref(),
+        Some(snapshot.tasks[0].brief.instructions.as_str())
+    );
+    assert_eq!(session, before);
+}
+
+#[test]
+fn worker_labels_fail_closed_for_missing_or_mismatched_ownership_and_revision() {
+    use adroit::leader_navigation::worker_presentation;
+    let (session, snapshot) = worker_fixture();
+    for mutation in 0..13 {
+        let mut snapshot = snapshot.clone();
+        match mutation {
+            0 => snapshot.tasks.clear(),
+            1 => snapshot.attempts.clear(),
+            2 => snapshot.sessions.clear(),
+            3 => snapshot.runs.clear(),
+            4 => snapshot.tasks[0].revision += 1,
+            5 => snapshot.tasks[0].run_id = RunId::new(),
+            6 => snapshot.attempts[0].task_id = TaskId::new(),
+            7 => snapshot.attempts[0].session_id = LogicalSessionId::new(),
+            8 => snapshot.sessions[1].terminal_id = Some("another terminal".into()),
+            9 => snapshot.runs[0].leader_id = LogicalSessionId::new(),
+            10 => snapshot.sessions[1].agent = Agent::Codex,
+            11 => snapshot.attempts[0].id = AttemptId::new(),
+            12 => snapshot.sessions[1].binding = snapshot.sessions[3].binding.clone(),
+            _ => unreachable!(),
+        }
+        let display = worker_presentation(&session, &snapshot).unwrap();
+        assert_eq!(display.label, "Worker", "mutation {mutation}");
+        assert!(display.instructions.is_none(), "mutation {mutation}");
+    }
+}
+
+#[test]
+fn worker_fallbacks_use_purpose_then_readable_native_names_without_machine_ids() {
+    use adroit::leader_navigation::worker_presentation;
+    let (mut session, mut snapshot) = worker_fixture();
+    snapshot.tasks[0].brief.instructions = " \n\t\u{3000}".into();
+    assert_eq!(
+        worker_presentation(&session, &snapshot).unwrap().label,
+        "Implementation"
+    );
+    snapshot.tasks.clear();
+    session.name = "  Investigate\t regression  ".into();
+    assert_eq!(
+        worker_presentation(&session, &snapshot).unwrap().label,
+        "Investigate regression"
+    );
+    for name in [
+        LogicalSessionId::new().to_string(),
+        format!("worker-{}", LogicalSessionId::new()),
+        String::new(),
+    ] {
+        session.name = name;
+        assert_eq!(
+            worker_presentation(&session, &snapshot).unwrap().label,
+            "Worker"
+        );
+    }
+    session.binding = None;
+    assert!(worker_presentation(&session, &snapshot).is_none());
+}
+
+#[test]
+fn worker_numbers_include_hidden_completed_workers_and_attempt_history() {
+    use adroit::leader_navigation::worker_presentation;
+    let (session, mut snapshot) = worker_fixture();
+    let mut hidden = snapshot.sessions[1].clone();
+    let binding = hidden.binding.clone();
+    let (task, _) = binding.work().unwrap();
+    hidden.binding = SessionBinding::worker(
+        LogicalSessionId::new(),
+        binding.leader_id(),
+        binding.run_id().unwrap(),
+        task,
+        AttemptId::new(),
+    )
+    .unwrap();
+    hidden.state = ManagedSessionState::Exited;
+    hidden.terminal_id = None;
+    snapshot.sessions.insert(0, hidden.clone());
+    let mut attempt = snapshot.attempts[0].clone();
+    attempt.id = hidden.binding.work().unwrap().1;
+    attempt.session_id = hidden.binding.logical_id();
+    attempt.state = AttemptState::Failed;
+    snapshot.attempts.insert(0, attempt);
+    assert_eq!(
+        worker_presentation(&session, &snapshot).unwrap().metadata,
+        "Worker 2 · Attempt 2"
+    );
+    // A visible-tree filter or unrelated run does not determine this number.
+    snapshot
+        .sessions
+        .retain(|record| record.binding.run_id() == binding.run_id());
+    assert_eq!(
+        worker_presentation(&session, &snapshot).unwrap().metadata,
+        "Worker 2 · Attempt 2"
+    );
+}
+
+#[test]
+fn adding_later_workers_and_attempts_keeps_existing_numbers_and_labels() {
+    use adroit::leader_navigation::worker_presentation;
+    let (session, mut snapshot) = worker_fixture();
+    let mut later = snapshot.sessions[1].clone();
+    let binding = later.binding.clone();
+    let (task, _) = binding.work().unwrap();
+    later.binding = SessionBinding::worker(
+        LogicalSessionId::new(),
+        binding.leader_id(),
+        binding.run_id().unwrap(),
+        task,
+        AttemptId::new(),
+    )
+    .unwrap();
+    let mut attempt = snapshot.attempts[0].clone();
+    attempt.id = later.binding.work().unwrap().1;
+    attempt.session_id = later.binding.logical_id();
+    snapshot.sessions.push(later);
+    snapshot.attempts.push(attempt);
+    snapshot.tasks[0].current_attempt = Some(snapshot.attempts[1].id);
+    let display = worker_presentation(&session, &snapshot).unwrap();
+    assert_eq!(display.metadata, "Worker 1 · Attempt 1");
+    assert_eq!(display.label, "読みやすい Worker names");
+}
