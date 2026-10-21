@@ -3038,13 +3038,13 @@ fn App() -> Element {
                 if let Some(nv) = nv {
                     let _ = nv.stop_writing().await;
                 }
-                // Sent with nothing open, a prompt starts a session where it
-                // can only mean, or else a scratch session, as a draft there
-                // would.
+                // Sent with nothing open, a prompt starts a scratch session, as
+                // a draft there would.
                 let tab = match shown {
                     None => {
-                        let last = place.peek().clone();
-                        let p = nav::start_place(&tree.peek(), last.as_ref(), &scratch_dir());
+                        let p = Place {
+                            worktree: scratch_dir(),
+                        };
                         let draft = draft_at(p.worktree.clone());
                         place.set(Some(p));
                         active.set(Some(draft.clone()));
@@ -5283,13 +5283,6 @@ fn App() -> Element {
             drill.set(d);
         }
     };
-    // Where a prompt sent with nothing open starts its session; `None` for a
-    // scratch session.
-    let starts_in = {
-        let scratch = scratch_dir();
-        let p = nav::start_place(&t, current.as_ref(), &scratch);
-        (p.worktree != scratch).then(|| short(&p.worktree))
-    };
     let target = match &active_tab {
         Some(Tab::Session(id)) => nav::find(&t, id)
             .map(|(_, s)| s.name.clone())
@@ -5301,17 +5294,7 @@ fn App() -> Element {
             .map(|s| s.name.clone())
             .unwrap_or_default(),
         Some(Tab::Draft { .. }) => "new session".into(),
-        // A prompt sent now starts a session where it can only mean, or else
-        // a scratch session.
-        None => match &starts_in {
-            Some(at) => format!("new session in {at}"),
-            None => "new scratch session".into(),
-        },
-    };
-    // The crumbs already name the worktree.
-    let crumb = match (&active_tab, target.strip_prefix("new session in ")) {
-        (None, Some(_)) => "new session".to_string(),
-        _ => target.clone(),
+        None => "new scratch session".into(),
     };
     let prompt_shown = shows_prompt(active_tab.as_ref());
     let composer_room = if prompt_shown {
@@ -5584,7 +5567,7 @@ fn App() -> Element {
                         }
                         span { class: "header-crumbs-item header-crumbs-path", IconView { icon: Icon::GitBranch, size: 14 } "{short(&p.worktree)}" }
                         span { class: "header-crumbs-sep", IconView { icon: Icon::ChevronRight, size: 12 } }
-                        span { "{crumb}" }
+                        span { "{target}" }
                     }
                 }
                 div { class: "flex-spacer" }
@@ -6138,12 +6121,7 @@ fn App() -> Element {
                                     }
                                     div { class: "launch-form",
                                         div { class: "launch-form-label", "Starts in" }
-                                        div { class: "launch-form-where",
-                                            match &starts_in {
-                                                Some(at) => rsx! { span { class: "console-empty-path", "{at}" } },
-                                                None => rsx! { "A scratch session" },
-                                            }
-                                        }
+                                        div { class: "launch-form-where", "A scratch session" }
                                         AgentChoices {
                                             current: current_agent,
                                             keys: k_agent.clone(),

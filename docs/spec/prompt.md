@@ -19,9 +19,8 @@ A tab with something set aside for it is marked, and so is its session's row.
 What is written outlives the window: opened again, each tab gets back what
 was written for it, all but a new session's that was never started.
 What is written with nothing open becomes the first prompt of a new session
-opened next. Sent with nothing open, it starts a session in the worktree
-last opened, or in the only one declared; with more to choose from, or none, it
-starts a [scratch session](workspaces.md#scratch-sessions).
+opened next. Sent with nothing open, it starts a
+[scratch session](workspaces.md#scratch-sessions).
 
 What a session's tab kept follows the session when it goes by another id,
 as after a take-over. Hiding a session tab keeps its unsent text and attachments
