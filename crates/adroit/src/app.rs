@@ -1338,12 +1338,25 @@ fn sheet_action(sheet: Sheet) -> Action {
     }
 }
 
-/// The mark of a session that only reads.
+fn session_mark(
+    role: Option<adroit_model::SessionRole>,
+    reads_only: bool,
+) -> Option<(Icon, &'static str)> {
+    if role == Some(adroit_model::SessionRole::Worker) {
+        Some((Icon::Cpu, "Worker"))
+    } else {
+        reads_only.then_some((Icon::Book, "only reads"))
+    }
+}
+
+/// The session's role or read-only mark, shared by rows and tabs.
 #[component]
-fn Book() -> Element {
+fn SessionMark(mark: Option<(Icon, &'static str)>) -> Element {
     rsx! {
-        span { class: "reads-only-mark", title: "only reads",
-            IconView { icon: Icon::Book, size: 13 }
+        if let Some((icon, title)) = mark {
+            span { class: "reads-only-mark", title,
+                IconView { icon, size: 13 }
+            }
         }
     }
 }
@@ -2766,7 +2779,7 @@ fn App() -> Element {
         };
         let t = tree.read();
         let open = opened.read();
-        let mut out: Vec<(Tab, String, Option<State>, bool)> = nav::sessions_in(&t, &p)
+        let mut out: Vec<_> = nav::sessions_in(&t, &p)
             .into_iter()
             .filter(|s| open.contains(&Tab::Session(s.id.clone())))
             .map(|s| {
@@ -2774,7 +2787,7 @@ fn App() -> Element {
                     Tab::Session(s.id.clone()),
                     s.name.clone(),
                     Some(completions.read().state(s).clone()),
-                    s.reads_only(),
+                    session_mark(s.binding.as_ref().map(|b| b.role()), s.reads_only()),
                 )
             })
             .collect();
@@ -2783,7 +2796,7 @@ fn App() -> Element {
             .iter()
             .filter(|s| s.cwd == p.worktree && open.contains(&Tab::Terminal(s.id)))
         {
-            out.push((Tab::Terminal(sh.id), sh.name.clone(), None, false));
+            out.push((Tab::Terminal(sh.id), sh.name.clone(), None, None));
         }
         for draft in tabs::drafts_in(&open, &p.worktree) {
             let title = "new session".to_string();
@@ -2791,7 +2804,7 @@ fn App() -> Element {
                 .read()
                 .get(draft)
                 .is_some_and(|o| o.permissions == adroit_model::AgentPermissions::ReadOnly);
-            out.push((draft.clone(), title, None, reader));
+            out.push((draft.clone(), title, None, session_mark(None, reader)));
         }
         out
     });
@@ -5484,7 +5497,7 @@ fn App() -> Element {
                                             div { class: "sidebar-inbox-text",
                                                 span { class: "list-row-name",
                                                     "{it.session.name}"
-                                                    if it.session.reads_only() { Book {} }
+                                                    SessionMark { mark: session_mark(it.session.binding.as_ref().map(|b| b.role()), it.session.reads_only()) }
                                                 }
                                                 span { class: "sidebar-inbox-sub", "{sub}" }
                                             }
@@ -5581,7 +5594,10 @@ fn App() -> Element {
                                 let it = item.clone();
                                 let is_sel = sel.as_ref() == Some(&it);
                                 let mut open = open;
-                                let reader = matches!(&it, Item::Session(id) if nav::find(&t, id).is_some_and(|(_, s)| s.reads_only()));
+                                let mark = match &it {
+                                    Item::Session(id) => nav::find(&t, id).and_then(|(_, s)| session_mark(s.binding.as_ref().map(|b| b.role()), s.reads_only())),
+                                    _ => None,
+                                };
                                 let ownership = leader_view().then(|| leader_rows.read().iter().find(|row| row.item == it).cloned()).flatten();
                                 let request = ownership.as_ref().and_then(|row| row.run_id).and_then(|id| orchestration.read().runs.iter().find(|run| run.id == id).cloned());
                                 let (indent, class, text, meta, glyph_class) = match &it {
@@ -5688,7 +5704,7 @@ fn App() -> Element {
                                         }
                                         if let Some(runs) = terminal { Terminal { runs } }
                                         span { class: "list-row-name", "{text}" }
-                                        if reader { Book {} }
+                                        SessionMark { mark }
                                         if has_draft {
                                             span { class: "draft-mark", title: "Something is written for it in the prompt", "✎" }
                                         }
@@ -5742,7 +5758,7 @@ fn App() -> Element {
                                 "{p.worktree.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| short(&p.worktree))}"
                             }
                         }
-                        for (tab , name , state , reader) in tabs().into_iter() {
+                        for (tab , name , state , mark) in tabs().into_iter() {
                             {
                                 let is_active = active_tab.as_ref() == Some(&tab);
                                 let shell = match &tab {
@@ -5777,7 +5793,7 @@ fn App() -> Element {
                                         if let Some(runs) = shell { Terminal { runs } }
                                         if matches!(tab, Tab::Draft { .. }) { span { class: "place-mark", IconView { icon: Icon::MessagePlus, size: 13 } } }
                                         "{name}"
-                                        if reader { Book {} }
+                                        SessionMark { mark }
                                         if has_draft {
                                             span { class: "draft-mark", title: "Something is written for it in the prompt", "✎" }
                                         }
@@ -6608,6 +6624,26 @@ mod tests {
     use super::*;
     use crate::details::overview;
 
+    #[test]
+    fn worker_marks_identify_the_role_independently_of_permissions() {
+        use adroit_model::SessionRole;
+
+        for reads_only in [false, true] {
+            let worker = session_mark(Some(SessionRole::Worker), reads_only);
+            assert_eq!(worker, Some((Icon::Cpu, "Worker")));
+            assert_ne!(worker, session_mark(Some(SessionRole::Leader), reads_only));
+        }
+    }
+
+    #[test]
+    fn other_sessions_and_drafts_keep_their_read_only_marks() {
+        use adroit_model::SessionRole;
+
+        for role in [None, Some(SessionRole::Leader)] {
+            assert_eq!(session_mark(role, true), Some((Icon::Book, "only reads")));
+            assert_eq!(session_mark(role, false), None);
+        }
+    }
     #[test]
     fn process_rows_are_available_without_a_transcript_and_follow_only_the_shown_session() {
         let mut process = crate::processes::Process::default();
