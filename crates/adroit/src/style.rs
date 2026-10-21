@@ -62,17 +62,37 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
    character leaves short of its two cells. */
 #adroit-compose span { display: inline-block; flex: none; overflow: hidden; height: calc(var(--cell-h) - 1px); box-shadow: inset 0 -1px 0 currentColor; }
 .app { height: 100%; display: flex; flex-direction: column; }
-.request-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.request-heading, .request-section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .request-state, .request-muted { color: var(--text-2); font-size: 11px; }
+.request-section-heading .request-muted { font-variant-numeric: tabular-nums; text-align: right; }
 .request-prose { white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0; line-height: 1.5; user-select: text; }
 .request-attention { color: var(--wait); }
 .request-task, .request-question, .request-notice { border-top: 1px solid var(--line); padding: 8px 0; }
-.request-task summary { display: flex; align-items: baseline; gap: 8px; cursor: pointer; }
-.request-task-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.request-task[open] .request-task-title { white-space: normal; overflow-wrap: anywhere; }
-.request-task summary:focus-visible, .request-notice summary:focus-visible { outline: 1px solid var(--run); }
-.request-open { padding: 4px 6px; margin: 6px 0; background: var(--raised); color: var(--text); border: 1px solid var(--line-strong); font: inherit; cursor: pointer; }
-.request-open:focus-visible { outline: 1px solid var(--run); }
+.request-task summary, .request-disclosure summary { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; list-style: none; }
+.request-task summary::-webkit-details-marker, .request-disclosure summary::-webkit-details-marker { display: none; }
+.request-task summary > .icon:last-child, .request-disclosure summary > .icon:last-child { margin-left: auto; color: var(--text-3); transition: transform 120ms ease; }
+.request-task[open] summary > .icon:last-child, .request-disclosure[open] summary > .icon:last-child { transform: rotate(90deg); }
+.request-task-icon { display: inline-flex; color: var(--text-2); padding-top: 2px; }
+.request-task-icon-run { color: var(--run); }
+.request-task-icon-done { color: var(--done); }
+.request-task-icon-fail { color: var(--fail); }
+.request-task-main { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 2px; }
+.request-task-title { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.4; overflow-wrap: anywhere; }
+.request-task[open] .request-task-title { display: block; }
+.request-task .request-state { line-height: 1.3; }
+.request-task summary:focus-visible, .request-disclosure summary:focus-visible, .request-notice summary:focus-visible { outline: 1px solid var(--run); outline-offset: 2px; border-radius: 3px; }
+.request-instructions { color: var(--text-2); font-size: 12px; }
+.request-count { margin-left: auto; color: var(--text-3); font-variant-numeric: tabular-nums; font-size: 11px; }
+.request-disclosure { margin: 2px 0 6px; }
+.request-disclosure summary { color: var(--text-2); font-size: 12px; padding: 3px 0; }
+.request-disclosure summary > .icon:first-child { color: var(--text-3); margin-top: 1px; }
+.request-disclosure .request-prose { font-size: 12px; margin-left: 21px; }
+.request-action { display: inline-flex; align-items: center; gap: 6px; width: fit-content; min-height: 26px; padding: 3px 5px; margin: 2px -5px; border: 0; border-radius: 4px; background: transparent; color: var(--text-2); font: inherit; font-size: 12px; cursor: pointer; }
+.request-action:hover { background: var(--raised); color: var(--text); }
+.request-action:focus-visible { outline: 1px solid var(--run); outline-offset: 2px; }
+.request-action:disabled { opacity: 0.65; cursor: default; }
+.request-action > .icon:last-child { color: var(--text-3); }
+@media (prefers-reduced-motion: reduce) { .request-task summary > .icon:last-child, .request-disclosure summary > .icon:last-child { transition: none; } }
 .request-evidence { display: flex; flex-direction: column; gap: 4px; padding-top: 8px; }
 .request-check { font-family: var(--mono); font-size: 11px; }
 .leader-controller-error { padding: 6px 12px; color: var(--wait); overflow-wrap: anywhere; }
