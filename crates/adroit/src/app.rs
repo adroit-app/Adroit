@@ -6056,35 +6056,43 @@ fn App() -> Element {
                         match (&active_tab, has_pane) {
                             (Some(tab @ Tab::Draft { worktree, .. }), _) => rsx! {
                                 div { class: "console-empty",
-                                    IconView { icon: Icon::MessagePlus, size: 28 }
-                                    div { class: "console-empty-title", "New session" }
-                                    AgentChoices {
-                                        current: current_agent,
-                                        keys: k_agent.clone(),
-                                        onchoose: move |a| {
-                                            choose_agent(active.peek().clone(), a);
-                                            focus.set(Area::Prompt);
-                                            let writing = nvim
-                                                .peek()
-                                                .as_ref()
-                                                .is_some_and(|n| n.state().mode().starts_with("insert"));
-                                            if !writing {
-                                                start_writing(nvim);
-                                            }
-                                        },
+                                    div { class: "console-empty-head",
+                                        IconView { icon: Icon::MessagePlus, size: 28 }
+                                        div { class: "console-empty-title", "New session" }
+                                        div { class: "console-empty-path", "{short(worktree)}" }
                                     }
-                                    DraftLaunchOptions {
-                                        options: draft_options.read().get(tab).cloned().unwrap_or_default(),
-                                        onchange: {
-                                            let tab = tab.clone();
-                                            move |options| { draft_options.write().insert(tab.clone(), options); }
-                                        },
+                                    div { class: "launch-form",
+                                        AgentChoices {
+                                            current: current_agent,
+                                            keys: k_agent.clone(),
+                                            onchoose: move |a| {
+                                                choose_agent(active.peek().clone(), a);
+                                                focus.set(Area::Prompt);
+                                                let writing = nvim
+                                                    .peek()
+                                                    .as_ref()
+                                                    .is_some_and(|n| n.state().mode().starts_with("insert"));
+                                                if !writing {
+                                                    start_writing(nvim);
+                                                }
+                                            },
+                                        }
+                                        DraftLaunchOptions {
+                                            options: draft_options.read().get(tab).cloned().unwrap_or_default(),
+                                            onchange: {
+                                                let tab = tab.clone();
+                                                move |options| { draft_options.write().insert(tab.clone(), options); }
+                                            },
+                                        }
                                     }
-                                    if let Some(k) = k_send.clone() {
-                                        div { "Write the first prompt below and press " Keys { keys: k } "." }
+                                    div { class: "console-legend",
+                                        if let Some(k) = k_send.clone() {
+                                            div { class: "console-legend-keys", Keys { keys: k } }
+                                            div { "Send the prompt written below" }
+                                        }
+                                        div { class: "console-legend-keys", kbd { "name: …" } }
+                                        div { "As its first line, names the session" }
                                     }
-                                    div { "Start it with a line " kbd { "name: …" } " to name the session." }
-                                    div { class: "console-empty-path", "It starts in {short(worktree)}" }
                                 }
                             },
                             (Some(_), true) if reading() => rsx! {
@@ -6115,24 +6123,6 @@ fn App() -> Element {
                                 div { class: "console-empty",
                                     IconView { icon: Icon::LayoutDashboard, size: 28 }
                                     div { class: "console-empty-title", "Nothing open" }
-                                    AgentChoices {
-                                        current: current_agent,
-                                        keys: k_agent.clone(),
-                                        onchoose: move |a| choose_agent(None, a),
-                                    }
-                                    div {
-                                        "Move with "
-                                        if let Some(k) = k_down.clone() { Keys { keys: k } }
-                                        " "
-                                        if let Some(k) = k_up.clone() { Keys { keys: k } }
-                                        ", open with "
-                                        if let Some(k) = k_open.clone() { Keys { keys: k } }
-                                        ". On a workspace's row, start a session with "
-                                        if let Some(k) = k_new.clone() { Keys { keys: k } }
-                                        ", a shell with "
-                                        if let Some(k) = k_shell.clone() { Keys { keys: k } }
-                                        "."
-                                    }
                                     div { class: "console-empty-start",
                                         button {
                                             class: "button primary",
@@ -6140,7 +6130,35 @@ fn App() -> Element {
                                             if let Some(k) = k_pick.clone() { Keys { keys: k } }
                                             "Start a session"
                                         }
-                                        div { class: "console-empty-hint", "Choose the directory it works in: one sessions run in, one Claude Code was used in, a repository ghq keeps, or any from a file tree." }
+                                        div { class: "console-empty-hint", "Pick the directory it works in: a workspace, a Claude Code project, a ghq repository, or any folder." }
+                                    }
+                                    div { class: "launch-form",
+                                        AgentChoices {
+                                            current: current_agent,
+                                            keys: k_agent.clone(),
+                                            onchoose: move |a| choose_agent(None, a),
+                                        }
+                                    }
+                                    div { class: "console-legend",
+                                        if k_down.is_some() || k_up.is_some() {
+                                            div { class: "console-legend-keys",
+                                                if let Some(k) = k_down.clone() { Keys { keys: k } }
+                                                if let Some(k) = k_up.clone() { Keys { keys: k } }
+                                            }
+                                            div { "Move through the list" }
+                                        }
+                                        if let Some(k) = k_open.clone() {
+                                            div { class: "console-legend-keys", Keys { keys: k } }
+                                            div { "Open the selected row" }
+                                        }
+                                        if let Some(k) = k_new.clone() {
+                                            div { class: "console-legend-keys", Keys { keys: k } }
+                                            div { "Start a session on a workspace row" }
+                                        }
+                                        if let Some(k) = k_shell.clone() {
+                                            div { class: "console-legend-keys", Keys { keys: k } }
+                                            div { "Open a shell on a workspace row" }
+                                        }
                                     }
                                 }
                             },
@@ -6750,21 +6768,24 @@ fn AgentChoices(
     onchoose: EventHandler<adroit_model::Agent>,
 ) -> Element {
     rsx! {
-        div { class: "console-agents",
-            for agent in adroit_model::Agent::ALL {
-                button {
-                    key: "{agent.key()}",
-                    class: if agent == current { "button primary" } else { "button" },
-                    onclick: move |e| {
-                        e.stop_propagation();
-                        onchoose.call(agent);
-                    },
-                    "{agents::adapter(agent).label()}"
+        div { class: "launch-form-label", "Agent" }
+        div { class: "launch-form-agent",
+            div { class: "segmented",
+                for agent in adroit_model::Agent::ALL {
+                    button {
+                        key: "{agent.key()}",
+                        class: if agent == current { "on" },
+                        onclick: move |e| {
+                            e.stop_propagation();
+                            onchoose.call(agent);
+                        },
+                        "{agents::adapter(agent).label()}"
+                    }
                 }
             }
-        }
-        if let Some(keys) = keys {
-            div { class: "console-empty-hint", Keys { keys } " switches the agent it runs." }
+            if let Some(keys) = keys {
+                span { class: "launch-form-keys", title: "Switches the agent", Keys { keys } }
+            }
         }
     }
 }
@@ -6779,10 +6800,12 @@ fn DraftLaunchOptions(
     let mode_options = options.clone();
     rsx! {
         div {
-            class: "agent-choices",
+            class: "launch-form-options",
             onmousedown: move |event| event.stop_propagation(),
             onkeydown: move |event| event.stop_propagation(),
+            label { class: "launch-form-label", r#for: "launch-mode", "Mode" }
             select {
+                id: "launch-mode",
                 aria_label: "Session mode",
                 value: if options.mode == crate::execution::StartMode::Leader { "leader" } else { "standalone" },
                 oninput: move |event| {
@@ -6795,10 +6818,12 @@ fn DraftLaunchOptions(
                 option { value: "standalone", "Standalone" }
                 option { value: "leader", "Leader" }
             }
+            label { class: "launch-form-label", r#for: "launch-model", "Model" }
             input {
+                id: "launch-model",
                 r#type: "text",
                 aria_label: "Session model",
-                placeholder: "Model (agent default)",
+                placeholder: "Agent default",
                 value: options.model.clone().unwrap_or_default(),
                 oninput: move |event| {
                     let mut next = model_options.clone();
@@ -6807,7 +6832,9 @@ fn DraftLaunchOptions(
                     onchange.call(next);
                 },
             }
+            label { class: "launch-form-label", r#for: "launch-permissions", "Permissions" }
             select {
+                id: "launch-permissions",
                 aria_label: "Session permissions",
                 value: if options.permissions == adroit_model::AgentPermissions::ReadOnly { "read_only" } else { "default" },
                 oninput: move |event| {
@@ -6818,7 +6845,7 @@ fn DraftLaunchOptions(
                     };
                     onchange.call(next);
                 },
-                option { value: "default", "Default permissions" }
+                option { value: "default", "Default" }
                 option { value: "read_only", "Read only" }
             }
         }
