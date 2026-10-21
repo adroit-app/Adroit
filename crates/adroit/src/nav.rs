@@ -17,6 +17,8 @@ pub enum Item {
     Session(String),
     /// A shell adroit runs, by the daemon's id.
     Terminal(u128),
+    /// Presentation-only subgroup of completed Workers in one request.
+    Completed(adroit_model::RunId),
 }
 
 impl Item {
@@ -362,6 +364,7 @@ pub fn row_after_switch(
 /// directory.
 pub fn place_of(tree: &Tree, item: &Item) -> Option<Place> {
     match item {
+        Item::Completed(_) => None,
         Item::Waiting(id) | Item::Session(id) => find(tree, id).map(|(p, _)| p),
         Item::Terminal(id) => tree.terminal(*id).map(|(_, _, s)| Place {
             worktree: s.cwd.clone(),

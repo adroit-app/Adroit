@@ -1014,6 +1014,9 @@ fn row_tip(item: &Item) -> &'static str {
         Item::Workspace(_) => {
             "A workspace: a git repository or a directory sessions run in. Enter folds it; n starts a session there"
         }
+        Item::Completed(_) => {
+            "Completed Workers. Enter folds or unfolds; sessions remain available"
+        }
         Item::Worktree(_) => {
             "A worktree: a checkout of the repository, on a branch of its own. Enter or n starts a session in it, s a shell"
         }
@@ -2637,16 +2640,44 @@ fn App() -> Element {
             focus_filter(false);
         }
     });
+    // Keep sessions visible while a prompt is in flight, even across tab switches.
+    let mut sending = use_signal(|| false);
+    let mut expanded_completed = use_signal(HashSet::<adroit_model::RunId>::new);
     let shown_tree = use_memo(move || nav::narrowed(&tree.read(), &filter.read()));
     let shown_ib = use_memo(move || inbox(&shown_tree.read()));
     let leader_rows =
         use_memo(move || crate::leader_navigation::project(&tree.read(), &orchestration.read()));
+    let display_leader_rows = use_memo(move || {
+        let rows = leader_rows.read();
+        if !filter.read().is_empty() || sending() {
+            return rows.clone();
+        }
+        let mut reveal = HashSet::new();
+        if let Some(Item::Session(id) | Item::Waiting(id)) = selected.read().as_ref() {
+            reveal.insert(id.clone());
+        }
+        if let Some(Tab::Session(id)) = active.read().as_ref() {
+            reveal.insert(id.clone());
+        }
+        reveal.extend(drafted.read().iter().filter_map(|tab| match tab {
+            Tab::Session(id) => Some(id.clone()),
+            _ => None,
+        }));
+        crate::leader_navigation::group_completed(
+            &rows,
+            &tree.read(),
+            &orchestration.read(),
+            &completions.read(),
+            &expanded_completed.read(),
+            &reveal,
+        )
+    });
     let items = use_memo(move || {
         if !leader_view() {
             return nav::items(&shown_tree.read(), &shown_ib.read(), &collapsed.read());
         }
         let narrowed = shown_tree.read();
-        let rows = leader_rows.read();
+        let rows = display_leader_rows.read();
         let matching: HashSet<_> = rows
             .iter()
             .filter(|row| match &row.item {
@@ -2670,6 +2701,7 @@ fn App() -> Element {
                                 && row.run_id.is_some_and(|id| matching.contains(&id)))
                     }
                     Item::Terminal(id) => narrowed.terminal(*id).is_some(),
+                    Item::Completed(_) => true,
                     _ => false,
                 })
                 .map(|row| row.item.clone()),
@@ -2736,6 +2768,12 @@ fn App() -> Element {
         }
         selected.set(Some(item.clone()));
         match &item {
+            Item::Completed(run) => {
+                let mut expanded = expanded_completed.write();
+                if !expanded.remove(run) {
+                    expanded.insert(*run);
+                }
+            }
             Item::Workspace(_) => {
                 if let Some(k) = item.fold_key() {
                     let mut c = collapsed.write();
@@ -2845,8 +2883,6 @@ fn App() -> Element {
         show_tab(next);
     };
 
-    // Whether a prompt is on its way, so a second press does not send it again.
-    let mut sending = use_signal(|| false);
     let submit = {
         let hub = hub.clone();
         move || {
@@ -4265,7 +4301,7 @@ fn App() -> Element {
                 Action::CursorLast => selected.set(list.last().cloned()),
                 Action::CursorOpen => {
                     if let Some(item) = cur {
-                        let folds = matches!(item, Item::Workspace(_));
+                        let folds = matches!(item, Item::Workspace(_) | Item::Completed(_));
                         open(item);
                         match &*active.peek() {
                             _ if folds => {}
@@ -4284,6 +4320,9 @@ fn App() -> Element {
                     }
                 }
                 Action::CursorFold => {
+                    if let Some(Item::Completed(run)) = cur.as_ref() {
+                        expanded_completed.write().remove(run);
+                    }
                     if let Some(k) = cur.as_ref().and_then(Item::fold_key) {
                         collapsed.write().insert(k);
                     }
@@ -5598,13 +5637,20 @@ fn App() -> Element {
                                     Item::Session(id) => nav::find(&t, id).and_then(|(_, s)| session_mark(s.binding.as_ref().map(|b| b.role()), s.reads_only())),
                                     _ => None,
                                 };
-                                let ownership = leader_view().then(|| leader_rows.read().iter().find(|row| row.item == it).cloned()).flatten();
+                                let ownership = leader_view().then(|| display_leader_rows.read().iter().find(|row| row.item == it).cloned()).flatten();
                                 let worker_display = match &it {
                                     Item::Session(id) => nav::find(&t, id).and_then(|(_, session)| crate::leader_navigation::worker_presentation(session, &orchestration.read())),
                                     _ => None,
                                 };
                                 let request = ownership.as_ref().and_then(|row| row.run_id).and_then(|id| orchestration.read().runs.iter().find(|run| run.id == id).cloned());
                                 let (indent, class, text, meta, glyph_class) = match &it {
+                                    Item::Completed(run) => {
+                                        let count = ownership.as_ref().and_then(|row| match row.role { crate::leader_navigation::RowRole::Completed(count) => Some(count), _ => None }).unwrap_or(0);
+                                        let displayed = display_leader_rows.read();
+                                        let is_open = displayed.iter().skip_while(|row| row.item != it).nth(1).is_some_and(|row| row.run_id == Some(*run) && row.role == crate::leader_navigation::RowRole::Worker);
+                                        let arrow = if is_open { "▾" } else { "▸" };
+                                        (14, "list-row head", format!("{arrow} Completed ({count})"), String::new(), None)
+                                    }
                                     Item::Workspace(root) => {
                                         let name = t
                                             .workspace_of(root)
@@ -5653,7 +5699,11 @@ fn App() -> Element {
                                     use crate::leader_navigation::RowRole;
                                     match row.role {
                                         RowRole::Leader => (0, "list-row head", request.as_ref().map(|run| run.brief.title.clone()).unwrap_or(text), request.as_ref().map(|run| run.state.word().to_owned()).unwrap_or_else(|| "Leader".into())),
-                                        RowRole::Worker => (14, class, text, "Worker".to_owned()),
+                                        RowRole::Completed(_) => (14, class, text, meta),
+                                        RowRole::Worker => {
+                                            let grouped = display_leader_rows.read().iter().take_while(|row| row.item != it).any(|previous| previous.run_id == row.run_id && matches!(previous.role, RowRole::Completed(_)));
+                                            (if grouped {28} else {14}, class, text, "Worker".to_owned())
+                                        },
                                         RowRole::Terminal => (if row.run_id.is_some() {14} else {0}, class, text, "Terminal".to_owned()),
                                         RowRole::Unassigned => (0, class, text, "Unassigned".to_owned()),
                                     }

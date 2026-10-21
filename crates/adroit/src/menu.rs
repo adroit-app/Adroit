@@ -57,6 +57,7 @@ pub fn entries(target: &Target, session: Option<&Session>) -> Vec<(Action, &'sta
                 .chain(here)
                 .collect()
         }
+        Target::Row(Item::Completed(_)) => vec![(Action::CursorOpen, "Fold or unfold")],
         Target::Row(Item::Workspace(_)) => [(Action::CursorOpen, "Fold or unfold")]
             .into_iter()
             .chain(here)

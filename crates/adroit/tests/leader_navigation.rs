@@ -357,3 +357,383 @@ fn adding_later_workers_and_attempts_keeps_existing_numbers_and_labels() {
     assert_eq!(display.metadata, "Worker 1 · Attempt 1");
     assert_eq!(display.label, "読みやすい Worker names");
 }
+
+fn completed_fixture() -> (Tree, ControlSnapshot) {
+    let (session, mut snapshot) = worker_fixture();
+    snapshot.tasks[0].state = TaskState::Succeeded;
+    snapshot.attempts[0].state = AttemptState::Succeeded;
+    snapshot.reports.push(TaskReportRecord {
+        run_id: snapshot.tasks[0].run_id,
+        applied: true,
+        report: TaskReport {
+            message_id: MessageId::new(),
+            task: TaskVersion {
+                task_id: snapshot.tasks[0].id,
+                revision: 1,
+            },
+            attempt_id: snapshot.attempts[0].id,
+            result: TaskResult {
+                status: ReportStatus::Succeeded,
+                summary: "done".into(),
+                artifact: None,
+                checks: vec![],
+                unresolved: vec![],
+            },
+        },
+    });
+    // Use the fixture's matching authoritative leader with the completed Worker.
+    let leader = Session {
+        id: snapshot.sessions[0].terminal_id.clone().unwrap(),
+        binding: Some(snapshot.sessions[0].binding.clone()),
+        agent: snapshot.sessions[0].agent,
+        cwd: "/repo".into(),
+        ..Default::default()
+    };
+    let tree = build(&[leader, session], &[], &HashMap::new(), &[], None);
+    (tree, snapshot)
+}
+
+#[test]
+fn completed_workers_collapse_and_expand_without_losing_native_open_paths() {
+    use adroit::leader_navigation::Completions;
+    use adroit::leader_navigation::group_completed;
+    let (tree, snapshot) = completed_fixture();
+    let before = (tree.clone(), snapshot.clone());
+    let rows = project(&tree, &snapshot);
+    let run = snapshot.runs[0].id;
+    let grouped = group_completed(
+        &rows,
+        &tree,
+        &snapshot,
+        &Completions::default(),
+        &Default::default(),
+        &Default::default(),
+    );
+    assert_eq!(
+        grouped.iter().map(|r| r.item.clone()).collect::<Vec<_>>(),
+        vec![rows[0].item.clone(), Item::Completed(run)]
+    );
+    let expanded = group_completed(
+        &rows,
+        &tree,
+        &snapshot,
+        &Completions::default(),
+        &[run].into(),
+        &Default::default(),
+    );
+    assert_eq!(expanded.last().unwrap().item, rows[1].item);
+    assert_eq!(
+        adroit::nav::step(
+            &expanded.iter().map(|r| r.item.clone()).collect::<Vec<_>>(),
+            Some(&Item::Completed(run)),
+            1
+        ),
+        Some(rows[1].item.clone())
+    );
+    let Item::Session(id) = &rows[1].item else {
+        panic!()
+    };
+    assert!(adroit::nav::find(&tree, id).is_some());
+    assert!(adroit::leader_navigation::terminal_binding(&tree, &snapshot, &rows[1].item).is_some());
+    assert_eq!((tree, snapshot), before);
+}
+
+#[test]
+fn completed_grouping_requires_current_final_success_and_no_attention() {
+    use adroit::leader_navigation::Completions;
+    use adroit::leader_navigation::group_completed;
+    for mutation in 0..17 {
+        let (mut tree, mut snapshot) = completed_fixture();
+        let id = tree
+            .sessions()
+            .find(|(_, s)| s.binding.as_ref().unwrap().role() == SessionRole::Worker)
+            .unwrap()
+            .1
+            .id
+            .clone();
+        let worker = tree
+            .workspaces
+            .iter_mut()
+            .flat_map(|w| &mut w.worktrees)
+            .flat_map(|w| &mut w.sessions)
+            .find(|s| s.id == id)
+            .unwrap();
+        let mut reveal = std::collections::HashSet::new();
+        match mutation {
+            0 => snapshot.tasks[0].revision += 1,
+            1 => snapshot.tasks[0].current_attempt = None,
+            2 => snapshot.tasks[0].state = TaskState::Verifying,
+            3 => snapshot.tasks[0].brief.candidate_id = Some(CandidateId::new()),
+            4 => snapshot.reports.clear(),
+            5 => snapshot.reports[0].applied = false,
+            6 => snapshot.reports[0].report.task.revision += 1,
+            7 => snapshot.attempts[0].state = AttemptState::Uncertain,
+            8 => snapshot.attempts.clear(),
+            9 => worker.state = State::Working,
+            10 => worker.state = State::Waiting(Wait::Permission),
+            11 => worker.state = State::Waiting(Wait::Input),
+            12 => worker.state = State::Done,
+            13 => worker.last_input_ms = Some(1),
+            14 => {
+                reveal.insert(id.clone());
+            }
+            15 => snapshot.sessions[1].terminal_id = Some("replacement".into()),
+            16 => snapshot.tasks.clear(),
+            _ => unreachable!(),
+        }
+        let rows = project(&tree, &snapshot);
+        let grouped = group_completed(
+            &rows,
+            &tree,
+            &snapshot,
+            &Completions::default(),
+            &Default::default(),
+            &reveal,
+        );
+        assert!(
+            grouped.iter().any(|r| r.item == Item::Session(id.clone())),
+            "mutation {mutation}"
+        );
+        assert!(
+            mutation == 14 || !grouped.iter().any(|r| matches!(r.item, Item::Completed(_))),
+            "mutation {mutation}"
+        );
+    }
+}
+
+#[test]
+fn completion_attention_requires_acknowledgement_and_answers_at_both_ends() {
+    use adroit::leader_navigation::{Completions, group_completed};
+    for state in [
+        None,
+        Some(DeliveryState::Stored),
+        Some(DeliveryState::Dispatching),
+        Some(DeliveryState::Accepted),
+        Some(DeliveryState::Uncertain),
+        Some(DeliveryState::Acknowledged),
+    ] {
+        for inbound in [false, true] {
+            for question in [false, true] {
+                let (tree, mut snapshot) = completed_fixture();
+                let worker = snapshot.sessions[1].binding.logical_id();
+                let leader = snapshot.runs[0].leader_id;
+                let message = AgentMessage {
+                    id: MessageId::new(),
+                    run_id: snapshot.runs[0].id,
+                    from: if inbound { leader } else { worker },
+                    to: if inbound { worker } else { leader },
+                    task_id: None,
+                    attempt_id: None,
+                    revision: None,
+                    kind: if question {
+                        MessageKind::Question
+                    } else {
+                        MessageKind::Note
+                    },
+                    body: "attention".into(),
+                    reply_to: None,
+                    blocks_work: question,
+                };
+                if let Some(state) = state {
+                    snapshot.deliveries.push(DeliveryRecord {
+                        message_id: message.id,
+                        recipient: message.to,
+                        state,
+                        attempts: 1,
+                        last_error: None,
+                    });
+                }
+                snapshot.messages.push(message.clone());
+                let grouped = |snapshot: &ControlSnapshot| {
+                    group_completed(
+                        &project(&tree, snapshot),
+                        &tree,
+                        snapshot,
+                        &Completions::default(),
+                        &Default::default(),
+                        &Default::default(),
+                    )
+                };
+                assert_eq!(
+                    grouped(&snapshot)
+                        .iter()
+                        .any(|row| matches!(row.item, Item::Completed(_))),
+                    state == Some(DeliveryState::Acknowledged) && !question
+                );
+                if question && state == Some(DeliveryState::Acknowledged) {
+                    let answer = AgentMessage {
+                        id: MessageId::new(),
+                        from: message.to,
+                        to: message.from,
+                        kind: MessageKind::Answer,
+                        reply_to: Some(message.id),
+                        blocks_work: false,
+                        ..message
+                    };
+                    snapshot.deliveries.push(DeliveryRecord {
+                        message_id: answer.id,
+                        recipient: answer.to,
+                        state: DeliveryState::Acknowledged,
+                        attempts: 1,
+                        last_error: None,
+                    });
+                    snapshot.messages.push(answer);
+                    assert!(
+                        grouped(&snapshot)
+                            .iter()
+                            .any(|row| matches!(row.item, Item::Completed(_)))
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn eleven_successful_workers_with_running_native_sessions_leave_one_completed_group() {
+    use adroit::leader_navigation::{Completions, group_completed, worker_presentation};
+    let (mut tree, mut snapshot) = completed_fixture();
+    let worker = tree
+        .sessions()
+        .find(|(_, s)| s.binding.as_ref().unwrap().role() == SessionRole::Worker)
+        .unwrap()
+        .1
+        .clone();
+    for index in 1..11 {
+        let mut native = worker.clone();
+        let task_id = TaskId::new();
+        let attempt_id = AttemptId::new();
+        let logical = LogicalSessionId::new();
+        native.id = format!("completed-{index}");
+        native.binding = Some(
+            SessionBinding::worker(
+                logical,
+                snapshot.runs[0].leader_id,
+                snapshot.runs[0].id,
+                task_id,
+                attempt_id,
+            )
+            .unwrap(),
+        );
+        let mut managed = snapshot.sessions[1].clone();
+        managed.binding = native.binding.clone().unwrap();
+        managed.terminal_id = Some(native.id.clone());
+        snapshot.sessions.push(managed);
+        let mut task = snapshot.tasks[0].clone();
+        task.id = task_id;
+        task.current_attempt = Some(attempt_id);
+        snapshot.tasks.push(task);
+        let mut attempt = snapshot.attempts[0].clone();
+        attempt.id = attempt_id;
+        attempt.task_id = task_id;
+        attempt.session_id = logical;
+        snapshot.attempts.push(attempt);
+        let mut report = snapshot.reports[0].clone();
+        report.report.message_id = MessageId::new();
+        report.report.task.task_id = task_id;
+        report.report.attempt_id = attempt_id;
+        snapshot.reports.push(report);
+        tree.workspaces[0].worktrees[0].sessions.push(native);
+    }
+    let before = (tree.clone(), snapshot.clone());
+    let rows = project(&tree, &snapshot);
+    assert_eq!(rows.len(), 12);
+    assert!(
+        snapshot
+            .sessions
+            .iter()
+            .all(|s| s.state == ManagedSessionState::Running)
+    );
+    let collapsed = group_completed(
+        &rows,
+        &tree,
+        &snapshot,
+        &Completions::default(),
+        &Default::default(),
+        &Default::default(),
+    );
+    assert_eq!(collapsed.len(), 2);
+    assert_eq!(collapsed[1].role, RowRole::Completed(11));
+    let expanded = group_completed(
+        &rows,
+        &tree,
+        &snapshot,
+        &Completions::default(),
+        &[snapshot.runs[0].id].into(),
+        &Default::default(),
+    );
+    assert_eq!(expanded.len(), 13);
+    for (index, row) in expanded[2..].iter().enumerate() {
+        let Item::Session(id) = &row.item else {
+            panic!()
+        };
+        let native = tree.find(id).unwrap().2;
+        assert_eq!(
+            worker_presentation(native, &snapshot).unwrap().metadata,
+            format!("Worker {}", index + 1)
+        );
+    }
+    let item = &expanded[1].item;
+    assert_eq!(
+        adroit::menu::entries(&adroit::menu::Target::Row(item.clone()), None),
+        vec![(adroit::keymap::Action::CursorOpen, "Fold or unfold")]
+    );
+    assert_eq!((tree, snapshot), before);
+}
+
+#[test]
+fn viewed_completions_can_fold_and_selected_or_active_rows_reveal_without_reordering() {
+    use adroit::leader_navigation::{Completions, group_completed};
+    let (mut tree, snapshot) = completed_fixture();
+    let worker = tree
+        .workspaces
+        .iter_mut()
+        .flat_map(|w| &mut w.worktrees)
+        .flat_map(|w| &mut w.sessions)
+        .find(|s| s.binding.as_ref().unwrap().role() == SessionRole::Worker)
+        .unwrap();
+    worker.state = State::Done;
+    let id = worker.id.clone();
+    let marks = Completions::default().updated(&tree, Some(&id));
+    let rows = project(&tree, &snapshot);
+    let folded = group_completed(
+        &rows,
+        &tree,
+        &snapshot,
+        &marks,
+        &Default::default(),
+        &Default::default(),
+    );
+    assert_eq!(folded.len(), 2);
+    let revealed = group_completed(
+        &rows,
+        &tree,
+        &snapshot,
+        &marks,
+        &Default::default(),
+        &[id.clone()].into(),
+    );
+    assert_eq!(revealed.len(), 3);
+    assert_eq!(revealed[1].item, folded[1].item);
+    assert_eq!(revealed[2].item, Item::Session(id));
+    let items: Vec<_> = revealed.iter().map(|row| row.item.clone()).collect();
+    assert_eq!(
+        adroit::nav::step(&items, Some(&items[2]), -1),
+        Some(items[1].clone())
+    );
+    assert_eq!(
+        adroit::nav::step(&items, Some(&items[1]), 1),
+        Some(items[2].clone())
+    );
+    assert!(
+        adroit::nav::next_session(
+            &tree,
+            Some(&adroit::tabs::Tab::Session(
+                tree.sessions().next().unwrap().1.id.clone()
+            )),
+            None,
+            true
+        )
+        .is_some()
+    );
+}

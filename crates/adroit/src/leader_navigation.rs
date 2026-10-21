@@ -1,6 +1,7 @@
 //! Alternate navigation over the same native sessions, joined to current ownership.
+pub use crate::completion::Completions;
 use adroit_model::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::nav::Item;
 
@@ -10,6 +11,7 @@ pub enum RowRole {
     Worker,
     Terminal,
     Unassigned,
+    Completed(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -285,4 +287,127 @@ pub fn worker_presentation(
 
 fn normalize(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Fold only the sidebar projection; details and native navigation use `project`.
+pub fn group_completed(
+    rows: &[Row],
+    tree: &Tree,
+    snapshot: &ControlSnapshot,
+    completions: &Completions,
+    expanded: &HashSet<RunId>,
+    reveal: &HashSet<String>,
+) -> Vec<Row> {
+    let mut completed: HashMap<RunId, Vec<Row>> = HashMap::new();
+    for row in rows {
+        if row.role == RowRole::Worker
+            && let Item::Session(id) = &row.item
+            && let Some((_, _, session)) = tree.find(id)
+            && *completions.state(session) == State::Idle
+            && session.last_input_ms.is_none()
+            && ordinary_success(session, snapshot)
+            && let Some(run) = row.run_id
+        {
+            completed.entry(run).or_default().push(row.clone());
+        }
+    }
+    let mut out = Vec::new();
+    for (index, row) in rows.iter().enumerate() {
+        let hidden = row.run_id.and_then(|id| completed.get(&id));
+        if !hidden.is_some_and(|group| group.iter().any(|r| r.item == row.item)) {
+            out.push(row.clone());
+        }
+        if let Some(run) = row.run_id
+            && rows
+                .get(index + 1)
+                .is_none_or(|next| next.run_id != Some(run))
+            && let Some(group) = completed.remove(&run)
+        {
+            out.push(Row {
+                item: Item::Completed(run),
+                role: RowRole::Completed(group.len()),
+                run_id: Some(run),
+                reason: None,
+            });
+            let needs_reveal = group
+                .iter()
+                .any(|row| matches!(&row.item, Item::Session(id) if reveal.contains(id)));
+            if expanded.contains(&run) || needs_reveal {
+                out.extend(group);
+            }
+        }
+    }
+    out
+}
+
+fn ordinary_success(session: &Session, snapshot: &ControlSnapshot) -> bool {
+    let Some(binding) = &session.binding else {
+        return false;
+    };
+    let Some((task_id, attempt_id)) = binding.work() else {
+        return false;
+    };
+    let Some(run) = binding.run_id() else {
+        return false;
+    };
+    let Some(task) = snapshot
+        .tasks
+        .iter()
+        .find(|task| task.id == task_id && task.run_id == run)
+    else {
+        return false;
+    };
+    if task.state != TaskState::Succeeded
+        || task.current_attempt != Some(attempt_id)
+        || task.brief.candidate_id.is_some()
+    {
+        return false;
+    }
+    if !snapshot.attempts.iter().any(|attempt| {
+        attempt.id == attempt_id
+            && attempt.task_id == task_id
+            && attempt.task_revision == task.revision
+            && attempt.session_id == binding.logical_id()
+            && attempt.state == AttemptState::Succeeded
+            && attempt.candidate_input.is_none()
+    }) {
+        return false;
+    }
+    if !snapshot.reports.iter().any(|record| {
+        record.applied
+            && record.run_id == run
+            && record.report.task
+                == (TaskVersion {
+                    task_id,
+                    revision: task.revision,
+                })
+            && record.report.attempt_id == attempt_id
+            && record.report.result.status == ReportStatus::Succeeded
+    }) {
+        return false;
+    }
+    // Without delivery evidence, a message may still need attention at either end.
+    !snapshot
+        .messages
+        .iter()
+        .filter(|message| {
+            message.run_id == run
+                && (message.from == binding.logical_id() || message.to == binding.logical_id())
+        })
+        .any(|message| {
+            let acknowledged = snapshot.deliveries.iter().any(|delivery| {
+                delivery.message_id == message.id
+                    && delivery.recipient == message.to
+                    && delivery.state == DeliveryState::Acknowledged
+            });
+            let unanswered = message.kind == MessageKind::Question
+                && !snapshot.messages.iter().any(|answer| {
+                    answer.kind == MessageKind::Answer
+                        && answer.reply_to == Some(message.id)
+                        && answer.run_id == run
+                        && answer.from == message.to
+                        && answer.to == message.from
+                });
+            !acknowledged || unanswered
+        })
 }
