@@ -5583,6 +5583,10 @@ fn App() -> Element {
                                 let mut open = open;
                                 let reader = matches!(&it, Item::Session(id) if nav::find(&t, id).is_some_and(|(_, s)| s.reads_only()));
                                 let ownership = leader_view().then(|| leader_rows.read().iter().find(|row| row.item == it).cloned()).flatten();
+                                let worker_display = match &it {
+                                    Item::Session(id) => nav::find(&t, id).and_then(|(_, session)| crate::leader_navigation::worker_presentation(session, &orchestration.read())),
+                                    _ => None,
+                                };
                                 let request = ownership.as_ref().and_then(|row| row.run_id).and_then(|id| orchestration.read().runs.iter().find(|run| run.id == id).cloned());
                                 let (indent, class, text, meta, glyph_class) = match &it {
                                     Item::Workspace(root) => {
@@ -5638,7 +5642,9 @@ fn App() -> Element {
                                         RowRole::Unassigned => (0, class, text, "Unassigned".to_owned()),
                                     }
                                 } else { (indent, class, text, meta) };
+                                let (text, meta) = worker_display.as_ref().map(|display| (display.label.clone(), display.metadata.clone())).unwrap_or((text, meta));
                                 let row_title = ownership.as_ref().and_then(|row| row.reason.clone()).unwrap_or_else(|| row_tip(&it).to_owned());
+                                let row_title = worker_display.as_ref().and_then(|display| display.instructions.as_ref()).map(|instructions| format!("{row_title}\n\n{instructions}")).unwrap_or(row_title);
                                 let terminal = match &it {
                                     Item::Terminal(id) => Some(runs_of(&terminals.read(), *id)),
                                     _ => None,
