@@ -5578,13 +5578,27 @@ fn App() -> Element {
                         }
                         div { class: "sidebar-divider" }
                     }
-                    div { class: "panel-tabs", role: "group", "aria-label": "Session view",
-                        button { class: if leader_view() { "panel-tab" } else { "panel-tab active" }, "aria-pressed": !leader_view(), onclick: move |_| leader_view.set(false), "Workspaces" }
-                        button { class: if leader_view() { "panel-tab active" } else { "panel-tab" }, "aria-pressed": leader_view(), onclick: move |_| leader_view.set(true), "Leader / Workers" }
-                    }
-                    div { class: "sidebar-title",
-                        if leader_view() { span { "Requests" } }
+                    div { class: "sidebar-bar",
+                        div { class: "panel-tabs", role: "group", "aria-label": "Session view",
+                            button { class: if leader_view() { "panel-tab" } else { "panel-tab active" }, "aria-pressed": !leader_view(), title: "Workspaces", onclick: move |_| leader_view.set(false),
+                                IconView { icon: Icon::Folder, size: 13 }
+                                span { class: "panel-tab-label", "Workspaces" }
+                            }
+                            button { class: if leader_view() { "panel-tab active" } else { "panel-tab" }, "aria-pressed": leader_view(), title: "Leader / Workers", onclick: move |_| leader_view.set(true),
+                                IconView { icon: Icon::Sitemap, size: 13 }
+                                span { class: "panel-tab-label", "Leader / Workers" }
+                            }
+                        }
                         span { class: "sidebar-tools",
+                            if !leader_view() {
+                                button {
+                                    class: if include_managed() { "sidebar-tool on" } else { "sidebar-tool" },
+                                    "aria-pressed": include_managed(),
+                                    title: if include_managed() { "Hide Leader / Worker sessions" } else { "Show Leader / Worker sessions" },
+                                    onclick: move |_| include_managed.set(!include_managed()),
+                                    IconView { icon: Icon::UsersGroup }
+                                }
+                            }
                             button {
                                 class: if all_worktrees() { "sidebar-tool on" } else { "sidebar-tool" },
                                 "aria-pressed": all_worktrees(),
@@ -5610,13 +5624,6 @@ fn App() -> Element {
                                 onclick: move |_| open_picker(),
                                 IconView { icon: Icon::Plus }
                             }
-                        }
-                    }
-                    if !leader_view() {
-                        button { class: if include_managed() { "sidebar-visibility on" } else { "sidebar-visibility" },
-                            "aria-pressed": include_managed(),
-                            onclick: move |_| include_managed.set(!include_managed()),
-                            "Show Leader / Worker sessions"
                         }
                     }
                     div {
