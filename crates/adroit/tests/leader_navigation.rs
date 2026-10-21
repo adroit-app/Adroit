@@ -357,3 +357,113 @@ fn adding_later_workers_and_attempts_keeps_existing_numbers_and_labels() {
     assert_eq!(display.metadata, "Worker 1 · Attempt 1");
     assert_eq!(display.label, "読みやすい Worker names");
 }
+
+fn assert_worker_filter(session: &Session, snapshot: &ControlSnapshot, query: &str, matches: bool) {
+    use adroit::leader_navigation::narrowed;
+    use adroit::nav::{self, Place};
+    use adroit::tabs::Tab;
+    use std::collections::HashSet;
+
+    let (mut tree, _) = fixture();
+    *tree
+        .workspaces
+        .iter_mut()
+        .flat_map(|ws| &mut ws.worktrees)
+        .flat_map(|wt| &mut wt.sessions)
+        .find(|native| native.id == session.id)
+        .unwrap() = session.clone();
+    let before = tree.clone();
+    let shown = narrowed(&tree, snapshot, query);
+    let selected = Item::Session(session.id.clone());
+    let workspace_rows = nav::items(&shown, &inbox(&shown), &HashSet::new());
+    // Leaders mode projects the original tree, then tests native identities
+    // against this same narrowed tree (and retains matching Workers' Leaders).
+    let leader_rows: Vec<_> = project(&tree, snapshot)
+        .into_iter()
+        .filter(|row| match &row.item {
+            Item::Session(id) => shown.find(id).is_some(),
+            Item::Terminal(id) => shown.terminal(*id).is_some(),
+            _ => false,
+        })
+        .map(|row| row.item)
+        .collect();
+    for rows in [workspace_rows, leader_rows] {
+        assert_eq!(rows.contains(&selected), matches, "query {query:?}");
+        if matches {
+            assert_eq!(shown.find(&session.id).unwrap().2, session);
+            assert_eq!(
+                nav::row_kept(
+                    &rows,
+                    &tree,
+                    Some(&selected),
+                    Some(&Tab::Session(session.id.clone())),
+                    &Place {
+                        worktree: session.cwd.clone()
+                    },
+                ),
+                None,
+                "matching the visible label keeps the native selection"
+            );
+        }
+    }
+    assert_eq!(tree, before);
+}
+
+#[test]
+fn sidebar_filter_matches_visible_worker_labels_in_both_modes_without_renaming() {
+    let (session, mut snapshot) = worker_fixture();
+    snapshot.tasks[0].brief.instructions = "\n Fix\t scheduler \nPrivate detail".into();
+    for query in ["scheduler", "FIX SCHEDULER", session.name.as_str(), ""] {
+        assert_worker_filter(&session, &snapshot, query, true);
+    }
+    assert_worker_filter(&session, &snapshot, "Private detail", false);
+    assert_worker_filter(&session, &snapshot, "unrelated", false);
+}
+
+#[test]
+fn sidebar_filter_matches_unicode_and_the_actual_readable_worker_fallbacks() {
+    let (mut session, mut snapshot) = worker_fixture();
+    assert_worker_filter(&session, &snapshot, "読みやすい worker", true);
+    snapshot.tasks[0].brief.instructions = " \n\t".into();
+    assert_worker_filter(&session, &snapshot, "implementation", true);
+    snapshot.tasks.clear();
+    session.name = "  Déboguer\t 計画  ".into();
+    assert_worker_filter(&session, &snapshot, "déboguer 計画", true);
+    session.name = format!("worker-{}", LogicalSessionId::new());
+    assert_worker_filter(&session, &snapshot, "worker", true);
+}
+
+#[test]
+fn sidebar_filter_rejects_task_text_without_current_ownership_and_revision() {
+    let (session, snapshot) = worker_fixture();
+    for mutation in 0..4 {
+        let mut snapshot = snapshot.clone();
+        match mutation {
+            0 => snapshot.tasks[0].revision += 1,
+            1 => snapshot.sessions[1].terminal_id = Some("old-terminal".into()),
+            2 => snapshot.runs[0].leader_id = LogicalSessionId::new(),
+            3 => snapshot.attempts[0].session_id = LogicalSessionId::new(),
+            _ => unreachable!(),
+        }
+        assert_worker_filter(&session, &snapshot, "読みやすい", false);
+        assert_worker_filter(&session, &snapshot, &session.name, true);
+    }
+}
+
+#[test]
+fn sidebar_filter_preserves_workspace_and_worktree_ancestor_matches() {
+    use adroit::leader_navigation::narrowed;
+    let (mut tree, snapshot) = fixture();
+    tree.workspaces[0].name = "Workspace ancestor".into();
+    tree.workspaces[0].worktrees[0].worktree.branch = Some("Branch ancestor".into());
+    let workspace = tree.workspaces[0].clone();
+    assert_eq!(
+        narrowed(&tree, &snapshot, "workspace ancestor").workspaces,
+        vec![workspace]
+    );
+    let worktree = tree.workspaces[0].worktrees[0].clone();
+    assert_eq!(
+        narrowed(&tree, &snapshot, "branch ancestor").workspaces[0].worktrees,
+        vec![worktree]
+    );
+}

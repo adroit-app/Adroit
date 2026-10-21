@@ -2637,7 +2637,9 @@ fn App() -> Element {
             focus_filter(false);
         }
     });
-    let shown_tree = use_memo(move || nav::narrowed(&tree.read(), &filter.read()));
+    let shown_tree = use_memo(move || {
+        crate::leader_navigation::narrowed(&tree.read(), &orchestration.read(), &filter.read())
+    });
     let shown_ib = use_memo(move || inbox(&shown_tree.read()));
     let leader_rows =
         use_memo(move || crate::leader_navigation::project(&tree.read(), &orchestration.read()));

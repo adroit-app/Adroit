@@ -183,6 +183,13 @@ pub struct WorkerPresentation {
     pub instructions: Option<String>,
 }
 
+/// The shared sidebar filter for both navigation modes.
+pub fn narrowed(tree: &Tree, snapshot: &ControlSnapshot, text: &str) -> Tree {
+    crate::nav::narrowed_with_session_label(tree, text, |session| {
+        worker_presentation(session, snapshot).map(|display| display.label)
+    })
+}
+
 /// Presentation only: native identity and persisted names remain authoritative.
 pub fn worker_presentation(
     session: &Session,
