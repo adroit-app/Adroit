@@ -1388,6 +1388,37 @@ fn Terminal(runs: TerminalProgram) -> Element {
     }
 }
 
+type ConversationKey = (adroit_model::Agent, PathBuf, String);
+
+fn conversation_key(session: &Session) -> ConversationKey {
+    (
+        session.agent,
+        session.cwd.clone(),
+        session.session_id.clone(),
+    )
+}
+
+fn selected_conversation(active: Option<&Tab>, tree: &Tree) -> Option<Session> {
+    let Some(Tab::Session(id)) = active else {
+        return None;
+    };
+    nav::find(tree, id)
+        .map(|(_, session)| session.clone())
+        .filter(|session| {
+            agents::adapter(session.agent).capabilities().transcript
+                && !session.session_id.is_empty()
+        })
+}
+
+fn sample_conversation(
+    reader: &mut dyn agents::ConversationReader,
+    sheet: Sheet,
+) -> (Option<Links>, adroit_model::ConversationStats) {
+    let links = reader.read();
+    let stats = reader.stats();
+    ((sheet == Sheet::Overview).then_some(links), stats)
+}
+
 #[component]
 fn App() -> Element {
     let mut tree = use_signal(Tree::default);
@@ -1574,7 +1605,7 @@ fn App() -> Element {
     // What the conversation of a session brought up, by the session's id.
     let mut overview_links = use_signal(|| None::<(String, Links)>);
     let mut overview_stats =
-        use_signal(|| None::<(adroit_model::Agent, String, adroit_model::ConversationStats)>);
+        use_signal(|| None::<(ConversationKey, adroit_model::ConversationStats)>);
     let mut overview_clock = use_signal(now_ms);
     let mut process_rows = use_signal(|| None::<(String, Vec<crate::processes::Process>)>);
     let processes_wake = use_hook(|| Arc::new(Notify::new()));
@@ -2193,60 +2224,54 @@ fn App() -> Element {
             wake.notify_one();
         }
     });
-    // What the shown session's conversation brought up, for the overview:
-    // read while the overview shows it, each time only what its transcript
-    // gained since.
+    // Keep the shown session's stats current for Usage on every sheet. Only
+    // refresh overview links and image thumbnails while Overview is shown.
     let links_wake = use_hook(|| Arc::new(Notify::new()));
     use_hook({
         let wake = links_wake.clone();
         move || {
             spawn(async move {
-                type ConversationKey = (adroit_model::Agent, PathBuf, String);
                 type Reader = Box<dyn agents::ConversationReader>;
                 let mut held: Option<(ConversationKey, Reader)> = None;
                 loop {
-                    let shown = match (drill.peek().sheet(), &*active.peek()) {
-                        (Sheet::Overview, Some(Tab::Session(id))) => {
-                            nav::find(&tree.peek(), id).map(|(_, s)| s.clone())
-                        }
-                        _ => None,
-                    }
-                    .filter(|s| {
-                        agents::adapter(s.agent).capabilities().transcript
-                            && !s.session_id.is_empty()
-                    });
+                    let shown = selected_conversation(active.peek().as_ref(), &tree.peek());
                     if layout.peek().show_details && drill.peek().sheet() == Sheet::Overview {
                         overview_clock.set(now_ms());
                     }
                     if let Some(s) = shown {
-                        let key = (s.agent, s.cwd.clone(), s.session_id.clone());
+                        let key = conversation_key(&s);
                         let reader = match held.take() {
                             Some((was, reader)) if was == key => Some(reader),
                             _ => agents::adapter(s.agent).transcript(&home(), &s),
                         };
                         if let Some(t) = reader {
-                            let thumbs = gallery.peek().thumbs.clone();
+                            let sheet = drill.peek().sheet();
+                            let thumbs =
+                                (sheet == Sheet::Overview).then(|| gallery.peek().thumbs.clone());
                             let read = tokio::task::spawn_blocking(move || {
                                 let mut t = t;
-                                let mut links = t.read();
-                                let mut thumbs = thumbs;
-                                pictures::refresh_thumbs(&mut links.images, &mut thumbs);
-                                let stats = t.stats();
-                                (t, links, thumbs, stats)
+                                let (links, stats) = sample_conversation(&mut *t, sheet);
+                                let overview = links.zip(thumbs).map(|(mut links, mut thumbs)| {
+                                    pictures::refresh_thumbs(&mut links.images, &mut thumbs);
+                                    (links, thumbs)
+                                });
+                                (t, overview, stats)
                             })
                             .await;
-                            if let Ok((t, links, thumbs, stats)) = read {
-                                let next_stats = Some((s.agent, s.session_id.clone(), stats));
+                            if let Ok((t, overview, stats)) = read {
+                                let next_stats = Some((key.clone(), stats));
                                 if *overview_stats.peek() != next_stats {
                                     overview_stats.set(next_stats);
                                 }
                                 held = Some((key, t));
-                                if gallery.peek().thumbs != thumbs {
-                                    gallery.write().thumbs = thumbs;
-                                }
-                                let next = Some((s.id, links));
-                                if *overview_links.peek() != next {
-                                    overview_links.set(next);
+                                if let Some((links, thumbs)) = overview {
+                                    if gallery.peek().thumbs != thumbs {
+                                        gallery.write().thumbs = thumbs;
+                                    }
+                                    let next = Some((s.id, links));
+                                    if *overview_links.peek() != next {
+                                        overview_links.set(next);
+                                    }
                                 }
                             }
                         }
@@ -5171,8 +5196,8 @@ fn App() -> Element {
         overview_stats
             .read()
             .as_ref()
-            .filter(|(agent, id, _)| *agent == s.agent && *id == s.session_id)
-            .and_then(|(_, _, stats)| crate::details::context_gauge(stats.context))
+            .filter(|(key, _)| *key == conversation_key(s))
+            .and_then(|(_, stats)| crate::details::context_gauge(stats.context))
     });
     if let Some(gauge) = context_now {
         usage_now.push(gauge);
@@ -5183,8 +5208,8 @@ fn App() -> Element {
             let stats = overview_stats.read();
             let stats = stats
                 .as_ref()
-                .filter(|(agent, id, _)| *agent == s.agent && *id == s.session_id)
-                .map(|(_, _, stats)| stats.clone())
+                .filter(|(key, _)| *key == conversation_key(s))
+                .map(|(_, stats)| stats.clone())
                 .unwrap_or_default();
             let live_input = active_tab.as_ref().and_then(|tab| {
                 hub.panes
@@ -6702,6 +6727,57 @@ fn DraftLaunchOptions(
 mod tests {
     use super::*;
     use crate::details::overview;
+
+    #[test]
+    fn conversation_stats_refresh_on_changes_and_log_without_overview_links() {
+        struct Reader(u64);
+
+        impl agents::ConversationReader for Reader {
+            fn read(&mut self) -> Links {
+                self.0 += 1;
+                Links::default()
+            }
+
+            fn stats(&self) -> adroit_model::ConversationStats {
+                adroit_model::ConversationStats {
+                    context: Some((self.0, 100)),
+                    ..Default::default()
+                }
+            }
+        }
+
+        let mut reader = Reader(0);
+        for (sheet, expected) in [(Sheet::Changes, 1), (Sheet::Log, 2)] {
+            let (links, stats) = sample_conversation(&mut reader, sheet);
+            assert!(links.is_none(), "only Overview needs conversation links");
+            assert_eq!(stats.context, Some((expected, 100)));
+        }
+        assert!(
+            sample_conversation(&mut reader, Sheet::Overview)
+                .0
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn conversation_sampling_follows_the_selected_session_and_its_transcript_id() {
+        let mut session = Session {
+            id: "shown".into(),
+            session_id: "first".into(),
+            cwd: "/project".into(),
+            ..Default::default()
+        };
+        let tree = build(&[session.clone()], &[], &HashMap::new(), &[], None);
+        let shown = selected_conversation(Some(&Tab::Session("shown".into())), &tree)
+            .expect("selected session has a transcript");
+        assert_eq!(conversation_key(&shown), conversation_key(&session));
+        assert!(selected_conversation(Some(&Tab::Terminal(1)), &tree).is_none());
+
+        session.session_id = "resumed".into();
+        assert_ne!(conversation_key(&shown), conversation_key(&session));
+        session.cwd = "/other".into();
+        assert_ne!(conversation_key(&shown), conversation_key(&session));
+    }
 
     #[test]
     fn worker_marks_identify_the_role_independently_of_permissions() {
