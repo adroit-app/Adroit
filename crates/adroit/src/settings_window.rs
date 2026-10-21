@@ -216,7 +216,6 @@ fn SettingsWindow() -> Element {
                 }
             }
             main { class: "settings-pane",
-                h1 { if pane() == Pane::Agents { "{crate::agents::adapter(agent()).label()}" } else { "{pane().title()}" } }
                 SettingsLoadError {}
                 if let Some(e) = failed() {
                     div { class: "settings-error", "Could not keep the settings: {e}" }

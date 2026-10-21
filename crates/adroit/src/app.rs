@@ -5090,7 +5090,7 @@ fn App() -> Element {
         &draft_options.read(),
         last_agent.read().unwrap_or(font.read().agent),
     );
-    let usage_now = match usage_limits
+    let mut usage_now = match usage_limits
         .read()
         .get(&current_agent)
         .and_then(|fresh| fresh.get())
@@ -5098,6 +5098,7 @@ fn App() -> Element {
         Some(limits) if shows_usage(active_tab.as_ref(), current_agent) => gauges(limits, now_ms()),
         _ => Vec::new(),
     };
+    let has_account_usage = !usage_now.is_empty();
     let system_gauges = system_snapshot.read().gauges(&font.read().usage);
     let spot_now = spot();
     let git_now = git_view()
@@ -5166,6 +5167,16 @@ fn App() -> Element {
         Some(Tab::Session(id)) => nav::find(&t, id).map(|(_, s)| s.clone()),
         _ => None,
     };
+    let context_now = shown_session.as_ref().and_then(|s| {
+        overview_stats
+            .read()
+            .as_ref()
+            .filter(|(agent, id, _)| *agent == s.agent && *id == s.session_id)
+            .and_then(|(_, _, stats)| crate::details::context_gauge(stats.context))
+    });
+    if let Some(gauge) = context_now {
+        usage_now.push(gauge);
+    }
     let session_facts = shown_session
         .as_ref()
         .map(|s| {
@@ -5542,15 +5553,16 @@ fn App() -> Element {
                         }
                         div { class: "sidebar-divider" }
                     }
-                    div { class: "sidebar-views", role: "group", "aria-label": "Session view",
-                        button { class: if leader_view() { "sidebar-view" } else { "sidebar-view active" }, "aria-pressed": !leader_view(), onclick: move |_| leader_view.set(false), "Workspaces" }
-                        button { class: if leader_view() { "sidebar-view active" } else { "sidebar-view" }, "aria-pressed": leader_view(), onclick: move |_| leader_view.set(true), "Leader / Workers" }
+                    div { class: "panel-tabs", role: "group", "aria-label": "Session view",
+                        button { class: if leader_view() { "panel-tab" } else { "panel-tab active" }, "aria-pressed": !leader_view(), onclick: move |_| leader_view.set(false), "Workspaces" }
+                        button { class: if leader_view() { "panel-tab active" } else { "panel-tab" }, "aria-pressed": leader_view(), onclick: move |_| leader_view.set(true), "Leader / Workers" }
                     }
                     div { class: "sidebar-title",
-                        span { if leader_view() { "Requests" } else { "Workspaces" } }
+                        if leader_view() { span { "Requests" } }
                         span { class: "sidebar-tools",
-                            span {
+                            button {
                                 class: if all_worktrees() { "sidebar-tool on" } else { "sidebar-tool" },
+                                "aria-pressed": all_worktrees(),
                                 title: if all_worktrees() { "List only the worktrees with sessions" } else { "List every worktree, those without sessions too" },
                                 onclick: {
                                     let mut run = run_button.clone();
@@ -5576,10 +5588,9 @@ fn App() -> Element {
                         }
                     }
                     if !leader_view() {
-                        label { class: "sidebar-views",
-                            input { r#type: "checkbox", checked: include_managed(),
-                                onchange: move |event| include_managed.set(event.checked()),
-                            }
+                        button { class: if include_managed() { "sidebar-visibility on" } else { "sidebar-visibility" },
+                            "aria-pressed": include_managed(),
+                            onclick: move |_| include_managed.set(!include_managed()),
                             "Show Leader / Worker sessions"
                         }
                     }
@@ -6036,11 +6047,12 @@ fn App() -> Element {
                     hidden: !layout().show_details,
                     style: "width:{layout().drawn(body_width()).1}px",
                     onmousedown: move |_| focus.set(Area::Details),
-                    div { class: "details-sheets",
+                    div { class: "panel-tabs",
                         for s in Sheet::ALL {
-                            span {
+                            button {
                                 key: "{s.title()}",
-                                class: if s == sheet_now { "details-sheet active" } else { "details-sheet" },
+                                class: if s == sheet_now { "panel-tab active" } else { "panel-tab" },
+                                "aria-pressed": s == sheet_now,
                                 title: km.keys_for(Context::Global, &sheet_action(s)).unwrap_or_default(),
                                 onclick: move |_| {
                                     if drill.peek().sheet() != s {
@@ -6272,10 +6284,10 @@ fn App() -> Element {
                     }
                     if !usage_now.is_empty() {
                         div { class: "details-usage",
-                            title: "Usage limits reported by the session's agent",
+                            title: "Account limits and context utilization reported by the session's agent",
                             div { class: "usage-header",
                                 span { class: "details-label", "Usage" }
-                                if let Some(url) = agents::adapter(current_agent).usage_url().filter(|_| !usage_now.is_empty()) {
+                                if let Some(url) = agents::adapter(current_agent).usage_url().filter(|_| has_account_usage) {
                                     button { class: "usage-web",
                                         title: "Open {agents::adapter(current_agent).label()} usage settings in your browser",
                                         onclick: move |ev| {

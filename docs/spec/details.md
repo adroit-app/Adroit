@@ -74,9 +74,10 @@ Back goes out one level at a time, to the list the shown row was opened from,
 with that row selected. A row opens by its keys or a click; the line above a
 row opened names what was opened, and a click on it goes back.
 
-Account usage follows the agent shown in Console on every details sheet.
-It shows each reported limit as a bar of what is used, with what is left and
-when it resets. Shell and Neovim tabs show no account limits.
+Usage follows the agent shown in Console on every details sheet. It shows
+each reported account limit as a bar of what is used, with what is left and
+when it resets. A session's reported context utilization appears with those
+limits. Shell and Neovim tabs show no account limits or context utilization.
 
 The usage limits are asked of the session's agent while the details panel is
 in sight, again every few minutes, without starting a conversation or spending any of

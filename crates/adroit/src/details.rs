@@ -62,17 +62,6 @@ pub fn conversation_facts(
             format!("{} / {}", count(stats.user_turns), count(stats.tool_calls)),
         ));
     }
-    if let Some((used, total)) = stats.context.filter(|(_, total)| *total > 0) {
-        out.push((
-            "Context",
-            format!(
-                "{:.0}% · {} / {}",
-                used as f64 / total as f64 * 100.0,
-                count(used),
-                count(total)
-            ),
-        ));
-    }
     out
 }
 
@@ -111,6 +100,19 @@ pub struct Gauge {
     pub left: String,
     pub note: String,
     pub severity: Severity,
+}
+
+/// Context utilization alongside the agent's account usage limits.
+pub fn context_gauge(context: Option<(u64, u64)>) -> Option<Gauge> {
+    let (used, total) = context.filter(|(_, total)| *total > 0)?;
+    let percent = (used as f64 / total as f64 * 100.0).round() as u32;
+    Some(Gauge {
+        label: "Context".into(),
+        used: percent.min(100),
+        left: format!("{} tokens left", count(total.saturating_sub(used))),
+        note: format!("{} / {} tokens used", count(used), count(total)),
+        severity: Severity::Normal,
+    })
 }
 
 /// The gauges for `limits`, at `now_ms` since the Unix epoch.
@@ -1092,12 +1094,23 @@ mod tests {
         assert!(got.contains(&("Cached input", "400".into())));
         assert!(got.contains(&("Model", "model-name".into())));
         assert!(got.contains(&("Turns / tools", "3 / 7".into())));
-        assert!(got.contains(&("Context", "25% · 500 / 2,000".into())));
+        assert!(!got.iter().any(|(label, _)| *label == "Context"));
         assert!(
             conversation_facts(&adroit_model::ConversationStats::default(), None, 0).is_empty()
         );
         let future = conversation_facts(&stats, Some(20000), 17000);
         assert!(future.contains(&("Last input", "0 s ago".into())));
+    }
+
+    #[test]
+    fn context_utilization_is_a_usage_gauge_when_the_window_is_reported() {
+        let gauge = context_gauge(Some((500, 2000))).expect("reported window");
+        assert_eq!(gauge.label, "Context");
+        assert_eq!(gauge.used, 25);
+        assert_eq!(gauge.left, "1,500 tokens left");
+        assert_eq!(gauge.note, "500 / 2,000 tokens used");
+        assert!(context_gauge(Some((500, 0))).is_none());
+        assert!(context_gauge(None).is_none());
     }
 
     #[test]

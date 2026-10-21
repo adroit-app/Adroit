@@ -74,11 +74,8 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .request-open:focus-visible { outline: 1px solid var(--run); }
 .request-evidence { display: flex; flex-direction: column; gap: 4px; padding-top: 8px; }
 .request-check { font-family: var(--mono); font-size: 11px; }
-.sidebar-views { display: flex; gap: 3px; padding: 8px 8px 0; flex: none; }
-.sidebar-view { flex: 1; padding: 6px 3px; border: 0; border-bottom: 2px solid transparent; color: var(--text-2); background: transparent; font: inherit; cursor: pointer; }
-.sidebar-view.active { color: var(--text); border-bottom-color: var(--run); }
-.sidebar-view:hover { background: var(--raised); }
-.sidebar-view:focus-visible { outline: 1px solid var(--run); outline-offset: -1px; }
+.sidebar-visibility { align-self: flex-start; margin: 0 12px 8px; padding: 5px 9px; background: transparent; color: var(--text-2); font-size: 12px; }
+.sidebar-visibility.on { background: var(--select); color: var(--text); }
 .leader-controller-error { padding: 6px 12px; color: var(--wait); overflow-wrap: anywhere; }
 
 .header { height: 40px; display: flex; align-items: center; gap: 14px; padding: 0 16px; flex: none; }
@@ -214,11 +211,12 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .vim-menu-word { font-family: var(--mono); font-size: 12.5px; color: var(--text); }
 .vim-menu-detail { color: var(--text-3); font-size: 11.5px; margin-left: auto; }
 .vim-menu-info { color: var(--text-2); font-size: 11.5px; padding: 0 12px 8px; white-space: pre-wrap; }
-.details-sheets { display: flex; gap: 2px; padding: 8px 10px; border-bottom: 1px solid var(--line); flex: none; margin-bottom: 8px; }
-.details-sheet { height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 6px; color: var(--text-2); font-size: 12px; cursor: default; }
-.details-sheet.active { background: var(--select); color: var(--text); font-weight: 500; }
-.details-sheet .icon { color: var(--text-3); }
-.details-sheet.active .icon { color: var(--text-2); }
+.panel-tabs { display: flex; gap: 2px; padding: 8px 10px; border-bottom: 1px solid var(--line); flex: none; margin-bottom: 8px; }
+.panel-tab { height: 24px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; color: var(--text-2); font-size: 12px; cursor: default; }
+.panel-tab.active { background: var(--select); color: var(--text); font-weight: 500; }
+.panel-tab .icon { color: var(--text-3); }
+.panel-tab.active .icon { color: var(--text-2); }
+.sidebar .panel-tab { flex: 1; }
 .list-rows.details-git { flex: 1; user-select: text; }
 .details-file-status { color: var(--wait); white-space: pre; flex: none; }
 .commit { display: flex; align-items: center; gap: 6px; height: 40px; padding: 0 8px 0 4px; font-size: 12.5px; border-radius: 6px; cursor: default; }
@@ -333,8 +331,9 @@ kbd { font-family: var(--mono); font-size: 10.5px; color: #c9ccd2; background: v
 .dialog-actions .flex-spacer { flex: 1; }
 .sidebar-tool { color: var(--text-2); font-size: 15px; line-height: 1; padding: 0 4px; border-radius: 4px; cursor: default; }
 .sidebar-tool:hover { background: var(--select); color: var(--text); }
-.sidebar-tools { display: inline-flex; gap: 2px; }
+.sidebar-tools { display: inline-flex; gap: 2px; margin-left: auto; }
 .sidebar-tool { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; }
+.sidebar-tool { border: 0; background: transparent; }
 .list-row-start { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; margin-left: auto;
   flex: none; border-radius: 4px; color: var(--text-3); }
 .list-row-start:hover { background: var(--line-strong); color: var(--text); }
