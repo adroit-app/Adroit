@@ -111,6 +111,13 @@ pub fn RequestDetails(
                         ModelSource::AgentDefault => "Provider default",
                     }).unwrap_or("Not selected");
                     let agent=attempt.map(|attempt|attempt.target.agent).or(task.brief.target.agent).map(Agent::key).unwrap_or("Not selected");
+                    let readiness=attempt.filter(|attempt|attempt.state == AttemptState::Running).map(|attempt| match attempt.readiness {
+                        WorkerReadiness::Spawned => "Starting; terminal opened, waiting for agent readiness",
+                        WorkerReadiness::Ready => "Ready",
+                        WorkerReadiness::AwaitingTrust => "Trust decision needed; open Worker terminal",
+                        WorkerReadiness::AwaitingPermission => "Permission decision needed; open Worker terminal",
+                        WorkerReadiness::Stalled => "Startup stalled; open Worker terminal",
+                    });
                     rsx! {
                         details { key: "{task.id}", class: "request-task",
                             summary {
@@ -126,6 +133,7 @@ pub fn RequestDetails(
                                 span { class: "details-facts-key", "Selected" } span { class: "details-facts-value", "{selected}" }
                                 span { class: "details-facts-key", "Actual" } span { class: "details-facts-value", "{actual}" }
                                 span { class: "details-facts-key", "Selection" } span { class: "details-facts-value", "{selection}" }
+                                if let Some(readiness)=readiness { span { class: "details-facts-key", "Readiness" } span { class: "details-facts-value", "{readiness}" } }
                                 span { class: "details-facts-key", "Revision" } span { class: "details-facts-value", "{task.revision}" }
                             }
                             if !task.brief.scope.is_empty() { p { class: "request-prose request-muted", {task.brief.scope.join(", ")} } }

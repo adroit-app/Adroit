@@ -317,6 +317,8 @@ async fn human_projection_is_authenticated_and_selected_evidence_is_chunked() {
         work_area_id: None,
         base_revision: None,
         state: AttemptState::Succeeded,
+        readiness: WorkerReadiness::Ready,
+        spawned_at_ms: None,
     };
     db.execute(
         "INSERT INTO attempts(id,task_id,session_id,active,data) VALUES(?1,?2,?3,0,?4)",

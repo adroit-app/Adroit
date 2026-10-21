@@ -355,6 +355,24 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
             value(store.fail_start(request.id, identity, reason)?)
         }
         Command::Grant { identity } if is_human => value(store.grant(identity)?),
+        Command::AuthorizeIndependentRun {
+            leader,
+            workspace,
+            brief,
+            agent,
+            model,
+            permissions,
+        } if is_human => value(store.authorize_independent_run(
+            request.id,
+            super::store::IndependentAuthorizationPlan {
+                leader,
+                workspace,
+                brief,
+                agent,
+                model,
+                permissions,
+            },
+        )?),
         Command::RegisterLeader { .. }
         | Command::RememberLaunch { .. }
         | Command::RegisterDefaultArea { .. }
@@ -366,6 +384,15 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
         | Command::AbortPreparedStart { .. }
         | Command::StartUncertain { .. }
         | Command::FailStart { .. } => Err(denied("this operation requires a human client")),
+        Command::AuthorizeIndependentRun { .. } => Err(denied(
+            "independent-run authorization requires a human client",
+        )),
+        Command::CreateIndependentRun { authorization_id } if !is_human => {
+            value(store.create_independent_run(request.id, identity()?, authorization_id)?)
+        }
+        Command::CreateIndependentRun { .. } => Err(denied(
+            "the authorized Leader must create the independent run",
+        )),
         Command::ReadMessage { message_id } => value(store.read_message(identity()?, message_id)?),
         Command::Mailbox { after, limit } => value(store.mailbox(identity()?, after, limit)?),
         Command::ClaimDelivery { message_id } => {

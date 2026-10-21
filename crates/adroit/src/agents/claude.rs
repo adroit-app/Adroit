@@ -3,6 +3,67 @@ use super::*;
 pub struct Claude;
 
 impl AgentAdapter for Claude {
+    fn startup_readiness(&self, screen: &[String]) -> Option<adroit_model::WorkerReadiness> {
+        use adroit_model::WorkerReadiness;
+        let rules = screen
+            .iter()
+            .enumerate()
+            .filter(|(_, line)| {
+                line.trim().chars().count() >= 20 && line.trim().chars().all(|ch| ch == '─')
+            })
+            .map(|(i, _)| i)
+            .collect::<Vec<_>>();
+        let prompt = rules
+            .windows(2)
+            .filter(|pair| screen[pair[0] + 1].starts_with(['❯', '>', '!']))
+            .map(|pair| pair[0] + 1)
+            .next_back();
+        let decision_question = screen.iter().rposition(|line| {
+            let line = line.to_lowercase();
+            line.contains("trust this project")
+                || line.contains("trust this folder")
+                || line.contains("trust this directory")
+                || line.contains("trust the files in this folder")
+                || line.contains("do you want to allow")
+                || line.contains("allow this tool")
+                || line.contains("permission to")
+        });
+        if !adroit_claude::dialog::dialog_open(screen)
+            && prompt
+                .is_some_and(|prompt| decision_question.is_none_or(|question| prompt > question))
+        {
+            return Some(WorkerReadiness::Ready);
+        }
+        let tail = screen
+            .iter()
+            .rev()
+            .take(24)
+            .rev()
+            .map(|line| line.to_lowercase())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let decision = tail.contains("yes") && tail.contains("no");
+        if decision
+            && (tail.contains("trust this project")
+                || tail.contains("trust this folder")
+                || tail.contains("trust this directory")
+                || tail.contains("trust the files in this folder"))
+        {
+            return Some(WorkerReadiness::AwaitingTrust);
+        }
+        if decision
+            && (tail.contains("do you want to allow")
+                || tail.contains("allow this tool")
+                || tail.contains("permission to"))
+        {
+            return Some(WorkerReadiness::AwaitingPermission);
+        }
+        if adroit_claude::dialog::dialog_open(screen) {
+            return None;
+        }
+        None
+    }
+
     fn role_args(
         &self,
         settings: &mut Settings,

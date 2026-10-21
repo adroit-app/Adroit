@@ -16,6 +16,7 @@ pub(super) async fn start(
     root: &Path,
     program: &Path,
     session: ManagedSession,
+    handoff: Option<String>,
 ) -> Result<(), ControlError> {
     let identity = session.reference();
     let runtime = actor
@@ -34,7 +35,7 @@ pub(super) async fn start(
         developer_instructions: runtime.developer_instructions.clone(),
         name: format!("leader-{}", identity.id),
         cwd: cwd.clone(),
-        prompt: "This is an explicit restart of the Leader for an existing request in a fresh conversation. The earlier native conversation has ended. Read Adroit context, snapshot, and mailbox before taking action. Keep the existing run, task, Worker and report identities. Review unanswered questions and uncertain deliveries; do not launch replacement Workers just because this conversation is new. Continue orchestration and report the saved request's progress to the user.".into(),
+        prompt: handoff.unwrap_or_else(|| "This is an explicit restart of the Leader for an existing request in a fresh conversation. The earlier native conversation has ended. Read Adroit context, snapshot, and mailbox before taking action. Keep the existing run, task, Worker and report identities. Review unanswered questions and uncertain deliveries; do not launch replacement Workers just because this conversation is new. Continue orchestration and report the saved request's progress to the user.".into()),
         binding: Some(session.binding),
         control: Some(execution::ControlContext::new(identity, root.into(), credential)),
         env: crate::daemon::terminal_env(),

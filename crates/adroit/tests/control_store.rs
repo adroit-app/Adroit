@@ -6,6 +6,95 @@ use adroit_model::{
 };
 use std::path::Path;
 
+#[test]
+fn independent_run_creation_requires_an_exact_human_grant_and_retries_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("control/state.sqlite3");
+    let mut store = Store::open(&path).unwrap();
+    let (owner, original) = leader(&mut store, dir.path());
+    let brief = RunBrief {
+        title: "Separate request".into(),
+        goal: "Investigate independently".into(),
+        ..Default::default()
+    };
+    let grant = store
+        .authorize_independent_run(
+            RequestId::new(),
+            adroit::control::store::IndependentAuthorizationPlan {
+                leader: owner,
+                workspace: dir.path().into(),
+                brief: brief.clone(),
+                agent: Agent::Claude,
+                model: None,
+                permissions: AgentPermissions::Default,
+            },
+        )
+        .unwrap()
+        .value;
+    let worker_task = task(&mut store, owner, original, vec![]);
+    let version = TaskVersion {
+        task_id: worker_task,
+        revision: 1,
+    };
+    store.queue_task(RequestId::new(), owner, version).unwrap();
+    let worker = store
+        .reserve_attempt(RequestId::new(), owner, version, target())
+        .unwrap()
+        .value;
+    assert!(
+        store
+            .create_independent_run(
+                RequestId::new(),
+                SessionRef {
+                    id: worker.session_id,
+                    generation: 1
+                },
+                grant.id
+            )
+            .is_err()
+    );
+    let request = RequestId::new();
+    let created = store
+        .create_independent_run(request, owner, grant.id)
+        .unwrap()
+        .value;
+    assert_ne!(created.run_id, original);
+    assert_ne!(created.leader_id, owner.id);
+    drop(store);
+    let mut store = Store::open(&path).unwrap();
+    assert_eq!(
+        store
+            .create_independent_run(request, owner, grant.id)
+            .unwrap()
+            .value,
+        created
+    );
+    assert!(
+        store
+            .create_independent_run(RequestId::new(), owner, grant.id)
+            .is_err()
+    );
+    let snapshot = store.snapshot().unwrap();
+    assert_eq!(
+        snapshot
+            .runs
+            .iter()
+            .filter(|run| run.id == created.run_id)
+            .count(),
+        1
+    );
+    assert_eq!(
+        snapshot
+            .sessions
+            .iter()
+            .find(|session| session.binding.logical_id() == created.leader_id)
+            .unwrap()
+            .cwd
+            .as_deref(),
+        Some(dir.path().canonicalize().unwrap().as_path())
+    );
+}
+
 fn leader(store: &mut Store, cwd: &Path) -> (SessionRef, RunId) {
     let id = LogicalSessionId::new();
     let session = store

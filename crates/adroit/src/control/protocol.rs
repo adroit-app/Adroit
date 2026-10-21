@@ -156,6 +156,19 @@ pub enum Command {
         id: RunId,
         brief: RunBrief,
     },
+    #[schemars(skip)]
+    AuthorizeIndependentRun {
+        leader: SessionRef,
+        workspace: PathBuf,
+        brief: RunBrief,
+        agent: Agent,
+        model: Option<String>,
+        #[serde(default)]
+        permissions: AgentPermissions,
+    },
+    CreateIndependentRun {
+        authorization_id: RequestId,
+    },
     UpdateRun {
         run_id: RunId,
         expected_revision: u64,

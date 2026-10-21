@@ -240,6 +240,17 @@ pub enum AttemptState {
     Uncertain,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkerReadiness {
+    #[default]
+    Spawned,
+    Ready,
+    AwaitingTrust,
+    AwaitingPermission,
+    Stalled,
+}
+
 impl AttemptState {
     pub fn holds_slot(self) -> bool {
         matches!(
@@ -269,6 +280,10 @@ pub struct AttemptRecord {
     pub work_area_id: Option<WorkAreaId>,
     pub base_revision: Option<String>,
     pub state: AttemptState,
+    #[serde(default)]
+    pub readiness: WorkerReadiness,
+    #[serde(default)]
+    pub spawned_at_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]

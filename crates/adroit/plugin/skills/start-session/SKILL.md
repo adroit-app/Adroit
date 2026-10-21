@@ -11,6 +11,13 @@ your role, run, task, attempt, and working area. Use the tool's complete input
 schema rather than guessing fields. A Leader normally already has a run: update
 its brief with `update_run` rather than opening another run.
 
+For an unrelated request, a human can authorize an independent run for this
+Leader with an exact workspace, brief, agent, model, and permissions. If that
+authorization arrives, use `create_independent_run` with its authorization ID.
+The returned run and Leader IDs belong to a separate request. Retry the same
+request ID after an uncertain response; do not register a generic session or
+reuse an authorization for another request. Workers cannot use this operation.
+
 A Leader delegates investigation, implementation, review, classification,
 integration, and verification to external Workers. Do not use internal subagents
 in a Leader. A Worker may use native internal subagents within its assignment;

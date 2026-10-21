@@ -93,6 +93,43 @@ impl Observer {
             {
                 continue;
             }
+            if let Some((_, attempt_id)) = session.binding.work()
+                && let Some(attempt) = snapshot
+                    .attempts
+                    .iter()
+                    .find(|attempt| attempt.id == attempt_id)
+                && attempt.state == AttemptState::Running
+            {
+                let screen = daemon.visible(terminal).await.map_err(failed)?;
+                let observed = crate::agents::adapter(session.agent)
+                    .startup_readiness(&screen)
+                    .or_else(|| {
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64;
+                        startup_stalled(attempt.readiness, attempt.spawned_at_ms, now)
+                            .then_some(WorkerReadiness::Stalled)
+                    });
+                if let Some(readiness) =
+                    observed.filter(|readiness| *readiness != attempt.readiness)
+                {
+                    let identity = session.reference();
+                    let terminal_id = crate::sessions::hex(terminal);
+                    actor
+                        .call(move |store| {
+                            store
+                                .observe_worker_readiness(
+                                    RequestId::new(),
+                                    identity,
+                                    terminal_id,
+                                    readiness,
+                                )
+                                .map(|_| ())
+                        })
+                        .await?;
+                }
+            }
             if let Some((_, attempt_id)) = session.binding.work() {
                 let finished = snapshot.attempts.iter().any(|attempt| {
                     attempt.id == attempt_id
@@ -221,6 +258,11 @@ fn replaced_tags(previous: &[String], added: &[String]) -> Vec<String> {
     .collect()
 }
 
+fn startup_stalled(readiness: WorkerReadiness, spawned_at_ms: Option<u64>, now_ms: u64) -> bool {
+    readiness == WorkerReadiness::Spawned
+        && spawned_at_ms.is_some_and(|start| now_ms.saturating_sub(start) >= 60_000)
+}
+
 fn failed(error: impl std::fmt::Display) -> ControlError {
     ControlError::new(ErrorCode::StorageFailure, error.to_string())
 }
@@ -228,6 +270,23 @@ fn failed(error: impl std::fmt::Display) -> ControlError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn startup_stall_requires_an_unready_spawned_worker_and_elapsed_time() {
+        assert!(!startup_stalled(
+            WorkerReadiness::Spawned,
+            Some(100),
+            60_099
+        ));
+        assert!(startup_stalled(WorkerReadiness::Spawned, Some(100), 60_100));
+        assert!(!startup_stalled(WorkerReadiness::Ready, Some(100), 80_000));
+        assert!(!startup_stalled(
+            WorkerReadiness::AwaitingTrust,
+            Some(100),
+            80_000
+        ));
+        assert!(!startup_stalled(WorkerReadiness::Spawned, None, 80_000));
+    }
 
     #[test]
     fn discovery_keeps_a_fragmented_worker_binding_in_native_session_projection() {

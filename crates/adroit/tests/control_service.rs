@@ -3,6 +3,187 @@ use adroit_model::{Agent, LogicalSessionId, RequestId, RunBrief, RunId};
 use serde_json::json;
 
 #[tokio::test]
+async fn only_a_human_can_authorize_and_only_the_bound_leader_can_create() {
+    use adroit_model::{
+        AgentPermissions, ManagedSession, SessionRef, TargetSelection, TaskBrief, TaskId, TaskPlan,
+        TaskVersion,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("control");
+    let service = Service::bind(&root).await.unwrap();
+    let human = Client::human(&root).unwrap();
+    let mut leaders = Vec::new();
+    for _ in 0..2 {
+        let record: ManagedSession = serde_json::from_value(
+            human
+                .request(
+                    RequestId::new(),
+                    Command::RegisterLeader {
+                        id: LogicalSessionId::new(),
+                        agent: Agent::Claude,
+                        cwd: dir.path().into(),
+                        permissions: AgentPermissions::Default,
+                    },
+                )
+                .await
+                .unwrap()["value"]
+                .clone(),
+        )
+        .unwrap();
+        let identity = record.reference();
+        let token: String = serde_json::from_value(
+            human
+                .request(RequestId::new(), Command::Grant { identity })
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        let client = Client::session(&root, token);
+        client
+            .request(
+                RequestId::new(),
+                Command::OpenRun {
+                    id: RunId::new(),
+                    brief: RunBrief {
+                        title: "Existing".into(),
+                        goal: "Existing work".into(),
+                        ..Default::default()
+                    },
+                },
+            )
+            .await
+            .unwrap();
+        leaders.push((identity, client));
+    }
+    let brief = RunBrief {
+        title: "Independent".into(),
+        goal: "Human requested work".into(),
+        ..Default::default()
+    };
+    assert!(
+        leaders[0]
+            .1
+            .request(
+                RequestId::new(),
+                Command::AuthorizeIndependentRun {
+                    leader: leaders[0].0,
+                    workspace: dir.path().into(),
+                    brief: brief.clone(),
+                    agent: Agent::Claude,
+                    model: None,
+                    permissions: AgentPermissions::Default
+                }
+            )
+            .await
+            .is_err()
+    );
+    assert!(
+        leaders[0]
+            .1
+            .request(
+                RequestId::new(),
+                Command::RegisterLeader {
+                    id: LogicalSessionId::new(),
+                    agent: Agent::Claude,
+                    cwd: dir.path().into(),
+                    permissions: AgentPermissions::Default
+                }
+            )
+            .await
+            .is_err()
+    );
+    let grant = human
+        .request(
+            RequestId::new(),
+            Command::AuthorizeIndependentRun {
+                leader: leaders[0].0,
+                workspace: dir.path().into(),
+                brief,
+                agent: Agent::Claude,
+                model: None,
+                permissions: AgentPermissions::Default,
+            },
+        )
+        .await
+        .unwrap();
+    let id: RequestId = serde_json::from_value(grant["value"]["id"].clone()).unwrap();
+    assert!(
+        leaders[1]
+            .1
+            .request(
+                RequestId::new(),
+                Command::CreateIndependentRun {
+                    authorization_id: id
+                }
+            )
+            .await
+            .is_err()
+    );
+    let first = leaders[0].0;
+    let worker = service
+        .actor()
+        .call(move |store| {
+            let run = store
+                .snapshot()
+                .unwrap()
+                .runs
+                .into_iter()
+                .find(|run| run.leader_id == first.id)
+                .unwrap();
+            let plan = TaskPlan {
+                id: TaskId::new(),
+                run_id: run.id,
+                expected_revision: None,
+                brief: TaskBrief {
+                    instructions: "Worker".into(),
+                    ..Default::default()
+                },
+                dependencies: vec![],
+            };
+            let task = store.put_task(RequestId::new(), first, plan).unwrap().value;
+            let version = TaskVersion {
+                task_id: task.id,
+                revision: task.revision,
+            };
+            store.queue_task(RequestId::new(), first, version).unwrap();
+            let attempt = store
+                .reserve_attempt(RequestId::new(), first, version, TargetSelection::default())
+                .unwrap()
+                .value;
+            let identity = SessionRef {
+                id: attempt.session_id,
+                generation: 1,
+            };
+            Ok((identity, store.grant(identity).unwrap()))
+        })
+        .await
+        .unwrap();
+    let worker_client = Client::session(&root, worker.1);
+    assert!(
+        worker_client
+            .request(
+                RequestId::new(),
+                Command::CreateIndependentRun {
+                    authorization_id: id
+                }
+            )
+            .await
+            .is_err()
+    );
+    let created = leaders[0]
+        .1
+        .request(
+            RequestId::new(),
+            Command::CreateIndependentRun {
+                authorization_id: id,
+            },
+        )
+        .await
+        .unwrap();
+    assert_ne!(created["value"]["leader_id"], json!(leaders[0].0.id));
+}
+
+#[tokio::test]
 async fn native_compatibility_requires_an_explicit_unknown_command_response() {
     use adroit::control::{
         protocol::{Request, Response, VERSION},
@@ -324,7 +505,7 @@ fn upgrading_an_existing_store_keeps_records_and_adds_session_credentials() {
     drop(store);
     let connection = rusqlite::Connection::open(&path).unwrap();
     connection
-        .execute_batch("DROP TABLE native_progress; DROP TABLE native_aliases; DROP TABLE completion_requests; DROP TABLE candidate_checks; DROP TABLE candidates; DROP TABLE coordination_replies; DROP TABLE coordination_notices; DROP TABLE run_completions; DROP TABLE session_launches; DROP TABLE task_reports; DROP TABLE run_work_areas; DROP TABLE work_areas; DROP TABLE session_credentials; PRAGMA user_version=1;")
+        .execute_batch("DROP TABLE independent_authorizations; DROP TABLE native_progress; DROP TABLE native_aliases; DROP TABLE completion_requests; DROP TABLE candidate_checks; DROP TABLE candidates; DROP TABLE coordination_replies; DROP TABLE coordination_notices; DROP TABLE run_completions; DROP TABLE session_launches; DROP TABLE task_reports; DROP TABLE run_work_areas; DROP TABLE work_areas; DROP TABLE session_credentials; PRAGMA user_version=1;")
         .unwrap();
     drop(connection);
     let mut store = Store::open(&path).unwrap();

@@ -17,6 +17,8 @@ mod completion;
 mod context;
 mod coordination;
 mod dependencies;
+mod independent;
+pub use independent::{IndependentAuthorization, IndependentAuthorizationPlan, IndependentRun};
 mod lifecycle;
 mod native;
 mod results;
@@ -25,7 +27,7 @@ mod runtime;
 pub mod ui;
 mod workareas;
 
-const SCHEMA_VERSION: i64 = 13;
+const SCHEMA_VERSION: i64 = 14;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -579,6 +581,13 @@ impl Store {
                 connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
             transaction.execute_batch("CREATE TABLE native_progress (message_id TEXT PRIMARY KEY REFERENCES messages(id)); CREATE TABLE native_aliases (recipient TEXT NOT NULL REFERENCES logical_sessions(id), kind TEXT NOT NULL, number INTEGER NOT NULL, value TEXT NOT NULL, PRIMARY KEY(recipient, kind, number), UNIQUE(recipient, kind, value));")?;
             transaction.execute_batch("INSERT OR IGNORE INTO native_progress SELECT messages.id FROM requests JOIN messages ON messages.id=json_extract(requests.body,'$.message.id') JOIN logical_sessions sender ON sender.id=messages.sender JOIN logical_sessions recipient ON recipient.id=messages.recipient WHERE json_extract(requests.body,'$.op')='send_message' AND json_extract(messages.data,'$.kind')='note' AND json_extract(messages.data,'$.blocks_work')=0 AND json_extract(sender.data,'$.binding.role')='worker' AND json_extract(recipient.data,'$.binding.role')='leader';")?;
+            transaction.pragma_update(None, "user_version", 13)?;
+            transaction.commit()?;
+        }
+        if schema < 14 {
+            let transaction =
+                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            transaction.execute_batch("CREATE TABLE independent_authorizations (id TEXT PRIMARY KEY, leader_id TEXT NOT NULL REFERENCES logical_sessions(id), state TEXT NOT NULL, data TEXT NOT NULL); CREATE INDEX independent_authorizations_leader ON independent_authorizations(leader_id);")?;
             transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
             transaction.commit()?;
         }
@@ -898,7 +907,7 @@ impl Store {
             };
             save_session(connection, &session)?;
             let attempt = AttemptRecord { id, task_id: task.id, task_revision: task.revision, input_versions, session_id,
-                target, actual_model: None, candidate_input: None, work_area_id: None, base_revision: None, state: AttemptState::Preparing };
+                target, actual_model: None, candidate_input: None, work_area_id: None, base_revision: None, state: AttemptState::Preparing, readiness: WorkerReadiness::Spawned, spawned_at_ms: None };
             connection.execute("INSERT INTO attempts(id, task_id, session_id, active, data) VALUES (?1, ?2, ?3, 1, ?4)",
                 params![id.to_string(), task.id.to_string(), session_id.to_string(), encode(&attempt)?])?;
             task.current_attempt = Some(id);
@@ -947,6 +956,8 @@ impl Store {
                     return Err(conflict("the worker must start inside its prepared working area"));
                 }
                 attempt.state = AttemptState::Running;
+                attempt.readiness = WorkerReadiness::Spawned;
+                attempt.spawned_at_ms = Some(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64);
                 task.state = TaskState::Running;
                 save_attempt(connection, &attempt)?;
                 save_task(connection, &task)?;
@@ -960,6 +971,50 @@ impl Store {
             save_session(connection, &session)?;
             event(connection, session.binding.run_id(), "session_attached", &session)?;
             Ok(session)
+        })
+    }
+
+    pub fn observe_worker_readiness(
+        &mut self,
+        request: RequestId,
+        identity: SessionRef,
+        terminal_id: String,
+        readiness: WorkerReadiness,
+    ) -> Result<Reply<AttemptRecord>> {
+        self.transact(request, json!({"op":"observe_worker_readiness","identity":identity,"terminal_id":terminal_id,"readiness":readiness}), |connection| {
+            let session = reference(connection, identity)?;
+            if session.state != ManagedSessionState::Running || session.terminal_id.as_deref() != Some(&terminal_id) {
+                return Err(conflict("the worker terminal is no longer running"));
+            }
+            let Some((task_id, attempt_id)) = session.binding.work() else { return Err(invalid("the session is not a Worker")); };
+            let task: TaskRecord = require(connection, Table::Tasks, task_id)?;
+            let mut attempt: AttemptRecord = require(connection, Table::Attempts, attempt_id)?;
+            if task.current_attempt != Some(attempt_id) || attempt.state != AttemptState::Running {
+                return Err(conflict("the worker attempt is no longer running"));
+            }
+            if attempt.readiness == readiness || (attempt.readiness == WorkerReadiness::Ready && readiness == WorkerReadiness::Stalled) {
+                return Ok(attempt);
+            }
+            let previous = attempt.readiness;
+            attempt.readiness = readiness;
+            save_attempt(connection, &attempt)?;
+            event(connection, Some(task.run_id), "worker_readiness_changed", &attempt)?;
+            let body = match readiness {
+                WorkerReadiness::Spawned => None,
+                WorkerReadiness::Ready if previous != WorkerReadiness::Spawned => Some("Worker is ready; its startup blocker cleared."),
+                WorkerReadiness::Ready => None,
+                WorkerReadiness::AwaitingTrust => Some("Worker is waiting for a project trust decision. Open its terminal and decide there; Adroit will not approve it."),
+                WorkerReadiness::AwaitingPermission => Some("Worker is waiting for a permission decision. Open its terminal and decide there; Adroit will not approve it."),
+                WorkerReadiness::Stalled => Some("Worker startup has stalled before readiness. Open its terminal to inspect or restart it explicitly."),
+            };
+            if let Some(body) = body {
+                store_message(connection, &AgentMessage {
+                    id: MessageId::new(), run_id: task.run_id, from: session.binding.leader_id(), to: session.binding.leader_id(),
+                    task_id: Some(task_id), attempt_id: Some(attempt_id), revision: Some(attempt.task_revision),
+                    kind: MessageKind::Note, body: body.into(), reply_to: None, blocks_work: false,
+                })?;
+            }
+            Ok(attempt)
         })
     }
 

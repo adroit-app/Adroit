@@ -55,6 +55,48 @@ impl Scheduler {
             }
         }
         let snapshot = self.actor.call(|store| store.snapshot()).await?;
+        let independent = self
+            .actor
+            .call(|store| store.pending_independent_leaders())
+            .await?;
+        for (session, grant) in independent
+            .into_iter()
+            .filter(|(session, _)| {
+                session.state == ManagedSessionState::Preparing
+                    && !self
+                        .active
+                        .values()
+                        .any(|identity| *identity == session.reference())
+            })
+            .take(4)
+            .collect::<Vec<_>>()
+        {
+            let identity = session.reference();
+            let actor = self.actor.clone();
+            let daemon = self.daemon.clone();
+            let root = self.root.clone();
+            let program = self.program.clone();
+            let settings = settings.clone();
+            let job = self.jobs.spawn(async move {
+                let result = async {
+                    let target = execution::select_target(&settings, grant.agent, grant.model.clone(), grant.permissions.clone()).map_err(failed)?;
+                    let mut runtime = super::runtime::RuntimeLaunch::new(settings.clone()).with_target(target);
+                    runtime.developer_instructions = crate::agents::adapter(grant.agent)
+                        .developer_instructions(runtime.settings.clone(), grant.workspace.clone()).await.map_err(failed)?;
+                    let captured = runtime.clone();
+                    actor.call(move |store| store.remember_launch(RequestId::new(), identity, captured).map(|_| ())).await?;
+                    let area = workareas::existing(WorkAreaId::new(), grant.workspace.clone(), "Independent Leader workspace".into()).await.map_err(failed)?;
+                    let run_id = grant.created.as_ref().expect("created authorization").run_id;
+                    actor.call(move |store| store.register_work_area(RequestId::new(), identity, run_id, area, true).map(|_| ())).await?;
+                    let prompt = format!("This is a new independent request explicitly authorized by the human. Read Adroit context and snapshot first. Work only on this run and its workspace. Request: {}\n\n{}", grant.brief.title, grant.brief.goal);
+                    super::restart::start(&actor, &daemon, &root, &program, session, Some(prompt)).await
+                }.await;
+                if let Err(error) = result {
+                    let _ = actor.call(move |store| store.fail_start(RequestId::new(), identity, error.to_string()).map(|_| ())).await;
+                }
+            });
+            self.active.insert(job.id(), identity);
+        }
         let restarting = snapshot
             .sessions
             .iter()
@@ -89,7 +131,7 @@ impl Scheduler {
             let program = self.program.clone();
             let job = self.jobs.spawn(async move {
                 if let Err(error) =
-                    super::restart::start(&actor, &daemon, &root, &program, session).await
+                    super::restart::start(&actor, &daemon, &root, &program, session, None).await
                 {
                     let _ = actor
                         .call(move |store| {

@@ -1,5 +1,13 @@
 # Native session lifecycle
 
+A spawned Worker retains its attempt slot while its provider starts. Its
+operational readiness is reported separately from terminal presence. If the
+provider is waiting for trust or permission, Adroit shows the required action
+and durably tells the Leader. The user decides in the native terminal; Adroit
+does not approve on their behalf. A startup that does not reach readiness is
+shown as stalled. Once the Worker becomes ready, the blocker clears and the
+Leader is notified. Repeated observations do not create duplicate notices.
+
 A confirmed native terminal exit is a session exit, never successful task work.
 An unfinished Worker attempt becomes failed or cancelled and releases its slot.
 An already recorded outcome remains available, and a newer task revision is not

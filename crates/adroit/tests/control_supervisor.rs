@@ -10,6 +10,171 @@ use std::sync::{
 };
 
 #[tokio::test]
+async fn an_authorized_independent_run_launches_a_new_leader_with_its_request() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::Builder::new()
+        .prefix("adroit-independent-")
+        .tempdir_in("/tmp")
+        .unwrap();
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let workspace = dir.path().join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    let program = dir.path().join("provider");
+    let receipt = dir.path().join("request-args");
+    std::fs::write(
+        &program,
+        support::codex_script(
+            r#"#!/bin/sh
+printf '%s\n' "$@" > "$ADROIT_TEST_RECEIPT"
+sleep 10
+"#,
+            None,
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let root = dir.path().join("control");
+    let mut service = Service::bind(&root).await.unwrap();
+    let socket = dir.path().join("d.sock");
+    let daemon_task = support::serve_process(socket.clone());
+    let daemon = Daemon::new(socket);
+    for _ in 0..100 {
+        if daemon.sessions().await.is_ok() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    let human = Client::human(&root).unwrap();
+    let leader: ManagedSession = serde_json::from_value(
+        human
+            .request(
+                RequestId::new(),
+                Command::RegisterLeader {
+                    id: LogicalSessionId::new(),
+                    agent: Agent::Codex,
+                    cwd: workspace.clone(),
+                    permissions: AgentPermissions::Default,
+                },
+            )
+            .await
+            .unwrap()["value"]
+            .clone(),
+    )
+    .unwrap();
+    let owner = leader.reference();
+    let token: String = serde_json::from_value(
+        human
+            .request(RequestId::new(), Command::Grant { identity: owner })
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let agent = Client::session(&root, token);
+    agent
+        .request(
+            RequestId::new(),
+            Command::OpenRun {
+                id: RunId::new(),
+                brief: RunBrief {
+                    title: "Original".into(),
+                    goal: "Original work".into(),
+                    ..Default::default()
+                },
+            },
+        )
+        .await
+        .unwrap();
+    let grant = human
+        .request(
+            RequestId::new(),
+            Command::AuthorizeIndependentRun {
+                leader: owner,
+                workspace: workspace.clone(),
+                brief: RunBrief {
+                    title: "Independent".into(),
+                    goal: "Inspect the separate request".into(),
+                    ..Default::default()
+                },
+                agent: Agent::Codex,
+                model: None,
+                permissions: AgentPermissions::Default,
+            },
+        )
+        .await
+        .unwrap();
+    let authorization_id: RequestId = serde_json::from_value(grant["value"]["id"].clone()).unwrap();
+    let created = agent
+        .request(
+            RequestId::new(),
+            Command::CreateIndependentRun { authorization_id },
+        )
+        .await
+        .unwrap();
+    let run_id: RunId = serde_json::from_value(created["value"]["run_id"].clone()).unwrap();
+    let leader_id: LogicalSessionId =
+        serde_json::from_value(created["value"]["leader_id"].clone()).unwrap();
+    let mut settings = Settings::default();
+    settings.codex.command = vec![program.to_string_lossy().into_owned()];
+    settings.codex.env.insert(
+        "ADROIT_TEST_RECEIPT".into(),
+        receipt.to_string_lossy().into_owned(),
+    );
+    service
+        .supervise_checked(
+            daemon.clone(),
+            env!("CARGO_BIN_EXE_adroit").into(),
+            move || Ok(settings.clone()),
+        )
+        .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(8), async {
+        loop {
+            let snapshot = service
+                .actor()
+                .call(|store| store.snapshot())
+                .await
+                .unwrap();
+            if snapshot.sessions.iter().any(|session| {
+                session.binding.logical_id() == leader_id
+                    && session.state == ManagedSessionState::Running
+            }) && receipt.exists()
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let text = std::fs::read_to_string(receipt).unwrap();
+    assert!(text.contains("Inspect the separate request"), "{text}");
+    let snapshot = service
+        .actor()
+        .call(|store| store.snapshot())
+        .await
+        .unwrap();
+    assert_eq!(
+        snapshot
+            .runs
+            .iter()
+            .find(|run| run.id == run_id)
+            .unwrap()
+            .leader_id,
+        leader_id
+    );
+    assert_eq!(
+        snapshot
+            .sessions
+            .iter()
+            .find(|session| session.binding.logical_id() == leader_id)
+            .unwrap()
+            .binding
+            .role(),
+        SessionRole::Leader
+    );
+    daemon_task.abort();
+}
+
+#[tokio::test]
 async fn the_daemon_starts_workers_and_delivers_their_results_without_a_window() {
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::Builder::new()
@@ -26,7 +191,7 @@ if [ "$1" = queue ]; then
     exit 0
 fi
 printf '\033]0;Codex · %s\007' "$ADROIT_SESSION_ID"
-if [ -n "$ADROIT_TASK_ID" ]; then
+if [ "$ADROIT_LEADER_ID" != "$ADROIT_SESSION_ID" ]; then
     printf '{"op":"report_task","report":{"message_id":"%s","task":{"task_id":"%s","revision":1},"attempt_id":"%s","result":{"status":"succeeded","summary":"Classified the inputs","artifact":{"kind":"report","data":{"label":"ok"},"files":[],"reviewed_revision":null},"checks":[],"unresolved":[]}}}' "$ADROIT_TEST_REPORT_ID" "$ADROIT_TASK_ID" "$ADROIT_ATTEMPT_ID" | "$ADROIT_TEST_BINARY" control > report.json
 else
     printf '{"op":"context"}' | "$ADROIT_TEST_BINARY" control > "leader-$ADROIT_SESSION_GENERATION-context.json"

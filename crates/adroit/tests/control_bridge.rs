@@ -842,12 +842,14 @@ async fn native_tools_describe_complete_task_and_result_inputs_and_offer_typed_i
         "send_message",
         "context",
         "acknowledge",
+        "create_independent_run",
     ] {
         assert!(tools.iter().any(|tool| tool["name"] == op), "{op}");
     }
     for op in [
         "control",
         "register_leader",
+        "authorize_independent_run",
         "remember_launch",
         "grant",
         "confirm_terminal_exit",

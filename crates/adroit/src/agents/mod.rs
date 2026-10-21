@@ -158,6 +158,9 @@ pub trait AgentAdapter: Sync {
     fn dialog_open(&self, _screen: &[String]) -> bool {
         false
     }
+    fn startup_readiness(&self, _screen: &[String]) -> Option<adroit_model::WorkerReadiness> {
+        None
+    }
     fn screen_state(&self, _screen: &[String]) -> Option<adroit_model::State> {
         None
     }
@@ -482,5 +485,32 @@ mod tests {
         assert!(a.capabilities().transcript);
         assert!(a.capabilities().command_probe);
         assert!(a.capabilities().shell_bang);
+    }
+
+    #[test]
+    fn claude_startup_classification_requires_a_live_prompt_or_human_decision() {
+        use adroit_model::WorkerReadiness::*;
+        let claude = adapter(Agent::Claude);
+        let screen = |text: &str| text.lines().map(str::to_owned).collect::<Vec<_>>();
+        assert_eq!(
+            claude.startup_readiness(&screen("Trust this project?\n1. Yes\n2. No")),
+            Some(AwaitingTrust)
+        );
+        assert_eq!(
+            claude.startup_readiness(&screen("Do you want to allow this tool?\n1. Yes\n2. No")),
+            Some(AwaitingPermission)
+        );
+        assert_eq!(
+            claude.startup_readiness(&screen("Starting Claude Code...")),
+            None
+        );
+        assert_eq!(claude.startup_readiness(&screen("────────────────────────────────────\n❯ Try something\n────────────────────────────────────")), Some(Ready));
+        assert_eq!(claude.startup_readiness(&screen("Trust this project?\n1. Yes\n2. No\n────────────────────────────────────\n❯ Ask Claude\n────────────────────────────────────")), Some(Ready));
+        assert_eq!(
+            claude.startup_readiness(&screen(
+                "Do you trust the files in this folder?\n1. Yes\n2. No"
+            )),
+            Some(AwaitingTrust)
+        );
     }
 }

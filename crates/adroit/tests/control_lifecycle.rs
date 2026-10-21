@@ -676,6 +676,114 @@ fn pending_worker(store: &mut Store, path: &Path, starting: bool) -> (SessionRef
 }
 
 #[test]
+fn a_spawned_worker_remains_unready_and_block_transitions_notify_once() {
+    use adroit_model::WorkerReadiness;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("control/state.sqlite3");
+    let mut store = Store::open(&path).unwrap();
+    let (owner, attempt) = pending_worker(&mut store, dir.path(), true);
+    let identity = SessionRef {
+        id: attempt.session_id,
+        generation: 1,
+    };
+    let terminal = "a".repeat(32);
+    store
+        .attach_session(
+            RequestId::new(),
+            identity,
+            dir.path().canonicalize().unwrap(),
+            terminal.clone(),
+            "conversation".into(),
+        )
+        .unwrap();
+    assert_eq!(
+        store
+            .snapshot()
+            .unwrap()
+            .attempts
+            .iter()
+            .find(|item| item.id == attempt.id)
+            .unwrap()
+            .readiness,
+        WorkerReadiness::Spawned
+    );
+    store
+        .observe_worker_readiness(
+            RequestId::new(),
+            identity,
+            terminal.clone(),
+            WorkerReadiness::AwaitingTrust,
+        )
+        .unwrap();
+    drop(store);
+    let mut store = Store::open(&path).unwrap();
+    assert!(
+        store
+            .next_pending_message(owner)
+            .unwrap()
+            .is_some_and(|message| message.body.contains("trust"))
+    );
+    store
+        .observe_worker_readiness(
+            RequestId::new(),
+            identity,
+            terminal.clone(),
+            WorkerReadiness::AwaitingTrust,
+        )
+        .unwrap();
+    assert_eq!(
+        store
+            .snapshot()
+            .unwrap()
+            .attempts
+            .iter()
+            .find(|item| item.id == attempt.id)
+            .unwrap()
+            .readiness,
+        WorkerReadiness::AwaitingTrust
+    );
+    assert_eq!(
+        store
+            .mailbox(owner, 0, 100)
+            .unwrap()
+            .messages
+            .iter()
+            .filter(|m| m.message.body.contains("trust"))
+            .count(),
+        1
+    );
+    store
+        .observe_worker_readiness(
+            RequestId::new(),
+            identity,
+            terminal.clone(),
+            WorkerReadiness::Ready,
+        )
+        .unwrap();
+    assert_eq!(
+        store
+            .snapshot()
+            .unwrap()
+            .attempts
+            .iter()
+            .find(|item| item.id == attempt.id)
+            .unwrap()
+            .readiness,
+        WorkerReadiness::Ready
+    );
+    assert_eq!(
+        store
+            .mailbox(owner, 0, 100)
+            .unwrap()
+            .messages
+            .iter()
+            .filter(|m| m.message.body.contains("ready"))
+            .count(),
+        1
+    );
+}
+
+#[test]
 fn interrupted_preparation_fails_without_respawning_but_a_start_intent_remains_uncertain() {
     for starting in [false, true] {
         let dir = tempfile::tempdir().unwrap();

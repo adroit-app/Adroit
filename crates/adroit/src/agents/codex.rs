@@ -21,6 +21,17 @@ pub struct CodexOptions {
 pub struct Codex;
 
 impl AgentAdapter for Codex {
+    fn startup_readiness(&self, screen: &[String]) -> Option<adroit_model::WorkerReadiness> {
+        match self.screen_state(screen) {
+            Some(adroit_model::State::Idle | adroit_model::State::Working) => {
+                Some(adroit_model::WorkerReadiness::Ready)
+            }
+            Some(adroit_model::State::Waiting(adroit_model::Wait::Permission)) => {
+                Some(adroit_model::WorkerReadiness::AwaitingPermission)
+            }
+            _ => None,
+        }
+    }
     fn conversation_title_needs_lookup(&self, title: &str) -> bool {
         identity::prefix(title).is_some()
     }
@@ -342,6 +353,17 @@ mod tests {
             Codex.screen_state(&transcript),
             Some(adroit_model::State::Idle)
         );
+    }
+
+    #[test]
+    fn startup_readiness_uses_the_codex_composer_and_permission_dialog() {
+        use adroit_model::WorkerReadiness;
+        assert_eq!(Codex.startup_readiness(&screen("Starting Codex…")), None);
+        assert_eq!(
+            Codex.startup_readiness(&screen("› Ask Codex\n? for shortcuts")),
+            Some(WorkerReadiness::Ready)
+        );
+        assert_eq!(Codex.startup_readiness(&screen("Would you like to run the following command?\n› 1. Yes, proceed (y)\n  2. No (esc)\nPress enter to confirm or esc to cancel")), Some(WorkerReadiness::AwaitingPermission));
     }
 
     #[test]

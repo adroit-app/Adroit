@@ -15,6 +15,9 @@ own Leader and run, including in a directory below the repository root. Separate
 Leader starts at the same location remain independent requests. Switching views
 does not change a session's assignment.
 
+An independent Leader created from a human-authorized handoff has its own run
+and ownership, even when it uses the same workspace as the requesting Leader.
+
 The `session start` command retains automatic ownership at repository or native
 workspace roots and in directories without VCS. Its starts below a repository
 root remain unassigned unless an explicit assignment is supplied. An explicitly

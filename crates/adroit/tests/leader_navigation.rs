@@ -302,6 +302,8 @@ fn worker_fixture() -> (Session, ControlSnapshot) {
         work_area_id: None,
         base_revision: None,
         state: AttemptState::Running,
+        readiness: WorkerReadiness::Ready,
+        spawned_at_ms: None,
     });
     (session, snapshot)
 }
