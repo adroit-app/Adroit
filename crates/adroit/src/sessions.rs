@@ -99,7 +99,7 @@ pub fn read(session: &adroit_term::Session) -> Option<Kept> {
                 .status
                 .as_ref()
                 .map(|s| State::reported(&s.state, s.kind.as_deref()))
-                .unwrap_or_default(),
+                .unwrap_or(State::Starting),
             started_ms: tags::value(t, STARTED).and_then(|s| s.parse().ok()),
             last_input_ms: tags::value(t, LAST_INPUT).and_then(|s| s.parse().ok()),
             permissions: match tags::value(t, PERMISSIONS) {
@@ -486,7 +486,7 @@ mod tests {
     }
 
     #[test]
-    fn a_session_that_reported_nothing_is_idle() {
+    fn a_session_that_reported_nothing_is_starting() {
         let s = kept(
             7,
             claude_tags(
@@ -501,7 +501,7 @@ mod tests {
         let Some(Kept::Agent(c)) = read(&s) else {
             panic!("not a session");
         };
-        assert_eq!(c.state, State::Idle);
+        assert_eq!(c.state, State::Starting);
         assert!(!c.reads_only());
     }
 

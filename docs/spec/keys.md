@@ -108,6 +108,8 @@ of its input box, or above it while the agent works, such as the picker `/model`
 opens, until the dialog closes.
 The dialog is told from what the console shows; one adroit does not
 recognise still takes `console.pass_every_key`.
+A session still starting, whose program has reported nothing yet, also takes
+every key, such as Claude Code asking whether to trust the folder.
 The mouse wheel scrolls the console back in either case, and what is sent to
 it shows the bottom again.
 A key the `console` area does not bind, in a session's console, starts
