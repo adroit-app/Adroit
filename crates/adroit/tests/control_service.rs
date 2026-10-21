@@ -1,6 +1,186 @@
-use adroit::control::{client::Client, protocol::Command, service::Service};
+#[path = "support/daemon.rs"]
+mod native_daemon;
+use adroit::control::{
+    client::{AppClient, Client},
+    protocol::Command,
+    service::Service,
+};
 use adroit_model::{Agent, LogicalSessionId, RequestId, RunBrief, RunId};
 use serde_json::json;
+
+#[test]
+fn the_session_cli_cannot_create_a_leader_after_agent_markers_are_removed() {
+    let dir = tempfile::Builder::new().tempdir_in("/tmp").unwrap();
+    let workspace = dir.path().join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    std::fs::create_dir(workspace.join(".git")).unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_adroit"))
+        .args(["session", "start", "--dir"])
+        .arg(&workspace)
+        .args(["--", "Launch without approval"])
+        .env_remove("ADROIT_CONTROL_TOKEN")
+        .env_remove("ADROIT_CONTROL_ROOT")
+        .env("XDG_STATE_HOME", dir.path())
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Adroit window"));
+    assert!(!dir.path().join("adroit/control/state.sqlite3").exists());
+}
+
+#[tokio::test]
+async fn a_readable_human_token_cannot_compose_an_independent_leader_launch() {
+    use adroit::control::runtime::RuntimeLaunch;
+    use adroit_model::{AgentPermissions, SessionRef};
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::Builder::new().tempdir_in("/tmp").unwrap();
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let root = dir.path().join("control");
+    let mut service = Service::bind(&root).await.unwrap();
+    let stolen = Client::session(
+        &root,
+        std::fs::read_to_string(root.join("human.token")).unwrap(),
+    );
+    let id = LogicalSessionId::new();
+    let first = SessionRef { id, generation: 1 };
+    let run = RunId::new();
+    let registration = stolen
+        .request(
+            RequestId::new(),
+            Command::RegisterLeader {
+                id,
+                agent: Agent::Codex,
+                cwd: dir.path().into(),
+                permissions: AgentPermissions::Default,
+            },
+        )
+        .await;
+    if registration.is_ok() {
+        let token = stolen
+            .request(RequestId::new(), Command::Grant { identity: first })
+            .await
+            .unwrap();
+        let agent = Client::session(&root, token.as_str().unwrap().into());
+        agent
+            .request(
+                RequestId::new(),
+                Command::OpenRun {
+                    id: run,
+                    brief: RunBrief {
+                        title: "Injected".into(),
+                        goal: "Launch without a window action".into(),
+                        ..Default::default()
+                    },
+                },
+            )
+            .await
+            .unwrap();
+        stolen
+            .request(
+                RequestId::new(),
+                Command::RememberLaunch {
+                    identity: first,
+                    runtime: Box::new(RuntimeLaunch::new(Default::default())),
+                },
+            )
+            .await
+            .unwrap();
+        stolen
+            .request(
+                RequestId::new(),
+                Command::FailStart {
+                    identity: first,
+                    reason: "force restart".into(),
+                },
+            )
+            .await
+            .unwrap();
+        stolen
+            .request(RequestId::new(), Command::RestartLeader { identity: first })
+            .await
+            .unwrap();
+    }
+    assert!(
+        registration.is_err(),
+        "human.token must not register a Leader"
+    );
+    for command in [
+        Command::Grant { identity: first },
+        Command::RememberLaunch {
+            identity: first,
+            runtime: Box::new(RuntimeLaunch::new(Default::default())),
+        },
+        Command::FailStart {
+            identity: first,
+            reason: "force restart".into(),
+        },
+        Command::RestartLeader { identity: first },
+        Command::OpenRun {
+            id: run,
+            brief: RunBrief {
+                title: "Injected".into(),
+                goal: "Launch".into(),
+                ..Default::default()
+            },
+        },
+        Command::NativeCall {
+            name: "register_leader".into(),
+            arguments: json!({
+                "id": LogicalSessionId::new(), "agent": "codex", "cwd": dir.path(), "permissions": "default"
+            }),
+        },
+        Command::NativeEnvelope {
+            message_id: adroit_model::MessageId::new(),
+        },
+    ] {
+        let error = stolen
+            .clone()
+            .as_actor(first)
+            .request(RequestId::new(), command)
+            .await
+            .unwrap_err();
+        assert!(error.message.contains("read-only"), "{error}");
+    }
+    let snapshot = service
+        .actor()
+        .call(|store| store.snapshot())
+        .await
+        .unwrap();
+    assert!(snapshot.sessions.is_empty());
+    assert!(snapshot.runs.is_empty());
+    assert!(
+        service
+            .actor()
+            .call(|store| store.pending_independent_leaders())
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let socket = dir.path().join("native.sock");
+    let native = native_daemon::serve_process(socket.clone());
+    let daemon = adroit_term::Daemon::new(socket);
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        while daemon.sessions().await.is_err() {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    service
+        .supervise(
+            daemon.clone(),
+            "/adroit".into(),
+            adroit::settings::Settings::default,
+        )
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert!(
+        daemon.sessions().await.unwrap().is_empty(),
+        "the rejected command sequence must not launch a native session"
+    );
+    native.abort();
+}
 
 #[tokio::test]
 async fn only_a_human_can_authorize_and_only_the_bound_leader_can_create() {
@@ -12,34 +192,34 @@ async fn only_a_human_can_authorize_and_only_the_bound_leader_can_create() {
     let root = dir.path().join("control");
     let service = Service::bind(&root).await.unwrap();
     let human = Client::human(&root).unwrap();
+    let app = AppClient::new(&root);
     let mut leaders = Vec::new();
     for _ in 0..2 {
         let record: ManagedSession = serde_json::from_value(
-            human
-                .request(
-                    RequestId::new(),
-                    Command::RegisterLeader {
-                        id: LogicalSessionId::new(),
-                        agent: Agent::Claude,
-                        cwd: dir.path().into(),
-                        permissions: AgentPermissions::Default,
-                    },
-                )
-                .await
-                .unwrap()["value"]
+            app.request(
+                RequestId::new(),
+                Command::RegisterLeader {
+                    id: LogicalSessionId::new(),
+                    agent: Agent::Claude,
+                    cwd: dir.path().into(),
+                    permissions: AgentPermissions::Default,
+                },
+            )
+            .await
+            .unwrap()["value"]
                 .clone(),
         )
         .unwrap();
         let identity = record.reference();
         let token: String = serde_json::from_value(
-            human
-                .request(RequestId::new(), Command::Grant { identity })
+            app.request(RequestId::new(), Command::Grant { identity })
                 .await
                 .unwrap(),
         )
         .unwrap();
         let client = Client::session(&root, token);
-        client
+        app.clone()
+            .as_actor(identity)
             .request(
                 RequestId::new(),
                 Command::OpenRun {
@@ -60,6 +240,23 @@ async fn only_a_human_can_authorize_and_only_the_bound_leader_can_create() {
         goal: "Human requested work".into(),
         ..Default::default()
     };
+    assert!(
+        human
+            .request(
+                RequestId::new(),
+                Command::AuthorizeIndependentRun {
+                    leader: leaders[0].0,
+                    workspace: dir.path().into(),
+                    brief: brief.clone(),
+                    agent: Agent::Claude,
+                    model: None,
+                    permissions: AgentPermissions::Default,
+                }
+            )
+            .await
+            .is_err(),
+        "reading the human token must not mint an independent-run grant"
+    );
     assert!(
         leaders[0]
             .1
@@ -92,21 +289,75 @@ async fn only_a_human_can_authorize_and_only_the_bound_leader_can_create() {
             .await
             .is_err()
     );
-    let grant = human
-        .request(
+    let grant = adroit::control::ui_authorization::authorize(
+        &root,
+        RequestId::new(),
+        adroit::control::store::IndependentAuthorizationPlan {
+            leader: leaders[0].0,
+            workspace: dir.path().into(),
+            brief,
+            agent: Agent::Claude,
+            model: None,
+            permissions: AgentPermissions::Default,
+        },
+    )
+    .unwrap();
+    let id = grant.id;
+    let workspace_plan = |workspace| adroit::control::store::IndependentAuthorizationPlan {
+        leader: leaders[0].0,
+        workspace,
+        brief: RunBrief {
+            title: "Path check".into(),
+            goal: "Check the selected workspace".into(),
+            ..Default::default()
+        },
+        agent: Agent::Claude,
+        model: None,
+        permissions: AgentPermissions::Default,
+    };
+    let missing = dir.path().join("missing");
+    assert!(
+        adroit::control::ui_authorization::authorize(
+            &root,
             RequestId::new(),
-            Command::AuthorizeIndependentRun {
-                leader: leaders[0].0,
-                workspace: dir.path().into(),
-                brief,
-                agent: Agent::Claude,
-                model: None,
-                permissions: AgentPermissions::Default,
-            },
+            workspace_plan(missing)
         )
-        .await
-        .unwrap();
-    let id: RequestId = serde_json::from_value(grant["value"]["id"].clone()).unwrap();
+        .is_err()
+    );
+    let file = dir.path().join("file");
+    std::fs::write(&file, "contents").unwrap();
+    assert!(
+        adroit::control::ui_authorization::authorize(&root, RequestId::new(), workspace_plan(file))
+            .is_err()
+    );
+    let link = dir.path().join("link");
+    std::os::unix::fs::symlink(dir.path(), &link).unwrap();
+    assert!(
+        adroit::control::ui_authorization::authorize(&root, RequestId::new(), workspace_plan(link))
+            .is_err()
+    );
+    let replaceable = dir.path().join("replaceable");
+    std::fs::create_dir(&replaceable).unwrap();
+    let replacement = adroit::control::ui_authorization::authorize(
+        &root,
+        RequestId::new(),
+        workspace_plan(replaceable.clone()),
+    )
+    .unwrap();
+    std::fs::rename(&replaceable, dir.path().join("old-workspace")).unwrap();
+    std::fs::create_dir(&replaceable).unwrap();
+    assert!(
+        leaders[0]
+            .1
+            .request(
+                RequestId::new(),
+                Command::CreateIndependentRun {
+                    authorization_id: replacement.id
+                }
+            )
+            .await
+            .is_err()
+    );
     assert!(
         leaders[1]
             .1
@@ -285,6 +536,7 @@ async fn requests_survive_reconnection_and_daemon_restart_without_a_window() {
     let root = dir.path().join("control");
     let service = Service::bind(&root).await.unwrap();
     let client = Client::human(&root).unwrap();
+    let app = AppClient::new(&root);
     let id = LogicalSessionId::new();
     let request = RequestId::new();
     let command = Command::RegisterLeader {
@@ -293,11 +545,10 @@ async fn requests_survive_reconnection_and_daemon_restart_without_a_window() {
         agent: Agent::Codex,
         cwd: dir.path().into(),
     };
-    let first = client.request(request, command.clone()).await.unwrap();
+    let first = app.request(request, command.clone()).await.unwrap();
     drop(service);
     let _service = Service::bind(&root).await.unwrap();
-    let replay = Client::human(&root)
-        .unwrap()
+    let replay = AppClient::new(&root)
         .request(request, command)
         .await
         .unwrap();
@@ -331,11 +582,12 @@ async fn credentials_determine_the_actor_and_cannot_grant_another_identity() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("control");
     let _service = Service::bind(&root).await.unwrap();
-    let human = Client::human(&root).unwrap();
+    let app = AppClient::new(&root);
     let mut actors = Vec::new();
+    let mut first_identity = None;
     for _ in 0..2 {
         let id = LogicalSessionId::new();
-        let reply = human
+        let reply = app
             .request(
                 RequestId::new(),
                 Command::RegisterLeader {
@@ -350,14 +602,15 @@ async fn credentials_determine_the_actor_and_cannot_grant_another_identity() {
         let identity = serde_json::from_value(reply["value"].clone())
             .map(|s: adroit_model::ManagedSession| s.reference())
             .unwrap();
-        let grant = human
+        first_identity.get_or_insert(identity);
+        let grant = app
             .request(RequestId::new(), Command::Grant { identity })
             .await
             .unwrap();
         actors.push(Client::session(&root, grant.as_str().unwrap().into()));
     }
     let run = RunId::new();
-    actors[0]
+    app.as_actor(first_identity.unwrap())
         .request(
             RequestId::new(),
             Command::OpenRun {
@@ -371,6 +624,22 @@ async fn credentials_determine_the_actor_and_cannot_grant_another_identity() {
         )
         .await
         .unwrap();
+    assert!(
+        actors[1]
+            .request(
+                RequestId::new(),
+                Command::OpenRun {
+                    id: RunId::new(),
+                    brief: RunBrief {
+                        title: "Another".into(),
+                        goal: "Unapproved run".into(),
+                        ..Default::default()
+                    },
+                }
+            )
+            .await
+            .is_err()
+    );
     assert!(
         actors[1]
             .request(
@@ -437,8 +706,8 @@ async fn a_session_grant_survives_restart_and_cannot_select_another_actor() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("control");
     let service = Service::bind(&root).await.unwrap();
-    let human = Client::human(&root).unwrap();
-    let reply = human
+    let app = AppClient::new(&root);
+    let reply = app
         .request(
             RequestId::new(),
             Command::RegisterLeader {
@@ -452,7 +721,7 @@ async fn a_session_grant_survives_restart_and_cannot_select_another_actor() {
         .unwrap();
     let session: adroit_model::ManagedSession =
         serde_json::from_value(reply["value"].clone()).unwrap();
-    let grant = human
+    let grant = app
         .request(
             RequestId::new(),
             Command::Grant {
@@ -464,7 +733,8 @@ async fn a_session_grant_survives_restart_and_cannot_select_another_actor() {
     let agent = Client::session(&root, grant.as_str().unwrap().into());
     drop(service);
     let _service = Service::bind(&root).await.unwrap();
-    agent
+    AppClient::new(&root)
+        .as_actor(session.reference())
         .request(
             RequestId::new(),
             Command::OpenRun {
@@ -476,6 +746,10 @@ async fn a_session_grant_survives_restart_and_cannot_select_another_actor() {
                 },
             },
         )
+        .await
+        .unwrap();
+    agent
+        .request(RequestId::new(), Command::Snapshot)
         .await
         .unwrap();
     assert!(
@@ -515,7 +789,7 @@ fn upgrading_an_existing_store_keeps_records_and_adds_session_credentials() {
 }
 
 #[tokio::test]
-async fn the_installed_command_shape_reaches_a_daemon_without_opening_a_window() {
+async fn the_installed_control_command_refuses_a_missing_managed_credential() {
     use std::process::Stdio;
     use tokio::io::AsyncWriteExt;
     let dir = tempfile::Builder::new()
@@ -561,14 +835,15 @@ async fn the_installed_command_shape_reaches_a_daemon_without_opening_a_window()
         .await
         .unwrap();
     let output = command.wait_with_output().await.unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    assert!(!output.status.success());
     let reply: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(reply["request_id"], request.to_string());
-    assert_eq!(reply["result"]["Ok"]["event_cursor"], 0);
+    assert!(
+        reply["result"]["Err"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("managed session credential")
+    );
     daemon.kill().await.unwrap();
     daemon.wait().await.unwrap();
 }

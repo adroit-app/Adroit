@@ -18,9 +18,10 @@ does not change a session's assignment.
 An independent Leader created from a human-authorized handoff has its own run
 and ownership, even when it uses the same workspace as the requesting Leader.
 
-The `session start` command retains automatic ownership at repository or native
-workspace roots and in directories without VCS. Its starts below a repository
-root remain unassigned unless an explicit assignment is supplied. An explicitly
+The `session start` command refuses automatic managed ownership at repository
+or native workspace roots and in directories without VCS; users start those
+Leaders in the window. Its starts below a repository root remain unassigned
+unless an explicit assignment is supplied. An explicitly
 assigned Worker stays a Worker even when it starts at the root. Existing
 sessions are not reclassified from their paths.
 

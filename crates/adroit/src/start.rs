@@ -99,6 +99,9 @@ async fn start(
     prompt: &str,
     from: Option<&str>,
 ) -> Result<String, String> {
+    if crate::control::managed::is_root(&dir)? {
+        return Err("Open the Adroit window and start a Leader there; session start cannot create a managed Leader without a window action".into());
+    }
     let listed = daemon
         .sessions()
         .await
@@ -246,6 +249,22 @@ pub fn cli(args: &[String]) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn cli_cannot_prepare_a_managed_leader_without_a_window_action() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join(".git")).unwrap();
+        let error = start(
+            &Daemon::new(dir.path().join("missing-daemon.sock")),
+            &Asked::default(),
+            dir.path().into(),
+            "Start an independent Leader",
+            None,
+        )
+        .await
+        .unwrap_err();
+        assert!(error.contains("Adroit window"), "{error}");
+    }
 
     fn args(words: &[&str]) -> Vec<String> {
         words.iter().map(|w| w.to_string()).collect()

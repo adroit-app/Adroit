@@ -1,11 +1,14 @@
 //! Human-authorized creation of independent managed requests.
 use super::*;
+use std::os::unix::fs::MetadataExt;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IndependentAuthorization {
     pub id: RequestId,
     pub owner: SessionRef,
     pub workspace: PathBuf,
+    #[serde(default)]
+    pub workspace_identity: Option<(u64, u64)>,
     pub brief: RunBrief,
     pub agent: Agent,
     pub model: Option<String>,
@@ -51,9 +54,8 @@ impl Store {
             if brief.title.trim().is_empty() || brief.goal.trim().is_empty() { return Err(invalid("an independent run needs a title and goal")); }
             checks::validate_gate(&brief.quality_gate)?;
             if model.as_ref().is_some_and(|model| model.trim().is_empty()) { return Err(invalid("the selected model is empty")); }
-            let workspace = std::fs::canonicalize(&workspace).map_err(|error| invalid(format!("cannot resolve the authorized workspace: {error}")))?;
-            if !workspace.is_dir() { return Err(invalid("the authorized workspace must be a directory")); }
-            let grant = IndependentAuthorization { id: RequestId::new(), owner, workspace, brief, agent, model, permissions, created: None };
+            let (workspace, workspace_identity) = workspace_identity(&workspace)?;
+            let grant = IndependentAuthorization { id: RequestId::new(), owner, workspace, workspace_identity: Some(workspace_identity), brief, agent, model, permissions, created: None };
             connection.execute("INSERT INTO independent_authorizations(id,leader_id,state,data) VALUES (?1,?2,'authorized',?3)", params![grant.id.to_string(),owner.id.to_string(),encode(&grant)?])?;
             store_message(connection, &AgentMessage { id: MessageId::new(),run_id,from:owner.id,to:owner.id,task_id:None,attempt_id:None,revision:None,kind:MessageKind::Note,body:format!("Human authorized an independent run in {}. Use create_independent_run with authorization_id {} only if you intend to hand off this exact request.",grant.workspace.display(),grant.id),reply_to:None,blocks_work:false })?;
             event(connection, Some(run_id), "independent_run_authorized", &grant)?;
@@ -74,6 +76,7 @@ impl Store {
             let mut grant: IndependentAuthorization = decode(&data)?;
             if grant.owner != caller { return Err(ControlError::new(ErrorCode::OwnershipMismatch,"the authorization belongs to another Leader generation")); }
             if grant.created.is_some() { return Err(conflict("the authorization was already used; retry the original request ID")); }
+            grant.validate_workspace()?;
             let origin = session.binding.run_id().ok_or_else(|| conflict("the Leader has no run"))?;
             owner(connection, caller, origin)?;
             let created = IndependentRun { run_id: RunId::new(), leader_id: LogicalSessionId::new() };
@@ -109,5 +112,26 @@ impl Store {
                 Ok((session, grant))
             })
             .collect()
+    }
+}
+
+fn workspace_identity(path: &Path) -> Result<(PathBuf, (u64, u64))> {
+    let metadata = std::fs::symlink_metadata(path)
+        .map_err(|error| invalid(format!("cannot inspect the authorized workspace: {error}")))?;
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return Err(invalid("the authorized workspace must be a real directory"));
+    }
+    let canonical = std::fs::canonicalize(path)
+        .map_err(|error| invalid(format!("cannot resolve the authorized workspace: {error}")))?;
+    Ok((canonical, (metadata.dev(), metadata.ino())))
+}
+
+impl IndependentAuthorization {
+    pub fn validate_workspace(&self) -> Result<()> {
+        let (path, identity) = workspace_identity(&self.workspace)?;
+        if path != self.workspace || self.workspace_identity != Some(identity) {
+            return Err(invalid("the authorized workspace has been replaced"));
+        }
+        Ok(())
     }
 }

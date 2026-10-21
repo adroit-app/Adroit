@@ -9,13 +9,19 @@ fields and reachable types. Human-only management and internal delivery claims
 are absent from the catalog. Human management remains refused to Agent
 credentials even if supplied manually through the control protocol.
 
-A human client may authorize an independent request for one managed Leader by
-specifying its workspace, request brief, agent, model, and permissions. Only
+A user may authorize an independent request in the Adroit window for one managed
+Leader by specifying its workspace, request brief, agent, model, and permissions. Only
 that Leader can use the returned authorization with `create_independent_run`.
 The operation returns new run and Leader IDs and starts a fresh managed Leader
-with the authorized request. A Worker cannot use the authorization, and an
-Agent cannot create one. Repeating the same request ID returns the same IDs;
-a new request cannot redeem an already used authorization.
+with the authorized request. A Worker cannot redeem the authorization through
+the control API. The socket gives the local human credential read-only access;
+lifecycle changes come from app actions or scoped managed sessions. The CLI
+control bridge requires a managed session credential. Repeating the
+same request ID returns the same IDs; a new request cannot redeem an already
+used authorization. Missing, linked, or replaced workspaces are checked at
+authorization, redemption, and immediately before launch. A pathname can still
+change between that check and native use. Same-user arbitrary code is outside
+this interaction boundary.
 
 Read `context` first. The credential supplies the actor; callers cannot choose
 another identity. `request_id` is optional. The bridge generates it when omitted

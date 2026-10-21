@@ -79,6 +79,7 @@ impl Scheduler {
             let settings = settings.clone();
             let job = self.jobs.spawn(async move {
                 let result = async {
+                    grant.validate_workspace()?;
                     let target = execution::select_target(&settings, grant.agent, grant.model.clone(), grant.permissions.clone()).map_err(failed)?;
                     let mut runtime = super::runtime::RuntimeLaunch::new(settings.clone()).with_target(target);
                     runtime.developer_instructions = crate::agents::adapter(grant.agent)
@@ -89,6 +90,7 @@ impl Scheduler {
                     let run_id = grant.created.as_ref().expect("created authorization").run_id;
                     actor.call(move |store| store.register_work_area(RequestId::new(), identity, run_id, area, true).map(|_| ())).await?;
                     let prompt = format!("This is a new independent request explicitly authorized by the human. Read Adroit context and snapshot first. Work only on this run and its workspace. Request: {}\n\n{}", grant.brief.title, grant.brief.goal);
+                    grant.validate_workspace()?;
                     super::restart::start(&actor, &daemon, &root, &program, session, Some(prompt)).await
                 }.await;
                 if let Err(error) = result {

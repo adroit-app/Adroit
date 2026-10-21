@@ -69,8 +69,11 @@ session defaults for model, reasoning, approvals and sandbox. Each draft can
 override its model and select a permission profile. Sessions already running keep their agent, so both can run together. From a terminal:
 
 ```sh
-adroit session start --agent codex --dir ~/src/api -- "Review the API"
+adroit session start --agent codex --dir ~/src/api/src -- "Review the API"
 ```
+
+The command starts an unassigned session in a directory below a repository
+root. Start a managed Leader at the root from the Adroit window.
 
 Read-only Codex sessions use its read-only sandbox. External Codex discovery and
 takeover, embedded prompt history and slash completion, usage limits and

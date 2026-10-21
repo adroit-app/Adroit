@@ -8,6 +8,24 @@ pub mod cli;
 pub mod client;
 pub mod protocol;
 pub mod service;
+pub mod ui_authorization;
+
+pub(crate) async fn app_command(
+    root: &std::path::Path,
+    id: adroit_model::RequestId,
+    actor: Option<adroit_model::SessionRef>,
+    command: protocol::Command,
+) -> Result<serde_json::Value, store::ControlError> {
+    let path = root.join("state.sqlite3");
+    tokio::task::spawn_blocking(move || {
+        let mut store = store::Store::open(&path)?;
+        service::app_request(&mut store, id, actor, command)
+    })
+    .await
+    .map_err(|error| {
+        store::ControlError::new(store::ErrorCode::StorageFailure, error.to_string())
+    })?
+}
 
 /// The control endpoint shares the terminal daemon's instance ownership.
 pub fn root() -> std::path::PathBuf {

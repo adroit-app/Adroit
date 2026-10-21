@@ -202,7 +202,7 @@ async fn human_projection_is_authenticated_and_selected_evidence_is_chunked() {
         .await
         .unwrap()
         .value;
-    let grant = human
+    let grant = adroit::control::client::AppClient::new(&root)
         .request(
             RequestId::new(),
             Command::Grant {
@@ -950,7 +950,7 @@ async fn supported_large_task_requests_refresh_atomically_through_the_service() 
         .unwrap()
         .value;
     let human = Client::human(&root).unwrap();
-    let actor = human.clone().as_actor(session.reference());
+    let actor = adroit::control::client::AppClient::new(&root).as_actor(session.reference());
     let run_id = RunId::new();
     actor
         .request(

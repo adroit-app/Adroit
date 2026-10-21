@@ -19,6 +19,32 @@ pub struct Client {
     human: bool,
 }
 
+/// Trusted in-process app operations. This never sends authority over the socket.
+#[doc(hidden)]
+#[derive(Clone)]
+pub struct AppClient {
+    root: PathBuf,
+    actor: Option<SessionRef>,
+}
+
+impl AppClient {
+    pub fn new(root: &Path) -> Self {
+        Self {
+            root: root.to_path_buf(),
+            actor: None,
+        }
+    }
+
+    pub fn as_actor(mut self, actor: SessionRef) -> Self {
+        self.actor = Some(actor);
+        self
+    }
+
+    pub async fn request(&self, id: RequestId, command: Command) -> Result<Value, ControlError> {
+        super::app_command(&self.root, id, self.actor, command).await
+    }
+}
+
 impl Client {
     pub fn human(root: &Path) -> Result<Self, ControlError> {
         let credential = std::fs::read_to_string(root.join("human.token")).map_err(transport)?;

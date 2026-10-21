@@ -2,7 +2,7 @@
 
 A spawned Worker retains its attempt slot while its provider starts. Its
 operational readiness is reported separately from terminal presence. If the
-provider is waiting for trust or permission, Adroit shows the required action
+provider is waiting for trust, permission, or other interactive input, Adroit shows the required action
 and durably tells the Leader. The user decides in the native terminal; Adroit
 does not approve on their behalf. A startup that does not reach readiness is
 shown as stalled. Once the Worker becomes ready, the blocker clears and the
@@ -32,7 +32,7 @@ Workers. A manually closed Leader cannot be restarted. Closing a Worker ends its
 attempt without inventing success. Results and working files remain available.
 Closing tabs or the window does not stop Agent and Terminal sessions.
 
-The human-only `close_session` command records a deliberate closure after the
+The app-only `close_session` command records a deliberate closure after the
 native terminal has stopped. `confirm_terminal_exit` records an exit without
 implying a manual closure. Both take `identity` and `terminal_id`, which must
 identify the current assigned terminal; neither stops a program itself.
@@ -67,7 +67,7 @@ cancelled and its attempt slot is released, including when attachment was saved
 but its reply was lost. If stopping the gate cannot be confirmed, startup remains
 uncertain. A failure after release is not treated as a confirmed gate abort.
 
-The human-only `abort_prepared_start` command records this confirmed fact using
+The app-only `abort_prepared_start` command records this confirmed fact using
 `identity`, `terminal_id`, and `reason`. A different assigned terminal is refused.
 It does not turn a failed launch into successful work or overwrite a later task
 revision.

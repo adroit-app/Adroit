@@ -73,6 +73,79 @@ fn task_state(state: TaskState) -> &'static str {
     }
 }
 
+#[component]
+fn IndependentAuthorizationForm(leader: ManagedSession) -> Element {
+    let mut open = use_signal(|| false);
+    let mut workspace = use_signal(|| {
+        leader
+            .cwd
+            .as_ref()
+            .map(|path| path.display().to_string())
+            .unwrap_or_default()
+    });
+    let mut title = use_signal(String::new);
+    let mut goal = use_signal(String::new);
+    let mut model = use_signal(String::new);
+    let mut agent = use_signal(|| leader.agent);
+    let mut permissions = use_signal(AgentPermissions::default);
+    let mut completion = use_signal(CompletionKind::default);
+    let mut result = use_signal(|| None::<String>);
+    rsx! {
+        section { class: "details-block request-overview", "aria-label": "Independent request authorization",
+            button { class: "request-action", onclick: move |_| open.set(!open()), "Authorize independent request" }
+            if open() {
+                div { class: "launch-form", onmousedown: move |event| event.stop_propagation(), onkeydown: move |event| event.stop_propagation(),
+                    p { class: "request-prose", "Authorize one independent Leader for this exact request. The current Leader may redeem it once." }
+                    label { class: "launch-form-label", r#for: "independent-workspace", "Workspace directory" }
+                    input { id: "independent-workspace", value: "{workspace}", oninput: move |event| workspace.set(event.value()) }
+                    label { class: "launch-form-label", r#for: "independent-title", "Request title" }
+                    input { id: "independent-title", value: "{title}", oninput: move |event| title.set(event.value()) }
+                    label { class: "launch-form-label", r#for: "independent-goal", "Request goal and scope" }
+                    textarea { id: "independent-goal", value: "{goal}", oninput: move |event| goal.set(event.value()) }
+                    label { class: "launch-form-label", r#for: "independent-completion", "Completion" }
+                    select { id: "independent-completion", value: if completion() == CompletionKind::Change { "change" } else { "report" }, oninput: move |event| {
+                        completion.set(if event.value() == "change" { CompletionKind::Change } else { CompletionKind::Report });
+                    },
+                        option { value: "report", "Report" }
+                        option { value: "change", "Change" }
+                    }
+                    label { class: "launch-form-label", r#for: "independent-agent", "Agent" }
+                    select { id: "independent-agent", value: "{agent().key()}", oninput: move |event| {
+                        if let Some(next) = Agent::parse(&event.value()) { agent.set(next); }
+                    },
+                        option { value: "claude", "Claude" }
+                        option { value: "codex", "Codex" }
+                    }
+                    label { class: "launch-form-label", r#for: "independent-model", "Model" }
+                    input { id: "independent-model", placeholder: "Agent default", value: "{model}", oninput: move |event| model.set(event.value()) }
+                    label { class: "launch-form-label", r#for: "independent-permissions", "Permissions" }
+                    select { id: "independent-permissions", value: if permissions() == AgentPermissions::ReadOnly { "read_only" } else { "default" }, oninput: move |event| {
+                        permissions.set(if event.value() == "read_only" { AgentPermissions::ReadOnly } else { AgentPermissions::Default });
+                    },
+                        option { value: "default", "Default" }
+                        option { value: "read_only", "Read only" }
+                    }
+                    button { class: "request-action", onclick: move |_| {
+                        let plan = crate::control::store::IndependentAuthorizationPlan {
+                            leader: leader.reference(),
+                            workspace: workspace().trim().into(),
+                            brief: RunBrief { title: title().trim().into(), goal: goal().trim().into(), completion_kind: completion(), ..Default::default() },
+                            agent: agent(),
+                            model: (!model().trim().is_empty()).then(|| model().trim().to_string()),
+                            permissions: permissions(),
+                        };
+                        match crate::control::ui_authorization::authorize(&crate::control::root(), RequestId::new(), plan) {
+                            Ok(grant) => { result.set(Some(format!("Authorized {} for this Leader. Grant {} is ready to redeem.", grant.brief.title, grant.id))); open.set(false); }
+                            Err(error) => result.set(Some(error.to_string())),
+                        }
+                    }, "Authorize this request" }
+                }
+            }
+            if let Some(message) = result() { p { class: "request-prose", "{message}" } }
+        }
+    }
+}
+
 #[cfg(test)]
 mod presentation_tests {
     use super::*;
@@ -121,6 +194,15 @@ pub fn RequestDetails(
     let Some(run) = run_id.and_then(|id| snapshot.runs.iter().find(|run| run.id == id)) else {
         return rsx! {};
     };
+    let leader = (run.state == RunState::Active)
+        .then(|| {
+            snapshot.sessions.iter().find(|session| {
+                session.binding.logical_id() == run.leader_id
+                    && session.state == ManagedSessionState::Running
+            })
+        })
+        .flatten()
+        .cloned();
     let tasks: Vec<_> = snapshot
         .tasks
         .iter()
@@ -151,6 +233,7 @@ pub fn RequestDetails(
         })
         .collect();
     rsx! {
+        if let Some(leader) = leader { IndependentAuthorizationForm { leader } }
         section { class: "details-block request-overview", "aria-label": "Request progress",
             div { class: "request-heading",
                 span { class: "details-label", "{run.brief.title}" }
@@ -213,6 +296,7 @@ pub fn RequestDetails(
                         WorkerReadiness::Ready => "Ready",
                         WorkerReadiness::AwaitingTrust => "Trust decision needed; open Worker terminal",
                         WorkerReadiness::AwaitingPermission => "Permission decision needed; open Worker terminal",
+                        WorkerReadiness::AwaitingInput => "Input needed; open Worker terminal",
                         WorkerReadiness::Stalled => "Startup stalled; open Worker terminal",
                     });
                     rsx! {

@@ -18,9 +18,10 @@ its event cursor so subsequent changes can be replayed.
 Session credentials supplied in `ADROIT_CONTROL_TOKEN` determine the caller's
 identity and generation. They cannot select another actor, register Leaders, or
 issue credentials. Session reads expose their assigned run and their own
-messages. The local human client can select a session using
-`--actor UUID GENERATION`; without a session credential it uses the instance's
-private human credential. These credentials prevent accidental misrouting;
+messages. A human-token socket client has read-only access and may select a
+session for observation. The CLI requires a managed session credential;
+window and internal startup actions use an in-process store path for lifecycle
+changes. These credentials prevent accidental misrouting;
 they do not isolate hostile programs running as the same operating-system user.
 
 The underlying socket protocol is versioned JSON lines. Requests contain
@@ -28,14 +29,14 @@ The underlying socket protocol is versioned JSON lines. Requests contain
 `version`, nullable `id`, and `result`. Version 1 supports the command forms
 below; IDs are UUID strings and session references contain `id` and `generation`.
 
-- `register_leader`: `id`, `agent`, `cwd`, optional `permissions` (human client).
-- `grant`: `identity` (human client; returns the session credential).
-- `register_default_area`: `identity`, `run_id`, ready `area` (human client; associates the existing default before startup).
-- `remember_launch`: `identity`, `runtime` containing a `settings` snapshot (human client; recorded before startup and immutable for that generation).
-- `attach_session`: `identity`, `cwd`, `terminal_id`, `conversation_id` (human
-  client; records a completed startup).
-- `fail_start`: `identity`, `reason` (human client; records a failed startup).
-- `start_uncertain`: `identity`, `reason` (human client; retains uncertain startup for reconciliation).
+- `register_leader`: `id`, `agent`, `cwd`, optional `permissions` (app only).
+- `grant`: `identity` (app only; returns the session credential).
+- `register_default_area`: `identity`, `run_id`, ready `area` (app only; associates the existing default before startup).
+- `remember_launch`: `identity`, `runtime` containing a `settings` snapshot (app only; recorded before startup and immutable for that generation).
+- `attach_session`: `identity`, `cwd`, `terminal_id`, `conversation_id` (app
+  only; records a completed startup).
+- `fail_start`: `identity`, `reason` (app only; records a failed startup).
+- `start_uncertain`: `identity`, `reason` (app only; retains uncertain startup for reconciliation).
 - `context`: no additional fields; returns the credential's own session, current run and task, assigned attempt, and working area without message history.
 - `snapshot`: no additional fields.
 - `mailbox`: `after`, `limit`; returns a recipient-only page with `messages` and
@@ -45,13 +46,15 @@ below; IDs are UUID strings and session references contain `id` and `generation`
 - `retry_delivery`: `message_id`; the run's Leader explicitly retries an accepted
   or uncertain delivery using the same immutable message ID.
 - `events`: `after`, `limit`.
-- `open_run`: `id`, `brief`.
+- `open_run`: `id`, `brief` (app only; Agents cannot open an unassigned Leader run).
 - `put_task`: `plan`.
 - `queue_task`: `version` containing `task_id` and `revision`.
 - `send_message`: `message`.
 - `acknowledge`: `message_id`.
 
 State-changing commands validate the caller's run ownership and task revision.
+The socket refuses all state changes under the readable human credential,
+including native command wrappers and combinations of lifecycle commands.
 A transport timeout does not prove an operation failed. Native transport acceptance records receipt; explicit acknowledgement is
 optional. Receipt does not establish processing or task completion.
 
@@ -121,9 +124,10 @@ successful message delivery. Existing MCP servers remain configured alongside
 Adroit's bridge. Codex receives a session-local MCP configuration and uses its
 native queue for inbound notifications.
 
-`session start` creates human-owned sessions. A managed Agent delegates with
-`put_task` and `queue_task`; it cannot use `session start` to create a peer
-Leader without a task assignment.
+`session start` can create unassigned sessions directly. A CLI request that
+would automatically create a managed Leader requires an explicit window action;
+the command refuses it and directs the user to the window. A managed Agent
+delegates with `put_task` and `queue_task`.
 
 The daemon supervises queued tasks and native notifications without a window.
 It keeps a private snapshot of each session's launch settings, so editing the

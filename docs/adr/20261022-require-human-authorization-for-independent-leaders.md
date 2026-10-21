@@ -1,6 +1,6 @@
 # Require human authorization for a managed Leader to create an independent Leader
 
-Status: Accepted
+Status: Superseded by 20261022-use-window-action-for-independent-authorization.md
 
 ## Context
 

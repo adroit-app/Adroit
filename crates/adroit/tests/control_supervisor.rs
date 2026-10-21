@@ -25,7 +25,8 @@ async fn an_authorized_independent_run_launches_a_new_leader_with_its_request() 
         &program,
         support::codex_script(
             r#"#!/bin/sh
-printf '%s\n' "$@" > "$ADROIT_TEST_RECEIPT"
+printf '%s\n' "$@" > "$ADROIT_TEST_RECEIPT.tmp"
+mv "$ADROIT_TEST_RECEIPT.tmp" "$ADROIT_TEST_RECEIPT"
 sleep 10
 "#,
             None,
@@ -44,7 +45,7 @@ sleep 10
         }
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
-    let human = Client::human(&root).unwrap();
+    let human = adroit::control::client::AppClient::new(&root);
     let leader: ManagedSession = serde_json::from_value(
         human
             .request(
@@ -70,7 +71,9 @@ sleep 10
     )
     .unwrap();
     let agent = Client::session(&root, token);
-    agent
+    human
+        .clone()
+        .as_actor(owner)
         .request(
             RequestId::new(),
             Command::OpenRun {
@@ -84,25 +87,24 @@ sleep 10
         )
         .await
         .unwrap();
-    let grant = human
-        .request(
-            RequestId::new(),
-            Command::AuthorizeIndependentRun {
-                leader: owner,
-                workspace: workspace.clone(),
-                brief: RunBrief {
-                    title: "Independent".into(),
-                    goal: "Inspect the separate request".into(),
-                    ..Default::default()
-                },
-                agent: Agent::Codex,
-                model: None,
-                permissions: AgentPermissions::Default,
+    let grant = adroit::control::ui_authorization::authorize(
+        &root,
+        RequestId::new(),
+        adroit::control::store::IndependentAuthorizationPlan {
+            leader: owner,
+            workspace: workspace.clone(),
+            brief: RunBrief {
+                title: "Independent".into(),
+                goal: "Inspect the separate request".into(),
+                ..Default::default()
             },
-        )
-        .await
-        .unwrap();
-    let authorization_id: RequestId = serde_json::from_value(grant["value"]["id"].clone()).unwrap();
+            agent: Agent::Codex,
+            model: None,
+            permissions: AgentPermissions::Default,
+        },
+    )
+    .unwrap();
+    let authorization_id = grant.id;
     let created = agent
         .request(
             RequestId::new(),
@@ -113,6 +115,38 @@ sleep 10
     let run_id: RunId = serde_json::from_value(created["value"]["run_id"].clone()).unwrap();
     let leader_id: LogicalSessionId =
         serde_json::from_value(created["value"]["leader_id"].clone()).unwrap();
+    let replaced = dir.path().join("replaced-workspace");
+    std::fs::create_dir(&replaced).unwrap();
+    let replaced_grant = adroit::control::ui_authorization::authorize(
+        &root,
+        RequestId::new(),
+        adroit::control::store::IndependentAuthorizationPlan {
+            leader: owner,
+            workspace: replaced.clone(),
+            brief: RunBrief {
+                title: "Replaced".into(),
+                goal: "Must not launch".into(),
+                ..Default::default()
+            },
+            agent: Agent::Codex,
+            model: None,
+            permissions: AgentPermissions::Default,
+        },
+    )
+    .unwrap();
+    let replaced_run = agent
+        .request(
+            RequestId::new(),
+            Command::CreateIndependentRun {
+                authorization_id: replaced_grant.id,
+            },
+        )
+        .await
+        .unwrap();
+    let replaced_leader_id: LogicalSessionId =
+        serde_json::from_value(replaced_run["value"]["leader_id"].clone()).unwrap();
+    std::fs::rename(&replaced, dir.path().join("old-replaced-workspace")).unwrap();
+    std::fs::create_dir(&replaced).unwrap();
     let mut settings = Settings::default();
     settings.codex.command = vec![program.to_string_lossy().into_owned()];
     settings.codex.env.insert(
@@ -136,7 +170,12 @@ sleep 10
             if snapshot.sessions.iter().any(|session| {
                 session.binding.logical_id() == leader_id
                     && session.state == ManagedSessionState::Running
-            }) && receipt.exists()
+            }) && snapshot.sessions.iter().any(|session| {
+                session.binding.logical_id() == replaced_leader_id
+                    && session.state == ManagedSessionState::Failed
+                    && session.terminal_id.is_none()
+            }) && std::fs::read_to_string(&receipt)
+                .is_ok_and(|text| text.contains("Inspect the separate request"))
             {
                 break;
             }
@@ -260,7 +299,7 @@ sleep 10
     .unwrap();
     let run_id = snapshot.runs[0].id;
     let task_id = TaskId::new();
-    let leader = human.clone().as_actor(owner);
+    let leader = adroit::control::client::AppClient::new(&root).as_actor(owner);
     leader
         .request(
             RequestId::new(),
@@ -395,7 +434,7 @@ sleep 10
         .end(u128::from_str_radix(&terminal, 16).unwrap())
         .await
         .unwrap();
-    human
+    adroit::control::client::AppClient::new(&root)
         .request(
             RequestId::new(),
             Command::ConfirmTerminalExit {
@@ -407,7 +446,7 @@ sleep 10
         .unwrap();
     invalid_settings.store(true, Ordering::SeqCst);
     rejected_settings.store(0, Ordering::SeqCst);
-    human
+    adroit::control::client::AppClient::new(&root)
         .request(RequestId::new(), Command::RestartLeader { identity: owner })
         .await
         .unwrap();

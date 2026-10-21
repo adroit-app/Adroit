@@ -248,6 +248,7 @@ pub enum WorkerReadiness {
     Ready,
     AwaitingTrust,
     AwaitingPermission,
+    AwaitingInput,
     Stalled,
 }
 

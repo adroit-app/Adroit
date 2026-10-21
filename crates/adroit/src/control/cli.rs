@@ -61,10 +61,11 @@ pub fn cli(args: &[String]) -> i32 {
             return Err(invalid("the control command is too large"));
         }
         let command: Command = serde_json::from_slice(&input).map_err(invalid)?;
-        let root = super::root();
         let mut client = match std::env::var("ADROIT_CONTROL_TOKEN") {
             Ok(token) => Client::session(&super::session_root(), token),
-            Err(std::env::VarError::NotPresent) => Client::human(&root)?,
+            Err(std::env::VarError::NotPresent) => {
+                return Err(invalid("a managed session credential is required"));
+            }
             Err(_) => return Err(invalid("invalid control credential encoding")),
         };
         if let Some(actor) = actor {

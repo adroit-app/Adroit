@@ -1,6 +1,6 @@
 # Let a session start sessions through the adroit command
 
-Status: Accepted
+Status: Superseded for managed Leader starts by 20261022-confine-lifecycle-authority-to-app-actions.md
 
 ## Context
 

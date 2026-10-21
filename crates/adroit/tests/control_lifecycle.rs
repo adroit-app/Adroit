@@ -612,8 +612,7 @@ async fn an_unreconciled_agent_can_read_its_assignment_but_cannot_apply_results_
             .await
             .is_err()
     );
-    Client::human(&root)
-        .unwrap()
+    adroit::control::client::AppClient::new(&root)
         .request(
             RequestId::new(),
             Command::ConfirmTerminalExit {
@@ -778,6 +777,24 @@ fn a_spawned_worker_remains_unready_and_block_transitions_notify_once() {
             .messages
             .iter()
             .filter(|m| m.message.body.contains("ready"))
+            .count(),
+        1
+    );
+    store
+        .observe_worker_readiness(
+            RequestId::new(),
+            identity,
+            terminal.clone(),
+            WorkerReadiness::AwaitingInput,
+        )
+        .unwrap();
+    assert_eq!(
+        store
+            .mailbox(owner, 0, 100)
+            .unwrap()
+            .messages
+            .iter()
+            .filter(|message| message.message.body.contains("waiting for your input"))
             .count(),
         1
     );
@@ -963,7 +980,7 @@ fn cancelled_preparation_releases_its_slot_only_when_no_start_intent_was_recorde
 
 #[tokio::test]
 async fn supervisor_recovery_excludes_sessions_created_after_the_endpoint_was_bound() {
-    use adroit::control::{client::Client, protocol::Command, service::Service};
+    use adroit::control::{protocol::Command, service::Service};
     use adroit::settings::Settings;
     use adroit_term::Daemon;
     use std::os::unix::fs::PermissionsExt;
@@ -982,7 +999,7 @@ async fn supervisor_recovery_excludes_sessions_created_after_the_endpoint_was_bo
         .value;
     drop(store);
     let mut service = Service::bind(&root).await.unwrap();
-    let client = Client::human(&root).unwrap();
+    let client = adroit::control::client::AppClient::new(&root);
     let new_id = LogicalSessionId::new();
     client
         .request(

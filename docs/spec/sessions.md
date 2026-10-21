@@ -100,8 +100,11 @@ $ adroit session start --dir ~/src/api -- "Find why the login test is flaky"
 find-login-test
 ```
 
-The new session runs in the daemon like one started from the window, whether
-the window is open or not, and the window lists and shows it the same way. The command
+The command starts an unassigned session directly in a directory below a
+repository root, whether the window is open or not. At a repository root or a
+directory outside version control, it refuses a managed Leader start and asks
+you to start that Leader in the Adroit window. The window lists and shows
+unassigned CLI sessions. The command
 prints the name it goes by, which is also the name Claude Code's messaging
 between sessions addresses it by. The prompt is read from standard input when
 none follows `--`.

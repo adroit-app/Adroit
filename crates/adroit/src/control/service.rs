@@ -253,7 +253,7 @@ async fn reply(stream: tokio::net::UnixStream, actor: Actor, human: String) -> R
     let result = match request {
         Ok(request) if request.version == VERSION => {
             actor
-                .call(move |store| dispatch(store, &human, request))
+                .call(move |store| dispatch(store, &human, request, false))
                 .await
         }
         Ok(_) => Err(invalid("unsupported control protocol version")),
@@ -277,8 +277,48 @@ async fn reply(stream: tokio::net::UnixStream, actor: Actor, human: String) -> R
     write.write_all(&bytes).await.map_err(storage)
 }
 
-fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
+pub(crate) fn app_request(
+    store: &mut Store,
+    id: RequestId,
+    actor: Option<SessionRef>,
+    command: Command,
+) -> Result<Value> {
+    dispatch(
+        store,
+        "",
+        Request {
+            version: VERSION,
+            id,
+            credential: String::new(),
+            actor,
+            command,
+        },
+        true,
+    )
+}
+
+fn dispatch(store: &mut Store, human: &str, request: Request, trusted_app: bool) -> Result<Value> {
     let is_human = request.credential == human;
+    if is_human
+        && !trusted_app
+        && !matches!(
+            &request.command,
+            Command::Snapshot
+                | Command::Events { .. }
+                | Command::UiPage { .. }
+                | Command::UiDetail { .. }
+                | Command::UiRecord { .. }
+                | Command::UiTaskHistory { .. }
+                | Command::Candidate { .. }
+                | Command::ReadMessage { .. }
+                | Command::Mailbox { .. }
+                | Command::Context
+                | Command::ResolveIds { .. }
+                | Command::NativeArguments { .. }
+        )
+    {
+        return Err(denied("human-token socket clients have read-only access"));
+    }
     let actor = if is_human {
         request.actor
     } else {
@@ -355,24 +395,6 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
             value(store.fail_start(request.id, identity, reason)?)
         }
         Command::Grant { identity } if is_human => value(store.grant(identity)?),
-        Command::AuthorizeIndependentRun {
-            leader,
-            workspace,
-            brief,
-            agent,
-            model,
-            permissions,
-        } if is_human => value(store.authorize_independent_run(
-            request.id,
-            super::store::IndependentAuthorizationPlan {
-                leader,
-                workspace,
-                brief,
-                agent,
-                model,
-                permissions,
-            },
-        )?),
         Command::RegisterLeader { .. }
         | Command::RememberLaunch { .. }
         | Command::RegisterDefaultArea { .. }
@@ -385,7 +407,7 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
         | Command::StartUncertain { .. }
         | Command::FailStart { .. } => Err(denied("this operation requires a human client")),
         Command::AuthorizeIndependentRun { .. } => Err(denied(
-            "independent-run authorization requires a human client",
+            "independent-run authorization requires an explicit action in the Adroit window",
         )),
         Command::CreateIndependentRun { authorization_id } if !is_human => {
             value(store.create_independent_run(request.id, identity()?, authorization_id)?)
@@ -420,6 +442,7 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
                     command,
                     ..request
                 },
+                trusted_app,
             )?;
             value(store.native_output(identity, &name, output)?)
         }
@@ -532,9 +555,10 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
                 events,
             })
         }
-        Command::OpenRun { id, brief } => {
+        Command::OpenRun { id, brief } if trusted_app => {
             value(store.open_run(request.id, identity()?, id, brief)?)
         }
+        Command::OpenRun { .. } => Err(denied("only the app can open an unassigned Leader run")),
         Command::UpdateRun {
             run_id,
             expected_revision,

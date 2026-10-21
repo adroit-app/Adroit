@@ -1005,6 +1005,7 @@ impl Store {
                 WorkerReadiness::Ready => None,
                 WorkerReadiness::AwaitingTrust => Some("Worker is waiting for a project trust decision. Open its terminal and decide there; Adroit will not approve it."),
                 WorkerReadiness::AwaitingPermission => Some("Worker is waiting for a permission decision. Open its terminal and decide there; Adroit will not approve it."),
+                WorkerReadiness::AwaitingInput => Some("Worker is waiting for your input. Open its terminal and respond there."),
                 WorkerReadiness::Stalled => Some("Worker startup has stalled before readiness. Open its terminal to inspect or restart it explicitly."),
             };
             if let Some(body) = body {

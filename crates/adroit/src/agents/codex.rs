@@ -29,6 +29,9 @@ impl AgentAdapter for Codex {
             Some(adroit_model::State::Waiting(adroit_model::Wait::Permission)) => {
                 Some(adroit_model::WorkerReadiness::AwaitingPermission)
             }
+            Some(adroit_model::State::Waiting(adroit_model::Wait::Input)) => {
+                Some(adroit_model::WorkerReadiness::AwaitingInput)
+            }
             _ => None,
         }
     }
@@ -279,7 +282,7 @@ impl AgentAdapter for Codex {
                 {
                     State::Waiting(Wait::Permission)
                 } else {
-                    State::Idle
+                    State::Waiting(Wait::Input)
                 },
             );
         }
@@ -367,6 +370,27 @@ mod tests {
     }
 
     #[test]
+    fn startup_readiness_waits_for_live_codex_pickers() {
+        use adroit_model::WorkerReadiness;
+        for hint in ["esc to dismiss", "esc to close", "esc to go back"] {
+            let live = format!(
+                "Select Model and Effort\n\n› 1. Current\n  2. Other\n\nenter to select, {hint}"
+            );
+            assert_eq!(
+                Codex.startup_readiness(&screen(&live)),
+                Some(WorkerReadiness::AwaitingInput),
+                "{hint}"
+            );
+            let quoted = format!("{live}\n\n› Ask Codex\n\n? for shortcuts");
+            assert_eq!(
+                Codex.startup_readiness(&screen(&quoted)),
+                Some(WorkerReadiness::Ready),
+                "{hint}"
+            );
+        }
+    }
+
+    #[test]
     fn sessions_keep_their_output_in_terminal_scrollback() {
         let args = Codex.start_args(&Settings::default(), "fix", "", "hello");
         let options = args.split(|arg| arg == "--").next().unwrap();
@@ -408,7 +432,6 @@ mod tests {
         for text in [
             "• Working (2s • esc to interrupt)\n\n› old question\nAnswer\n\n› \n\n100% context left",
             "Would you like to run the following command?\n› 1. Yes\nPress enter to confirm or esc to cancel\n\n› \n\n100% context left",
-            "Select Model and Effort\n\n› 1. gpt-5.1-codex\n  2. gpt-5.1-codex-mini\n\n↑/↓ to move, enter to select, esc to dismiss",
         ] {
             assert_eq!(
                 Codex.screen_state(&screen(text)),

@@ -3556,21 +3556,17 @@ fn App() -> Element {
                     Ok(()) => {
                         notify.notice(format!("ended {}", asked.name));
                         if let Some(identity) = identity {
-                            let result = match crate::control::client::Client::human(
+                            let result = crate::control::app_command(
                                 &crate::control::root(),
-                            ) {
-                                Ok(client) => client
-                                    .request(
-                                        adroit_model::RequestId::new(),
-                                        crate::control::protocol::Command::CloseSession {
-                                            identity,
-                                            terminal_id: asked.id.clone(),
-                                        },
-                                    )
-                                    .await
-                                    .map(|_| ()),
-                                Err(error) => Err(error),
-                            };
+                                adroit_model::RequestId::new(),
+                                None,
+                                crate::control::protocol::Command::CloseSession {
+                                    identity,
+                                    terminal_id: asked.id.clone(),
+                                },
+                            )
+                            .await
+                            .map(|_| ());
                             if let Err(error) = result {
                                 status.set(Some(format!(
                                     "ended {}, but cannot record its exit: {error}",

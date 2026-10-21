@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use adroit_model::*;
 
-use super::{client::Client, protocol::Command, store::Reply};
+use super::{protocol::Command, store::Reply};
 use crate::{
     execution::{self, ControlContext, ResolvedLaunch, StartMode, StartRequest},
     settings::Settings,
@@ -16,7 +16,7 @@ pub struct PreparedStart {
 
 #[derive(Clone)]
 pub struct StartOwnership {
-    client: Client,
+    root: PathBuf,
     identity: SessionRef,
     cwd: PathBuf,
     conversation: String,
@@ -44,27 +44,28 @@ impl StartOwnership {
                 reason: error.to_string(),
             },
         };
-        let _ = self.client.request(RequestId::new(), command).await;
+        let _ = super::app_command(&self.root, RequestId::new(), None, command).await;
     }
 
     pub async fn attach(&self, terminal: u128) -> adroit_term::Result<()> {
-        self.client
-            .request(
-                self.attach_request,
-                Command::AttachSession {
-                    identity: self.identity,
-                    cwd: self.cwd.clone(),
-                    terminal_id: format!("{terminal:032x}"),
-                    conversation_id: self.conversation.clone(),
-                },
-            )
-            .await
-            .map(|_| ())
-            .map_err(|error| adroit_term::Error::Protocol(error.to_string()))
+        super::app_command(
+            &self.root,
+            self.attach_request,
+            None,
+            Command::AttachSession {
+                identity: self.identity,
+                cwd: self.cwd.clone(),
+                terminal_id: format!("{terminal:032x}"),
+                conversation_id: self.conversation.clone(),
+            },
+        )
+        .await
+        .map(|_| ())
+        .map_err(|error| adroit_term::Error::Protocol(error.to_string()))
     }
 }
 
-fn is_root(path: &Path) -> Result<bool, String> {
+pub(crate) fn is_root(path: &Path) -> Result<bool, String> {
     for parent in path.ancestors() {
         for marker in [".jj", ".git"] {
             match std::fs::symlink_metadata(parent.join(marker)) {
@@ -108,60 +109,59 @@ pub async fn prepare(
             ownership: None,
         });
     }
-    let client = Client::human(root).map_err(|error| error.to_string())?;
     let id = LogicalSessionId::new();
-    let session = client
-        .request(
-            RequestId::new(),
-            Command::RegisterLeader {
-                id,
-                agent: request.agent,
-                cwd: request.cwd.clone(),
-                permissions: request.permissions.clone(),
-            },
-        )
-        .await
-        .map_err(|error| error.to_string())?;
+    let session = super::app_command(
+        root,
+        RequestId::new(),
+        None,
+        Command::RegisterLeader {
+            id,
+            agent: request.agent,
+            cwd: request.cwd.clone(),
+            permissions: request.permissions.clone(),
+        },
+    )
+    .await
+    .map_err(|error| error.to_string())?;
     let session: Reply<ManagedSession> =
         serde_json::from_value(session).map_err(|error| error.to_string())?;
     let identity = session.value.reference();
     let run_id = RunId::new();
     let result = async {
-        client
-            .clone()
-            .as_actor(identity)
-            .request(
-                RequestId::new(),
-                Command::OpenRun {
-                    id: run_id,
-                    brief: RunBrief {
-                        title: request.name.clone(),
-                        goal: request.prompt.clone(),
-                        ..Default::default()
-                    },
+        super::app_command(
+            root,
+            RequestId::new(),
+            Some(identity),
+            Command::OpenRun {
+                id: run_id,
+                brief: RunBrief {
+                    title: request.name.clone(),
+                    goal: request.prompt.clone(),
+                    ..Default::default()
                 },
-            )
-            .await
-            .map_err(|error| error.to_string())?;
+            },
+        )
+        .await
+        .map_err(|error| error.to_string())?;
         let area = crate::workareas::existing(
             WorkAreaId::new(),
             request.cwd.clone(),
             "Default working area".into(),
         )
         .await?;
-        client
-            .request(
-                RequestId::new(),
-                Command::RegisterDefaultArea {
-                    identity,
-                    run_id,
-                    area,
-                },
-            )
-            .await
-            .map_err(|error| error.to_string())?;
-        let token = client
-            .request(RequestId::new(), Command::Grant { identity })
+        super::app_command(
+            root,
+            RequestId::new(),
+            None,
+            Command::RegisterDefaultArea {
+                identity,
+                run_id,
+                area,
+            },
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+        let token = super::app_command(root, RequestId::new(), None, Command::Grant { identity })
             .await
             .map_err(|error| error.to_string())?;
         let token: String = serde_json::from_value(token).map_err(|error| error.to_string())?;
@@ -178,23 +178,24 @@ pub async fn prepare(
             .developer_instructions(runtime.settings.clone(), request.cwd.clone())
             .await?;
         request.developer_instructions = runtime.developer_instructions.clone();
-        client
-            .request(
-                RequestId::new(),
-                Command::RememberLaunch {
-                    identity,
-                    runtime: Box::new(runtime.clone()),
-                },
-            )
-            .await
-            .map_err(|error| error.to_string())?;
+        super::app_command(
+            root,
+            RequestId::new(),
+            None,
+            Command::RememberLaunch {
+                identity,
+                runtime: Box::new(runtime.clone()),
+            },
+        )
+        .await
+        .map_err(|error| error.to_string())?;
         execution::resolve(&runtime.settings, request, program)
     }
     .await;
     match result {
         Ok(resolved) => {
             let ownership = StartOwnership {
-                client,
+                root: root.to_path_buf(),
                 identity,
                 cwd: resolved.spawn.cwd.clone(),
                 conversation: resolved.conversation.clone(),
@@ -206,15 +207,16 @@ pub async fn prepare(
             })
         }
         Err(error) => {
-            let _ = client
-                .request(
-                    RequestId::new(),
-                    Command::FailStart {
-                        identity,
-                        reason: error.clone(),
-                    },
-                )
-                .await;
+            let _ = super::app_command(
+                root,
+                RequestId::new(),
+                None,
+                Command::FailStart {
+                    identity,
+                    reason: error.clone(),
+                },
+            )
+            .await;
             Err(error)
         }
     }

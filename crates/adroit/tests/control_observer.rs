@@ -194,8 +194,7 @@ sleep 10"#
     .await
     .expect("a later native conversation change must still reach the assigned observer");
     daemon.end(terminal).await.unwrap();
-    Client::human(&root)
-        .unwrap()
+    adroit::control::client::AppClient::new(&root)
         .request(
             RequestId::new(),
             Command::ConfirmTerminalExit {

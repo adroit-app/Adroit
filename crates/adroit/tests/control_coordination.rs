@@ -242,7 +242,7 @@ async fn scoped_clients_can_read_and_acknowledge_related_notices_without_reading
         })
         .await
         .unwrap();
-    let source = Client::human(&root).unwrap().as_actor(first);
+    let source = adroit::control::client::AppClient::new(&root).as_actor(first);
     source
         .request(
             RequestId::new(),
