@@ -2224,6 +2224,36 @@ fn App() -> Element {
             wake.notify_one();
         }
     });
+    // How full the shown conversation's context is, for an agent whose
+    // transcript does not say: asked again as the conversation moves on.
+    let mut asked_context = use_signal(adroit_claude::context::Fresh::<ConversationKey>::default);
+    use_hook(move || {
+        spawn(async move {
+            loop {
+                let shown =
+                    selected_conversation(active.peek().as_ref(), &tree.peek()).filter(|s| {
+                        layout.peek().show_details && shows_usage(active.peek().as_ref(), s.agent)
+                    });
+                let reading = shown.and_then(|s| {
+                    let key = conversation_key(&s);
+                    let stats = overview_stats
+                        .peek()
+                        .as_ref()
+                        .filter(|(held, _)| *held == key)
+                        .map(|(_, stats)| stats.clone())?;
+                    stats.context.is_none().then_some((s, key, stats))
+                });
+                if let Some((s, key, stats)) = reading {
+                    let mark = stats.tokens.map_or(0, |t| t.total());
+                    if asked_context.write().want(&key, mark, Instant::now()) {
+                        let got = agents::adapter(s.agent).context(&s, stats.model).await;
+                        asked_context.write().settle(&key, Instant::now(), got);
+                    }
+                }
+                tokio::time::sleep(Duration::from_secs(3)).await;
+            }
+        });
+    });
     // Keep the shown session's stats current for Usage on every sheet. Only
     // refresh overview links and image thumbnails while Overview is shown.
     let links_wake = use_hook(|| Arc::new(Notify::new()));
@@ -5197,7 +5227,13 @@ fn App() -> Element {
             .read()
             .as_ref()
             .filter(|(key, _)| *key == conversation_key(s))
-            .and_then(|(_, stats)| crate::details::context_gauge(stats))
+            .and_then(|(key, stats)| {
+                let context = stats.context.or_else(|| asked_context.read().get(key));
+                crate::details::context_gauge(&adroit_model::ConversationStats {
+                    context,
+                    ..stats.clone()
+                })
+            })
     });
     if let Some(gauge) = context_now {
         usage_now.push(gauge);

@@ -29,6 +29,8 @@ type Learned = Vec<(u128, &'static str, String)>;
 
 type Probe<T> = std::pin::Pin<Box<dyn std::future::Future<Output = Option<Vec<T>>> + Send>>;
 
+type ContextProbe = std::pin::Pin<Box<dyn std::future::Future<Output = Option<(u64, u64)>> + Send>>;
+
 /// A provider reader produces the details the overview can display.
 pub trait ConversationReader: Send {
     fn read(&mut self) -> adroit_claude::links::Links;
@@ -104,6 +106,11 @@ pub trait AgentAdapter: Sync {
         Box::pin(async { None })
     }
     fn usage(&self, _home: PathBuf) -> Probe<adroit_claude::usage::Limit> {
+        Box::pin(async { None })
+    }
+    /// How full the context of `session`'s conversation, run on `model`, is,
+    /// for an agent whose transcript does not say.
+    fn context(&self, _session: &adroit_model::Session, _model: Option<String>) -> ContextProbe {
         Box::pin(async { None })
     }
     fn transcript(

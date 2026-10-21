@@ -73,6 +73,22 @@ impl AgentAdapter for Claude {
             .await
         })
     }
+    fn context(&self, session: &adroit_model::Session, model: Option<String>) -> ContextProbe {
+        let (dir, id) = (session.cwd.clone(), session.session_id.clone());
+        Box::pin(async move {
+            if id.is_empty() {
+                return None;
+            }
+            adroit_claude::context::probe(
+                crate::programs::claude_asked,
+                &dir,
+                &id,
+                model.as_deref(),
+                adroit_claude::context::PROBE_TIMEOUT,
+            )
+            .await
+        })
+    }
     fn transcript(
         &self,
         home: &Path,

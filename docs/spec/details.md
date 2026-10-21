@@ -85,6 +85,9 @@ The usage limits are asked of the session's agent while the details panel is
 in sight, again every few minutes, without starting a conversation or spending any of
 them. An account without such limits, or an agent that does not answer,
 shows none; one that stops answering keeps showing what it last said.
+When the conversation does not record its context window, the context
+utilization is asked of the agent the same way, again as the conversation
+moves on, without changing or continuing the conversation.
 A separate section below account usage shows live CPU, GPU and memory usage
 for the whole machine and capacity used on the startup volume, including in
 Shell and Neovim tabs.
