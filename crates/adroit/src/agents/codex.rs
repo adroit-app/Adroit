@@ -220,6 +220,7 @@ impl AgentAdapter for Codex {
         let hint = |line: &str| {
             let line = line.to_lowercase();
             question(&line)
+                || line.trim_start().starts_with("enter/esc continue")
                 || line.contains("esc to cancel")
                 || line.contains("esc to dismiss")
                 || line.contains("esc to close")
@@ -248,9 +249,11 @@ impl AgentAdapter for Codex {
     fn screen_state(&self, screen: &[String]) -> Option<adroit_model::State> {
         use adroit_model::{State, Wait};
 
-        let composer = screen
-            .iter()
-            .rposition(|s| s.trim_start().starts_with('›'))?;
+        let composer = screen.iter().rposition(|s| s.trim_start().starts_with('›'));
+        if composer.is_none() && self.dialog_open(screen) {
+            return Some(State::Waiting(Wait::Input));
+        }
+        let composer = composer?;
         let below = &screen[composer + 1..];
         if self.dialog_open(screen) {
             return Some(
@@ -319,6 +322,26 @@ mod tests {
 
     fn screen(text: &str) -> Vec<String> {
         text.lines().map(String::from).collect()
+    }
+
+    #[test]
+    fn a_model_migration_dialog_before_the_composer_accepts_keys_and_needs_attention() {
+        let dialog = screen(
+            "GPT-5.4 is no longer available\n\nCodex now uses GPT-6 Sol in place of GPT-5.4. Switch to GPT-6 Sol to continue.\nenter/esc continue · ⌃c quit\n\n",
+        );
+        assert!(Codex.dialog_open(&dialog));
+        assert_eq!(
+            Codex.screen_state(&dialog),
+            Some(adroit_model::State::Waiting(adroit_model::Wait::Input))
+        );
+        let transcript = screen(
+            "GPT-5.4 is no longer available\nenter/esc continue · ⌃c quit\n\n› Ask Codex to do anything\n? for shortcuts",
+        );
+        assert!(!Codex.dialog_open(&transcript));
+        assert_eq!(
+            Codex.screen_state(&transcript),
+            Some(adroit_model::State::Idle)
+        );
     }
 
     #[test]

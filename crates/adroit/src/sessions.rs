@@ -80,8 +80,9 @@ pub fn read(session: &adroit_term::Session) -> Option<Kept> {
         kind if adroit_model::Agent::parse(kind).is_some() => Some(Kept::Agent(Session {
             binding: match tags::value(t, "adroit.binding") {
                 Some(raw)
-                    if tags::value(t, "adroit.binding-conversation")
-                        == tags::value(t, CONVERSATION) =>
+                    if tags::value(t, "adroit.binding-conversation").is_some_and(|bound| {
+                        bound == tags::value(t, CONVERSATION).unwrap_or_default()
+                    }) =>
                 {
                     Some(serde_json::from_str(&raw).ok()?)
                 }
@@ -261,6 +262,94 @@ pub fn terminal_tags(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_worker_waiting_before_its_first_conversation_remains_openable_under_its_leader() {
+        use crate::execution::{StartRequest, resolve};
+        use crate::leader_navigation::{RowRole, project};
+        use crate::nav::Item;
+        use crate::sessions::{Kept, read};
+        use crate::settings::Settings;
+        use adroit_model::*;
+        use std::path::Path;
+
+        let leader_id = LogicalSessionId::new();
+        let run_id = RunId::new();
+        let bindings = [
+            SessionBinding::leader(leader_id, Some(run_id)),
+            SessionBinding::worker(
+                LogicalSessionId::new(),
+                leader_id,
+                run_id,
+                TaskId::new(),
+                AttemptId::new(),
+            )
+            .unwrap(),
+        ];
+        let mut snapshot = ControlSnapshot::default();
+        let mut sessions = Vec::new();
+        for (index, binding) in bindings.into_iter().enumerate() {
+            let launch = resolve(
+                &Settings::default(),
+                StartRequest {
+                    binding: Some(binding.clone()),
+                    agent: Agent::Codex,
+                    model: Some("unavailable-model".into()),
+                    cwd: "/repo".into(),
+                    ..Default::default()
+                },
+                Path::new("/adroit"),
+            )
+            .unwrap();
+            let terminal = adroit_term::Session {
+                id: index as u128 + 1,
+                tags: launch.spawn.tags,
+                title: None,
+                exited: false,
+                status: None,
+                sequence: index as u64,
+            };
+            let mut unmarked = terminal.clone();
+            unmarked
+                .tags
+                .retain(|tag| !tag.starts_with("adroit.binding-conversation="));
+            let Some(Kept::Agent(unmarked)) = read(&unmarked) else {
+                panic!("native agent terminal");
+            };
+            assert!(unmarked.binding.is_none());
+            let Some(Kept::Agent(session)) = read(&terminal) else {
+                panic!("native agent terminal");
+            };
+            assert!(session.session_id.is_empty());
+            assert_eq!(session.binding, Some(binding.clone()));
+            snapshot.sessions.push(ManagedSession {
+                binding,
+                agent: Agent::Codex,
+                generation: 1,
+                state: ManagedSessionState::Running,
+                permissions: AgentPermissions::Default,
+                cwd: Some(session.cwd.clone()),
+                terminal_id: Some(session.id.clone()),
+                conversation_id: None,
+            });
+            sessions.push(session);
+        }
+        snapshot.runs.push(RunRecord {
+            id: run_id,
+            leader_id,
+            brief: RunBrief::default(),
+            plan_revision: 1,
+            candidate_id: None,
+            state: RunState::Active,
+        });
+        let tree = build(&sessions, &[], &Default::default(), &[], None);
+        let rows = project(&tree, &snapshot);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].role, RowRole::Leader);
+        assert_eq!(rows[1].role, RowRole::Worker);
+        assert_eq!(rows[1].item, Item::Session(sessions[1].id.clone()));
+        assert!(tree.find(&sessions[1].id).is_some());
+    }
+
     #[test]
     fn changing_conversation_does_not_transfer_a_worker_assignment() {
         use adroit_model::{AttemptId, LogicalSessionId, RunId, SessionBinding, TaskId};

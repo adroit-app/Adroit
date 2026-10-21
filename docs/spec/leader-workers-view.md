@@ -5,6 +5,9 @@ and Worker sessions. Hiding sessions changes only the sidebar; switching views
 preserves the console, open tabs, prompts, and drafts.
 Opening a Worker enters its ordinary native Agent session, where the user can
 interrupt it directly.
+Workers remain reachable before their first conversation begins. Provider startup
+dialogs that need a choice, including model migration confirmations, can be
+answered in the Worker's console to resume work.
 
 Leader / Workers groups requests by repository, then sessions by the controller's
 current request ownership. Workers stay with their Leader's repository even
