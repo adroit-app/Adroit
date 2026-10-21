@@ -241,7 +241,7 @@ async fn native_call(
     metadata: &Value,
 ) -> Result<Value> {
     let automatic = arguments.get("request_id").is_none();
-    let arguments = client
+    let mut arguments = client
         .request(
             RequestId::new(),
             Command::NativeArguments {
@@ -250,7 +250,8 @@ async fn native_call(
             },
         )
         .await?;
-    let (request, command) = super::tools::decode(name, arguments).map_err(error)?;
+    let (request, command) = super::tools::decode(name, arguments.clone()).map_err(error)?;
+    arguments["request_id"] = json!(request);
     let include_request = automatic
         && !matches!(
             name,
@@ -271,16 +272,12 @@ async fn native_call(
     validate_native_origin(client, &command, metadata)
         .await
         .map_err(retry_identity)?;
-    let value = client
-        .request(request, command)
-        .await
-        .map_err(retry_identity)?;
     let projected = client
         .request(
-            RequestId::new(),
-            Command::NativeOutput {
+            request,
+            Command::NativeCall {
                 name: name.into(),
-                value,
+                arguments,
             },
         )
         .await

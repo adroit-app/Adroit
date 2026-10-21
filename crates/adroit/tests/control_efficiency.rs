@@ -297,6 +297,37 @@ fn mailbox_and_snapshot_previews_reference_report_evidence_instead_of_echoing_it
 }
 
 #[test]
+fn unstructured_json_reports_obey_the_mailbox_preview_bound() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (leader, _, _, _) = assignment(&mut store, dir.path());
+    for body in [
+        json!({"evidence":"界".repeat(2048)}),
+        json!(["x".repeat(4096)]),
+    ] {
+        let body = body.to_string();
+        let preview = store
+            .native_output(
+                leader,
+                "mailbox",
+                json!({
+                    "messages":[{"message":{"id":MessageId::new(),"kind":"report","body":body}}]
+                }),
+            )
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_str(&preview).unwrap();
+        let message = &value["messages"][0]["message"];
+        assert!(message["body"].as_str().unwrap().len() <= 1024);
+        assert!(
+            message["details"]["message_id"]
+                .as_str()
+                .unwrap()
+                .starts_with('m')
+        );
+    }
+}
+
+#[test]
 fn alias_migration_keeps_previous_schema_ui_reads_available() {
     use adroit::control::store::ui::read_only_snapshot;
     use std::os::unix::fs::PermissionsExt;

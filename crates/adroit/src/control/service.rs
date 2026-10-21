@@ -294,7 +294,7 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
             Command::Context
                 | Command::ResolveIds { .. }
                 | Command::NativeArguments { .. }
-                | Command::NativeOutput { .. }
+                | Command::NativeCall { .. }
                 | Command::NativeEnvelope { .. }
                 | Command::Snapshot
                 | Command::Mailbox { .. }
@@ -377,10 +377,20 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
         Command::NativeArguments { name, arguments } => {
             store.native_arguments(identity()?, &name, arguments)
         }
-        Command::NativeOutput {
-            name,
-            value: output,
-        } => value(store.native_output(identity()?, &name, output)?),
+        Command::NativeCall { name, arguments } => {
+            let identity = identity()?;
+            let (id, command) = super::tools::decode(&name, arguments).map_err(invalid)?;
+            let output = dispatch(
+                store,
+                human,
+                Request {
+                    id,
+                    command,
+                    ..request
+                },
+            )?;
+            value(store.native_output(identity, &name, output)?)
+        }
         Command::NativeEnvelope { message_id } => {
             let identity = identity()?;
             let message = store.read_message(identity, message_id)?;

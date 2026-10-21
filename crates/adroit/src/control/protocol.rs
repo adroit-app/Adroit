@@ -90,9 +90,9 @@ pub enum Command {
         arguments: Value,
     },
     #[schemars(skip)]
-    NativeOutput {
+    NativeCall {
         name: String,
-        value: Value,
+        arguments: Value,
     },
     #[schemars(skip)]
     NativeEnvelope {

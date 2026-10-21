@@ -256,32 +256,34 @@ fn previews(value: &mut Value) {
                 .or_else(|| fields.get("message_id"))
                 .cloned()
             {
-                if let Some(Value::String(body)) = fields.get("body") {
-                    if fields.get("kind").and_then(Value::as_str) == Some("report")
-                        && let Ok(mut report) = serde_json::from_str::<Value>(body)
+                if let Some(Value::String(body)) = fields.get("body")
+                    && fields.get("kind").and_then(Value::as_str) == Some("report")
+                    && let Ok(mut report) = serde_json::from_str::<Value>(body)
+                {
+                    if let Some(result) = report.get_mut("result") {
+                        report = result.take();
+                    }
+                    if let Some(result) = report
+                        .as_object_mut()
+                        .filter(|result| result.contains_key("summary"))
                     {
-                        if let Some(result) = report.get_mut("result") {
-                            report = result.take();
-                        }
-                        if let Some(result) = report
-                            .as_object_mut()
-                            .filter(|result| result.contains_key("summary"))
-                        {
-                            result.retain(|key, _| {
-                                matches!(key.as_str(), "status" | "summary" | "unresolved")
-                            });
-                            fields.insert("body".into(), report);
-                            fields.insert("details".into(), json!({"message_id":id}));
-                        }
-                    } else if body.len() > 1024 {
-                        let mut boundary = 1024;
-                        while !body.is_char_boundary(boundary) {
-                            boundary -= 1;
-                        }
-                        let body = body[..boundary].to_owned();
-                        fields.insert("body".into(), json!(body));
+                        result.retain(|key, _| {
+                            matches!(key.as_str(), "status" | "summary" | "unresolved")
+                        });
+                        fields.insert("body".into(), report);
                         fields.insert("details".into(), json!({"message_id":id}));
                     }
+                }
+                if let Some(Value::String(body)) = fields.get("body")
+                    && body.len() > 1024
+                {
+                    let mut boundary = 1024;
+                    while !body.is_char_boundary(boundary) {
+                        boundary -= 1;
+                    }
+                    let body = body[..boundary].to_owned();
+                    fields.insert("body".into(), json!(body));
+                    fields.insert("details".into(), json!({"message_id":id}));
                 }
                 if let Some(result) = fields.get_mut("result").and_then(Value::as_object_mut) {
                     result.retain(|key, _| {

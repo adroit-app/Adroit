@@ -467,6 +467,99 @@ async fn a_native_stdio_child_uses_the_scoped_launch_endpoint() {
 }
 
 #[tokio::test]
+async fn native_snapshot_compacts_evidence_before_crossing_the_control_socket() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("control");
+    let mut store = Store::open(&root.join("state.sqlite3")).unwrap();
+    let leader = store
+        .register_leader(
+            RequestId::new(),
+            LogicalSessionId::new(),
+            Agent::Claude,
+            dir.path().into(),
+        )
+        .unwrap()
+        .value
+        .reference();
+    let run = RunId::new();
+    store
+        .open_run(
+            RequestId::new(),
+            leader,
+            run,
+            RunBrief {
+                title: "Large evidence".into(),
+                goal: "Read summaries".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let task = TaskVersion {
+        task_id: TaskId::new(),
+        revision: 1,
+    };
+    store
+        .put_task(
+            RequestId::new(),
+            leader,
+            TaskPlan {
+                id: task.task_id,
+                run_id: run,
+                expected_revision: None,
+                brief: TaskBrief {
+                    instructions: "Review".into(),
+                    ..Default::default()
+                },
+                dependencies: vec![],
+            },
+        )
+        .unwrap();
+    store.queue_task(RequestId::new(), leader, task).unwrap();
+    let attempt = store
+        .reserve_attempt(RequestId::new(), leader, task, TargetSelection::default())
+        .unwrap()
+        .value;
+    let worker = SessionRef {
+        id: attempt.session_id,
+        generation: 1,
+    };
+    for _ in 0..20 {
+        store.send_message(RequestId::new(),worker,AgentMessage {
+            id:MessageId::new(),run_id:run,from:worker.id,to:leader.id,task_id:Some(task.task_id),attempt_id:Some(attempt.id),revision:Some(1),kind:MessageKind::Report,
+            body:json!({"status":"failed","summary":"Review complete","artifact":{"data":"x".repeat(60_000)},"unresolved":[]}).to_string(),reply_to:None,blocks_work:false
+        }).unwrap();
+    }
+    let token = store.grant(leader).unwrap();
+    drop(store);
+    let _service = Service::bind(&root).await.unwrap();
+    let client = Client::session(&root, token);
+    assert!(
+        client
+            .request(RequestId::new(), Command::Snapshot)
+            .await
+            .is_err()
+    );
+    let (input, mut send) = tokio::io::duplex(8192);
+    let (output, receive) = tokio::io::duplex(8192);
+    let task = tokio::spawn(bridge::run(BufReader::new(input), output, client, false));
+    let mut receive = BufReader::new(receive);
+    exchange(
+        &mut send,
+        &mut receive,
+        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}),
+    )
+    .await;
+    let reply = exchange(&mut send,&mut receive,json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"snapshot","arguments":{}}})).await;
+    assert_eq!(reply["result"]["isError"], false, "{reply}");
+    let text = reply["result"]["content"][0]["text"].as_str().unwrap();
+    let page: Value = serde_json::from_str(text).unwrap();
+    assert_eq!(page["messages"].as_array().unwrap().len(), 20);
+    assert!(text.len() < 32_768, "{}", text.len());
+    drop(send);
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test]
 async fn native_tools_describe_complete_task_and_result_inputs_and_offer_typed_ids() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("control");
