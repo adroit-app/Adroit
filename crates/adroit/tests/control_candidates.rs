@@ -533,6 +533,7 @@ fn quality_plan(
             workdir: WorkdirPolicy::Existing(area),
             target: TargetPreference {
                 agent: Some(Agent::Codex),
+                permissions: AgentPermissions::ReadOnly,
                 ..Default::default()
             },
             ..Default::default()
@@ -683,9 +684,15 @@ fn candidate_checks_cannot_use_another_run_a_fresh_working_area_or_implementatio
             )
             .is_err()
     );
-    let mut automatic = quality_plan(run, &source, area.id, candidate.id);
-    automatic.brief.workdir = WorkdirPolicy::Auto;
-    assert!(store.put_task(RequestId::new(), owner, automatic).is_err());
+    for purpose in [TaskPurpose::Review, TaskPurpose::Verify] {
+        for permissions in [AgentPermissions::Default, AgentPermissions::ReadOnly] {
+            let mut automatic = quality_plan(run, &source, area.id, candidate.id);
+            automatic.brief.purpose = purpose;
+            automatic.brief.target.permissions = permissions;
+            automatic.brief.workdir = WorkdirPolicy::Auto;
+            assert!(store.put_task(RequestId::new(), owner, automatic).is_err());
+        }
+    }
     let mut implementation = quality_plan(run, &source, area.id, candidate.id);
     implementation.brief.purpose = TaskPurpose::Implement;
     assert!(
@@ -915,6 +922,8 @@ async fn the_native_program_starts_only_after_a_matching_candidate_preflight() {
             .iter()
             .find(|attempt| attempt.task_id == task.id)
             .unwrap();
+        assert_eq!(attempt.work_area_id, Some(area.id));
+        assert_eq!(attempt.target.permissions, AgentPermissions::ReadOnly);
         if changed {
             assert!(!marker.exists());
             assert_eq!(attempt.state, AttemptState::Failed);

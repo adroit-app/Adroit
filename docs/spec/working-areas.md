@@ -5,17 +5,22 @@ ownership. Several runs can intentionally share an area. Registering the same
 ordinary directory associates its existing identity with each run; registration
 does not grant a write lease or serialize their work.
 
-Task preparation uses a native jj workspace when the source belongs to jj,
-including a colocated repository. Otherwise a Git source uses a Git worktree.
-Without either VCS, preparation uses the selected ordinary directory and its
-existing inputs. It does not initialize a repository or copy the input tree.
+Automatic preparation for a read-only Worker reuses the selected live source
+area, including its uncommitted and untracked inputs, unless the task pins a
+base revision or checks a candidate. An explicit existing area remains the
+selected area. Sharing a source does not change permissions or ownership.
 
-Native areas record their complete base revision and task description before a
-Worker starts. The default jj base snapshots the source's current working
-changes; an explicit revision selects that recorded revision. Git's default
-base is its recorded HEAD commit. Reviewing uncommitted Git inputs requires
-explicitly reusing their existing area rather than assuming a new worktree
-contains them.
+Other automatic task preparation uses a native jj workspace when the source
+belongs to jj, including a colocated repository. Otherwise a Git source uses a
+Git worktree. Without either VCS, preparation uses the selected ordinary
+directory and its existing inputs. It does not initialize a repository or copy
+the input tree.
+
+New native areas record their complete base revision and task description
+before a Worker starts. The default jj base snapshots the source's current
+working changes; an explicit revision selects that recorded revision. Git's
+default base is its recorded HEAD commit; a new worktree does not include
+uncommitted source inputs.
 
 An explicit destination wins over placement defaults. Colocated and Git sources
 respect `wt.basedir`; otherwise new areas live under a dedicated sibling

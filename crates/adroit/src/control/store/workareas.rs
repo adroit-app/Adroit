@@ -16,6 +16,13 @@ fn associated(connection: &Connection, run_id: RunId, area_id: WorkAreaId) -> Re
     Ok(())
 }
 
+#[derive(Clone, Copy)]
+enum Registration {
+    Task,
+    Default,
+    Source,
+}
+
 impl Store {
     pub fn register_work_area(
         &mut self,
@@ -25,17 +32,62 @@ impl Store {
         area: WorkArea,
         is_default: bool,
     ) -> Result<Reply<WorkArea>> {
-        self.transact(request, json!({"op":"register_work_area", "caller":identity, "run_id":run_id, "area":area, "is_default":is_default}), |connection| {
+        self.register_area(
+            request,
+            identity,
+            run_id,
+            area,
+            if is_default {
+                Registration::Default
+            } else {
+                Registration::Task
+            },
+        )
+    }
+
+    /// Associate a live source atomically, retaining its registered ready identity.
+    pub fn register_source_work_area(
+        &mut self,
+        request: RequestId,
+        identity: SessionRef,
+        run_id: RunId,
+        area: WorkArea,
+    ) -> Result<Reply<WorkArea>> {
+        self.register_area(request, identity, run_id, area, Registration::Source)
+    }
+
+    fn register_area(
+        &mut self,
+        request: RequestId,
+        identity: SessionRef,
+        run_id: RunId,
+        area: WorkArea,
+        registration: Registration,
+    ) -> Result<Reply<WorkArea>> {
+        let is_default = matches!(registration, Registration::Default);
+        let source = matches!(registration, Registration::Source);
+        let body = if source {
+            json!({"op":"register_source_work_area", "caller":identity, "run_id":run_id, "area":area})
+        } else {
+            json!({"op":"register_work_area", "caller":identity, "run_id":run_id, "area":area, "is_default":is_default})
+        };
+        self.transact(request, body, |connection| {
             owner(connection, identity, run_id)?;
             if !area.path.is_absolute() || !area.source.is_absolute() || !area.source_root.is_absolute()
                 || !matches!(area.state, WorkAreaState::Preparing | WorkAreaState::Ready) {
                 return Err(invalid("a working-area plan needs absolute paths and a preparable state"));
             }
+            if source && area.state != WorkAreaState::Ready {
+                return Err(invalid("a live source must already be ready"));
+            }
             let kept = all::<WorkArea>(connection, Table::WorkAreas)?.into_iter().find(|kept| kept.path == area.path || kept.id == area.id);
             let kept = match kept {
                 Some(kept) => {
+                    if source && kept.state != WorkAreaState::Ready {
+                        return Err(conflict("the registered source working area is not ready"));
+                    }
                     if kept.path != area.path || kept.backend != area.backend || kept.repository != area.repository
-                        || (kept.id != area.id && kept.backend != WorkAreaBackend::Directory && !(is_default && kept.state == WorkAreaState::Ready && area.state == WorkAreaState::Ready)) {
+                        || (kept.id != area.id && kept.backend != WorkAreaBackend::Directory && !((is_default || source) && kept.state == WorkAreaState::Ready && area.state == WorkAreaState::Ready)) {
                         return Err(conflict("the working-area identity is already registered with different metadata"));
                     }
                     kept

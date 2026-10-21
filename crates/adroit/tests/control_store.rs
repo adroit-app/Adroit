@@ -1461,3 +1461,111 @@ fn an_attempt_without_recorded_input_versions_cannot_succeed_using_unknown_input
     assert_eq!(task.revision, 2);
     assert_eq!(task.current_attempt, None);
 }
+
+#[test]
+fn concurrent_live_source_registration_keeps_one_ready_identity_across_runs() {
+    use adroit_model::{WorkAreaBackend, WorkAreaId, WorkAreaState};
+    for backend in [
+        WorkAreaBackend::Jj,
+        WorkAreaBackend::Git,
+        WorkAreaBackend::Directory,
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("control/state.sqlite3");
+        let mut store = Store::open(&path).unwrap();
+        let (first, run_a) = leader(&mut store, dir.path());
+        let (second, run_b) = leader(&mut store, dir.path());
+        let mut area = directory_area(dir.path());
+        area.backend = backend;
+        area.repository =
+            (backend != WorkAreaBackend::Directory).then(|| dir.path().join("repository"));
+        area.state = WorkAreaState::Ready;
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let jobs: Vec<_> = [(first, run_a), (second, run_b)]
+            .into_iter()
+            .map(|(owner, run)| {
+                let path = path.clone();
+                let mut area = area.clone();
+                area.id = WorkAreaId::new();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    let mut store = Store::open(&path).unwrap();
+                    barrier.wait();
+                    store
+                        .register_source_work_area(RequestId::new(), owner, run, area)
+                        .unwrap()
+                        .value
+                })
+            })
+            .collect();
+        let areas: Vec<_> = jobs.into_iter().map(|job| job.join().unwrap()).collect();
+        assert_eq!(areas[0], areas[1]);
+        let snapshot = store.snapshot().unwrap();
+        assert_eq!(snapshot.work_areas.len(), 1);
+        assert_eq!(snapshot.run_work_areas.len(), 2);
+        assert!(snapshot.run_work_areas.iter().all(|a| !a.is_default));
+        // Re-identification must retain all recorded metadata, including a native base.
+        let mut identified = area;
+        identified.id = WorkAreaId::new();
+        identified.description = "Another task".into();
+        let kept = store
+            .register_source_work_area(RequestId::new(), first, run_a, identified)
+            .unwrap()
+            .value;
+        assert_eq!(kept, areas[0]);
+    }
+}
+
+#[test]
+fn live_source_registration_reuses_ready_native_metadata_but_rejects_unavailable_or_changed_identity()
+ {
+    use adroit_model::{WorkAreaBackend, WorkAreaId, WorkAreaState};
+    for state in [
+        WorkAreaState::Ready,
+        WorkAreaState::Preparing,
+        WorkAreaState::Failed,
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+        let (owner, run_a) = leader(&mut store, dir.path());
+        let (other, run_b) = leader(&mut store, dir.path());
+        let mut area = directory_area(dir.path());
+        area.backend = WorkAreaBackend::Jj;
+        area.repository = Some(dir.path().join("repository"));
+        area.base_revision = Some("a".repeat(40));
+        area.native_name = Some("original".into());
+        if state == WorkAreaState::Ready {
+            area.state = state;
+        }
+        store
+            .register_work_area(RequestId::new(), owner, run_a, area.clone(), true)
+            .unwrap();
+        if state == WorkAreaState::Failed {
+            area = store
+                .finish_work_area(RequestId::new(), area.id, Err("failed".into()))
+                .unwrap()
+                .value;
+        }
+        let mut identified = area.clone();
+        identified.id = WorkAreaId::new();
+        identified.state = WorkAreaState::Ready;
+        identified.base_revision = None;
+        identified.native_name = None;
+        let result =
+            store.register_source_work_area(RequestId::new(), other, run_b, identified.clone());
+        if state == WorkAreaState::Ready {
+            assert_eq!(result.unwrap().value, area);
+            assert_eq!(store.snapshot().unwrap().run_work_areas.len(), 2);
+        } else {
+            assert!(result.is_err());
+            assert_eq!(store.snapshot().unwrap().run_work_areas.len(), 1);
+        }
+        identified.repository = Some(dir.path().join("different-repository"));
+        assert!(
+            store
+                .register_source_work_area(RequestId::new(), other, run_b, identified)
+                .is_err()
+        );
+        assert_eq!(store.snapshot().unwrap().work_areas, vec![area]);
+    }
+}

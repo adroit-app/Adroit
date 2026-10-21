@@ -304,6 +304,23 @@ impl Startup {
         let run_id = self.task.run_id;
         let attempt_id = self.attempt.id;
         let area = match self.task.brief.workdir {
+            WorkdirPolicy::Auto
+                if self.attempt.target.permissions == AgentPermissions::ReadOnly
+                    && self.task.brief.candidate_id.is_none()
+                    && self.task.brief.base_revision.is_none() =>
+            {
+                let identified =
+                    workareas::identify(WorkAreaId::new(), source, "Read-only task source".into())
+                        .await
+                        .map_err(failed)?;
+                self.actor
+                    .call(move |store| {
+                        store
+                            .register_source_work_area(RequestId::new(), owner, run_id, identified)
+                            .map(|reply| reply.value)
+                    })
+                    .await?
+            }
             WorkdirPolicy::Auto => {
                 let planned = workareas::plan(workareas::WorkAreaRequest {
                     id: WorkAreaId::new(),
