@@ -266,6 +266,15 @@ pub fn row_kept(
 /// whose own name holds it keeps everything beneath it. An empty `text` keeps
 /// everything.
 pub fn narrowed(tree: &Tree, text: &str) -> Tree {
+    narrowed_with_session_label(tree, text, |_| None)
+}
+
+/// Also match a session's presentation label, without replacing its native name.
+pub fn narrowed_with_session_label(
+    tree: &Tree,
+    text: &str,
+    label: impl Fn(&Session) -> Option<String>,
+) -> Tree {
     if text.is_empty() {
         return tree.clone();
     }
@@ -283,7 +292,8 @@ pub fn narrowed(tree: &Tree, text: &str) -> Tree {
                     .file_name()
                     .is_some_and(|f| named(&f.to_string_lossy()));
             if !own {
-                w.sessions.retain(|s| named(&s.name));
+                w.sessions
+                    .retain(|s| named(&s.name) || label(s).is_some_and(|label| named(&label)));
                 w.terminals.retain(|s| named(&s.name));
             }
             own || !w.sessions.is_empty() || !w.terminals.is_empty()
