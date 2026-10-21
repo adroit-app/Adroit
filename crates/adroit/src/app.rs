@@ -5197,7 +5197,7 @@ fn App() -> Element {
             .read()
             .as_ref()
             .filter(|(key, _)| *key == conversation_key(s))
-            .and_then(|(_, stats)| crate::details::context_gauge(stats.context))
+            .and_then(|(_, stats)| crate::details::context_gauge(stats))
     });
     if let Some(gauge) = context_now {
         usage_now.push(gauge);
@@ -6123,10 +6123,9 @@ fn App() -> Element {
                             }
                         }
                     }
-                    if let Some((name, root, _)) = &workspace {
+                    if let Some((_, root, _)) = &workspace {
                         div { class: "details-block",
                             span { class: "details-label", "Workspace" }
-                            span { "{name}" }
                             span { class: "details-path", "{root.display()}" }
                         }
                     }
@@ -6353,6 +6352,9 @@ fn App() -> Element {
                                         }
                                     }
                                     span { class: "usage-gauge-note", "{g.note}" }
+                                    if !g.detail.is_empty() {
+                                        span { class: "usage-gauge-note", "{g.detail}" }
+                                    }
                                 }
                             }
                         }

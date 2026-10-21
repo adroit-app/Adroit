@@ -8,7 +8,7 @@ use adroit_claude::git::{Change, Commit, DiffLine};
 use adroit_claude::links::{Kind as LinkKind, Link, Peer, Touch};
 use adroit_claude::subagents::{Agent, Standing};
 use adroit_claude::usage::{Limit, Severity, Window};
-use adroit_model::{Kind, Session, State};
+use adroit_model::{Session, State};
 
 /// What the details panel says about a session, as label and value, at
 /// `now_ms` since the Unix epoch.
@@ -17,13 +17,7 @@ pub fn facts(s: &Session, now_ms: u64) -> Vec<(&'static str, String)> {
         State::Waiting(why) => format!("waiting · {why}"),
         other => other.word().to_string(),
     };
-    let runs = match (s.kind, s.reads_only()) {
-        (Kind::Own, false) => "in adroit",
-        (Kind::Own, true) => "in adroit, reading only",
-        (Kind::Interactive, false) => "in a terminal",
-        (Kind::Interactive, true) => "in a terminal, reading only",
-    };
-    let mut out = vec![("State", state), ("TerminalProgram", runs.to_string())];
+    let mut out = vec![("State", state)];
     if let Some(started) = s.started_ms {
         out.push(("Started", ago(now_ms.saturating_sub(started))));
     }
@@ -46,35 +40,31 @@ pub fn conversation_facts(
     if let Some(model) = &stats.model {
         out.push(("Model", model.clone()));
     }
-    if let Some(tokens) = stats.tokens {
-        out.push(("Tokens", count(tokens.total())));
-        out.push((
-            "In / out",
-            format!("{} / {}", count(tokens.input), count(tokens.output)),
-        ));
-        if tokens.cached > 0 {
-            out.push(("Cached input", count(tokens.cached)));
-        }
-    }
-    if stats.user_turns > 0 || stats.tool_calls > 0 {
-        out.push((
-            "Turns / tools",
-            format!("{} / {}", count(stats.user_turns), count(stats.tool_calls)),
-        ));
-    }
     out
 }
 
-fn count(n: u64) -> String {
-    let digits = n.to_string();
-    let mut out = String::new();
-    for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(c);
+/// `n` tokens in thousands or millions, to three significant figures at
+/// most: the sizes differ too widely for every digit to be read.
+fn tokens(n: u64) -> String {
+    let scaled = |unit: f64, suffix: &str| {
+        let v = n as f64 / unit;
+        let shown = if v < 100.0 {
+            format!("{:.1}", v)
+        } else {
+            format!("{:.0}", v)
+        };
+        format!("{}{suffix}", shown.trim_end_matches(".0"))
+    };
+    match n {
+        0..1_000 => n.to_string(),
+        // 999,999 rounds to a thousand thousands, which reads better as 1M.
+        1_000..999_500 => scaled(1e3, "k"),
+        _ => scaled(1e6, "M"),
     }
-    out
+}
+
+fn plural(n: u64, one: &str, many: &str) -> String {
+    format!("{n} {}", if n == 1 { one } else { many })
 }
 
 /// `ms` milliseconds back, in the largest whole unit.
@@ -99,18 +89,44 @@ pub struct Gauge {
     pub used: u32,
     pub left: String,
     pub note: String,
+    /// A further line under the note; empty for none.
+    pub detail: String,
     pub severity: Severity,
 }
 
-/// Context utilization alongside the agent's account usage limits.
-pub fn context_gauge(context: Option<(u64, u64)>) -> Option<Gauge> {
-    let (used, total) = context.filter(|(_, total)| *total > 0)?;
-    let percent = (used as f64 / total as f64 * 100.0).round() as u32;
+/// Context utilization alongside the agent's account usage limits, with what
+/// the whole conversation has used under it.
+pub fn context_gauge(stats: &adroit_model::ConversationStats) -> Option<Gauge> {
+    let (used, total) = stats.context.filter(|(_, total)| *total > 0)?;
+    let percent = ((used as f64 / total as f64 * 100.0).round() as u32).min(100);
+    let mut totals = Vec::new();
+    if let Some(t) = stats.tokens {
+        totals.push(format!("{} in", tokens(t.input)));
+        totals.push(format!("{} out", tokens(t.output)));
+        if t.cached > 0 {
+            totals.push(format!("{} cached", tokens(t.cached)));
+        }
+    }
+    if stats.user_turns > 0 {
+        totals.push(plural(stats.user_turns, "prompt", "prompts"));
+    }
+    if stats.tool_calls > 0 {
+        totals.push(plural(stats.tool_calls, "tool call", "tool calls"));
+    }
     Some(Gauge {
         label: "Context".into(),
-        used: percent.min(100),
-        left: format!("{} tokens left", count(total.saturating_sub(used))),
-        note: format!("{} / {} tokens used", count(used), count(total)),
+        used: percent,
+        left: format!("{}% left", 100 - percent),
+        note: format!(
+            "{percent}% used · {} of {} tokens",
+            tokens(used),
+            tokens(total)
+        ),
+        detail: if totals.is_empty() {
+            String::new()
+        } else {
+            format!("Total {}", totals.join(" · "))
+        },
         severity: Severity::Normal,
     })
 }
@@ -142,6 +158,7 @@ pub fn gauges(limits: &[Limit], now_ms: u64) -> Vec<Gauge> {
                 used: percent.min(100),
                 left: format!("{}% left", 100u32.saturating_sub(percent)),
                 note,
+                detail: String::new(),
                 severity: l.severity,
             }
         })
@@ -1012,7 +1029,7 @@ mod tests {
 
     use adroit_claude::git::DiffKind;
 
-    use adroit_model::{Session, State, Wait};
+    use adroit_model::{Kind, Session, State, Wait};
 
     #[test]
     fn processes_fold_expand_and_open_with_the_same_overview_navigation() {
@@ -1073,48 +1090,99 @@ mod tests {
         );
     }
 
-    #[test]
-    fn conversation_facts_show_reported_tokens_and_the_latest_user_operation() {
-        let stats = adroit_model::ConversationStats {
+    fn stats() -> adroit_model::ConversationStats {
+        adroit_model::ConversationStats {
             model: Some("model-name".into()),
             tokens: Some(adroit_model::Tokens {
-                input: 1000,
-                output: 250,
-                cached: 400,
+                input: 12_345_678,
+                output: 45_210,
+                cached: 10_100_000,
             }),
             last_user_ms: Some(1000),
-            user_turns: 3,
-            tool_calls: 7,
-            context: Some((500, 2000)),
-        };
-        let got = conversation_facts(&stats, Some(5000), 17000);
-        assert!(got.contains(&("Last input", "12 s ago".into())));
-        assert!(got.contains(&("Tokens", "1,250".into())));
-        assert!(got.contains(&("In / out", "1,000 / 250".into())));
-        assert!(got.contains(&("Cached input", "400".into())));
-        assert!(got.contains(&("Model", "model-name".into())));
-        assert!(got.contains(&("Turns / tools", "3 / 7".into())));
-        assert!(!got.iter().any(|(label, _)| *label == "Context"));
+            user_turns: 12,
+            tool_calls: 340,
+            context: Some((218_868, 1_000_000)),
+        }
+    }
+
+    #[test]
+    fn conversation_facts_are_the_model_and_the_latest_user_operation() {
+        let got = conversation_facts(&stats(), Some(5000), 17000);
+        assert_eq!(
+            got,
+            [
+                ("Last input", "12 s ago".to_string()),
+                ("Model", "model-name".to_string()),
+            ]
+        );
         assert!(
             conversation_facts(&adroit_model::ConversationStats::default(), None, 0).is_empty()
         );
-        let future = conversation_facts(&stats, Some(20000), 17000);
+        let future = conversation_facts(&stats(), Some(20000), 17000);
         assert!(future.contains(&("Last input", "0 s ago".into())));
     }
 
     #[test]
     fn context_utilization_is_a_usage_gauge_when_the_window_is_reported() {
-        let gauge = context_gauge(Some((500, 2000))).expect("reported window");
+        let gauge = context_gauge(&stats()).expect("reported window");
         assert_eq!(gauge.label, "Context");
-        assert_eq!(gauge.used, 25);
-        assert_eq!(gauge.left, "1,500 tokens left");
-        assert_eq!(gauge.note, "500 / 2,000 tokens used");
-        assert!(context_gauge(Some((500, 0))).is_none());
-        assert!(context_gauge(None).is_none());
+        assert_eq!(gauge.used, 22);
+        assert_eq!(gauge.left, "78% left");
+        assert_eq!(gauge.note, "22% used · 219k of 1M tokens");
+        let windowless = adroit_model::ConversationStats {
+            context: Some((500, 0)),
+            ..stats()
+        };
+        assert!(context_gauge(&windowless).is_none());
+        assert!(context_gauge(&adroit_model::ConversationStats::default()).is_none());
     }
 
     #[test]
-    fn a_session_is_told_by_its_state_how_it_runs_and_when_it_started() {
+    fn the_context_gauge_sums_up_the_conversation_in_one_line() {
+        let gauge = context_gauge(&stats()).expect("reported window");
+        assert_eq!(
+            gauge.detail,
+            "Total 12.3M in · 45.2k out · 10.1M cached · 12 prompts · 340 tool calls"
+        );
+        let quiet = adroit_model::ConversationStats {
+            tokens: Some(adroit_model::Tokens {
+                input: 900,
+                output: 20,
+                cached: 0,
+            }),
+            user_turns: 1,
+            tool_calls: 0,
+            ..stats()
+        };
+        assert_eq!(
+            context_gauge(&quiet).unwrap().detail,
+            "Total 900 in · 20 out · 1 prompt"
+        );
+        let unreported = adroit_model::ConversationStats {
+            tokens: None,
+            user_turns: 0,
+            tool_calls: 0,
+            ..stats()
+        };
+        assert_eq!(context_gauge(&unreported).unwrap().detail, "");
+    }
+
+    #[test]
+    fn a_token_count_reads_in_thousands_or_millions() {
+        assert_eq!(tokens(0), "0");
+        assert_eq!(tokens(999), "999");
+        assert_eq!(tokens(1_000), "1k");
+        assert_eq!(tokens(1_260), "1.3k");
+        assert_eq!(tokens(45_210), "45.2k");
+        assert_eq!(tokens(218_868), "219k");
+        assert_eq!(tokens(999_999), "1M");
+        assert_eq!(tokens(1_000_000), "1M");
+        assert_eq!(tokens(12_345_678), "12.3M");
+        assert_eq!(tokens(150_000_000), "150M");
+    }
+
+    #[test]
+    fn a_session_is_told_by_its_state_and_when_it_started() {
         let s = Session {
             name: "demo/fix-x".into(),
             kind: Kind::Own,
@@ -1127,14 +1195,13 @@ mod tests {
             got,
             [
                 ("State", "waiting · permission prompt".to_string()),
-                ("TerminalProgram", "in adroit".to_string()),
                 ("Started", "12 min ago".to_string()),
             ]
         );
     }
 
     #[test]
-    fn a_reader_says_so_and_an_unknown_start_is_left_out() {
+    fn an_unknown_start_is_left_out() {
         let s = Session {
             name: "demo/look".into(),
             permissions: adroit_model::AgentPermissions::ReadOnly,
@@ -1142,14 +1209,7 @@ mod tests {
             state: State::Idle,
             ..Default::default()
         };
-        let got = facts(&s, 0);
-        assert_eq!(
-            got,
-            [
-                ("State", "idle".to_string()),
-                ("TerminalProgram", "in a terminal, reading only".to_string()),
-            ]
-        );
+        assert_eq!(facts(&s, 0), [("State", "idle".to_string())]);
     }
 
     #[test]
@@ -1189,6 +1249,7 @@ mod tests {
                 used: 3,
                 left: "97% left".into(),
                 note: "3% used · resets in 4 h 13 min".into(),
+                detail: String::new(),
                 severity: Severity::Normal,
             }]
         );
