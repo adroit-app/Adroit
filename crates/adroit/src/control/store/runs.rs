@@ -232,52 +232,55 @@ impl Store {
         self.transact(
             request,
             json!({"op":"cancel_run","caller":identity,"run_id":run_id}),
-            |connection| {
-                let mut run = run_owner(connection, identity, run_id)?;
-                match run.state {
-                    RunState::Cancelled => return Ok(run),
-                    RunState::Succeeded => return Err(conflict("the run already succeeded")),
-                    RunState::Cancelling => {
-                        settle_cancellation(connection, run_id)?;
-                        return require(connection, Table::Runs, run_id);
-                    }
-                    RunState::Active | RunState::Verifying | RunState::Failed => {}
-                }
-                for mut task in all::<TaskRecord>(connection, Table::Tasks)?
-                    .into_iter()
-                    .filter(|task| task.run_id == run_id)
-                {
-                    if let Some(id) = task.current_attempt {
-                        let mut attempt: AttemptRecord = require(connection, Table::Attempts, id)?;
-                        if attempt.state.holds_slot() {
-                            super::results::request_stop(
-                                connection,
-                                &task,
-                                &mut attempt,
-                                "The Leader cancelled this run; stop work and report cancellation",
-                            )?;
-                            continue;
-                        }
-                    }
-                    if matches!(
-                        task.state,
-                        TaskState::Planned
-                            | TaskState::Queued
-                            | TaskState::Blocked
-                            | TaskState::Verifying
-                    ) {
-                        task.state = TaskState::Cancelled;
-                        save_task(connection, &task)?;
-                        event(connection, Some(run_id), "task_cancelled", &task)?;
-                    }
-                }
-                super::candidates::invalidate_run(connection, run_id)?;
-                run.state = RunState::Cancelling;
-                save_run(connection, &run)?;
-                event(connection, Some(run_id), "run_cancel_requested", &run)?;
-                settle_cancellation(connection, run_id)?;
-                require(connection, Table::Runs, run_id)
-            },
+            |connection| cancel(connection, identity, run_id),
         )
     }
+}
+
+pub(super) fn cancel(
+    connection: &Connection,
+    identity: SessionRef,
+    run_id: RunId,
+) -> Result<RunRecord> {
+    let mut run = run_owner(connection, identity, run_id)?;
+    match run.state {
+        RunState::Cancelled => return Ok(run),
+        RunState::Succeeded => return Err(conflict("the run already succeeded")),
+        RunState::Cancelling => {
+            settle_cancellation(connection, run_id)?;
+            return require(connection, Table::Runs, run_id);
+        }
+        RunState::Active | RunState::Verifying | RunState::Failed => {}
+    }
+    for mut task in all::<TaskRecord>(connection, Table::Tasks)?
+        .into_iter()
+        .filter(|task| task.run_id == run_id)
+    {
+        if let Some(id) = task.current_attempt {
+            let mut attempt: AttemptRecord = require(connection, Table::Attempts, id)?;
+            if attempt.state.holds_slot() {
+                super::results::request_stop(
+                    connection,
+                    &task,
+                    &mut attempt,
+                    "The Leader cancelled this run; stop work and report cancellation",
+                )?;
+                continue;
+            }
+        }
+        if matches!(
+            task.state,
+            TaskState::Planned | TaskState::Queued | TaskState::Blocked | TaskState::Verifying
+        ) {
+            task.state = TaskState::Cancelled;
+            save_task(connection, &task)?;
+            event(connection, Some(run_id), "task_cancelled", &task)?;
+        }
+    }
+    super::candidates::invalidate_run(connection, run_id)?;
+    run.state = RunState::Cancelling;
+    save_run(connection, &run)?;
+    event(connection, Some(run_id), "run_cancel_requested", &run)?;
+    settle_cancellation(connection, run_id)?;
+    require(connection, Table::Runs, run_id)
 }

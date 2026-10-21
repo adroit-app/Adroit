@@ -981,6 +981,7 @@ impl Store {
                     session.state,
                     ManagedSessionState::NeedsReconciliation
                         | ManagedSessionState::Exited
+                        | ManagedSessionState::Closed
                         | ManagedSessionState::Failed
                 ) {
                     return Ok(session);

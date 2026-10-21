@@ -3,7 +3,8 @@
 A confirmed native terminal exit is a session exit, never successful task work.
 An unfinished Worker attempt becomes failed or cancelled and releases its slot.
 An already recorded outcome remains available, and a newer task revision is not
-overwritten. A Leader's exit leaves its run and other Workers available.
+overwritten. An unexpected Leader exit leaves its run available for explicit
+recovery. Stopped Leaders are not retained as entries in session navigation.
 
 A missing terminal alone does not prove that a program exited. Its assignment
 needs reconciliation, and an uncertain active attempt retains its slot. Adroit
@@ -17,11 +18,21 @@ orchestration state or claim deliveries through its session credential. Human
 control remains available. Already finished work is preserved; losing its
 terminal does not by itself invalidate its evidence or block run completion.
 
-After an explicit Stop Session succeeds, the window records the confirmed exit
-with the daemon. The human-only `confirm_terminal_exit` command takes `identity`
-and `terminal_id`; both must identify the current assigned terminal. It records
-a confirmed fact and does not stop a program itself. Closing tabs or the window
-does not confirm an exit or stop Agent and Terminal sessions.
+After an explicit Stop Session succeeds, the window records the closure with the
+daemon. Closing a Leader cancels unfinished work and automatically stops its
+Workers. A manually closed Leader cannot be restarted. Closing a Worker ends its
+attempt without inventing success. Results and working files remain available.
+Closing tabs or the window does not stop Agent and Terminal sessions.
+
+The human-only `close_session` command records a deliberate closure after the
+native terminal has stopped. `confirm_terminal_exit` records an exit without
+implying a manual closure. Both take `identity` and `terminal_id`, which must
+identify the current assigned terminal; neither stops a program itself.
+
+After a final Worker report is saved, Adroit automatically closes that Worker's
+native terminal and releases its resources. This applies to every final outcome,
+including results still undergoing candidate verification. The report and Leader
+notification remain durable, and candidate verification continues independently.
 
 ## Interrupted preparation
 
@@ -86,10 +97,9 @@ Workers, stop Terminal resources, or reinterpret a failed restart as failure of
 an otherwise active request. The new Leader reads the saved context before
 continuing orchestration. The former native conversation is not resumed.
 
-Leader / Workers shows a Restart Leader action for saved requests whose Leader
-has stopped, including requests with no visible Worker sessions. Closing a
-window or tab does not queue this action. Repeated requests with the same request
-ID cannot start another generation.
+Recovery is an explicit control operation, not a persistent session-list entry.
+Closing a window or tab does not queue a restart. Repeated requests with the same
+request ID cannot start another generation.
 
 ## Native conversation discovery
 

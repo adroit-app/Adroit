@@ -330,6 +330,10 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
         } if is_human => {
             value(store.attach_session(request.id, identity, cwd, terminal_id, conversation_id)?)
         }
+        Command::CloseSession {
+            identity,
+            terminal_id,
+        } if is_human => value(store.close_session(request.id, identity, terminal_id)?),
         Command::ConfirmTerminalExit {
             identity,
             terminal_id,
@@ -356,6 +360,7 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
         | Command::RegisterDefaultArea { .. }
         | Command::Grant { .. }
         | Command::AttachSession { .. }
+        | Command::CloseSession { .. }
         | Command::ConfirmTerminalExit { .. }
         | Command::RestartLeader { .. }
         | Command::AbortPreparedStart { .. }

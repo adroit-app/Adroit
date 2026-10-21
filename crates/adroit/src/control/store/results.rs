@@ -1,4 +1,4 @@
-//! Explicit outcomes and cooperative stopping; terminal lifetime stays independent.
+//! Durable final outcomes and cooperative cancellation.
 use super::*;
 
 pub(super) fn request_stop(

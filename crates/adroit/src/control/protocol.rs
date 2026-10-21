@@ -52,6 +52,11 @@ pub enum Command {
         conversation_id: String,
     },
     #[schemars(skip)]
+    CloseSession {
+        identity: SessionRef,
+        terminal_id: String,
+    },
+    #[schemars(skip)]
     ConfirmTerminalExit {
         identity: SessionRef,
         terminal_id: String,

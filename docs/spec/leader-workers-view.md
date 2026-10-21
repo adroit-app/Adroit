@@ -14,11 +14,9 @@ directory, or conversation ancestry does not establish membership. An old native
 terminal cannot stand in for its replacement. Unassigned sessions and terminals
 remain accessible; an unavailable controller is shown explicitly.
 
-Completed ordinary Workers can be expanded from a subgroup that starts folded.
-Folding changes only this view: native sessions remain running and reachable
-from request details, tabs, and session navigation. Selected or active Workers
-and sessions needing attention remain visible. Uncertain or outdated outcomes
-are not treated as completed work.
+Completed Workers close automatically and leave session navigation. Their results
+remain available in request details. Manually closed Leaders leave navigation
+without a persistent restart action, and their Workers are stopped as well.
 
 Request details show the goal, task progress, current result summaries,
 verification commands, review decisions, unanswered questions, and shared default

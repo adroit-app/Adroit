@@ -19,8 +19,9 @@ Changing conversations requires reconciliation of the assignment.
 Use the assigned working area. For changes to a shared default workspace or
 repository root, coordinate the concrete scope through the Leader before and
 after the change. Do not introduce a directory lock or acknowledgement barrier
-for unrelated concurrent work. Preserve the session and its tools after reporting
-completion unless an explicit stop or cancellation requires otherwise.
+for unrelated concurrent work. Adroit closes the native session after the final report is saved. Complete
+all work and verification before reporting; the report and working files remain
+available to the Leader.
 
 First read your current assignment with context. Routine progress does not need
 a message: progress notes are saved in the mailbox and UI without waking the

@@ -5,6 +5,14 @@ use adroit_model::*;
 use std::path::Path;
 
 fn running_worker(store: &mut Store, path: &Path) -> (SessionRef, RunId, AttemptRecord, String) {
+    running_worker_at(store, path, None)
+}
+
+fn running_worker_at(
+    store: &mut Store,
+    path: &Path,
+    terminal: Option<String>,
+) -> (SessionRef, RunId, AttemptRecord, String) {
     let path = path.canonicalize().unwrap();
     let leader = store
         .register_leader(
@@ -83,7 +91,7 @@ fn running_worker(store: &mut Store, path: &Path) -> (SessionRef, RunId, Attempt
     store
         .begin_start(RequestId::new(), leader, wanted, attempt.id)
         .unwrap();
-    let terminal = attempt.id.to_string().replace('-', "");
+    let terminal = terminal.unwrap_or_else(|| attempt.id.to_string().replace('-', ""));
     store
         .attach_session(
             RequestId::new(),
@@ -97,6 +105,196 @@ fn running_worker(store: &mut Store, path: &Path) -> (SessionRef, RunId, Attempt
         )
         .unwrap();
     (leader, run, attempt, terminal)
+}
+
+#[test]
+fn manually_closing_a_leader_cancels_its_run_and_cannot_restart_or_be_revived() {
+    let dir = tempfile::tempdir().unwrap();
+    let database = dir.path().join("control/state.sqlite3");
+    let mut store = Store::open(&database).unwrap();
+    let (leader, run, attempt, _) = running_worker(&mut store, dir.path());
+    let terminal = "a".repeat(32);
+    store
+        .attach_session(
+            RequestId::new(),
+            leader,
+            dir.path().canonicalize().unwrap(),
+            terminal.clone(),
+            MessageId::new().to_string(),
+        )
+        .unwrap();
+    store
+        .close_session(RequestId::new(), leader, terminal.clone())
+        .unwrap();
+    store
+        .close_session(RequestId::new(), leader, terminal.clone())
+        .unwrap();
+    store
+        .observe_terminal_exit(RequestId::new(), leader, terminal)
+        .unwrap();
+    store
+        .start_uncertain(RequestId::new(), leader, "Late startup response".into())
+        .unwrap();
+    assert!(store.restart_leader(RequestId::new(), leader).is_err());
+    assert!(store.require_available_session(leader).is_err());
+    drop(store);
+    let mut store = Store::open(&database).unwrap();
+    let snapshot = store.snapshot().unwrap();
+    assert_eq!(
+        snapshot
+            .runs
+            .iter()
+            .find(|record| record.id == run)
+            .unwrap()
+            .state,
+        RunState::Cancelling
+    );
+    assert_eq!(
+        snapshot
+            .attempts
+            .iter()
+            .find(|record| record.id == attempt.id)
+            .unwrap()
+            .state,
+        AttemptState::CancelRequested
+    );
+    let session = snapshot
+        .sessions
+        .iter()
+        .find(|session| session.reference() == leader)
+        .unwrap();
+    assert_eq!(serde_json::to_value(session.state).unwrap(), "closed");
+}
+
+#[test]
+fn closing_a_different_terminal_cannot_cancel_the_leaders_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (leader, _, _, _) = running_worker(&mut store, dir.path());
+    store
+        .attach_session(
+            RequestId::new(),
+            leader,
+            dir.path().canonicalize().unwrap(),
+            "a".repeat(32),
+            MessageId::new().to_string(),
+        )
+        .unwrap();
+    assert!(
+        store
+            .close_session(RequestId::new(), leader, "b".repeat(32))
+            .is_err()
+    );
+    assert_eq!(store.snapshot().unwrap().runs[0].state, RunState::Active);
+}
+
+#[tokio::test]
+async fn cleanup_closes_reported_and_orphaned_workers_but_keeps_unfinished_work_and_other_sessions()
+{
+    use adroit::control::{actor::Actor, observer::Observer};
+    use adroit_term::{Daemon, Spawn, tags};
+    use std::os::unix::fs::PermissionsExt;
+    for outcome in [
+        None,
+        Some(ReportStatus::Succeeded),
+        Some(ReportStatus::Failed),
+        Some(ReportStatus::Blocked),
+        Some(ReportStatus::Cancelled),
+    ] {
+        let dir = tempfile::Builder::new()
+            .prefix("adroit-close-")
+            .tempdir_in("/tmp")
+            .unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let daemon = Daemon::new(dir.path().join("d.sock"));
+        let native = native_daemon::serve_process(daemon.socket().into());
+        for _ in 0..100 {
+            if daemon.sessions().await.is_ok() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        let spawn = || Spawn {
+            program: "/bin/sleep".into(),
+            args: vec!["60".into()],
+            cwd: dir.path().into(),
+            ..Default::default()
+        };
+        let terminal = daemon.spawn(spawn()).await.unwrap();
+        let other = daemon.spawn(spawn()).await.unwrap();
+        let database = dir.path().join("control/state.sqlite3");
+        let mut store = Store::open(&database).unwrap();
+        let (leader, _, attempt, terminal_id) =
+            running_worker_at(&mut store, dir.path(), Some(format!("{terminal:032x}")));
+        let worker = store
+            .snapshot()
+            .unwrap()
+            .sessions
+            .into_iter()
+            .find(|session| session.binding.work().is_some())
+            .unwrap();
+        let mut ownership = tags::tagged(
+            "adroit.binding",
+            &serde_json::to_string(&worker.binding).unwrap(),
+        );
+        ownership.extend(tags::tagged("adroit.generation", "1"));
+        daemon.tag(terminal, ownership, vec![]).await.unwrap();
+        if let Some(status) = outcome {
+            let mut report = success(&attempt);
+            report.result.status = status;
+            store
+                .report_task(RequestId::new(), worker.reference(), report)
+                .unwrap();
+        }
+        drop(store);
+        let actor = Actor::open(database).await.unwrap();
+        let mut observer = Observer::default();
+        if outcome.is_none() {
+            observer.tick(&actor, &daemon).await.unwrap();
+            assert!(
+                daemon
+                    .sessions()
+                    .await
+                    .unwrap()
+                    .iter()
+                    .any(|session| session.id == terminal)
+            );
+            let cwd = dir.path().canonicalize().unwrap();
+            actor
+                .call(move |store| {
+                    store.attach_session(
+                        RequestId::new(),
+                        leader,
+                        cwd,
+                        "a".repeat(32),
+                        MessageId::new().to_string(),
+                    )?;
+                    store
+                        .close_session(RequestId::new(), leader, "a".repeat(32))
+                        .map(|_| ())
+                })
+                .await
+                .unwrap();
+        }
+        observer.tick(&actor, &daemon).await.unwrap();
+        observer.tick(&actor, &daemon).await.unwrap();
+        let snapshot = actor.call(|store| store.snapshot()).await.unwrap();
+        let worker = snapshot
+            .sessions
+            .iter()
+            .find(|session| session.terminal_id.as_ref() == Some(&terminal_id))
+            .unwrap();
+        assert_eq!(worker.state, ManagedSessionState::Exited);
+        assert_eq!(snapshot.reports.len(), usize::from(outcome.is_some()));
+        if outcome.is_none() {
+            assert_eq!(snapshot.runs[0].state, RunState::Cancelled);
+        }
+        let remaining = daemon.sessions().await.unwrap();
+        assert!(remaining.iter().all(|session| session.id != terminal));
+        assert!(remaining.iter().any(|session| session.id == other));
+        daemon.end(other).await.unwrap();
+        native.abort();
+    }
 }
 
 #[test]

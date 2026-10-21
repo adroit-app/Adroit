@@ -22,6 +22,7 @@ pub enum ManagedSessionState {
     Running,
     NeedsReconciliation,
     Exited,
+    Closed,
     Failed,
 }
 

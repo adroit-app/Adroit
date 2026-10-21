@@ -41,7 +41,7 @@ impl Observer {
             snapshot.sessions.rotate_left(self.next % count);
             self.next = (self.next + 1) % count;
         }
-        for session in snapshot.sessions {
+        for session in snapshot.sessions.iter().cloned() {
             if !matches!(
                 session.state,
                 ManagedSessionState::Running | ManagedSessionState::NeedsReconciliation
@@ -79,9 +79,6 @@ impl Observer {
                     .await?;
                 continue;
             }
-            if session.state != ManagedSessionState::Running {
-                continue;
-            }
             let binding = tags::value(&native.tags, "adroit.binding")
                 .and_then(|data| serde_json::from_str::<SessionBinding>(&data).ok());
             let generation = tags::value(&native.tags, "adroit.generation")
@@ -94,6 +91,35 @@ impl Observer {
                 || binding.role() != session.binding.role()
                 || binding.work() != session.binding.work()
             {
+                continue;
+            }
+            if let Some((_, attempt_id)) = session.binding.work() {
+                let finished = snapshot.attempts.iter().any(|attempt| {
+                    attempt.id == attempt_id
+                        && attempt.session_id == session.binding.logical_id()
+                        && !attempt.state.holds_slot()
+                });
+                let closed_leader = snapshot.sessions.iter().any(|leader| {
+                    leader.binding.role() == SessionRole::Leader
+                        && leader.binding.logical_id() == session.binding.leader_id()
+                        && leader.binding.run_id() == session.binding.run_id()
+                        && leader.state == ManagedSessionState::Closed
+                });
+                if (finished || closed_leader) && binding == session.binding {
+                    daemon.end(terminal).await.map_err(failed)?;
+                    let identity = session.reference();
+                    let terminal_id = crate::sessions::hex(terminal);
+                    actor
+                        .call(move |store| {
+                            store
+                                .observe_terminal_exit(RequestId::new(), identity, terminal_id)
+                                .map(|_| ())
+                        })
+                        .await?;
+                    continue;
+                }
+            }
+            if session.state != ManagedSessionState::Running {
                 continue;
             }
             let adapter = crate::agents::adapter(session.agent);

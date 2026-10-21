@@ -3415,7 +3415,7 @@ fn App() -> Element {
                                 Ok(client) => client
                                     .request(
                                         adroit_model::RequestId::new(),
-                                        crate::control::protocol::Command::ConfirmTerminalExit {
+                                        crate::control::protocol::Command::CloseSession {
                                             identity,
                                             terminal_id: asked.id.clone(),
                                         },
@@ -5582,9 +5582,6 @@ fn App() -> Element {
                             }
                             "Show Leader / Worker sessions"
                         }
-                    }
-                    if leader_view() {
-                        crate::leader_details::LeaderRecovery { snapshot: orchestration() }
                     }
                     div {
                         class: if filtering() { "filter-field on" } else { "filter-field" },

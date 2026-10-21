@@ -101,8 +101,8 @@ the run. Late results remain inspectable without completing revised work.
 - `unresolved`: an array of remaining issues; empty for success.
 
 `cancel_task` takes a task `version` and requests cooperative cancellation.
-The attempt remains active until stopping is confirmed. Cancellation does not
-close the Agent terminal or its associated Shell and Neovim terminals. Updating
+The attempt remains active until stopping is confirmed. A final report closes
+the Worker automatically; associated Shell and Neovim terminals remain available. Updating
 instructions invalidates the previous assignment and requests that it stop;
 its result cannot satisfy the new revision. A finished task revised for new
 work starts from the planned state.
@@ -154,8 +154,8 @@ revision or a foreign task refuses the whole update.
 Workers stop. The run stays `cancelling` while any attempt still holds an
 execution slot, and becomes `cancelled` after stopping is confirmed. A late
 success does not override cancellation. A different run in the same directory
-keeps running. Cancellation leaves the native Agent terminals and their Shell
-and Neovim resources available; explicit terminal stop remains separate.
+keeps running. Workers close automatically after their final reports. Associated Shell and
+Neovim resources remain available; explicit terminal stop remains separate.
 
 A Leader cannot open another run while its current run is still cancelling.
 Independent requests can start in separate Leaders without waiting for it.

@@ -184,6 +184,34 @@ sleep 10
         .await
         .unwrap();
     assert!(delivered, "{snapshot:?}");
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            let current = service
+                .actor()
+                .call(|store| store.snapshot())
+                .await
+                .unwrap();
+            let worker = current
+                .sessions
+                .iter()
+                .find(|session| session.binding.role() == SessionRole::Worker)
+                .unwrap();
+            if worker.state == ManagedSessionState::Exited {
+                let native = daemon.sessions().await.unwrap();
+                assert!(
+                    native
+                        .iter()
+                        .all(|session| Some(format!("{:032x}", session.id)) != worker.terminal_id)
+                );
+                assert_eq!(current.reports.len(), 1);
+                assert_eq!(current.tasks[0].state, TaskState::Succeeded);
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("a reported Worker must release its native terminal");
     assert_eq!(snapshot.attempts.len(), 1);
     assert_eq!(snapshot.reports.len(), 1);
     assert_eq!(snapshot.runs[0].state, RunState::Active);
@@ -300,13 +328,8 @@ sleep 10
     assert_eq!(snapshot.attempts.len(), 1);
     assert_eq!(snapshot.reports.len(), 1);
     assert_eq!(snapshot.runs[0].state, RunState::Active);
-    for session in snapshot.sessions {
-        if let Some(id) = session.terminal_id {
-            daemon
-                .end(u128::from_str_radix(&id, 16).unwrap())
-                .await
-                .unwrap();
-        }
+    for session in daemon.sessions().await.unwrap() {
+        daemon.end(session.id).await.unwrap();
     }
     drop(service);
     daemon_task.abort();

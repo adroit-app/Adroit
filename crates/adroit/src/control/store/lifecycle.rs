@@ -63,6 +63,7 @@ impl Store {
             session.state,
             ManagedSessionState::NeedsReconciliation
                 | ManagedSessionState::Exited
+                | ManagedSessionState::Closed
                 | ManagedSessionState::Failed
         ) {
             return Err(conflict(
@@ -97,41 +98,52 @@ impl Store {
         })
     }
 
+    pub fn close_session(
+        &mut self,
+        request: RequestId,
+        identity: SessionRef,
+        terminal: String,
+    ) -> Result<Reply<ManagedSession>> {
+        self.transact(
+            request,
+            json!({"op":"close_session","caller":identity,"terminal":terminal}),
+            |connection| {
+                let mut session = confirm_exit(connection, identity, &terminal)?;
+                if session.state == ManagedSessionState::Closed {
+                    return Ok(session);
+                }
+                if session.binding.role() == SessionRole::Leader
+                    && let Some(run_id) = session.binding.run_id()
+                {
+                    let run: RunRecord = require(connection, Table::Runs, run_id)?;
+                    if run.state != RunState::Succeeded {
+                        super::runs::cancel(connection, identity, run_id)?;
+                    }
+                }
+                session.state = ManagedSessionState::Closed;
+                save_session(connection, &session)?;
+                event(
+                    connection,
+                    session.binding.run_id(),
+                    "session_closed",
+                    &session,
+                )?;
+                Ok(session)
+            },
+        )
+    }
+
     pub fn observe_terminal_exit(
         &mut self,
         request: RequestId,
         identity: SessionRef,
         terminal: String,
     ) -> Result<Reply<ManagedSession>> {
-        self.transact(request,json!({"op":"observe_terminal_exit","caller":identity,"terminal":terminal}),|connection| {
-            let mut session=reference(connection,identity)?;
-            if session.terminal_id.as_ref()!=Some(&terminal) {return Err(ControlError::new(ErrorCode::OwnershipMismatch,"the observation belongs to another terminal"));}
-            if session.state==ManagedSessionState::Exited {return Ok(session);}
-            if !matches!(session.state,ManagedSessionState::Running|ManagedSessionState::NeedsReconciliation) {return Err(conflict("the session has no running terminal to confirm"));}
-            if let Some((task_id,id))=session.binding.work() {
-                let mut attempt:AttemptRecord=require(connection,Table::Attempts,id)?;
-                if attempt.state.holds_slot() {
-                    let mut task:TaskRecord=require(connection,Table::Tasks,task_id)?;
-                    let run:RunRecord=require(connection,Table::Runs,task.run_id)?;
-                    let cancelled=attempt.state==AttemptState::CancelRequested || matches!(run.state,RunState::Cancelling|RunState::Cancelled);
-                    attempt.state=if cancelled {AttemptState::Cancelled} else {AttemptState::Failed};
-                    save_attempt(connection,&attempt)?;
-                    if task.current_attempt==Some(id) {
-                        if task.revision==attempt.task_revision || run.state==RunState::Cancelling {
-                            task.state=if cancelled {TaskState::Cancelled} else {TaskState::Failed};
-                        } else { task.current_attempt=None; }
-                        save_task(connection,&task)?;
-                    }
-                    event(connection,Some(task.run_id),"attempt_terminal_exited",&attempt)?;
-                    super::runs::settle_cancellation(connection,task.run_id)?;
-                }
-            }
-            session.state=ManagedSessionState::Exited;
-            save_session(connection,&session)?;
-            notify(connection,&session,MessageKind::Note,"Adroit confirmed that the assigned native terminal exited. An unfinished attempt is failed or cancelled; terminal exit does not establish successful work.")?;
-            event(connection,session.binding.run_id(),"session_terminal_exited",&session)?;
-            Ok(session)
-        })
+        self.transact(
+            request,
+            json!({"op":"observe_terminal_exit","caller":identity,"terminal":terminal}),
+            |connection| confirm_exit(connection, identity, &terminal),
+        )
     }
 }
 
@@ -360,4 +372,79 @@ impl Store {
     ) -> Result<Reply<ManagedSession>> {
         self.transact(request,json!({"op":"abort_prepared_start","caller":identity,"terminal":terminal,"reason":reason}),|connection|fail_start_record(connection,identity,&reason,Some(&terminal)))
     }
+}
+
+fn confirm_exit(
+    connection: &Connection,
+    identity: SessionRef,
+    terminal: &str,
+) -> Result<ManagedSession> {
+    let mut session = reference(connection, identity)?;
+    if session.terminal_id.as_deref() != Some(terminal) {
+        return Err(ControlError::new(
+            ErrorCode::OwnershipMismatch,
+            "the observation belongs to another terminal",
+        ));
+    }
+    if matches!(
+        session.state,
+        ManagedSessionState::Exited | ManagedSessionState::Closed
+    ) {
+        return Ok(session);
+    }
+    if !matches!(
+        session.state,
+        ManagedSessionState::Running | ManagedSessionState::NeedsReconciliation
+    ) {
+        return Err(conflict("the session has no running terminal to confirm"));
+    }
+    if let Some((task_id, id)) = session.binding.work() {
+        let mut attempt: AttemptRecord = require(connection, Table::Attempts, id)?;
+        if attempt.state.holds_slot() {
+            let mut task: TaskRecord = require(connection, Table::Tasks, task_id)?;
+            let run: RunRecord = require(connection, Table::Runs, task.run_id)?;
+            let cancelled = attempt.state == AttemptState::CancelRequested
+                || matches!(run.state, RunState::Cancelling | RunState::Cancelled);
+            attempt.state = if cancelled {
+                AttemptState::Cancelled
+            } else {
+                AttemptState::Failed
+            };
+            save_attempt(connection, &attempt)?;
+            if task.current_attempt == Some(id) {
+                if task.revision == attempt.task_revision || run.state == RunState::Cancelling {
+                    task.state = if cancelled {
+                        TaskState::Cancelled
+                    } else {
+                        TaskState::Failed
+                    };
+                } else {
+                    task.current_attempt = None;
+                }
+                save_task(connection, &task)?;
+            }
+            event(
+                connection,
+                Some(task.run_id),
+                "attempt_terminal_exited",
+                &attempt,
+            )?;
+            super::runs::settle_cancellation(connection, task.run_id)?;
+        }
+    }
+    session.state = ManagedSessionState::Exited;
+    save_session(connection, &session)?;
+    notify(
+        connection,
+        &session,
+        MessageKind::Note,
+        "Adroit confirmed that the assigned native terminal exited. An unfinished attempt is failed or cancelled; terminal exit does not establish successful work.",
+    )?;
+    event(
+        connection,
+        session.binding.run_id(),
+        "session_terminal_exited",
+        &session,
+    )?;
+    Ok(session)
 }
