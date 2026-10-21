@@ -369,6 +369,20 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
             value(store.accept_delivery(request.id, message_id, identity()?)?)
         }
         Command::Context => value(store.context(identity()?)?),
+        Command::UiPage {
+            table,
+            after,
+            epoch,
+        } if is_human => value(store.ui_page(table, after, epoch)?),
+        Command::UiDetail {
+            table,
+            id,
+            offset,
+            epoch,
+        } if is_human => value(store.ui_detail(table, id, offset, epoch)?),
+        Command::UiPage { .. } | Command::UiDetail { .. } => {
+            Err(denied("this operation requires a human client"))
+        }
         Command::Snapshot => {
             let mut snapshot = store.snapshot()?;
             if !is_human {

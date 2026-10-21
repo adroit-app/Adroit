@@ -112,6 +112,7 @@ pub fn RequestDetails(
                 span { class: "request-state", "{run.state.word()}" }
             }
             p { class: "request-prose", "{run.brief.goal}" }
+            FullDetails { key: "run-{run.id}", table: crate::control::protocol::UiTable::Runs, id: run.id.to_string() }
             if !run.brief.constraints.is_empty() {
                 details { summary { "Constraints" }
                     for constraint in &run.brief.constraints { p { class: "request-prose", "{constraint}" } }
@@ -172,7 +173,9 @@ pub fn RequestDetails(
                                 span { class: "details-facts-key", "Revision" } span { class: "details-facts-value", "{task.revision}" }
                             }
                             if !task.brief.scope.is_empty() { p { class: "request-prose request-muted", {task.brief.scope.join(", ")} } }
+                            FullDetails { key: "task-{task.id}", table: crate::control::protocol::UiTable::Tasks, id: task.id.to_string() }
                             if let Some(report)=report {
+                                FullDetails { key: "report-{report.report.message_id}", table: crate::control::protocol::UiTable::Reports, id: report.report.message_id.to_string() }
                                 p { class: "request-prose", "{report.report.result.summary}" }
                                 if let Some(TaskArtifact::Review {decision,data,..})=&report.report.result.artifact {
                                     p { class: "request-prose", "Review decision: {decision:?}" }
@@ -196,6 +199,7 @@ pub fn RequestDetails(
                     div { key: "{question.id}", class: "request-question",
                         if question.blocks_work { span { class: "request-attention", "Blocks work" } }
                         p { class: "request-prose", "{question.body}" }
+                        FullDetails { key: "message-{question.id}", table: crate::control::protocol::UiTable::Messages, id: question.id.to_string() }
                     }
                 }
             }
@@ -225,5 +229,34 @@ pub fn RequestDetails(
                 }
             }
         }
+    }
+}
+
+/// Fetch evidence only on an explicit user action, keyed by its durable identity.
+#[component]
+fn FullDetails(table: crate::control::protocol::UiTable, id: String) -> Element {
+    let mut text = use_signal(|| None::<String>);
+    let mut pending = use_signal(|| false);
+    rsx! {
+        button { class: "request-open", disabled: pending(),
+            onclick: move |_| {
+                let id = id.clone();
+                pending.set(true);
+                spawn(async move {
+                    let result = match crate::control::client::Client::human(&crate::control::root()) {
+                        Ok(client) => client.ui_detail(table, id).await,
+                        Err(error) => Err(error),
+                    };
+                    text.set(Some(match result {
+                        Ok(raw) => serde_json::from_str::<serde_json::Value>(&raw)
+                            .and_then(|value| serde_json::to_string_pretty(&value)).unwrap_or(raw),
+                        Err(error) => format!("Cannot load details: {error}"),
+                    }));
+                    pending.set(false);
+                });
+            },
+            if pending() { "Loading details…" } else { "Load full details" }
+        }
+        if let Some(text) = text() { pre { class: "request-prose request-check", "{text}" } }
     }
 }

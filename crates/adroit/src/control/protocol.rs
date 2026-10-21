@@ -82,6 +82,19 @@ pub enum Command {
     },
     Context,
     Snapshot,
+    #[schemars(skip)]
+    UiPage {
+        table: UiTable,
+        after: u64,
+        epoch: Option<u64>,
+    },
+    #[schemars(skip)]
+    UiDetail {
+        table: UiTable,
+        id: String,
+        offset: u32,
+        epoch: Option<u64>,
+    },
     ReadMessage {
         message_id: MessageId,
     },
@@ -179,4 +192,75 @@ pub struct EventPage {
     /// Advances over filtered events as well as visible ones.
     pub next_cursor: u64,
     pub events: Vec<ControlEvent>,
+}
+
+/// UI previews are read separately from durable evidence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum UiTable {
+    Sessions,
+    Runs,
+    Tasks,
+    Attempts,
+    Messages,
+    Deliveries,
+    Reports,
+    Completions,
+    CompletionRequests,
+    Candidates,
+    CandidateChecks,
+    Coordination,
+    CoordinationReplies,
+    WorkAreas,
+    RunWorkAreas,
+}
+impl UiTable {
+    pub const ALL: [Self; 15] = [
+        Self::Sessions,
+        Self::Runs,
+        Self::Tasks,
+        Self::Attempts,
+        Self::Messages,
+        Self::Deliveries,
+        Self::Reports,
+        Self::Completions,
+        Self::CompletionRequests,
+        Self::Candidates,
+        Self::CandidateChecks,
+        Self::Coordination,
+        Self::CoordinationReplies,
+        Self::WorkAreas,
+        Self::RunWorkAreas,
+    ];
+    pub fn field(self) -> &'static str {
+        match self {
+            Self::Sessions => "sessions",
+            Self::Runs => "runs",
+            Self::Tasks => "tasks",
+            Self::Attempts => "attempts",
+            Self::Messages => "messages",
+            Self::Deliveries => "deliveries",
+            Self::Reports => "reports",
+            Self::Completions => "completions",
+            Self::CompletionRequests => "completion_requests",
+            Self::Candidates => "candidates",
+            Self::CandidateChecks => "candidate_checks",
+            Self::Coordination => "coordination",
+            Self::CoordinationReplies => "coordination_replies",
+            Self::WorkAreas => "work_areas",
+            Self::RunWorkAreas => "run_work_areas",
+        }
+    }
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UiPage {
+    pub epoch: u64,
+    pub next_cursor: Option<u64>,
+    pub rows: Vec<Value>,
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UiDetailPage {
+    pub epoch: u64,
+    pub next_offset: Option<u32>,
+    pub text: String,
 }
