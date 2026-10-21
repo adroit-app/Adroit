@@ -111,11 +111,48 @@ async fn reply(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Read;
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::MetadataExt;
+    use std::os::unix::process::CommandExt;
 
     fn temp_socket(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("adroit-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir.join("s.sock")
+    }
+
+    fn stale_socket(path: &Path) -> tokio::net::UnixSocket {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        // A concurrent fork may inherit the descriptor before exec. Never
+        // listening keeps this fixture stale even while that child holds it.
+        let socket = tokio::net::UnixSocket::new_stream().unwrap();
+        socket.bind(path).unwrap();
+        socket
+    }
+
+    fn while_a_child_is_before_exec<T>(check: impl FnOnce() -> T) -> T {
+        let (mut parent, child) = UnixStream::pair().unwrap();
+        let mut command = std::process::Command::new("/usr/bin/true");
+        // SAFETY: only async-signal-safe read/write calls run after fork. The
+        // handshake keeps inherited descriptors open until the parent checks.
+        unsafe {
+            command.pre_exec(move || {
+                let mut byte = 1_u8;
+                if libc::write(child.as_raw_fd(), (&byte as *const u8).cast(), 1) != 1
+                    || libc::read(child.as_raw_fd(), (&mut byte as *mut u8).cast(), 1) != 1
+                {
+                    return Err(std::io::Error::from_raw_os_error(libc::EIO));
+                }
+                Ok(())
+            });
+        }
+        let starting = std::thread::spawn(move || command.status().unwrap());
+        parent.read_exact(&mut [0]).unwrap();
+        let result = check();
+        parent.write_all(&[1]).unwrap();
+        assert!(starting.join().unwrap().success());
+        result
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -156,14 +193,48 @@ mod tests {
 
     #[tokio::test]
     async fn a_socket_left_behind_is_replaced_but_a_live_one_is_not() {
+        let stale = temp_socket("stale");
+        drop(stale_socket(&stale));
+        bind(&stale).unwrap();
+
         let path = temp_socket("bind");
-        let first = bind(&path).unwrap();
+        let _first = bind(&path).unwrap();
         assert_eq!(
             bind(&path).unwrap_err().kind(),
             std::io::ErrorKind::AddrInUse
         );
-        drop(first);
-        assert!(bind(&path).is_ok());
+    }
+
+    #[tokio::test]
+    async fn the_stale_fixture_can_be_replaced_while_a_child_inherits_its_descriptor() {
+        let path = temp_socket("inherited-stale");
+        let first = stale_socket(&path);
+        let replacement = while_a_child_is_before_exec(|| {
+            drop(first);
+            bind(&path)
+        });
+        replacement.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_live_listener_inherited_by_a_child_is_not_unlinked() {
+        let path = temp_socket("inherited-live");
+        let first = bind(&path).unwrap();
+        let inode = std::fs::metadata(&path).unwrap().ino();
+        let (replacement, connection, metadata) = while_a_child_is_before_exec(|| {
+            drop(first);
+            (
+                bind(&path),
+                UnixStream::connect(&path),
+                std::fs::metadata(&path),
+            )
+        });
+        assert_eq!(
+            replacement.unwrap_err().kind(),
+            std::io::ErrorKind::AddrInUse
+        );
+        connection.unwrap();
+        assert_eq!(metadata.unwrap().ino(), inode);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
