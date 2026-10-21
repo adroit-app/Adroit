@@ -1,6 +1,8 @@
 //! Human UI previews; never used as controller authority.
 use super::*;
-use crate::control::protocol::{UiDetailPage, UiPage, UiTable};
+use crate::control::protocol::{
+    UiDetailPage, UiPage, UiRecordChunk, UiRecordRef, UiTable, UiTaskHistoryPage,
+};
 
 const PAGE_BYTES: usize = 256 * 1024;
 const CHUNK_BYTES: usize = 32 * 1024;
@@ -150,7 +152,19 @@ fn page(
         let row = preview(table, &text)?;
         let size = encode(&row)?.len() + 1;
         if size > PAGE_BYTES {
-            return Err(invalid("a UI preview exceeds the page limit"));
+            if rows.is_empty() {
+                return Ok(UiPage {
+                    epoch,
+                    next_cursor: Some(rowid as u64),
+                    rows,
+                    record: Some(UiRecordRef {
+                        rowid: rowid as u64,
+                        bytes: (size - 1) as u64,
+                    }),
+                });
+            }
+            next_cursor = Some(last);
+            break;
         }
         if bytes + size > PAGE_BYTES || rows.len() == 64 {
             next_cursor = Some(last);
@@ -164,6 +178,44 @@ fn page(
         epoch,
         next_cursor,
         rows,
+        record: None,
+    })
+}
+
+fn record_chunk(
+    connection: &Connection,
+    table: UiTable,
+    rowid: u64,
+    offset: u64,
+    expected: u64,
+) -> Result<UiRecordChunk> {
+    let epoch = epoch(connection, Some(expected))?;
+    let rowid_sql: i64 = rowid
+        .try_into()
+        .map_err(|_| invalid("invalid UI row identity"))?;
+    let text: String = connection.query_row(
+        &format!("SELECT data FROM {} WHERE rowid = ?1", table.table()),
+        [rowid_sql],
+        |row| row.get(0),
+    )?;
+    let text = encode(&preview(table, &text)?)?;
+    let start: usize = offset
+        .try_into()
+        .map_err(|_| invalid("invalid UI record offset"))?;
+    if start >= text.len() || !text.is_char_boundary(start) {
+        return Err(invalid("invalid UI record offset"));
+    }
+    let mut end = (start + CHUNK_BYTES).min(text.len());
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    // JSON escaping expands each input byte by at most six, leaving ample
+    // space for the response envelope and newline below the frame limit.
+    Ok(UiRecordChunk {
+        epoch,
+        rowid,
+        offset,
+        text: text[start..end].into(),
     })
 }
 
@@ -216,6 +268,16 @@ impl Store {
     pub fn ui_page(&mut self, table: UiTable, after: u64, expected: Option<u64>) -> Result<UiPage> {
         let transaction = self.connection.transaction()?;
         page(&transaction, table, after, expected)
+    }
+    pub fn ui_record(
+        &mut self,
+        table: UiTable,
+        rowid: u64,
+        offset: u64,
+        expected: u64,
+    ) -> Result<UiRecordChunk> {
+        let transaction = self.connection.transaction()?;
+        record_chunk(&transaction, table, rowid, offset, expected)
     }
     pub fn ui_detail(
         &mut self,
@@ -292,7 +354,21 @@ pub fn read_only_snapshot(root: &Path, credential: &str) -> Result<ControlSnapsh
     for table in UiTable::ALL {
         let mut after = 0;
         loop {
-            let page = page(&transaction, table, after, Some(epoch))?;
+            let mut page = page(&transaction, table, after, Some(epoch))?;
+            if let Some(reference) = page.record.take() {
+                reference.validate_page(after, &page)?;
+                let mut record = crate::control::protocol::UiRecordReader::new(reference, epoch);
+                while !record.complete() {
+                    record.push(record_chunk(
+                        &transaction,
+                        table,
+                        record.reference.rowid,
+                        record.offset(),
+                        epoch,
+                    )?)?;
+                }
+                page.rows.push(record.finish()?);
+            }
             snapshot[table.field()]
                 .as_array_mut()
                 .expect("snapshot array")
@@ -326,6 +402,103 @@ pub fn read_only_detail(
         match page.next_offset {
             Some(next) => offset = next,
             None => return Ok(text),
+        }
+    }
+}
+
+fn task_history(
+    connection: &Connection,
+    task_id: TaskId,
+    after: u64,
+    expected: Option<u64>,
+) -> Result<UiTaskHistoryPage> {
+    if after > 0 && expected.is_none() {
+        return Err(invalid("UI history continuation requires an epoch"));
+    }
+    let epoch = epoch(connection, expected)?;
+    let after: i64 = after
+        .try_into()
+        .map_err(|_| invalid("invalid UI history cursor"))?;
+    let exists: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM tasks WHERE id=?1)",
+        [task_id.to_string()],
+        |row| row.get(0),
+    )?;
+    if !exists {
+        return Err(ControlError::new(
+            ErrorCode::NotFound,
+            "UI history task no longer exists",
+        ));
+    }
+    let mut statement = connection.prepare(
+        "SELECT a.rowid, json_object(
+        'attempt_id', a.id, 'task_revision', json_extract(a.data, '$.task_revision'),
+        'session_id', a.session_id, 'state', json_extract(a.data, '$.state'),
+        'report', CASE WHEN r.id IS NULL THEN NULL ELSE json_object(
+            'id', r.id, 'task_revision', json_extract(r.data, '$.report.task.revision'),
+            'applied', json_extract(r.data, '$.applied'),
+            'status', json_extract(r.data, '$.report.result.status')) END)
+        FROM attempts a LEFT JOIN task_reports r ON r.attempt_id=a.id
+        WHERE a.task_id=?1 AND a.rowid>?2 ORDER BY a.rowid LIMIT 65",
+    )?;
+    let mut entries = vec![];
+    let mut last = after as u64;
+    let mut next_cursor = None;
+    let records = statement.query_map(rusqlite::params![task_id.to_string(), after], |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+    })?;
+    for record in records {
+        let (rowid, text) = record?;
+        if entries.len() == 64 {
+            next_cursor = Some(last);
+            break;
+        }
+        // SQLite JSON booleans are integers when extracted into json_object.
+        let mut value: Value = decode(&text)?;
+        if let Some(applied) = value.pointer_mut("/report/applied") {
+            *applied = Value::Bool(applied.as_i64() == Some(1));
+        }
+        entries.push(serde_json::from_value(value).map_err(|error| invalid(error.to_string()))?);
+        last = rowid as u64;
+    }
+    Ok(UiTaskHistoryPage {
+        epoch,
+        task_id,
+        next_cursor,
+        entries,
+    })
+}
+
+impl Store {
+    pub fn ui_task_history(
+        &mut self,
+        task_id: TaskId,
+        after: u64,
+        expected: Option<u64>,
+    ) -> Result<UiTaskHistoryPage> {
+        let transaction = self.connection.transaction()?;
+        task_history(&transaction, task_id, after, expected)
+    }
+}
+
+pub fn read_only_task_history(
+    root: &Path,
+    credential: &str,
+    task_id: TaskId,
+    expected: Option<u64>,
+) -> Result<Vec<crate::control::protocol::UiAttemptHistory>> {
+    let mut connection = read_only(root, credential)?;
+    let transaction = connection.transaction()?;
+    schema(&transaction)?;
+    let epoch = epoch(&transaction, expected)?;
+    let mut entries = vec![];
+    let mut after = 0;
+    loop {
+        let page = task_history(&transaction, task_id, after, Some(epoch))?;
+        entries.extend(page.entries);
+        match page.next_cursor {
+            Some(next) => after = next,
+            None => return Ok(entries),
         }
     }
 }

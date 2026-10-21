@@ -374,15 +374,27 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
             after,
             epoch,
         } if is_human => value(store.ui_page(table, after, epoch)?),
+        Command::UiTaskHistory {
+            task_id,
+            after,
+            epoch,
+        } if is_human => value(store.ui_task_history(task_id, after, epoch)?),
+        Command::UiRecord {
+            table,
+            rowid,
+            offset,
+            epoch,
+        } if is_human => value(store.ui_record(table, rowid, offset, epoch)?),
         Command::UiDetail {
             table,
             id,
             offset,
             epoch,
         } if is_human => value(store.ui_detail(table, id, offset, epoch)?),
-        Command::UiPage { .. } | Command::UiDetail { .. } => {
-            Err(denied("this operation requires a human client"))
-        }
+        Command::UiPage { .. }
+        | Command::UiDetail { .. }
+        | Command::UiRecord { .. }
+        | Command::UiTaskHistory { .. } => Err(denied("this operation requires a human client")),
         Command::Snapshot => {
             let mut snapshot = store.snapshot()?;
             if !is_human {

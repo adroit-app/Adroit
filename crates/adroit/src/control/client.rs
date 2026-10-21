@@ -42,7 +42,13 @@ impl Client {
     }
 
     pub async fn request(&self, id: RequestId, command: Command) -> Result<Value, ControlError> {
-        let ui_read = matches!(command, Command::UiPage { .. } | Command::UiDetail { .. });
+        let ui_read = matches!(
+            command,
+            Command::UiPage { .. }
+                | Command::UiDetail { .. }
+                | Command::UiRecord { .. }
+                | Command::UiTaskHistory { .. }
+        );
         tokio::time::timeout(TIMEOUT, async {
             let mut bytes = serde_json::to_vec(&Request {
                 version: VERSION,
@@ -137,7 +143,7 @@ impl Client {
         for table in UiTable::ALL {
             let mut after = 0;
             loop {
-                let page: UiPage = serde_json::from_value(
+                let mut page: UiPage = serde_json::from_value(
                     self.request(
                         RequestId::new(),
                         Command::UiPage {
@@ -153,6 +159,27 @@ impl Client {
                     return Err(transport("inconsistent UI page epoch"));
                 }
                 epoch = Some(page.epoch);
+                if let Some(reference) = page.record.take() {
+                    reference.validate_page(after, &page)?;
+                    let mut record = UiRecordReader::new(reference, page.epoch);
+                    while !record.complete() {
+                        let chunk = serde_json::from_value(
+                            self.request(
+                                RequestId::new(),
+                                Command::UiRecord {
+                                    table,
+                                    rowid: record.reference.rowid,
+                                    offset: record.offset(),
+                                    epoch: page.epoch,
+                                },
+                            )
+                            .await?,
+                        )
+                        .map_err(transport)?;
+                        record.push(chunk)?;
+                    }
+                    page.rows.push(record.finish()?);
+                }
                 snapshot["event_cursor"] = page.epoch.into();
                 snapshot[table.field()]
                     .as_array_mut()
@@ -166,6 +193,60 @@ impl Client {
             }
         }
         serde_json::from_value(snapshot).map_err(transport)
+    }
+
+    pub async fn ui_task_history(
+        &self,
+        task_id: adroit_model::TaskId,
+        mut epoch: Option<u64>,
+    ) -> Result<Vec<UiAttemptHistory>, ControlError> {
+        self.require_human_ui()?;
+        let mut after = 0;
+        let mut entries = vec![];
+        let mut identities = std::collections::HashSet::new();
+        loop {
+            let value = self
+                .request(
+                    RequestId::new(),
+                    Command::UiTaskHistory {
+                        task_id,
+                        after,
+                        epoch,
+                    },
+                )
+                .await;
+            let value = match value {
+                Err(error) if legacy_ui_error(&error) => {
+                    let root = self.socket.parent().expect("control root").to_path_buf();
+                    let credential = self.credential.clone();
+                    return tokio::task::spawn_blocking(move || {
+                        super::store::ui::read_only_task_history(&root, &credential, task_id, epoch)
+                    })
+                    .await
+                    .map_err(transport)?;
+                }
+                result => result?,
+            };
+            let page: UiTaskHistoryPage = serde_json::from_value(value).map_err(transport)?;
+            if page.task_id != task_id
+                || epoch.is_some_and(|epoch| epoch != page.epoch)
+                || page.entries.len() > 64
+            {
+                return Err(transport("inconsistent UI history page"));
+            }
+            epoch = Some(page.epoch);
+            for entry in page.entries {
+                if !identities.insert(entry.attempt_id) {
+                    return Err(transport("duplicate UI history attempt"));
+                }
+                entries.push(entry);
+            }
+            match page.next_cursor {
+                Some(next) if next > after => after = next,
+                Some(_) => return Err(transport("UI history cursor did not advance")),
+                None => return Ok(entries),
+            }
+        }
     }
 
     pub async fn ui_detail(&self, table: UiTable, id: String) -> Result<String, ControlError> {

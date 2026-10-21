@@ -375,7 +375,10 @@ async fn human_projection_is_authenticated_and_selected_evidence_is_chunked() {
         snapshot.reports[0].report.result.unresolved,
         vec!["Needs human attention"]
     );
-    assert!(serde_json::to_vec(&snapshot).unwrap().len() < 20_000);
+    assert_eq!(
+        snapshot.tasks[0].brief.instructions.lines().next().unwrap(),
+        task.brief.instructions
+    );
     let full = human
         .ui_detail(UiTable::Reports, report_id.to_string())
         .await
@@ -390,10 +393,17 @@ async fn human_projection_is_authenticated_and_selected_evidence_is_chunked() {
     )
     .unwrap();
     assert!(human.ui_snapshot().await.unwrap().reports.is_empty());
+    let history = human.ui_task_history(task_id, None).await.unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].attempt_id, attempt_id);
+    assert_eq!(history[0].session_id, session.reference().id);
+    assert_eq!(history[0].task_revision, 7);
+    let discovered_id = history[0].report.as_ref().unwrap().id;
+    assert_eq!(discovered_id, report_id);
     assert_eq!(
         serde_json::from_str::<TaskReportRecord>(
             &human
-                .ui_detail(UiTable::Reports, report_id.to_string())
+                .ui_detail(UiTable::Reports, discovered_id.to_string())
                 .await
                 .unwrap()
         )
@@ -406,6 +416,116 @@ async fn human_projection_is_authenticated_and_selected_evidence_is_chunked() {
             .await
             .is_err()
     );
+    let mut replacement = attempt.clone();
+    replacement.id = AttemptId::new();
+    replacement.task_revision = 8;
+    // More than one history page, with stable insertion order and no bodies.
+    let mut expected = vec![attempt_id];
+    for _ in 0..65 {
+        replacement.id = AttemptId::new();
+        replacement.session_id = LogicalSessionId::new();
+        let mut worker = session.clone();
+        worker.binding = SessionBinding::worker(
+            replacement.session_id,
+            session.reference().id,
+            run_id,
+            task_id,
+            replacement.id,
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO logical_sessions(id,data) VALUES(?1,?2)",
+            rusqlite::params![
+                replacement.session_id.to_string(),
+                serde_json::to_string(&worker).unwrap()
+            ],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO attempts(id,task_id,session_id,active,data) VALUES(?1,?2,?3,0,?4)",
+            rusqlite::params![
+                replacement.id.to_string(),
+                task_id.to_string(),
+                replacement.session_id.to_string(),
+                serde_json::to_string(&replacement).unwrap()
+            ],
+        )
+        .unwrap();
+        expected.push(replacement.id);
+    }
+    db.execute("UPDATE tasks SET data=json_set(data, '$.current_attempt', ?2, '$.revision', 8) WHERE id=?1", rusqlite::params![task_id.to_string(), replacement.id.to_string()]).unwrap();
+    let view = human.ui_snapshot().await.unwrap();
+    let history = human
+        .ui_task_history(task_id, Some(view.event_cursor))
+        .await
+        .unwrap();
+    assert_eq!(
+        history.iter().map(|h| h.attempt_id).collect::<Vec<_>>(),
+        expected
+    );
+    assert!(history[0].is_historical(&view.tasks[0]));
+    assert!(!history.last().unwrap().is_historical(&view.tasks[0]));
+    assert_eq!(view.runs[0].leader_id, session.reference().id);
+    assert_eq!(history[0].session_id, session.reference().id);
+    assert!(serde_json::to_vec(&history).unwrap().len() < 32_000);
+    assert!(agent.ui_task_history(task_id, None).await.is_err());
+    assert!(
+        human
+            .clone()
+            .as_actor(session.reference())
+            .ui_task_history(task_id, None)
+            .await
+            .is_err()
+    );
+    assert!(
+        agent
+            .request(
+                RequestId::new(),
+                Command::UiTaskHistory {
+                    task_id,
+                    after: 0,
+                    epoch: None
+                }
+            )
+            .await
+            .is_err()
+    );
+    assert!(
+        agent
+            .request(
+                RequestId::new(),
+                Command::UiRecord {
+                    table: UiTable::Tasks,
+                    rowid: 1,
+                    offset: 0,
+                    epoch: view.event_cursor
+                }
+            )
+            .await
+            .is_err()
+    );
+    // Replace only this disposable test endpoint with an old-protocol fixture.
+    drop(service);
+    let legacy = legacy_control(&root);
+    assert_eq!(
+        human
+            .ui_task_history(task_id, Some(view.event_cursor))
+            .await
+            .unwrap(),
+        history
+    );
+    let discovered = history[0].report.as_ref().unwrap().id;
+    assert_eq!(
+        serde_json::from_str::<TaskReportRecord>(
+            &human
+                .ui_detail(UiTable::Reports, discovered.to_string())
+                .await
+                .unwrap()
+        )
+        .unwrap(),
+        report
+    );
+    legacy.abort();
 }
 
 #[tokio::test]
@@ -500,14 +620,37 @@ async fn legacy_ui_recovery_keeps_native_terminals_in_the_same_daemon_alive() {
         .unwrap();
     let root = dir.path().join("control");
     let mut store = database(&root);
-    store
+    let owner = store
         .register_leader(
             RequestId::new(),
             LogicalSessionId::new(),
             Agent::Codex,
             dir.path().into(),
         )
+        .unwrap()
+        .value
+        .reference();
+    let run_id = RunId::new();
+    store
+        .open_run(
+            RequestId::new(),
+            owner,
+            run_id,
+            RunBrief {
+                title: "Legacy large metadata".into(),
+                goal: "Keep native terminal".into(),
+                ..Default::default()
+            },
+        )
         .unwrap();
+    let mut plans = vec![];
+    for n in 0..4 {
+        let plan = large_task(run_id, n);
+        store
+            .put_task(RequestId::new(), owner, plan.clone())
+            .unwrap();
+        plans.push(plan);
+    }
     std::fs::write(root.join("human.token"), "a".repeat(72)).unwrap();
     std::fs::set_permissions(
         root.join("human.token"),
@@ -553,7 +696,18 @@ async fn legacy_ui_recovery_keeps_native_terminals_in_the_same_daemon_alive() {
         .unwrap();
     let human = Client::human(&root).unwrap();
     for _ in 0..3 {
-        assert_eq!(human.ui_snapshot().await.unwrap().sessions.len(), 1);
+        let view = human.ui_snapshot().await.unwrap();
+        assert_eq!(view.sessions.len(), 1);
+        assert_eq!(view.tasks.len(), plans.len());
+        for (task, plan) in view.tasks.iter().zip(&plans) {
+            assert_eq!(
+                task.brief.instructions.lines().next().unwrap(),
+                plan.brief.instructions
+            );
+            assert_eq!(task.brief.scope, plan.brief.scope);
+            assert_eq!(task.brief.inputs, plan.brief.inputs);
+            assert_eq!(task.state, TaskState::Planned);
+        }
         assert!(
             daemon
                 .sessions()
@@ -744,4 +898,277 @@ fn compact_attention_uses_complete_history_before_paging_and_keeps_answer_eviden
             .len(),
         4
     );
+}
+
+fn large_task(run_id: RunId, n: usize) -> TaskPlan {
+    TaskPlan {
+        id: TaskId::new(),
+        run_id,
+        expected_revision: None,
+        brief: TaskBrief {
+            instructions: match n {
+                0 => "x".repeat(300 * 1024),
+                1 => "Large semantic vectors".into(),
+                _ => format!("{n}{}", "🦀".repeat(300 * 1024 / 4)),
+            },
+            // Escaping expands these bytes on the wire; these are semantic fields.
+            scope: if n == 0 {
+                vec![]
+            } else {
+                vec!["\"\\\u{0}🦀".repeat(36_000)]
+            },
+            inputs: if n == 0 {
+                vec![]
+            } else {
+                vec!["input".repeat(1000); 8]
+            },
+            ..Default::default()
+        },
+        dependencies: vec![],
+    }
+}
+
+#[tokio::test]
+async fn supported_large_task_requests_refresh_atomically_through_the_service() {
+    use adroit::control::{client::Client, service::Service};
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("control");
+    let service = Service::bind(&root).await.unwrap();
+    let session = service
+        .actor()
+        .call(|store| {
+            store.register_leader(
+                RequestId::new(),
+                LogicalSessionId::new(),
+                Agent::Codex,
+                "/tmp".into(),
+            )
+        })
+        .await
+        .unwrap()
+        .value;
+    let human = Client::human(&root).unwrap();
+    let actor = human.clone().as_actor(session.reference());
+    let run_id = RunId::new();
+    actor
+        .request(
+            RequestId::new(),
+            Command::OpenRun {
+                id: run_id,
+                brief: RunBrief {
+                    title: "Large supported metadata".into(),
+                    goal: "Preserve exact labels and fields".into(),
+                    ..Default::default()
+                },
+            },
+        )
+        .await
+        .unwrap();
+    let mut plans = vec![];
+    for n in 0..4 {
+        let plan = large_task(run_id, n);
+        actor
+            .request(RequestId::new(), Command::PutTask { plan: plan.clone() })
+            .await
+            .unwrap();
+        plans.push(plan);
+    }
+    let view = human.ui_snapshot().await.unwrap();
+    assert!(serde_json::to_vec(&view).unwrap().len() > MAX_FRAME);
+    // Inspect actual service responses, including the envelope and newline.
+    let mut after = 0;
+    let epoch = view.event_cursor;
+    loop {
+        let id = RequestId::new();
+        let value = human
+            .request(
+                id,
+                Command::UiPage {
+                    table: UiTable::Tasks,
+                    after,
+                    epoch: Some(epoch),
+                },
+            )
+            .await
+            .unwrap();
+        assert_wire_budget(id, &value);
+        let page: UiPage = serde_json::from_value(value).unwrap();
+        if let Some(reference) = page.record {
+            let mut text = String::new();
+            while (text.len() as u64) < reference.bytes {
+                let id = RequestId::new();
+                let value = human
+                    .request(
+                        id,
+                        Command::UiRecord {
+                            table: UiTable::Tasks,
+                            rowid: reference.rowid,
+                            offset: text.len() as u64,
+                            epoch,
+                        },
+                    )
+                    .await
+                    .unwrap();
+                assert_wire_budget(id, &value);
+                let chunk: UiRecordChunk = serde_json::from_value(value).unwrap();
+                assert_eq!(chunk.offset, text.len() as u64);
+                assert_eq!(chunk.rowid, reference.rowid);
+                assert_eq!(chunk.epoch, epoch);
+                assert!(!chunk.text.is_empty());
+                text.push_str(&chunk.text);
+            }
+            assert_eq!(text.len() as u64, reference.bytes);
+            let task: TaskRecord = serde_json::from_str(&text).unwrap();
+            assert!(plans.iter().any(|plan| plan.id == task.id));
+        }
+        match page.next_cursor {
+            Some(next) => {
+                assert!(next > after);
+                after = next;
+            }
+            None => break,
+        }
+    }
+    // A mutation invalidates every outstanding record fragment, too.
+    let mut update = plans[0].clone();
+    update.expected_revision = Some(1);
+    actor
+        .request(RequestId::new(), Command::PutTask { plan: update })
+        .await
+        .unwrap();
+    let error = human
+        .request(
+            RequestId::new(),
+            Command::UiRecord {
+                table: UiTable::Tasks,
+                rowid: 1,
+                offset: 32_768,
+                epoch,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.code,
+        adroit::control::store::ErrorCode::RevisionConflict
+    );
+    assert_eq!(view.tasks.len(), plans.len());
+    for (task, plan) in view.tasks.iter().zip(plans) {
+        assert_eq!(task.id, plan.id);
+        assert_eq!(
+            task.brief.instructions.lines().next().unwrap(),
+            plan.brief.instructions
+        );
+        assert_eq!(task.brief.scope, plan.brief.scope);
+        assert_eq!(task.brief.inputs, plan.brief.inputs);
+        assert_eq!(task.state, TaskState::Planned);
+        assert_eq!(task.run_id, run_id);
+    }
+}
+
+fn legacy_control(root: &std::path::Path) -> tokio::task::JoinHandle<()> {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+    let listener = tokio::net::UnixListener::bind(root.join("control.sock")).unwrap();
+    tokio::spawn(async move {
+        loop {
+            let (stream, _) = listener.accept().await.unwrap();
+            tokio::spawn(async move {
+                let (read, mut write) = stream.into_split();
+                let mut line = String::new();
+                tokio::io::BufReader::new(read)
+                    .read_line(&mut line)
+                    .await
+                    .unwrap();
+                let response = Response {
+                    version: VERSION,
+                    id: None,
+                    result: Err(adroit::control::store::ControlError::new(
+                        adroit::control::store::ErrorCode::InvalidRequest,
+                        "invalid control request",
+                    )),
+                };
+                let mut bytes = serde_json::to_vec(&response).unwrap();
+                bytes.push(b'\n');
+                write.write_all(&bytes).await.unwrap();
+            });
+        }
+    })
+}
+
+fn assert_wire_budget(id: RequestId, value: &serde_json::Value) {
+    let mut bytes = serde_json::to_vec(&Response {
+        version: VERSION,
+        id: Some(id),
+        result: Ok(value.clone()),
+    })
+    .unwrap();
+    bytes.push(b'\n');
+    assert!(bytes.len() <= MAX_FRAME);
+    let _: Response = serde_json::from_slice(&bytes).unwrap();
+}
+
+#[tokio::test]
+async fn an_inconsistent_record_fragment_cannot_publish_a_partial_snapshot() {
+    use adroit::control::client::Client;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("human.token"), "a".repeat(72)).unwrap();
+    let listener = tokio::net::UnixListener::bind(dir.path().join("control.sock")).unwrap();
+    let server = tokio::spawn(async move {
+        for n in 0..2 {
+            let (stream, _) = listener.accept().await.unwrap();
+            let (read, mut write) = stream.into_split();
+            let mut line = String::new();
+            tokio::io::BufReader::new(read)
+                .read_line(&mut line)
+                .await
+                .unwrap();
+            let request: Request = serde_json::from_str(&line).unwrap();
+            let value = if n == 0 {
+                assert!(matches!(request.command, Command::UiPage { after: 0, .. }));
+                serde_json::to_value(UiPage {
+                    epoch: 1,
+                    next_cursor: Some(1),
+                    rows: vec![],
+                    record: Some(UiRecordRef {
+                        rowid: 1,
+                        bytes: 10,
+                    }),
+                })
+                .unwrap()
+            } else {
+                assert!(matches!(
+                    request.command,
+                    Command::UiRecord {
+                        rowid: 1,
+                        offset: 0,
+                        epoch: 1,
+                        ..
+                    }
+                ));
+                serde_json::to_value(UiRecordChunk {
+                    epoch: 1,
+                    rowid: 1,
+                    offset: 1,
+                    text: "{}".into(),
+                })
+                .unwrap()
+            };
+            let mut bytes = serde_json::to_vec(&Response {
+                version: VERSION,
+                id: Some(request.id),
+                result: Ok(value),
+            })
+            .unwrap();
+            bytes.push(b'\n');
+            write.write_all(&bytes).await.unwrap();
+        }
+    });
+    let error = Client::human(dir.path())
+        .unwrap()
+        .ui_snapshot()
+        .await
+        .unwrap_err();
+    assert!(error.message.contains("inconsistent UI record fragment"));
+    server.await.unwrap();
 }

@@ -174,6 +174,7 @@ pub fn RequestDetails(
                             }
                             if !task.brief.scope.is_empty() { p { class: "request-prose request-muted", {task.brief.scope.join(", ")} } }
                             FullDetails { key: "task-{task.id}", table: crate::control::protocol::UiTable::Tasks, id: task.id.to_string() }
+                            TaskHistory { key: "history-{task.id}", task: task.clone(), epoch: snapshot.event_cursor }
                             if let Some(report)=report {
                                 FullDetails { key: "report-{report.report.message_id}", table: crate::control::protocol::UiTable::Reports, id: report.report.message_id.to_string() }
                                 p { class: "request-prose", "{report.report.result.summary}" }
@@ -181,7 +182,7 @@ pub fn RequestDetails(
                                     p { class: "request-prose", "Review decision: {decision:?}" }
                                     pre { class: "request-prose request-check", {serde_json::to_string_pretty(data).unwrap_or_default()} }
                                 }
-                                if !report.applied { p { class: "request-attention", "Historical result; not applied to the current task" } }
+                                if !report.applied || report.report.task.revision != task.revision { p { class: "request-attention", "Historical result; not applied to the current task" } }
                                 for check in &report.report.result.checks {
                                     p { class: "request-prose request-check", {check.command.join(" ")} " (exit {check.exit_code})" }
                                 }
@@ -258,5 +259,54 @@ fn FullDetails(table: crate::control::protocol::UiTable, id: String) -> Element 
             if pending() { "Loading details…" } else { "Load full details" }
         }
         if let Some(text) = text() { pre { class: "request-prose request-check", "{text}" } }
+    }
+}
+
+/// History discovery stays within this task; evidence is fetched on demand.
+#[component]
+fn TaskHistory(task: TaskRecord, epoch: u64) -> Element {
+    let mut history = use_signal(|| None::<Vec<crate::control::protocol::UiAttemptHistory>>);
+    let mut pending = use_signal(|| false);
+    let mut error = use_signal(|| None::<String>);
+    let task_id = task.id;
+    rsx! {
+        details { class: "request-history",
+            summary { "Attempt and report history" }
+            button { class: "request-open", disabled: pending(),
+                onclick: move |_| {
+                    pending.set(true);
+                    error.set(None);
+                    spawn(async move {
+                        let result = match crate::control::client::Client::human(&crate::control::root()) {
+                            Ok(client) => client.ui_task_history(task_id, Some(epoch)).await,
+                            Err(error) => Err(error),
+                        };
+                        match result {
+                            Ok(entries) => history.set(Some(entries)),
+                            Err(failure) => error.set(Some(format!("Cannot load history: {failure}"))),
+                        }
+                        pending.set(false);
+                    });
+                },
+                if pending() { "Loading history…" } else { "Load attempt history" }
+            }
+            if let Some(failure) = error() { p { class: "request-attention", "{failure}" } }
+            if let Some(entries) = history() {
+                if entries.is_empty() { p { class: "request-muted", "No attempts recorded" } }
+                for entry in entries {
+                    div { key: "{entry.attempt_id}",
+                        p { class: "request-prose",
+                            if entry.is_historical(&task) { "Historical attempt" } else { "Current attempt" }
+                            " · revision {entry.task_revision} · {entry.state:?}"
+                        }
+                        p { class: "details-path", "Attempt {entry.attempt_id} · Session {entry.session_id}" }
+                        if let Some(report) = entry.report {
+                            p { class: "request-muted", "Report revision {report.task_revision} · {report.status:?}" }
+                            FullDetails { table: crate::control::protocol::UiTable::Reports, id: report.id.to_string() }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
