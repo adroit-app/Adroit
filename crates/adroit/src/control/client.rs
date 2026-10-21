@@ -49,6 +49,13 @@ impl Client {
                 | Command::UiRecord { .. }
                 | Command::UiTaskHistory { .. }
         );
+        let native_projection = matches!(
+            command,
+            Command::NativeArguments { .. }
+                | Command::NativeCall { .. }
+                | Command::NativeEnvelope { .. }
+                | Command::ResolveIds { .. }
+        );
         tokio::time::timeout(TIMEOUT, async {
             let mut bytes = serde_json::to_vec(&Request {
                 version: VERSION,
@@ -73,7 +80,7 @@ impl Client {
                 serde_json::from_slice(&read_frame(&mut BufReader::new(stream)).await?)
                     .map_err(transport)?;
             // Old daemons cannot decode a new enum variant, so have no request ID.
-            if ui_read
+            if (ui_read || native_projection)
                 && response.version == VERSION
                 && response.id.is_none()
                 && response.result.as_ref().is_err_and(|error| {
@@ -83,7 +90,11 @@ impl Client {
             {
                 return Err(ControlError::new(
                     ErrorCode::InvalidRequest,
-                    "unsupported UI projection",
+                    if ui_read {
+                        "unsupported UI projection"
+                    } else {
+                        "unsupported native projection"
+                    },
                 ));
             }
             if response.version != VERSION || response.id != Some(id) {

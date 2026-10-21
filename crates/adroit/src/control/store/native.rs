@@ -187,49 +187,16 @@ impl Store {
             previews(&mut value);
         }
         project(&transaction, identity.id, &mut value, "")?;
-        let text = if let Some(record) = value.get("value") {
-            let subject = record
-                .get("report")
-                .or_else(|| record.get("intent"))
-                .or_else(|| record.get("plan"))
-                .unwrap_or(record);
-            let id = subject
-                .get("id")
-                .or_else(|| subject.get("message_id"))
-                .or_else(|| subject.get("run_id"))
-                .and_then(Value::as_str);
-            let mut text = String::from("ok");
-            if let Some(id) = id {
-                text.push_str(&format!(" {id}"));
-            }
-            if let Some(revision) = record
-                .get("revision")
-                .or_else(|| record.get("plan_revision"))
-                .and_then(Value::as_u64)
-            {
-                text.push_str(&format!(".{revision}"));
-            }
-            for key in ["state", "applied"] {
-                if let Some(value) = record.get(key) {
-                    text.push_str(&format!(
-                        " {key}={}",
-                        value
-                            .as_str()
-                            .map(str::to_owned)
-                            .unwrap_or_else(|| value.to_string())
-                    ));
-                }
-            }
-            text
-        } else {
-            // read_message is the explicit detail escape hatch, including the full report body.
-            if name != "read_message" {
-                remove_nulls(&mut value);
-            }
-            encode(&value)?
-        };
+        let text = render(name, value)?;
         transaction.commit()?;
         Ok(text)
+    }
+
+    pub fn legacy_native_output(name: &str, mut value: Value) -> Result<String> {
+        if name != "read_message" {
+            previews(&mut value);
+        }
+        render(name, value)
     }
 
     pub fn native_envelope(&mut self, identity: SessionRef, id: MessageId) -> Result<String> {
@@ -327,4 +294,49 @@ fn remove_nulls(value: &mut Value) {
         }
         _ => {}
     }
+}
+
+fn render(name: &str, mut value: Value) -> Result<String> {
+    let text = if let Some(record) = value.get("value") {
+        let subject = record
+            .get("report")
+            .or_else(|| record.get("intent"))
+            .or_else(|| record.get("plan"))
+            .unwrap_or(record);
+        let id = subject
+            .get("id")
+            .or_else(|| subject.get("message_id"))
+            .or_else(|| subject.get("run_id"))
+            .and_then(Value::as_str);
+        let mut text = String::from("ok");
+        if let Some(id) = id {
+            text.push_str(&format!(" {id}"));
+        }
+        if let Some(revision) = record
+            .get("revision")
+            .or_else(|| record.get("plan_revision"))
+            .and_then(Value::as_u64)
+        {
+            text.push_str(&format!(".{revision}"));
+        }
+        for key in ["state", "applied"] {
+            if let Some(value) = record.get(key) {
+                text.push_str(&format!(
+                    " {key}={}",
+                    value
+                        .as_str()
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| value.to_string())
+                ));
+            }
+        }
+        text
+    } else {
+        // read_message is the explicit detail escape hatch, including the full report body.
+        if name != "read_message" {
+            remove_nulls(&mut value);
+        }
+        encode(&value)?
+    };
+    Ok(text)
 }

@@ -241,15 +241,20 @@ async fn native_call(
     metadata: &Value,
 ) -> Result<Value> {
     let automatic = arguments.get("request_id").is_none();
-    let mut arguments = client
+    let mut arguments = match client
         .request(
             RequestId::new(),
             Command::NativeArguments {
                 name: name.into(),
-                arguments,
+                arguments: arguments.clone(),
             },
         )
-        .await?;
+        .await
+    {
+        Ok(arguments) => arguments,
+        Err(failure) if unsupported_native(&failure) => arguments,
+        Err(failure) => return Err(failure),
+    };
     let (request, command) = super::tools::decode(name, arguments.clone()).map_err(error)?;
     arguments["request_id"] = json!(request);
     let include_request = automatic
@@ -272,7 +277,7 @@ async fn native_call(
     validate_native_origin(client, &command, metadata)
         .await
         .map_err(retry_identity)?;
-    let projected = client
+    let projected = match client
         .request(
             request,
             Command::NativeCall {
@@ -281,7 +286,27 @@ async fn native_call(
             },
         )
         .await
-        .map_err(retry_identity)?;
+    {
+        Ok(projected) => projected,
+        Err(failure) if unsupported_native(&failure) => {
+            let value = match command {
+                Command::ResolveIds { ids } => {
+                    if ids.len() > 64 || ids.iter().any(|id| id.parse::<MessageId>().is_err()) {
+                        return Err(error(
+                            "this running daemon requires full UUIDs; short aliases are unavailable",
+                        ));
+                    }
+                    Value::Object(ids.into_iter().map(|id| (id.clone(), json!(id))).collect())
+                }
+                command => client
+                    .request(request, command)
+                    .await
+                    .map_err(retry_identity)?,
+            };
+            json!(super::store::Store::legacy_native_output(name, value).map_err(retry_identity)?)
+        }
+        Err(failure) => return Err(retry_identity(failure)),
+    };
     let mut text = projected
         .as_str()
         .ok_or_else(|| error("invalid native output"))?
@@ -290,6 +315,10 @@ async fn native_call(
         text.push_str(&format!(" request_id={request}"));
     }
     Ok(Value::String(text))
+}
+
+fn unsupported_native(error: &ControlError) -> bool {
+    error.code == ErrorCode::InvalidRequest && error.message == "unsupported native projection"
 }
 
 async fn validate_native_origin(
@@ -363,16 +392,25 @@ async fn notifications<W: AsyncWrite + Unpin>(output: Output<W>, client: Client)
             if entry.delivery.state != DeliveryState::Stored {
                 continue;
             }
-            let envelope = client
+            let (envelope, legacy) = match client
                 .request(
                     RequestId::new(),
                     Command::NativeEnvelope {
                         message_id: entry.message.id,
                     },
                 )
-                .await?;
-            let Some(envelope) = envelope.as_str() else {
-                continue;
+                .await
+            {
+                Ok(value) => {
+                    let Some(envelope) = value.as_str() else {
+                        continue;
+                    };
+                    (envelope.to_owned(), false)
+                }
+                Err(failure) if unsupported_native(&failure) => {
+                    (super::envelope::encode(&entry.message)?, true)
+                }
+                Err(failure) => return Err(failure),
             };
             let claimed = client
                 .request(
@@ -397,6 +435,16 @@ async fn notifications<W: AsyncWrite + Unpin>(output: Output<W>, client: Client)
                     },
                 )
                 .await?;
+            if legacy {
+                client
+                    .request(
+                        RequestId::new(),
+                        Command::Acknowledge {
+                            message_id: entry.message.id,
+                        },
+                    )
+                    .await?;
+            }
         }
         cursor = if empty { 0 } else { page.next_cursor };
     }

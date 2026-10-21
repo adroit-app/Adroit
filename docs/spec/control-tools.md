@@ -49,6 +49,10 @@ User prose and arbitrary JSON evidence are preserved. `resolve_ids` takes an
 snapshot reads show report summaries with detail references; `read_message`
 provides complete evidence.
 
+When a running daemon predates native projections, the bridge uses full UUIDs
+and ordinary authenticated control operations. It leaves existing sessions
+running; short aliases require a daemon that supports them.
+
 `new_ids` allocates fresh UUIDs without changing orchestration state. Its optional
 integer counts are `requests`, `tasks`, `messages`, `candidates`, `runs`, and
 `coordination`. Requests default to eight; other kinds default to zero. Counts

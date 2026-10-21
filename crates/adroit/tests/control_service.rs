@@ -3,6 +3,102 @@ use adroit_model::{Agent, LogicalSessionId, RequestId, RunBrief, RunId};
 use serde_json::json;
 
 #[tokio::test]
+async fn native_compatibility_requires_an_explicit_unknown_command_response() {
+    use adroit::control::{
+        protocol::{Request, Response, VERSION},
+        store::{ControlError, ErrorCode},
+    };
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    for (version, id_kind, code, message, expected) in [
+        (
+            VERSION,
+            "none",
+            ErrorCode::InvalidRequest,
+            "invalid control request",
+            "unsupported native projection",
+        ),
+        (
+            VERSION,
+            "wrong",
+            ErrorCode::InvalidRequest,
+            "invalid control request",
+            "the response does not match the request",
+        ),
+        (
+            VERSION + 1,
+            "none",
+            ErrorCode::InvalidRequest,
+            "invalid control request",
+            "the response does not match the request",
+        ),
+        (
+            VERSION,
+            "none",
+            ErrorCode::OwnershipMismatch,
+            "invalid control request",
+            "the response does not match the request",
+        ),
+        (
+            VERSION,
+            "none",
+            ErrorCode::InvalidRequest,
+            "credential rejected",
+            "the response does not match the request",
+        ),
+        (
+            VERSION,
+            "same",
+            ErrorCode::OwnershipMismatch,
+            "credential rejected",
+            "credential rejected",
+        ),
+        (
+            VERSION,
+            "same",
+            ErrorCode::InvalidRequest,
+            "invalid control request",
+            "invalid control request",
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let listener = tokio::net::UnixListener::bind(dir.path().join("control.sock")).unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut stream = BufReader::new(stream);
+            let mut line = String::new();
+            stream.read_line(&mut line).await.unwrap();
+            let request: Request = serde_json::from_str(&line).unwrap();
+            let response = Response {
+                version,
+                id: match id_kind {
+                    "same" => Some(request.id),
+                    "wrong" => Some(RequestId::new()),
+                    _ => None,
+                },
+                result: Err(ControlError::new(code, message)),
+            };
+            stream
+                .get_mut()
+                .write_all((serde_json::to_string(&response).unwrap() + "\n").as_bytes())
+                .await
+                .unwrap();
+        });
+        let error = Client::session(dir.path(), "credential".into())
+            .request(
+                RequestId::new(),
+                Command::NativeArguments {
+                    name: "context".into(),
+                    arguments: json!({}),
+                },
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.message, expected);
+        server.await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn requests_survive_reconnection_and_daemon_restart_without_a_window() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("control");

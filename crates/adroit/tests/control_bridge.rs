@@ -22,6 +22,156 @@ async fn exchange(
     serde_json::from_str(&line).unwrap()
 }
 
+fn legacy_proxy(
+    root: &std::path::Path,
+    upstream: &std::path::Path,
+) -> (
+    tokio::task::JoinHandle<()>,
+    std::sync::Arc<std::sync::atomic::AtomicUsize>,
+) {
+    use adroit::control::protocol::{Response, VERSION};
+    use adroit::control::store::{ControlError, ErrorCode};
+    std::fs::create_dir_all(root).unwrap();
+    let listener = tokio::net::UnixListener::bind(root.join("control.sock")).unwrap();
+    let upstream = upstream.join("control.sock");
+    let acknowledgements = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let observed = acknowledgements.clone();
+    let task = tokio::spawn(async move {
+        loop {
+            let (stream, _) = listener.accept().await.unwrap();
+            let upstream = upstream.clone();
+            let observed = observed.clone();
+            tokio::spawn(async move {
+                let mut stream = BufReader::new(stream);
+                let mut line = String::new();
+                stream.read_line(&mut line).await.unwrap();
+                let request: Value = serde_json::from_str(&line).unwrap();
+                let op = request["command"]["op"].as_str().unwrap();
+                let response = if op.starts_with("native_") || op == "resolve_ids" {
+                    serde_json::to_string(&Response {
+                        version: VERSION,
+                        id: None,
+                        result: Err(ControlError::new(
+                            ErrorCode::InvalidRequest,
+                            "invalid control request",
+                        )),
+                    })
+                    .unwrap()
+                        + "\n"
+                } else {
+                    let mut upstream = tokio::net::UnixStream::connect(upstream).await.unwrap();
+                    upstream.write_all(line.as_bytes()).await.unwrap();
+                    let mut response = String::new();
+                    BufReader::new(upstream)
+                        .read_line(&mut response)
+                        .await
+                        .unwrap();
+                    response
+                };
+                if op == "acknowledge" {
+                    observed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+                stream
+                    .get_mut()
+                    .write_all(response.as_bytes())
+                    .await
+                    .unwrap();
+            });
+        }
+    });
+    (task, acknowledgements)
+}
+
+#[tokio::test]
+async fn native_tools_keep_working_with_a_daemon_that_predates_native_projection() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("control");
+    let service = Service::bind(&root).await.unwrap();
+    let cwd = dir.path().to_owned();
+    let (run, token) = service
+        .actor()
+        .call(move |store| {
+            let leader = store
+                .register_leader(
+                    RequestId::new(),
+                    LogicalSessionId::new(),
+                    Agent::Claude,
+                    cwd,
+                )?
+                .value
+                .reference();
+            let run = RunId::new();
+            store.open_run(
+                RequestId::new(),
+                leader,
+                run,
+                RunBrief {
+                    title: "Legacy".into(),
+                    goal: "Keep sessions alive".into(),
+                    ..Default::default()
+                },
+            )?;
+            Ok((run, store.grant(leader)?))
+        })
+        .await
+        .unwrap();
+    let proxy_root = dir.path().join("legacy");
+    let (proxy, _) = legacy_proxy(&proxy_root, &root);
+    let (input, mut send) = tokio::io::duplex(8192);
+    let (output, receive) = tokio::io::duplex(8192);
+    let task = tokio::spawn(bridge::run(
+        BufReader::new(input),
+        output,
+        Client::session(&proxy_root, token),
+        false,
+    ));
+    let mut receive = BufReader::new(receive);
+    exchange(
+        &mut send,
+        &mut receive,
+        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}),
+    )
+    .await;
+    let reply = exchange(&mut send,&mut receive,json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"context","arguments":{}}})).await;
+    assert_eq!(reply["result"]["isError"], false, "{reply}");
+    let context: Value =
+        serde_json::from_str(reply["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(context["run"]["id"], run.to_string());
+    let mut arguments = json!({"id":TaskId::new(),"run_id":run,"expected_revision":null,"brief":{"instructions":"Investigate"},"dependencies":[]});
+    let call = |arguments: Value| json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"put_task","arguments":arguments}});
+    let reply = exchange(&mut send, &mut receive, call(arguments.clone())).await;
+    assert_eq!(reply["result"]["isError"], false, "{reply}");
+    let text = reply["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(
+        text.starts_with(&format!("ok {}.1", arguments["id"].as_str().unwrap())),
+        "{text}"
+    );
+    let retry = text.split("request_id=").nth(1).unwrap();
+    arguments["request_id"] = json!(retry);
+    let task_id = arguments["id"].clone();
+    let reply = exchange(&mut send, &mut receive, call(arguments)).await;
+    assert_eq!(reply["result"]["isError"], false, "{reply}");
+    let reply = exchange(&mut send,&mut receive,json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"queue_task","arguments":{"task_id":task_id,"revision":1}}})).await;
+    assert_eq!(reply["result"]["isError"], false, "{reply}");
+    for (id, succeeds) in [(run.to_string(), true), ("r1".to_owned(), false)] {
+        let reply = exchange(&mut send,&mut receive,json!({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"resolve_ids","arguments":{"ids":[id]}}})).await;
+        assert_eq!(reply["result"]["isError"], !succeeds, "{reply}");
+    }
+    assert_eq!(
+        service
+            .actor()
+            .call(|store| store.snapshot())
+            .await
+            .unwrap()
+            .tasks
+            .len(),
+        1
+    );
+    drop(send);
+    task.await.unwrap().unwrap();
+    proxy.abort();
+}
+
 #[tokio::test]
 async fn codex_mutations_require_the_observed_parent_thread_but_bootstrap_reads_remain_available() {
     let dir = tempfile::tempdir().unwrap();
@@ -238,6 +388,15 @@ async fn a_failed_notification_stream_closes_a_connection_waiting_for_a_partial_
 
 #[tokio::test]
 async fn a_channel_write_records_receipt_without_an_acknowledgement_round_trip() {
+    channel_receipt(false).await;
+}
+
+#[tokio::test]
+async fn legacy_channels_record_receipt_without_an_acknowledgement_model_turn() {
+    channel_receipt(true).await;
+}
+
+async fn channel_receipt(legacy: bool) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("control");
     let mut store = Store::open(&root.join("state.sqlite3")).unwrap();
@@ -317,12 +476,15 @@ async fn a_channel_write_records_receipt_without_an_acknowledgement_round_trip()
     drop(store);
     let _service = Service::bind(&root).await.unwrap();
     let human = Client::human(&root).unwrap();
+    let proxy_root = dir.path().join("legacy");
+    let proxy = legacy.then(|| legacy_proxy(&proxy_root, &root));
+    let endpoint = if legacy { &proxy_root } else { &root };
     let (input, mut send) = tokio::io::duplex(8192);
     let (output, receive) = tokio::io::duplex(8192);
     let task = tokio::spawn(bridge::run(
         BufReader::new(input),
         output,
-        Client::session(&root, token),
+        Client::session(endpoint, token),
         true,
     ));
     let mut receive = BufReader::new(receive);
@@ -357,7 +519,11 @@ async fn a_channel_write_records_receipt_without_an_acknowledgement_round_trip()
                 .request(RequestId::new(), Command::Snapshot)
                 .await
                 .unwrap();
-            if snapshot["deliveries"][0]["state"] == "acknowledged" {
+            if snapshot["deliveries"][0]["state"] == "acknowledged"
+                && proxy
+                    .as_ref()
+                    .is_none_or(|(_, count)| count.load(std::sync::atomic::Ordering::SeqCst) > 0)
+            {
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -380,6 +546,9 @@ async fn a_channel_write_records_receipt_without_an_acknowledgement_round_trip()
     assert_eq!(snapshot["deliveries"][0]["state"], "acknowledged");
     drop(send);
     task.await.unwrap().unwrap();
+    if let Some((proxy, _)) = proxy {
+        proxy.abort();
+    }
 }
 
 #[tokio::test]
