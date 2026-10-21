@@ -49,6 +49,12 @@ impl DraftOptions {
             permissions: AgentPermissions::Default,
         }
     }
+
+    /// The options chosen with nothing open, used up by the draft they were
+    /// chosen for, or else the view's.
+    pub fn for_new_draft(next: &mut Option<Self>, leader_view: bool) -> Self {
+        next.take().unwrap_or_else(|| Self::for_view(leader_view))
+    }
 }
 
 impl From<Agent> for DraftOptions {
@@ -220,6 +226,24 @@ mod tests {
             );
         }
         assert_eq!(DraftOptions::default().mode, StartMode::Standalone);
+    }
+
+    #[test]
+    fn options_chosen_with_nothing_open_go_to_the_next_draft_only() {
+        use crate::execution::StartMode;
+        let chosen = DraftOptions {
+            mode: StartMode::Leader,
+            agent: None,
+            model: Some("opus".into()),
+            permissions: AgentPermissions::ReadOnly,
+        };
+        let mut next = Some(chosen.clone());
+        assert_eq!(DraftOptions::for_new_draft(&mut next, false), chosen);
+        assert_eq!(next, None);
+        assert_eq!(
+            DraftOptions::for_new_draft(&mut next, true),
+            DraftOptions::for_view(true)
+        );
     }
 
     #[test]

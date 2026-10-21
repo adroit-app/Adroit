@@ -1546,6 +1546,7 @@ fn App() -> Element {
     // The agent chosen for a session not started yet, by its draft; the
     // default for new sessions otherwise.
     let mut draft_options = use_signal(HashMap::<Tab, tabs::DraftOptions>::new);
+    let mut next_options = use_signal(|| None::<tabs::DraftOptions>);
     let mut last_agent = use_signal(|| None::<adroit_model::Agent>);
     let mut place = use_signal(|| None::<Place>);
     let mut terminals = use_signal(Vec::<TerminalSession>::new);
@@ -2874,7 +2875,7 @@ fn App() -> Element {
         let draft = Tab::draft(worktree);
         draft_options.write().insert(
             draft.clone(),
-            tabs::DraftOptions::for_view(*leader_view.peek()),
+            tabs::DraftOptions::for_new_draft(&mut next_options.write(), *leader_view.peek()),
         );
         draft
     };
@@ -5282,6 +5283,13 @@ fn App() -> Element {
             drill.set(d);
         }
     };
+    // Where a prompt sent with nothing open starts its session; `None` for a
+    // scratch session.
+    let starts_in = {
+        let scratch = scratch_dir();
+        let p = nav::start_place(&t, current.as_ref(), &scratch);
+        (p.worktree != scratch).then(|| short(&p.worktree))
+    };
     let target = match &active_tab {
         Some(Tab::Session(id)) => nav::find(&t, id)
             .map(|(_, s)| s.name.clone())
@@ -5295,15 +5303,10 @@ fn App() -> Element {
         Some(Tab::Draft { .. }) => "new session".into(),
         // A prompt sent now starts a session where it can only mean, or else
         // a scratch session.
-        None => {
-            let scratch = scratch_dir();
-            let p = nav::start_place(&t, current.as_ref(), &scratch);
-            if p.worktree == scratch {
-                "new scratch session".into()
-            } else {
-                format!("new session in {}", short(&p.worktree))
-            }
-        }
+        None => match &starts_in {
+            Some(at) => format!("new session in {at}"),
+            None => "new scratch session".into(),
+        },
     };
     // The crumbs already name the worktree.
     let crumb = match (&active_tab, target.strip_prefix("new session in ")) {
@@ -6134,10 +6137,21 @@ fn App() -> Element {
                                         div { class: "console-empty-hint", "Pick the directory it works in: a workspace, a Claude Code project, a ghq repository, or any folder." }
                                     }
                                     div { class: "launch-form",
+                                        div { class: "launch-form-label", "Starts in" }
+                                        div { class: "launch-form-where",
+                                            match &starts_in {
+                                                Some(at) => rsx! { span { class: "console-empty-path", "{at}" } },
+                                                None => rsx! { "A scratch session" },
+                                            }
+                                        }
                                         AgentChoices {
                                             current: current_agent,
                                             keys: k_agent.clone(),
                                             onchoose: move |a| choose_agent(None, a),
+                                        }
+                                        DraftLaunchOptions {
+                                            options: next_options.read().clone().unwrap_or_else(|| tabs::DraftOptions::for_view(leader_view())),
+                                            onchange: move |options| next_options.set(Some(options)),
                                         }
                                     }
                                     div { class: "console-legend",

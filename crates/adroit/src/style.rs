@@ -381,6 +381,7 @@ kbd { font-family: var(--mono); font-size: 10.5px; color: #c9ccd2; background: v
   background: var(--raised) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23868c96' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 9px center; }
 .launch-form input::placeholder { color: var(--text-3); }
 .launch-form select:focus, .launch-form input:focus { border-color: var(--run); }
+.launch-form-where { min-width: 0; color: var(--text-2); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .launch-form-agent { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .launch-form-keys { display: inline-flex; color: var(--text-3); }
 .segmented { display: inline-flex; padding: 2px; gap: 2px; background: var(--raised); border: 1px solid var(--line-strong); border-radius: 7px; }

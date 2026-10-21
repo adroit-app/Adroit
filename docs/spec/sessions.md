@@ -20,7 +20,10 @@ is sent. The empty window and drafts offer the agent choices, and
 for new sessions while the window is open. Reopening the app starts with the
 default in Settings under General, or `agent` in [settings.toml](settings.md).
 The draft also offers a model and permission profile for that launch; changing
-these choices keeps its prompt and attachments. A session keeps its agent once it runs, whatever the default becomes. Both
+these choices keeps its prompt and attachments. The empty window offers the
+mode, model and permission profile too, and the next new session starts with
+what was chosen there. It also says where a prompt sent from it would start
+its session. A session keeps its agent once it runs, whatever the default becomes. Both
 kinds can run in the same workspace.
 
 Codex sessions use the embedded prompt and report their working and waiting
