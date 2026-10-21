@@ -680,9 +680,10 @@ const optionIsAlt = () => {
   const as = window.adroitOptionAsAlt || 'both';
   return as === 'both' || (as === 'left' && option === 'AltLeft') || (as === 'right' && option === 'AltRight');
 };
-// Whether the user types in this text field: one shown and taking text. A
-// field hidden, gone or read-only would hold the keys without using them.
-const typesIn = (a) => (a instanceof HTMLInputElement || a instanceof HTMLTextAreaElement)
+// Whether the user types in this field: a text field taking text, or a list
+// to choose from, shown. A field hidden, gone or read-only would hold the keys
+// without using them; taking focus from a list closes it as it opens.
+const typesIn = (a) => (a instanceof HTMLInputElement || a instanceof HTMLTextAreaElement || a instanceof HTMLSelectElement)
   && a !== t && a.isConnected && !a.readOnly && !a.disabled && a.getClientRects().length > 0;
 const take = () => {
   if (!current()) return;
