@@ -75,6 +75,12 @@ The folder of the socket has to be yours and open to no one else: adroit makes
 it so when it makes the folder, and refuses one already there that is not,
 leaving it as it is.
 
+`adroit daemon stop` stops the daemon of the instance and waits until its
+process is gone; `adroit daemon restart` stops it, if one runs, and starts
+another. Either ends every session the daemon holds, agents and shells alike,
+with what they scrolled back. A daemon too old to be asked to stop is stopped
+by signal. Stopping where no daemon runs is not an error.
+
 A session ends when its program exits or when it is ended from adroit. Its
 console then says so, and it is listed no more.
 

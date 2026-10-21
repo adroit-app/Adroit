@@ -15,10 +15,18 @@ pub enum Command {
     Control(Vec<String>),
     Editor(Vec<String>),
     Session(Vec<String>),
-    Daemon,
+    Daemon(DaemonCommand),
 }
 
-pub const USAGE: &str = "usage: adroit [--instance <name> | --version | terminal … | control … | editor … | session … | daemon]";
+/// What `adroit daemon` is asked to do with the daemon of the instance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DaemonCommand {
+    Serve,
+    Stop,
+    Restart,
+}
+
+pub const USAGE: &str = "usage: adroit [--instance <name> | --version | terminal … | control … | editor … | session … | daemon [stop | restart]]";
 
 /// The command `args` ask for; `None` for one adroit does not know, which
 /// must not open a window: a program that ran an older adroit's subcommand
@@ -38,7 +46,12 @@ pub fn command(args: &[String]) -> Option<Command> {
         Some("terminal") => Some(Command::Terminal(rest())),
         Some("editor") => Some(Command::Editor(rest())),
         Some("session") => Some(Command::Session(rest())),
-        Some("daemon") if args.len() == 1 => Some(Command::Daemon),
+        Some("daemon") => match &args[1..] {
+            [] => Some(Command::Daemon(DaemonCommand::Serve)),
+            [verb] if verb == "stop" => Some(Command::Daemon(DaemonCommand::Stop)),
+            [verb] if verb == "restart" => Some(Command::Daemon(DaemonCommand::Restart)),
+            _ => None,
+        },
         _ => None,
     }
 }
@@ -103,7 +116,18 @@ mod tests {
             asked(&["session", "start"]),
             Some(Command::Session(vec!["start".into()]))
         );
-        assert_eq!(asked(&["daemon"]), Some(Command::Daemon));
+        assert_eq!(
+            asked(&["daemon"]),
+            Some(Command::Daemon(DaemonCommand::Serve))
+        );
+        assert_eq!(
+            asked(&["daemon", "stop"]),
+            Some(Command::Daemon(DaemonCommand::Stop))
+        );
+        assert_eq!(
+            asked(&["daemon", "restart"]),
+            Some(Command::Daemon(DaemonCommand::Restart))
+        );
         assert_eq!(asked(&["--version"]), Some(Command::Version));
     }
 
@@ -143,5 +167,6 @@ mod tests {
         assert_eq!(asked(&["hook"]), None);
         assert_eq!(asked(&["--bogus"]), None);
         assert_eq!(asked(&["daemon", "extra"]), None);
+        assert_eq!(asked(&["daemon", "stop", "extra"]), None);
     }
 }

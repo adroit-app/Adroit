@@ -11,7 +11,7 @@ fn main() {
         eprintln!("adroit: {e}");
         std::process::exit(2);
     }
-    if matches!(asked, Some(Command::Daemon)) {
+    if matches!(asked, Some(Command::Daemon(_))) {
         let names = std::env::vars_os().map(|(key, _)| key.to_string_lossy().into_owned());
         for key in adroit::env::inherited(names) {
             // SAFETY: the daemon runtime has not created any threads yet.
@@ -31,7 +31,7 @@ fn main() {
         Some(Command::Control(rest)) => std::process::exit(adroit::control::cli::cli(&rest)),
         Some(Command::Terminal(rest)) => std::process::exit(adroit::terminal_cli(&rest)),
         Some(Command::Editor(rest)) => std::process::exit(adroit::editor::cli(&rest)),
-        Some(Command::Daemon) => std::process::exit(adroit::daemon_cli()),
+        Some(Command::Daemon(asked)) => std::process::exit(adroit::daemon_cli(asked)),
         Some(Command::Window(_)) => {}
     }
     if hand_to_open_window() {

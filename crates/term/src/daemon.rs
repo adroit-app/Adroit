@@ -11,7 +11,7 @@ use felis_daemon::serve::DaemonCaps;
 use felis_protocol::MessageKind;
 use felis_protocol::messages::{
     ConnToClientMsg, GridMsg, RegionSource, RegionToClientMsg, RegionToDaemonMsg, RequestedDims,
-    SpawnArgs,
+    SpawnArgs, StopMode,
 };
 use felis_transport::local::{ReadHalf, WriteHalf};
 use felis_transport::{Delivery, Endpoint, Incoming};
@@ -35,6 +35,8 @@ pub enum Error {
     Protocol(String),
     #[error("startup preparation was refused and terminal {session:032x} was stopped: {reason}")]
     PreparationAborted { session: u128, reason: String },
+    #[error("the daemon, process {0}, did not stop")]
+    NotStopped(u32),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -140,6 +142,45 @@ impl Daemon {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         Err(Error::NotStarted(self.socket.clone()))
+    }
+
+    /// The process listening at the socket, whatever it answers, if any does.
+    pub fn pid(&self) -> Option<u32> {
+        let stream = std::os::unix::net::UnixStream::connect(&self.socket).ok()?;
+        peer_pid(&stream)
+    }
+
+    /// Stop the daemon, ending every session it holds, and wait until its
+    /// process is gone; whether one was listening to stop.
+    pub async fn stop(&self) -> Result<bool> {
+        let Some(pid) = self.pid() else {
+            return Ok(false);
+        };
+        // A daemon from before felis could be asked to stop, or one too busy
+        // to answer, is signalled instead.
+        let asked = tokio::time::timeout(ASK_STOP, async {
+            self.ops().await?.daemon_stop(StopMode::Force).await?;
+            Ok::<_, Error>(())
+        })
+        .await;
+        if matches!(asked, Ok(Ok(()))) && gone(pid, STOPPING).await {
+            return Ok(true);
+        }
+        for signal in [libc::SIGTERM, libc::SIGKILL] {
+            // SAFETY: kill(2) only sends a signal to the process named.
+            unsafe { libc::kill(pid as libc::pid_t, signal) };
+            if gone(pid, STOPPING).await {
+                return Ok(true);
+            }
+        }
+        Err(Error::NotStopped(pid))
+    }
+
+    /// Stop the daemon if one listens, then start `program` with `args` as
+    /// [`Daemon::start`] does.
+    pub async fn restart(&self, program: &Path, args: &[String]) -> Result<()> {
+        self.stop().await?;
+        self.start(program, args).await
     }
 
     async fn connect(&self, offer: Offer) -> Result<Connection<ReadHalf, WriteHalf>> {
@@ -323,6 +364,73 @@ pub(crate) fn detached(program: &Path, args: &[String]) -> std::io::Result<()> {
             program.display()
         )))
     }
+}
+
+/// How long a daemon is given to take the request to stop.
+const ASK_STOP: Duration = Duration::from_secs(2);
+
+/// How long a daemon asked or signalled to stop is given to end.
+const STOPPING: Duration = Duration::from_secs(3);
+
+/// Whether process `pid` ends within `within`.
+async fn gone(pid: u32, within: Duration) -> bool {
+    let until = tokio::time::Instant::now() + within;
+    loop {
+        // SAFETY: signal 0 only asks whether the process exists.
+        let alive = unsafe { libc::kill(pid as libc::pid_t, 0) } == 0
+            || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
+        if !alive {
+            return true;
+        }
+        if tokio::time::Instant::now() >= until {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// The process at the other end of `stream`.
+#[cfg(target_os = "macos")]
+fn peer_pid(stream: &std::os::unix::net::UnixStream) -> Option<u32> {
+    use std::os::fd::AsRawFd;
+    let mut pid: libc::pid_t = 0;
+    let mut len = std::mem::size_of::<libc::pid_t>() as libc::socklen_t;
+    // SAFETY: the buffer is a pid_t and `len` says its size, as
+    // LOCAL_PEERPID fills.
+    let read = unsafe {
+        libc::getsockopt(
+            stream.as_raw_fd(),
+            libc::SOL_LOCAL,
+            libc::LOCAL_PEERPID,
+            (&raw mut pid).cast(),
+            &mut len,
+        )
+    };
+    (read == 0 && pid > 0).then_some(pid as u32)
+}
+
+/// The process at the other end of `stream`.
+#[cfg(not(target_os = "macos"))]
+fn peer_pid(stream: &std::os::unix::net::UnixStream) -> Option<u32> {
+    use std::os::fd::AsRawFd;
+    let mut cred = libc::ucred {
+        pid: 0,
+        uid: 0,
+        gid: 0,
+    };
+    let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+    // SAFETY: the buffer is a ucred and `len` says its size, as
+    // SO_PEERCRED fills.
+    let read = unsafe {
+        libc::getsockopt(
+            stream.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_PEERCRED,
+            (&raw mut cred).cast(),
+            &mut len,
+        )
+    };
+    (read == 0 && cred.pid > 0).then_some(cred.pid as u32)
 }
 
 /// Make the folder `socket` is in, open to no one else, as the daemon

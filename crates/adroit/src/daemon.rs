@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use adroit_term::Daemon;
 
 use crate::awake::{self, Assertion, Keeper};
+use crate::cli::DaemonCommand;
 use crate::paths::{instance_state, state_dir};
 use crate::settings::Settings;
 
@@ -82,40 +83,76 @@ fn runtime() -> std::io::Result<tokio::runtime::Runtime> {
 /// awake: well within the minutes idle sleep waits.
 const AWAKE_EVERY: std::time::Duration = std::time::Duration::from_secs(5);
 
-/// `adroit daemon`: serve sessions at the socket until killed. Returns the
-/// process exit code.
-pub fn cli() -> i32 {
-    let mut keeper = Keeper::new(|| Assertion::take(awake::NAME));
-    // The setting is read from its file each time, as the window that
-    // changes it is another process, which may not be open.
-    let running = move |n| keeper.keep(awake::wanted(n, Settings::load().keep_awake));
-    let served = runtime().map_err(adroit_term::Error::from).and_then(|rt| {
-        rt.block_on(async {
-            let mut control =
-                match crate::control::service::Service::bind(&crate::control::root()).await {
-                    Ok(service) => Some(service),
-                    Err(error) => {
-                        eprintln!("adroit: orchestration is unavailable: {error}");
-                        None
-                    }
-                };
-            if let Some(service) = &mut control {
-                let program = std::env::current_exe().unwrap_or_else(|_| "adroit".into());
-                if let Err(error) = service.supervise_checked(daemon(), program, Settings::try_load)
-                {
-                    eprintln!("adroit: orchestration supervision is unavailable: {error}");
+/// `adroit daemon`: serve sessions at the socket until stopped, or stop or
+/// restart the daemon serving there. Returns the process exit code.
+pub fn cli(asked: DaemonCommand) -> i32 {
+    let rt = match runtime() {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("adroit: {e}");
+            return 1;
+        }
+    };
+    let done = match asked {
+        DaemonCommand::Serve => serve(&rt),
+        DaemonCommand::Stop => rt.block_on(async {
+            let stopped = daemon().stop().await?;
+            println!(
+                "{}",
+                if stopped {
+                    "stopped the daemon"
+                } else {
+                    "no daemon was running"
                 }
-            }
-            Daemon::serve(&socket(), AWAKE_EVERY, running).await
-        })
-    });
-    match served {
+            );
+            Ok(())
+        }),
+        DaemonCommand::Restart => rt.block_on(async {
+            let daemon = daemon();
+            daemon.restart(&adroit_program(), &serve_args()).await?;
+            println!("restarted the daemon");
+            Ok(())
+        }),
+    };
+    // Tasks still running once the daemon has stopped serving are not
+    // waited for: the process is to end with it.
+    rt.shutdown_background();
+    match done {
         Ok(()) => 0,
         Err(e) => {
             eprintln!("adroit: {e}");
             1
         }
     }
+}
+
+/// This program, as the daemon is started with.
+fn adroit_program() -> PathBuf {
+    std::env::current_exe().unwrap_or_else(|_| "adroit".into())
+}
+
+fn serve(rt: &tokio::runtime::Runtime) -> adroit_term::Result<()> {
+    let mut keeper = Keeper::new(|| Assertion::take(awake::NAME));
+    // The setting is read from its file each time, as the window that
+    // changes it is another process, which may not be open.
+    let running = move |n| keeper.keep(awake::wanted(n, Settings::load().keep_awake));
+    rt.block_on(async {
+        let mut control =
+            match crate::control::service::Service::bind(&crate::control::root()).await {
+                Ok(service) => Some(service),
+                Err(error) => {
+                    eprintln!("adroit: orchestration is unavailable: {error}");
+                    None
+                }
+            };
+        if let Some(service) = &mut control
+            && let Err(error) =
+                service.supervise_checked(daemon(), adroit_program(), Settings::try_load)
+        {
+            eprintln!("adroit: orchestration supervision is unavailable: {error}");
+        }
+        Daemon::serve(&socket(), AWAKE_EVERY, running).await
+    })
 }
 
 #[cfg(test)]
