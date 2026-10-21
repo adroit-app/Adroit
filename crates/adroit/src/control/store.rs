@@ -18,13 +18,14 @@ mod context;
 mod coordination;
 mod dependencies;
 mod lifecycle;
+mod native;
 mod results;
 mod runs;
 mod runtime;
 pub mod ui;
 mod workareas;
 
-const SCHEMA_VERSION: i64 = 12;
+const SCHEMA_VERSION: i64 = 13;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -570,6 +571,14 @@ impl Store {
             let transaction =
                 connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
             transaction.execute_batch("CREATE TABLE completion_requests (id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), state TEXT NOT NULL, data TEXT NOT NULL); CREATE INDEX completion_requests_state ON completion_requests(state); CREATE UNIQUE INDEX completion_requests_pending_run ON completion_requests(run_id) WHERE state = 'pending';")?;
+            transaction.pragma_update(None, "user_version", 12)?;
+            transaction.commit()?;
+        }
+        if schema < 13 {
+            let transaction =
+                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            transaction.execute_batch("CREATE TABLE native_progress (message_id TEXT PRIMARY KEY REFERENCES messages(id)); CREATE TABLE native_aliases (recipient TEXT NOT NULL REFERENCES logical_sessions(id), kind TEXT NOT NULL, number INTEGER NOT NULL, value TEXT NOT NULL, PRIMARY KEY(recipient, kind, number), UNIQUE(recipient, kind, value));")?;
+            transaction.execute_batch("INSERT OR IGNORE INTO native_progress SELECT messages.id FROM requests JOIN messages ON messages.id=json_extract(requests.body,'$.message.id') JOIN logical_sessions sender ON sender.id=messages.sender JOIN logical_sessions recipient ON recipient.id=messages.recipient WHERE json_extract(requests.body,'$.op')='send_message' AND json_extract(messages.data,'$.kind')='note' AND json_extract(messages.data,'$.blocks_work')=0 AND json_extract(sender.data,'$.binding.role')='worker' AND json_extract(recipient.data,'$.binding.role')='leader';")?;
             transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
             transaction.commit()?;
         }
@@ -1141,6 +1150,16 @@ impl Store {
                     return Ok(existing);
                 }
                 store_message(connection, &message)?;
+                if sender.binding.role() == SessionRole::Worker
+                    && recipient.binding.role() == SessionRole::Leader
+                    && message.kind == MessageKind::Note
+                    && !message.blocks_work
+                {
+                    connection.execute(
+                        "INSERT INTO native_progress(message_id) VALUES(?1)",
+                        [message.id.to_string()],
+                    )?;
+                }
                 Ok(message)
             },
         )
@@ -1278,6 +1297,14 @@ impl Store {
                     connection,
                     Some(message.run_id),
                     "delivery_accepted",
+                    &delivery,
+                )?;
+                delivery.state = DeliveryState::Acknowledged;
+                save_delivery(connection, &delivery)?;
+                event(
+                    connection,
+                    Some(message.run_id),
+                    "message_acknowledged",
                     &delivery,
                 )?;
                 Ok(delivery)

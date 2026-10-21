@@ -241,7 +241,7 @@ async fn native_notifications_use_the_recipients_saved_route_and_are_not_repeate
                     TargetSelection::default(),
                 )?
                 .value;
-            for _ in 0..101 {
+            for index in 0..101 {
                 let id = MessageId::new();
                 store.send_message(
                     RequestId::new(),
@@ -263,7 +263,9 @@ async fn native_notifications_use_the_recipients_saved_route_and_are_not_repeate
                         blocks_work: false,
                     },
                 )?;
-                store.accept_delivery(RequestId::new(), id, identity)?;
+                if index % 2 == 0 {
+                    store.accept_delivery(RequestId::new(), id, identity)?;
+                }
             }
             let id = MessageId::new();
             store.send_message(
@@ -295,7 +297,7 @@ async fn native_notifications_use_the_recipients_saved_route_and_are_not_repeate
     for _ in 0..200 {
         let snapshot = actor.call(|store| store.snapshot()).await.unwrap();
         if snapshot.deliveries.iter().any(|delivery| {
-            delivery.message_id == message_id && delivery.state == DeliveryState::Accepted
+            delivery.message_id == message_id && delivery.state == DeliveryState::Acknowledged
         }) {
             break;
         }
@@ -308,11 +310,11 @@ async fn native_notifications_use_the_recipients_saved_route_and_are_not_repeate
         .iter()
         .find(|delivery| delivery.message_id == message_id)
         .unwrap();
-    assert_eq!(delivery.state, DeliveryState::Accepted);
+    assert_eq!(delivery.state, DeliveryState::Acknowledged);
     assert_eq!(delivery.attempts, 1);
     let sent = std::fs::read_to_string(receipt).unwrap();
     assert_eq!(sent.lines().next(), Some("/private/account-a"));
-    assert!(sent.contains(&message_id.to_string()));
+    assert!(sent.contains("q m1 w1 t1.1 !=blocks"));
     assert!(sent.contains("Which inputs should I use?"));
 }
 

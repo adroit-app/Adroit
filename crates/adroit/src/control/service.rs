@@ -292,6 +292,10 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
         && !matches!(
             &request.command,
             Command::Context
+                | Command::ResolveIds { .. }
+                | Command::NativeArguments { .. }
+                | Command::NativeOutput { .. }
+                | Command::NativeEnvelope { .. }
                 | Command::Snapshot
                 | Command::Mailbox { .. }
                 | Command::ReadMessage { .. }
@@ -369,6 +373,23 @@ fn dispatch(store: &mut Store, human: &str, request: Request) -> Result<Value> {
             value(store.accept_delivery(request.id, message_id, identity()?)?)
         }
         Command::Context => value(store.context(identity()?)?),
+        Command::ResolveIds { ids } => store.resolve_native_ids(identity()?, ids),
+        Command::NativeArguments { name, arguments } => {
+            store.native_arguments(identity()?, &name, arguments)
+        }
+        Command::NativeOutput {
+            name,
+            value: output,
+        } => value(store.native_output(identity()?, &name, output)?),
+        Command::NativeEnvelope { message_id } => {
+            let identity = identity()?;
+            let message = store.read_message(identity, message_id)?;
+            if store.should_notify(identity, &message)? {
+                value(store.native_envelope(identity, message_id)?)
+            } else {
+                Ok(Value::Null)
+            }
+        }
         Command::UiPage {
             table,
             after,

@@ -1,6 +1,7 @@
 # Persist orchestration independently of windows and agent conversations
 
-Status: Accepted
+Status: Accepted; the separate receipt requirement is superseded by
+[20261021-treat-native-transport-acceptance-as-message-receipt.md](20261021-treat-native-transport-acceptance-as-message-receipt.md).
 
 ## Context
 

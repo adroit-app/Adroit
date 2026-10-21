@@ -364,11 +364,14 @@ mod tests {
     fn a_program_started_apart_is_the_system_s_child_in_a_session_of_its_own() {
         let dir = tempfile::tempdir().unwrap();
         let out = dir.path().join("ids");
-        let script = format!(
-            "sleep 0.3; ps -o ppid=,sess=,pid= -p $$ > {}",
-            out.display()
-        );
-        detached(Path::new("/bin/sh"), &["-c".into(), script]).unwrap();
+        let executable = std::env::current_exe().unwrap();
+        detached(Path::new("/bin/sh"), &[
+            "-c".into(),
+            "ADROIT_TEST_DETACHED_OUTPUT=\"$1\" exec \"$2\" --exact daemon::tests::detached_identity_fixture --ignored --nocapture".into(),
+            "adroit-detached-test".into(),
+            out.to_string_lossy().into_owned(),
+            executable.to_string_lossy().into_owned(),
+        ]).unwrap();
         for _ in 0..100 {
             if let Ok(text) = std::fs::read_to_string(&out)
                 && !text.trim().is_empty()
@@ -382,6 +385,20 @@ mod tests {
             std::thread::sleep(Duration::from_millis(50));
         }
         panic!("the program never ran");
+    }
+
+    #[test]
+    #[ignore = "subprocess fixture reads only its own process identity"]
+    fn detached_identity_fixture() {
+        std::thread::sleep(Duration::from_millis(300));
+        // SAFETY: these calls only query the current process and have no preconditions.
+        let (parent, session, process) =
+            unsafe { (libc::getppid(), libc::getsid(0), libc::getpid()) };
+        std::fs::write(
+            std::env::var_os("ADROIT_TEST_DETACHED_OUTPUT").unwrap(),
+            format!("{parent} {session} {process}\n"),
+        )
+        .unwrap();
     }
 
     fn mode(dir: &Path) -> u32 {

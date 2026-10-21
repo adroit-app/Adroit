@@ -24,9 +24,12 @@ static CATALOG: LazyLock<Vec<Value>> = LazyLock::new(|| {
         let properties = schema["properties"].as_object_mut().unwrap();
         properties.remove("op");
         properties.insert("request_id".into(), request.clone());
+        if name == "propose_candidate" {
+            properties.insert("expected_revision".into(), variant["properties"]["expected_revision"].clone());
+        }
         let required = schema["required"].as_array_mut().unwrap();
         required.retain(|field| field != "op");
-        required.push(json!("request_id"));
+        if name == "propose_candidate" { required.push(json!("expected_revision")); }
         let mut pending = VecDeque::new();
         references(&schema, &mut pending);
         let mut visited = BTreeSet::new();
@@ -38,14 +41,19 @@ static CATALOG: LazyLock<Vec<Value>> = LazyLock::new(|| {
                 reachable.insert(name, definition.clone());
             }
         }
+        for (name, definition) in &mut reachable {
+            if let Some(kind) = id_kind(name) {
+                *definition = json!({"type":"string", "pattern":format!("^({kind}[1-9][0-9]*|[0-9a-fA-F]{{8}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{12}})$"), "description":"A full UUID or an alias issued to this session."});
+            }
+        }
         if !reachable.is_empty() { schema["$defs"] = Value::Object(reachable); }
         schema.as_object_mut().unwrap().remove("title");
         let mut tool = json!({
             "name":name,
-            "description":format!("Adroit {name}: {} Allocate request_id with new_ids before the first call. Pass the declared fields directly; do not add command or op wrappers. Keep the same request_id only when retrying the same immutable operation.", description(name)),
+            "description":format!("Adroit {name}: {} request_id is optional; supply it for an identical retry. IDs accept your session's short aliases or full UUIDs. Pass fields directly without command or op wrappers.", description(name)),
             "inputSchema":schema
         });
-        if matches!(name, "context" | "snapshot" | "read_message" | "mailbox" | "events" | "candidate") {
+        if matches!(name, "context" | "resolve_ids" | "snapshot" | "read_message" | "mailbox" | "events" | "candidate") {
             tool["annotations"] = json!({"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false});
         }
         tool
@@ -73,15 +81,24 @@ pub(super) fn decode(name: &str, arguments: Value) -> Result<(RequestId, Command
     }
     let request = arguments
         .remove("request_id")
-        .ok_or("request_id is required; allocate it with new_ids")?;
-    let request = serde_json::from_value(request)
-        .map_err(|_| "request_id must be a UUID allocated with new_ids")?;
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|_| "request_id must be a UUID")?
+        .unwrap_or_else(RequestId::new);
+    let expected_revision = if name == "propose_candidate" {
+        arguments.remove("expected_revision")
+    } else {
+        None
+    };
     let mut command = if let Some(field) = wrapper(name) {
         json!({(field):arguments})
     } else {
         Value::Object(arguments)
     };
     command["op"] = json!(name);
+    if let Some(revision) = expected_revision {
+        command["expected_revision"] = revision;
+    }
     let command = serde_json::from_value(command)
         .map_err(|error| format!("invalid {name} arguments: {error}"))?;
     Ok((request, command))
@@ -124,6 +141,9 @@ fn references(value: &Value, pending: &mut VecDeque<String>) {
 fn description(name: &str) -> &'static str {
     match name {
         "context" => "Read your current session, run, task, attempt and working area.",
+        "resolve_ids" => {
+            "Read full immutable identifiers for your aliases before passing them to another session."
+        }
         "put_task" => {
             "Create or revise one task. A new task requires expected_revision null; revisions use the task's current revision. This records the plan without starting a Worker."
         }
@@ -134,7 +154,7 @@ fn description(name: &str) -> &'static str {
             "Record the assigned Worker's structured outcome, including its task version, attempt, evidence and unresolved issues."
         }
         "acknowledge" => {
-            "Acknowledge one addressed immutable message ID before handling it; do not repeat already handled effects."
+            "Optionally mark an addressed message handled. Native transport acceptance already records receipt; do not reply merely to acknowledge."
         }
         "snapshot" => {
             "Read the current request's saved state; do not poll in a Leader turn waiting for Workers."
@@ -148,5 +168,153 @@ fn description(name: &str) -> &'static str {
         _ => {
             "Operate within the credential's assigned request; do not infer identity from directories or session names."
         }
+    }
+}
+
+pub(super) fn resolve_aliases(
+    name: &str,
+    mut arguments: Value,
+    mut resolve: impl FnMut(&str, &str) -> Result<String, super::store::ControlError>,
+) -> Result<Value, super::store::ControlError> {
+    let tool = catalog()
+        .iter()
+        .find(|tool| tool["name"] == name)
+        .ok_or_else(|| {
+            super::store::ControlError::new(
+                super::store::ErrorCode::InvalidRequest,
+                "unknown Adroit operation",
+            )
+        })?;
+    let schema = &tool["inputSchema"];
+    walk_arguments(&mut arguments, schema, &schema["$defs"], &mut resolve)?;
+    Ok(arguments)
+}
+
+fn walk_arguments(
+    value: &mut Value,
+    schema: &Value,
+    definitions: &Value,
+    resolve: &mut impl FnMut(&str, &str) -> Result<String, super::store::ControlError>,
+) -> Result<(), super::store::ControlError> {
+    if value.is_null() {
+        return Ok(());
+    }
+    if let Some(name) = schema["$ref"]
+        .as_str()
+        .and_then(|value| value.strip_prefix("#/$defs/"))
+    {
+        let kind = id_kind(name);
+        if let (Some(kind), Some(text)) = (kind, value.as_str()) {
+            *value = json!(resolve(kind, text)?);
+            return Ok(());
+        }
+        return walk_arguments(value, &definitions[name], definitions, resolve);
+    }
+    for union in ["oneOf", "anyOf", "allOf"] {
+        if let Some(variants) = schema[union].as_array() {
+            for variant in variants {
+                let matches = variant["properties"].as_object().is_none_or(|fields| {
+                    fields.iter().all(|(key, field)| {
+                        field
+                            .get("const")
+                            .is_none_or(|constant| value.get(key) == Some(constant))
+                    })
+                });
+                if matches {
+                    walk_arguments(value, variant, definitions, resolve)?;
+                }
+            }
+        }
+    }
+    if let (Some(fields), Some(properties)) =
+        (value.as_object_mut(), schema["properties"].as_object())
+    {
+        for (key, field) in fields {
+            if let Some(schema) = properties.get(key) {
+                if matches!(
+                    key.as_str(),
+                    "revision" | "reviewed_revision" | "base" | "candidate"
+                ) && let Some(text) = field.as_str()
+                    && text.starts_with('h')
+                    && text[1..].parse::<u64>().is_ok()
+                {
+                    *field = json!(resolve("h", text)?);
+                } else if key == "candidate"
+                    && let Some(text) = field.as_str()
+                    && text.starts_with('c')
+                    && text[1..].parse::<u64>().is_ok()
+                {
+                    *field = json!(resolve("c", text)?);
+                } else {
+                    walk_arguments(field, schema, definitions, resolve)?;
+                }
+            }
+        }
+    }
+    if let (Some(values), Some(items)) = (value.as_array_mut(), schema.get("items")) {
+        for value in values {
+            walk_arguments(value, items, definitions, resolve)?;
+        }
+    }
+    Ok(())
+}
+
+fn id_kind(name: &str) -> Option<&'static str> {
+    match name {
+        "LogicalSessionId" => Some("w"),
+        "RunId" => Some("r"),
+        "TaskId" => Some("t"),
+        "AttemptId" => Some("e"),
+        "MessageId" => Some("m"),
+        "WorkAreaId" => Some("a"),
+        "CandidateId" => Some("c"),
+        "CoordinationId" => Some("n"),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn request_ids_are_optional_but_explicit_retry_ids_are_preserved() {
+        let (first, _) = decode("context", json!({})).unwrap();
+        let (second, _) = decode("context", json!({})).unwrap();
+        assert_ne!(first, second);
+        let (retry, _) = decode("context", json!({"request_id":first})).unwrap();
+        assert_eq!(retry, first);
+        let context = catalog()
+            .iter()
+            .find(|tool| tool["name"] == "context")
+            .unwrap();
+        assert!(
+            !context["inputSchema"]["required"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("request_id"))
+        );
+    }
+
+    #[test]
+    fn candidate_revision_is_a_sibling_of_its_flattened_plan() {
+        let tool = catalog()
+            .iter()
+            .find(|tool| tool["name"] == "propose_candidate")
+            .unwrap();
+        assert!(
+            tool["inputSchema"]["properties"]
+                .get("expected_revision")
+                .is_some()
+        );
+        let arguments = json!({"id":adroit_model::CandidateId::new(),"run_id":adroit_model::RunId::new(),"source":{"task_id":adroit_model::TaskId::new(),"revision":1},"attempt_id":adroit_model::AttemptId::new(),"expected_revision":7,"inputs":[]});
+        let (_, command) = decode("propose_candidate", arguments).unwrap();
+        assert!(matches!(
+            command,
+            Command::ProposeCandidate {
+                expected_revision: 7,
+                ..
+            }
+        ));
     }
 }

@@ -81,6 +81,23 @@ pub enum Command {
         identity: SessionRef,
     },
     Context,
+    ResolveIds {
+        ids: Vec<String>,
+    },
+    #[schemars(skip)]
+    NativeArguments {
+        name: String,
+        arguments: Value,
+    },
+    #[schemars(skip)]
+    NativeOutput {
+        name: String,
+        value: Value,
+    },
+    #[schemars(skip)]
+    NativeEnvelope {
+        message_id: MessageId,
+    },
     Snapshot,
     #[schemars(skip)]
     UiPage {

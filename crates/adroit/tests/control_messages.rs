@@ -21,23 +21,19 @@ fn message(body: String) -> AgentMessage {
 fn short_native_notifications_keep_the_complete_message_without_an_extra_read() {
     let message = message("The result is ready".into());
     let encoded = envelope::encode(&message).unwrap();
-    assert_eq!(
-        serde_json::from_str::<AgentMessage>(&encoded).unwrap(),
-        message
-    );
+    assert!(encoded.starts_with(&format!("n {} {}\n", message.id, message.from)));
+    assert!(encoded.ends_with(&message.body));
+    assert!(!encoded.contains(&message.run_id.to_string()));
+    assert!(!encoded.contains(&message.to.to_string()));
 }
 
 #[test]
-fn large_or_heavily_escaped_bodies_use_a_bounded_reference_instead_of_native_argv() {
+fn large_or_heavily_escaped_bodies_use_a_bounded_preview_and_detail_reference() {
     for body in ["x".repeat(65536), "\0".repeat(65536), "\"".repeat(65536)] {
         let message = message(body);
         let encoded = envelope::encode(&message).unwrap();
-        assert!(encoded.len() <= 16 * 1024);
-        let reference: serde_json::Value = serde_json::from_str(&encoded).unwrap();
-        assert_eq!(reference["type"], "adroit_message_reference");
-        assert_eq!(reference["message_id"], message.id.to_string());
-        assert_eq!(reference["run_id"], message.run_id.to_string());
-        assert!(reference.get("body").is_none());
+        assert!(encoded.len() <= 2048);
+        assert!(encoded.ends_with(&format!("read_message {} for full body", message.id)));
     }
 }
 

@@ -273,10 +273,9 @@ async fn the_native_mcp_tool_can_capture_a_workers_fingerprint_without_shell_acc
     receive.read_line(&mut line).await.unwrap();
     let reply: serde_json::Value = serde_json::from_str(&line).unwrap();
     assert_eq!(reply["result"]["isError"], false, "{reply}");
-    let result: serde_json::Value =
-        serde_json::from_str(reply["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    let result = reply["result"]["content"][0]["text"].as_str().unwrap();
     assert_eq!(
-        result["Ok"],
+        result,
         adroit::candidates::capture_files(
             &dir.path().canonicalize().unwrap(),
             &["output.txt".into()]

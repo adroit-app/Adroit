@@ -158,6 +158,15 @@ just fmt   # format every source
 just ci    # everything CI runs: format check, lint, tests
 ```
 
+The test recipe and native daemon fixtures remove inherited Adroit assignment
+variables, so checks can run from a managed Worker without borrowing its identity.
+On macOS, a Codex workspace sandbox also needs temporary Unix sockets for the
+native integration tests. From the development shell, run:
+
+```sh
+codex sandbox -P :workspace --allow-unix-socket /tmp --allow-unix-socket "$TMPDIR" -- just ci
+```
+
 The design lives in [docs/concept.md](docs/concept.md), the decisions behind it
 in [docs/adr/](docs/adr/), and the behaviour it promises in
 [docs/spec/](docs/spec/).

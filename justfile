@@ -23,6 +23,10 @@ lint:
 test:
     #!/usr/bin/env bash
     set -euo pipefail
+    for task_variable in "${!ADROIT_@}"; do
+        unset "$task_variable"
+    done
+    unset CODEX_THREAD_ID
     task_root=$(mktemp -d "${TMPDIR:-/tmp}/adroit-tests.XXXXXX")
     trap 'rm -rf "$task_root"' EXIT
     XDG_STATE_HOME="$task_root/state" XDG_CONFIG_HOME="$task_root/config" XDG_DATA_HOME="$task_root/data" cargo test --workspace

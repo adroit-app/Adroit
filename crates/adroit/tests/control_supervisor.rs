@@ -170,7 +170,7 @@ sleep 10
             .unwrap();
         if snapshot.tasks[0].state == TaskState::Succeeded
             && snapshot.deliveries.iter().any(|delivery| {
-                delivery.message_id == report_id && delivery.state == DeliveryState::Accepted
+                delivery.message_id == report_id && delivery.state == DeliveryState::Acknowledged
             })
         {
             delivered = true;
@@ -270,18 +270,31 @@ sleep 10
         .as_ref()
         .unwrap()
         .join("leader-2-context.json");
-    let context = tokio::time::timeout(std::time::Duration::from_secs(3), async {
-        loop {
-            if let Ok(bytes) = std::fs::read(&receipt)
-                && let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes)
-            {
-                break value;
+    let context = tokio::time::timeout(
+        adroit::control::protocol::TIMEOUT + std::time::Duration::from_secs(2),
+        async {
+            loop {
+                if let Ok(bytes) = std::fs::read(&receipt)
+                    && let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes)
+                {
+                    break value;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
             }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        },
+    )
+    .await;
+    let context = match context {
+        Ok(context) => context,
+        Err(error) => {
+            let terminal =
+                u128::from_str_radix(new_leader.terminal_id.as_ref().unwrap(), 16).unwrap();
+            panic!(
+                "{error}; receipt={receipt:?}; native output={:?}",
+                daemon.visible(terminal).await
+            );
         }
-    })
-    .await
-    .unwrap();
+    };
     assert_eq!(context["result"]["Ok"]["session"]["generation"], 2);
     assert_eq!(context["result"]["Ok"]["run"]["id"], run_id.to_string());
     assert_eq!(snapshot.attempts.len(), 1);

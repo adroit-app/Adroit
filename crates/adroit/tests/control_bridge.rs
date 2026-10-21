@@ -237,7 +237,7 @@ async fn a_failed_notification_stream_closes_a_connection_waiting_for_a_partial_
 }
 
 #[tokio::test]
-async fn a_channel_write_is_accepted_and_only_an_agent_acknowledges_receipt() {
+async fn a_channel_write_records_receipt_without_an_acknowledgement_round_trip() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("control");
     let mut store = Store::open(&root.join("state.sqlite3")).unwrap();
@@ -357,7 +357,7 @@ async fn a_channel_write_is_accepted_and_only_an_agent_acknowledges_receipt() {
                 .request(RequestId::new(), Command::Snapshot)
                 .await
                 .unwrap();
-            if snapshot["deliveries"][0]["state"] == "accepted" {
+            if snapshot["deliveries"][0]["state"] == "acknowledged" {
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -455,7 +455,7 @@ async fn a_native_stdio_child_uses_the_scoped_launch_endpoint() {
     assert_ne!(response["result"]["isError"], true, "{response}");
     let snapshot: Value =
         serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
-    assert_eq!(snapshot["Ok"]["runs"][0]["id"], run.to_string());
+    assert_eq!(snapshot["runs"][0]["id"], "r1");
     drop(input);
     assert!(
         tokio::time::timeout(std::time::Duration::from_secs(5), child.wait())
@@ -629,11 +629,10 @@ async fn native_tools_describe_complete_task_and_result_inputs_and_offer_typed_i
     receive.read_line(&mut line).await.unwrap();
     let created: Value = serde_json::from_str(&line).unwrap();
     assert_eq!(created["result"]["isError"], false, "{created}");
-    let body: Value =
-        serde_json::from_str(created["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
-    assert_eq!(body["Ok"]["value"]["revision"], 1);
+    let text = created["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.starts_with("ok t1.1"), "{text}");
     let queue = json!({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"queue_task","_meta":{"threadId":conversation},"arguments":{
-        "request_id":ids["request_ids"][1], "task_id":ids["task_ids"][0], "revision":1
+        "task_id":"t1", "revision":1
     }}});
     send.write_all(format!("{queue}\n").as_bytes())
         .await
@@ -642,9 +641,29 @@ async fn native_tools_describe_complete_task_and_result_inputs_and_offer_typed_i
     receive.read_line(&mut line).await.unwrap();
     let queued: Value = serde_json::from_str(&line).unwrap();
     assert_eq!(queued["result"]["isError"], false, "{queued}");
-    let body: Value =
-        serde_json::from_str(queued["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
-    assert_eq!(body["Ok"]["value"]["state"], "queued");
+    let text = queued["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(
+        text.starts_with("ok t1.1 state=queued request_id="),
+        "{text}"
+    );
+    assert!(
+        text.split("request_id=")
+            .nth(1)
+            .unwrap()
+            .parse::<RequestId>()
+            .is_ok()
+    );
+    let failure = exchange(&mut send, &mut receive, json!({"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"queue_task","_meta":{"threadId":conversation},"arguments":{"task_id":"t1","revision":2}}})).await;
+    assert_eq!(failure["result"]["isError"], true);
+    let text = failure["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.starts_with("revision_conflict:"), "{text}");
+    assert!(
+        text.split("request_id=")
+            .nth(1)
+            .unwrap()
+            .parse::<RequestId>()
+            .is_ok()
+    );
     drop(send);
     task.await.unwrap().unwrap();
 }

@@ -334,7 +334,7 @@ fn read_only(root: &Path, credential: &str) -> Result<Connection> {
 
 fn schema(connection: &Connection) -> Result<()> {
     let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    if version != SCHEMA_VERSION {
+    if !(12..=SCHEMA_VERSION).contains(&version) {
         return Err(ControlError::new(
             ErrorCode::UnsupportedSchema,
             format!("UI compatibility reads require schema {SCHEMA_VERSION}; found {version}"),

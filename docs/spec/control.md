@@ -52,8 +52,8 @@ below; IDs are UUID strings and session references contain `id` and `generation`
 - `acknowledge`: `message_id`.
 
 State-changing commands validate the caller's run ownership and task revision.
-A transport timeout does not prove an operation failed. Message acceptance and
-explicit recipient acknowledgement are separate facts.
+A transport timeout does not prove an operation failed. Native transport acceptance records receipt; explicit acknowledgement is
+optional. Receipt does not establish processing or task completion.
 
 Frames are limited to 1 MiB including the terminating newline. Oversized
 responses return an error, rather than an incomplete snapshot. Attachments and
@@ -62,14 +62,13 @@ large artifacts should be referenced from their working directories.
 ## Native agent bridge
 
 `adroit control mcp` serves MCP tools over standard input and output using the
-session credential. It never falls back to a human credential. The `control`
-tool takes `request_id` and `command` using the command forms above.
+session credential. It never falls back to a human credential. Each operation is a named tool described in [control-tools.md](control-tools.md).
 
 `adroit control mcp --channel` also exposes Claude channel notifications. The
 bridge reads the recipient's durable mailbox in the background; the Leader
 never needs to hold a model turn open waiting for messages. Writing a notification
-records transport acceptance. Only an explicit `acknowledge` command records
-receipt. Unacknowledged messages remain in the mailbox with their original IDs. After a
+records transport acceptance and receipt. Messages remain in the mailbox with
+their original IDs regardless of receipt. After a
 daemon restart, unfinished dispatches become uncertain rather than being
 silently sent again. The Leader can inspect the state and request a retry.
 Receivers must avoid repeating effects for an ID they have already handled.

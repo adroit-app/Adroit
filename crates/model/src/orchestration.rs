@@ -10,6 +10,7 @@ macro_rules! ids {
     ($($name:ident),+ $(,)?) => {$(
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
         #[serde(transparent)]
+        #[schemars(description = "A typed orchestration UUID.")]
         pub struct $name(Uuid);
 
         impl $name {

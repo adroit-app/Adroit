@@ -1,7 +1,7 @@
 //! Versioned role policy passed to native sessions at managed startup.
 use adroit_model::{SessionBinding, SessionRole};
 
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 
 pub fn instructions(binding: &SessionBinding) -> String {
     let policy = match binding.role() {

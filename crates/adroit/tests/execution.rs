@@ -236,7 +236,7 @@ fn a_codex_leader_requests_native_delegation_restrictions_per_launch() {
         Some(RunId::new()),
     ));
     let launch = resolve(&Settings::default(), request, Path::new("/adroit")).unwrap();
-    assert_eq!(launch.role_version, Some(1));
+    assert_eq!(launch.role_version, Some(2));
     for policy in [
         "agents.enabled=false",
         "features.multi_agent=false",
@@ -304,7 +304,7 @@ fn worker_policy_does_not_disable_delegation_and_unmanaged_sessions_get_no_role(
         .unwrap(),
     );
     let launch = resolve(&Settings::default(), worker, Path::new("/adroit")).unwrap();
-    assert_eq!(launch.role_version, Some(1));
+    assert_eq!(launch.role_version, Some(2));
     assert!(
         !launch
             .spawn

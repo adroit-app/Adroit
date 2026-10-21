@@ -83,7 +83,10 @@ impl Dispatcher {
                 continue;
             };
             let id = message.id;
-            let envelope = super::envelope::encode(&message)?;
+            let envelope = self
+                .actor
+                .call(move |store| store.native_envelope(identity, id))
+                .await?;
             let claimed = self
                 .actor
                 .call(move |store| {

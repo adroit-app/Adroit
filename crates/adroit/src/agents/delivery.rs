@@ -1,4 +1,4 @@
-//! Provider-specific transport acceptance, never inferred recipient acknowledgement.
+//! Provider-specific transport acceptance, recorded as receipt rather than processing.
 use std::{fmt, path::PathBuf, pin::Pin, process::Stdio, time::Duration};
 
 use tokio::io::AsyncReadExt;

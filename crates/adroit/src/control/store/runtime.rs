@@ -75,10 +75,20 @@ impl Store {
     pub fn next_pending_message(&self, identity: SessionRef) -> Result<Option<AgentMessage>> {
         reference(&self.connection, identity)?;
         let data: Option<String> = self.connection.query_row(
-            "SELECT messages.data FROM messages JOIN deliveries ON deliveries.message_id = messages.id WHERE deliveries.recipient = ?1 AND json_extract(deliveries.data, '$.state') = 'stored' ORDER BY messages.rowid LIMIT 1",
+            "SELECT messages.data FROM messages JOIN deliveries ON deliveries.message_id = messages.id WHERE deliveries.recipient = ?1 AND json_extract(deliveries.data, '$.state') = 'stored' AND NOT EXISTS(SELECT 1 FROM native_progress WHERE message_id=messages.id) ORDER BY messages.rowid LIMIT 1",
             [identity.id.to_string()],|row|row.get(0),
         ).optional()?;
         data.as_deref().map(decode).transpose()
+    }
+
+    pub fn should_notify(&self, identity: SessionRef, message: &AgentMessage) -> Result<bool> {
+        reference(&self.connection, identity)?;
+        let quiet: bool = self.connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM native_progress WHERE message_id=?1)",
+            [message.id.to_string()],
+            |row| row.get(0),
+        )?;
+        Ok(!quiet)
     }
 
     pub fn remember_launch(

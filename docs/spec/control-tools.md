@@ -9,11 +9,11 @@ fields and reachable types. Human-only management and internal delivery claims
 are absent from the catalog. Human management remains refused to Agent
 credentials even if supplied manually through the control protocol.
 
-Before the first operation, allocate request IDs with `new_ids`. Each named
-operation takes a UUID `request_id` alongside its fields. The session credential
-supplies the actor; callers cannot choose another identity. A request ID identifies
-an immutable command, including retries after a lost response. Changed content
-needs a new request ID.
+Read `context` first. The credential supplies the actor; callers cannot choose
+another identity. `request_id` is optional. The bridge generates it when omitted
+and returns it with mutation replies. Preserve it for an identical retry after a
+lost response; changed content needs a new request ID. Explicit UUID request IDs
+remain supported.
 
 Native arguments use the control protocol's operation fields without `op` or
 `command`. The following single record wrappers are also flattened:
@@ -33,10 +33,21 @@ For example, `put_task` takes `request_id`, `id`, `run_id`, `expected_revision`,
 retain the formats defined in the control protocol. The CLI continues to take
 its tagged command object; native tool arguments do not use that wrapper.
 
-Tool text results contain JSON with either `Ok` or `Err`. Successful mutations
-return their record in the reply's `value`; reads return their documented value.
-Errors contain `code` and `message`. Errors do not authorize a fallback through
-another identity or an untracked session launch.
+Tool text returns compact JSON for reads and `ok` with identity, revision and
+relevant state for successful mutations. Errors return `code: message` and do not
+authorize another identity or an untracked session launch. The CLI and socket
+retain their complete JSON records.
+
+Native tools accept full UUIDs or short aliases issued to the calling logical
+session. Aliases survive bridge and daemon restarts and Leader generations;
+another session's aliases cannot be transferred. Prefixes are `w` for sessions,
+`r` for runs, `t` for tasks, `e` for attempts, `m` for messages, `a` for working
+areas, `c` for candidates, `n` for coordination notices, and `h` for immutable
+revisions. Aliases do not grant access: ordinary ownership checks still apply.
+User prose and arbitrary JSON evidence are preserved. `resolve_ids` takes an
+`ids` array and returns full identities for cross-session handoffs. Mailbox and
+snapshot reads show report summaries with detail references; `read_message`
+provides complete evidence.
 
 `new_ids` allocates fresh UUIDs without changing orchestration state. Its optional
 integer counts are `requests`, `tasks`, `messages`, `candidates`, `runs`, and
@@ -52,20 +63,32 @@ without file contents. It refuses Leaders and obsolete assignments.
 A Leader reads `context`, updates its existing run, records tasks with `put_task`,
 and makes them eligible with `queue_task`. It finishes its turn after dispatch;
 notifications bring back results and questions. A Worker uses `send_message` for
-progress and questions and `report_task` for a final structured outcome. Neither
+questions and material changes and `report_task` for a final structured outcome. Neither
 session names nor matching directories establish ownership.
 
-## Large native notifications
+## Native notifications
 
-Small notifications contain the complete message. Larger serialized messages
-use a bounded reference while the complete immutable body remains stored. The
-reference has `type` equal to `adroit_message_reference`, `version` equal to 1,
-`message_id`, `run_id`, `from`, `to`, nullable `task_id`, `attempt_id`, and
-`revision`, and the message `kind`. It contains no body and is not a report by
-itself.
+Routine Worker progress notes remain in the mailbox and UI without waking the
+Leader. Questions, reports, cancellation, Leader instructions, blocking messages
+and controller or coordination notices retain native delivery.
 
-`read_message` takes `message_id` and returns the complete original message.
-Only its sender or recipient in the assigned run can fetch it through a session
-credential. Acknowledgment does not remove the stored body, and fetching it does
-not acknowledge or finish work. This reference format is shared by the native
-Codex queue and Claude channel routes; neither route types into the console.
+Notifications use a compact text header followed by a readable body:
+
+```text
+<kind> <message> <sender> [<task>.<revision>] [<status>] [re=<message>] [!=blocks]
+<body or summary>
+```
+
+Kinds are `n` note, `q` question, `a` answer, `r` report and `c` cancellation.
+The recipient and run are implicit. Structured reports inline their status,
+summary, unresolved issues and an artifact reference; artifact evidence and
+checks remain available through `read_message`. Revision previews may use twelve
+characters alongside a resolvable `h` alias. Large bodies end with an explicit
+`read_message` reference. A preview is not complete evidence.
+
+`read_message` takes `message_id` and returns the original immutable message with
+compact identity fields and its complete body. Only its sender or recipient in
+the assigned run can fetch it through a session credential. Native transport
+acceptance records receipt; an explicit `acknowledge` is optional. Neither receipt
+nor reading completes work. Receivers must not repeat effects for an already
+handled message or send acknowledgement-only replies.

@@ -119,7 +119,7 @@ fn pending_report(store: &mut Store, cwd: &Path) -> (SessionRef, AgentMessage) {
 }
 
 #[test]
-fn transport_acceptance_is_distinct_from_agent_acknowledgment() {
+fn transport_acceptance_records_receipt_and_explicit_acknowledgement_is_idempotent() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
     let (owner, message) = pending_report(&mut store, dir.path());
@@ -127,7 +127,7 @@ fn transport_acceptance_is_distinct_from_agent_acknowledgment() {
         .accept_delivery(RequestId::new(), message.id, owner)
         .unwrap()
         .value;
-    assert_eq!(delivery.state, DeliveryState::Accepted);
+    assert_eq!(delivery.state, DeliveryState::Acknowledged);
     let acknowledgment = store
         .acknowledge_message(RequestId::new(), owner, message.id)
         .unwrap()
@@ -708,7 +708,7 @@ fn only_one_dispatcher_can_claim_a_pending_message_and_a_crash_leaves_uncertaint
         .accept_delivery(RequestId::new(), message.id, owner)
         .unwrap();
     let delivered = &store.snapshot().unwrap().deliveries[0];
-    assert_eq!(delivered.state, DeliveryState::Accepted);
+    assert_eq!(delivered.state, DeliveryState::Acknowledged);
     assert_eq!(delivered.attempts, 1);
 }
 
