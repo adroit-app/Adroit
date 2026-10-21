@@ -8,6 +8,7 @@ use crate::awake::{self, Assertion, Keeper};
 use crate::cli::DaemonCommand;
 use crate::paths::{instance_state, state_dir};
 use crate::settings::Settings;
+use crate::standing::{build, stamp_when_listening};
 
 /// `$ADROIT_DAEMON`, or `adroit/felis/daemon.sock` under the state directory.
 pub fn socket() -> PathBuf {
@@ -137,6 +138,7 @@ fn serve(rt: &tokio::runtime::Runtime) -> adroit_term::Result<()> {
     // changes it is another process, which may not be open.
     let running = move |n| keeper.keep(awake::wanted(n, Settings::load().keep_awake));
     rt.block_on(async {
+        tokio::spawn(async { stamp_when_listening(&daemon(), &build()).await });
         let mut control =
             match crate::control::service::Service::bind(&crate::control::root()).await {
                 Ok(service) => Some(service),

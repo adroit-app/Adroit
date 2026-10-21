@@ -94,6 +94,7 @@ icons! {
     Refresh => "refresh",
     Search => "search",
     Send => "send",
+    ServerBolt => "server-bolt",
     Settings => "settings",
     Sitemap => "sitemap",
     SquareArrowDown => "square-arrow-down",
@@ -118,6 +119,7 @@ impl Icon {
         use Action as A;
         Some(match action {
             A::SettingsOpen => Icon::Settings,
+            A::DaemonRestart => Icon::ServerBolt,
             A::SessionNew => Icon::MessagePlus,
             A::SessionScratch => Icon::Notes,
             A::SessionPick => Icon::Search,

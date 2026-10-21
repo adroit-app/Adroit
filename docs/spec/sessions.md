@@ -81,6 +81,12 @@ another. Either ends every session the daemon holds, agents and shells alike,
 with what they scrolled back. A daemon too old to be asked to stop is stopped
 by signal. Stopping where no daemon runs is not an error.
 
+The window restarts the daemon with Restart Session Daemon
+(`daemon.restart`), only after the user confirms that every session ends.
+When the window finds the daemon runs another build of adroit than its own,
+or one too old to say which, it shows a banner offering that restart; it
+never restarts the daemon on its own.
+
 A session ends when its program exits or when it is ended from adroit. Its
 console then says so, and it is listed no more.
 

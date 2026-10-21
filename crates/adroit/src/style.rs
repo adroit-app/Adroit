@@ -332,6 +332,11 @@ kbd { font-family: var(--mono); font-size: 10.5px; color: #c9ccd2; background: v
 .direct-banner { position: absolute; top: 10px; left: 14px; right: 14px; z-index: 5; display: flex; gap: 8px; align-items: center;
   padding: 8px 12px; border-radius: 8px; border: 2px solid var(--wait); background: var(--raised); color: var(--text-2); font-size: 12px; }
 .direct-banner-title { color: var(--wait); font-weight: 600; white-space: nowrap; flex: none; }
+.daemon-banner { display: flex; gap: 8px; align-items: center; flex: none; margin: 0 14px 6px; padding: 6px 12px; border-radius: 8px;
+  border: 2px solid var(--wait); background: var(--raised); color: var(--text-2); font-size: 12px; }
+.daemon-banner > .icon { color: var(--wait); flex: none; }
+.daemon-banner-title { color: var(--wait); font-weight: 600; white-space: nowrap; flex: none; }
+.daemon-banner-note { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .dialog-scrim { position: fixed; inset: 0; z-index: 20; background: rgba(8,9,11,0.6); display: flex; align-items: center; justify-content: center; }
 .dialog { width: 420px; max-width: calc(100% - 32px); background: var(--raised); border: 1px solid var(--line-strong); border-radius: 10px;
   box-shadow: 0 12px 40px rgba(0,0,0,0.55); padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; color: var(--text-2); line-height: 1.6; }

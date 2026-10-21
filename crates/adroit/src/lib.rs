@@ -47,6 +47,7 @@ pub mod scratch;
 mod sessions;
 pub mod settings;
 mod settings_window;
+mod standing;
 mod start;
 pub mod status;
 mod style;

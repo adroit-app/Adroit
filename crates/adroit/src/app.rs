@@ -54,6 +54,7 @@ use crate::scratch::{self, Moment};
 use crate::sessions::{self, Kept};
 use crate::settings;
 use crate::settings_window;
+use crate::standing::{self, Standing};
 use crate::status;
 use crate::style::{CSS, CellHeight, DEFAULT_CELL_HEIGHT};
 use crate::subagent_view::{SubagentView, agent_glyph};
@@ -907,6 +908,7 @@ enum Ask {
     TakeOver(Session),
     Stop(Session),
     KillProcess(Session, crate::processes::Process),
+    RestartDaemon,
 }
 
 impl Ask {
@@ -939,7 +941,31 @@ impl Ask {
                 format!("Send SIGKILL to PID {} in session {}? Unsaved work in this process will be lost.", p.pid, s.name),
                 "Kill process",
             ),
+            Self::RestartDaemon => (
+                Icon::ServerBolt,
+                "Restart the sessions' daemon?".into(),
+                "Every session it holds ends: agents and shells, with what they scrolled back. Conversations remain in the provider's history.".into(),
+                "Restart daemon",
+            ),
         }
+    }
+
+    /// Whether answering yes loses what cannot be had back.
+    fn destroys(&self) -> bool {
+        matches!(self, Self::KillProcess(..) | Self::RestartDaemon)
+    }
+}
+
+/// What the banner says of a daemon of another build, as `standing` has it;
+/// `None` while the daemon is of this build or none answers.
+fn old_daemon_note(standing: &Standing) -> Option<String> {
+    match standing {
+        Standing::Old(Some(said)) => Some(format!(
+            "It runs adroit {said}, and this window adroit {}.",
+            crate::standing::build()
+        )),
+        Standing::Old(None) => Some("It runs a build of adroit too old to say which.".into()),
+        Standing::Absent | Standing::Current => None,
     }
 }
 
@@ -1671,6 +1697,10 @@ fn App() -> Element {
     let mut opened_groups = use_signal(HashSet::<Group>::new);
     // The interactive session the dialog asks to take over.
     let mut confirm = use_signal(|| None::<Ask>);
+    // How the daemon stands against this build, and whether the banner
+    // offering to restart an old one was put away.
+    let mut daemon_standing = use_signal(|| Standing::Absent);
+    let mut daemon_banner_closed = use_signal(|| false);
     // The session being given a new name, and the name typed so far.
     let mut renaming = use_signal(|| None::<Rename>);
     // The menu a right click opened, where it was clicked and on what.
@@ -1797,6 +1827,7 @@ fn App() -> Element {
                 if let Err(e) = daemon.start(&adroit_program(), &daemon::serve_args()).await {
                     status.set(Some(format!("cannot start the sessions' daemon: {e}")));
                 }
+                daemon_standing.set(standing::settled(&daemon).await);
                 // What git said of each directory a session runs in, and of
                 // each repository's worktrees, with when it said it.
                 let mut cache: HashMap<PathBuf, (Instant, Option<Worktree>)> = HashMap::new();
@@ -3574,6 +3605,28 @@ fn App() -> Element {
         }
     };
 
+    // Replace the daemon with one of this build, ending every session it holds.
+    let restart_daemon = {
+        let hub = hub.clone();
+        move || {
+            let hub = hub.clone();
+            spawn(async move {
+                notify.notice("Restarting the sessions' daemon".into());
+                match hub
+                    .daemon
+                    .restart(&adroit_program(), &daemon::serve_args())
+                    .await
+                {
+                    Ok(()) => notify.notice("Restarted the sessions' daemon".into()),
+                    Err(e) => status.set(Some(format!("cannot restart the sessions' daemon: {e}"))),
+                }
+                daemon_standing.set(standing::settled(&hub.daemon).await);
+                daemon_banner_closed.set(false);
+                hub.refresh.notify_one();
+            });
+        }
+    };
+
     // Ask to take over an interactive session: the selected one when
     // `selection` and a session is selected, else the one the console shows.
     let mut ask_take_over = move |selection: bool| {
@@ -4655,6 +4708,7 @@ fn App() -> Element {
                     );
                 }
                 Action::SettingsOpen => settings_window::open(),
+                Action::DaemonRestart => confirm.set(Some(Ask::RestartDaemon)),
                 Action::WindowClose => dioxus::desktop::window().close(),
                 Action::SidebarToggle => toggle_panel(Side::Sidebar),
                 Action::DetailsToggle => toggle_panel(Side::Details),
@@ -4867,6 +4921,7 @@ fn App() -> Element {
         let mut picker_key = picker_key;
         let stop = stop.clone();
         let kill_process = kill_process.clone();
+        let restart_daemon = restart_daemon.clone();
         move |key: Key| {
             if key.key == "Process"
                 || key.key == "Dead"
@@ -4902,6 +4957,7 @@ fn App() -> Element {
                             Ask::TakeOver(s) => take_over(s),
                             Ask::Stop(s) => stop(s),
                             Ask::KillProcess(session, process) => kill_process(session, process),
+                            Ask::RestartDaemon => restart_daemon(),
                         }
                     }
                     "n" | "Escape" => confirm.set(None),
@@ -5550,6 +5606,11 @@ fn App() -> Element {
         Context::Global,
         &Action::ConsoleSend(Chord::parse("Ctrl+w").ok()),
     );
+    let old_daemon = if daemon_banner_closed() {
+        None
+    } else {
+        old_daemon_note(&daemon_standing.read())
+    };
 
     rsx! {
         style { "{root_style}" }
@@ -6574,6 +6635,18 @@ fn App() -> Element {
                     }
                 }
             }
+            if let Some(note) = old_daemon {
+                div { class: "daemon-banner",
+                    IconView { icon: Icon::ServerBolt }
+                    span { class: "daemon-banner-title", "The sessions' daemon is out of date" }
+                    span { class: "daemon-banner-note", title: "{note}", "{note} Restarting it ends every session it holds." }
+                    span { class: "flex-spacer" }
+                    button { class: "button", onclick: move |_| daemon_banner_closed.set(true), "Later" }
+                    button { class: "button danger", onclick: move |_| confirm.set(Some(Ask::RestartDaemon)),
+                        "Restart…"
+                    }
+                }
+            }
             div { class: "footer",
                 span { class: "mode-chip {footer_class}", title: "{mode_tip(&footer_mode, in_dialog)}", "{footer_mode}" }
                 if let Some(msg) = status() {
@@ -6731,6 +6804,7 @@ fn App() -> Element {
                     let take_over = take_over.clone();
                     let stop = stop.clone();
                     let kill_process = kill_process.clone();
+                    let restart_daemon = restart_daemon.clone();
                     let (icon, title, body, act) = ask.dialog();
                     rsx! {
                         div { class: "dialog-scrim",
@@ -6741,13 +6815,14 @@ fn App() -> Element {
                                     button { class: "button", onclick: move |_| confirm.set(None),
                                         kbd { "n" } "Cancel"
                                     }
-                                    button { class: if matches!(ask, Ask::KillProcess(..)) { "button danger" } else { "button primary" },
+                                    button { class: if ask.destroys() { "button danger" } else { "button primary" },
                                         onclick: move |_| {
                                             confirm.set(None);
                                             match &ask {
                                                 Ask::TakeOver(s) => take_over(s.clone()),
                                                 Ask::Stop(s) => stop(s.clone()),
                                                 Ask::KillProcess(session, process) => kill_process(session.clone(), process.clone()),
+                                                Ask::RestartDaemon => restart_daemon(),
                                             }
                                         },
                                         kbd { "y" } "{act}"
@@ -6857,6 +6932,30 @@ fn DraftLaunchOptions(
 mod tests {
     use super::*;
     use crate::details::overview;
+
+    #[test]
+    fn a_daemon_of_another_build_is_named_beside_this_window_s() {
+        let note = old_daemon_note(&Standing::Old(Some("0.1.0 (v0.1.0-3-gabc)".into()))).unwrap();
+        assert!(note.contains("0.1.0 (v0.1.0-3-gabc)"), "{note}");
+        assert!(note.contains(&standing::build()), "{note}");
+    }
+
+    #[test]
+    fn a_daemon_too_old_to_say_its_build_is_shown_as_old_too() {
+        assert!(old_daemon_note(&Standing::Old(None)).is_some());
+    }
+
+    #[test]
+    fn a_daemon_of_this_build_or_none_at_all_shows_no_banner() {
+        assert_eq!(old_daemon_note(&Standing::Current), None);
+        assert_eq!(old_daemon_note(&Standing::Absent), None);
+    }
+
+    #[test]
+    fn restarting_the_daemon_is_asked_as_a_loss_as_killing_a_process_is() {
+        assert!(Ask::RestartDaemon.destroys());
+        assert!(!Ask::Stop(Session::default()).destroys());
+    }
 
     #[test]
     fn conversation_stats_refresh_on_changes_and_log_without_overview_links() {

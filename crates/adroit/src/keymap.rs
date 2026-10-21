@@ -486,6 +486,7 @@ actions! {
     HistoryPrev => "prompt.history_prev",
     HistoryNext => "prompt.history_next",
     SettingsOpen => "settings.open",
+    DaemonRestart => "daemon.restart",
     ZoomIn => "zoom.in",
     ZoomOut => "zoom.out",
     ZoomReset => "zoom.reset",

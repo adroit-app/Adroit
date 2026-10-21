@@ -178,6 +178,7 @@ another, the complete one runs.
 | `refresh` | read the sessions, and what git says of where they run, again now |
 | `sidebar.toggle`, `details.toggle` | show or hide the sidebar, the details panel |
 | `settings.open` | open the Settings window |
+| `daemon.restart` | restart the sessions' daemon after asking, ending every session it holds ([details](sessions.md#the-daemon)) |
 | `zoom.in`, `zoom.out`, `zoom.reset` | draw the window larger or smaller a step, or at the zoom the settings give |
 | `filter` | narrow the sidebar to the sessions, shells, workspaces and worktrees whose names hold what is typed next; `Enter` keeps it, `Escape` clears it |
 | `details.overview`, `details.changes`, `details.log` | show that sheet of the details panel ([details](details.md)), and the panel when it is hidden |
