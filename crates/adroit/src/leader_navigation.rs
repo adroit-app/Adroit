@@ -22,6 +22,66 @@ pub struct Row {
     pub reason: Option<String>,
 }
 
+/// Filter only the workspace view; the native tree and open tabs keep all sessions.
+pub fn workspace_tree(tree: &Tree, include_managed: bool) -> Tree {
+    let mut shown = tree.clone();
+    if !include_managed {
+        for worktree in shown.workspaces.iter_mut().flat_map(|ws| &mut ws.worktrees) {
+            worktree
+                .sessions
+                .retain(|session| session.binding.is_none());
+        }
+    }
+    shown
+}
+
+/// Workers follow their Leader's repository even when their own checkout is elsewhere.
+pub fn repository_items(tree: &Tree, rows: &[Row], collapsed: &HashSet<String>) -> Vec<Item> {
+    let roots: HashMap<_, _> = rows
+        .iter()
+        .filter_map(|row| {
+            if row.role != RowRole::Leader {
+                return None;
+            }
+            let Item::Session(id) = &row.item else {
+                return None;
+            };
+            Some((row.run_id?, tree.find(id)?.0.root.clone()))
+        })
+        .collect();
+    let mut groups: Vec<(std::path::PathBuf, Vec<Item>)> = Vec::new();
+    for row in rows {
+        let root = row
+            .run_id
+            .and_then(|run| roots.get(&run).cloned())
+            .or_else(|| match &row.item {
+                Item::Session(id) => tree.find(id).map(|(ws, _, _)| ws.root.clone()),
+                Item::Terminal(id) => tree.terminal(*id).map(|(ws, _, _)| ws.root.clone()),
+                _ => None,
+            });
+        let Some(root) = root else {
+            continue;
+        };
+        if let Some((_, items)) = groups.iter_mut().find(|(kept, _)| kept == &root) {
+            items.push(row.item.clone());
+        } else {
+            groups.push((root, vec![row.item.clone()]));
+        }
+    }
+    let mut items = Vec::new();
+    for (root, children) in groups {
+        let heading = Item::Workspace(root);
+        let folded = heading
+            .fold_key()
+            .is_some_and(|key| collapsed.contains(&key));
+        items.push(heading);
+        if !folded {
+            items.extend(children);
+        }
+    }
+    items
+}
+
 pub fn project(tree: &Tree, snapshot: &ControlSnapshot) -> Vec<Row> {
     let authority: HashMap<_, _> = snapshot
         .sessions

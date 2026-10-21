@@ -16,6 +16,86 @@ fn request(cwd: &std::path::Path) -> StartRequest {
 }
 
 #[tokio::test]
+async fn standalone_starts_at_a_repository_root_need_no_controller_or_role_policy() {
+    use adroit::execution::StartMode;
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join(".git")).unwrap();
+    for agent in Agent::ALL {
+        let mut requested = request(dir.path());
+        requested.agent = agent;
+        requested.permissions = AgentPermissions::Default;
+        requested.mode = StartMode::Standalone;
+        let prepared = managed::prepare(
+            &dir.path().join("no-controller"),
+            &Settings::default(),
+            requested,
+            std::path::Path::new("/adroit"),
+        )
+        .await
+        .unwrap();
+        assert!(prepared.ownership.is_none());
+        assert_eq!(prepared.resolved.role_version, None);
+        assert!(
+            !prepared
+                .resolved
+                .spawn
+                .args
+                .iter()
+                .any(|arg| { arg.contains("adroit_control") || arg == "agents.enabled=false" })
+        );
+        assert!(
+            !prepared
+                .resolved
+                .spawn
+                .env
+                .iter()
+                .any(|(key, _)| adroit::env::reserved_control(key))
+        );
+        assert!(
+            !prepared
+                .resolved
+                .spawn
+                .tags
+                .iter()
+                .any(|tag| tag.starts_with("adroit.binding"))
+        );
+        assert!(!dir.path().join("no-controller").exists());
+    }
+}
+
+#[tokio::test]
+async fn an_explicit_leader_can_start_in_a_nested_directory() {
+    use adroit::execution::StartMode;
+    let dir = tempfile::tempdir().unwrap();
+    let output = std::process::Command::new("jj")
+        .args(["git", "init", "--colocate"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let nested = dir.path().join("nested");
+    std::fs::create_dir(&nested).unwrap();
+    let root = dir.path().join("control");
+    let _service = Service::bind(&root).await.unwrap();
+    let mut requested = request(&nested);
+    requested.mode = StartMode::Leader;
+    let prepared = managed::prepare(
+        &root,
+        &native_settings(),
+        requested,
+        std::path::Path::new("/adroit"),
+    )
+    .await
+    .unwrap();
+    assert!(prepared.ownership.is_some());
+    assert!(prepared.resolved.role_version.is_some());
+}
+
+#[tokio::test]
 async fn human_starts_at_one_root_receive_independent_leaders_and_runs() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("control");

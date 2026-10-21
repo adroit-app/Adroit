@@ -1392,6 +1392,7 @@ fn Terminal(runs: TerminalProgram) -> Element {
 fn App() -> Element {
     let mut tree = use_signal(Tree::default);
     let mut leader_view = use_signal(|| false);
+    let mut include_managed = use_signal(|| false);
     let mut orchestration = use_signal(adroit_model::ControlSnapshot::default);
     let mut orchestration_error = use_signal(|| None::<String>);
     use_hook(move || {
@@ -2630,7 +2631,11 @@ fn App() -> Element {
     let mut sending = use_signal(|| false);
     let mut expanded_completed = use_signal(HashSet::<adroit_model::RunId>::new);
     let shown_tree = use_memo(move || {
-        crate::leader_navigation::narrowed(&tree.read(), &orchestration.read(), &filter.read())
+        let visible = crate::leader_navigation::workspace_tree(
+            &tree.read(),
+            leader_view() || include_managed(),
+        );
+        crate::leader_navigation::narrowed(&visible, &orchestration.read(), &filter.read())
     });
     let shown_ib = use_memo(move || inbox(&shown_tree.read()));
     let leader_rows =
@@ -2680,20 +2685,25 @@ fn App() -> Element {
             .iter()
             .map(|item| Item::Waiting(item.session.id.clone()))
             .collect();
-        out.extend(
-            rows.iter()
-                .filter(|row| match &row.item {
-                    Item::Session(id) => {
-                        narrowed.find(id).is_some()
-                            || (row.role == crate::leader_navigation::RowRole::Leader
-                                && row.run_id.is_some_and(|id| matching.contains(&id)))
-                    }
-                    Item::Terminal(id) => narrowed.terminal(*id).is_some(),
-                    Item::Completed(_) => true,
-                    _ => false,
-                })
-                .map(|row| row.item.clone()),
-        );
+        let visible: Vec<_> = rows
+            .iter()
+            .filter(|row| match &row.item {
+                Item::Session(id) => {
+                    narrowed.find(id).is_some()
+                        || (row.role == crate::leader_navigation::RowRole::Leader
+                            && row.run_id.is_some_and(|id| matching.contains(&id)))
+                }
+                Item::Terminal(id) => narrowed.terminal(*id).is_some(),
+                Item::Completed(_) => true,
+                _ => false,
+            })
+            .cloned()
+            .collect();
+        out.extend(crate::leader_navigation::repository_items(
+            &tree.read(),
+            &visible,
+            &collapsed.read(),
+        ));
         out
     });
 
@@ -2748,6 +2758,14 @@ fn App() -> Element {
         }
     });
 
+    let mut draft_at = move |worktree: PathBuf| {
+        let draft = Tab::draft(worktree);
+        draft_options.write().insert(
+            draft.clone(),
+            tabs::DraftOptions::for_view(*leader_view.peek()),
+        );
+        draft
+    };
     let mut open = move |item: Item| {
         // Typing stops going to the filter once a row is taken; what it
         // narrowed to stays.
@@ -2786,13 +2804,10 @@ fn App() -> Element {
                 let p = Place {
                     worktree: path.clone(),
                 };
-                let first = nav::sessions_in(&tree.peek(), &p)
+                let first = nav::sessions_in(&shown_tree.peek(), &p)
                     .first()
                     .map(|s| Tab::Session(s.id.clone()));
-                active.set(Some(first.unwrap_or(Tab::Draft {
-                    worktree: path.clone(),
-                    id: Default::default(),
-                })));
+                active.set(Some(first.unwrap_or_else(|| draft_at(path.clone()))));
                 place.set(Some(p));
             }
         }
@@ -2917,10 +2932,7 @@ fn App() -> Element {
                     None => {
                         let last = place.peek().clone();
                         let p = nav::start_place(&tree.peek(), last.as_ref(), &scratch_dir());
-                        let draft = Tab::Draft {
-                            worktree: p.worktree.clone(),
-                            id: Default::default(),
-                        };
+                        let draft = draft_at(p.worktree.clone());
                         place.set(Some(p));
                         active.set(Some(draft.clone()));
                         draft
@@ -3053,6 +3065,7 @@ fn App() -> Element {
                             match scratch::start_dir(&worktree, &scratch_dir(), Moment::now()) {
                                 Ok(worktree) => {
                                     let request = crate::execution::StartRequest {
+                                        mode: options.mode,
                                         agent,
                                         name: name.clone(),
                                         cwd: worktree,
@@ -3305,10 +3318,7 @@ fn App() -> Element {
         place.set(Some(Place {
             worktree: dir.clone(),
         }));
-        active.set(Some(Tab::Draft {
-            worktree: dir,
-            id: Default::default(),
-        }));
+        active.set(Some(draft_at(dir)));
         focus.set(Area::Prompt);
         start_writing(nvim);
     };
@@ -4347,10 +4357,7 @@ fn App() -> Element {
                         .and_then(|c| nav::place_of(&tree.peek(), c))
                         .or_else(|| place.peek().clone());
                     if let Some(p) = p {
-                        active.set(Some(Tab::Draft {
-                            worktree: p.worktree.clone(),
-                            id: Default::default(),
-                        }));
+                        active.set(Some(draft_at(p.worktree.clone())));
                         place.set(Some(p));
                         focus.set(Area::Prompt);
                         start_writing(nvim);
@@ -5568,6 +5575,14 @@ fn App() -> Element {
                             }
                         }
                     }
+                    if !leader_view() {
+                        label { class: "sidebar-views",
+                            input { r#type: "checkbox", checked: include_managed(),
+                                onchange: move |event| include_managed.set(event.checked()),
+                            }
+                            "Show Leader / Worker sessions"
+                        }
+                    }
                     if leader_view() {
                         crate::leader_details::LeaderRecovery { snapshot: orchestration() }
                     }
@@ -5666,7 +5681,7 @@ fn App() -> Element {
                                             if under_worktree { 28 } else { 14 },
                                             "list-row",
                                             s.as_ref().map(|s| s.name.clone()).unwrap_or_else(|| id.clone()),
-                                            String::new(),
+                                            if s.as_ref().is_some_and(|s| s.binding.is_none()) { "Standalone".into() } else { String::new() },
                                             s.map(|s| glyph(completions.read().state(&s))),
                                         )
                                     }
@@ -5683,14 +5698,14 @@ fn App() -> Element {
                                 let (indent, class, text, meta) = if let Some(row) = &ownership {
                                     use crate::leader_navigation::RowRole;
                                     match row.role {
-                                        RowRole::Leader => (0, "list-row head", request.as_ref().map(|run| run.brief.title.clone()).unwrap_or(text), request.as_ref().map(|run| run.state.word().to_owned()).unwrap_or_else(|| "Leader".into())),
-                                        RowRole::Completed(_) => (14, class, text, meta),
+                                        RowRole::Leader => (14, "list-row head", request.as_ref().map(|run| run.brief.title.clone()).unwrap_or(text), request.as_ref().map(|run| run.state.word().to_owned()).unwrap_or_else(|| "Leader".into())),
+                                        RowRole::Completed(_) => (28, class, text, meta),
                                         RowRole::Worker => {
                                             let grouped = display_leader_rows.read().iter().take_while(|row| row.item != it).any(|previous| previous.run_id == row.run_id && matches!(previous.role, RowRole::Completed(_)));
-                                            (if grouped {28} else {14}, class, text, "Worker".to_owned())
+                                            (if grouped {42} else {28}, class, text, "Worker".to_owned())
                                         },
-                                        RowRole::Terminal => (if row.run_id.is_some() {14} else {0}, class, text, "Terminal".to_owned()),
-                                        RowRole::Unassigned => (0, class, text, "Unassigned".to_owned()),
+                                        RowRole::Terminal => (if row.run_id.is_some() {28} else {14}, class, text, "Terminal".to_owned()),
+                                        RowRole::Unassigned => (14, class, text, if meta.is_empty() { "Unassigned".to_owned() } else { meta }),
                                     }
                                 } else { (indent, class, text, meta) };
                                 let (text, meta) = worker_display.as_ref().map(|display| (display.label.clone(), display.metadata.clone())).unwrap_or((text, meta));
@@ -6625,11 +6640,25 @@ fn DraftLaunchOptions(
 ) -> Element {
     let model_options = options.clone();
     let permission_options = options.clone();
+    let mode_options = options.clone();
     rsx! {
         div {
             class: "agent-choices",
             onmousedown: move |event| event.stop_propagation(),
             onkeydown: move |event| event.stop_propagation(),
+            select {
+                aria_label: "Session mode",
+                value: if options.mode == crate::execution::StartMode::Leader { "leader" } else { "standalone" },
+                oninput: move |event| {
+                    let mut next = mode_options.clone();
+                    next.mode = if event.value() == "leader" {
+                        crate::execution::StartMode::Leader
+                    } else { crate::execution::StartMode::Standalone };
+                    onchange.call(next);
+                },
+                option { value: "standalone", "Standalone" }
+                option { value: "leader", "Leader" }
+            }
             input {
                 r#type: "text",
                 aria_label: "Session model",

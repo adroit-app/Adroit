@@ -5,7 +5,7 @@ use adroit_model::*;
 
 use super::{client::Client, protocol::Command, store::Reply};
 use crate::{
-    execution::{self, ControlContext, ResolvedLaunch, StartRequest},
+    execution::{self, ControlContext, ResolvedLaunch, StartMode, StartRequest},
     settings::Settings,
 };
 
@@ -84,6 +84,15 @@ pub async fn prepare(
     program: &Path,
 ) -> Result<PreparedStart, String> {
     request.cwd = std::fs::canonicalize(&request.cwd).map_err(|error| error.to_string())?;
+    if request.mode == StartMode::Standalone {
+        if request.binding.is_some() || request.control.is_some() {
+            return Err("a standalone session cannot carry a controller assignment".into());
+        }
+        return execution::resolve(settings, request, program).map(|resolved| PreparedStart {
+            resolved,
+            ownership: None,
+        });
+    }
     if request.binding.is_some() {
         request.developer_instructions = crate::agents::adapter(request.agent)
             .developer_instructions(settings.clone(), request.cwd.clone())
@@ -93,7 +102,7 @@ pub async fn prepare(
             ownership: None,
         });
     }
-    if !is_root(&request.cwd)? {
+    if request.mode == StartMode::Automatic && !is_root(&request.cwd)? {
         return execution::resolve(settings, request, program).map(|resolved| PreparedStart {
             resolved,
             ownership: None,

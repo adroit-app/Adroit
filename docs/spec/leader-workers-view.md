@@ -1,11 +1,14 @@
 # Leader / Workers view
 
-Workspaces and Leader / Workers are views of the same Agent and Terminal
-sessions. Switching views preserves the console, open tabs, prompts, and drafts.
+Workspaces defaults to showing Standalone sessions. A toggle also shows Leader
+and Worker sessions. Hiding sessions changes only the sidebar; switching views
+preserves the console, open tabs, prompts, and drafts.
 Opening a Worker enters its ordinary native Agent session, where the user can
 interrupt it directly.
 
-Leader / Workers groups sessions by the controller's current request ownership.
+Leader / Workers groups requests by repository, then sessions by the controller's
+current request ownership. Workers stay with their Leader's repository even
+when their working directories are elsewhere.
 Two Leaders at the same repository root remain independent. A matching name,
 directory, or conversation ancestry does not establish membership. An old native
 terminal cannot stand in for its replacement. Unassigned sessions and terminals

@@ -73,6 +73,90 @@ fn fixture() -> (Tree, ControlSnapshot) {
 }
 
 #[test]
+fn workspaces_hide_managed_sessions_until_requested_without_changing_the_native_tree() {
+    use adroit::leader_navigation::workspace_tree;
+    let (mut tree, _) = fixture();
+    let mut standalone = tree.sessions().next().unwrap().1.clone();
+    standalone.id = "standalone".into();
+    standalone.binding = None;
+    tree.workspaces[0].worktrees[0]
+        .sessions
+        .push(standalone.clone());
+    let visible = workspace_tree(&tree, false);
+    assert_eq!(visible.sessions().count(), 1);
+    assert_eq!(visible.find("standalone").unwrap().2, &standalone);
+    assert_eq!(visible.workspaces.len(), tree.workspaces.len());
+    assert_eq!(workspace_tree(&tree, true), tree);
+    assert_eq!(tree.sessions().count(), 5);
+}
+
+#[test]
+fn repository_groups_keep_cross_repository_workers_with_their_leader_and_can_fold() {
+    use adroit::leader_navigation::repository_items;
+    let (tree, snapshot) = fixture();
+    let rows = project(&tree, &snapshot);
+    let items = repository_items(&tree, &rows, &Default::default());
+    assert_eq!(items[0], Item::Workspace("/repo".into()));
+    assert_eq!(
+        items[1..],
+        rows.iter().map(|row| row.item.clone()).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        items
+            .iter()
+            .filter(|item| matches!(item, Item::Workspace(_)))
+            .count(),
+        1
+    );
+    let collapsed = ["ws:/repo".to_owned()].into_iter().collect();
+    assert_eq!(
+        repository_items(&tree, &rows, &collapsed),
+        vec![Item::Workspace("/repo".into())]
+    );
+}
+
+#[test]
+fn distinct_repositories_keep_independent_request_groups_and_completed_workers() {
+    use adroit::leader_navigation::{Completions, group_completed, repository_items};
+    let (mut tree, snapshot) = completed_fixture();
+    let first = tree
+        .find(snapshot.sessions[0].terminal_id.as_ref().unwrap())
+        .unwrap()
+        .0
+        .root
+        .clone();
+    let mut other = tree.workspaces[0].clone();
+    other.root = "/other".into();
+    other.worktrees[0].sessions[0].id = "standalone-other".into();
+    other.worktrees[0].sessions[0].binding = None;
+    other.worktrees[0].sessions.truncate(1);
+    tree.workspaces.push(other);
+    let rows = group_completed(
+        &project(&tree, &snapshot),
+        &tree,
+        &snapshot,
+        &Completions::default(),
+        &Default::default(),
+        &Default::default(),
+    );
+    let items = repository_items(&tree, &rows, &Default::default());
+    assert_eq!(
+        items
+            .iter()
+            .filter(|item| matches!(item, Item::Workspace(_)))
+            .count(),
+        2
+    );
+    assert_eq!(items[0], Item::Workspace(first));
+    assert!(items.iter().any(|item| matches!(item, Item::Completed(_))));
+    let other = items
+        .iter()
+        .position(|item| *item == Item::Workspace("/other".into()))
+        .unwrap();
+    assert_eq!(items[other + 1], Item::Session("standalone-other".into()));
+}
+
+#[test]
 fn independent_leaders_at_the_same_root_group_workers_by_current_ownership() {
     let (tree, snapshot) = fixture();
     let rows = project(&tree, &snapshot);

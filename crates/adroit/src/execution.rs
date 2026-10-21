@@ -13,8 +13,18 @@ use crate::{agents, sessions, settings::Settings};
 mod control;
 pub use control::ControlContext;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum StartMode {
+    /// Preserve automatic root detection for existing command-line callers.
+    #[default]
+    Automatic,
+    Standalone,
+    Leader,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct StartRequest {
+    pub mode: StartMode,
     pub agent: Agent,
     pub model: Option<String>,
     pub name: String,

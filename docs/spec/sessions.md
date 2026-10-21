@@ -8,6 +8,11 @@ closed, if that still runs.
 
 ## Agents
 
+Sessions started from Workspaces default to Standalone: they run without
+controller ownership, an orchestration bridge, or Leader / Worker role policy.
+Sessions started from Leader / Workers default to Leader. The draft offers this
+choice before launch and keeps it when switching views or agents.
+
 A session runs Claude Code or Codex CLI in its own terminal interface. Each
 session is given its agent while it is still a draft, before its first prompt
 is sent. The empty window and drafts offer the agent choices, and

@@ -22,11 +22,33 @@ pub fn shows_prompt(tab: Option<&Tab>) -> bool {
     !matches!(tab, Some(Tab::Terminal(_)))
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DraftOptions {
+    pub mode: crate::execution::StartMode,
     pub agent: Option<Agent>,
     pub model: Option<String>,
     pub permissions: AgentPermissions,
+}
+
+impl Default for DraftOptions {
+    fn default() -> Self {
+        Self::for_view(false)
+    }
+}
+
+impl DraftOptions {
+    pub fn for_view(leader_view: bool) -> Self {
+        Self {
+            mode: if leader_view {
+                crate::execution::StartMode::Leader
+            } else {
+                crate::execution::StartMode::Standalone
+            },
+            agent: None,
+            model: None,
+            permissions: AgentPermissions::Default,
+        }
+    }
 }
 
 impl From<Agent> for DraftOptions {
@@ -179,6 +201,26 @@ pub fn from_kept(name: &str) -> Option<Tab> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn drafts_keep_their_creation_mode_when_the_agent_or_other_view_changes() {
+        use crate::execution::StartMode;
+        for (leader_view, expected) in [(false, StartMode::Standalone), (true, StartMode::Leader)] {
+            let draft = Tab::draft("/repo");
+            let mut options = [(draft.clone(), DraftOptions::for_view(leader_view))]
+                .into_iter()
+                .collect();
+            let mut last = None;
+            crate::agents::choose(&mut options, Some(draft.clone()), Agent::Codex, &mut last);
+            assert_eq!(options[&draft].mode, expected);
+            assert_eq!(options[&draft].agent, Some(Agent::Codex));
+            assert_ne!(
+                options[&draft].mode,
+                DraftOptions::for_view(!leader_view).mode
+            );
+        }
+        assert_eq!(DraftOptions::default().mode, StartMode::Standalone);
+    }
 
     #[test]
     fn a_shell_shows_no_prompt_and_a_session_a_draft_or_nothing_open_does() {
