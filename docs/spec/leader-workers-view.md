@@ -20,7 +20,10 @@ are not treated as completed work.
 Request details show the goal, task progress, current result summaries,
 verification commands, review decisions, unanswered questions, and shared default
 workspace changes. Requested, selected, and reported actual models are distinct;
-an unreported actual model stays unknown. Related Leader and Worker sessions can
+an unreported actual model stays unknown. Task details can discover earlier
+attempts and their reports, including after an attempt is replaced or cleared.
+Earlier revisions are marked historical, and full report bodies load on request.
+Related Leader and Worker sessions can
 be opened from their details when their native terminals are available.
 
 Shell and Neovim remain Terminal resources. An explicit request association may

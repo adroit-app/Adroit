@@ -1398,22 +1398,7 @@ fn App() -> Element {
         spawn(async move {
             loop {
                 let result = match crate::control::client::Client::human(&crate::control::root()) {
-                    Ok(client) => client
-                        .request(
-                            adroit_model::RequestId::new(),
-                            crate::control::protocol::Command::Snapshot,
-                        )
-                        .await
-                        .and_then(|value| {
-                            serde_json::from_value::<adroit_model::ControlSnapshot>(value).map_err(
-                                |error| {
-                                    crate::control::store::ControlError::new(
-                                        crate::control::store::ErrorCode::InvalidRequest,
-                                        error.to_string(),
-                                    )
-                                },
-                            )
-                        }),
+                    Ok(client) => client.ui_snapshot().await,
                     Err(error) => Err(error),
                 };
                 match result {

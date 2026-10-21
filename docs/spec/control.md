@@ -219,3 +219,12 @@ working-directory or session-ID override. Leaders, stopped attempts, and revised
 assignments are refused. File hashing runs outside the durable state owner;
 other sessions can continue issuing control requests. The helper returns the
 fingerprint rather than file contents.
+
+The human UI reads compact pages of controller state and loads full evidence on
+request. Saved history remains intact. Inconsistent pages are retried together;
+the UI keeps its last complete view when a refresh fails.
+
+A running daemon without UI paging support can keep serving live terminals while
+the human UI reads a compatible database read-only. Mutation requests continue to
+use the authenticated daemon. Unsupported schemas and read failures remain
+visible as controller errors.

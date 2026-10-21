@@ -21,6 +21,7 @@ mod lifecycle;
 mod results;
 mod runs;
 mod runtime;
+pub mod ui;
 mod workareas;
 
 const SCHEMA_VERSION: i64 = 12;
