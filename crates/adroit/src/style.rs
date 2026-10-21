@@ -71,7 +71,7 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .request-task summary, .request-disclosure summary { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; list-style: none; }
 .request-task summary::-webkit-details-marker, .request-disclosure summary::-webkit-details-marker { display: none; }
 .request-task summary > .icon:last-child, .request-disclosure summary > .icon:last-child { margin-left: auto; color: var(--text-3); transition: transform 120ms ease; }
-.request-task[open] summary > .icon:last-child, .request-disclosure[open] summary > .icon:last-child { transform: rotate(90deg); }
+.request-task[open] > summary > .icon:last-child, .request-disclosure[open] summary > .icon:last-child { transform: rotate(90deg); }
 .request-task-icon { display: inline-flex; color: var(--text-2); padding-top: 2px; }
 .request-task-icon-run { color: var(--run); }
 .request-task-icon-done { color: var(--done); }
