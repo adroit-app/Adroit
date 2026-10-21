@@ -5532,7 +5532,11 @@ fn App() -> Element {
         .unwrap_or_default();
     let k_new = km.keys_for(Context::Sidebar, &Action::SessionNew);
     let k_shell = km.keys_for(Context::Sidebar, &Action::ShellOpen);
-    let k_pick = km.keys_for(Context::Sidebar, &Action::SessionPick);
+    // The empty window's button is pressed from wherever the focus is.
+    let k_pick = km
+        .keys_for(Context::Global, &Action::SessionPick)
+        .or_else(|| km.keys_for(Context::Sidebar, &Action::SessionPick));
+    let k_sidebar = km.keys_for(Context::Global, &Action::WindowLeft);
     let k_take_over = km.keys_for(Context::Console, &Action::SessionTakeOver);
     let k_send = km.keys_for(Context::Prompt, &Action::PromptSend);
     let k_agent = km.keys_for(Context::Draft, &Action::SessionAgentNext);
@@ -6133,6 +6137,10 @@ fn App() -> Element {
                                         }
                                     }
                                     div { class: "console-legend",
+                                        div { class: "console-legend-head",
+                                            "In the sidebar"
+                                            if let Some(k) = k_sidebar.clone() { span { class: "console-legend-reach", Keys { keys: k } " goes there" } }
+                                        }
                                         if k_down.is_some() || k_up.is_some() {
                                             div { class: "console-legend-keys",
                                                 if let Some(k) = k_down.clone() { Keys { keys: k } }

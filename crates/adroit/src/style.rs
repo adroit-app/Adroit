@@ -390,6 +390,8 @@ kbd { font-family: var(--mono); font-size: 10.5px; color: #c9ccd2; background: v
 .segmented button.on { background: rgba(232,180,94,0.16); color: var(--wait); font-weight: 500; }
 .console-legend { display: grid; grid-template-columns: auto auto; gap: 6px 12px; align-items: center; margin-top: 6px;
   font-size: 12px; color: var(--text-3); text-align: left; line-height: normal; }
+.console-legend-head { grid-column: 1 / -1; justify-self: center; display: flex; align-items: center; gap: 8px; margin-bottom: 2px; color: var(--text-2); font-size: 11.5px; }
+.console-legend-reach { display: inline-flex; align-items: center; gap: 3px; color: var(--text-3); }
 .console-legend-keys { justify-self: end; display: inline-flex; align-items: center; }
 .session-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .session-rename-input { width: 100%; min-width: 48px; padding: 1px 3px; border: 1px solid var(--run); border-radius: 3px; outline: none; background: var(--ground); color: var(--text); font: inherit; user-select: text; }
