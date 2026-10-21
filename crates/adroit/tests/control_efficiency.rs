@@ -346,7 +346,7 @@ fn alias_migration_keeps_previous_schema_ui_reads_available() {
     .unwrap();
     let db = rusqlite::Connection::open(root.join("state.sqlite3")).unwrap();
     db.execute_batch(
-        "DROP TABLE native_progress; DROP TABLE native_aliases; PRAGMA user_version = 12;",
+        "DROP TABLE independent_authorizations; DROP TABLE native_progress; DROP TABLE native_aliases; PRAGMA user_version = 12;",
     )
     .unwrap();
     assert_eq!(
