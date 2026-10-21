@@ -10,22 +10,58 @@ use adroit_claude::subagents::{Agent, Standing};
 use adroit_claude::usage::{Limit, Severity, Window};
 use adroit_model::{Session, State};
 
-/// What the details panel says about a session, as label and value, at
+/// One line of what the overview says about a session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Fact {
+    pub label: &'static str,
+    pub value: String,
+    /// The colour of a value drawn as a badge, named as the sidebar's state
+    /// glyphs are; `None` for plain text.
+    pub tone: Option<&'static str>,
+}
+
+/// What the overview says about the session `s` and its conversation, at
 /// `now_ms` since the Unix epoch.
-pub fn facts(s: &Session, now_ms: u64) -> Vec<(&'static str, String)> {
-    let state = match &s.state {
-        State::Waiting(why) => format!("waiting · {why}"),
-        other => other.word().to_string(),
+pub fn overview_facts(
+    s: &Session,
+    stats: &adroit_model::ConversationStats,
+    last_input_ms: Option<u64>,
+    now_ms: u64,
+) -> Vec<Fact> {
+    let plain = |label, value| Fact {
+        label,
+        value,
+        tone: None,
     };
-    let mut out = vec![("State", state)];
-    if let Some(started) = s.started_ms {
-        out.push(("Started", ago(now_ms.saturating_sub(started))));
+    let mut out = Vec::new();
+    if let Some(model) = &stats.model {
+        out.push(plain("Model", model.clone()));
     }
+    let (state, tone) = match &s.state {
+        State::Waiting(why) => (format!("waiting · {why}"), "wait"),
+        State::Working => ("working".into(), "run"),
+        State::Done => ("done".into(), "done"),
+        State::Failed => ("failed".into(), "fail"),
+        other @ (State::Starting | State::Idle) => (other.word().into(), "idle"),
+    };
+    out.push(Fact {
+        label: "State",
+        value: state,
+        tone: Some(tone),
+    });
+    if let Some(started) = s.started_ms {
+        out.push(plain("Started", ago(now_ms.saturating_sub(started))));
+    }
+    out.extend(
+        conversation_facts(stats, last_input_ms, now_ms)
+            .into_iter()
+            .map(|(label, value)| plain(label, value)),
+    );
     out
 }
 
 /// Conversation facts omit fields the provider has not reported.
-pub fn conversation_facts(
+fn conversation_facts(
     stats: &adroit_model::ConversationStats,
     last_input_ms: Option<u64>,
     now_ms: u64,
@@ -36,9 +72,6 @@ pub fn conversation_facts(
             "Last input",
             format!("{} ago", lasted(now_ms.saturating_sub(at))),
         ));
-    }
-    if let Some(model) = &stats.model {
-        out.push(("Model", model.clone()));
     }
     if let Some(t) = stats.tokens {
         let mut used = vec![
@@ -1107,13 +1140,12 @@ mod tests {
     }
 
     #[test]
-    fn conversation_facts_are_the_model_the_latest_user_operation_and_the_totals() {
+    fn conversation_facts_are_the_latest_user_operation_and_the_totals() {
         let got = conversation_facts(&stats(), Some(5000), 17000);
         assert_eq!(
             got,
             [
                 ("Last input", "12 s ago".to_string()),
-                ("Model", "model-name".to_string()),
                 (
                     "Tokens used",
                     "12.3M in · 45.2k out · 10.1M cached".to_string()
@@ -1186,27 +1218,65 @@ mod tests {
         assert_eq!(tokens(150_000_000), "150M");
     }
 
-    #[test]
-    fn a_session_is_told_by_its_state_and_when_it_started() {
-        let s = Session {
-            name: "demo/fix-x".into(),
-            kind: Kind::Own,
-            state: State::Waiting(Wait::Permission),
-            started_ms: Some(1_000_000),
-            ..Default::default()
-        };
-        let got = facts(&s, 1_000_000 + 12 * 60_000 + 5_000);
-        assert_eq!(
-            got,
-            [
-                ("State", "waiting · permission prompt".to_string()),
-                ("Started", "12 min ago".to_string()),
-            ]
-        );
+    fn labels(facts: &[Fact]) -> Vec<&'static str> {
+        facts.iter().map(|f| f.label).collect()
     }
 
     #[test]
-    fn an_unknown_start_is_left_out() {
+    fn the_overview_leads_with_the_model_then_the_state_as_a_badge() {
+        let s = Session {
+            name: "demo/fix-x".into(),
+            kind: Kind::Own,
+            state: State::Working,
+            started_ms: Some(1_000_000),
+            ..Default::default()
+        };
+        let now = 1_000_000 + 12 * 60_000 + 5_000;
+        let got = overview_facts(&s, &stats(), Some(now - 12_000), now);
+        assert_eq!(
+            labels(&got),
+            [
+                "Model",
+                "State",
+                "Started",
+                "Last input",
+                "Tokens used",
+                "Activity"
+            ]
+        );
+        assert_eq!(got[0].value, "model-name");
+        assert_eq!(got[0].tone, None);
+        assert_eq!(got[1].value, "working");
+        assert_eq!(got[1].tone, Some("run"));
+        assert_eq!(got[2].value, "12 min ago");
+    }
+
+    #[test]
+    fn the_state_badge_is_coloured_by_how_the_session_stands() {
+        let tone = |state: State| {
+            let s = Session {
+                state,
+                ..Default::default()
+            };
+            let got = overview_facts(&s, &adroit_model::ConversationStats::default(), None, 0);
+            (got[0].value.clone(), got[0].tone)
+        };
+        assert_eq!(
+            tone(State::Waiting(Wait::Permission)),
+            ("waiting · permission prompt".to_string(), Some("wait"))
+        );
+        assert_eq!(
+            tone(State::Starting),
+            ("starting".to_string(), Some("idle"))
+        );
+        assert_eq!(tone(State::Working), ("working".to_string(), Some("run")));
+        assert_eq!(tone(State::Idle), ("idle".to_string(), Some("idle")));
+        assert_eq!(tone(State::Done), ("done".to_string(), Some("done")));
+        assert_eq!(tone(State::Failed), ("failed".to_string(), Some("fail")));
+    }
+
+    #[test]
+    fn an_unknown_model_and_start_are_left_out() {
         let s = Session {
             name: "demo/look".into(),
             permissions: adroit_model::AgentPermissions::ReadOnly,
@@ -1214,7 +1284,8 @@ mod tests {
             state: State::Idle,
             ..Default::default()
         };
-        assert_eq!(facts(&s, 0), [("State", "idle".to_string())]);
+        let got = overview_facts(&s, &adroit_model::ConversationStats::default(), None, 0);
+        assert_eq!(labels(&got), ["State"]);
     }
 
     #[test]

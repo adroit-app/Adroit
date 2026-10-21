@@ -116,7 +116,7 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .list-row-meta { color: var(--text-3); font-size: 11.5px; }
 .agent-badge { flex: none; padding: 0 5px; border: 1px solid var(--line); border-radius: 4px; color: var(--text-2); font-size: 10px; line-height: 16px; }
 .list-row.selected { background: var(--select); }
-.list-row.shown { box-shadow: inset 3px 0 0 var(--run); background: rgba(120,174,232,0.08); }
+.list-row.shown { box-shadow: inset 3px 0 0 var(--run); background: rgba(120,174,232,0.08); border-top-left-radius: 0; border-bottom-left-radius: 0; }
 .list-row.shown.selected { background: var(--select); }
 .list-row.shown .list-row-name { color: var(--text); font-weight: 600; }
 .app-panel.focused .list-row.selected.shown { box-shadow: inset 3px 0 0 var(--run), inset 0 0 0 1px #3a4352; }
@@ -195,6 +195,12 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .mode-chip.normal { background: rgba(120,174,232,0.14); color: var(--run); }
 .mode-chip.pass { background: rgba(232,180,94,0.14); color: var(--wait); }
 .mode-chip.cmd { background: rgba(185,162,236,0.14); color: var(--coord); }
+.state-badge { display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 9px; font-size: 11.5px; font-weight: 500; background: color-mix(in srgb, currentColor 14%, transparent); }
+.state-badge.wait { color: var(--wait); }
+.state-badge.run { color: var(--run); }
+.state-badge.done { color: var(--done); }
+.state-badge.idle { color: var(--text-2); }
+.state-badge.fail { color: var(--fail); }
 .prompt-grid { position: relative; padding: 10px 14px 4px; }
 .draft-mark { color: var(--coord); font-size: 11px; flex: none; }
 .prompt.answering { border-color: var(--wait); }

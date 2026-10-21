@@ -27,8 +27,8 @@ use crate::console_keys::direct_key;
 use crate::console_read;
 use crate::daemon;
 use crate::details::{
-    Drill, Entry, Group, Listing, Related, Sheet, Shot, Source, Tie, View, capped, facts, gauges,
-    load, overview_shown, related, shown_agent, shown_link, shown_shot, with_agents, with_images,
+    Drill, Entry, Group, Listing, Related, Sheet, Shot, Source, Tie, View, capped, gauges, load,
+    overview_shown, related, shown_agent, shown_link, shown_shot, with_agents, with_images,
 };
 use crate::editor;
 use crate::filer::{Filer, read_dirs};
@@ -5254,13 +5254,7 @@ fn App() -> Element {
                     .and_then(|pane| pane.last_input_ms())
             });
             let now = overview_clock();
-            let mut out = facts(s, now);
-            out.extend(crate::details::conversation_facts(
-                &stats,
-                s.last_input_ms.max(live_input),
-                now,
-            ));
-            out
+            crate::details::overview_facts(s, &stats, s.last_input_ms.max(live_input), now)
         })
         .unwrap_or_default();
     let overview_now = if sheet_now == Sheet::Overview {
@@ -6152,9 +6146,15 @@ fn App() -> Element {
                         div { class: "details-block",
                             span { class: "details-label", "{s.name}" }
                             div { class: "details-facts",
-                                for (label , value) in session_facts {
-                                    span { class: "details-facts-key", "{label}" }
-                                    span { class: "details-facts-value", title: "{value}", "{value}" }
+                                for fact in session_facts {
+                                    span { class: "details-facts-key", "{fact.label}" }
+                                    if let Some(tone) = fact.tone {
+                                        span { class: "details-facts-value",
+                                            span { class: "state-badge {tone}", "{fact.value}" }
+                                        }
+                                    } else {
+                                        span { class: "details-facts-value", title: "{fact.value}", "{fact.value}" }
+                                    }
                                 }
                             }
                         }
