@@ -1,6 +1,7 @@
 # Separate Worker process launch from operational readiness
 
-Status: Accepted
+Status: Superseded by
+[20261022-separate-every-managed-session-s-launch-from-its-readiness.md](20261022-separate-every-managed-session-s-launch-from-its-readiness.md)
 
 ## Context
 
