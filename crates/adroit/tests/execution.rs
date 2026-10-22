@@ -174,10 +174,46 @@ fn removed_reader_settings_are_rejected_instead_of_reinterpreted() {
 }
 
 #[test]
-fn read_only_claude_is_refused_until_enforcement_is_supported() {
-    let mut request = request(Agent::Claude, None);
+fn a_read_only_claude_session_is_denied_editing_tools_and_writes_to_its_directory() {
+    let mut settings = Settings::default();
+    settings.sessions.permission_mode = "bypassPermissions".into();
+    settings.sessions.disallowed_tools = vec!["WebFetch".into()];
+    let mut request = request(Agent::Claude, Some("review-model"));
     request.permissions = AgentPermissions::ReadOnly;
-    assert!(resolve(&Settings::default(), request, Path::new("/adroit")).is_err());
+    let launch = resolve(&settings, request, Path::new("/adroit")).unwrap();
+    let flag = |name: &str| {
+        launch
+            .spawn
+            .args
+            .windows(2)
+            .find(|pair| pair[0] == name)
+            .map(|pair| pair[1].clone())
+    };
+    assert_eq!(
+        flag("--disallowedTools").as_deref(),
+        Some("WebFetch,Edit,Write,NotebookEdit")
+    );
+    let enforced: serde_json::Value =
+        serde_json::from_str(&flag("--settings").expect("read-only settings")).unwrap();
+    assert_eq!(enforced["sandbox"]["enabled"], true);
+    assert_eq!(enforced["sandbox"]["failIfUnavailable"], true);
+    assert_eq!(enforced["sandbox"]["allowUnsandboxedCommands"], false);
+    assert_eq!(
+        enforced["sandbox"]["filesystem"]["denyWrite"],
+        serde_json::json!(["/repo"])
+    );
+    assert_eq!(launch.model.as_deref(), Some("review-model"));
+}
+
+#[test]
+fn only_a_read_only_claude_session_carries_enforcement_settings() {
+    let launch = resolve(
+        &Settings::default(),
+        request(Agent::Claude, None),
+        Path::new("/adroit"),
+    )
+    .unwrap();
+    assert!(!launch.spawn.args.iter().any(|arg| arg == "--settings"));
 }
 
 #[test]

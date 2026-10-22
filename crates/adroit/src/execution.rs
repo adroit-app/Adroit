@@ -260,7 +260,7 @@ fn configured(
             settings.codex_sessions.sandbox_mode = "read-only".into();
         }
         (AgentPermissions::ReadOnly, Agent::Claude) => {
-            return Err("read-only enforcement is not supported for Claude Code; plan mode alone does not enforce it".into());
+            settings.sessions.read_only = Some(adroit_claude::ReadOnly::for_dir(&request.cwd));
         }
         (AgentPermissions::Custom(profile), agent) => match (profile.as_ref(), agent) {
             (

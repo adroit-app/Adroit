@@ -90,6 +90,9 @@ pub struct SessionOptions {
     pub model: String,
     pub permission_mode: String,
     pub disallowed_tools: Vec<String>,
+    /// Set for one launch from its permission profile, never from the file.
+    #[serde(skip)]
+    pub read_only: Option<adroit_claude::ReadOnly>,
 }
 
 impl SessionOptions {
@@ -103,6 +106,7 @@ impl SessionOptions {
                 .map(|t| t.trim().to_string())
                 .filter(|t| !t.is_empty())
                 .collect(),
+            read_only: self.read_only.clone(),
         }
     }
 }

@@ -270,7 +270,12 @@ async fn one_invalid_provider_profile_does_not_block_another_run() {
                             target: TargetPreference {
                                 agent: Some(Agent::Claude),
                                 model: None,
-                                permissions: AgentPermissions::ReadOnly,
+                                permissions: AgentPermissions::Custom(Box::new(
+                                    CustomPermissions::Codex {
+                                        approval_policy: "never".into(),
+                                        sandbox_mode: "read-only".into(),
+                                    },
+                                )),
                             },
                             ..task.brief
                         },

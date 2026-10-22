@@ -183,23 +183,39 @@ fn parse_listing(out: &str) -> Result<Vec<Session>, ParseError> {
     Err(failed.expect("the whole output is tried"))
 }
 
-/// How a session runs: the model, the permission mode and the tools denied
-/// it; what is left empty is Claude Code's own choice.
+/// How a session runs: the model, the permission mode, the tools denied it
+/// and whether it may write; what is left empty is Claude Code's own choice.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Options {
     pub model: String,
     pub permission_mode: String,
     pub disallowed_tools: Vec<String>,
+    pub read_only: Option<ReadOnly>,
 }
 
 impl Options {
     /// The arguments that say so to Claude Code.
     pub fn args(&self) -> Vec<String> {
+        let mut disallowed = self.disallowed_tools.clone();
+        if self.read_only.is_some() {
+            for tool in EDITING_TOOLS {
+                if !disallowed.iter().any(|held| held == tool) {
+                    disallowed.push(tool.to_string());
+                }
+            }
+        }
         let mut out = Vec::new();
         for (flag, value) in [
             ("--model", self.model.clone()),
             ("--permission-mode", self.permission_mode.clone()),
-            ("--disallowedTools", self.disallowed_tools.join(",")),
+            ("--disallowedTools", disallowed.join(",")),
+            (
+                "--settings",
+                self.read_only
+                    .as_ref()
+                    .map(ReadOnly::settings)
+                    .unwrap_or_default(),
+            ),
         ] {
             if !value.is_empty() {
                 out.extend([flag.to_string(), value]);
@@ -207,6 +223,82 @@ impl Options {
         }
         out
     }
+}
+
+const EDITING_TOOLS: [&str; 3] = ["Edit", "Write", "NotebookEdit"];
+
+/// A session kept from writing: its editing tools are taken away and its
+/// shell runs in Claude Code's sandbox, denied writes to the protected
+/// directories.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ReadOnly {
+    protected: Vec<PathBuf>,
+}
+
+impl ReadOnly {
+    /// A session working in `dir`, kept from writing to it and to the git
+    /// history behind it.
+    pub fn for_dir(dir: impl AsRef<Path>) -> Self {
+        let dir = dir.as_ref();
+        let mut protected = vec![dir.to_path_buf()];
+        // Claude Code's sandbox opens a linked worktree's shared git
+        // directory to writes so that commits work; a read-only session must
+        // not change history either.
+        protected.extend(linked_git_common_dir(dir));
+        Self { protected }
+    }
+
+    /// A session kept from writing to exactly `paths`.
+    pub fn protecting(paths: impl IntoIterator<Item = impl Into<PathBuf>>) -> Self {
+        Self {
+            protected: paths.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    pub fn protected(&self) -> &[PathBuf] {
+        &self.protected
+    }
+
+    /// The settings that enforce it, as JSON for `--settings`. They rank
+    /// above the user's and the project's settings files, and permission
+    /// denials and sandbox write denials only add up across them, so neither
+    /// can loosen it; the sandbox refuses to start rather than run unconfined.
+    fn settings(&self) -> String {
+        let denied: Vec<String> = self
+            .protected
+            .iter()
+            .map(|path| path.to_string_lossy().into_owned())
+            .collect();
+        serde_json::json!({
+            "permissions": {"deny": EDITING_TOOLS},
+            "sandbox": {
+                "enabled": true,
+                "failIfUnavailable": true,
+                "allowUnsandboxedCommands": false,
+                "filesystem": {"denyWrite": denied}
+            }
+        })
+        .to_string()
+    }
+}
+
+/// The git directory shared by every worktree of the repository when `dir`
+/// lies in a linked worktree, whose `.git` is a file naming its own git
+/// directory.
+fn linked_git_common_dir(dir: &Path) -> Option<PathBuf> {
+    let dot_git = dir
+        .ancestors()
+        .map(|ancestor| ancestor.join(".git"))
+        .find(|candidate| candidate.exists())?;
+    let pointer = std::fs::read_to_string(&dot_git).ok()?;
+    let gitdir = dot_git
+        .parent()?
+        .join(pointer.trim().strip_prefix("gitdir:")?.trim());
+    let common = match std::fs::read_to_string(gitdir.join("commondir")) {
+        Ok(relative) => gitdir.join(relative.trim()),
+        Err(_) => gitdir,
+    };
+    common.canonicalize().ok()
 }
 
 /// A fresh id for a conversation adroit starts, chosen before Claude Code
@@ -399,6 +491,7 @@ mod tests {
             model: "opus".into(),
             permission_mode: "plan".into(),
             disallowed_tools: vec!["Edit".into(), "Write".into(), "NotebookEdit".into()],
+            ..Options::default()
         };
         assert_eq!(
             start_args("look", "a08bbcf2-2cbf", &reader, "b"),
@@ -415,6 +508,91 @@ mod tests {
                 "Edit,Write,NotebookEdit",
                 "--",
                 "b"
+            ]
+        );
+    }
+
+    fn flag<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
+        args.windows(2)
+            .find(|pair| pair[0] == name)
+            .map(|pair| pair[1].as_str())
+    }
+
+    #[test]
+    fn a_read_only_session_loses_the_editing_tools_besides_those_already_denied() {
+        let options = Options {
+            disallowed_tools: vec!["Agent".into(), "Edit".into()],
+            read_only: Some(ReadOnly::protecting(["/work"])),
+            ..Options::default()
+        };
+        assert_eq!(
+            flag(&options.args(), "--disallowedTools"),
+            Some("Agent,Edit,Write,NotebookEdit")
+        );
+    }
+
+    #[test]
+    fn a_read_only_session_runs_its_shell_in_a_sandbox_that_fails_closed_and_denies_its_directories()
+     {
+        let options = Options {
+            read_only: Some(ReadOnly::protecting(["/work", "/repo/.git"])),
+            ..Options::default()
+        };
+        let args = options.args();
+        let settings: serde_json::Value =
+            serde_json::from_str(flag(&args, "--settings").expect("settings are passed")).unwrap();
+        assert_eq!(
+            settings,
+            serde_json::json!({
+                "permissions": {"deny": ["Edit", "Write", "NotebookEdit"]},
+                "sandbox": {
+                    "enabled": true,
+                    "failIfUnavailable": true,
+                    "allowUnsandboxedCommands": false,
+                    "filesystem": {"denyWrite": ["/work", "/repo/.git"]}
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn a_session_that_is_not_read_only_gets_no_extra_settings() {
+        assert_eq!(flag(&Options::default().args(), "--settings"), None);
+    }
+
+    #[test]
+    fn a_read_only_directory_outside_git_protects_only_itself() {
+        let root = tempfile::tempdir().unwrap();
+        assert_eq!(
+            ReadOnly::for_dir(root.path()).protected(),
+            [root.path().to_path_buf()]
+        );
+    }
+
+    #[test]
+    fn a_read_only_directory_in_a_main_checkout_protects_only_itself() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join(".git")).unwrap();
+        let dir = root.path().join("src");
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(ReadOnly::for_dir(&dir).protected(), [dir]);
+    }
+
+    #[test]
+    fn a_read_only_directory_in_a_linked_worktree_also_protects_the_shared_git_directory() {
+        let root = tempfile::tempdir().unwrap();
+        let gitdir = root.path().join("main/.git/worktrees/wt");
+        std::fs::create_dir_all(&gitdir).unwrap();
+        std::fs::write(gitdir.join("commondir"), "../..\n").unwrap();
+        let worktree = root.path().join("wt");
+        std::fs::create_dir_all(worktree.join("sub")).unwrap();
+        std::fs::write(worktree.join(".git"), "gitdir: ../main/.git/worktrees/wt\n").unwrap();
+        let dir = worktree.join("sub");
+        assert_eq!(
+            ReadOnly::for_dir(&dir).protected(),
+            [
+                dir.clone(),
+                root.path().join("main/.git").canonicalize().unwrap()
             ]
         );
     }

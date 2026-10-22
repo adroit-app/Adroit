@@ -117,8 +117,11 @@ none follows `--`.
   neither specifies a model, the agent uses its own default. The agent's TUI
   can still change its model after launch.
 - `--permissions default|read_only` selects the launch's permission profile.
-  Read-only currently uses Codex's read-only sandbox. Claude Code read-only
-  requests fail explicitly: plan mode alone is not read-only enforcement.
+  Read-only uses Codex's read-only sandbox. A read-only Claude Code session
+  loses its file-editing tools and runs its shell commands in Claude Code's
+  sandbox, which keeps them from writing to its directory or the repository's
+  history; the user's and the repository's Claude Code settings cannot loosen
+  this. Where that sandbox cannot run, the session fails to start.
 - `--permissions-file <path>` reads custom permissions from JSON instead of a
   named profile. These are provider-specific options, not a read-only promise.
   The file is one of:
