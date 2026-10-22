@@ -27,7 +27,7 @@ mod runtime;
 pub mod ui;
 mod workareas;
 
-const SCHEMA_VERSION: i64 = 15;
+const SCHEMA_VERSION: i64 = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -349,6 +349,37 @@ fn event(
     )?;
     Ok(())
 }
+/// Whether observing `next` changes `current`; a stall timeout is not
+/// evidence against a session already seen ready.
+fn readiness_changes(current: WorkerReadiness, next: WorkerReadiness) -> bool {
+    current != next && !(current == WorkerReadiness::Ready && next == WorkerReadiness::Stalled)
+}
+
+fn readiness_notice(
+    role: &str,
+    previous: WorkerReadiness,
+    readiness: WorkerReadiness,
+) -> Option<String> {
+    let body = match readiness {
+        WorkerReadiness::Spawned => return None,
+        WorkerReadiness::Ready if previous == WorkerReadiness::Spawned => return None,
+        WorkerReadiness::Ready => "is ready; its startup blocker cleared.",
+        WorkerReadiness::AwaitingTrust => {
+            "is waiting for a project trust decision. Open its terminal and decide there; Adroit will not approve it."
+        }
+        WorkerReadiness::AwaitingPermission => {
+            "is waiting for a permission decision. Open its terminal and decide there; Adroit will not approve it."
+        }
+        WorkerReadiness::AwaitingInput => {
+            "is waiting for your input. Open its terminal and respond there."
+        }
+        WorkerReadiness::Stalled => {
+            "startup has stalled before readiness. Open its terminal to inspect or restart it explicitly."
+        }
+    };
+    Some(format!("{role} {body}"))
+}
+
 fn store_message(connection: &Connection, message: &AgentMessage) -> Result<()> {
     if load::<AgentMessage>(connection, Table::Messages, message.id)?.is_some() {
         return Err(conflict("the message ID is already in use"));
@@ -682,6 +713,11 @@ impl Store {
         if schema < 15 {
             // Nothing in SQL changes: attempts began to carry worker readiness,
             // which a build reading schema 14 cannot decode.
+            connection.pragma_update(None, "user_version", 15)?;
+        }
+        if schema < 16 {
+            // Nothing in SQL changes: Leader sessions began to carry their
+            // readiness, which a build reading schema 15 cannot decode.
             connection.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         }
         connection.pragma_update(None, "journal_mode", "WAL")?;
@@ -824,6 +860,8 @@ impl Store {
                     cwd: Some(cwd),
                     terminal_id: None,
                     conversation_id: None,
+                    readiness: Default::default(),
+                    spawned_at_ms: None,
                 };
                 save_session(connection, &session)?;
                 event(connection, None, "leader_registered", &session)?;
@@ -1003,7 +1041,7 @@ impl Store {
             let session = ManagedSession {
                 binding: SessionBinding::worker(session_id, identity.id, task.run_id, task.id, id)
                     .map_err(|error| invalid(error.to_string()))?,
-                agent: target.agent, generation: 1, state: ManagedSessionState::Preparing, permissions: target.permissions.clone(), cwd: None, terminal_id: None, conversation_id: None,
+                agent: target.agent, generation: 1, state: ManagedSessionState::Preparing, permissions: target.permissions.clone(), cwd: None, terminal_id: None, conversation_id: None, readiness: Default::default(), spawned_at_ms: None,
             };
             save_session(connection, &session)?;
             let attempt = AttemptRecord { id, task_id: task.id, task_revision: task.revision, input_versions, session_id,
@@ -1064,6 +1102,10 @@ impl Store {
                 event(connection, session.binding.run_id(), "attempt_started", &attempt)?;
                 event(connection, session.binding.run_id(), "task_running", &task)?;
             }
+            if session.binding.role() == SessionRole::Leader {
+                session.readiness = WorkerReadiness::Spawned;
+                session.spawned_at_ms = Some(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64);
+            }
             session.cwd = Some(cwd);
             session.terminal_id = Some(terminal_id);
             session.conversation_id = conversation_id;
@@ -1092,30 +1134,50 @@ impl Store {
             if task.current_attempt != Some(attempt_id) || attempt.state != AttemptState::Running {
                 return Err(conflict("the worker attempt is no longer running"));
             }
-            if attempt.readiness == readiness || (attempt.readiness == WorkerReadiness::Ready && readiness == WorkerReadiness::Stalled) {
+            if !readiness_changes(attempt.readiness, readiness) {
                 return Ok(attempt);
             }
             let previous = attempt.readiness;
             attempt.readiness = readiness;
             save_attempt(connection, &attempt)?;
             event(connection, Some(task.run_id), "worker_readiness_changed", &attempt)?;
-            let body = match readiness {
-                WorkerReadiness::Spawned => None,
-                WorkerReadiness::Ready if previous != WorkerReadiness::Spawned => Some("Worker is ready; its startup blocker cleared."),
-                WorkerReadiness::Ready => None,
-                WorkerReadiness::AwaitingTrust => Some("Worker is waiting for a project trust decision. Open its terminal and decide there; Adroit will not approve it."),
-                WorkerReadiness::AwaitingPermission => Some("Worker is waiting for a permission decision. Open its terminal and decide there; Adroit will not approve it."),
-                WorkerReadiness::AwaitingInput => Some("Worker is waiting for your input. Open its terminal and respond there."),
-                WorkerReadiness::Stalled => Some("Worker startup has stalled before readiness. Open its terminal to inspect or restart it explicitly."),
-            };
-            if let Some(body) = body {
+            if let Some(body) = readiness_notice("Worker", previous, readiness) {
                 store_message(connection, &AgentMessage {
                     id: MessageId::new(), run_id: task.run_id, from: session.binding.leader_id(), to: session.binding.leader_id(),
                     task_id: Some(task_id), attempt_id: Some(attempt_id), revision: Some(attempt.task_revision),
-                    kind: MessageKind::Note, body: body.into(), reply_to: None, blocks_work: false,
+                    kind: MessageKind::Note, body, reply_to: None, blocks_work: false,
                 })?;
             }
             Ok(attempt)
+        })
+    }
+
+    pub fn observe_leader_readiness(
+        &mut self,
+        request: RequestId,
+        identity: SessionRef,
+        terminal_id: String,
+        readiness: WorkerReadiness,
+    ) -> Result<Reply<ManagedSession>> {
+        self.transact(request, json!({"op":"observe_leader_readiness","identity":identity,"terminal_id":terminal_id,"readiness":readiness}), |connection| {
+            let mut session = reference(connection, identity)?;
+            if session.state != ManagedSessionState::Running || session.terminal_id.as_deref() != Some(&terminal_id) {
+                return Err(conflict("the leader terminal is no longer running"));
+            }
+            if session.binding.role() != SessionRole::Leader {
+                return Err(invalid("the session is not a Leader"));
+            }
+            if !readiness_changes(session.readiness, readiness) {
+                return Ok(session);
+            }
+            let previous = session.readiness;
+            session.readiness = readiness;
+            save_session(connection, &session)?;
+            event(connection, session.binding.run_id(), "leader_readiness_changed", &session)?;
+            if let Some(body) = readiness_notice("Leader", previous, readiness) {
+                lifecycle::notify(connection, &session, MessageKind::Note, &body)?;
+            }
+            Ok(session)
         })
     }
 

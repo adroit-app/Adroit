@@ -668,6 +668,8 @@ mod tests {
             cwd: Some("/same-root".into()),
             terminal_id: Some(terminal.into()),
             conversation_id: None,
+            readiness: Default::default(),
+            spawned_at_ms: None,
         };
         let snapshot = |sessions| ControlSnapshot {
             sessions,
@@ -786,6 +788,8 @@ mod tests {
             cwd: Some("/same-root".into()),
             terminal_id: terminal.map(String::from),
             conversation_id: None,
+            readiness: Default::default(),
+            spawned_at_ms: None,
         };
         let snapshot = |session| ControlSnapshot {
             sessions: vec![session],

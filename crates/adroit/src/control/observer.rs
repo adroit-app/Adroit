@@ -104,25 +104,46 @@ impl Observer {
                 && attempt.state == AttemptState::Running
             {
                 let screen = daemon.visible(terminal).await.map_err(failed)?;
-                let observed = crate::agents::adapter(session.agent)
-                    .startup_readiness(&screen)
-                    .or_else(|| {
-                        let now = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_millis() as u64;
-                        startup_stalled(attempt.readiness, attempt.spawned_at_ms, now)
-                            .then_some(WorkerReadiness::Stalled)
-                    });
-                if let Some(readiness) =
-                    observed.filter(|readiness| *readiness != attempt.readiness)
-                {
+                if let Some(readiness) = readiness_change(
+                    session.agent,
+                    &screen,
+                    attempt.readiness,
+                    attempt.spawned_at_ms,
+                    now_ms(),
+                ) {
                     let identity = session.reference();
                     let terminal_id = crate::sessions::hex(terminal);
                     actor
                         .call(move |store| {
                             store
                                 .observe_worker_readiness(
+                                    RequestId::new(),
+                                    identity,
+                                    terminal_id,
+                                    readiness,
+                                )
+                                .map(|_| ())
+                        })
+                        .await?;
+                }
+            }
+            if session.binding.role() == SessionRole::Leader
+                && session.state == ManagedSessionState::Running
+            {
+                let screen = daemon.visible(terminal).await.map_err(failed)?;
+                if let Some(readiness) = readiness_change(
+                    session.agent,
+                    &screen,
+                    session.readiness,
+                    session.spawned_at_ms,
+                    now_ms(),
+                ) {
+                    let identity = session.reference();
+                    let terminal_id = crate::sessions::hex(terminal);
+                    actor
+                        .call(move |store| {
+                            store
+                                .observe_leader_readiness(
                                     RequestId::new(),
                                     identity,
                                     terminal_id,
@@ -261,6 +282,31 @@ fn replaced_tags(previous: &[String], added: &[String]) -> Vec<String> {
     .collect()
 }
 
+/// The readiness a session's `screen` moves it to from `current`, if any:
+/// what its adapter reads there, or a stall once startup has taken too long
+/// with nothing to read.
+fn readiness_change(
+    agent: Agent,
+    screen: &[String],
+    current: WorkerReadiness,
+    spawned_at_ms: Option<u64>,
+    now_ms: u64,
+) -> Option<WorkerReadiness> {
+    crate::agents::adapter(agent)
+        .startup_readiness(screen)
+        .or_else(|| {
+            startup_stalled(current, spawned_at_ms, now_ms).then_some(WorkerReadiness::Stalled)
+        })
+        .filter(|readiness| *readiness != current)
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
 fn startup_stalled(readiness: WorkerReadiness, spawned_at_ms: Option<u64>, now_ms: u64) -> bool {
     readiness == WorkerReadiness::Spawned
         && spawned_at_ms.is_some_and(|start| now_ms.saturating_sub(start) >= 60_000)
@@ -289,6 +335,64 @@ mod tests {
             80_000
         ));
         assert!(!startup_stalled(WorkerReadiness::Spawned, None, 80_000));
+    }
+
+    fn claude_screen(name: &str) -> Vec<String> {
+        let path = format!(
+            "{}/../claude/tests/screens/{name}.txt",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("{path}: {e}"))
+            .lines()
+            .map(String::from)
+            .collect()
+    }
+
+    #[test]
+    fn a_startup_dialog_awaits_input_at_once_and_never_turns_into_a_stall() {
+        let dialog = claude_screen("dev-channels");
+        let spawned = Some(100);
+        assert_eq!(
+            readiness_change(Agent::Claude, &dialog, WorkerReadiness::Spawned, spawned, 200),
+            Some(WorkerReadiness::AwaitingInput)
+        );
+        for now in [60_100, 600_000] {
+            assert_eq!(
+                readiness_change(
+                    Agent::Claude,
+                    &dialog,
+                    WorkerReadiness::AwaitingInput,
+                    spawned,
+                    now
+                ),
+                None
+            );
+        }
+        assert_eq!(
+            readiness_change(
+                Agent::Claude,
+                &claude_screen("dev-channels-confirmed"),
+                WorkerReadiness::AwaitingInput,
+                spawned,
+                600_000
+            ),
+            Some(WorkerReadiness::Ready)
+        );
+    }
+
+    #[test]
+    fn a_screen_that_tells_nothing_stalls_only_after_the_timeout() {
+        let blank = vec![String::new(); 40];
+        let spawned = Some(100);
+        assert_eq!(
+            readiness_change(Agent::Claude, &blank, WorkerReadiness::Spawned, spawned, 60_099),
+            None
+        );
+        assert_eq!(
+            readiness_change(Agent::Claude, &blank, WorkerReadiness::Spawned, spawned, 60_100),
+            Some(WorkerReadiness::Stalled)
+        );
     }
 
     #[test]

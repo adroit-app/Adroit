@@ -41,6 +41,12 @@ pub struct ManagedSession {
     pub cwd: Option<PathBuf>,
     pub terminal_id: Option<String>,
     pub conversation_id: Option<String>,
+    /// A Leader's readiness since its current generation was attached; a
+    /// Worker's is kept on its attempt.
+    #[serde(default)]
+    pub readiness: WorkerReadiness,
+    #[serde(default)]
+    pub spawned_at_ms: Option<u64>,
 }
 
 impl ManagedSession {

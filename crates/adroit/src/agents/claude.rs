@@ -58,10 +58,7 @@ impl AgentAdapter for Claude {
         {
             return Some(WorkerReadiness::AwaitingPermission);
         }
-        if adroit_claude::dialog::dialog_open(screen) {
-            return None;
-        }
-        None
+        adroit_claude::dialog::dialog_open(screen).then_some(WorkerReadiness::AwaitingInput)
     }
 
     fn role_args(

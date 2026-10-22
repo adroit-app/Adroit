@@ -27,6 +27,8 @@ fn fixture() -> (Tree, ControlSnapshot) {
             cwd: Some(native.cwd.clone()),
             terminal_id: Some(native.id.clone()),
             conversation_id: None,
+            readiness: Default::default(),
+            spawned_at_ms: None,
         });
         snapshot.runs.push(RunRecord {
             id: run,
@@ -66,6 +68,8 @@ fn fixture() -> (Tree, ControlSnapshot) {
             cwd: Some(native.cwd.clone()),
             terminal_id: Some(native.id.clone()),
             conversation_id: None,
+            readiness: Default::default(),
+            spawned_at_ms: None,
         });
         sessions.push(native);
     }

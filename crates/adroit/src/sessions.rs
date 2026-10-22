@@ -343,6 +343,8 @@ mod tests {
                 cwd: Some(session.cwd.clone()),
                 terminal_id: Some(session.id.clone()),
                 conversation_id: None,
+                readiness: Default::default(),
+                spawned_at_ms: None,
             });
             sessions.push(session);
         }

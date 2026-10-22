@@ -513,4 +513,39 @@ mod tests {
             Some(AwaitingTrust)
         );
     }
+
+    fn claude_screen(name: &str) -> Vec<String> {
+        let path = format!(
+            "{}/../claude/tests/screens/{name}.txt",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("{path}: {e}"))
+            .lines()
+            .map(String::from)
+            .collect()
+    }
+
+    #[test]
+    fn a_claude_dialog_open_at_startup_awaits_the_user_s_input() {
+        use adroit_model::WorkerReadiness::*;
+        let claude = adapter(Agent::Claude);
+        assert_eq!(
+            claude.startup_readiness(&claude_screen("dev-channels")),
+            Some(AwaitingInput)
+        );
+        assert_eq!(
+            claude.startup_readiness(&claude_screen("model")),
+            Some(AwaitingInput)
+        );
+    }
+
+    #[test]
+    fn claude_is_ready_once_the_development_channels_warning_is_confirmed() {
+        let claude = adapter(Agent::Claude);
+        assert_eq!(
+            claude.startup_readiness(&claude_screen("dev-channels-confirmed")),
+            Some(adroit_model::WorkerReadiness::Ready)
+        );
+    }
 }

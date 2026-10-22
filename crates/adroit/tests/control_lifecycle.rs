@@ -801,6 +801,81 @@ fn a_spawned_worker_remains_unready_and_block_transitions_notify_once() {
 }
 
 #[test]
+fn a_leader_held_at_startup_tells_its_request_once_and_again_once_ready() {
+    use adroit_model::WorkerReadiness;
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (leader, _, _, _) = running_worker(&mut store, dir.path());
+    let terminal = "b".repeat(32);
+    store
+        .attach_session(
+            RequestId::new(),
+            leader,
+            dir.path().canonicalize().unwrap(),
+            terminal.clone(),
+            MessageId::new().to_string(),
+        )
+        .unwrap();
+    let session = |store: &mut Store| {
+        store
+            .snapshot()
+            .unwrap()
+            .sessions
+            .into_iter()
+            .find(|session| session.reference() == leader)
+            .unwrap()
+    };
+    let notices = |store: &mut Store, text: &str| {
+        store
+            .mailbox(leader, 0, 100)
+            .unwrap()
+            .messages
+            .iter()
+            .filter(|entry| entry.message.body.contains(text))
+            .count()
+    };
+    assert_eq!(session(&mut store).readiness, WorkerReadiness::Spawned);
+    assert!(session(&mut store).spawned_at_ms.is_some());
+    for _ in 0..2 {
+        store
+            .observe_leader_readiness(
+                RequestId::new(),
+                leader,
+                terminal.clone(),
+                WorkerReadiness::AwaitingInput,
+            )
+            .unwrap();
+    }
+    assert_eq!(
+        session(&mut store).readiness,
+        WorkerReadiness::AwaitingInput
+    );
+    assert_eq!(notices(&mut store, "Leader is waiting for your input"), 1);
+    for readiness in [
+        WorkerReadiness::Ready,
+        WorkerReadiness::Ready,
+        WorkerReadiness::Stalled,
+    ] {
+        store
+            .observe_leader_readiness(RequestId::new(), leader, terminal.clone(), readiness)
+            .unwrap();
+    }
+    assert_eq!(session(&mut store).readiness, WorkerReadiness::Ready);
+    assert_eq!(notices(&mut store, "Leader is ready"), 1);
+    assert_eq!(notices(&mut store, "stalled"), 0);
+    assert!(
+        store
+            .observe_leader_readiness(
+                RequestId::new(),
+                leader,
+                "c".repeat(32),
+                WorkerReadiness::AwaitingInput,
+            )
+            .is_err()
+    );
+}
+
+#[test]
 fn interrupted_preparation_fails_without_respawning_but_a_start_intent_remains_uncertain() {
     for starting in [false, true] {
         let dir = tempfile::tempdir().unwrap();

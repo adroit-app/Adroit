@@ -80,7 +80,7 @@ impl Store {
             let origin = session.binding.run_id().ok_or_else(|| conflict("the Leader has no run"))?;
             owner(connection, caller, origin)?;
             let created = IndependentRun { run_id: RunId::new(), leader_id: LogicalSessionId::new() };
-            let leader = ManagedSession { binding: SessionBinding::leader(created.leader_id,Some(created.run_id)),agent:grant.agent,generation:1,state:ManagedSessionState::Preparing,permissions:grant.permissions.clone(),cwd:Some(grant.workspace.clone()),terminal_id:None,conversation_id:None };
+            let leader = ManagedSession { binding: SessionBinding::leader(created.leader_id,Some(created.run_id)),agent:grant.agent,generation:1,state:ManagedSessionState::Preparing,permissions:grant.permissions.clone(),cwd:Some(grant.workspace.clone()),terminal_id:None,conversation_id:None,readiness:Default::default(),spawned_at_ms:None };
             let run = RunRecord { id:created.run_id,leader_id:created.leader_id,brief:grant.brief.clone(),plan_revision:1,candidate_id:None,state:RunState::Active };
             save_session(connection,&leader)?;
             save_run(connection,&run)?;
