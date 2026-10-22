@@ -20,6 +20,42 @@ pub fn dialog_open<S: AsRef<str>>(lines: &[S]) -> bool {
     (from + 1..to).any(|i| key_hint(line(i)))
 }
 
+/// The channels named by Claude Code's warning before it loads development
+/// channels, while that warning is the dialog open on the screen with its
+/// option to go on selected, so that Enter would confirm it; `None` for any
+/// other screen. The warning is recognised by its exact wording, so a warning
+/// worded otherwise is not taken for it.
+pub fn development_channels<S: AsRef<str>>(lines: &[S]) -> Option<Vec<String>> {
+    if !dialog_open(lines) {
+        return None;
+    }
+    let from = (0..lines.len()).rfind(|&i| rule(lines[i].as_ref()))?;
+    let shown: Vec<&str> = lines[from + 1..]
+        .iter()
+        .map(|line| line.as_ref().trim())
+        .filter(|line| !line.is_empty())
+        .collect();
+    let [title, .., go_on, exit, keys] = shown.as_slice() else {
+        return None;
+    };
+    if *title != "WARNING: Loading development channels"
+        || *go_on != "❯ 1. I am using this for local development"
+        || *exit != "2. Exit"
+        || *keys != "Enter to confirm · Esc to cancel"
+    {
+        return None;
+    }
+    let named = shown
+        .iter()
+        .find_map(|line| line.strip_prefix("Channels:"))?;
+    let channels: Vec<String> = named
+        .split([',', ' '])
+        .filter(|channel| !channel.is_empty())
+        .map(String::from)
+        .collect();
+    (!channels.is_empty()).then_some(channels)
+}
+
 /// The shortest rule taken for one across the screen; a dialog's own boxes
 /// are indented and cornered, so they never pass.
 const RULE_MIN: usize = 20;
@@ -49,7 +85,10 @@ mod tests {
     /// Code 2.1.302 at 120×40, and `model-while-working` from 2.1.303 at
     /// 120×40 with the lines only that session showed taken out; `working` and
     /// `quoting-a-dialog` are `after-a-reply` with a spinner, or a reply
-    /// quoting a dialog, written in.
+    /// quoting a dialog, written in. `dev-channels` was recorded from 2.1.304
+    /// at 120×40 launched with a development channel, and
+    /// `dev-channels-confirmed` right after confirming it, with the lines only
+    /// that recording's environment showed taken out.
     fn screen(name: &str) -> Vec<String> {
         let path = format!("{}/tests/screens/{name}.txt", env!("CARGO_MANIFEST_DIR"));
         std::fs::read_to_string(&path)
@@ -102,5 +141,72 @@ mod tests {
     fn a_rule_with_no_key_hint_below_it_is_no_dialog() {
         let lines = ["text", &"─".repeat(80), "  Some heading", "  more text"].map(String::from);
         assert!(!dialog_open(&lines));
+    }
+
+    #[test]
+    fn the_warning_before_loading_development_channels_is_a_dialog() {
+        assert!(dialog_open(&screen("dev-channels")));
+    }
+
+    #[test]
+    fn the_input_box_after_confirming_the_warning_is_no_dialog() {
+        assert!(!dialog_open(&screen("dev-channels-confirmed")));
+    }
+
+    #[test]
+    fn the_development_channels_warning_names_the_channels_it_would_load() {
+        assert_eq!(
+            development_channels(&screen("dev-channels")),
+            Some(vec!["server:adroit_control".to_string()])
+        );
+    }
+
+    #[test]
+    fn a_warning_naming_several_channels_names_each_of_them() {
+        let lines = screen("dev-channels")
+            .into_iter()
+            .map(|line| {
+                line.replace(
+                    "Channels: server:adroit_control",
+                    "Channels: server:adroit_control, plugin:other@market",
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            development_channels(&lines),
+            Some(vec![
+                "server:adroit_control".to_string(),
+                "plugin:other@market".to_string()
+            ])
+        );
+    }
+
+    #[test]
+    fn the_warning_with_exit_selected_is_not_taken_for_the_warning_to_confirm() {
+        let lines = screen("dev-channels")
+            .into_iter()
+            .map(|line| match line.trim() {
+                "❯ 1. I am using this for local development" => {
+                    "    1. I am using this for local development".to_string()
+                }
+                "2. Exit" => "  ❯ 2. Exit".to_string(),
+                _ => line,
+            })
+            .collect::<Vec<_>>();
+        assert!(dialog_open(&lines));
+        assert_eq!(development_channels(&lines), None);
+    }
+
+    #[test]
+    fn no_other_screen_is_taken_for_the_development_channels_warning() {
+        for name in [
+            "dev-channels-confirmed",
+            "input",
+            "permissions",
+            "model",
+            "quoting-a-dialog",
+        ] {
+            assert_eq!(development_channels(&screen(name)), None, "{name}");
+        }
     }
 }

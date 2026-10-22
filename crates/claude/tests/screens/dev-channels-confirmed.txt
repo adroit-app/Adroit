@@ -1,0 +1,40 @@
+ ▐▛███▛█   Claude Code v2.1.304
+▝▜██████▀  Opus 5.5 · Claude Max
+ ▝▝   ▝▝   ~/ghq/github.com/adroit-app/Adroit/.claude/worktrees/adroit-2c9e2637-6a09-40a7-83e8-df0c0b41c23c
+
+▎ Channels (experimental) messages from server:adroit_control inject directly in this session · restart without
+▎ --dangerously-load-development-channels to stop
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ Try "refactor app.rs"
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle)                          Update available! Run: brew upgrade claude-code@latest
+                                                                                                    ◐ medium · /effort
+                                                                                                                   /rc
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
