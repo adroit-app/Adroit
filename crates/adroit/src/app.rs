@@ -1195,24 +1195,6 @@ fn moved_notice(n: usize) -> String {
     )
 }
 
-/// The environment a session adroit starts runs in, over adroit's own.
-fn session_env() -> Vec<(String, String)> {
-    let mut env = daemon::terminal_env();
-    // Claude Code runs the external editor with the environment it started
-    // in, so the prompt can take back what was typed into its input.
-    let editor = editor::script_path(&socket_path(&instance_state()));
-    if ANSWERS.load(Ordering::Relaxed) && editor.exists() {
-        // Kept for when the user opens the editor themselves.
-        if let Ok(own) = std::env::var("VISUAL").or_else(|_| std::env::var("EDITOR")) {
-            env.push((editor::USER_EDITOR.into(), own));
-        }
-        let editor = editor.display().to_string();
-        env.push(("VISUAL".into(), editor.clone()));
-        env.push(("EDITOR".into(), editor));
-    }
-    env
-}
-
 /// The daemon's id of the session a tab shows; `None` for a draft and for a
 /// session running in another terminal.
 fn kept_id(tab: &Tab) -> Option<u128> {
@@ -3217,7 +3199,7 @@ fn App() -> Element {
                                         permissions: options.permissions,
                                         prompt: text,
                                         images: images.clone(),
-                                        env: session_env(),
+                                        env: daemon::agent_env(),
                                         started_ms: now_ms(),
                                         ..Default::default()
                                     };
@@ -3343,21 +3325,23 @@ fn App() -> Element {
                 let size = *console_size.peek();
                 let mut args = adapter.integration_args(&adroit_program());
                 args.extend(resume);
-                let (program, args, env) = agents::launch(now.agent, args, session_env());
+                let (program, args, env) = agents::launch(now.agent, args, daemon::agent_env());
+                let mut tags = sessions::agent_tags(
+                    now.agent,
+                    &now.name,
+                    &now.cwd,
+                    &now.session_id,
+                    &adroit_model::AgentPermissions::Default,
+                    now_ms(),
+                    None,
+                );
+                tags.extend(sessions::editor_tags(&env));
                 let spawn = Spawn {
                     program,
                     args,
                     cwd: now.cwd.clone(),
                     env,
-                    tags: sessions::agent_tags(
-                        now.agent,
-                        &now.name,
-                        &now.cwd,
-                        &now.session_id,
-                        &adroit_model::AgentPermissions::Default,
-                        now_ms(),
-                        None,
-                    ),
+                    tags,
                     cols: size.cols,
                     rows: size.rows,
                 };
@@ -3987,14 +3971,19 @@ fn App() -> Element {
     let request_pull = {
         let active_pane = active_pane.clone();
         move || {
-            let Some(tab @ Tab::Session(_)) = active.peek().clone() else {
+            let Some(tab) = active.peek().clone() else {
                 return;
             };
+            let Tab::Session(id) = &tab else { return };
+            // A session whose editor is not adroit's would open the user's
+            // own editor in the pane, which then waits on keys nobody sends.
+            let hands_back = nav::find(&tree.peek(), id).is_some_and(|(_, s)| s.adroit_editor);
             if waits()
                 || *direct.peek()
                 || !stale.peek().contains(&tab)
                 || nvim.peek().is_none()
                 || !ANSWERS.load(Ordering::Relaxed)
+                || !hands_back
             {
                 return;
             }
@@ -4623,6 +4612,7 @@ fn App() -> Element {
                                         )
                                     })
                                 },
+                                // Not `agent_env`: a shell or Neovim keeps the user's own editor.
                                 env: daemon::terminal_env(),
                             },
                             &programs::login_shell(),

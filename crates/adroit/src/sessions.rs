@@ -22,6 +22,8 @@ const CONVERSATION: &str = "adroit.claude";
 const PID: &str = "adroit.pid";
 /// The conversation of the session this one was started from.
 const STARTED_FROM: &str = "adroit.from";
+/// Present on a session started with adroit's editor as its external editor.
+const EDITOR: &str = "adroit.editor";
 
 /// A session the daemon holds, as what it runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,6 +110,7 @@ pub fn read(session: &adroit_term::Session) -> Option<Kept> {
                 None => adroit_model::AgentPermissions::Default,
             },
             started_from: tags::value(t, STARTED_FROM).unwrap_or_default(),
+            adroit_editor: tags::value(t, EDITOR).is_some(),
         })),
         "terminal" => Some(Kept::Terminal(TerminalSession {
             id: session.id,
@@ -230,6 +233,16 @@ pub fn agent_tags(
     });
     out.extend(tags::tagged(KIND, agent.key()));
     out
+}
+
+/// The tag saying a session started with `env` runs with adroit's editor,
+/// if it does.
+pub fn editor_tags(env: &[(String, String)]) -> Vec<String> {
+    if crate::editor::runs_script(env, &crate::editor::current_script()) {
+        tags::tagged(EDITOR, "1")
+    } else {
+        Vec::new()
+    }
 }
 
 /// The tags a shell adroit starts carries, saying what it `runs`.
@@ -390,6 +403,40 @@ mod tests {
             panic!("agent")
         };
         assert!(session.binding.is_none());
+    }
+
+    #[test]
+    fn a_session_launched_with_adroit_s_editor_is_known_to_hand_its_input_back() {
+        use crate::execution::{StartRequest, resolve};
+        let launched = |env: Vec<(String, String)>| {
+            let launch = resolve(
+                &crate::settings::Settings::default(),
+                StartRequest {
+                    cwd: "/repo".into(),
+                    env,
+                    ..Default::default()
+                },
+                std::path::Path::new("/adroit"),
+            )
+            .unwrap();
+            let Some(Kept::Agent(session)) = read(&kept(42, launch.spawn.tags)) else {
+                panic!("an agent session")
+            };
+            session
+        };
+        let script = crate::editor::current_script();
+        let with_editor = crate::editor::session_env(Some(&script), |_| None);
+        assert!(launched(with_editor).adroit_editor);
+        assert!(!launched(Vec::new()).adroit_editor);
+    }
+
+    #[test]
+    fn a_session_whose_tags_do_not_say_how_it_was_launched_is_not_asked_for_its_input() {
+        let tags = [tags::tagged(KIND, "claude"), tags::tagged(CWD, "/tmp")].concat();
+        let Some(Kept::Agent(session)) = read(&kept(42, tags)) else {
+            panic!("an agent session")
+        };
+        assert!(!session.adroit_editor);
     }
 
     #[test]

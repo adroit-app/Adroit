@@ -520,7 +520,7 @@ impl Startup {
                     self.root.clone(),
                     credential,
                 )),
-                env: crate::daemon::terminal_env(),
+                env: crate::daemon::agent_env(),
                 ..Default::default()
             },
             &self.program,

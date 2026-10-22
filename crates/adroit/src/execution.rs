@@ -214,6 +214,7 @@ pub fn resolve(
         started_ms,
         request.started_from.as_deref(),
     );
+    tags.extend(sessions::editor_tags(&env));
     if let Some(binding) = &request.binding {
         tags.extend(adroit_term::tags::tagged(
             "adroit.binding",

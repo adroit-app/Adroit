@@ -38,7 +38,7 @@ pub(super) async fn start(
         prompt: handoff.unwrap_or_else(|| "This is an explicit restart of the Leader for an existing request in a fresh conversation. The earlier native conversation has ended. Read Adroit context, snapshot, and mailbox before taking action. Keep the existing run, task, Worker and report identities. Review unanswered questions and uncertain deliveries; do not launch replacement Workers just because this conversation is new. Continue orchestration and report the saved request's progress to the user.".into()),
         binding: Some(session.binding),
         control: Some(execution::ControlContext::new(identity, root.into(), credential)),
-        env: crate::daemon::terminal_env(),
+        env: crate::daemon::agent_env(),
         ..Default::default()
     }, program).map_err(failed)?;
     let palette =

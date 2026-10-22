@@ -70,6 +70,10 @@ pub struct Session {
     /// The conversation of the session this one was started from; empty for
     /// one the user started.
     pub started_from: String,
+    /// Whether the session runs with adroit's editor as its external editor,
+    /// so that asking it for its input hands the input to the window; false
+    /// when that is not known, as for one started by an earlier version.
+    pub adroit_editor: bool,
 }
 
 impl Session {
@@ -212,6 +216,7 @@ pub fn parse_agents(json: &str) -> Result<Vec<Session>, ParseError> {
                 last_input_ms: None,
                 permissions: AgentPermissions::default(),
                 started_from: String::new(),
+                adroit_editor: false,
             }
         })
         .collect())

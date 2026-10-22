@@ -65,13 +65,23 @@ pub fn terminfo_dirs(dir: &Path, given: Option<&str>) -> String {
     format!("{}:{given}", dir.display())
 }
 
-/// What every session's environment holds for its terminal.
+/// What every session's environment holds for its terminal. A shell or
+/// Neovim terminal gets only this, so the editor it opens stays the user's.
 pub fn terminal_env() -> Vec<(String, String)> {
     let given = std::env::var("TERMINFO_DIRS").ok();
     vec![(
         "TERMINFO_DIRS".into(),
         terminfo_dirs(&terminfo_dir(), given.as_deref()),
     )]
+}
+
+/// What every agent session's environment holds, whoever starts it: its
+/// terminal's, and adroit's editor, through which the window takes back
+/// what was typed into the session's input.
+pub fn agent_env() -> Vec<(String, String)> {
+    let mut env = terminal_env();
+    env.extend(crate::editor::environment());
+    env
 }
 
 fn runtime() -> std::io::Result<tokio::runtime::Runtime> {

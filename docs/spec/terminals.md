@@ -56,7 +56,12 @@ The window still owns the editor handoff and foreground requests on
 requests do not control terminal resources.
 
 Claude Code's external editor uses `adroit editor <file>` to hand over its
-input. A JSONL request `{"op":"editor","path":"/tmp/prompt.md"}` receives
+input. Every agent session Adroit starts — from the window, from
+`adroit session start`, or as a Worker or restarted Leader — names it as
+`$VISUAL` and `$EDITOR` once the window has written it, keeping the user's own
+editor in `$ADROIT_USER_EDITOR`; shell and Neovim terminals keep the user's
+editor. The window asks for the input only of a session started this way. A
+JSONL request `{"op":"editor","path":"/tmp/prompt.md"}` receives
 `{"taken":2}` when two lines were taken, or `"declined"` when the window did
 not request the input. A declined file opens in `$ADROIT_USER_EDITOR`.
 `{"op":"show"}` brings the instance's window to the front and receives

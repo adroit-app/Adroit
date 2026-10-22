@@ -123,7 +123,7 @@ async fn start(
         cwd: dir,
         permissions: asked.permissions.clone(),
         prompt: prompt.into(),
-        env: crate::daemon::terminal_env(),
+        env: crate::daemon::agent_env(),
         started_ms: now_ms(),
         started_from: from.map(String::from),
         ..Default::default()

@@ -173,6 +173,7 @@ async fn execute(daemon: &Daemon, operation: Operation, json: bool) -> Result<St
                     name,
                     cwd,
                     program,
+                    // Not `agent_env`: a shell or Neovim keeps the user's own editor.
                     env: crate::daemon::terminal_env(),
                     binding: None,
                 },
