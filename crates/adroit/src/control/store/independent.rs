@@ -2,7 +2,7 @@
 use super::*;
 use std::os::unix::fs::MetadataExt;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct IndependentAuthorization {
     pub id: RequestId,
     pub owner: SessionRef,
@@ -16,7 +16,7 @@ pub struct IndependentAuthorization {
     pub created: Option<IndependentRun>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct IndependentRun {
     pub run_id: RunId,
     pub leader_id: LogicalSessionId,

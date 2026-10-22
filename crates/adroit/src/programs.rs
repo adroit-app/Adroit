@@ -7,7 +7,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 /// How a shell tab's shell is started.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct ShellLaunch {
     /// The shell and its arguments; empty for the account's login shell,
@@ -34,7 +34,7 @@ impl ShellLaunch {
 }
 
 /// How a program other than the shell is started.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct Launch {
     /// The program and the arguments it always gets, ahead of adroit's own;
@@ -84,7 +84,7 @@ impl Launch {
 
 /// How sessions of one kind run: Claude Code's model, its permission mode and
 /// the tools denied; what is left empty is Claude Code's own choice.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct SessionOptions {
     pub model: String,

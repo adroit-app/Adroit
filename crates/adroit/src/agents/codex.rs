@@ -9,7 +9,7 @@ mod transcript;
 mod usage;
 
 /// How Codex sessions start, apart from Claude Code's options.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct CodexOptions {
     pub model: String,

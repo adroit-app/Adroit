@@ -267,6 +267,7 @@ fn detail(
 impl Store {
     pub fn ui_page(&mut self, table: UiTable, after: u64, expected: Option<u64>) -> Result<UiPage> {
         let transaction = self.connection.transaction()?;
+        current(&transaction)?;
         page(&transaction, table, after, expected)
     }
     pub fn ui_record(
@@ -277,6 +278,7 @@ impl Store {
         expected: u64,
     ) -> Result<UiRecordChunk> {
         let transaction = self.connection.transaction()?;
+        current(&transaction)?;
         record_chunk(&transaction, table, rowid, offset, expected)
     }
     pub fn ui_detail(
@@ -287,6 +289,7 @@ impl Store {
         expected: Option<u64>,
     ) -> Result<UiDetailPage> {
         let transaction = self.connection.transaction()?;
+        current(&transaction)?;
         detail(&transaction, table, id, offset, expected)
     }
 }
@@ -333,8 +336,9 @@ fn read_only(root: &Path, credential: &str) -> Result<Connection> {
 }
 
 fn schema(connection: &Connection) -> Result<()> {
+    current(connection)?;
     let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    if !(12..=SCHEMA_VERSION).contains(&version) {
+    if version < 12 {
         return Err(ControlError::new(
             ErrorCode::UnsupportedSchema,
             format!("UI compatibility reads require schema {SCHEMA_VERSION}; found {version}"),
@@ -477,6 +481,7 @@ impl Store {
         expected: Option<u64>,
     ) -> Result<UiTaskHistoryPage> {
         let transaction = self.connection.transaction()?;
+        current(&transaction)?;
         task_history(&transaction, task_id, after, expected)
     }
 }

@@ -583,6 +583,82 @@ fn a_newer_schema_is_refused_without_changing_its_version() {
 }
 
 #[test]
+fn opening_a_store_from_before_worker_readiness_raises_its_version_past_older_builds() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("control/state.sqlite3");
+    drop(Store::open(&path).unwrap());
+    let connection = rusqlite::Connection::open(&path).unwrap();
+    connection.pragma_update(None, "user_version", 14).unwrap();
+
+    drop(Store::open(&path).unwrap());
+
+    assert_eq!(
+        connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+            .unwrap(),
+        15
+    );
+}
+
+#[test]
+fn an_open_store_stops_reading_and_writing_once_a_newer_build_upgrades_the_schema() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("control/state.sqlite3");
+    let mut store = Store::open(&path).unwrap();
+    leader(&mut store, dir.path());
+    let newer = rusqlite::Connection::open(&path).unwrap();
+    newer.pragma_update(None, "user_version", 99).unwrap();
+
+    let read = store.snapshot().unwrap_err();
+    let written = store
+        .register_leader(
+            RequestId::new(),
+            LogicalSessionId::new(),
+            Agent::Claude,
+            dir.path().into(),
+        )
+        .unwrap_err();
+
+    use adroit::control::store::ErrorCode;
+    assert_eq!(read.code, ErrorCode::UnsupportedSchema);
+    assert_eq!(written.code, ErrorCode::UnsupportedSchema);
+    assert!(
+        written.message.contains("newer adroit")
+            && written.message.contains("restart the session daemon"),
+        "{written}"
+    );
+    let sessions: i64 = newer
+        .query_row("SELECT COUNT(*) FROM logical_sessions", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(sessions, 1);
+}
+
+#[tokio::test]
+async fn the_database_owner_refuses_every_call_once_a_newer_build_upgrades_the_schema() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("control/state.sqlite3");
+    let actor = adroit::control::actor::Actor::open(path.clone())
+        .await
+        .unwrap();
+    rusqlite::Connection::open(&path)
+        .unwrap()
+        .pragma_update(None, "user_version", 99)
+        .unwrap();
+
+    let error = actor
+        .call(|store| store.interrupted_startups())
+        .await
+        .unwrap_err();
+
+    assert_eq!(
+        error.code,
+        adroit::control::store::ErrorCode::UnsupportedSchema
+    );
+}
+
+#[test]
 fn a_truncated_existing_store_is_not_treated_as_a_fresh_instance() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("control/state.sqlite3");

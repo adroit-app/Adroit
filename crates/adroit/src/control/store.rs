@@ -27,7 +27,7 @@ mod runtime;
 pub mod ui;
 mod workareas;
 
-const SCHEMA_VERSION: i64 = 14;
+const SCHEMA_VERSION: i64 = 15;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -158,6 +158,23 @@ fn conflict(message: impl Into<String>) -> ControlError {
 fn encode(value: &impl Serialize) -> Result<String> {
     serde_json::to_string(value)
         .map_err(|error| invalid(format!("cannot encode the request: {error}")))
+}
+fn newer(schema: i64) -> ControlError {
+    ControlError::new(
+        ErrorCode::UnsupportedSchema,
+        format!(
+            "the orchestration state was written by a newer adroit (schema {schema}, this build reads up to {SCHEMA_VERSION}); restart the session daemon from the installed Adroit app"
+        ),
+    )
+}
+/// Checked inside every transaction, as a newer build can upgrade the
+/// schema while a long-running daemon keeps this connection open.
+fn current(connection: &Connection) -> Result<()> {
+    let schema: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    if schema > SCHEMA_VERSION {
+        return Err(newer(schema));
+    }
+    Ok(())
 }
 fn decode<T: DeserializeOwned>(text: &str) -> Result<T> {
     serde_json::from_str(text).map_err(|error| {
@@ -472,10 +489,7 @@ impl Store {
         connection.pragma_update(None, "foreign_keys", true)?;
         let schema: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
         if schema > SCHEMA_VERSION {
-            return Err(ControlError::new(
-                ErrorCode::UnsupportedSchema,
-                format!("control schema {schema} is newer than {SCHEMA_VERSION}"),
-            ));
+            return Err(newer(schema));
         }
         if schema == 0 {
             if !created {
@@ -588,11 +602,21 @@ impl Store {
             let transaction =
                 connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
             transaction.execute_batch("CREATE TABLE independent_authorizations (id TEXT PRIMARY KEY, leader_id TEXT NOT NULL REFERENCES logical_sessions(id), state TEXT NOT NULL, data TEXT NOT NULL); CREATE INDEX independent_authorizations_leader ON independent_authorizations(leader_id);")?;
-            transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+            transaction.pragma_update(None, "user_version", 14)?;
             transaction.commit()?;
+        }
+        if schema < 15 {
+            // Nothing in SQL changes: attempts began to carry worker readiness,
+            // which a build reading schema 14 cannot decode.
+            connection.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         }
         connection.pragma_update(None, "journal_mode", "WAL")?;
         Ok(Self { connection })
+    }
+
+    /// Fails once a newer build has upgraded the schema under this store.
+    pub fn ensure_current_schema(&self) -> Result<()> {
+        current(&self.connection)
     }
 
     fn transact<T: Serialize + DeserializeOwned>(
@@ -605,6 +629,7 @@ impl Store {
         let mut transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        current(&transaction)?;
         let kept: Option<(String, String)> = transaction
             .query_row(
                 "SELECT body, response FROM requests WHERE id = ?1",
@@ -644,6 +669,7 @@ impl Store {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        current(&transaction)?;
         reference(&transaction, identity)?;
         let kept: Option<String> = transaction
             .query_row(
@@ -1296,6 +1322,7 @@ impl Store {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        current(&transaction)?;
         let mut statement = transaction.prepare("SELECT data FROM deliveries")?;
         let deliveries = statement
             .query_map([], |row| row.get::<_, String>(0))?
@@ -1401,6 +1428,7 @@ impl Store {
 
     pub fn mailbox(&mut self, identity: SessionRef, after: u64, limit: u32) -> Result<MailboxPage> {
         let transaction = self.connection.transaction()?;
+        current(&transaction)?;
         reference(&transaction, identity)?;
         let after_sql: i64 = after
             .try_into()
@@ -1444,6 +1472,7 @@ impl Store {
 
     pub fn snapshot(&mut self) -> Result<ControlSnapshot> {
         let transaction = self.connection.transaction()?;
+        current(&transaction)?;
         let event_cursor = cursor(&transaction)?;
         let mut statement = transaction.prepare("SELECT data FROM deliveries ORDER BY rowid")?;
         let deliveries = statement
@@ -1509,5 +1538,82 @@ impl Store {
             })
         })
         .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::control::runtime::RuntimeLaunch;
+
+    /// What every table's `data` column holds, without the prose and the
+    /// defaults, which do not decide whether an older build can read a record.
+    fn record_shapes() -> Value {
+        fn shape<T: schemars::JsonSchema>() -> Value {
+            fn bare(schema: &mut Value) {
+                match schema {
+                    Value::Object(map) => {
+                        for annotation in ["description", "title", "default"] {
+                            map.remove(annotation);
+                        }
+                        for (keyword, value) in map.iter_mut() {
+                            match (keyword.as_str(), value) {
+                                // Keys here name fields and definitions, which
+                                // may well be called `title` or `default`.
+                                ("properties" | "$defs", Value::Object(named)) => {
+                                    named.values_mut().for_each(bare)
+                                }
+                                (_, value) => bare(value),
+                            }
+                        }
+                    }
+                    Value::Array(items) => items.iter_mut().for_each(bare),
+                    _ => {}
+                }
+            }
+            let mut schema = schemars::schema_for!(T).to_value();
+            bare(&mut schema);
+            schema
+        }
+        json!({
+            "logical_sessions": shape::<ManagedSession>(),
+            "runs": shape::<RunRecord>(),
+            "tasks": shape::<TaskRecord>(),
+            "attempts": shape::<AttemptRecord>(),
+            "messages": shape::<AgentMessage>(),
+            "deliveries": shape::<DeliveryRecord>(),
+            "work_areas": shape::<WorkArea>(),
+            "run_work_areas": shape::<RunWorkArea>(),
+            "task_reports": shape::<TaskReportRecord>(),
+            "run_completions": shape::<RunCompletion>(),
+            "candidates": shape::<CandidateRecord>(),
+            "candidate_checks": shape::<CandidateCheckRecord>(),
+            "completion_requests": shape::<ChangeCompletionRequest>(),
+            "coordination_notices": shape::<CoordinationNotice>(),
+            "coordination_replies": shape::<CoordinationReply>(),
+            "independent_authorizations": shape::<IndependentAuthorization>(),
+            "session_launches": shape::<RuntimeLaunch>(),
+        })
+    }
+
+    #[test]
+    fn the_stored_record_shapes_are_pinned_to_the_schema_version() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join(format!("src/control/store/shapes/{SCHEMA_VERSION}.json"));
+        let shapes = serde_json::to_string_pretty(&record_shapes()).unwrap() + "\n";
+        if std::env::var_os("ADROIT_PIN_STATE_SHAPES").is_some() && !path.exists() {
+            std::fs::write(&path, &shapes).unwrap();
+        }
+        let pinned = std::fs::read_to_string(&path).unwrap_or_else(|_| {
+            panic!(
+                "no record shapes are pinned for schema {SCHEMA_VERSION}; write them with ADROIT_PIN_STATE_SHAPES=1"
+            )
+        });
+        assert!(
+            pinned == shapes,
+            "the stored record shapes differ from those pinned for schema {SCHEMA_VERSION}, \
+             and an older adroit cannot read them: raise SCHEMA_VERSION with a migration, \
+             then pin the new shapes with ADROIT_PIN_STATE_SHAPES=1; never edit a pinned file"
+        );
     }
 }

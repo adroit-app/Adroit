@@ -4,6 +4,12 @@ The terminal daemon also owns orchestration state. Closing the window does not
 end coordination. If the controller cannot open its state, ordinary terminal
 sessions remain available and orchestration reports its failure.
 
+An adroit reads state that an older adroit wrote, and upgrades it. State that
+a newer adroit has written or upgraded is never read or changed by an older
+one, including a daemon that was already running: every request fails with
+`unsupported_schema`, not `corrupt_store`, and asks for the session daemon to
+be restarted from the installed application.
+
 Local integrations submit a JSON command on standard input to `adroit control`.
 Output is JSON containing `request_id` and a `result`, represented as either
 `{"Ok": value}` or `{"Err": {"code": code, "message": message}}`. A failed request

@@ -13,7 +13,9 @@ pub use crate::programs::{Launch, SessionOptions, ShellLaunch};
 
 /// Which Option keys count as Alt, sending Meta, in a console; the others type
 /// what macOS makes of the key with Option, as `Option-2` typing `™`.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum OptionAsAlt {
     #[default]
@@ -35,7 +37,7 @@ impl OptionAsAlt {
 }
 
 /// How much the details panel reads and shows.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct DetailsSettings {
     /// The changes Log lists.
@@ -60,7 +62,7 @@ impl Default for DetailsSettings {
 }
 
 /// Machine resources shown in Usage, independently of the active program.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct UsageSettings {
     pub cpu: bool,
@@ -87,7 +89,7 @@ impl UsageSettings {
 }
 
 /// How the console takes keys and draws its cursor.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct ConsoleSettings {
     pub option_as_alt: OptionAsAlt,
@@ -95,7 +97,7 @@ pub struct ConsoleSettings {
     pub cursor_blink: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
     /// The agent new sessions run.
@@ -144,7 +146,7 @@ pub struct Settings {
     pub usage: UsageSettings,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct OrchestrationSettings {
     pub max_workers: usize,
@@ -195,7 +197,7 @@ impl Default for Settings {
 
 /// Where the picker looks for directories to start a session in, beside where
 /// sessions run and Claude Code has been used.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct PickerSettings {
     /// Offer the repositories ghq keeps, and its roots in the file tree.

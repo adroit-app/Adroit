@@ -182,6 +182,7 @@ impl Store {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        current(&transaction)?;
         reference(&transaction, identity)?;
         if name != "read_message" {
             previews(&mut value);
@@ -204,6 +205,7 @@ impl Store {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        current(&transaction)?;
         let mut value =
             serde_json::to_value(&message).map_err(|error| invalid(error.to_string()))?;
         project(&transaction, identity.id, &mut value, "")?;

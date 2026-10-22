@@ -47,7 +47,11 @@ impl Actor {
         let (reply, result) = oneshot::channel();
         self.jobs
             .send(Box::new(move |store| {
-                let _ = reply.send(operation(store));
+                let _ = reply.send(
+                    store
+                        .ensure_current_schema()
+                        .and_then(|()| operation(store)),
+                );
             }))
             .await
             .map_err(|_| stopped())?;

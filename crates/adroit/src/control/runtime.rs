@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::settings::Settings;
 
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RuntimeLaunch {
     pub settings: Settings,

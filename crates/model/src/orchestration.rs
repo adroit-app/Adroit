@@ -89,7 +89,7 @@ pub enum SessionRole {
 }
 
 /// Ownership assigned when an agent joins a request; never inferred from cwd.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(try_from = "BindingData", into = "BindingData")]
 pub struct SessionBinding {
     logical_id: LogicalSessionId,
@@ -109,7 +109,7 @@ enum Assignment {
     },
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "role", rename_all = "snake_case", deny_unknown_fields)]
 enum BindingData {
     Leader {

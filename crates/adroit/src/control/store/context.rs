@@ -4,6 +4,7 @@ use super::*;
 impl Store {
     pub fn context(&mut self, identity: SessionRef) -> Result<AgentContext> {
         let transaction = self.connection.transaction()?;
+        current(&transaction)?;
         let session = reference(&transaction, identity)?;
         let run = session
             .binding
