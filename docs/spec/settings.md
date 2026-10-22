@@ -108,11 +108,15 @@ via_shell = false
 # How Claude Code sessions run: the model it starts with, as
 # Claude Code's `--model` takes it; its permission mode, one of `default`,
 # `acceptEdits`, `plan` and `bypassPermissions`; and the tools denied it.
-# What is left empty is Claude Code's own choice.
+# What is left empty is Claude Code's own choice. Whether Adroit confirms, once
+# a launch, Claude Code's warning about loading development channels when it
+# names Adroit's own channel and nothing else; every other dialog is left to
+# you. It applies to sessions launched while it is on.
 [sessions]
 model = ""
 permission_mode = ""
 disallowed_tools = []
+confirm_channel_warning = false
 
 # Where the picker looks for directories to start a session in: the
 # repositories ghq keeps, and the folders in each of `roots`, `~` standing for

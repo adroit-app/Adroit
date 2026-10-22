@@ -27,7 +27,7 @@ mod runtime;
 pub mod ui;
 mod workareas;
 
-const SCHEMA_VERSION: i64 = 16;
+const SCHEMA_VERSION: i64 = 17;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -718,6 +718,12 @@ impl Store {
         if schema < 16 {
             // Nothing in SQL changes: Leader sessions began to carry their
             // readiness, which a build reading schema 15 cannot decode.
+            connection.pragma_update(None, "user_version", 16)?;
+        }
+        if schema < 17 {
+            // Nothing in SQL changes: session launches began to carry whether
+            // to confirm the channel warning, which a build reading schema 16
+            // cannot decode.
             connection.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         }
         connection.pragma_update(None, "journal_mode", "WAL")?;

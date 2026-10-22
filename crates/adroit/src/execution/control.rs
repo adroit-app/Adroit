@@ -7,6 +7,9 @@ use std::{
 use adroit_model::{Agent, SessionBinding, SessionRef};
 use serde_json::json;
 
+/// The development channel Claude Code loads Adroit's control server as.
+pub const CLAUDE_CHANNEL: &str = "server:adroit_control";
+
 #[derive(Clone)]
 pub struct ControlContext {
     pub identity: SessionRef,
@@ -61,7 +64,7 @@ impl ControlContext {
                 }}})
                 .to_string(),
                 "--dangerously-load-development-channels".into(),
-                "server:adroit_control".into(),
+                CLAUDE_CHANNEL.into(),
                 "--allowedTools".into(),
                 "mcp__adroit_control__*".into(),
             ],

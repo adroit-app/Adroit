@@ -861,11 +861,16 @@ fn Choice(
     }
 }
 
-/// How sessions of one kind run: their model, permission mode and the tools
-/// denied them.
+/// How sessions of one kind run: their model, permission mode, the tools
+/// denied them, and whether Adroit's channel warning is confirmed for them.
 #[component]
 fn SessionGroup(title: String, options: SessionOptions, set: Callback<SessionOptions>) -> Element {
-    let (a, b, c) = (options.clone(), options.clone(), options.clone());
+    let (a, b, c, d) = (
+        options.clone(),
+        options.clone(),
+        options.clone(),
+        options.clone(),
+    );
     let list = format!("models-{title}");
     rsx! {
         section { class: "settings-group",
@@ -903,6 +908,13 @@ fn SessionGroup(title: String, options: SessionOptions, set: Callback<SessionOpt
                         let tools = e.value().split(',').map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect();
                         set(SessionOptions { disallowed_tools: tools, ..c.clone() })
                     },
+                }
+            }
+            Row { label: "Confirm Adroit's channel warning", hint: "Confirm, once a launch, Claude Code's warning about loading development channels when it names Adroit's own channel alone; every other dialog stays yours.",
+                input {
+                    r#type: "checkbox",
+                    checked: options.confirm_channel_warning,
+                    onchange: move |e| set(SessionOptions { confirm_channel_warning: e.checked(), ..d.clone() }),
                 }
             }
         }

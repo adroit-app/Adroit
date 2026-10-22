@@ -139,7 +139,9 @@ not through command arguments or terminal tags.
 The Claude channel transport uses Claude Code's development-channel opt-in and
 retains its native warning and organization policy checks. It is not an approved
 channel plugin, and unsupported or denied channel activation does not count as
-successful message delivery. Existing MCP servers remain configured alongside
+successful message delivery. The warning waits for the user and is reported as
+such, unless the user has allowed Adroit to confirm it; Adroit then confirms it
+once a launch, and only when it names Adroit's own channel and nothing else. Existing MCP servers remain configured alongside
 Adroit's bridge. Codex receives a session-local MCP configuration and uses its
 native queue for inbound notifications.
 

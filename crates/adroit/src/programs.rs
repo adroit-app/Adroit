@@ -93,6 +93,9 @@ pub struct SessionOptions {
     /// Set for one launch from its permission profile, never from the file.
     #[serde(skip)]
     pub read_only: Option<adroit_claude::ReadOnly>,
+    /// Confirm Claude Code's warning about loading development channels for
+    /// the user when it names Adroit's own channel alone.
+    pub confirm_channel_warning: bool,
 }
 
 impl SessionOptions {

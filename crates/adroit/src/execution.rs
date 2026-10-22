@@ -11,7 +11,7 @@ use adroit_term::{Daemon, Palette, Pane, Size, Spawn};
 use crate::{agents, sessions, settings::Settings};
 
 mod control;
-pub use control::ControlContext;
+pub use control::{CLAUDE_CHANNEL, ControlContext};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum StartMode {

@@ -596,7 +596,7 @@ fn opening_a_store_from_before_worker_readiness_raises_its_version_past_older_bu
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        16
+        17
     );
 }
 
@@ -614,7 +614,25 @@ fn opening_a_store_from_before_leader_readiness_raises_its_version_past_older_bu
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        16
+        17
+    );
+}
+
+#[test]
+fn opening_a_store_from_before_the_channel_warning_setting_raises_its_version_past_older_builds() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("control/state.sqlite3");
+    drop(Store::open(&path).unwrap());
+    let connection = rusqlite::Connection::open(&path).unwrap();
+    connection.pragma_update(None, "user_version", 16).unwrap();
+
+    drop(Store::open(&path).unwrap());
+
+    assert_eq!(
+        connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+            .unwrap(),
+        17
     );
 }
 

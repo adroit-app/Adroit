@@ -491,6 +491,22 @@ mod tests {
     }
 
     #[test]
+    fn confirming_adroit_s_channel_warning_is_off_unless_the_user_turns_it_on() {
+        assert!(
+            !Settings::parse("")
+                .unwrap()
+                .sessions
+                .confirm_channel_warning
+        );
+        let settings = Settings::parse("[sessions]\nconfirm_channel_warning = true\n").unwrap();
+        assert!(settings.sessions.confirm_channel_warning);
+        assert_eq!(
+            Settings::parse(&toml::to_string_pretty(&settings).unwrap()).unwrap(),
+            settings
+        );
+    }
+
+    #[test]
     fn codex_has_its_own_launch_and_model_and_claude_remains_the_default() {
         assert_eq!(
             Settings::parse("").unwrap().agent,

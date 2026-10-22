@@ -104,13 +104,17 @@ impl Observer {
                 && attempt.state == AttemptState::Running
             {
                 let screen = daemon.visible(terminal).await.map_err(failed)?;
-                if let Some(readiness) = readiness_change(
-                    session.agent,
-                    &screen,
-                    attempt.readiness,
-                    attempt.spawned_at_ms,
-                    now_ms(),
-                ) {
+                let confirmed =
+                    confirm_channel_warning(actor, daemon, &session, native, &screen).await?;
+                if !confirmed
+                    && let Some(readiness) = readiness_change(
+                        session.agent,
+                        &screen,
+                        attempt.readiness,
+                        attempt.spawned_at_ms,
+                        now_ms(),
+                    )
+                {
                     let identity = session.reference();
                     let terminal_id = crate::sessions::hex(terminal);
                     actor
@@ -131,13 +135,17 @@ impl Observer {
                 && session.state == ManagedSessionState::Running
             {
                 let screen = daemon.visible(terminal).await.map_err(failed)?;
-                if let Some(readiness) = readiness_change(
-                    session.agent,
-                    &screen,
-                    session.readiness,
-                    session.spawned_at_ms,
-                    now_ms(),
-                ) {
+                let confirmed =
+                    confirm_channel_warning(actor, daemon, &session, native, &screen).await?;
+                if !confirmed
+                    && let Some(readiness) = readiness_change(
+                        session.agent,
+                        &screen,
+                        session.readiness,
+                        session.spawned_at_ms,
+                        now_ms(),
+                    )
+                {
                     let identity = session.reference();
                     let terminal_id = crate::sessions::hex(terminal);
                     actor
@@ -300,6 +308,62 @@ fn readiness_change(
         .filter(|readiness| *readiness != current)
 }
 
+/// The tag a terminal carries once its warning about Adroit's channel was
+/// confirmed, so that one launch is never confirmed twice.
+const CHANNEL_CONFIRMED: &str = "adroit.channel-confirmed";
+
+/// The keys that confirm Claude Code's warning about loading development
+/// channels on `screen`, when `allowed`, not yet `answered` for this launch,
+/// and the warning names Adroit's own channel and nothing else.
+fn channel_warning_keys(
+    agent: Agent,
+    allowed: bool,
+    answered: bool,
+    screen: &[String],
+) -> Option<&'static [u8]> {
+    let ours = || {
+        adroit_claude::dialog::development_channels(screen)
+            .is_some_and(|channels| channels == [crate::execution::CLAUDE_CHANNEL])
+    };
+    (agent == Agent::Claude && allowed && !answered && ours()).then_some(b"\r")
+}
+
+/// Confirm the warning about Adroit's channel on `screen` when the session's
+/// launch settings allow it, returning whether it was confirmed.
+async fn confirm_channel_warning(
+    actor: &Actor,
+    daemon: &Daemon,
+    session: &ManagedSession,
+    native: &adroit_term::Session,
+    screen: &[String],
+) -> Result<bool> {
+    let answered = tags::value(&native.tags, CHANNEL_CONFIRMED).is_some();
+    if session.state != ManagedSessionState::Running
+        || channel_warning_keys(session.agent, true, answered, screen).is_none()
+    {
+        return Ok(false);
+    }
+    let identity = session.reference();
+    let allowed = actor
+        .call(move |store| store.runtime(identity))
+        .await?
+        .is_some_and(|launch| launch.settings.sessions.confirm_channel_warning);
+    let Some(keys) = channel_warning_keys(session.agent, allowed, answered, screen) else {
+        return Ok(false);
+    };
+    // Tagged before pressing: a lost reply must not lead to a second press.
+    daemon
+        .tag(
+            native.id,
+            tags::tagged(CHANNEL_CONFIRMED, &session.generation.to_string()),
+            Vec::new(),
+        )
+        .await
+        .map_err(failed)?;
+    daemon.press(native.id, keys).await.map_err(failed)?;
+    Ok(true)
+}
+
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -354,7 +418,13 @@ mod tests {
         let dialog = claude_screen("dev-channels");
         let spawned = Some(100);
         assert_eq!(
-            readiness_change(Agent::Claude, &dialog, WorkerReadiness::Spawned, spawned, 200),
+            readiness_change(
+                Agent::Claude,
+                &dialog,
+                WorkerReadiness::Spawned,
+                spawned,
+                200
+            ),
             Some(WorkerReadiness::AwaitingInput)
         );
         for now in [60_100, 600_000] {
@@ -386,12 +456,74 @@ mod tests {
         let blank = vec![String::new(); 40];
         let spawned = Some(100);
         assert_eq!(
-            readiness_change(Agent::Claude, &blank, WorkerReadiness::Spawned, spawned, 60_099),
+            readiness_change(
+                Agent::Claude,
+                &blank,
+                WorkerReadiness::Spawned,
+                spawned,
+                60_099
+            ),
             None
         );
         assert_eq!(
-            readiness_change(Agent::Claude, &blank, WorkerReadiness::Spawned, spawned, 60_100),
+            readiness_change(
+                Agent::Claude,
+                &blank,
+                WorkerReadiness::Spawned,
+                spawned,
+                60_100
+            ),
             Some(WorkerReadiness::Stalled)
+        );
+    }
+
+    #[test]
+    fn adroit_s_channel_warning_is_left_to_the_user_unless_the_settings_allow_confirming_it() {
+        let warning = claude_screen("dev-channels");
+        assert_eq!(
+            channel_warning_keys(Agent::Claude, false, false, &warning),
+            None
+        );
+        assert_eq!(
+            channel_warning_keys(Agent::Claude, true, false, &warning),
+            Some(&b"\r"[..])
+        );
+    }
+
+    #[test]
+    fn adroit_s_channel_warning_is_confirmed_only_once_a_launch() {
+        let warning = claude_screen("dev-channels");
+        assert_eq!(
+            channel_warning_keys(Agent::Claude, true, true, &warning),
+            None
+        );
+    }
+
+    #[test]
+    fn no_screen_but_the_warning_naming_adroit_s_channel_alone_is_confirmed() {
+        let other = claude_screen("dev-channels")
+            .into_iter()
+            .map(|line| {
+                line.replace(
+                    "Channels: server:adroit_control",
+                    "Channels: server:adroit_control, plugin:other@market",
+                )
+            })
+            .collect::<Vec<_>>();
+        for screen in [
+            other,
+            claude_screen("dev-channels-confirmed"),
+            claude_screen("permissions"),
+            "Do you trust the files in this folder?\n1. Yes\n2. No\nEnter to confirm · Esc to cancel"
+                .lines()
+                .map(String::from)
+                .collect(),
+        ] {
+            assert_eq!(channel_warning_keys(Agent::Claude, true, false, &screen), None);
+        }
+        assert_eq!(
+            channel_warning_keys(Agent::Codex, true, false, &claude_screen("dev-channels")),
+            None
         );
     }
 
