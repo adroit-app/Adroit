@@ -174,6 +174,21 @@ async fn keys_reach_the_program_as_its_modes_ask() {
 }
 
 #[tokio::test]
+async fn keys_pressed_without_a_window_reach_the_program() {
+    let (d, _dir) = daemon().await;
+    let id = d
+        .spawn(sh(
+            "stty raw -echo; printf ready; head -c 1 | od -An -tx1 | tr -s ' '; sleep 5",
+        ))
+        .await
+        .unwrap();
+    let pane = attach(&d, id).await;
+    until(&pane, |t| t[0].starts_with("ready")).await;
+    d.press(id, b"\r").await.unwrap();
+    until(&pane, |t| t.iter().any(|l| l.contains(" 0d"))).await;
+}
+
+#[tokio::test]
 async fn a_paste_is_bracketed_when_the_program_asks() {
     let (d, _dir) = daemon().await;
     let id = d

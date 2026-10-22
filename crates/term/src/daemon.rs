@@ -267,24 +267,31 @@ impl Daemon {
         self.rows(id, RegionSource::Visible, false).await
     }
 
+    /// Send `bytes` to a session's program as typed keys, with no pane
+    /// attached, returning once the session has taken them.
+    pub async fn press(&self, id: u128, bytes: &[u8]) -> Result<()> {
+        use felis_protocol::messages::{InputMsg, SessionToDaemonMsg};
+        let mut conn = self.ops().await?;
+        conn.attach(id, AttachIntent::Deliberate).await?;
+        // Input sent before the attach's burst is read can be dropped when
+        // the daemon finds the connection's outbox full.
+        rehydrated(&mut conn).await?;
+        conn.writer
+            .send_unflushed(&InputMsg::KeyBytes(bytes.to_vec()))
+            .await
+            .map_err(proto)?;
+        conn.input_fence().await?;
+        conn.writer
+            .send(&SessionToDaemonMsg::Detach)
+            .await
+            .map_err(proto)?;
+        Ok(())
+    }
+
     async fn rows(&self, id: u128, source: RegionSource, ansi: bool) -> Result<Vec<String>> {
         let mut conn = self.ops().await?;
         conn.attach(id, AttachIntent::Deliberate).await?;
-        // An attach for reading ships the session's modes, then says it is done.
-        loop {
-            let Some(frame) = conn.next_frame().await? else {
-                return Err(Error::Protocol("the daemon hung up".into()));
-            };
-            let Incoming::Payload(p) = conn.driver.classify(&frame).map_err(proto)? else {
-                continue;
-            };
-            if p.kind == MessageKind::Grid
-                && let Delivery::Deliver(d) = conn.driver.decode::<GridMsg>(&p).map_err(proto)?
-                && d.msg == GridMsg::RehydrateEnd
-            {
-                break;
-            }
-        }
+        rehydrated(&mut conn).await?;
         conn.open_stream(&RegionToDaemonMsg::Rows {
             source,
             ansi,
@@ -462,6 +469,25 @@ fn own_dir(socket: &Path) -> Result<()> {
 
 fn proto(e: impl std::fmt::Display) -> Error {
     Error::Protocol(e.to_string())
+}
+
+/// Read past the burst an attach ships with the session's modes, to the
+/// frame that says it is done.
+async fn rehydrated(conn: &mut Connection<ReadHalf, WriteHalf>) -> Result<()> {
+    loop {
+        let Some(frame) = conn.next_frame().await? else {
+            return Err(Error::Protocol("the daemon hung up".into()));
+        };
+        let Incoming::Payload(p) = conn.driver.classify(&frame).map_err(proto)? else {
+            continue;
+        };
+        if p.kind == MessageKind::Grid
+            && let Delivery::Deliver(d) = conn.driver.decode::<GridMsg>(&p).map_err(proto)?
+            && d.msg == GridMsg::RehydrateEnd
+        {
+            return Ok(());
+        }
+    }
 }
 
 #[cfg(test)]
