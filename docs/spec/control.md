@@ -73,6 +73,11 @@ large artifacts should be referenced from their working directories.
 `adroit control mcp` serves MCP tools over standard input and output using the
 session credential. It never falls back to a human credential. Each operation is a named tool described in [control-tools.md](control-tools.md).
 
+When the session daemon runs another build of adroit than the bridge, or one
+too old to say which, the bridge says so to the agent when it starts and with
+every failed call, naming both builds and asking for the session daemon to be
+restarted from the window. It still forwards every call.
+
 `adroit control mcp --channel` also exposes Claude channel notifications. The
 bridge reads the recipient's durable mailbox in the background; the Leader
 never needs to hold a model turn open waiting for messages. Writing a notification

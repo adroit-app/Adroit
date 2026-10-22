@@ -931,3 +931,36 @@ async fn native_tools_describe_complete_task_and_result_inputs_and_offer_typed_i
     drop(send);
     task.await.unwrap().unwrap();
 }
+
+#[tokio::test]
+async fn a_bridge_beside_a_daemon_of_another_build_says_so_at_start_and_on_every_failure() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("control");
+    let mismatch = "The session daemon runs adroit 0.1.0, and this bridge adroit 0.2.0.";
+    let (input, mut send) = tokio::io::duplex(8192);
+    let (output, receive) = tokio::io::duplex(8192);
+    let task = tokio::spawn(bridge::run_beside(
+        BufReader::new(input),
+        output,
+        Client::session(&root, "a".repeat(72)),
+        false,
+        Some(mismatch.into()),
+    ));
+    let mut receive = BufReader::new(receive);
+
+    let started = exchange(
+        &mut send,
+        &mut receive,
+        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}),
+    )
+    .await;
+    let failed = exchange(&mut send,&mut receive,json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"snapshot","arguments":{}}})).await;
+
+    let instructions = started["result"]["instructions"].as_str().unwrap();
+    assert!(instructions.contains(mismatch), "{instructions}");
+    assert_eq!(failed["result"]["isError"], true, "{failed}");
+    let text = failed["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains(mismatch), "{text}");
+    drop(send);
+    task.await.unwrap().unwrap();
+}
