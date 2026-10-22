@@ -765,3 +765,78 @@ async fn read_only_source_identification_errors_do_not_create_or_bind_fallback_a
         assert!(source.exists());
     }
 }
+
+#[tokio::test]
+async fn an_unreadable_run_keeps_its_worker_slots_and_leaves_other_runs_scheduled() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("source");
+    std::fs::create_dir_all(&source).unwrap();
+    let root = dir.path().join("control");
+    let actor = Actor::open(root.join("state.sqlite3")).await.unwrap();
+    let (spoiled_owner, spoiled) = planned(&actor, &source, 2).await;
+    let (_, kept) = planned(&actor, &source, 1).await;
+    let (running, waiting) = actor
+        .call(move |store| {
+            let tasks: Vec<_> = store
+                .snapshot()?
+                .tasks
+                .into_iter()
+                .filter(|task| task.run_id == spoiled)
+                .map(|task| task.id)
+                .collect();
+            let version = TaskVersion {
+                task_id: tasks[0],
+                revision: 1,
+            };
+            let target = TargetSelection {
+                agent: Agent::Codex,
+                ..Default::default()
+            };
+            store.reserve_attempt(RequestId::new(), spoiled_owner, version, target)?;
+            Ok((tasks[0], tasks[1]))
+        })
+        .await
+        .unwrap();
+    assert_ne!(running, waiting);
+    rusqlite::Connection::open(root.join("state.sqlite3"))
+        .unwrap()
+        .execute(
+            "UPDATE tasks SET data = json_set(data, '$.unknown_field', 1) WHERE id = ?1",
+            [waiting.to_string()],
+        )
+        .unwrap();
+    let mut scheduler = Scheduler::new(
+        actor.clone(),
+        Daemon::new(dir.path().join("absent.sock")),
+        root,
+        "/adroit".into(),
+    );
+
+    let full = scheduler.tick(Settings::default(), 1).await.unwrap();
+    let held: Vec<_> = scheduler
+        .unreadable()
+        .iter()
+        .map(|run| run.run_id)
+        .collect();
+    let launched = scheduler.tick(Settings::default(), 2).await.unwrap();
+
+    assert!(full.is_empty(), "{full:?}");
+    assert_eq!(held, vec![spoiled]);
+    assert_eq!(launched.len(), 1);
+    let snapshot = actor
+        .call(|store| store.readable_snapshot())
+        .await
+        .unwrap()
+        .snapshot;
+    let attempt = snapshot
+        .attempts
+        .iter()
+        .find(|attempt| attempt.id == launched[0])
+        .unwrap();
+    let task = snapshot
+        .tasks
+        .iter()
+        .find(|task| task.id == attempt.task_id)
+        .unwrap();
+    assert_eq!(task.run_id, kept);
+}

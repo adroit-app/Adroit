@@ -6,7 +6,7 @@ use adroit_term::Daemon;
 
 use super::{
     actor::Actor,
-    store::{ControlError, ErrorCode},
+    store::{ControlError, ErrorCode, UnreadableRun},
 };
 use crate::{execution, settings::Settings, workareas};
 
@@ -20,6 +20,7 @@ pub struct Scheduler {
     jobs: tokio::task::JoinSet<()>,
     active: std::collections::HashMap<tokio::task::Id, SessionRef>,
     last_run: Option<RunId>,
+    unreadable: Vec<UnreadableRun>,
 }
 
 impl Scheduler {
@@ -32,7 +33,13 @@ impl Scheduler {
             jobs: tokio::task::JoinSet::new(),
             active: std::collections::HashMap::new(),
             last_run: None,
+            unreadable: Vec::new(),
         }
+    }
+
+    /// The runs the last tick left alone, as a record of theirs cannot be read.
+    pub fn unreadable(&self) -> &[UnreadableRun] {
+        &self.unreadable
     }
 
     pub async fn tick(&mut self, settings: Settings, max_workers: usize) -> Result<Vec<AttemptId>> {
@@ -54,7 +61,10 @@ impl Scheduler {
                 }
             }
         }
-        let snapshot = self.actor.call(|store| store.snapshot()).await?;
+        let readable = self.actor.call(|store| store.readable_snapshot()).await?;
+        self.unreadable = readable.unreadable;
+        let held_slots = readable.held_slots;
+        let snapshot = readable.snapshot;
         let independent = self
             .actor
             .call(|store| store.pending_independent_leaders())
@@ -150,7 +160,8 @@ impl Scheduler {
             .attempts
             .iter()
             .filter(|attempt| attempt.state.holds_slot())
-            .count();
+            .count()
+            + held_slots;
         let mut remaining = max_workers.saturating_sub(occupied);
         let per_run = settings.orchestration.max_workers_per_run.min(64);
         let mut run_occupied = std::collections::HashMap::<RunId, usize>::new();
@@ -407,7 +418,11 @@ impl Startup {
                 }
             }
             WorkdirPolicy::Existing(id) => {
-                let snapshot = self.actor.call(|store| store.snapshot()).await?;
+                let snapshot = self
+                    .actor
+                    .call(|store| store.readable_snapshot())
+                    .await?
+                    .snapshot;
                 let area = snapshot
                     .work_areas
                     .into_iter()

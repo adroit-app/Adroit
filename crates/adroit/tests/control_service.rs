@@ -847,3 +847,58 @@ async fn the_installed_control_command_refuses_a_missing_managed_credential() {
     daemon.kill().await.unwrap();
     daemon.wait().await.unwrap();
 }
+
+#[tokio::test]
+async fn a_session_reads_its_own_run_while_another_run_holds_an_unreadable_record() {
+    use adroit::control::store::Store;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("control");
+    let path = root.join("state.sqlite3");
+    let mut store = Store::open(&path).unwrap();
+    let mut leaders = Vec::new();
+    for title in ["Spoiled", "Kept"] {
+        let leader = store
+            .register_leader(
+                RequestId::new(),
+                LogicalSessionId::new(),
+                Agent::Claude,
+                dir.path().into(),
+            )
+            .unwrap()
+            .value
+            .reference();
+        let run = RunId::new();
+        store
+            .open_run(
+                RequestId::new(),
+                leader,
+                run,
+                RunBrief {
+                    title: title.into(),
+                    goal: "Keep working".into(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        leaders.push((leader, run));
+    }
+    let token = store.grant(leaders[1].0).unwrap();
+    drop(store);
+    rusqlite::Connection::open(&path)
+        .unwrap()
+        .execute(
+            "UPDATE runs SET data = json_set(data, '$.unknown_field', 1) WHERE id = ?1",
+            [leaders[0].1.to_string()],
+        )
+        .unwrap();
+    let _service = Service::bind(&root).await.unwrap();
+
+    let snapshot = Client::session(&root, token)
+        .request(RequestId::new(), Command::Snapshot)
+        .await
+        .unwrap();
+
+    let runs = snapshot["runs"].as_array().unwrap();
+    assert_eq!(runs.len(), 1, "{snapshot}");
+    assert_eq!(runs[0]["id"], json!(leaders[1].1));
+}

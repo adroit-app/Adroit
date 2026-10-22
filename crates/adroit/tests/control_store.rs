@@ -1734,3 +1734,74 @@ fn live_source_registration_reuses_ready_native_metadata_but_rejects_unavailable
         assert_eq!(store.snapshot().unwrap().work_areas, vec![area]);
     }
 }
+
+fn spoil_task(path: &Path, task: TaskId) {
+    rusqlite::Connection::open(path)
+        .unwrap()
+        .execute(
+            "UPDATE tasks SET data = json_set(data, '$.unknown_field', 1) WHERE id = ?1",
+            [task.to_string()],
+        )
+        .unwrap();
+}
+
+#[test]
+fn an_unreadable_record_holds_only_the_run_it_belongs_to() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("control/state.sqlite3");
+    let mut store = Store::open(&path).unwrap();
+    let (spoiled_leader, spoiled) = leader(&mut store, dir.path());
+    let spoiled_task = task(&mut store, spoiled_leader, spoiled, vec![]);
+    let (kept_leader, kept) = leader(&mut store, dir.path());
+    let kept_task = task(&mut store, kept_leader, kept, vec![]);
+    spoil_task(&path, spoiled_task);
+
+    let readable = store.readable_snapshot().unwrap();
+
+    let snapshot = readable.snapshot;
+    assert_eq!(
+        snapshot.runs.iter().map(|run| run.id).collect::<Vec<_>>(),
+        vec![kept]
+    );
+    assert_eq!(
+        snapshot
+            .tasks
+            .iter()
+            .map(|task| task.id)
+            .collect::<Vec<_>>(),
+        vec![kept_task]
+    );
+    assert!(
+        snapshot
+            .sessions
+            .iter()
+            .all(|session| session.binding.logical_id() != spoiled_leader.id)
+    );
+    assert_eq!(readable.unreadable.len(), 1);
+    let held = &readable.unreadable[0];
+    assert_eq!(held.run_id, spoiled);
+    assert_eq!(
+        held.error.code,
+        adroit::control::store::ErrorCode::CorruptStore
+    );
+    assert!(
+        held.error.message.contains("unknown_field"),
+        "{}",
+        held.error
+    );
+}
+
+#[test]
+fn a_whole_snapshot_names_the_run_whose_record_cannot_be_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("control/state.sqlite3");
+    let mut store = Store::open(&path).unwrap();
+    let (owner, run) = leader(&mut store, dir.path());
+    let spoiled = task(&mut store, owner, run, vec![]);
+    spoil_task(&path, spoiled);
+
+    let error = store.snapshot().unwrap_err();
+
+    assert_eq!(error.code, adroit::control::store::ErrorCode::CorruptStore);
+    assert!(error.message.contains(&run.to_string()), "{error}");
+}

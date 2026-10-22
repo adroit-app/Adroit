@@ -195,7 +195,6 @@ enum Table {
     WorkAreas,
     RunWorkAreas,
     Reports,
-    Completions,
     CompletionRequests,
     Candidates,
     CandidateChecks,
@@ -213,7 +212,6 @@ impl Table {
             Self::WorkAreas => "work_areas",
             Self::RunWorkAreas => "run_work_areas",
             Self::Reports => "task_reports",
-            Self::Completions => "run_completions",
             Self::CompletionRequests => "completion_requests",
             Self::Candidates => "candidates",
             Self::CandidateChecks => "candidate_checks",
@@ -252,6 +250,82 @@ fn all<T: DeserializeOwned>(connection: &Connection, table: Table) -> Result<Vec
     statement
         .query_map([], |row| row.get::<_, String>(0))?
         .map(|row| decode(&row?))
+        .collect()
+}
+/// Controller state without the runs that hold a record this build cannot read.
+#[derive(Debug)]
+pub struct ReadableSnapshot {
+    pub snapshot: ControlSnapshot,
+    pub unreadable: Vec<UnreadableRun>,
+    /// Worker slots the left-out runs still hold.
+    pub held_slots: usize,
+}
+
+/// A run left out of a [`ReadableSnapshot`], with the first record that failed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnreadableRun {
+    pub run_id: RunId,
+    pub error: ControlError,
+}
+
+/// Every record of `table`, each with the run `run` selects for it. A record
+/// that cannot be decoded holds its run, or fails the read if it has none.
+fn scoped<T: DeserializeOwned>(
+    connection: &Connection,
+    table: &str,
+    run: &str,
+    held: &mut Vec<UnreadableRun>,
+) -> Result<Vec<(Option<RunId>, T)>> {
+    let query = format!("SELECT {run}, data FROM {table} ORDER BY rowid");
+    let mut statement = connection.prepare(&query)?;
+    let rows = statement.query_map([], |row| {
+        Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?))
+    })?;
+    let mut records = Vec::new();
+    for row in rows {
+        let (run, data) = row?;
+        let run_id = run
+            .map(|id| {
+                id.parse::<RunId>().map_err(|_| {
+                    ControlError::new(
+                        ErrorCode::CorruptStore,
+                        format!("a {table} record names an invalid run ID"),
+                    )
+                })
+            })
+            .transpose()?;
+        match (decode(&data), run_id) {
+            (Ok(record), run_id) => records.push((run_id, record)),
+            (Err(error), Some(run_id)) => {
+                if !held.iter().any(|unreadable| unreadable.run_id == run_id) {
+                    held.push(UnreadableRun {
+                        run_id,
+                        error: ControlError::new(
+                            error.code,
+                            format!("run {run_id} has an unreadable {table} record: {error}"),
+                        ),
+                    });
+                }
+            }
+            (Err(error), None) => {
+                return Err(ControlError::new(
+                    error.code,
+                    format!("a {table} record of no run is unreadable: {error}"),
+                ));
+            }
+        }
+    }
+    Ok(records)
+}
+fn readable<T>(records: Vec<(Option<RunId>, T)>, held: &[UnreadableRun]) -> Vec<T> {
+    records
+        .into_iter()
+        .filter(|(run, _)| {
+            !held
+                .iter()
+                .any(|unreadable| Some(unreadable.run_id) == *run)
+        })
+        .map(|(_, record)| record)
         .collect()
 }
 fn cursor(connection: &Connection) -> Result<u64> {
@@ -1470,39 +1544,107 @@ impl Store {
         })
     }
 
+    /// The run a session of this generation is assigned to.
+    pub fn session_run(&self, identity: SessionRef) -> Result<Option<RunId>> {
+        Ok(reference(&self.connection, identity)?.binding.run_id())
+    }
+
+    /// Everything, or an error naming a run that holds an unreadable record.
     pub fn snapshot(&mut self) -> Result<ControlSnapshot> {
+        let readable = self.readable_snapshot()?;
+        match readable.unreadable.into_iter().next() {
+            Some(held) => Err(held.error),
+            None => Ok(readable.snapshot),
+        }
+    }
+
+    /// Everything but the runs holding a record this build cannot read.
+    /// A record that belongs to no run still fails the whole read.
+    pub fn readable_snapshot(&mut self) -> Result<ReadableSnapshot> {
         let transaction = self.connection.transaction()?;
         current(&transaction)?;
-        let event_cursor = cursor(&transaction)?;
-        let mut statement = transaction.prepare("SELECT data FROM deliveries ORDER BY rowid")?;
-        let deliveries = statement
-            .query_map([], |row| row.get::<_, String>(0))?
-            .map(|row| decode(&row?))
-            .collect::<Result<Vec<_>>>()?;
-        drop(statement);
+        let mut held = Vec::new();
+        let sessions: Vec<(Option<RunId>, ManagedSession)> = scoped(
+            &transaction,
+            "logical_sessions",
+            "CASE WHEN json_valid(data) THEN json_extract(data, '$.binding.run_id') END",
+            &mut held,
+        )?;
+        let runs = scoped(&transaction, "runs", "id", &mut held)?;
+        let tasks = scoped(&transaction, "tasks", "run_id", &mut held)?;
+        let attempts = scoped(
+            &transaction,
+            "attempts",
+            "(SELECT run_id FROM tasks WHERE tasks.id = attempts.task_id)",
+            &mut held,
+        )?;
+        let messages = scoped(&transaction, "messages", "run_id", &mut held)?;
+        let deliveries = scoped(
+            &transaction,
+            "deliveries",
+            "(SELECT run_id FROM messages WHERE messages.id = deliveries.message_id)",
+            &mut held,
+        )?;
+        let reports = scoped(
+            &transaction,
+            "task_reports",
+            "(SELECT run_id FROM messages WHERE messages.id = task_reports.id)",
+            &mut held,
+        )?;
+        let completions = scoped(&transaction, "run_completions", "id", &mut held)?;
+        let candidates: Vec<(Option<RunId>, CandidateRecord)> =
+            scoped(&transaction, "candidates", "run_id", &mut held)?;
+        let candidate_checks = scoped(
+            &transaction,
+            "candidate_checks",
+            "(SELECT run_id FROM tasks WHERE tasks.id = candidate_checks.task_id)",
+            &mut held,
+        )?;
+        let completion_requests = scoped(&transaction, "completion_requests", "run_id", &mut held)?;
+        let coordination = scoped(&transaction, "coordination_notices", "run_id", &mut held)?;
+        let coordination_replies = scoped(
+            &transaction,
+            "coordination_replies",
+            "(SELECT run_id FROM coordination_notices WHERE coordination_notices.id = coordination_replies.notice_id)",
+            &mut held,
+        )?;
+        let run_work_areas = scoped(&transaction, "run_work_areas", "run_id", &mut held)?;
         let snapshot = ControlSnapshot {
-            event_cursor,
-            sessions: all(&transaction, Table::Sessions)?,
-            runs: all(&transaction, Table::Runs)?,
-            tasks: all(&transaction, Table::Tasks)?,
-            attempts: all(&transaction, Table::Attempts)?,
-            messages: all(&transaction, Table::Messages)?,
-            deliveries,
-            reports: all(&transaction, Table::Reports)?,
-            completions: all(&transaction, Table::Completions)?,
-            candidates: all::<CandidateRecord>(&transaction, Table::Candidates)?
+            event_cursor: cursor(&transaction)?,
+            sessions: readable(sessions, &held),
+            runs: readable(runs, &held),
+            tasks: readable(tasks, &held),
+            attempts: readable(attempts, &held),
+            messages: readable(messages, &held),
+            deliveries: readable(deliveries, &held),
+            reports: readable(reports, &held),
+            completions: readable(completions, &held),
+            candidates: readable(candidates, &held)
                 .iter()
                 .map(CandidateRecord::summary)
                 .collect(),
-            candidate_checks: all(&transaction, Table::CandidateChecks)?,
-            completion_requests: all(&transaction, Table::CompletionRequests)?,
-            coordination: all(&transaction, Table::Coordination)?,
-            coordination_replies: all(&transaction, Table::CoordinationReplies)?,
+            candidate_checks: readable(candidate_checks, &held),
+            completion_requests: readable(completion_requests, &held),
+            coordination: readable(coordination, &held),
+            coordination_replies: readable(coordination_replies, &held),
             work_areas: all(&transaction, Table::WorkAreas)?,
-            run_work_areas: all(&transaction, Table::RunWorkAreas)?,
+            run_work_areas: readable(run_work_areas, &held),
         };
+        let mut held_slots = 0;
+        for unreadable in &held {
+            let slots: i64 = transaction.query_row(
+                "SELECT COUNT(*) FROM attempts JOIN tasks ON tasks.id = attempts.task_id WHERE attempts.active = 1 AND tasks.run_id = ?1",
+                [unreadable.run_id.to_string()],
+                |row| row.get(0),
+            )?;
+            held_slots += usize::try_from(slots).unwrap_or_default();
+        }
         transaction.commit()?;
-        Ok(snapshot)
+        Ok(ReadableSnapshot {
+            snapshot,
+            unreadable: held,
+            held_slots,
+        })
     }
 
     pub fn events_after(&self, after: u64, limit: u32) -> Result<Vec<ControlEvent>> {

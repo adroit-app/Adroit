@@ -94,6 +94,7 @@ impl Service {
             let mut interval = tokio::time::interval(std::time::Duration::from_millis(250));
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             let mut last_error = None;
+            let mut last_unreadable = Vec::new();
             loop {
                 interval.tick().await;
                 let result = async {
@@ -108,6 +109,13 @@ impl Service {
                     Ok::<_, ControlError>(())
                 }
                 .await;
+                let unreadable = scheduler.unreadable().to_vec();
+                if unreadable != last_unreadable {
+                    for held in &unreadable {
+                        eprintln!("adroit: orchestration holds a run: {}", held.error);
+                    }
+                    last_unreadable = unreadable;
+                }
                 match result {
                     Ok(()) => last_error = None,
                     Err(error) => {
@@ -481,68 +489,68 @@ fn dispatch(store: &mut Store, human: &str, request: Request, trusted_app: bool)
         | Command::UiDetail { .. }
         | Command::UiRecord { .. }
         | Command::UiTaskHistory { .. } => Err(denied("this operation requires a human client")),
+        Command::Snapshot if is_human => value(store.snapshot()?),
         Command::Snapshot => {
-            let mut snapshot = store.snapshot()?;
-            if !is_human {
-                let identity = identity()?;
-                let run = scope(&snapshot, identity)?;
-                snapshot
-                    .sessions
-                    .retain(|s| s.binding.run_id() == Some(run));
-                snapshot.runs.retain(|r| r.id == run);
-                snapshot.tasks.retain(|t| t.run_id == run);
-                snapshot.reports.retain(|r| r.run_id == run);
-                snapshot.completions.retain(|r| r.run_id == run);
-                snapshot.completion_requests.retain(|r| r.run_id == run);
+            let identity = identity()?;
+            let (mut snapshot, run) = scoped(store, identity)?;
+            snapshot
+                .sessions
+                .retain(|s| s.binding.run_id() == Some(run));
+            snapshot.runs.retain(|r| r.id == run);
+            snapshot.tasks.retain(|t| t.run_id == run);
+            snapshot.reports.retain(|r| r.run_id == run);
+            snapshot.completions.retain(|r| r.run_id == run);
+            snapshot.completion_requests.retain(|r| r.run_id == run);
+            snapshot
+                .candidates
+                .retain(|candidate| candidate.plan.run_id == run);
+            snapshot.candidate_checks.retain(|check| {
                 snapshot
                     .candidates
-                    .retain(|candidate| candidate.plan.run_id == run);
-                snapshot.candidate_checks.retain(|check| {
-                    snapshot
-                        .candidates
-                        .iter()
-                        .any(|candidate| candidate.plan.id == check.candidate_id)
-                });
-                snapshot.coordination.retain(|notice| {
-                    notice
-                        .participants
-                        .iter()
-                        .any(|participant| participant.run_id == run)
-                });
-                snapshot.coordination_replies.retain(|reply| {
-                    snapshot
+                    .iter()
+                    .any(|candidate| candidate.plan.id == check.candidate_id)
+            });
+            snapshot.coordination.retain(|notice| {
+                notice
+                    .participants
+                    .iter()
+                    .any(|participant| participant.run_id == run)
+            });
+            snapshot.coordination_replies.retain(|reply| {
+                snapshot
+                    .coordination
+                    .iter()
+                    .any(|notice| notice.intent.id == reply.notice_id)
+            });
+            snapshot.run_work_areas.retain(|area| area.run_id == run);
+            snapshot.work_areas.retain(|area| {
+                snapshot
+                    .run_work_areas
+                    .iter()
+                    .any(|association| association.work_area_id == area.id)
+                    || snapshot
                         .coordination
                         .iter()
-                        .any(|notice| notice.intent.id == reply.notice_id)
-                });
-                snapshot.run_work_areas.retain(|area| area.run_id == run);
-                snapshot.work_areas.retain(|area| {
-                    snapshot
-                        .run_work_areas
-                        .iter()
-                        .any(|association| association.work_area_id == area.id)
-                        || snapshot
-                            .coordination
-                            .iter()
-                            .any(|notice| notice.intent.work_area_id == area.id)
-                });
-                snapshot
-                    .attempts
-                    .retain(|a| snapshot.tasks.iter().any(|t| t.id == a.task_id));
-                snapshot
-                    .messages
-                    .retain(|m| m.run_id == run && (m.from == identity.id || m.to == identity.id));
-                snapshot
-                    .deliveries
-                    .retain(|d| snapshot.messages.iter().any(|m| m.id == d.message_id));
-            }
+                        .any(|notice| notice.intent.work_area_id == area.id)
+            });
+            snapshot
+                .attempts
+                .retain(|a| snapshot.tasks.iter().any(|t| t.id == a.task_id));
+            snapshot
+                .messages
+                .retain(|m| m.run_id == run && (m.from == identity.id || m.to == identity.id));
+            snapshot
+                .deliveries
+                .retain(|d| snapshot.messages.iter().any(|m| m.id == d.message_id));
             value(snapshot)
         }
         Command::Events { after, limit } => {
             let mut events = store.events_after(after, limit)?;
             let next_cursor = events.last().map_or(after, |event| event.cursor);
             if !is_human {
-                let run = scope(&store.snapshot()?, identity()?)?;
+                let run = store
+                    .session_run(identity()?)?
+                    .ok_or_else(|| denied("the session has no assigned run"))?;
                 // Message events contain private payloads; clients use their scoped mailbox.
                 events.retain(|event| {
                     event.run_id == Some(run)
@@ -645,13 +653,20 @@ fn dispatch(store: &mut Store, human: &str, request: Request, trusted_app: bool)
     }
 }
 
-fn scope(snapshot: &ControlSnapshot, actor: SessionRef) -> Result<RunId> {
-    snapshot
-        .sessions
-        .iter()
-        .find(|s| s.reference() == actor)
-        .and_then(|s| s.binding.run_id())
-        .ok_or_else(|| denied("the session has no assigned run"))
+/// What a session may read, failing only when its own run cannot be read.
+fn scoped(store: &mut Store, actor: SessionRef) -> Result<(ControlSnapshot, RunId)> {
+    let readable = store.readable_snapshot()?;
+    let run = store
+        .session_run(actor)?
+        .ok_or_else(|| denied("the session has no assigned run"))?;
+    match readable
+        .unreadable
+        .into_iter()
+        .find(|held| held.run_id == run)
+    {
+        Some(held) => Err(held.error),
+        None => Ok((readable.snapshot, run)),
+    }
 }
 fn value(value: impl Serialize) -> Result<Value> {
     serde_json::to_value(value).map_err(storage)

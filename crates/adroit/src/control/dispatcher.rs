@@ -47,7 +47,11 @@ impl Dispatcher {
                 }
             }
         }
-        let snapshot = self.actor.call(|store| store.snapshot()).await?;
+        let snapshot = self
+            .actor
+            .call(|store| store.readable_snapshot())
+            .await?
+            .snapshot;
         let mut count = 0;
         for session in snapshot.sessions {
             if self.active.len() >= 32 {

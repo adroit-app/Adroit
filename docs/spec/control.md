@@ -10,6 +10,14 @@ one, including a daemon that was already running: every request fails with
 `unsupported_schema`, not `corrupt_store`, and asks for the session daemon to
 be restarted from the installed application.
 
+A record that cannot be read holds only the run it belongs to. The controller
+starts, observes and delivers nothing for a held run, while its running workers
+still count against the worker limit, and it goes on with every other run. A
+session reads its own run as long as that run is not held. A request for the
+whole state, or for a held run, fails with `corrupt_store` naming the run and
+the record. A record that belongs to no run, such as a working area, still
+stops the controller.
+
 Local integrations submit a JSON command on standard input to `adroit control`.
 Output is JSON containing `request_id` and a `result`, represented as either
 `{"Ok": value}` or `{"Err": {"code": code, "message": message}}`. A failed request

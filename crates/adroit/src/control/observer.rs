@@ -35,7 +35,10 @@ impl Observer {
             .await
             .map_err(|_| failed("the terminal daemon did not answer"))?
             .map_err(failed)?;
-        let mut snapshot = actor.call(|store| store.snapshot()).await?;
+        let mut snapshot = actor
+            .call(|store| store.readable_snapshot())
+            .await?
+            .snapshot;
         let count = snapshot.sessions.len();
         if count > 0 {
             snapshot.sessions.rotate_left(self.next % count);
