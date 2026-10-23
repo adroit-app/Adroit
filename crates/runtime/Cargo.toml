@@ -1,6 +1,6 @@
 [package]
 name = "adroit-runtime"
-description = "What the adroit window runs: its daemon, sessions, shells, editor, socket and delegation"
+description = "What the adroit window runs: its terminal host and work host, sessions, shells, editor, socket and delegation"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -27,6 +27,7 @@ serde_json.workspace = true
 sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
 toml.workspace = true
 ttf-parser = "0.25.1"
+thiserror.workspace = true
 tokio.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]

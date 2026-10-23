@@ -1,4 +1,5 @@
-//! The felis daemon adroit's sessions run in, which `adroit daemon` serves.
+//! The terminal host, the felis daemon adroit's sessions run in, which
+//! `adroit daemon` serves. It holds their terminals and nothing else.
 
 use std::path::{Path, PathBuf};
 
@@ -7,7 +8,8 @@ use adroit_term::Daemon;
 use crate::awake::{self, Assertion, Keeper};
 use crate::cli::DaemonCommand;
 use crate::paths::{instance_state, state_dir};
-use crate::standing::{build, stamp_when_listening};
+use crate::standing::{build, say_when_listening};
+use crate::work_host::{self, adroit_program};
 
 /// `$ADROIT_DAEMON`, or `adroit/felis/daemon.sock` under the state directory.
 pub fn socket() -> PathBuf {
@@ -121,6 +123,13 @@ pub fn cli(asked: DaemonCommand) -> i32 {
             let daemon = daemon();
             daemon.restart(&adroit_program(), &serve_args()).await?;
             println!("restarted the daemon");
+            // Sessions started from here on need a work host to be judged.
+            let host = work_host::socket();
+            if let Err(e) =
+                work_host::ensure(&host, &adroit_program(), &work_host::serve_args()).await
+            {
+                eprintln!("adroit: {e}");
+            }
             Ok(())
         }),
     };
@@ -136,32 +145,13 @@ pub fn cli(asked: DaemonCommand) -> i32 {
     }
 }
 
-/// This program, as the daemon is started with.
-fn adroit_program() -> PathBuf {
-    std::env::current_exe().unwrap_or_else(|_| "adroit".into())
-}
-
 fn serve(rt: &tokio::runtime::Runtime) -> adroit_term::Result<()> {
     let mut keeper = Keeper::new(|| Assertion::take(awake::NAME));
     // The setting is read from its file each time, as the window that
     // changes it is another process, which may not be open.
     let running = move |n| keeper.keep(awake::wanted(n, crate::settings::load().keep_awake));
     rt.block_on(async {
-        tokio::spawn(async { stamp_when_listening(&daemon(), &build()).await });
-        let _delegation = match crate::delegation::service::Service::start(
-            &crate::delegation::app::root(),
-            daemon(),
-            adroit_program(),
-            crate::settings::try_load,
-        )
-        .await
-        {
-            Ok(service) => Some(service),
-            Err(error) => {
-                eprintln!("adroit: sessions cannot start or message sessions: {error}");
-                None
-            }
-        };
+        tokio::spawn(async { say_when_listening(&daemon(), &build(), adroit_term::SPEAKS).await });
         Daemon::serve(&socket(), AWAKE_EVERY, running).await
     })
 }

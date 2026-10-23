@@ -14,6 +14,7 @@ use adroit_core::update::step;
 use adroit_runtime::work::{Host, HostLink, Loopback};
 use dioxus::prelude::*;
 
+use crate::layout::{Kept as _, Layout};
 use crate::settings;
 
 /// What runs an effect handed to `App`.
@@ -41,12 +42,13 @@ pub(crate) fn use_app() -> AppCtx {
         link.watch();
         let link: Rc<dyn HostLink> = Rc::new(link);
         let mut view = ViewState::default();
-        let effects = step(
+        let mut effects = step(
             &mut view,
             Msg::Opened {
                 zoom: settings::current().zoom,
             },
         );
+        effects.extend(step(&mut view, Msg::PanelsKept(Layout::load())));
         let app = AppCtx {
             chrome: Signal::new(view.chrome.clone()),
             host: Signal::new(view.host.clone()),
@@ -55,6 +57,7 @@ pub(crate) fn use_app() -> AppCtx {
             view: CopyValue::new(view),
             link: CopyValue::new(link),
         };
+        provide_context(app);
         app.run(effects);
         spawn(async move {
             while let Some(event) = events.recv().await {
@@ -84,7 +87,7 @@ impl AppCtx {
     }
 
     /// Hand the effects whose state still lives in `App` to `run`: showing
-    /// a session or an image, and telling the user.
+    /// a session or an image.
     pub(crate) fn hand_over(&self, run: impl Fn(Effect) + 'static) {
         let mut handed = self.handed;
         handed.set(Some(Rc::new(run)));
@@ -103,7 +106,7 @@ impl AppCtx {
                     Ok(()) => done,
                     Err(e) => format!("cannot copy: {e}"),
                 };
-                self.hand(Effect::Notice(told));
+                self.notice(told);
             }
             Effect::ScrollDetails(scroll) => {
                 let by = match scroll {
@@ -116,8 +119,19 @@ impl AppCtx {
                     "const b = document.querySelector('.details-scroll'); if (b) b.scrollBy(0, {by});"
                 ));
             }
-            effect @ (Effect::ShowSession(_) | Effect::ShowShot { .. } | Effect::Notice(_)) => {
-                self.hand(effect)
+            Effect::Notice(text) => self.notice(text),
+            effect @ (Effect::ShowSession(_) | Effect::ShowShot { .. }) => self.hand(effect),
+            Effect::KeepLayout(layout) => layout.save(),
+            Effect::LapseNotice {
+                notice,
+                text,
+                after,
+            } => {
+                let app = *self;
+                spawn(async move {
+                    tokio::time::sleep(after).await;
+                    app.dispatch(Msg::NoticeLapsed { notice, text });
+                });
             }
             Effect::Host(_) => unreachable!("requests go to the host link"),
         });
@@ -140,6 +154,29 @@ pub(crate) fn open<const N: usize>(args: [String; N]) {
     spawn(async move {
         let _ = cmd.status().await;
     });
+}
+
+impl AppCtx {
+    /// Show `line` in the status line until something replaces it, or
+    /// clear it.
+    pub(crate) fn status(&self, line: Option<String>) {
+        self.dispatch(Msg::Status(line));
+    }
+
+    /// Show `text` in the status line for a while.
+    pub(crate) fn notice(&self, text: String) {
+        self.dispatch(Msg::Notice(text));
+    }
+
+    /// Show the error `text` while it lasts, or, with `None`, take back the
+    /// one this source showed before; a message shown since stays.
+    pub(crate) fn while_failing(&self, last: &mut Option<String>, text: Option<String>) {
+        self.dispatch(Msg::Failing {
+            last: last.clone(),
+            now: text.clone(),
+        });
+        *last = text;
+    }
 }
 
 fn set_changed<T: Clone + PartialEq + 'static>(mut signal: Signal<T>, now: &T) {

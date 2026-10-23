@@ -18,7 +18,7 @@ use super::{
     protocol::{self, Command},
 };
 
-/// How the bridge reaches the daemon; a test answers in its place.
+/// How the bridge reaches the work host; a test answers in its place.
 pub trait Daemon: Clone + Send + Sync + 'static {
     fn ask(
         &self,
@@ -239,8 +239,13 @@ async fn notifications<W: AsyncWrite + Unpin>(
     let mut poll = tokio::time::interval(Duration::from_millis(500));
     loop {
         poll.tick().await;
-        while let Some(next) =
-            Some(daemon.ask(Command::Next, None).await?).filter(|next| !next.is_null())
+        // While the work host is away, as it is being replaced, the next tick
+        // asks the one that follows it: ending here would end the server.
+        while let Some(next) = daemon
+            .ask(Command::Next, None)
+            .await
+            .ok()
+            .filter(|next| !next.is_null())
         {
             let id: adroit_model::MessageId =
                 serde_json::from_value(next["id"].clone()).map_err(io)?;
@@ -255,7 +260,10 @@ async fn notifications<W: AsyncWrite + Unpin>(
                 }}),
             )
             .await?;
-            daemon.ask(Command::Delivered { id }, None).await?;
+            // Left unmarked, it is handed over again once the work host is back.
+            if daemon.ask(Command::Delivered { id }, None).await.is_err() {
+                break;
+            }
         }
     }
 }
@@ -330,6 +338,8 @@ mod tests {
         started: bool,
         asked: Arc<Plain<Vec<String>>>,
         waiting: Arc<Plain<Vec<Value>>>,
+        /// How many asks fail more, as while the work host is being replaced.
+        away: Arc<Plain<usize>>,
     }
 
     impl Fake {
@@ -338,6 +348,7 @@ mod tests {
                 started,
                 asked: Arc::default(),
                 waiting: Arc::default(),
+                away: Arc::default(),
             }
         }
     }
@@ -349,6 +360,13 @@ mod tests {
                 .unwrap()
                 .to_owned();
             self.asked.lock().unwrap().push(op);
+            {
+                let mut away = self.away.lock().unwrap();
+                if *away > 0 {
+                    *away -= 1;
+                    return Err(Error::new(Code::Storage, "cannot reach the work host"));
+                }
+            }
             Ok(match command {
                 Command::Context => {
                     json!({"started_by": if self.started { json!({"id": "x"}) } else { Value::Null }})
@@ -520,6 +538,37 @@ mod tests {
                 .lock()
                 .unwrap()
                 .contains(&"delivered".to_owned())
+        );
+    }
+
+    #[tokio::test]
+    async fn a_message_still_reaches_claude_code_after_the_work_host_was_away_for_a_while() {
+        let daemon = Fake::new(false);
+        let lines = [
+            rpc(1, "initialize", json!({})),
+            json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+        ];
+        let going_away = {
+            let (away, waiting) = (daemon.away.clone(), daemon.waiting.clone());
+            async move {
+                // Away only once the server knows who it is.
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                *away.lock().unwrap() = 2;
+                waiting.lock().unwrap().push(
+                    json!({"id": adroit_model::MessageId::new(), "from": null, "content": "[adroit] back"}),
+                );
+            }
+        };
+        let (out, ()) = tokio::join!(
+            exchange(daemon.clone(), true, &lines, Duration::from_millis(1700)),
+            going_away,
+        );
+        let notice = out
+            .iter()
+            .find(|line| line["method"] == "notifications/claude/channel");
+        assert_eq!(
+            notice.map(|n| n["params"]["content"].clone()),
+            Some(json!("[adroit] back"))
         );
     }
 

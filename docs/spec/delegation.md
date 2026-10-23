@@ -56,8 +56,8 @@ recipient waits on a dialog or is still starting is handed over once it is
 ready. Handing it over is receipt; no acknowledgement is asked for, and
 receipt says nothing about whether the work it asks for was done.
 
-The session daemon keeps every message and who started whom, so both outlive
-the window and the sessions. A report sent to a session that has since ended
+adroit keeps every message and who started whom, so both outlive the window,
+the sessions and the work host that relays them. A report sent to a session that has since ended
 is kept, and shown in the details of both ([details](details.md)). A message
 carries text; larger material is referred to by its path.
 
@@ -145,7 +145,7 @@ none follows `--`.
 
 Run from a shell inside a session Adroit started, the command acts as that
 session: the new session is started by it, and it is refused when that session
-was itself started by another. When the daemon cannot be reached, the command
+was itself started by another. When the work host cannot be reached, the command
 fails with a message on standard error and exit status 1.
 
 The identity a session acts as comes from its environment. It keeps sessions

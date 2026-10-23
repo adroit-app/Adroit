@@ -1,6 +1,6 @@
 # End sessions for a host only when the window cannot speak its protocol
 
-Status: Proposed
+Status: Accepted
 
 ## Context
 

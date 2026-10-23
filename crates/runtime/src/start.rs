@@ -148,7 +148,7 @@ async fn start(
     Ok(name)
 }
 
-/// Asks the daemon to start the session `asked` for as the session that
+/// Asks the work host to start the session `asked` for as the session that
 /// `credential` names, which it is then started by.
 async fn start_as(
     root: &std::path::Path,

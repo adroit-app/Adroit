@@ -45,7 +45,7 @@ Codex as it was written, so what Codex does with it is up to Codex.
 
 ## Instances
 
-adroit runs as named instances, each with its own daemon, sessions and
+adroit runs as named instances, each with its own hosts, sessions and
 window, apart from the others. `adroit --instance <name>` opens the window of
 the instance `name`, as does `adroit` with `$ADROIT_INSTANCE` set; without
 either it is the instance `default`. A name is made of letters, digits, `-`
@@ -59,28 +59,48 @@ The sessions and shells of an instance, and the commands run in them, belong
 to it: they see only its sessions and shells, and the sessions they start are
 its own. Settings and keys are the same in every instance.
 
-## The daemon
+## The hosts
 
-The window starts the daemon of its instance when none answers, as
-`adroit daemon`, and leaves it running when it closes. It listens on
-`$ADROIT_DAEMON`, or `$XDG_STATE_HOME/adroit/felis/daemon.sock` for the
-default instance and `$XDG_STATE_HOME/adroit/instances/<name>/felis/daemon.sock`
-for another (`$XDG_STATE_HOME` being `~/.local/state` when unset).
-The folder of the socket has to be yours and open to no one else: adroit makes
-it so when it makes the folder, and refuses one already there that is not,
-leaving it as it is.
+Two processes of adroit's own run each instance's work, apart from the window,
+and keep running when it closes.
 
-`adroit daemon stop` stops the daemon of the instance and waits until its
-process is gone; `adroit daemon restart` stops it, if one runs, and starts
-another. Either ends every session the daemon holds, agents and shells alike,
-with what they scrolled back. A daemon too old to be asked to stop is stopped
-by signal. Stopping where no daemon runs is not an error.
+- The terminal host, `adroit daemon`, holds every session's and shell's
+  terminal, and nothing else. It listens on `$ADROIT_DAEMON`, or
+  `$XDG_STATE_HOME/adroit/felis/daemon.sock` for the default instance and
+  `$XDG_STATE_HOME/adroit/instances/<name>/felis/daemon.sock` for another
+  (`$XDG_STATE_HOME` being `~/.local/state` when unset).
+- The work host, `adroit host`, lets sessions start and message sessions
+  ([sessions that start sessions](delegation.md)) and judges how each session
+  it started stands. It listens on `$ADROIT_HOST`, or `host/host.sock` in the
+  same state folder as the terminal host's `felis` folder.
 
-The window restarts the daemon with Restart Session Daemon
+The folder of either socket has to be yours and open to no one else: adroit
+makes it so when it makes the folder, and refuses one already there that is
+not, leaving it as it is.
+
+Each host says first which versions of its protocol it speaks, and the window
+works with a host whenever they share one, whichever build of adroit either
+is. A version changes only when what the protocol sends changes shape, so an
+update of adroit that leaves the protocols alone asks nothing of the user.
+
+The window starts the hosts of its instance when none answers. A work host the
+window cannot work with, or one of another build, it replaces without asking;
+nothing ends with it, and a session's tools that ask while it is being
+replaced wait for the new one. A terminal host the window cannot work with,
+including one too old to say which versions it speaks, the window never
+replaces on its own: it shows a banner offering to restart it, with the build
+the host says it is.
+
+`adroit daemon stop` stops the terminal host of the instance and waits until
+its process is gone; `adroit daemon restart` stops it, if one runs, and starts
+another. Either ends every session the terminal host holds, agents and shells
+alike, with what they scrolled back. A terminal host too old to be asked to
+stop is stopped by signal. `adroit host stop` and `adroit host restart` do the
+same for the work host, and end no session. Stopping where no host runs is not
+an error.
+
+The window restarts the terminal host with Restart Session Daemon
 (`daemon.restart`), only after the user confirms that every session ends.
-When the window finds the daemon runs another build of adroit than its own,
-or one too old to say which, it shows a banner offering that restart; it
-never restarts the daemon on its own.
 
 A session ends when its program exits or when it is ended from adroit. Its
 console then says so, and it is listed no more.
