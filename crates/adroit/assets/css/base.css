@@ -1,0 +1,45 @@
+:root {
+  color-scheme: dark;
+  --ground: #0f1114;
+  --panel: #16191d;
+  --raised: #1d2126;
+  --select: #252a31;
+  --line: #22262c;
+  --line-strong: #2f353d;
+  --text: #e7e8eb;
+  --text-2: #a2a8b1;
+  --text-3: #868c96;
+  --wait: #e8b45e;
+  --run: #78aee8;
+  --done: #8fc6a4;
+  --fail: #eba3aa;
+  --coord: #b9a2ec;
+  --usage-cpu: #58c9df;
+  --usage-gpu: #b9a2ec;
+  --usage-memory: #8fc6a4;
+  --usage-storage: #e8a275;
+  --usage-context: #58c9df;
+  --mono: "SF Mono", Menlo, ui-monospace, "Hiragino Kaku Gothic ProN", monospace;
+  /* The console's font and line height, set from the settings. */
+  --term-font: var(--mono); --term-size: 13px; --term-weight: 400; --cell-h: 17px;
+  --sans: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
+}
+* { box-sizing: border-box; }
+.icon { display: inline-flex; flex: none; align-items: center; justify-content: center; }
+/* As thick as icons::STROKE, which the menu bar's icons are drawn with. */
+.icon svg { width: var(--icon, 14px); height: var(--icon, 14px); stroke-width: 1.75; }
+html, body { margin: 0; height: 100%; background: var(--ground); color: var(--text);
+  font-family: var(--sans); font-size: 13px; overflow: hidden; user-select: none; }
+#main { height: 100%; }
+#adroit-keys { position: fixed; left: 0; top: 0; width: 1px; height: var(--cell-h); opacity: 0; z-index: 50; pointer-events: none;
+  margin: 0; padding: 0; border: 0; outline: none; resize: none; overflow: hidden; white-space: pre;
+  font-family: var(--term-font); font-size: var(--term-size); font-weight: var(--term-weight); line-height: var(--cell-h); color: var(--text); background: var(--raised); caret-color: transparent; }
+#adroit-keys.composing { opacity: 1; caret-color: var(--text); }
+#adroit-keys.composing.gridded { opacity: 0; }
+#adroit-compose { position: fixed; display: none; height: var(--cell-h); z-index: 50; pointer-events: none; white-space: pre;
+  font-family: var(--term-font); font-size: var(--term-size); font-weight: var(--term-weight); line-height: var(--cell-h); color: var(--text); background: var(--raised); }
+#adroit-compose.on { display: flex; }
+/* The underline spans each character's cells, not its glyph, which a wide
+   character leaves short of its two cells. */
+#adroit-compose span { display: inline-block; flex: none; overflow: hidden; height: calc(var(--cell-h) - 1px); box-shadow: inset 0 -1px 0 currentColor; }
+.app { height: 100%; display: flex; flex-direction: column; }

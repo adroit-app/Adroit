@@ -267,14 +267,7 @@ pub fn step(cursor: usize, len: usize, delta: isize) -> usize {
     crate::nav::wrap(cursor, delta, len)
 }
 
-/// `path` with the home directory written as `~`.
-pub fn short(path: &Path, home: &Path) -> String {
-    match path.strip_prefix(home) {
-        Ok(rest) if rest.as_os_str().is_empty() => "~".into(),
-        Ok(rest) => format!("~/{}", rest.display()),
-        Err(_) => path.display().to_string(),
-    }
-}
+pub use adroit_model::paths::tilde as short;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Mode {
@@ -319,9 +312,8 @@ impl Picker {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
-    use adroit_model::{State, Wait, Worktree, build};
+    use adroit_model::testing::{self, session};
+    use adroit_model::{State, Wait};
 
     use super::*;
 
@@ -468,15 +460,6 @@ mod tests {
     }
 
     #[test]
-    fn the_home_directory_is_written_as_a_tilde() {
-        let home = Path::new("/Users/me");
-        assert_eq!(short(Path::new("/Users/me/src/x"), home), "~/src/x");
-        assert_eq!(short(Path::new("/Users/me"), home), "~");
-        assert_eq!(short(Path::new("/Users/meow"), home), "/Users/meow");
-        assert_eq!(short(Path::new("/opt/x"), home), "/opt/x");
-    }
-
-    #[test]
     fn typing_narrows_anew_and_puts_the_cursor_back_on_the_first_row() {
         let mut p = Picker {
             cursor: 3,
@@ -506,45 +489,29 @@ mod tests {
         assert_eq!(p.mode, Mode::List);
     }
 
-    fn session(id: &str, name: &str, cwd: &str, state: State) -> Session {
-        Session {
-            id: id.into(),
-            name: name.into(),
-            cwd: cwd.into(),
-            state,
-            ..Default::default()
-        }
-    }
-
     const OAUTH: &str = "/w/api/.claude/worktrees/oauth";
 
     /// `api` runs a session in its main checkout and one in a worktree; `tmp`
     /// is outside git.
     fn tree() -> Tree {
-        let wt = |path: &str, branch: &str| Worktree {
-            path: path.into(),
-            repo: "/w/api".into(),
-            branch: Some(branch.into()),
-        };
-        let found: HashMap<PathBuf, Option<Worktree>> = [
-            ("/w/api", Some(wt("/w/api", "main"))),
-            (OAUTH, Some(wt(OAUTH, "oauth"))),
-            ("/tmp", None),
-        ]
-        .into_iter()
-        .map(|(p, w)| (PathBuf::from(p), w))
-        .collect();
-        build(
-            &[
-                session("a", "fix login", "/w/api", State::Working),
-                session("o", "add tokens", OAUTH, State::Waiting(Wait::Input)),
-                session("z", "scratch", "/tmp", State::Idle),
-            ],
-            &[],
-            &found,
-            &[],
-            None,
-        )
+        testing::tree()
+            .session(
+                session("a")
+                    .name("fix login")
+                    .cwd("/w/api")
+                    .state(State::Working),
+            )
+            .session(
+                session("o")
+                    .name("add tokens")
+                    .cwd(OAUTH)
+                    .state(State::Waiting(Wait::Input)),
+            )
+            .session(session("z").name("scratch").cwd("/tmp"))
+            .checkout("/w/api", "/w/api", "main")
+            .checkout(OAUTH, "/w/api", "oauth")
+            .found("/tmp", None)
+            .build()
     }
 
     fn offered(found: &[SessionOffer]) -> Vec<(&str, &str, &str)> {
@@ -584,17 +551,10 @@ mod tests {
 
     #[test]
     fn a_session_named_by_the_query_comes_before_one_that_only_runs_where_it_says() {
-        let found: HashMap<PathBuf, Option<Worktree>> = HashMap::new();
-        let t = build(
-            &[
-                session("x", "docs", "/w/scratch", State::Idle),
-                session("s", "scratch", "/w/docs", State::Idle),
-            ],
-            &[],
-            &found,
-            &[],
-            None,
-        );
+        let t = testing::tree()
+            .session(session("x").name("docs").cwd("/w/scratch"))
+            .session(session("s").name("scratch").cwd("/w/docs"))
+            .build();
         let ids: Vec<String> = matching_sessions(&sessions(&t), "scratch", 10)
             .into_iter()
             .map(|s| s.id)

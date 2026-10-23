@@ -3,7 +3,7 @@
 
 use adroit_model::{Kind, Session};
 
-use crate::keymap::Action;
+use crate::actions::{Action, Group};
 use crate::nav::Item;
 use crate::tabs::Tab;
 
@@ -19,33 +19,42 @@ pub enum Target {
     },
 }
 
+/// `action` as a right-click menu offers it, by what its row in the table
+/// of actions calls it there.
+fn offer(action: Action) -> (Action, &'static str) {
+    let label = action.spec().row.map_or(action.spec().name, |r| r.label);
+    (action, label)
+}
+
 /// The actions offered on `target`, each with what the menu calls it.
 /// `session` is the session the row or tab is for, when it is for one.
 pub fn entries(target: &Target, session: Option<&Session>) -> Vec<(Action, &'static str)> {
-    let here = [
-        (Action::SessionNew, "New session here"),
-        (Action::ShellOpen, "Open a shell here"),
-        (Action::NeovimOpen, "Open Neovim here"),
-    ];
+    let here = [Action::SessionNew, Action::ShellOpen, Action::NeovimOpen].map(offer);
     let ending = session.map(|s| match s.kind {
-        Kind::Interactive => (Action::SessionTakeOver, "Take over…"),
-        Kind::Own => (Action::SessionStop, "End…"),
+        Kind::Interactive => offer(Action::SessionTakeOver),
+        Kind::Own => offer(Action::SessionStop),
     });
     // A session in another terminal is named there.
     let rename = session
         .filter(|s| s.kind == Kind::Own)
-        .map(|_| (Action::SessionRename, "Rename…"));
+        .map(|_| offer(Action::SessionRename));
     // The key says where a row opens, as in fern.
     let opens = [
-        (Action::CursorGo, "Open"),
-        (Action::CursorSplit, "Open in a split below"),
-        (Action::CursorVsplit, "Open in a split beside"),
-        (Action::CursorTab, "Open in a new tab"),
-        (Action::CursorShow, "Show"),
-    ];
+        Action::CursorGo,
+        Action::CursorSplit,
+        Action::CursorVsplit,
+        Action::CursorTab,
+        Action::CursorShow,
+    ]
+    .map(offer);
+    // What is copied, and what going to a row that folds does, depend on
+    // the row, so they are named here rather than in the table.
     let copy_path = (Action::CursorCopy, "Copy path");
     let copy_name = (Action::CursorCopy, "Copy name");
-    let close = (Action::CursorClose, "Close its windows");
+    let fold = (Action::CursorGo, "Fold or unfold");
+    let close = offer(Action::CursorClose);
+    let close_tab = offer(Action::TabClose);
+    let stop_terminal = offer(Action::TerminalStop);
     match target {
         Target::Row(Item::Session(_) | Item::Waiting(_)) => opens
             .into_iter()
@@ -59,7 +68,7 @@ pub fn entries(target: &Target, session: Option<&Session>) -> Vec<(Action, &'sta
             .into_iter()
             .chain([copy_name])
             .chain(here)
-            .chain([close, (Action::TerminalStop, "Stop terminal")])
+            .chain([close, stop_terminal])
             .collect(),
         Target::Row(Item::File { dir: false, .. }) => opens
             .into_iter()
@@ -71,51 +80,33 @@ pub fn entries(target: &Target, session: Option<&Session>) -> Vec<(Action, &'sta
             opens.into_iter().chain([copy_path]).chain(here).collect()
         }
         Target::Row(Item::Workspace(_) | Item::File { dir: true, .. }) => {
-            [(Action::CursorGo, "Fold or unfold"), copy_path]
-                .into_iter()
-                .chain(here)
-                .collect()
+            [fold, copy_path].into_iter().chain(here).collect()
         }
-        Target::Row(Item::Heading(..)) => [(Action::CursorGo, "Fold or unfold")]
-            .into_iter()
-            .chain(here)
-            .collect(),
-        Target::Tab(Tab::Session(_)) => [(Action::TabClose, "Close tab")]
+        Target::Row(Item::Heading(..)) => [fold].into_iter().chain(here).collect(),
+        Target::Tab(Tab::Session(_)) => [close_tab]
             .into_iter()
             .chain(rename)
             .chain(ending)
             .collect(),
-        Target::Tab(Tab::Terminal(_)) => vec![
-            (Action::TabClose, "Close tab"),
-            (Action::TerminalStop, "Stop terminal"),
-        ],
+        Target::Tab(Tab::Terminal(_)) => vec![close_tab, stop_terminal],
         Target::Tab(Tab::Draft { .. }) => Vec::new(),
-        Target::Tab(Tab::Viewer(_)) => vec![(Action::TabClose, "Close tab")],
-        Target::Link { file, .. } => [(Action::CursorOpen, "Open"), (Action::CursorCopy, "Copy")]
+        Target::Tab(Tab::Viewer(_)) => vec![close_tab],
+        Target::Link { file, .. } => [Action::CursorOpen, Action::CursorCopy]
+            .map(offer)
             .into_iter()
-            .chain(file.then_some((Action::CursorReveal, "Reveal in Finder")))
+            .chain(file.then(|| offer(Action::CursorReveal)))
             .collect(),
     }
 }
 
-/// [`entries`] in the groups the menu draws apart: going to what was
-/// clicked, starting something beside it, and ending or closing it.
+/// [`entries`] in the groups the menu draws apart, each entry in the group
+/// its row in the table of actions puts it in.
 pub fn groups(target: &Target, session: Option<&Session>) -> Vec<Vec<(Action, &'static str)>> {
-    let kin = |a: &Action| match a {
-        Action::SessionNew | Action::ShellOpen | Action::NeovimOpen => 1,
-        Action::SessionTakeOver
-        | Action::SessionStop
-        | Action::TerminalStop
-        | Action::TabClose
-        | Action::CursorClose => 2,
-        _ => 0,
-    };
+    let group = |a: &Action| a.spec().row.map_or(Group::Go, |r| r.group);
     let mut out: Vec<Vec<(Action, &'static str)>> = Vec::new();
     for entry in entries(target, session) {
         match out.last_mut() {
-            Some(group) if group.last().is_some_and(|(a, _)| kin(a) == kin(&entry.0)) => {
-                group.push(entry)
-            }
+            Some(g) if g.last().is_some_and(|(a, _)| group(a) == group(&entry.0)) => g.push(entry),
             _ => out.push(vec![entry]),
         }
     }
@@ -134,7 +125,7 @@ mod tests {
     }
 
     #[test]
-    fn every_entry_of_every_menu_shows_an_icon() {
+    fn every_entry_of_every_menu_shows_an_icon_and_has_a_row_in_the_table() {
         let own = session(Kind::Own);
         let elsewhere = session(Kind::Interactive);
         let targets = [
@@ -150,7 +141,8 @@ mod tests {
         for target in targets {
             for s in [None, Some(&own), Some(&elsewhere)] {
                 for (action, label) in entries(&target, s) {
-                    assert!(crate::icons::Icon::of(&action).is_some(), "{label}");
+                    assert!(action.icon().is_some(), "{label}");
+                    assert!(action.spec().row.is_some(), "{label}");
                 }
             }
         }

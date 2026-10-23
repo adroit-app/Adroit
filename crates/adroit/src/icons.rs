@@ -1,12 +1,10 @@
-//! The window's icons, and the one icon each action is shown with wherever
-//! it appears: the menu bar, the right-click menu and the buttons.
+//! The window's icons. Which one each action is shown with, wherever it
+//! appears, is told in `crate::actions`.
 //!
 //! They are Tabler Icons 3.49.0, outline style, copied unchanged into
 //! `icons/tabler/` with Tabler's MIT license beside them.
 
 use dioxus::prelude::*;
-
-use crate::keymap::Action;
 
 /// How thick every icon's lines are drawn, in the 24-unit grid Tabler draws
 /// in.
@@ -137,88 +135,6 @@ icons! {
 }
 
 impl Icon {
-    /// The icon `action` is shown with; `None` for an action that is only a
-    /// key.
-    pub fn of(action: &Action) -> Option<Icon> {
-        use Action as A;
-        Some(match action {
-            A::SettingsOpen => Icon::Settings,
-            A::DaemonRestart => Icon::ServerBolt,
-            A::SessionNew => Icon::MessagePlus,
-            A::SessionScratch => Icon::Notes,
-            A::SessionPick => Icon::Search,
-            A::SessionAgentNext => Icon::ArrowsExchange,
-            A::SessionAgentPrev => Icon::ArrowsExchange2,
-            A::PromptSend => Icon::Send,
-            A::PromptImages => Icon::Photo,
-            A::ShellOpen => Icon::Terminal2,
-            A::NeovimOpen => Icon::Code,
-            A::TerminalStop => Icon::SquareX,
-            A::TabClose => Icon::X,
-            A::WindowClose => Icon::AppWindow,
-            A::SessionRename => Icon::Pencil,
-            A::SessionTakeOver => Icon::TransferIn,
-            A::SessionStop => Icon::PlayerStop,
-            A::TreeToggle => Icon::LayoutSidebar,
-            A::DetailsToggle => Icon::LayoutSidebarRight,
-            A::DetailsOverview => Icon::InfoCircle,
-            A::DetailsChanges => Icon::FileDiff,
-            A::DetailsLog => Icon::GitCommit,
-            A::Filter => Icon::Filter,
-            A::WorktreesToggle => Icon::ListTree,
-            A::Refresh => Icon::Refresh,
-            A::ZoomIn => Icon::ZoomIn,
-            A::ZoomOut => Icon::ZoomOut,
-            A::ZoomReset => Icon::ZoomReset,
-            A::TabNext => Icon::ChevronRight,
-            A::TabPrev => Icon::ChevronLeft,
-            A::SessionNext => Icon::MessageDown,
-            A::SessionPrev => Icon::MessageUp,
-            A::WaitingNext => Icon::BellDown,
-            A::WaitingPrev => Icon::BellUp,
-            A::WindowLeft => Icon::SquareArrowLeft,
-            A::WindowDown => Icon::SquareArrowDown,
-            A::WindowUp => Icon::SquareArrowUp,
-            A::WindowRight => Icon::SquareArrowRight,
-            A::WindowNext => Icon::ArrowBarRight,
-            A::WindowPrev => Icon::ArrowBarLeft,
-            A::WindowTop => Icon::ArrowUpLeft,
-            A::WindowBottom => Icon::ArrowDownRight,
-            A::WindowBack => Icon::ArrowBackUp,
-            A::WindowVsplit => Icon::LayoutColumns,
-            A::WindowSplit => Icon::LayoutRows,
-            A::WindowNew => Icon::SquarePlus,
-            A::WindowQuit => Icon::SquareMinus,
-            A::WindowOnly => Icon::Square,
-            A::WindowMoveLeft => Icon::ArrowBarToLeft,
-            A::WindowMoveDown => Icon::ArrowBarToDown,
-            A::WindowMoveUp => Icon::ArrowBarToUp,
-            A::WindowMoveRight => Icon::ArrowBarToRight,
-            A::WindowExchange => Icon::SwitchHorizontal,
-            A::WindowRotate => Icon::RotateClockwise,
-            A::WindowEqualize => Icon::Equal,
-            A::WindowNarrower => Icon::ColumnRemove,
-            A::WindowWider => Icon::ColumnInsertRight,
-            A::WindowTaller => Icon::RowInsertBottom,
-            A::WindowShorter => Icon::RowRemove,
-            A::WindowMaximizeHeight => Icon::ArrowAutofitHeight,
-            A::WindowMaximizeWidth => Icon::ArrowAutofitWidth,
-            A::WindowToTab => Icon::BrowserPlus,
-            A::TabLast => Icon::ArrowBack,
-            A::PromptFocus => Icon::CursorText,
-            A::CursorGo => Icon::ArrowRight,
-            A::CursorOpen => Icon::ArrowRight,
-            A::CursorSplit => Icon::LayoutRows,
-            A::CursorVsplit => Icon::LayoutColumns,
-            A::CursorTab => Icon::BrowserPlus,
-            A::CursorClose => Icon::SquareMinus,
-            A::CursorShow => Icon::Eye,
-            A::CursorCopy => Icon::Copy,
-            A::CursorReveal => Icon::FolderSearch,
-            _ => return None,
-        })
-    }
-
     /// The icon drawn `px` pixels square as RGBA, black on clear: the shape
     /// alone, for macOS to colour as its menus are.
     pub fn rgba(self, px: u32) -> Option<Vec<u8>> {

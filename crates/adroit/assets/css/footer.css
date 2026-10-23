@@ -1,0 +1,15 @@
+.footer { height: 30px; display: flex; align-items: center; gap: 14px; padding: 0 16px; font-size: 11.5px; color: var(--text-3); flex: none; }
+.footer { overflow: hidden; }
+.footer-status { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 0 0 auto; max-width: 70%; }
+.footer .kbd-list { white-space: nowrap; flex: 0 1 auto; min-width: 0; overflow: hidden; }
+kbd { font-family: var(--mono); font-size: 10.5px; color: #c9ccd2; background: var(--raised); border: 1px solid var(--line-strong);
+  border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; line-height: 16px; display: inline-block; }
+.kbd-list { display: flex; align-items: center; gap: 5px; }
+.direct-banner { position: absolute; top: 10px; left: 14px; right: 14px; z-index: 5; display: flex; gap: 8px; align-items: center;
+  padding: 8px 12px; border-radius: 8px; border: 2px solid var(--wait); background: var(--raised); color: var(--text-2); font-size: 12px; }
+.direct-banner-title { color: var(--wait); font-weight: 600; white-space: nowrap; flex: none; }
+.daemon-banner { display: flex; gap: 8px; align-items: center; flex: none; margin: 0 14px 6px; padding: 6px 12px; border-radius: 8px;
+  border: 2px solid var(--wait); background: var(--raised); color: var(--text-2); font-size: 12px; }
+.daemon-banner > .icon { color: var(--wait); flex: none; }
+.daemon-banner-title { color: var(--wait); font-weight: 600; white-space: nowrap; flex: none; }
+.daemon-banner-note { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }

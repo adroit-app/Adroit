@@ -1,5 +1,6 @@
 //! The adroit window.
 
+pub mod actions;
 mod agents;
 mod alerts;
 mod app;
@@ -7,6 +8,7 @@ mod awake;
 pub mod cli;
 mod complete;
 mod completion;
+mod components;
 mod console;
 pub mod console_keys;
 mod console_read;

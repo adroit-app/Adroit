@@ -35,6 +35,7 @@ Run `just ci` before reporting a change as done. CI runs the same recipe.
 | Path | What lives there |
 | --- | --- |
 | `crates/adroit/` | the `adroit` application binary |
+| `crates/adroit/assets/` | the windows' stylesheets and page scripts, taken in with `include_str!` |
 | `assets/logo/` | the logo as flattened SVG, and `build.py` that regenerates it |
 | `assets/macos/` | the macOS app's Info.plist and the script that assembles the app |
 | `assets/file-icons/` | vim-nerdfont's and vim-glyph-palette's icon tables at a pinned revision, their licences, and `update.sh` that copies them again |

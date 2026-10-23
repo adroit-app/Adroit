@@ -115,13 +115,10 @@ pub fn SessionName(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adroit_model::testing;
 
     fn session(name: &str) -> Session {
-        Session {
-            id: "a".into(),
-            name: name.into(),
-            ..Default::default()
-        }
+        testing::session("a").name(name).build()
     }
 
     #[test]

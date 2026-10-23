@@ -32,27 +32,19 @@ impl Completions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adroit_model::{Agent, State, Wait, build};
-    use std::collections::HashMap;
+    use adroit_model::testing;
+    use adroit_model::{Agent, State, Wait};
 
     fn session(agent: Agent, state: State) -> adroit_model::Session {
-        adroit_model::Session {
-            agent,
-            id: "review".into(),
-            cwd: "/project".into(),
-            state,
-            ..Default::default()
-        }
+        testing::session("review")
+            .cwd("/project")
+            .agent(agent)
+            .state(state)
+            .build()
     }
 
     fn tree(session: &adroit_model::Session) -> adroit_model::Tree {
-        build(
-            std::slice::from_ref(session),
-            &[],
-            &HashMap::new(),
-            &[],
-            None,
-        )
+        testing::tree().session(session.clone()).build()
     }
 
     #[test]

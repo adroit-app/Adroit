@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use dioxus::prelude::*;
 
+use crate::components::{Dialog, KeyHint, ListRow};
 use crate::filer::Row;
 use crate::fuzzy::Query;
 use crate::icons::{Icon, IconView};
@@ -58,98 +59,90 @@ pub fn PickerView(
         ],
     };
     rsx! {
-        div { class: "dialog-scrim",
-            div { class: "dialog picker-dialog",
-                // A click inside is not one on the shade around it, which closes.
-                onclick: move |e| e.stop_propagation(),
-                div { class: "dialog-title", "Go to a session, or start one" }
-                match picker.mode {
-                    Mode::List => {
-                        let query = Query::new(&picker.query);
-                        rsx! {
-                            div { class: "filter-field",
-                                input {
-                                    class: "filter-field-input",
-                                    value: "{picker.query}",
-                                    autocomplete: "off",
-                                    spellcheck: "false",
-                                    "autocorrect": "off",
-                                    "autocapitalize": "off",
-                                    onmounted: move |e: MountedEvent| async move {
-                                        let _ = e.data().set_focus(true).await;
-                                    },
-                                    oninput: move |e: Event<FormData>| onquery.call(e.value()),
-                                    onkeydown: move |e: Event<KeyboardData>| {
-                                        if let Some(k) = keys::of_field(&e).filter(|k| !keys::edits_text(k)) {
-                                            // Tab and the arrows would move the
-                                            // focus or the caret.
-                                            e.prevent_default();
-                                            onkey.call(k);
-                                        }
-                                    },
-                                }
-                            }
-                            div { class: "list-rows",
-                                if rows.is_empty() {
-                                    div { class: "list-row dim", "Nothing matches" }
-                                }
-                                for (i, line) in rows.iter().enumerate() {
-                                    Fragment { key: "{i}:{line.name}",
-                                        if let Some(heading) = line.heading {
-                                            div { class: "picker-heading", "{heading}" }
-                                        }
-                                        div {
-                                            class: match (line.mark == Mark::Directory, i == picker.cursor) {
-                                                (true, true) => "list-row mono selected",
-                                                (true, false) => "list-row mono",
-                                                (false, true) => "list-row selected",
-                                                (false, false) => "list-row",
-                                            },
-                                            onclick: move |_| onchoose.call(i),
-                                            span { class: "place-mark", IconView { icon: match line.mark { Mark::Scratch => Icon::Notes, Mark::Session => Icon::Message, Mark::Directory => Icon::Folder } } }
-                                            span { class: "list-row-name",
-                                                {marked(&query, &line.name)}
-                                                if let Some(place) = &line.place {
-                                                    span { class: "picker-place", {marked(&query, place)} }
-                                                }
-                                            }
-                                            span { class: "list-row-meta", "{line.badge}" }
-                                        }
+        Dialog { kind: "picker-dialog", title: "Go to a session, or start one",
+            match picker.mode {
+                Mode::List => {
+                    let query = Query::new(&picker.query);
+                    rsx! {
+                        div { class: "filter-field",
+                            input {
+                                class: "filter-field-input",
+                                value: "{picker.query}",
+                                autocomplete: "off",
+                                spellcheck: "false",
+                                "autocorrect": "off",
+                                "autocapitalize": "off",
+                                onmounted: move |e: MountedEvent| async move {
+                                    let _ = e.data().set_focus(true).await;
+                                },
+                                oninput: move |e: Event<FormData>| onquery.call(e.value()),
+                                onkeydown: move |e: Event<KeyboardData>| {
+                                    if let Some(k) = keys::of_field(&e).filter(|k| !keys::edits_text(k)) {
+                                        // Tab and the arrows would move the
+                                        // focus or the caret.
+                                        e.prevent_default();
+                                        onkey.call(k);
                                     }
-                                }
+                                },
                             }
                         }
-                    }
-                    Mode::Tree => rsx! {
                         div { class: "list-rows",
-                            for r in tree.iter() {
-                                div {
-                                    key: "{r.root.display()}:{r.path.display()}",
-                                    class: if picker.filer.cursor() == Some(r) { "list-row mono selected" } else { "list-row mono" },
-                                    style: "padding-left: {8 + r.depth * 16}px",
-                                    onclick: {
-                                        let path = r.path.clone();
-                                        move |_| onpick.call(path.clone())
-                                    },
-                                    span { class: "picker-chevron",
-                                        IconView { icon: if picker.filer.is_expanded(r) { Icon::ChevronDown } else { Icon::ChevronRight }, size: 12 }
+                            if rows.is_empty() {
+                                ListRow { kind: "dim", "Nothing matches" }
+                            }
+                            for (i, line) in rows.iter().enumerate() {
+                                Fragment { key: "{i}:{line.name}",
+                                    if let Some(heading) = line.heading {
+                                        div { class: "picker-heading", "{heading}" }
                                     }
-                                    span { class: "list-row-name",
-                                        if r.depth == 0 {
-                                            "{short(&r.path, &home)}"
-                                        } else {
-                                            "{r.path.file_name().unwrap_or_default().to_string_lossy()}"
+                                    ListRow {
+                                        kind: if line.mark == Mark::Directory { "mono" } else { "" },
+                                        selected: i == picker.cursor,
+                                        onclick: move |_| onchoose.call(i),
+                                        span { class: "place-mark", IconView { icon: match line.mark { Mark::Scratch => Icon::Notes, Mark::Session => Icon::Message, Mark::Directory => Icon::Folder } } }
+                                        span { class: "list-row-name",
+                                            {marked(&query, &line.name)}
+                                            if let Some(place) = &line.place {
+                                                span { class: "picker-place", {marked(&query, place)} }
+                                            }
                                         }
+                                        span { class: "list-row-meta", "{line.badge}" }
                                     }
                                 }
                             }
                         }
-                    },
-                }
-                div { class: "picker-keys",
-                    for (k, what) in keys.iter() {
-                        span { key: "{k}", class: "kbd-list", kbd { "{k}" } " {what}" }
                     }
+                }
+                Mode::Tree => rsx! {
+                    div { class: "list-rows",
+                        for r in tree.iter() {
+                            ListRow {
+                                key: "{r.root.display()}:{r.path.display()}",
+                                kind: "mono",
+                                selected: picker.filer.cursor() == Some(r),
+                                style: "padding-left: {8 + r.depth * 16}px",
+                                onclick: {
+                                    let path = r.path.clone();
+                                    move |_| onpick.call(path.clone())
+                                },
+                                span { class: "picker-chevron",
+                                    IconView { icon: if picker.filer.is_expanded(r) { Icon::ChevronDown } else { Icon::ChevronRight }, size: 12 }
+                                }
+                                span { class: "list-row-name",
+                                    if r.depth == 0 {
+                                        "{short(&r.path, &home)}"
+                                    } else {
+                                        "{r.path.file_name().unwrap_or_default().to_string_lossy()}"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+            }
+            div { class: "picker-keys",
+                for (k, what) in keys.iter() {
+                    KeyHint { key: "{k}", keys: "{k}", does: "{what}" }
                 }
             }
         }

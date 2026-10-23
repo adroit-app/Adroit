@@ -2,12 +2,10 @@
 
 use dioxus::prelude::*;
 
+use crate::components::{Breadcrumbs, Section};
 use crate::details::Note;
-use crate::icons::{Icon, IconView};
 
-const CSS: &str = r#"
-.message-text { white-space: pre-wrap; word-break: break-word; user-select: text; font-size: 12.5px; color: var(--text); }
-"#;
+const CSS: &str = include_str!("../assets/css/message.css");
 
 /// A message opened from the overview, told at `now_ms`; `on_back` goes back
 /// to the overview, as `back_keys` do.
@@ -22,14 +20,12 @@ pub fn MessageView(
     let summary = note.summary().to_owned();
     rsx! {
         style { {CSS} }
-        div { class: "details-crumbs",
+        Breadcrumbs {
             title: "Back to the overview ({back_keys})",
-            onclick: move |_| on_back.call(()),
-            span { class: "details-crumb-back", IconView { icon: Icon::ChevronLeft } }
-            span { class: "details-crumb", "{summary}" }
+            crumbs: vec![summary],
+            onback: move |_| on_back.call(()),
         }
-        div { class: "details-block",
-            span { class: "details-label", "{tag}" }
+        Section { label: tag,
             div { class: "message-text", "{note.body}" }
         }
     }

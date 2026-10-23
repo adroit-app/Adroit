@@ -16,20 +16,7 @@ use super::serve::{self, Scope};
 use super::state::{Effect, Media, Scroll, ViewerAction, ViewerState};
 
 /// The viewers' look, put in the page with each viewer.
-pub const CSS: &str = r#"
-.viewer { position: relative; height: 100%; width: 100%; display: flex; flex-direction: column;
-  background: var(--ground, #0f1114); color: var(--text, #d8dee9); outline: none; overflow: hidden; }
-.viewer-box { flex: 1; min-height: 0; overflow: auto; display: flex; }
-.viewer-stage { margin: auto; flex: none; display: flex; }
-.viewer-fit { width: 100%; height: 100%; object-fit: contain; display: block; }
-.viewer-page { background: #fff; }
-.viewer-movie { width: 100%; height: 100%; object-fit: contain; background: #000; }
-.viewer-frame { width: 100%; height: 100%; border: 0; background: #fff; }
-.viewer-status { flex: none; display: flex; gap: 12px; padding: 2px 8px; font: 11px var(--mono, monospace);
-  color: var(--text-3, #7b8494); border-top: 1px solid var(--line, #22262d); white-space: nowrap; }
-.viewer-status .name { overflow: hidden; text-overflow: ellipsis; flex: 1; }
-.viewer-empty { margin: auto; color: var(--text-3, #7b8494); font: 12px var(--sans, sans-serif); }
-"#;
+pub const CSS: &str = include_str!("../../assets/css/viewer.css");
 
 /// An action handed to a viewer. `seq` tells one press from the next, so
 /// the same action pressed twice runs twice.

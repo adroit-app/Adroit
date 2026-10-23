@@ -4,8 +4,9 @@
 use adroit_claude::subagents::{Agent, Standing, Step};
 use dioxus::prelude::*;
 
+use crate::components::{Breadcrumbs, Section, StateGlyph};
 use crate::details::shown_agent;
-use crate::icons::{Icon, IconView};
+use crate::icons::Icon;
 
 /// How a subagent is marked, by how it stands: the class that colours its
 /// icon as a session's in the same standing is, and the icon.
@@ -51,14 +52,7 @@ fn shown_steps(agent: &Agent) -> Vec<&Step> {
     steps
 }
 
-const CSS: &str = r#"
-.subagent-text { white-space: pre-wrap; word-break: break-word; user-select: text; font-size: 12.5px; color: var(--text); max-height: 18em; overflow-y: auto; }
-.subagent-steps { display: flex; flex-direction: column; gap: 4px; }
-.subagent-step { display: flex; gap: 8px; font-size: 12px; line-height: 1.5; min-width: 0; }
-.subagent-step-tool { flex: none; font-family: var(--mono); font-size: 11.5px; color: var(--text-2); }
-.subagent-step-about { color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: text; }
-.subagent-step-said { color: var(--text-2); white-space: pre-wrap; word-break: break-word; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; user-select: text; }
-"#;
+const CSS: &str = include_str!("../assets/css/subagent.css");
 
 /// A subagent opened from the overview, told at `now_ms`; `on_back` goes
 /// back to the overview, as `back_keys` do.
@@ -80,17 +74,16 @@ pub fn SubagentView(
     };
     rsx! {
         style { {CSS} }
-        div { class: "details-crumbs",
+        Breadcrumbs {
             title: "Back to the overview ({back_keys})",
-            onclick: move |_| on_back.call(()),
-            span { class: "details-crumb-back", IconView { icon: Icon::ChevronLeft } }
-            span { class: "details-crumb", "{label}" }
+            crumbs: vec![label],
+            onback: move |_| on_back.call(()),
         }
         div { class: "details-block",
             span { class: "details-label",
                 {
-                    let (tone, icon) = agent_glyph(agent.standing);
-                    rsx! { span { class: "{tone}", IconView { icon, size: 12 } } }
+                    let (class, icon) = agent_glyph(agent.standing);
+                    rsx! { StateGlyph { class, icon, size: 12 } }
                 }
                 " {tag}"
                 if let Some(kind) = &agent.kind {
@@ -99,24 +92,20 @@ pub fn SubagentView(
             }
         }
         if let Some(description) = started {
-            div { class: "details-block",
-                span { class: "details-label", "Started as" }
+            Section { label: "Started as",
                 div { class: "subagent-text", "{description}" }
             }
         }
-        div { class: "details-block",
-            span { class: "details-label", "Prompt" }
+        Section { label: "Prompt",
             div { class: "subagent-text", "{agent.prompt}" }
         }
         if let Some(text) = report {
-            div { class: "details-block",
-                span { class: "details-label", "Report" }
+            Section { label: "Report",
                 div { class: "subagent-text", "{text}" }
             }
         }
         if !steps.is_empty() {
-            div { class: "details-block",
-                span { class: "details-label", "{doing}" }
+            Section { label: "{doing}",
                 div { class: "subagent-steps",
                     for (i , step) in steps.iter().enumerate() {
                         match step {

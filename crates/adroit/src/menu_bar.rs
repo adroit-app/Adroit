@@ -8,8 +8,8 @@ use dioxus::desktop::muda::{
     AboutMetadata, Icon as MenuIcon, IconMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu,
 };
 
-use crate::icons::Icon;
-use crate::keymap::{Action, Chord, Context, Keymap, MENU_KEYS, Step};
+use crate::actions::Action;
+use crate::keymap::{Chord, Context, Keymap, MENU_KEYS, Step};
 
 /// An entry macOS draws and runs itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,7 +34,8 @@ pub enum System {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Entry {
-    Action(Action, &'static str),
+    /// An action, under what its row in the table of actions calls it.
+    Action(Action),
     System(System),
     Separator,
 }
@@ -57,8 +58,8 @@ pub fn sections() -> Vec<Section> {
             title: "Adroit",
             entries: vec![
                 Sys(System::About),
-                Run(Action::SettingsOpen, "Settings…"),
-                Run(Action::DaemonRestart, "Restart Session Daemon…"),
+                Run(Action::SettingsOpen),
+                Run(Action::DaemonRestart),
                 Separator,
                 Sys(System::Services),
                 Separator,
@@ -72,24 +73,24 @@ pub fn sections() -> Vec<Section> {
         Section {
             title: "Session",
             entries: vec![
-                Run(Action::SessionNew, "New Session"),
-                Run(Action::SessionScratch, "New Scratch Session"),
-                Run(Action::SessionAgentNext, "Next Agent of New Session"),
-                Run(Action::SessionAgentPrev, "Previous Agent of New Session"),
-                Run(Action::SessionPick, "Go to or Start Session…"),
+                Run(Action::SessionNew),
+                Run(Action::SessionScratch),
+                Run(Action::SessionAgentNext),
+                Run(Action::SessionAgentPrev),
+                Run(Action::SessionPick),
                 Separator,
-                Run(Action::PromptSend, "Send Prompt"),
-                Run(Action::PromptImages, "Select Attached Image"),
+                Run(Action::PromptSend),
+                Run(Action::PromptImages),
                 Separator,
-                Run(Action::ShellOpen, "Open Shell"),
-                Run(Action::NeovimOpen, "Open Neovim"),
-                Run(Action::TerminalStop, "Stop Terminal"),
-                Run(Action::TabClose, "Close Tab"),
-                Run(Action::WindowClose, "Close Window"),
+                Run(Action::ShellOpen),
+                Run(Action::NeovimOpen),
+                Run(Action::TerminalStop),
+                Run(Action::TabClose),
+                Run(Action::WindowClose),
                 Separator,
-                Run(Action::SessionRename, "Rename…"),
-                Run(Action::SessionTakeOver, "Take Over…"),
-                Run(Action::SessionStop, "End…"),
+                Run(Action::SessionRename),
+                Run(Action::SessionTakeOver),
+                Run(Action::SessionStop),
             ],
         },
         Section {
@@ -107,20 +108,20 @@ pub fn sections() -> Vec<Section> {
         Section {
             title: "View",
             entries: vec![
-                Run(Action::TreeToggle, "Toggle Tree"),
-                Run(Action::DetailsToggle, "Toggle Details"),
+                Run(Action::TreeToggle),
+                Run(Action::DetailsToggle),
                 Separator,
-                Run(Action::DetailsOverview, "Overview"),
-                Run(Action::DetailsChanges, "Changes"),
-                Run(Action::DetailsLog, "Log"),
+                Run(Action::DetailsOverview),
+                Run(Action::DetailsChanges),
+                Run(Action::DetailsLog),
                 Separator,
-                Run(Action::Filter, "Filter…"),
-                Run(Action::WorktreesToggle, "Toggle All Worktrees"),
-                Run(Action::Refresh, "Refresh"),
+                Run(Action::Filter),
+                Run(Action::WorktreesToggle),
+                Run(Action::Refresh),
                 Separator,
-                Run(Action::ZoomIn, "Zoom In"),
-                Run(Action::ZoomOut, "Zoom Out"),
-                Run(Action::ZoomReset, "Actual Size"),
+                Run(Action::ZoomIn),
+                Run(Action::ZoomOut),
+                Run(Action::ZoomReset),
                 Separator,
                 Sys(System::FullScreen),
             ],
@@ -128,51 +129,51 @@ pub fn sections() -> Vec<Section> {
         Section {
             title: "Go",
             entries: vec![
-                Run(Action::TabNext, "Next Tab"),
-                Run(Action::TabPrev, "Previous Tab"),
-                Run(Action::TabLast, "Tab Before"),
+                Run(Action::TabNext),
+                Run(Action::TabPrev),
+                Run(Action::TabLast),
                 Separator,
-                Run(Action::SessionNext, "Next Session"),
-                Run(Action::SessionPrev, "Previous Session"),
-                Run(Action::WaitingNext, "Next Waiting"),
-                Run(Action::WaitingPrev, "Previous Waiting"),
+                Run(Action::SessionNext),
+                Run(Action::SessionPrev),
+                Run(Action::WaitingNext),
+                Run(Action::WaitingPrev),
                 Separator,
-                Run(Action::WindowLeft, "Left Window"),
-                Run(Action::WindowDown, "Window Below"),
-                Run(Action::WindowUp, "Window Above"),
-                Run(Action::WindowRight, "Right Window"),
-                Run(Action::WindowNext, "Next Window"),
-                Run(Action::WindowPrev, "Previous Window"),
-                Run(Action::WindowTop, "First Window"),
-                Run(Action::WindowBottom, "Last Window"),
-                Run(Action::WindowBack, "Back to Window Before"),
-                Run(Action::PromptFocus, "Prompt"),
+                Run(Action::WindowLeft),
+                Run(Action::WindowDown),
+                Run(Action::WindowUp),
+                Run(Action::WindowRight),
+                Run(Action::WindowNext),
+                Run(Action::WindowPrev),
+                Run(Action::WindowTop),
+                Run(Action::WindowBottom),
+                Run(Action::WindowBack),
+                Run(Action::PromptFocus),
             ],
         },
         Section {
             title: "Layout",
             entries: vec![
-                Run(Action::WindowVsplit, "Split Side by Side"),
-                Run(Action::WindowSplit, "Split One Above the Other"),
-                Run(Action::WindowNew, "Split for a New Session"),
-                Run(Action::WindowQuit, "Close Split"),
-                Run(Action::WindowOnly, "Close Other Splits"),
+                Run(Action::WindowVsplit),
+                Run(Action::WindowSplit),
+                Run(Action::WindowNew),
+                Run(Action::WindowQuit),
+                Run(Action::WindowOnly),
                 Separator,
-                Run(Action::WindowMoveLeft, "Move Window to the Left"),
-                Run(Action::WindowMoveDown, "Move Window to the Bottom"),
-                Run(Action::WindowMoveUp, "Move Window to the Top"),
-                Run(Action::WindowMoveRight, "Move Window to the Right"),
-                Run(Action::WindowExchange, "Exchange Windows"),
-                Run(Action::WindowRotate, "Rotate Windows"),
-                Run(Action::WindowToTab, "Move Window to a New Tab"),
+                Run(Action::WindowMoveLeft),
+                Run(Action::WindowMoveDown),
+                Run(Action::WindowMoveUp),
+                Run(Action::WindowMoveRight),
+                Run(Action::WindowExchange),
+                Run(Action::WindowRotate),
+                Run(Action::WindowToTab),
                 Separator,
-                Run(Action::WindowEqualize, "Equal Sizes"),
-                Run(Action::WindowWider, "Wider"),
-                Run(Action::WindowNarrower, "Narrower"),
-                Run(Action::WindowTaller, "Taller"),
-                Run(Action::WindowShorter, "Shorter"),
-                Run(Action::WindowMaximizeWidth, "Widest"),
-                Run(Action::WindowMaximizeHeight, "Tallest"),
+                Run(Action::WindowEqualize),
+                Run(Action::WindowWider),
+                Run(Action::WindowNarrower),
+                Run(Action::WindowTaller),
+                Run(Action::WindowShorter),
+                Run(Action::WindowMaximizeWidth),
+                Run(Action::WindowMaximizeHeight),
             ],
         },
         Section {
@@ -244,7 +245,7 @@ pub fn left_to_menu(keymap: &Keymap) -> Vec<String> {
         .into_iter()
         .flat_map(|s| s.entries)
         .filter_map(|e| match e {
-            Entry::Action(a, _) => shortcut(keymap, &a),
+            Entry::Action(a) => shortcut(keymap, &a),
             _ => None,
         });
     MENU_KEYS
@@ -273,9 +274,14 @@ pub fn build() -> Menu {
         let menu = Submenu::new(section.title, true);
         for entry in section.entries {
             let _ = match entry {
-                Entry::Action(action, label) => {
-                    let item =
-                        IconMenuItem::with_id(action.to_string(), label, true, icon(&action), None);
+                Entry::Action(action) => {
+                    let item = IconMenuItem::with_id(
+                        action.to_string(),
+                        label(&action),
+                        true,
+                        icon(&action),
+                        None,
+                    );
                     let appended = menu.append(&item);
                     items.push((action, item));
                     appended
@@ -312,9 +318,14 @@ pub fn build() -> Menu {
 /// points tall, twice that on a Retina display.
 pub const ICON_PX: u32 = 36;
 
+/// What the entry running `action` is called.
+pub fn label(action: &Action) -> &'static str {
+    action.spec().bar.unwrap_or(action.spec().name)
+}
+
 /// The icon an entry running `action` shows.
 pub fn icon(action: &Action) -> Option<MenuIcon> {
-    let icon = Icon::of(action)?;
+    let icon = action.icon()?;
     MenuIcon::from_rgba(icon.rgba(ICON_PX)?, ICON_PX, ICON_PX).ok()
 }
 
@@ -384,54 +395,14 @@ mod tests {
     use dioxus::desktop::muda::accelerator::{Code, Modifiers};
 
     use super::*;
-
-    /// The actions that only make sense as keys: they move or scroll within
-    /// an area, or act on the key pressed.
-    const ONLY_KEYS: &[&str] = &[
-        "none",
-        "cursor.down",
-        "cursor.up",
-        "cursor.first",
-        "cursor.last",
-        "cursor.go",
-        "cursor.open",
-        "cursor.split",
-        "cursor.vsplit",
-        "cursor.tab",
-        "cursor.show",
-        "cursor.fold",
-        "cursor.close",
-        "cursor.copy",
-        "cursor.reveal",
-        "scroll.down",
-        "scroll.up",
-        "scroll.half_down",
-        "scroll.half_up",
-        "scroll.top",
-        "scroll.bottom",
-        "console.send",
-        "console.send_next",
-        "console.pass_every_key",
-        "prompt.write",
-        "prompt.history_prev",
-        "prompt.history_next",
-        "viewer.zoom_in",
-        "viewer.zoom_out",
-        "viewer.zoom_fit",
-        "viewer.page_next",
-        "viewer.page_prev",
-        "viewer.play",
-        "viewer.back",
-        "viewer.forward",
-        "viewer.copy_path",
-    ];
+    use crate::actions::ACTIONS;
 
     fn offered() -> Vec<Action> {
         sections()
             .into_iter()
             .flat_map(|s| s.entries)
             .filter_map(|e| match e {
-                Entry::Action(a, _) => Some(a),
+                Entry::Action(a) => Some(a),
                 _ => None,
             })
             .collect()
@@ -444,15 +415,23 @@ mod tests {
     #[test]
     fn every_action_that_is_not_only_a_key_is_in_the_menu_bar_once() {
         let offered = offered();
-        for name in Action::NAMES {
-            let action: Action = name.parse().unwrap();
-            let times = offered.iter().filter(|a| **a == action).count();
-            if ONLY_KEYS.contains(name) {
-                assert_eq!(times, 0, "{name} is only a key");
+        for spec in ACTIONS {
+            let times = offered.iter().filter(|a| **a == spec.action).count();
+            if spec.bar.is_none() {
+                assert_eq!(times, 0, "{} is only a key", spec.name);
             } else {
-                assert_eq!(times, 1, "{name}");
+                assert_eq!(times, 1, "{}", spec.name);
             }
         }
+    }
+
+    #[test]
+    fn every_entry_of_the_menu_bar_is_called_what_the_table_of_actions_says() {
+        for action in offered() {
+            assert_eq!(Some(label(&action)), action.spec().bar, "{action}");
+        }
+        assert_eq!(label(&Action::SessionNew), "New Session");
+        assert_eq!(label(&Action::ZoomReset), "Actual Size");
     }
 
     #[test]
@@ -466,7 +445,7 @@ mod tests {
     fn no_two_entries_of_the_menu_bar_share_an_icon() {
         let mut seen = std::collections::HashMap::new();
         for action in offered() {
-            let icon = Icon::of(&action).unwrap();
+            let icon = action.icon().unwrap();
             if let Some(other) = seen.insert(icon, action.clone()) {
                 panic!("{action} and {other} both show {}", icon.name());
             }

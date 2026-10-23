@@ -3,6 +3,7 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
+use adroit_model::config::format_command;
 use adroit_model::{Kind, Session};
 use dioxus::prelude::*;
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
@@ -54,7 +55,7 @@ impl Sampler {
                     pid,
                     parent: p.parent().map(|p| p.as_u32()),
                     name: p.name().to_string_lossy().into_owned(),
-                    command: crate::programs::format_command(&args),
+                    command: format_command(&args),
                     executable: p
                         .exe()
                         .map(PathBuf::from)
