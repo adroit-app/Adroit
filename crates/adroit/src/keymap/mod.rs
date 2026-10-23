@@ -1,9 +1,10 @@
 //! Which action a key runs, from the bindings adroit ships and the user's own.
 
 use std::fmt;
-use std::str::FromStr;
 
 use adroit_term::Key;
+
+use crate::actions::Action;
 
 mod chord;
 
@@ -14,7 +15,7 @@ pub const DEFAULTS: &str = include_str!("defaults.toml");
 
 /// A mistake in a file of bindings.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Error(String);
+pub struct Error(pub(crate) String);
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -23,7 +24,6 @@ impl fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
-
 
 /// The areas of the window that bindings belong to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,6 +63,31 @@ impl Context {
             Context::Viewer => "viewer",
         }
     }
+    /// What the Settings window heads the area's bindings with.
+    pub fn title(self) -> &'static str {
+        match self {
+            Context::Global => "Global",
+            Context::Tree => "Tree",
+            Context::Details => "Details",
+            Context::Console => "Console",
+            Context::Prompt => "Prompt",
+            Context::Draft => "New session",
+            Context::Viewer => "Viewer",
+        }
+    }
+
+    /// Where in the window the area's bindings work, told in words.
+    pub fn hint(self) -> &'static str {
+        match self {
+            Context::Global => "Everywhere, after the area's own bindings.",
+            Context::Tree => "The tree of workspaces, their files and what runs in them.",
+            Context::Details => "The panel on the right.",
+            Context::Console => "The console while it shows a session.",
+            Context::Prompt => "The prompt, before Neovim takes the key.",
+            Context::Draft => "Before the area's bindings while a new session is shown.",
+            Context::Viewer => "A viewer of an image, a movie, an HTML page or a PDF.",
+        }
+    }
 }
 
 /// Names earlier versions gave an area or an action, read as the names they
@@ -88,162 +113,6 @@ const RETIRED: &[&str] = &[
     "details.files",
     "details.diff",
 ];
-
-macro_rules! actions {
-    ($($variant:ident => $name:literal,)*) => {
-        /// What a key does.
-        #[derive(Debug, Clone, PartialEq, Eq)]
-        pub enum Action {
-            /// Nothing, in place of a binding taken away.
-            None,
-            $($variant,)*
-            /// Send a key to the session: the one named, or the one pressed.
-            ConsoleSend(Option<Chord>),
-            /// Show the content's tab of this number, counted from 1.
-            TabGo(u8),
-        }
-
-        impl Action {
-            /// Every action's name, as the file names them.
-            pub const NAMES: &[&str] = &[$($name,)* "console.send"];
-        }
-
-        impl FromStr for Action {
-            type Err = Error;
-
-            fn from_str(text: &str) -> Result<Self, Error> {
-                let (name, arg) = match text.split_once(' ') {
-                    Some((n, a)) => (n, Some(a.trim())),
-                    None => (text, None),
-                };
-                Ok(match (name, arg) {
-                    ("none", None) => Action::None,
-                    ("console.send", None) => Action::ConsoleSend(None),
-                    ("console.send", Some(k)) => Action::ConsoleSend(Some(Chord::parse(k)?)),
-                    ("tab.go", Some(n)) => match n.parse::<u8>() {
-                        Ok(n @ 1..=9) => Action::TabGo(n),
-                        _ => return Err(Error(format!("{text:?} names no tab from 1 to 9"))),
-                    },
-                    $(($name, None) => Action::$variant,)*
-                    _ => return Err(Error(format!("{text:?} is not an action"))),
-                })
-            }
-        }
-
-        impl fmt::Display for Action {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                match self {
-                    Action::None => f.write_str("none"),
-                    Action::ConsoleSend(None) => f.write_str("console.send"),
-                    Action::ConsoleSend(Some(c)) => write!(f, "console.send {c}"),
-                    Action::TabGo(n) => write!(f, "tab.go {n}"),
-                    $(Action::$variant => f.write_str($name),)*
-                }
-            }
-        }
-    };
-}
-
-actions! {
-    WindowLeft => "window.left",
-    WindowDown => "window.down",
-    WindowUp => "window.up",
-    WindowRight => "window.right",
-    WindowNext => "window.next",
-    WindowPrev => "window.prev",
-    WindowTop => "window.top",
-    WindowBottom => "window.bottom",
-    WindowBack => "window.back",
-    WindowSplit => "window.split",
-    WindowVsplit => "window.vsplit",
-    WindowNew => "window.new",
-    WindowQuit => "window.quit",
-    WindowOnly => "window.only",
-    WindowMoveLeft => "window.move_left",
-    WindowMoveDown => "window.move_down",
-    WindowMoveUp => "window.move_up",
-    WindowMoveRight => "window.move_right",
-    WindowExchange => "window.exchange",
-    WindowRotate => "window.rotate",
-    WindowEqualize => "window.equalize",
-    WindowNarrower => "window.narrower",
-    WindowWider => "window.wider",
-    WindowTaller => "window.taller",
-    WindowShorter => "window.shorter",
-    WindowMaximizeHeight => "window.maximize_height",
-    WindowMaximizeWidth => "window.maximize_width",
-    WindowToTab => "window.to_tab",
-    TabNext => "tab.next",
-    TabPrev => "tab.prev",
-    TabLast => "tab.last",
-    CursorDown => "cursor.down",
-    CursorUp => "cursor.up",
-    CursorFirst => "cursor.first",
-    CursorLast => "cursor.last",
-    CursorGo => "cursor.go",
-    CursorOpen => "cursor.open",
-    CursorSplit => "cursor.split",
-    CursorVsplit => "cursor.vsplit",
-    CursorTab => "cursor.tab",
-    CursorShow => "cursor.show",
-    CursorFold => "cursor.fold",
-    CursorClose => "cursor.close",
-    CursorCopy => "cursor.copy",
-    CursorReveal => "cursor.reveal",
-    WaitingNext => "waiting.next",
-    WaitingPrev => "waiting.prev",
-    SessionNext => "session.next",
-    SessionPrev => "session.prev",
-    SessionPick => "session.pick",
-    SessionNew => "session.new",
-    SessionScratch => "session.scratch",
-    SessionTakeOver => "session.take_over",
-    SessionStop => "session.stop",
-    SessionRename => "session.rename",
-    SessionAgentNext => "session.agent_next",
-    SessionAgentPrev => "session.agent_prev",
-    ShellOpen => "shell.open",
-    TerminalStop => "terminal.stop",
-    NeovimOpen => "neovim.open",
-    TabClose => "tab.close",
-    WindowClose => "window.close",
-    Refresh => "refresh",
-    Filter => "filter",
-    DetailsOverview => "details.overview",
-    DetailsChanges => "details.changes",
-    DetailsLog => "details.log",
-    WorktreesToggle => "worktrees.toggle",
-    ScrollDown => "scroll.down",
-    ScrollUp => "scroll.up",
-    ScrollHalfDown => "scroll.half_down",
-    ScrollHalfUp => "scroll.half_up",
-    ScrollTop => "scroll.top",
-    ScrollBottom => "scroll.bottom",
-    ConsoleSendNext => "console.send_next",
-    ConsolePassEveryKey => "console.pass_every_key",
-    PromptFocus => "prompt.focus",
-    PromptWrite => "prompt.write",
-    PromptSend => "prompt.send",
-    PromptImages => "prompt.images",
-    HistoryPrev => "prompt.history_prev",
-    HistoryNext => "prompt.history_next",
-    SettingsOpen => "settings.open",
-    DaemonRestart => "daemon.restart",
-    ZoomIn => "zoom.in",
-    ZoomOut => "zoom.out",
-    ZoomReset => "zoom.reset",
-    TreeToggle => "tree.toggle",
-    DetailsToggle => "details.toggle",
-    ViewerZoomIn => "viewer.zoom_in",
-    ViewerZoomOut => "viewer.zoom_out",
-    ViewerZoomFit => "viewer.zoom_fit",
-    ViewerPageNext => "viewer.page_next",
-    ViewerPagePrev => "viewer.page_prev",
-    ViewerPlay => "viewer.play",
-    ViewerBack => "viewer.back",
-    ViewerForward => "viewer.forward",
-    ViewerCopyPath => "viewer.copy_path",
-}
 
 /// What a key comes to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -830,7 +699,7 @@ mod tests {
             step(&map, &[Context::Global], &[], "Mod+y"),
             Step::Run(Action::TreeToggle)
         );
-        assert!(!Action::NAMES.contains(&"sidebar.toggle"));
+        assert!(!Action::names().any(|n| n == "sidebar.toggle"));
     }
 
     #[test]
@@ -838,7 +707,7 @@ mod tests {
         let map = Keymap::with_user("[global]\n\"Cmd+y\" = \"workspace.pick\"\n").unwrap();
         let key = Key::new("y").meta();
         assert_eq!(map.resolve(&[Context::Global], &[], &key), Step::Nothing);
-        assert!(!Action::NAMES.contains(&"workspace.pick"));
+        assert!(!Action::names().any(|n| n == "workspace.pick"));
     }
 
     #[test]
@@ -1388,35 +1257,5 @@ mod tests {
         // The defaults are text, so a mistake in them shows here rather than
         // as a key that silently does nothing.
         Keymap::try_defaults().unwrap();
-    }
-    #[test]
-    fn every_action_is_offered_by_its_name() {
-        assert!(Action::NAMES.contains(&"cursor.down"));
-        assert!(Action::NAMES.contains(&"console.send"));
-        for n in Action::NAMES {
-            assert!(n.parse::<Action>().is_ok(), "{n}");
-        }
-    }
-
-    #[test]
-    fn an_action_reads_from_its_name_and_back() {
-        let a: Action = "cursor.down".parse().unwrap();
-        assert_eq!(a, Action::CursorDown);
-        assert_eq!(a.to_string(), "cursor.down");
-        assert!("cursor.sideways".parse::<Action>().is_err());
-    }
-
-    #[test]
-    fn sending_a_key_names_the_key_to_send() {
-        let a: Action = "console.send Escape".parse().unwrap();
-        assert_eq!(
-            a,
-            Action::ConsoleSend(Some(Chord::parse("Escape").unwrap()))
-        );
-        assert_eq!(a.to_string(), "console.send Escape");
-        assert_eq!(
-            "console.send".parse::<Action>().unwrap(),
-            Action::ConsoleSend(None)
-        );
     }
 }

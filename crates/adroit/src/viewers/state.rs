@@ -1,7 +1,7 @@
 //! What a viewer holds between keys: zoom, page and playback.
 
 use super::kind::FileKind;
-use crate::keymap::Action;
+use crate::actions::Action;
 
 /// What a key does in a viewer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -271,7 +271,8 @@ impl ViewerState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::keymap::{Action, Context, Keymap};
+    use crate::actions::Action;
+    use crate::keymap::{Context, Keymap};
 
     #[test]
     fn every_key_the_viewer_area_binds_runs_a_viewer_action() {

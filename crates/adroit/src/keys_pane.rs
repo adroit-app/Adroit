@@ -6,7 +6,8 @@ use std::time::Duration;
 
 use dioxus::prelude::*;
 
-use crate::keymap::{Action, Chord, Context, Keymap};
+use crate::actions::Action;
+use crate::keymap::{Chord, Context, Keymap};
 use crate::keys_edit;
 use crate::paths::keys_path;
 use crate::view::Keys;
@@ -31,30 +32,6 @@ fn write_file(text: &str) -> Result<(), String> {
         text.to_string()
     };
     std::fs::write(path, text).map_err(|e| e.to_string())
-}
-
-fn area_hint(ctx: Context) -> &'static str {
-    match ctx {
-        Context::Global => "Everywhere, after the area's own bindings.",
-        Context::Tree => "The tree of workspaces, their files and what runs in them.",
-        Context::Details => "The panel on the right.",
-        Context::Console => "The console while it shows a session.",
-        Context::Prompt => "The prompt, before Neovim takes the key.",
-        Context::Draft => "Before the area's bindings while a new session is shown.",
-        Context::Viewer => "A viewer of an image, a movie, an HTML page or a PDF.",
-    }
-}
-
-fn area_title(ctx: Context) -> &'static str {
-    match ctx {
-        Context::Global => "Global",
-        Context::Tree => "Tree",
-        Context::Details => "Details",
-        Context::Console => "Console",
-        Context::Prompt => "Prompt",
-        Context::Draft => "New session",
-        Context::Viewer => "Viewer",
-    }
 }
 
 /// Which binding is open for editing: its area, and its keys unless it is
@@ -157,8 +134,8 @@ pub fn KeysPane() -> Element {
                         rsx! {
                             section { key: "{area}", class: "settings-group keys-area", hidden,
                                 div { class: "keys-area-head",
-                                    h2 { "{area_title(ctx)}" }
-                                    div { class: "settings-hint", "{area_hint(ctx)}" }
+                                    h2 { "{ctx.title()}" }
+                                    div { class: "settings-hint", "{ctx.hint()}" }
                                 }
                                 for (keys , action) in rows {
                                     {
@@ -331,7 +308,7 @@ fn BindingForm(
     };
     let groups: Vec<(&str, Vec<&str>)> = {
         let mut gs: Vec<(&str, Vec<&str>)> = Vec::new();
-        for n in Action::NAMES {
+        for n in Action::names() {
             let g = n.split('.').next().unwrap_or(n);
             match gs.iter_mut().find(|(name, _)| *name == g) {
                 Some((_, v)) => v.push(n),
@@ -403,7 +380,7 @@ fn BindingForm(
                     onchange: move |e| chosen.set(e.value()),
                     // An action with its argument, as `console.send Ctrl+q`,
                     // is kept as it was written.
-                    if !Action::NAMES.contains(&was_action.as_str()) && !was_action.is_empty() {
+                    if !Action::names().any(|n| n == was_action) && !was_action.is_empty() {
                         option { value: "{was_action}", selected: chosen() == was_action, "{was_action}" }
                     }
                     for (g , names) in groups {

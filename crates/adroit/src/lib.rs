@@ -1,5 +1,6 @@
 //! The adroit window.
 
+pub mod actions;
 mod agents;
 mod alerts;
 mod app;

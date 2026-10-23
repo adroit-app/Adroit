@@ -18,6 +18,7 @@ use adroit_term::{Daemon, Key, Palette, Pane, Size, Spawn};
 use dioxus::prelude::*;
 use tokio::sync::{Notify, mpsc, oneshot};
 
+use crate::actions::Action;
 use crate::agents;
 use crate::alerts;
 use crate::complete::{self, candidates};
@@ -39,7 +40,7 @@ use crate::focus::{Area, Dir, Shown, Spot, corner, cycled, moved, settled};
 use crate::graph;
 use crate::icons::{Icon, IconView};
 use crate::image_window;
-use crate::keymap::{Action, Chord, Context, Keymap, MENU_KEYS, Step};
+use crate::keymap::{Chord, Context, Keymap, MENU_KEYS, Step};
 use crate::keys;
 use crate::layout::{self, Layout, Side};
 use crate::menu::{self, Target};
@@ -6985,7 +6986,7 @@ fn App() -> Element {
                                         drill.set(Drill::new(s));
                                     }
                                 },
-                                if let Some(icon) = Icon::of(&sheet_action(s)) {
+                                if let Some(icon) = sheet_action(s).icon() {
                                     IconView { icon, size: 13 }
                                 }
                                 "{s.title()}"
@@ -7468,7 +7469,7 @@ fn App() -> Element {
                                                     class: "context-menu-item",
                                                     onclick: move |_| run(target.clone(), act.clone()),
                                                     span { class: "context-menu-icon",
-                                                        if let Some(icon) = Icon::of(&action) {
+                                                        if let Some(icon) = action.icon() {
                                                             IconView { icon, size: 15 }
                                                         }
                                                     }
