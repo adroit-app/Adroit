@@ -1,6 +1,6 @@
 //! What reaches a session while the console passes every key on to it.
 
-use adroit_term::Key;
+use adroit_model::Key;
 
 /// The key the session gets for `key`: `None` for the `Escape` that stops
 /// passing keys on, and `Escape` itself for `Ctrl-c`.

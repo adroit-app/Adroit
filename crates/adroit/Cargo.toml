@@ -25,7 +25,6 @@ schemars.workspace = true
 sha2.workspace = true
 sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
 toml.workspace = true
-toml_edit.workspace = true
 tokio.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]

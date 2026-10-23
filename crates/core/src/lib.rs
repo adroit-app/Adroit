@@ -4,8 +4,10 @@
 pub mod actions;
 pub mod complete;
 pub mod completion;
+pub mod console_keys;
 pub mod content;
 pub mod details;
+pub mod draft_agent;
 pub mod file_icons;
 pub mod filer;
 pub mod files;
@@ -14,6 +16,7 @@ pub mod fuzzy;
 pub mod graph;
 pub mod icons;
 pub mod keymap;
+pub mod keys_edit;
 pub mod layout;
 pub mod menu;
 pub mod nav;
