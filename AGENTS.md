@@ -41,10 +41,10 @@ Run `just ci` before reporting a change as done. CI runs the same recipe.
 | `crates/core/` | the window's state and the rules it changes by, with no UI and no programs run |
 | `crates/core/icons/` | the Tabler icons the window draws, with their licence |
 | `crates/protocol/` | what the window and the work host say to each other: requests, events, the work they describe, the versions they speak |
-| `crates/runtime/` | what the window runs: the daemon, sessions, shells, editor, socket, delegation and what is kept on disk |
-| `crates/runtime/themes/` | the console themes adroit comes with |
-| `crates/runtime/terminfo/` | the terminfo entry the console's programs are given |
-| `crates/runtime/tests/` | tests that start the daemon, sessions and shells |
+| `crates/host/` | what the window runs: the daemon, sessions, shells, editor, socket, delegation and what is kept on disk |
+| `crates/host/themes/` | the console themes adroit comes with |
+| `crates/host/terminfo/` | the terminfo entry the console's programs are given |
+| `crates/host/tests/` | tests that start the daemon, sessions and shells |
 | `assets/logo/` | the logo as flattened SVG, and `build.py` that regenerates it |
 | `assets/macos/` | the macOS app's Info.plist and the script that assembles the app |
 | `assets/file-icons/` | vim-nerdfont's and vim-glyph-palette's icon tables at a pinned revision, their licences, and `update.sh` that copies them again |
@@ -80,7 +80,7 @@ Scoped Commits:
 | `adroit` | `crates/adroit/` |
 | `agents` | `crates/agents/` |
 | `core` | `crates/core/` |
-| `runtime` | `crates/runtime/` |
+| `host` | `crates/host/` |
 | `nvim` | `crates/nvim/` |
 | `model` | `crates/model/` |
 | `protocol` | `crates/protocol/` |

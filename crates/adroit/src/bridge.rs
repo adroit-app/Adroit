@@ -19,9 +19,9 @@ use adroit_core::prompt::PromptView;
 use adroit_core::state::ViewState;
 use adroit_core::tree::TreeView;
 use adroit_core::update::step;
+use adroit_host::work::{Host, HostLink, Loopback, Work};
 use adroit_model::Key;
 use adroit_protocol::{Event, Request};
-use adroit_runtime::work::{Host, HostLink, Loopback, Work};
 use dioxus::core::{Runtime, current_scope_id};
 use dioxus::prelude::*;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -67,7 +67,7 @@ pub(crate) struct AppCtx {
 /// with the work host run in-process and its events fed back as messages.
 pub(crate) fn use_app() -> AppCtx {
     use_hook(|| {
-        let configured = Work::configured(adroit_runtime::config::read());
+        let configured = Work::configured(adroit_host::config::read());
         let (link, mut events) = Loopback::new(Host::new(configured));
         let loopback = Rc::new(link);
         let mut view = ViewState::default();

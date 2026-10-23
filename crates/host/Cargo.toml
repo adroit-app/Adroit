@@ -1,6 +1,6 @@
 [package]
-name = "adroit-runtime"
-description = "What the adroit window runs: its terminal host and work host, sessions, shells, editor, socket and delegation"
+name = "adroit-host"
+description = "The adroit work host: the work it owns, the sessions and shells it starts in the terminal host, delegation, and the CLI that asks it"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

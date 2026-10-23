@@ -13,10 +13,10 @@ name = "adroit"
 version = "0.0.0"
 dependencies = [
  "adroit-core",
+ "adroit-host",
  "adroit-model",
  "adroit-nvim",
  "adroit-protocol",
- "adroit-runtime",
  "adroit-term",
  "dioxus",
  "image",
@@ -67,6 +67,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "adroit-host"
+version = "0.0.0"
+dependencies = [
+ "adroit-agents",
+ "adroit-core",
+ "adroit-model",
+ "adroit-nvim",
+ "adroit-protocol",
+ "adroit-term",
+ "adroit-vcs",
+ "base64 0.23.1",
+ "core-foundation",
+ "fontdb",
+ "image",
+ "libc",
+ "resvg",
+ "rusqlite",
+ "schemars",
+ "serde",
+ "serde_json",
+ "sysinfo",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "toml 1.1.8+spec-1.1.0",
+ "ttf-parser",
+ "wuff",
+]
+
+[[package]]
 name = "adroit-model"
 version = "0.0.0"
 dependencies = [
@@ -98,36 +128,6 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
-]
-
-[[package]]
-name = "adroit-runtime"
-version = "0.0.0"
-dependencies = [
- "adroit-agents",
- "adroit-core",
- "adroit-model",
- "adroit-nvim",
- "adroit-protocol",
- "adroit-term",
- "adroit-vcs",
- "base64 0.23.1",
- "core-foundation",
- "fontdb",
- "image",
- "libc",
- "resvg",
- "rusqlite",
- "schemars",
- "serde",
- "serde_json",
- "sysinfo",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "toml 1.1.8+spec-1.1.0",
- "ttf-parser",
- "wuff",
 ]
 
 [[package]]
