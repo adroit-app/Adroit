@@ -20,6 +20,51 @@ pub fn dialog_open<S: AsRef<str>>(lines: &[S]) -> bool {
     (from + 1..to).any(|i| key_hint(line(i)))
 }
 
+/// How a session stands by its screen, for one whose status its program has
+/// not reported: working while its spinner sits right above the input box,
+/// idle with the input box alone. `None` before the input box is drawn, as
+/// while Claude Code asks whether to trust the folder, and while a dialog of
+/// its own has the keys.
+pub fn screen_state<S: AsRef<str>>(lines: &[S]) -> Option<adroit_model::State> {
+    use adroit_model::State;
+    let line = |i: usize| lines[i].as_ref();
+    let rules: Vec<usize> = (0..lines.len()).filter(|&i| rule(line(i))).collect();
+    let top = rules
+        .windows(2)
+        .rfind(|w| prompt(line(w[0] + 1)))
+        .map(|w| w[0])?;
+    if dialog_open(lines) {
+        return None;
+    }
+    // A tip can sit under the spinner; anything further up is the reply.
+    let spinning = (0..top)
+        .rev()
+        .map(line)
+        .filter(|l| !l.trim().is_empty())
+        .take(3)
+        .any(spinner);
+    Some(if spinning {
+        State::Working
+    } else {
+        State::Idle
+    })
+}
+
+/// Claude Code's spinner while it works: a glyph, then a word with an
+/// ellipsis and how long it has been at it, as in `✻ Running… (3s · …)`.
+fn spinner(line: &str) -> bool {
+    let mut chars = line.chars();
+    let glyph = chars
+        .next()
+        .is_some_and(|c| !c.is_alphanumeric() && !c.is_whitespace());
+    let rest = chars.as_str();
+    glyph
+        && rest.starts_with(' ')
+        && rest
+            .split_once("… (")
+            .is_some_and(|(_, after)| after.starts_with(|c: char| c.is_ascii_digit()))
+}
+
 /// The channels named by Claude Code's warning before it loads development
 /// channels, while that warning is the dialog open on the screen with its
 /// option to go on selected, so that Enter would confirm it; `None` for any
@@ -90,6 +135,7 @@ fn key_hint(line: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adroit_model::State;
 
     /// A screen kept under `tests/screens`. Those named after a slash command
     /// and `input`, `slash-menu` and `after-a-reply` were recorded from Claude
@@ -238,5 +284,63 @@ mod tests {
         ] {
             assert_eq!(development_channels(&screen(name)), None, "{name}");
         }
+    }
+
+    #[test]
+    fn a_session_with_its_spinner_above_the_input_box_works() {
+        assert_eq!(screen_state(&screen("working")), Some(State::Working));
+        assert_eq!(screen_state(&screen("working-named")), Some(State::Working));
+    }
+
+    #[test]
+    fn a_tip_under_the_spinner_leaves_the_session_working() {
+        let lines = screen("working")
+            .into_iter()
+            .flat_map(|line| {
+                let tip = line
+                    .starts_with('✻')
+                    .then(|| "  ⎿  Tip: Name your conversations with /rename".to_string());
+                std::iter::once(line).chain(tip)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(screen_state(&lines), Some(State::Working));
+    }
+
+    #[test]
+    fn a_session_with_its_input_box_and_no_spinner_is_idle() {
+        for name in ["input", "after-a-reply", "dev-channels-confirmed"] {
+            assert_eq!(screen_state(&screen(name)), Some(State::Idle), "{name}");
+        }
+    }
+
+    #[test]
+    fn a_screen_without_the_input_box_tells_no_state() {
+        assert_eq!(screen_state::<&str>(&[]), None);
+        let trust = [
+            "╭──────────────────────────────────────────╮",
+            "│ Do you trust the files in this folder?   │",
+            "│ ❯ 1. Yes, proceed                        │",
+            "│   2. No, exit                            │",
+            "╰──────────────────────────────────────────╯",
+        ];
+        assert_eq!(screen_state(&trust), None);
+    }
+
+    #[test]
+    fn a_screen_with_a_dialog_of_claude_s_own_tells_no_state() {
+        for name in ["model", "model-while-working", "dev-channels"] {
+            assert_eq!(screen_state(&screen(name)), None, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_reply_mentioning_a_spinner_far_above_the_input_box_is_not_one() {
+        let mut lines = screen("after-a-reply");
+        let at = lines.iter().position(|l| rule(l)).unwrap();
+        lines.insert(
+            at.saturating_sub(10),
+            "✻ Running… (3s · esc to interrupt)".into(),
+        );
+        assert_eq!(screen_state(&lines), Some(State::Idle));
     }
 }
