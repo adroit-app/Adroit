@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
-use adroit_model::TerminalSession;
+use adroit_model::{Session, TerminalSession};
 use adroit_protocol::{
     Change, DetailsChange, DetailsWork, Event, Request, SPOKEN, Seq, Sight, TreeChange, TreeWork,
     WorkPatch, WorkSnapshot, agree,
@@ -46,11 +46,18 @@ impl Work {
     }
 }
 
+/// What a window shows, with the session it shows as the host lists it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Seen {
+    pub sight: Sight,
+    pub session: Option<Session>,
+}
+
 #[derive(Debug)]
 pub struct Host {
     work: Work,
     /// What the window shows, which the host keeps read.
-    sight: watch::Sender<Sight>,
+    seen: watch::Sender<Seen>,
     /// Raised each time the window asks for everything read again.
     again: watch::Sender<u64>,
     /// Raised each time the window asks for the sessions listed again.
@@ -70,7 +77,7 @@ impl Host {
     pub fn new(work: Work) -> Self {
         Self {
             work,
-            sight: watch::Sender::new(Sight::default()),
+            seen: watch::Sender::new(Seen::default()),
             again: watch::Sender::new(0),
             relist: watch::Sender::new(0),
             inputs: watch::Sender::new(BTreeMap::new()),
@@ -82,8 +89,8 @@ impl Host {
     }
 
     /// What the window shows, as it changes.
-    pub fn sight(&self) -> watch::Receiver<Sight> {
-        self.sight.subscribe()
+    pub fn seen(&self) -> watch::Receiver<Seen> {
+        self.seen.subscribe()
     }
 
     /// Each time the window asks for everything read again.
@@ -115,7 +122,11 @@ impl Host {
             },
             Request::Snapshot => vec![Event::Snapshot(Box::new(self.work.snapshot()))],
             Request::Watch(sight) => {
-                self.sight.send_replace(*sight);
+                let session = self.listed(sight.session.as_deref());
+                self.seen.send_replace(Seen {
+                    sight: *sight,
+                    session,
+                });
                 let left = self.left();
                 self.patch(left).into_iter().collect()
             }
@@ -149,6 +160,17 @@ impl Host {
         }
     }
 
+    /// The session listed by `id`.
+    fn listed(&self, id: Option<&str>) -> Option<Session> {
+        let id = id?;
+        self.work
+            .tree
+            .sessions()
+            .iter()
+            .find(|s| s.id == id)
+            .cloned()
+    }
+
     /// The terminals listed as `change` leaves them, placed in the tree at
     /// once rather than when the sessions are next listed.
     fn terminals(&mut self, change: impl FnOnce(&mut Vec<TerminalSession>)) -> Vec<Event> {
@@ -167,7 +189,7 @@ impl Host {
         &mut self,
         changes: impl IntoIterator<Item = C>,
     ) -> Option<Event> {
-        let sight = self.sight.borrow().clone();
+        let sight = self.seen.borrow().sight.clone();
         let shown: Vec<_> = changes
             .into_iter()
             .map(Into::into)
@@ -186,6 +208,17 @@ impl Host {
             return None;
         }
         self.work.seq = self.work.seq.next();
+        if changes
+            .iter()
+            .any(|c| matches!(c, Change::Tree(TreeChange::Listed { .. })))
+        {
+            let session = self.listed(self.seen.borrow().sight.session.as_deref());
+            self.seen.send_if_modified(|seen| {
+                let changed = seen.session != session;
+                seen.session = session;
+                changed
+            });
+        }
         Some(Event::Patch(WorkPatch {
             seq: self.work.seq,
             changes,
@@ -195,7 +228,7 @@ impl Host {
     /// What the host holds of sessions and worktrees the window no longer
     /// shows, to drop.
     fn left(&self) -> Vec<Change> {
-        let sight = self.sight.borrow();
+        let sight = &self.seen.borrow().sight;
         let sessions = self
             .work
             .details
@@ -228,7 +261,7 @@ impl Host {
             .chain(repositories)
             .map(Change::from)
             .chain(marks.chain(entries).map(Change::from))
-            .filter(|c| !in_sight(c, &sight))
+            .filter(|c| !in_sight(c, sight))
             .collect()
     }
 }
@@ -256,9 +289,7 @@ fn details_in_sight(change: &DetailsChange, sight: &Sight) -> bool {
         | DetailsChange::Thumbs { session, .. }
         | DetailsChange::Notes { session, .. }
         | DetailsChange::Processes { session, .. }
-        | DetailsChange::SessionLeft { session } => {
-            sight.session.as_ref().is_some_and(|s| s.id == *session)
-        }
+        | DetailsChange::SessionLeft { session } => sight.session.as_ref() == Some(session),
         DetailsChange::Repository { worktree, .. } | DetailsChange::RepositoryLeft { worktree } => {
             sight
                 .repository
@@ -437,10 +468,7 @@ mod tests {
 
     fn watch(session: Option<&str>, worktree: Option<&str>) -> Request {
         Request::Watch(Box::new(Sight {
-            session: session.map(|id| Session {
-                id: id.into(),
-                ..Default::default()
-            }),
+            session: session.map(Into::into),
             repository: worktree.map(|w| RepositorySight {
                 worktree: w.into(),
                 spot: Spot::Log,
@@ -524,13 +552,10 @@ mod tests {
     #[test]
     fn the_watchers_are_told_what_the_window_shows_and_when_to_read_again() {
         let mut host = Host::default();
-        let sight = host.sight();
+        let seen = host.seen();
         let again = host.again();
         host.handle(watch(Some("a"), None));
-        assert_eq!(
-            sight.borrow().session.as_ref().map(|s| s.id.as_str()),
-            Some("a")
-        );
+        assert_eq!(seen.borrow().sight.session.as_deref(), Some("a"));
         assert!(!again.has_changed().unwrap());
         assert!(host.handle(Request::ReadAgain).is_empty());
         assert!(again.has_changed().unwrap());
@@ -681,5 +706,30 @@ mod tests {
         );
         assert!(inputs.has_changed().unwrap());
         assert_eq!(*inputs.borrow(), typed);
+    }
+
+    #[test]
+    fn the_watchers_read_the_session_shown_as_the_host_lists_it() {
+        let mut host = Host::default();
+        let seen = host.seen();
+        let listing = |session_id: &str| TreeChange::Listed {
+            listed: Box::new(adroit_protocol::Listed {
+                sessions: vec![Session {
+                    id: "a".into(),
+                    session_id: session_id.into(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+        };
+        host.handle(watch(Some("a"), None));
+        assert_eq!(seen.borrow().session, None, "not listed yet");
+        host.record([listing("first")]);
+        let conversation = || seen.borrow().session.as_ref().map(|s| s.session_id.clone());
+        assert_eq!(conversation().as_deref(), Some("first"));
+        host.record([listing("resumed")]);
+        assert_eq!(conversation().as_deref(), Some("resumed"));
+        host.handle(watch(None, None));
+        assert_eq!(seen.borrow().session, None);
     }
 }

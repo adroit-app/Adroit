@@ -20,8 +20,8 @@ pub(super) async fn watch(mut watched: Watched) {
     let mut held: Option<(Key, Reader)> = None;
     let mut thumbs = Thumbs::new();
     loop {
-        let sight = watched.sight();
-        match sight.session.filter(has_transcript) {
+        let seen = watched.seen();
+        match seen.session.filter(has_transcript) {
             Some(s) => {
                 let key = Key::of(&s);
                 let reader = match held.take() {
@@ -33,7 +33,7 @@ pub(super) async fn watch(mut watched: Watched) {
                     ),
                 };
                 if let Some(reader) = reader {
-                    let overview = sight.overview;
+                    let overview = seen.sight.overview;
                     let mut kept = std::mem::take(&mut thumbs);
                     let read = tokio::task::spawn_blocking(move || {
                         let mut reader = reader;
@@ -66,7 +66,7 @@ pub(super) async fn watch(mut watched: Watched) {
         }
         watched
             .wait(Duration::from_secs(2), |s| {
-                (s.session.as_ref().map(Key::of), s.overview)
+                (s.session.as_ref().map(Key::of), s.sight.overview)
             })
             .await;
     }

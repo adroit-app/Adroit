@@ -1,6 +1,7 @@
 //! The header: the panels' switches, where the content's focused window is,
 //! and how many sessions wait or work.
 
+use adroit_core::tree;
 use dioxus::prelude::*;
 
 use crate::bridge::AppCtx;
@@ -8,27 +9,22 @@ use crate::icons::{Icon, IconView};
 use crate::layout::Side;
 use crate::settings_window;
 
-/// Where the focused window's session works: its workspace, by name and
-/// whether it is a scratch one, its worktree as the header writes it, and
-/// what the window shows.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct Crumbs {
-    pub(crate) workspace: Option<(String, bool)>,
-    pub(crate) worktree: String,
-    pub(crate) target: String,
-}
-
 /// A click on a panel's switch goes to `ontoggle`, which also moves the keys
 /// out of a panel it hides.
 #[component]
-pub(crate) fn Header(
-    crumbs: Option<Crumbs>,
-    waiting: usize,
-    working: usize,
-    ontoggle: EventHandler<Side>,
-) -> Element {
+pub(crate) fn Header(ontoggle: EventHandler<Side>) -> Element {
     let app = use_context::<AppCtx>();
     let layout = app.chrome.read().panels.layout;
+    let (crumbs, waiting, working) = {
+        let view = app.tree.read();
+        let host = app.host.read();
+        let work = host.work.as_ref();
+        (
+            tree::crumbs(&view, work),
+            view.waiting.len(),
+            tree::working(work),
+        )
+    };
     rsx! {
         div { class: "header",
             span {
@@ -43,7 +39,7 @@ pub(crate) fn Header(
                         span { class: "header-crumbs-item", IconView { icon: if *scratch { Icon::Notes } else { Icon::Folder }, size: 14 } "{name}" }
                         span { class: "header-crumbs-sep", IconView { icon: Icon::ChevronRight, size: 12 } }
                     }
-                    span { class: "header-crumbs-item header-crumbs-path", IconView { icon: Icon::GitBranch, size: 14 } "{c.worktree}" }
+                    span { class: "header-crumbs-item header-crumbs-path", IconView { icon: Icon::GitBranch, size: 14 } "{crate::picker::short(&c.worktree, &crate::paths::home())}" }
                     span { class: "header-crumbs-sep", IconView { icon: Icon::ChevronRight, size: 12 } }
                     span { "{c.target}" }
                 }

@@ -1,7 +1,7 @@
 //! What the window knows of the work host: whether they speak, and the work
 //! as the host last described it.
 
-use adroit_protocol::{Event, Request, SPOKEN, Version, WorkPatch, WorkSnapshot};
+use adroit_protocol::{Event, Request, SPOKEN, Sight, Version, WorkPatch, WorkSnapshot};
 
 use crate::effect::Effect;
 
@@ -25,6 +25,8 @@ pub struct Host {
     pub work: Option<WorkSnapshot>,
     /// A snapshot was asked for and has not come yet.
     resyncing: bool,
+    /// What the host was last asked to keep read.
+    pub(crate) watched: Sight,
 }
 
 /// The first request a window sends.

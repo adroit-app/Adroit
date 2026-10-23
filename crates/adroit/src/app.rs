@@ -1,5 +1,5 @@
 use std::cell::{Cell, RefCell};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -7,9 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use adroit_agents::claude::{commands, places};
-use adroit_model::{
-    InboxItem, Kind, Session, State, TerminalProgram, TerminalSession, Tree, Worktree, build, inbox,
-};
+use adroit_model::{InboxItem, Kind, Session, State, TerminalProgram, TerminalSession, Tree};
 use adroit_nvim::{Embedded, Event as NvimEvent, notation};
 use adroit_term::{Key, Palette, Pane, Screen, Size, Spawn};
 use adroit_vcs::{Repo, ghq};
@@ -59,7 +57,7 @@ use crate::settings;
 use crate::settings_window;
 use crate::shell::{
     self,
-    header::{Crumbs, Header},
+    header::Header,
     overlays::KeysHelp,
     panels::Splitter,
     status_bar::StatusBar,
@@ -76,6 +74,7 @@ use crate::zoom;
 use adroit_agents as agents;
 use adroit_core::effect::Effect as CoreEffect;
 use adroit_core::msg::Msg;
+use adroit_core::tree as tree_view;
 
 fn shows_usage(tab: Option<&Tab>, agent: adroit_model::Agent) -> bool {
     matches!(tab, Some(Tab::Session(_) | Tab::Draft { .. }))
@@ -268,9 +267,6 @@ fn console_room(height: f64, card: Option<f64>) -> f64 {
 /// How long, in 50 ms steps, a prompt waits for a session pane that has just
 /// attached.
 const ATTACH_WAIT_STEPS: usize = 60;
-
-/// How long what git said about a worktree is trusted before asking again.
-const WORKTREE_TTL: Duration = Duration::from_secs(15);
 
 /// How long the window waits before it runs [`INPUT`] again, once the keys
 /// it listened for are lost.
@@ -513,7 +509,7 @@ fn window_strip(
         mark,
         name: thing_name(tree, terminals, shows),
         agent: session.map(|s| agents::adapter(s.agent).label()),
-        worktree: place_of_thing(tree, terminals, shows).map(|p| p.worktree),
+        worktree: tree_view::place_of_tab(tree, terminals, shows).map(|p| p.worktree),
     }
 }
 
@@ -691,26 +687,6 @@ fn described(place: Option<Place>, shown: Option<&Tab>) -> Option<Place> {
     place.filter(|_| shown.is_some())
 }
 
-/// The worktree `thing` is in, as the sidebar lists it.
-fn place_of_thing(tree: &Tree, terminals: &[TerminalSession], thing: &Tab) -> Option<Place> {
-    match thing {
-        Tab::Session(id) => nav::find(tree, id).map(|(p, _)| p),
-        Tab::Terminal(id) => terminals.iter().find(|s| s.id == *id).map(|s| Place {
-            worktree: s.cwd.clone(),
-        }),
-        Tab::Draft { worktree, .. } => Some(Place {
-            worktree: worktree.clone(),
-        }),
-        Tab::Viewer(path) => {
-            adroit_model::innermost(tree.worktrees().map(|w| &w.worktree.path), path).map(|w| {
-                Place {
-                    worktree: w.clone(),
-                }
-            })
-        }
-    }
-}
-
 /// The last part of `path`, as a file is called.
 fn file_name(path: &Path) -> String {
     path.file_name()
@@ -751,26 +727,27 @@ fn thing_name(tree: &Tree, terminals: &[TerminalSession], thing: &Tab) -> String
 fn close_shell(
     id: u128,
     panes: &Panes,
-    mut terminals: Signal<Vec<TerminalSession>>,
+    app: AppCtx,
     middle: Middle,
     place: Signal<Option<Place>>,
-    tree: Signal<Tree>,
     prompts: Prompts,
 ) {
     panes.borrow_mut().remove(&Tab::Terminal(id));
-    terminals.write().retain(|s| s.id != id);
+    app.dispatch(Msg::TerminalClosed(id));
     let shell = Tab::Terminal(id);
     if !middle.content.peek().shows_anywhere(&shell) {
         return;
     }
+    // The host's list holds the shell until it is told it closed.
     let next = place.peek().as_ref().and_then(|p| {
-        let left: Vec<u128> = terminals
-            .peek()
+        let host = app.host.peek();
+        let work = host.work.as_ref();
+        let left: Vec<u128> = tree_view::terminals(work)
             .iter()
-            .filter(|s| s.cwd == p.worktree)
+            .filter(|s| s.id != id && s.cwd == p.worktree)
             .map(|s| s.id)
             .collect();
-        nav::tab_after_closing(&tree.peek(), p, &left)
+        nav::tab_after_closing(tree_view::listed(work), p, &left)
     });
     // The prompt's text goes with the focus, as when a draft's tab closes.
     if middle.close_showing(|t| *t == shell, next) {
@@ -989,15 +966,33 @@ fn Terminal(runs: TerminalProgram) -> Element {
 #[component]
 fn App() -> Element {
     use_bundled_font();
-    let mut tree = use_signal(Tree::default);
-    let mut selected = use_signal(|| None::<Item>);
-    let mut folds = use_signal(nav::Folds::default);
+    let app = use_app();
+    // The sessions and terminals as the work host last listed them.
+    let listed = use_memo(move || {
+        app.host
+            .read()
+            .work
+            .as_ref()
+            .and_then(|w| w.tree.listed.clone())
+    });
+    let tree = use_memo(move || {
+        listed
+            .read()
+            .as_ref()
+            .map(|l| l.tree.clone())
+            .unwrap_or_default()
+    });
+    let terminals = use_memo(move || {
+        listed
+            .read()
+            .as_ref()
+            .map(|l| l.terminals.clone())
+            .unwrap_or_default()
+    });
     // The latest action for a viewer, with the window whose viewer it is for.
     let mut viewer_command = use_signal(|| None::<(WindowId, viewers::Command)>);
     let mut terminal_ask = use_signal(|| None::<TerminalAsk>);
     let mut focus = use_signal(|| Area::Sidebar);
-    // Whether every worktree git knows is listed, those without sessions too.
-    let mut all_worktrees = use_signal(|| false);
     // The picker going to a session or starting one, while it is open, and
     // the directories it offers.
     let mut picking = use_signal(|| None::<Picker>);
@@ -1071,7 +1066,6 @@ fn App() -> Element {
     let mut next_options = use_signal(|| None::<tabs::DraftOptions>);
     let mut last_agent = use_signal(|| None::<adroit_model::Agent>);
     let mut place = use_signal(|| None::<Place>);
-    let mut terminals = use_signal(Vec::<TerminalSession>::new);
     let mut frame = use_signal(|| 0u64);
     let mut prompt_frame = use_signal(|| 0u64);
     let mut prompt_mode = use_signal(|| ("normal", "…"));
@@ -1103,7 +1097,6 @@ fn App() -> Element {
     // How many lines the reader holds, and how many of them are the screen,
     // the last.
     let mut read_rows = use_signal(|| (0usize, 0usize));
-    let app = use_app();
     // The zoom alone, which the console is measured again for.
     let zoomed = use_memo(move || app.chrome.read().zoom);
     // The settings the console's font is drawn by, and the height of a line
@@ -1253,7 +1246,7 @@ fn App() -> Element {
                     }
                     let gone = watched.borrow().get(tab).is_some_and(|p| p.exited());
                     if let (Tab::Terminal(id), true) = (tab, gone) {
-                        close_shell(*id, &watched, terminals, middle, place, tree, prompts);
+                        close_shell(*id, &watched, app, middle, place, prompts);
                     }
                 }
                 let on_screen = content
@@ -1271,7 +1264,6 @@ fn App() -> Element {
             attaching: Rc::new(RefCell::new(HashSet::new())),
             wake: tx,
             palette,
-            refresh: Rc::new(Notify::new()),
         }
     });
     use_context_provider({
@@ -1279,12 +1271,12 @@ fn App() -> Element {
         move || hub
     });
 
-    // Sessions from the daemon and from Claude Code, placed by what git says
-    // of where they run.
+    // The daemon and the work host started, which lists the sessions from
+    // then on; the user's key bindings read again whenever their file
+    // changes, and the host told when the user last typed into each session.
+    let mut beat = use_signal(|| 0u64);
     use_hook({
-        let refresh = hub.refresh.clone();
         let panes = hub.panes.clone();
-        let attaching = hub.attaching.clone();
         let daemon = hub.daemon.clone();
         move || {
             spawn(async move {
@@ -1312,16 +1304,11 @@ fn App() -> Element {
                 {
                     app.status(Some(format!("cannot start the work host: {e}")));
                 }
-                // What git said of each directory a session runs in, and of
-                // each repository's worktrees, with when it said it.
-                let mut cache: HashMap<PathBuf, (Instant, Option<Worktree>)> = HashMap::new();
-                let mut lists: HashMap<PathBuf, (Instant, Vec<Worktree>)> = HashMap::new();
+                app.watch();
                 let mut keys_read = None::<Option<String>>;
-                let mut restore = std::fs::read_to_string(shown_path())
-                    .ok()
-                    .and_then(|name| tabs::from_kept(&name));
-                // What each source last failed with, to take back once it reads.
-                let (mut keys_err, mut list_err) = (None, None);
+                // What the keys file last failed with, to take back once it reads.
+                let mut keys_err = None;
+                let mut typed = BTreeMap::new();
                 loop {
                     // The user's key bindings, read again whenever the file changes.
                     let keys_text = std::fs::read_to_string(keys_path()).ok();
@@ -1340,247 +1327,174 @@ fn App() -> Element {
                         app.while_failing(&mut keys_err, failed);
                         keys_read = Some(keys_text);
                     }
-                    let inputs = panes
+                    let inputs: BTreeMap<u128, u64> = panes
                         .borrow()
                         .iter()
                         .filter(|(tab, _)| matches!(tab, Tab::Session(_)))
                         .filter_map(|(_, pane)| pane.last_input_ms().map(|at| (pane.id(), at)))
                         .collect();
-                    match adroit_runtime::watch::read_sessions(&daemon, &inputs).await {
-                        Ok((sessions, kept_shells)) => {
-                            app.while_failing(&mut list_err, None);
-                            if *terminals.peek() != kept_shells {
-                                terminals.set(kept_shells.clone());
-                            }
-                            // Asked of git all at once: one by one, every
-                            // directory would hold the list back by its calls.
-                            {
-                                let mut unread: Vec<PathBuf> = sessions
-                                    .iter()
-                                    .map(|s| s.cwd.clone())
-                                    .chain(kept_shells.iter().map(|s| s.cwd.clone()))
-                                    .filter(|d| {
-                                        cache
-                                            .get(d)
-                                            .is_none_or(|(at, _)| at.elapsed() > WORKTREE_TTL)
-                                    })
-                                    .collect();
-                                unread.sort();
-                                unread.dedup();
-                                let mut asking = tokio::task::JoinSet::new();
-                                for dir in unread {
-                                    asking.spawn(async move {
-                                        let w = adroit_vcs::inspect(&dir).await;
-                                        (dir, w)
-                                    });
-                                }
-                                while let Some(answered) = asking.join_next().await {
-                                    if let Ok((dir, w)) = answered {
-                                        cache.insert(dir, (Instant::now(), w));
-                                    }
-                                }
-                            }
-                            let found: HashMap<PathBuf, Option<Worktree>> = sessions
-                                .iter()
-                                .map(|s| &s.cwd)
-                                .chain(kept_shells.iter().map(|s| &s.cwd))
-                                .filter_map(|d| cache.get(d).map(|(_, w)| (d.clone(), w.clone())))
-                                .collect();
-                            let mut listed = Vec::new();
-                            if *all_worktrees.peek() {
-                                let mut repos: Vec<PathBuf> =
-                                    found.values().flatten().map(|w| w.repo.clone()).collect();
-                                repos.sort();
-                                repos.dedup();
-                                // Asked all at once, as the directories are.
-                                let mut asking = tokio::task::JoinSet::new();
-                                for repo in repos.iter().filter(|r| {
-                                    lists
-                                        .get(*r)
-                                        .is_none_or(|(at, _)| at.elapsed() > WORKTREE_TTL)
-                                }) {
-                                    let repo = repo.clone();
-                                    asking.spawn(async move {
-                                        let ws = adroit_vcs::git::worktrees(&repo)
-                                            .await
-                                            .unwrap_or_default();
-                                        (repo, ws)
-                                    });
-                                }
-                                while let Some(answered) = asking.join_next().await {
-                                    if let Ok((repo, ws)) = answered {
-                                        lists.insert(repo, (Instant::now(), ws));
-                                    }
-                                }
-                                for repo in repos {
-                                    if let Some((_, ws)) = lists.get(&repo) {
-                                        listed.extend(ws.iter().cloned());
-                                    }
-                                }
-                            }
-                            let scratch = scratch_dir();
-                            let next =
-                                build(&sessions, &kept_shells, &found, &listed, Some(&scratch));
-                            // A session started a moment ago, and shown, is
-                            // placed among its worktree's tabs once listed:
-                            // below the worktree's top, it is shown there.
-                            if let Some(Tab::Session(id)) = active.peek().clone()
-                                && place.peek().is_some()
-                                && let Some((p, _)) = nav::find(&next, &id)
-                                && place.peek().as_ref() != Some(&p)
-                                && nav::find(&tree.peek(), &id).is_none()
-                            {
-                                place.set(Some(p));
-                            }
-                            // The windows and the selected row each follow
-                            // their session, which may be taken over from the
-                            // sidebar while another window is focused.
-                            let _ = prompts.send(Op::Follow(sessions.clone()));
-                            let followed: Vec<(Tab, Tab)> = content
-                                .peek()
-                                .shown()
-                                .into_iter()
-                                .filter_map(|t| match t {
-                                    Tab::Session(old) => nav::successor(&sessions, old)
-                                        .map(|new| (t.clone(), Tab::Session(new.to_string()))),
-                                    _ => None,
-                                })
-                                .collect();
-                            if !followed.is_empty() {
-                                middle.edit(|c| {
-                                    for (old, new) in followed {
-                                        c.replace(&old, new);
-                                    }
-                                });
-                            }
-                            // A session gone from the list, not merely gone by
-                            // another id, gives its windows up as a closed
-                            // shell does. One being taken over is only
-                            // between ids.
-                            let ended: Vec<String> = content
-                                .peek()
-                                .shown()
-                                .into_iter()
-                                .filter_map(|t| match t {
-                                    Tab::Session(id)
-                                        if nav::is_gone(&sessions, id)
-                                            && !moving.peek().contains(id)
-                                            && !alive_here(&panes, &attaching, id) =>
-                                    {
-                                        Some(id.clone())
-                                    }
-                                    _ => None,
-                                })
-                                .collect();
-                            for id in &ended {
-                                let after = place.peek().as_ref().and_then(|p| {
-                                    let left: Vec<u128> = terminals
-                                        .peek()
-                                        .iter()
-                                        .filter(|s| s.cwd == p.worktree)
-                                        .map(|s| s.id)
-                                        .collect();
-                                    nav::tab_after_closing(&next, p, &left)
-                                });
-                                // Said, or the window would vanish unexplained.
-                                if let Some((_, s)) = nav::find(&tree.peek(), id) {
-                                    app.notice(format!("{} ended", s.name));
-                                }
-                                let gone = Tab::Session(id.clone());
-                                middle.close_showing(|t| *t == gone, after);
-                            }
-                            let moved = selected
-                                .peek()
-                                .as_ref()
-                                .and_then(|item| nav::successor_row(&sessions, item));
-                            if let Some(item) = moved {
-                                selected.set(Some(item));
-                            }
-                            // So does what is waiting to be taken from a
-                            // session's input.
-                            let kept = nav::followed(&sessions, &stale.peek());
-                            if *stale.peek() != kept {
-                                stale.set(kept);
-                            }
-                            let asked = pull.peek().clone();
-                            if let Some(Tab::Session(old)) = asked
-                                && let Some(new) = nav::successor(&sessions, &old)
-                            {
-                                pull.set(Some(Tab::Session(new.to_string())));
-                            }
-                            // A session no longer listed has nothing to show;
-                            // its pane is closed.
-                            panes.borrow_mut().retain(|tab, _| match tab {
-                                Tab::Session(id) => sessions.iter().any(|s| &s.id == id),
-                                Tab::Terminal(id) => terminals.peek().iter().any(|s| s.id == *id),
-                                Tab::Draft { .. } | Tab::Viewer(_) => true,
-                            });
-                            // Nor are the images its console drew kept.
-                            let gone = gallery
-                                .peek()
-                                .store
-                                .sessions()
-                                .any(|id| !sessions.iter().any(|s| s.id == id));
-                            if gone {
-                                gallery
-                                    .write()
-                                    .store
-                                    .retain(|id| sessions.iter().any(|s| s.id == id));
-                            }
-                            // The tab shown when the window last closed comes
-                            // back once what it shows is listed, unless
-                            // another was opened meanwhile.
-                            if let Some(kept) = restore.take()
-                                && active.peek().is_none()
-                            {
-                                let at = match &kept {
-                                    Tab::Session(id) => nav::find(&next, id).map(|(p, _)| p),
-                                    Tab::Terminal(id) => {
-                                        terminals.peek().iter().find(|s| s.id == *id).map(|s| {
-                                            Place {
-                                                worktree: s.cwd.clone(),
-                                            }
-                                        })
-                                    }
-                                    Tab::Draft { .. } | Tab::Viewer(_) => None,
-                                };
-                                if let Some(p) = at {
-                                    if let Tab::Session(id) = &kept {
-                                        selected.set(Some(Item::Session(id.clone())));
-                                    }
-                                    place.set(Some(p));
-                                    middle.open(kept);
-                                }
-                            }
-                            // Told only of what changed since the window first read the
-                            // sessions, and only while it is not in front.
-                            if *restored.peek()
-                                && settings::current().notify_waiting
-                                && !dioxus::desktop::window().is_focused()
-                            {
-                                for (name, why) in alerts::newly_waiting(&tree.peek(), &next) {
-                                    spawn(alerts::notify_waiting(&name, &why));
-                                }
-                            }
-                            if !*restored.peek() {
-                                restored.set(true);
-                            }
-                            if *tree.peek() != next {
-                                tree.set(next);
-                            }
-                        }
-                        Err(e) => app.while_failing(&mut list_err, Some(e.to_string())),
+                    if inputs != typed {
+                        typed = inputs.clone();
+                        app.dispatch(Msg::Typed(inputs));
                     }
-                    tokio::select! {
-                        _ = tokio::time::sleep(Duration::from_secs(2)) => {}
-                        // Asked for by hand: look at every worktree again too.
-                        _ = refresh.notified() => {
-                            cache.clear();
-                            lists.clear();
-                        }
-                    }
+                    *beat.write() += 1;
+                    tokio::time::sleep(Duration::from_secs(2)).await;
                 }
             });
+        }
+    });
+
+    // What a list of the sessions means for what the window shows: looked at
+    // each time the host lists them anew, and every two seconds besides, as
+    // a session ending or being taken over changes what it means.
+    let restore = use_hook(|| {
+        Rc::new(RefCell::new(
+            std::fs::read_to_string(shown_path())
+                .ok()
+                .and_then(|name| tabs::from_kept(&name)),
+        ))
+    });
+    // The tree as last looked at, against which the next list is.
+    let looked_at = use_hook(|| Rc::new(RefCell::new(Tree::default())));
+    use_effect({
+        let panes = hub.panes.clone();
+        let attaching = hub.attaching.clone();
+        move || {
+            let _ = beat();
+            let Some(now) = listed() else {
+                return;
+            };
+            let (sessions, kept_shells, next) = (&now.sessions, &now.terminals, &now.tree);
+            let was = looked_at.replace(next.clone());
+            // A session started a moment ago, and shown, is placed among its
+            // worktree's tabs once listed: below the worktree's top, it is
+            // shown there.
+            if let Some(Tab::Session(id)) = active.peek().clone()
+                && place.peek().is_some()
+                && let Some((p, _)) = nav::find(next, &id)
+                && place.peek().as_ref() != Some(&p)
+                && nav::find(&was, &id).is_none()
+            {
+                place.set(Some(p));
+            }
+            // The windows each follow their session, which may be taken over
+            // from the sidebar while another window is focused.
+            let _ = prompts.send(Op::Follow(sessions.clone()));
+            let followed: Vec<(Tab, Tab)> = content
+                .peek()
+                .shown()
+                .into_iter()
+                .filter_map(|t| match t {
+                    Tab::Session(old) => nav::successor(sessions, old)
+                        .map(|new| (t.clone(), Tab::Session(new.to_string()))),
+                    _ => None,
+                })
+                .collect();
+            if !followed.is_empty() {
+                middle.edit(|c| {
+                    for (old, new) in followed {
+                        c.replace(&old, new);
+                    }
+                });
+            }
+            // A session gone from the list, not merely gone by another id,
+            // gives its windows up as a closed shell does. One being taken
+            // over is only between ids.
+            let ended: Vec<String> = content
+                .peek()
+                .shown()
+                .into_iter()
+                .filter_map(|t| match t {
+                    Tab::Session(id)
+                        if nav::is_gone(sessions, id)
+                            && !moving.peek().contains(id)
+                            && !alive_here(&panes, &attaching, id) =>
+                    {
+                        Some(id.clone())
+                    }
+                    _ => None,
+                })
+                .collect();
+            for id in &ended {
+                let after = place.peek().as_ref().and_then(|p| {
+                    let left: Vec<u128> = kept_shells
+                        .iter()
+                        .filter(|s| s.cwd == p.worktree)
+                        .map(|s| s.id)
+                        .collect();
+                    nav::tab_after_closing(next, p, &left)
+                });
+                // Said, or the window would vanish unexplained.
+                if let Some((_, s)) = nav::find(&was, id) {
+                    app.notice(format!("{} ended", s.name));
+                }
+                let gone = Tab::Session(id.clone());
+                middle.close_showing(|t| *t == gone, after);
+            }
+            // So does what is waiting to be taken from a session's input.
+            let kept = nav::followed(sessions, &stale.peek());
+            if *stale.peek() != kept {
+                stale.set(kept);
+            }
+            let asked = pull.peek().clone();
+            if let Some(Tab::Session(old)) = asked
+                && let Some(new) = nav::successor(sessions, &old)
+            {
+                pull.set(Some(Tab::Session(new.to_string())));
+            }
+            // A session no longer listed has nothing to show; its pane is
+            // closed.
+            panes.borrow_mut().retain(|tab, _| match tab {
+                Tab::Session(id) => sessions.iter().any(|s| &s.id == id),
+                Tab::Terminal(id) => kept_shells.iter().any(|s| s.id == *id),
+                Tab::Draft { .. } | Tab::Viewer(_) => true,
+            });
+            // Nor are the images its console drew kept.
+            let gone = gallery
+                .peek()
+                .store
+                .sessions()
+                .any(|id| !sessions.iter().any(|s| s.id == id));
+            if gone {
+                gallery
+                    .write()
+                    .store
+                    .retain(|id| sessions.iter().any(|s| s.id == id));
+            }
+            // The tab shown when the window last closed comes back once what
+            // it shows is listed, unless another was opened meanwhile.
+            let kept = restore.borrow_mut().take();
+            if let Some(kept) = kept
+                && active.peek().is_none()
+            {
+                let at = match &kept {
+                    Tab::Session(id) => nav::find(next, id).map(|(p, _)| p),
+                    Tab::Terminal(id) => kept_shells.iter().find(|s| s.id == *id).map(|s| Place {
+                        worktree: s.cwd.clone(),
+                    }),
+                    Tab::Draft { .. } | Tab::Viewer(_) => None,
+                };
+                if let Some(p) = at {
+                    if let Tab::Session(id) = &kept {
+                        app.dispatch(Msg::TreeSelect(Some(Item::Session(id.clone()))));
+                    }
+                    place.set(Some(p));
+                    middle.open(kept);
+                }
+            }
+            // Told only of what changed since the window first read the
+            // sessions, and only while it is not in front.
+            if *restored.peek()
+                && settings::current().notify_waiting
+                && !dioxus::desktop::window().is_focused()
+            {
+                for (name, why) in alerts::newly_waiting(&was, next) {
+                    spawn(alerts::notify_waiting(&name, &why));
+                }
+            }
+            if !*restored.peek() {
+                restored.set(true);
+            }
         }
     });
 
@@ -1682,14 +1596,17 @@ fn App() -> Element {
         });
     });
 
-    // What the details panel reads by, as the window shows it.
+    // What the content's focused window shows, which the tree and the
+    // details panel follow.
+    use_effect(move || {
+        let tab = active.read().clone();
+        let place = place.read().clone();
+        app.dispatch(Msg::Showing(Box::new(tree_view::Showing { tab, place })));
+    });
+    // What else the details panel reads by, as the window shows it.
     use_effect(move || {
         let t = tree.read();
         let tab = active.read().clone();
-        let session = match &tab {
-            Some(Tab::Session(id)) => nav::find(&t, id).map(|(_, s)| s.clone()),
-            _ => None,
-        };
         let settings = font.read();
         let agent = draft_agent::for_tab(
             &t,
@@ -1697,14 +1614,13 @@ fn App() -> Element {
             &draft_options.read(),
             last_agent.read().unwrap_or(settings.agent),
         );
-        let drawn = session
-            .as_ref()
-            .map(|s| pictures::drawn(&gallery.read().store, &s.id))
-            .unwrap_or_default();
-        app.dispatch(Msg::DetailsShown(Box::new(details::Shown {
-            sessions: t.sessions().map(|(_, s)| s.clone()).collect(),
-            session,
-            worktree: place.read().as_ref().map(|p| p.worktree.clone()),
+        let drawn = match &tab {
+            Some(Tab::Session(id)) if nav::find(&t, id).is_some() => {
+                pictures::drawn(&gallery.read().store, id)
+            }
+            _ => Vec::new(),
+        };
+        app.dispatch(Msg::DetailsShown(Box::new(details::Told {
             open: layout.read().show_details,
             usage: shows_usage(tab.as_ref(), agent).then_some(agent),
             drawn,
@@ -1981,6 +1897,7 @@ fn App() -> Element {
     });
 
     // Keep what is selected in the sidebar in view, after it is drawn.
+    let selected = use_memo(move || app.tree.read().selected.clone());
     use_effect(move || {
         let _ = selected();
         document::eval(
@@ -2007,19 +1924,7 @@ fn App() -> Element {
         );
     });
 
-    // A shell opened or closed shows in the sidebar at once, among the
-    // worktrees already listed, not when the sessions are next read.
-    use_effect(move || {
-        let placed = tree.peek().with_terminals(&terminals.read());
-        if *tree.peek() != placed {
-            tree.set(placed);
-        }
-    });
-    let ib = use_memo(move || inbox(&tree.read()));
-    // What the sidebar shows: the tree narrowed to what the filter holds.
-    let mut filter = use_signal(String::new);
-    // Whether the filter's field has the keys, and the field.
-    let mut filtering = use_signal(|| false);
+    // The filter's field, which takes the keys while it is typed into.
     let mut filter_field = use_signal(|| None::<Rc<MountedData>>);
     let focus_filter = move |on: bool| {
         if let Some(field) = filter_field.peek().clone() {
@@ -2032,69 +1937,12 @@ fn App() -> Element {
     // so the keys a menu names run what they name.
     use_effect(move || {
         let left = focus() != Area::Sidebar || menu().is_some();
-        if left && *filtering.peek() {
+        if left && app.tree.peek().filtering {
             focus_filter(false);
         }
     });
     // Keep sessions visible while a prompt is in flight, even across tab switches.
     let mut sending = use_signal(|| false);
-    let shown_tree = use_memo(move || nav::narrowed(&tree.read(), &filter.read()));
-    let shown_ib = use_memo(move || inbox(&shown_tree.read()));
-    // What jj or git says of the files of each worktree whose files are
-    // listed, read again now and then; reading it lists the files again too,
-    // so files made or removed meanwhile show.
-    let mut file_marks = use_signal(HashMap::<PathBuf, adroit_vcs::Marks>::new);
-    let items = use_memo(move || {
-        let _ = file_marks.read();
-        nav::items(
-            &shown_tree.read(),
-            &shown_ib.read(),
-            &folds.read(),
-            &files::read,
-        )
-    });
-    use_future(move || async move {
-        loop {
-            let open: Vec<PathBuf> = items
-                .peek()
-                .iter()
-                .filter_map(|i| match i {
-                    Item::Heading(path, nav::Heading::Files) if folds.peek().is_open(i) => {
-                        Some(path.clone())
-                    }
-                    _ => None,
-                })
-                .collect();
-            let mut read = HashMap::new();
-            for root in open {
-                let marks = Repo::open(&root).marks().await;
-                read.insert(root, marks);
-            }
-            if *file_marks.peek() != read {
-                file_marks.set(read);
-            }
-            tokio::time::sleep(Duration::from_secs(2)).await;
-        }
-    });
-
-    // A selected row that leaves the sidebar, as an inbox row does once its
-    // session stops waiting, gives way to another rather than to nothing.
-    use_effect(move || {
-        let list = items.read();
-        let Some(p) = place.peek().clone() else {
-            return;
-        };
-        let row = nav::row_kept(
-            &list,
-            &tree.peek(),
-            selected.peek().as_ref(),
-            active.peek().as_ref(),
-            &p,
-        );
-        if row.is_some() {
-            selected.set(row);
-        }
-    });
 
     // The worktree in the middle is the one the focused window's thing is in,
     // however the focus came to it.
@@ -2102,14 +1950,12 @@ fn App() -> Element {
         let Some(now) = active.read().clone() else {
             return;
         };
-        let at = place_of_thing(&tree.peek(), &terminals.peek(), &now);
+        let at = tree_view::place_of_tab(&tree.peek(), &terminals.peek(), &now);
         if at.is_some() && *place.peek() != at {
             place.set(at);
         }
     });
-    // The selection follows the focused window, however it came to show what
-    // it shows, such as a closed shell's window giving way to a session's,
-    // unless it was moved elsewhere by hand.
+    // The prompt shows what the focused window shows.
     use_effect(move || {
         let now = active.read().clone();
         let _ = prompts.send(Op::Show(now));
@@ -2121,25 +1967,6 @@ fn App() -> Element {
         let shown = c.shown();
         if draft_options.peek().keys().any(|t| !shown.contains(&t)) {
             draft_options.write().retain(|t, _| shown.contains(&t));
-        }
-    });
-    let shown_before = use_hook(|| Rc::new(RefCell::new(None::<Tab>)));
-    use_effect(move || {
-        let now = active.read().clone();
-        let before = shown_before.replace(now.clone());
-        let (Some(now), Some(p)) = (now, place.peek().clone()) else {
-            return;
-        };
-        let row = nav::row_after_switch(
-            &items.peek(),
-            &tree.peek(),
-            selected.peek().as_ref(),
-            before.as_ref(),
-            &now,
-            &p,
-        );
-        if let Some(row) = row.filter(|row| selected.peek().as_ref() != Some(row)) {
-            selected.set(Some(row));
         }
     });
 
@@ -2201,7 +2028,7 @@ fn App() -> Element {
                 match start(&hub, resolved.spawn, size, Tab::Terminal, None).await {
                     Ok(id) => {
                         resolved.terminal.id = id;
-                        terminals.write().push(resolved.terminal);
+                        app.dispatch(Msg::TerminalOpened(resolved.terminal));
                         place.set(Some(p));
                         middle.edit(|c| c.open_in(Tab::Terminal(id), opening));
                         if take_keys {
@@ -2219,21 +2046,25 @@ fn App() -> Element {
     let mut open = move |item: Item, how: Option<Opening>| {
         // Typing stops going to the filter once a row is taken; what it
         // narrowed to stays.
-        if *filtering.peek() {
+        if app.tree.peek().filtering {
             focus_filter(false);
         }
-        selected.set(Some(item.clone()));
+        app.dispatch(Msg::TreeSelect(Some(item.clone())));
         let in_place = matches!(how, None | Some(Opening::Existing | Opening::Here));
-        if in_place && nav::unfolds(&item, &shown_tree.peek(), &folds.peek()) {
-            folds.write().set(&item, true);
+        if in_place && nav::unfolds(&item, &app.tree.peek().narrowed, &app.tree.peek().folds) {
+            app.dispatch(Msg::TreeFold {
+                row: item.clone(),
+                open: true,
+            });
             return;
         }
         let show = move |thing: Tab| match how {
             Some(how) => middle.edit(|c| c.open_in(thing, how)),
             None => middle.open(thing),
         };
-        match nav::opens(&item, &shown_tree.peek(), &terminals.peek()) {
-            nav::Opens::Fold if in_place => folds.write().toggle(&item),
+        let opens = nav::opens(&item, &app.tree.peek().narrowed, &terminals.peek());
+        match opens {
+            nav::Opens::Fold if in_place => app.dispatch(Msg::TreeFoldToggle(item.clone())),
             nav::Opens::Fold => {}
             nav::Opens::Shows(thing, p) => {
                 if p.is_some() {
@@ -2287,11 +2118,14 @@ fn App() -> Element {
 
     // Show a thing where the user is, as the content opens it, and select
     // its row.
-    let mut show_tab = move |tab: Tab| {
+    let show_tab = move |tab: Tab| {
         if let Some(p) = place.peek().as_ref()
-            && let Some(row) = nav::row_of(&items.peek(), &tree.peek(), Some(&tab), p)
+            && let Some(row) = {
+                let rows = app.tree.peek().rows.clone();
+                nav::row_of(&rows, &tree.peek(), Some(&tab), p)
+            }
         {
-            selected.set(Some(row));
+            app.dispatch(Msg::TreeSelect(Some(row)));
         }
         middle.open(tab);
     };
@@ -2538,8 +2372,8 @@ fn App() -> Element {
                             Ok(id) => {
                                 let id = sessions::hex(id);
                                 draft_options.write().remove(&draft);
-                                hub.refresh.notify_one();
-                                selected.set(Some(Item::Session(id.clone())));
+                                app.dispatch(Msg::Relist);
+                                app.dispatch(Msg::TreeSelect(Some(Item::Session(id.clone()))));
                                 middle.edit(|c| c.replace(&draft, Tab::Session(id)));
                                 true
                             }
@@ -2688,15 +2522,15 @@ fn App() -> Element {
                         let id = sessions::hex(id);
                         let was = Tab::Session(now.id.clone());
                         middle.edit(|c| c.replace(&was, Tab::Session(id.clone())));
-                        if matches!(selected.peek().as_ref(), Some(Item::Session(s) | Item::Waiting(s)) if *s == now.id)
+                        if matches!(app.tree.peek().selected.as_ref(), Some(Item::Session(s) | Item::Waiting(s)) if *s == now.id)
                         {
-                            selected.set(Some(Item::Session(id)));
+                            app.dispatch(Msg::TreeSelect(Some(Item::Session(id))));
                         }
                     }
                     Err(e) => app.status(Some(format!("cannot resume {}: {e}", asked.name))),
                 }
                 moving.write().remove(&now.id);
-                hub.refresh.notify_one();
+                app.dispatch(Msg::Relist);
             });
         }
     };
@@ -2869,7 +2703,7 @@ fn App() -> Element {
                     }
                     Err(e) => app.status(Some(format!("cannot end {}: {e}", asked.name))),
                 }
-                hub.refresh.notify_one();
+                app.dispatch(Msg::Relist);
             });
         }
     };
@@ -2906,7 +2740,7 @@ fn App() -> Element {
                 }
                 daemon_standing.set(standing::settled(&hub.daemon).await);
                 daemon_banner_closed.set(false);
-                hub.refresh.notify_one();
+                app.dispatch(Msg::Relist);
             });
         }
     };
@@ -2915,7 +2749,7 @@ fn App() -> Element {
     // `selection` and a session is selected, else the one the console shows.
     let mut ask_take_over = move |selection: bool| {
         let t = tree.peek();
-        let chosen = match &*selected.peek() {
+        let chosen = match &app.tree.peek().selected {
             Some(Item::Session(id) | Item::Waiting(id)) if selection => Some(id.clone()),
             _ => match &*active.peek() {
                 Some(Tab::Session(id)) => Some(id.clone()),
@@ -2966,7 +2800,7 @@ fn App() -> Element {
                     app.status(Some(format!("cannot rename {}: {e}", r.was)));
                     return;
                 }
-                hub.refresh.notify_one();
+                app.dispatch(Msg::Relist);
                 let tab = Tab::Session(r.id.clone());
                 let size = *console_size.peek();
                 if let Some(command) = agents::adapter(agent).rename_command(&name)
@@ -3000,7 +2834,7 @@ fn App() -> Element {
         if let Some(r) = rename {
             let visible = match r.place {
                 RenamePlace::Sidebar => layout.read().show_sidebar
-                    && items.read().iter().any(
+                    && app.tree.read().rows.iter().any(
                         |item| matches!(item, Item::Session(id) | Item::Waiting(id) if *id == r.id),
                     ),
                 RenamePlace::Tab => tabs
@@ -3018,7 +2852,7 @@ fn App() -> Element {
 
     let mut ask_stop = move |selection: bool| {
         let t = tree.peek();
-        let chosen = match &*selected.peek() {
+        let chosen = match &app.tree.peek().selected {
             Some(Item::Session(id) | Item::Waiting(id)) if selection => Some(id.clone()),
             _ => match &*active.peek() {
                 Some(Tab::Session(id)) => Some(id.clone()),
@@ -3458,8 +3292,8 @@ fn App() -> Element {
                 .peek()
                 .as_ref()
                 .is_some_and(|n| n.state().mode().starts_with("insert"));
-            let list = items.peek().clone();
-            let cur = selected.peek().clone();
+            let list = app.tree.peek().rows.clone();
+            let cur = app.tree.peek().selected.clone();
             // From the sidebar an action is on the selected row; from elsewhere,
             // on what the console shows.
             let on_list = matches!(area, Area::Sidebar | Area::Details);
@@ -3844,10 +3678,10 @@ fn App() -> Element {
                         app.dispatch(Msg::DetailsKey(key));
                     }
                 }
-                Action::CursorDown => selected.set(nav::step(&list, cur.as_ref(), 1)),
-                Action::CursorUp => selected.set(nav::step(&list, cur.as_ref(), -1)),
-                Action::CursorFirst => selected.set(list.first().cloned()),
-                Action::CursorLast => selected.set(list.last().cloned()),
+                Action::CursorDown => app.dispatch(Msg::TreeKey(tree_view::Key::Down)),
+                Action::CursorUp => app.dispatch(Msg::TreeKey(tree_view::Key::Up)),
+                Action::CursorFirst => app.dispatch(Msg::TreeKey(tree_view::Key::First)),
+                Action::CursorLast => app.dispatch(Msg::TreeKey(tree_view::Key::Last)),
                 Action::CursorGo
                 | Action::CursorOpen
                 | Action::CursorSplit
@@ -3861,11 +3695,14 @@ fn App() -> Element {
                             Action::CursorTab => Opening::Tab,
                             _ => Opening::Here,
                         };
-                        let toggles = nav::unfolds(&item, &shown_tree.peek(), &folds.peek())
-                            || matches!(
-                                nav::opens(&item, &shown_tree.peek(), &terminals.peek()),
-                                nav::Opens::Fold
-                            );
+                        let toggles = {
+                            let view = app.tree.peek();
+                            nav::unfolds(&item, &view.narrowed, &view.folds)
+                                || matches!(
+                                    nav::opens(&item, &view.narrowed, &terminals.peek()),
+                                    nav::Opens::Fold
+                                )
+                        };
                         open(item, Some(how));
                         // A Neovim still starting takes the keys once it has.
                         if terminal_ask.peek().is_some()
@@ -3889,17 +3726,7 @@ fn App() -> Element {
                         open(item, Some(Opening::Here));
                     }
                 }
-                Action::CursorFold => {
-                    // An open node folds; any other row goes to the one it
-                    // sits under, as fern's `h` does.
-                    if let Some(item) = &cur {
-                        if folds.peek().is_open(item) && nav::holds(item, &shown_tree.peek()) {
-                            folds.write().set(item, false);
-                        } else if let Some(up) = nav::parent(&list, &shown_tree.peek(), item) {
-                            selected.set(Some(up));
-                        }
-                    }
-                }
+                Action::CursorFold => app.dispatch(Msg::TreeKey(tree_view::Key::Fold)),
                 Action::CursorClose => {
                     if let Some(item) = &cur {
                         let things = nav::stands_for(item, &terminals.peek());
@@ -3909,9 +3736,9 @@ fn App() -> Element {
                     }
                 }
                 Action::CursorCopy => {
-                    let copied = cur
-                        .as_ref()
-                        .and_then(|item| nav::copied(item, &shown_tree.peek(), &terminals.peek()));
+                    let copied = cur.as_ref().and_then(|item| {
+                        nav::copied(item, &app.tree.peek().narrowed, &terminals.peek())
+                    });
                     let (text, what) = match copied {
                         Some(nav::Copied::Path(p)) => (p.display().to_string(), "path"),
                         Some(nav::Copied::Name(n)) => (n, "name"),
@@ -3930,7 +3757,8 @@ fn App() -> Element {
                         _ => None,
                     };
                     let forward = action == Action::WaitingNext;
-                    if let Some(id) = nav::next_waiting(&ib.peek(), current, forward) {
+                    let next = nav::next_waiting(&app.tree.peek().waiting, current, forward);
+                    if let Some(id) = next {
                         open(Item::Waiting(id), None);
                         // It waits on an answer, given in the console.
                         focus.set(Area::Console);
@@ -3999,19 +3827,19 @@ fn App() -> Element {
                 Action::TerminalStop
                     if let Some(Item::Terminal(id)) = cur.as_ref().filter(|_| on_list) =>
                 {
-                    selected.set(nav::row_above(&list, &Item::Terminal(*id)));
+                    app.dispatch(Msg::TreeSelect(nav::row_above(&list, &Item::Terminal(*id))));
                     end_shell(&hub, *id);
-                    close_shell(*id, &hub.panes, terminals, middle, place, tree, prompts);
+                    close_shell(*id, &hub.panes, app, middle, place, prompts);
                 }
                 Action::TerminalStop => {
                     let current_tab = active.peek().clone();
                     if let Some(Tab::Terminal(id)) = current_tab {
                         end_shell(&hub, id);
-                        close_shell(id, &hub.panes, terminals, middle, place, tree, prompts);
+                        close_shell(id, &hub.panes, app, middle, place, prompts);
                     }
                 }
                 Action::TabClose => middle.closing(prompts, Content::close_tab),
-                Action::Refresh => hub.refresh.notify_one(),
+                Action::Refresh => app.dispatch(Msg::Relist),
                 Action::DetailsOverview | Action::DetailsChanges | Action::DetailsLog => {
                     let s = match action {
                         Action::DetailsChanges => Sheet::Changes,
@@ -4021,19 +3849,7 @@ fn App() -> Element {
                     app.dispatch(Msg::DetailsSheet(s));
                     app.dispatch(Msg::PanelShow(Side::Details));
                 }
-                Action::WorktreesToggle => {
-                    let all = !*all_worktrees.peek();
-                    all_worktrees.set(all);
-                    hub.refresh.notify_one();
-                    app.notice(
-                        if all {
-                            "Every worktree is listed, those without sessions too"
-                        } else {
-                            "Only the worktrees with sessions are listed"
-                        }
-                        .into(),
-                    );
-                }
+                Action::WorktreesToggle => app.dispatch(Msg::TreeEveryWorktree),
                 Action::SettingsOpen => settings_window::open(),
                 Action::DaemonRestart => confirm.set(Some(Ask::RestartDaemon)),
                 Action::WindowClose => dioxus::desktop::window().close(),
@@ -4044,7 +3860,7 @@ fn App() -> Element {
                 Action::ZoomReset => app.dispatch(Msg::Zoom(zoom::Step::Reset)),
                 Action::Filter => {
                     focus.set(Area::Sidebar);
-                    filter.set(String::new());
+                    app.dispatch(Msg::TreeFilter(String::new()));
                     focus_filter(true);
                 }
             }
@@ -4059,7 +3875,7 @@ fn App() -> Element {
             menu.set(None);
             match target {
                 Target::Row(item) => {
-                    selected.set(Some(item));
+                    app.dispatch(Msg::TreeSelect(Some(item)));
                     focus.set(Area::Sidebar);
                 }
                 Target::Tab(tab) => {
@@ -4618,11 +4434,6 @@ fn App() -> Element {
     let outside_git = current.as_ref().is_some_and(|p| {
         t.workspace_of(&p.worktree).is_some_and(|w| !w.git) && !Repo::open(&p.worktree).is_jj()
     });
-    let waiting = ib.read().len();
-    let working = t
-        .sessions()
-        .filter(|(_, s)| s.state == State::Working)
-        .count();
     let active_tab = active();
     let current_agent = draft_agent::for_tab(
         &t,
@@ -4710,9 +4521,17 @@ fn App() -> Element {
         Area::Sidebar => ("TREE".into(), "normal"),
         Area::Details => ("DETAILS".into(), "normal"),
     };
-    let items_now = items();
+    let items_now = app.tree.read().rows.clone();
+    let filter_text = app.tree.read().filter.clone();
+    let file_marks = app
+        .host
+        .read()
+        .work
+        .as_ref()
+        .map(|w| w.tree.marks.clone())
+        .unwrap_or_default();
     let sel = selected();
-    let inbox_now: Vec<InboxItem> = shown_ib.read().clone();
+    let inbox_now: Vec<InboxItem> = app.tree.read().narrowed_waiting.clone();
     // What the window says about its keys, from the bindings in force.
     let km = keymap.read().clone();
     let k_moves = km.keys_for_all(
@@ -5091,16 +4910,7 @@ fn App() -> Element {
         div { class: "app",
             textarea { id: "adroit-keys", autofocus: true, readonly: !takes_text }
             settings_window::SettingsLoadError {}
-            Header {
-                crumbs: current.as_ref().map(|p| Crumbs {
-                    workspace: workspace.as_ref().map(|(name, _, scratch)| (name.clone(), *scratch)),
-                    worktree: short(&p.worktree),
-                    target: target.clone(),
-                }),
-                waiting,
-                working,
-                ontoggle: toggle_panel,
-            }
+            Header { ontoggle: toggle_panel }
             div {
                 class: match (app.chrome.read().panels.drag.is_some(), win_drag.read().as_ref().map(|d| d.border.axis)) {
                     (_, Some(Axis::Column)) => "app-body dragging rows",
@@ -5139,7 +4949,7 @@ fn App() -> Element {
                     onmousedown: move |_| focus.set(Area::Sidebar),
                     div { class: "sidebar-bar",
                         div {
-                            class: if filtering() { "filter-field on" } else { "filter-field" },
+                            class: if app.tree.read().filtering { "filter-field on" } else { "filter-field" },
                             title: "Narrow the list by name; Enter keeps it, Esc clears it",
                             // A click goes on with what it holds, where `/` starts afresh.
                             onclick: move |_| focus_filter(true),
@@ -5147,7 +4957,7 @@ fn App() -> Element {
                             input {
                                 class: "filter-field-input",
                                 placeholder: "Filter",
-                                value: "{filter}",
+                                value: "{filter_text}",
                                 autocomplete: "off",
                                 spellcheck: "false",
                                 "autocorrect": "off",
@@ -5155,15 +4965,15 @@ fn App() -> Element {
                                 onmounted: move |e: MountedEvent| filter_field.set(Some(e.data())),
                                 onfocus: move |_| {
                                     focus.set(Area::Sidebar);
-                                    filtering.set(true);
+                                    app.dispatch(Msg::TreeFiltering(true));
                                 },
-                                onblur: move |_| filtering.set(false),
-                                oninput: move |e: Event<FormData>| filter.set(e.value()),
+                                onblur: move |_| app.dispatch(Msg::TreeFiltering(false)),
+                                oninput: move |e: Event<FormData>| app.dispatch(Msg::TreeFilter(e.value())),
                                 onkeydown: move |e: Event<KeyboardData>| {
                                     match keys::of_field(&e).map(|k| k.key) .as_deref() {
                                         Some("Enter") => focus_filter(false),
                                         Some("Escape") => {
-                                            filter.set(String::new());
+                                            app.dispatch(Msg::TreeFilter(String::new()));
                                             focus_filter(false);
                                         }
                                         _ => {}
@@ -5173,9 +4983,9 @@ fn App() -> Element {
                 }
                         span { class: "sidebar-tools",
                             button {
-                                class: if all_worktrees() { "sidebar-tool on" } else { "sidebar-tool" },
-                                "aria-pressed": all_worktrees(),
-                                title: if all_worktrees() { "List only the worktrees with sessions" } else { "List every worktree, those without sessions too" },
+                                class: if app.tree.read().every_worktree { "sidebar-tool on" } else { "sidebar-tool" },
+                                "aria-pressed": app.tree.read().every_worktree,
+                                title: if app.tree.read().every_worktree { "List only the worktrees with sessions" } else { "List every worktree, those without sessions too" },
                                 onclick: {
                                     let mut run = run_button.clone();
                                     move |_| run(Action::WorktreesToggle)
@@ -5223,11 +5033,12 @@ fn App() -> Element {
                                         (if empty { "list-row dim mono vacant" } else { "list-row dim mono" }, label, String::new(), None)
                                     }
                                     Item::Heading(path, heading) => {
-                                        let shown = shown_tree.read();
+                                        let view = app.tree.read();
+                                        let shown = &view.narrowed;
                                         let count = shown
                                             .worktrees()
                                             .find(|w| &w.worktree.path == path)
-                                            .map_or(0, |w| nav::under(&shown, w, *heading).len());
+                                            .map_or(0, |w| nav::under(shown, w, *heading).len());
                                         let count = if count > 0 { count.to_string() } else { String::new() };
                                         ("list-row group", heading.name().to_string(), count, None)
                                     }
@@ -5247,7 +5058,7 @@ fn App() -> Element {
                                     }
                                     Item::File { worktree, path, dir } => {
                                         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                                        let marks = file_marks.read();
+                                        let marks = &file_marks;
                                         // Hidden or ignored files stand back, as fern draws them.
                                         let back = files::is_hidden(path) || marks.get(worktree).is_some_and(|m| m.ignores(path));
                                         let class = match (*dir, back) {
@@ -5262,7 +5073,7 @@ fn App() -> Element {
                                 };
                                 // The rows are of the narrowed tree, where a
                                 // workspace can be flat that is not in full.
-                                let indent = 14 * nav::depth(&shown_tree.read(), &it);
+                                let indent = 14 * nav::depth(&app.tree.read().narrowed, &it);
                                 // The tabs of the content that show it.
                                 let chips = match &it {
                                     Item::Session(id) => content_now.tabs_showing(&Tab::Session(id.clone())),
@@ -5287,13 +5098,13 @@ fn App() -> Element {
                                 let (file_glyph, file_mark) = match &it {
                                     Item::File { worktree, path, dir } => {
                                         let kind = if *dir {
-                                            file_icons::Kind::Directory { open: folds.read().is_open(&it) }
+                                            file_icons::Kind::Directory { open: app.tree.read().folds.is_open(&it) }
                                         } else {
                                             file_icons::Kind::File
                                         };
                                         let icon = file_icons::find(path, kind);
                                         let colour = icon.colour.map(|c| format!("color:{}", c.css())).unwrap_or_default();
-                                        let mark = file_marks.read().get(worktree).and_then(|m| m.of(path, *dir));
+                                        let mark = file_marks.get(worktree).and_then(|m| m.of(path, *dir));
                                         (Some((icon.glyph, colour)), mark)
                                     }
                                     _ => (None, None),
@@ -5304,10 +5115,10 @@ fn App() -> Element {
                                 };
                                 let place_icon = match &it {
                                     Item::Workspace(root) if t.workspace_of(root).is_some_and(|w| w.scratch) => Some(Icon::Notes),
-                                    Item::Workspace(_) if !folds.read().is_open(&it) => Some(Icon::Folder),
+                                    Item::Workspace(_) if !app.tree.read().folds.is_open(&it) => Some(Icon::Folder),
                                     Item::Workspace(_) => Some(Icon::FolderOpen),
                                     Item::Worktree(_) => Some(Icon::GitBranch),
-                                    Item::Heading(..) if folds.read().is_open(&it) => Some(Icon::ChevronDown),
+                                    Item::Heading(..) if app.tree.read().folds.is_open(&it) => Some(Icon::ChevronDown),
                                     Item::Heading(..) => Some(Icon::ChevronRight),
                                     _ => None,
                                 };
@@ -5587,7 +5398,7 @@ fn App() -> Element {
                 if let Some(k) = k_waiting_next_here.clone() {
                     span { class: "kbd-list", Keys { keys: k } " next waiting" }
                 }
-                if area == Area::Sidebar && filtering() {
+                if area == Area::Sidebar && app.tree.read().filtering {
                     span { class: "kbd-list", kbd { "Enter" } " keep the filter" }
                     span { class: "kbd-list", kbd { "Esc" } " clear it" }
                 }
@@ -5842,6 +5653,8 @@ fn DraftLaunchOptions(
 
 #[cfg(test)]
 mod tests {
+    use adroit_model::build;
+
     use super::*;
     use crate::shell::status_bar::mode_tip;
 

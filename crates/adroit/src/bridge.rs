@@ -10,6 +10,7 @@ use adroit_core::effect::Effect;
 use adroit_core::host::Host as HostView;
 use adroit_core::msg::Msg;
 use adroit_core::state::ViewState;
+use adroit_core::tree::TreeView;
 use adroit_core::update::step;
 use adroit_runtime::work::{Host, HostLink, Loopback};
 use dioxus::prelude::*;
@@ -27,8 +28,11 @@ type Handed = Rc<dyn Fn(Effect)>;
 pub(crate) struct AppCtx {
     view: CopyValue<ViewState>,
     link: CopyValue<Rc<dyn HostLink>>,
+    /// The host run in-process, whose watchers start once the daemon runs.
+    loopback: CopyValue<Rc<Loopback>>,
     pub(crate) chrome: Signal<Chrome>,
     pub(crate) host: Signal<HostView>,
+    pub(crate) tree: Signal<TreeView>,
     pub(crate) details: Signal<Details>,
     /// What runs the effects whose state `App` still holds.
     handed: CopyValue<Option<Handed>>,
@@ -39,8 +43,8 @@ pub(crate) struct AppCtx {
 pub(crate) fn use_app() -> AppCtx {
     use_hook(|| {
         let (link, mut events) = Loopback::new(Host::default());
-        link.watch();
-        let link: Rc<dyn HostLink> = Rc::new(link);
+        let loopback = Rc::new(link);
+        let link: Rc<dyn HostLink> = loopback.clone();
         let mut view = ViewState::default();
         let mut effects = step(
             &mut view,
@@ -52,10 +56,12 @@ pub(crate) fn use_app() -> AppCtx {
         let app = AppCtx {
             chrome: Signal::new(view.chrome.clone()),
             host: Signal::new(view.host.clone()),
+            tree: Signal::new(view.tree.clone()),
             details: Signal::new(view.details.clone()),
             handed: CopyValue::new(None),
             view: CopyValue::new(view),
             link: CopyValue::new(link),
+            loopback: CopyValue::new(loopback),
         };
         provide_context(app);
         app.run(effects);
@@ -83,7 +89,15 @@ impl AppCtx {
         let view = self.view.read();
         set_changed(self.chrome, &view.chrome);
         set_changed(self.host, &view.host);
+        set_changed(self.tree, &view.tree);
         set_changed(self.details, &view.details);
+    }
+
+    /// Start keeping read, in the background, what the window shows and
+    /// the sessions there are: once the daemon the sessions are listed from
+    /// runs, so the list does not fail while it starts.
+    pub(crate) fn watch(&self) {
+        self.loopback.read().watch();
     }
 
     /// Hand the effects whose state still lives in `App` to `run`: showing

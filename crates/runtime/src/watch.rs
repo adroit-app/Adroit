@@ -10,7 +10,7 @@ use std::time::Duration;
 use adroit_protocol::{Change, Event, Sight};
 use tokio::sync::{mpsc, watch};
 
-use crate::work::Host;
+use crate::work::{Host, Seen};
 
 mod context;
 mod conversation;
@@ -29,7 +29,7 @@ pub use sessions::read_sessions;
 pub struct Watched {
     host: Arc<Mutex<Host>>,
     events: mpsc::UnboundedSender<Event>,
-    sight: watch::Receiver<Sight>,
+    seen: watch::Receiver<Seen>,
     again: watch::Receiver<u64>,
     relist: watch::Receiver<u64>,
     inputs: watch::Receiver<BTreeMap<u128, u64>>,
@@ -37,14 +37,14 @@ pub struct Watched {
 
 impl Watched {
     pub fn new(host: Arc<Mutex<Host>>, events: mpsc::UnboundedSender<Event>) -> Self {
-        let (sight, again, relist, inputs) = {
+        let (seen, again, relist, inputs) = {
             let host = lock(&host);
-            (host.sight(), host.again(), host.relist(), host.inputs())
+            (host.seen(), host.again(), host.relist(), host.inputs())
         };
         Self {
             host,
             events,
-            sight,
+            seen,
             again,
             relist,
             inputs,
@@ -53,7 +53,12 @@ impl Watched {
 
     /// What the window shows now.
     fn sight(&self) -> Sight {
-        self.sight.borrow().clone()
+        self.seen.borrow().sight.clone()
+    }
+
+    /// What the window shows now, with the session it shows.
+    fn seen(&self) -> Seen {
+        self.seen.borrow().clone()
     }
 
     /// When the user last typed into each session, by its terminal.
@@ -76,15 +81,15 @@ impl Watched {
 
     /// Wait `every`, or less once what `part` takes of the sight changes or
     /// the window asks for everything read again.
-    async fn wait<T: PartialEq>(&mut self, every: Duration, part: impl Fn(&Sight) -> T) {
-        let was = part(&self.sight.borrow());
+    async fn wait<T: PartialEq>(&mut self, every: Duration, part: impl Fn(&Seen) -> T) {
+        let was = part(&self.seen.borrow());
         let changed = async {
             loop {
-                if self.sight.changed().await.is_err() {
+                if self.seen.changed().await.is_err() {
                     // The host is gone; only the beat is left.
                     std::future::pending::<()>().await;
                 }
-                if part(&self.sight.borrow_and_update()) != was {
+                if part(&self.seen.borrow_and_update()) != was {
                     return;
                 }
             }
@@ -108,15 +113,15 @@ impl Watched {
     async fn wait_listing<T: PartialEq>(
         &mut self,
         every: Duration,
-        part: impl Fn(&Sight) -> T,
+        part: impl Fn(&Seen) -> T,
     ) -> bool {
-        let was = part(&self.sight.borrow());
+        let was = part(&self.seen.borrow());
         let changed = async {
             loop {
-                if self.sight.changed().await.is_err() {
+                if self.seen.changed().await.is_err() {
                     std::future::pending::<()>().await;
                 }
-                if part(&self.sight.borrow_and_update()) != was {
+                if part(&self.seen.borrow_and_update()) != was {
                     return;
                 }
             }

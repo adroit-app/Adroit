@@ -8,9 +8,7 @@ use std::path::PathBuf;
 use adroit_model::links::{Kind as LinkKind, Link, Links};
 use adroit_model::repository::Spot;
 use adroit_model::{Agent, ConversationStats, Note, Process, Session};
-use adroit_protocol::{
-    DetailsWork, RepositorySight, Request, Seq, SessionRead, Sight, WorkSnapshot,
-};
+use adroit_protocol::{DetailsWork, RepositorySight, Seq, SessionRead, Sight, WorkSnapshot};
 
 use super::{
     Drill, Entry, Gauge, Group, Listing, Related, Sheet, Shot, Source, View, capped, context_gauge,
@@ -19,16 +17,14 @@ use super::{
 };
 use crate::effect::Effect;
 use crate::settings::DetailsSettings;
+use crate::tabs::Tab;
+use crate::tree::Showing;
 
-/// What the window shows that the details panel reads by, as the window
-/// tells it.
+/// What the window shows that the details panel reads by.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Shown {
-    /// The session shown in the middle.
-    pub session: Option<Session>,
-    /// Every session the tree lists, among which the shown one's ties are
-    /// found.
-    pub sessions: Vec<Session>,
+    /// The session shown in the middle, by its id.
+    pub session: Option<String>,
     /// The worktree shown.
     pub worktree: Option<PathBuf>,
     /// Whether the details panel is open.
@@ -41,6 +37,16 @@ pub struct Shown {
     pub settings: DetailsSettings,
 }
 
+/// What the window tells the details panel of what it shows, beyond the
+/// session and the worktree the tree follows.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Told {
+    pub open: bool,
+    pub usage: Option<Agent>,
+    pub drawn: Vec<Shot>,
+    pub settings: DetailsSettings,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Details {
     pub drill: Drill,
@@ -49,26 +55,19 @@ pub struct Details {
     /// The overview's groups shown whole, past their first few.
     pub opened: HashSet<Group>,
     pub shown: Shown,
-    /// What the host was last asked to keep read.
-    watched: Sight,
     /// The work and the spot the selection was last brought in line with.
     refreshed: Option<(Seq, Option<Spot>)>,
 }
 
 impl Default for Details {
     fn default() -> Self {
-        let mut details = Self {
+        Self {
             drill: Drill::new(Sheet::Overview),
             folded: HashSet::new(),
             opened: HashSet::new(),
             shown: Shown::default(),
-            watched: Sight::default(),
             refreshed: None,
-        };
-        // A panel that shows nothing asks nothing of the host, which starts
-        // out reading nothing.
-        details.watched = sight(&details);
-        details
+        }
     }
 }
 
@@ -103,14 +102,40 @@ enum Use {
     Reveal,
 }
 
-/// The window showed `shown`. What was opened in one worktree means nothing
-/// in another, so a new worktree takes the panel back to its sheet's top.
-pub(crate) fn show(details: &mut Details, shown: Shown) -> Vec<Effect> {
-    if shown.worktree != details.shown.worktree {
-        details.drill = Drill::new(details.drill.sheet());
-    }
-    details.shown = shown;
+/// The window told the panel `told`.
+pub(crate) fn tell(details: &mut Details, told: Told) -> Vec<Effect> {
+    let Told {
+        open,
+        usage,
+        drawn,
+        settings,
+    } = told;
+    details.shown = Shown {
+        open,
+        usage,
+        drawn,
+        settings,
+        ..std::mem::take(&mut details.shown)
+    };
     Vec::new()
+}
+
+/// The panel reads by what the focused window shows. What was opened in
+/// one worktree means nothing in another, so a new worktree takes the panel
+/// back to its sheet's top.
+pub(crate) fn follow(details: &mut Details, showing: &Showing) {
+    let session = match &showing.tab {
+        Some(Tab::Session(id)) => Some(id.clone()),
+        _ => None,
+    };
+    let worktree = showing.place.as_ref().map(|p| p.worktree.clone());
+    if worktree != details.shown.worktree {
+        details.drill = Drill::new(details.drill.sheet());
+        details.shown.worktree = worktree;
+    }
+    if session != details.shown.session {
+        details.shown.session = session;
+    }
 }
 
 /// `sheet` chosen; one already shown stays where it is.
@@ -314,7 +339,7 @@ fn fold(details: &mut Details, group: Group, shut: bool) {
 fn used(details: &Details, entry: &Entry, how: Use) -> Vec<Effect> {
     match entry {
         Entry::Link(link) => use_link(link, how),
-        Entry::Image(shot) => use_shot(shot, how, details.shown.session.as_ref()),
+        Entry::Image(shot) => use_shot(shot, how, details.shown.session.as_deref()),
         Entry::Session(r) => use_related(r, how),
         Entry::Process(p) => copied(how, &p.command, "Copied the process command".into()),
         Entry::Message(n) => copied(how, &n.body, "Copied the message".into()),
@@ -369,11 +394,11 @@ fn use_related(related: &Related, how: Use) -> Vec<Effect> {
 
 /// Show `shot` in a window of its own, or copy or reveal its file as a file
 /// of the overview is. A drawn image is the console's of `session`.
-fn use_shot(shot: &Shot, how: Use, session: Option<&Session>) -> Vec<Effect> {
+fn use_shot(shot: &Shot, how: Use, session: Option<&str>) -> Vec<Effect> {
     match (&shot.source, how) {
         (_, Use::Open) => vec![Effect::ShowShot {
             shot: shot.clone(),
-            session: session.map(|s| s.id.clone()).unwrap_or_default(),
+            session: session.unwrap_or_default().to_owned(),
         }],
         (Source::Console { .. }, Use::Copy) => {
             vec![Effect::Notice("A drawn image has no file to copy".into())]
@@ -393,14 +418,20 @@ fn use_shot(shot: &Shot, how: Use, session: Option<&Session>) -> Vec<Effect> {
 
 /// What was read of the shown session.
 fn session_read<'a>(details: &Details, work: Option<&'a WorkSnapshot>) -> Option<&'a SessionRead> {
-    let id = &details.shown.session.as_ref()?.id;
+    let id = details.shown.session.as_ref()?;
     work?.details.sessions.get(id)
+}
+
+/// The session shown, as the tree lists it.
+pub fn shown_session<'a>(details: &Details, work: Option<&'a WorkSnapshot>) -> Option<&'a Session> {
+    let id = details.shown.session.as_ref()?;
+    crate::nav::find(work?.tree.tree(), id).map(|(_, s)| s)
 }
 
 /// The overview's rows for the session shown, once something was read
 /// for it.
 pub fn overview_listing(details: &Details, work: Option<&WorkSnapshot>) -> Option<Listing> {
-    let shown = details.shown.session.as_ref()?;
+    let shown = shown_session(details, work)?;
     let read = session_read(details, work);
     let links = read.and_then(|r| r.links.as_ref());
     let processes = read.and_then(|r| r.processes.as_ref());
@@ -411,7 +442,7 @@ pub fn overview_listing(details: &Details, work: Option<&WorkSnapshot>) -> Optio
     let empty = Links::default();
     let links = links.unwrap_or(&empty);
     let rows: Vec<Link> = links.rows().cloned().collect();
-    let sessions: Vec<&Session> = details.shown.sessions.iter().collect();
+    let sessions: Vec<&Session> = work?.tree.tree().sessions().map(|(_, s)| s).collect();
     let ties = related(shown, &sessions, &links.peers);
     let (folded, opened) = (&details.folded, &details.opened);
     let d = &details.shown.settings;
@@ -474,7 +505,7 @@ pub fn list(details: &Details, work: Option<&WorkSnapshot>) -> Option<Listing> {
 /// What the conversation of the session shown says of itself, while it is
 /// the conversation it goes on in.
 pub fn stats(details: &Details, work: Option<&WorkSnapshot>) -> Option<ConversationStats> {
-    let shown = details.shown.session.as_ref()?;
+    let shown = shown_session(details, work)?;
     let conversation = session_read(details, work)?.conversation.as_ref()?;
     (conversation.id == shown.session_id).then(|| conversation.stats.clone())
 }
@@ -492,7 +523,7 @@ pub fn usage(details: &Details, work: Option<&WorkSnapshot>, now_ms: u64) -> Vec
         _ => Vec::new(),
     };
     let context = stats(details, work).and_then(|stats| {
-        let shown = details.shown.session.as_ref()?;
+        let shown = shown_session(details, work)?;
         let asked = session_read(details, work)?
             .context
             .as_ref()
@@ -549,7 +580,7 @@ pub fn opened_process(details: &Details, work: Option<&WorkSnapshot>) -> Option<
 /// What the host keeps read for the panel: the shown session's
 /// conversation and processes, the spot of the worktree shown, and the
 /// account's usage.
-fn sight(details: &Details) -> Sight {
+pub(crate) fn sight(details: &Details) -> Sight {
     let shown = &details.shown;
     Sight {
         session: shown.session.clone(),
@@ -584,7 +615,7 @@ pub(crate) fn forget_gone(details: &mut Details, work: Option<&DetailsWork>) {
         .shown
         .session
         .as_ref()
-        .and_then(|s| work?.sessions.get(&s.id));
+        .and_then(|id| work?.sessions.get(id));
     let gone = details.drill.agent().is_some_and(|call| {
         !read
             .and_then(|r| r.links.as_ref())
@@ -599,16 +630,6 @@ pub(crate) fn forget_gone(details: &mut Details, work: Option<&DetailsWork>) {
     }
 }
 
-/// The host asked to keep read what the panel now shows, once it changes.
-pub(crate) fn watch(details: &mut Details) -> Option<Effect> {
-    let sight = sight(details);
-    if details.watched == sight {
-        return None;
-    }
-    details.watched = sight.clone();
-    Some(Effect::Host(Request::Watch(Box::new(sight))))
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -619,11 +640,13 @@ mod tests {
     use adroit_model::subagents::{Agent as Subagent, Standing};
     use adroit_model::usage::{Limit, Severity, Window};
     use adroit_protocol::{
-        Change, ContextRead, ConversationRead, DetailsChange, Event, RepositoryRead, WorkPatch,
+        Change, ContextRead, ConversationRead, DetailsChange, Event, Listed, RepositoryRead,
+        Request, TreeWork, WorkPatch,
     };
 
     use super::*;
     use crate::msg::Msg;
+    use crate::nav::Place;
     use crate::scenario::Scenario;
 
     fn session(id: &str) -> Session {
@@ -635,14 +658,35 @@ mod tests {
         }
     }
 
-    fn shown(id: Option<&str>, worktree: Option<&str>) -> Msg {
-        Msg::DetailsShown(Box::new(Shown {
-            session: id.map(session),
-            sessions: id.map(session).into_iter().collect(),
-            worktree: worktree.map(PathBuf::from),
-            open: true,
+    /// The tree the host lists, holding every session these tests show.
+    fn listed() -> TreeWork {
+        let sessions: Vec<Session> = ["a", "b", "s1", "s2", "session-one", "session-two"]
+            .into_iter()
+            .map(|id| Session {
+                cwd: "/w".into(),
+                ..session(id)
+            })
+            .collect();
+        let tree = adroit_model::build(&sessions, &[], &Default::default(), &[], None);
+        TreeWork {
+            listed: Some(Box::new(Listed {
+                sessions,
+                terminals: Vec::new(),
+                tree,
+            })),
             ..Default::default()
+        }
+    }
+
+    fn shown(id: Option<&str>, worktree: Option<&str>) -> Msg {
+        Msg::Showing(Box::new(Showing {
+            tab: id.map(|id| Tab::Session(id.into())),
+            place: worktree.map(|w| Place { worktree: w.into() }),
         }))
+    }
+
+    fn told(told: Told) -> Msg {
+        Msg::DetailsShown(Box::new(told))
     }
 
     fn link(kind: LinkKind, target: &str) -> Link {
@@ -658,7 +702,7 @@ mod tests {
         Event::Snapshot(Box::new(WorkSnapshot {
             seq: Seq(1),
             details,
-            ..Default::default()
+            tree: listed(),
         }))
     }
 
@@ -718,7 +762,7 @@ mod tests {
             .into_iter()
             .map(|s| {
                 (
-                    s.session.map(|s| s.id),
+                    s.session,
                     s.overview,
                     s.repository.map(|r| (r.worktree, r.spot)),
                 )
@@ -839,12 +883,7 @@ mod tests {
         };
         let running = Scenario::new()
             .event(snapshot(read("a", with_links(peers("b")))))
-            .send(Msg::DetailsShown(Box::new(Shown {
-                session: Some(session("a")),
-                sessions: vec![session("a"), session("b")],
-                open: true,
-                ..Default::default()
-            })))
+            .send(shown(Some("a"), None))
             .send_all([Msg::DetailsKey(Key::Down), Msg::DetailsKey(Key::Open)]);
         assert_eq!(local(&running), [Effect::ShowSession("b".into())]);
         let gone = Scenario::new()
@@ -885,15 +924,14 @@ mod tests {
                 .collect(),
             ..Default::default()
         };
-        let mut shown_now = Shown {
-            session: Some(session("a")),
+        let mut told_now = Told {
             open: true,
             ..Default::default()
         };
-        shown_now.settings.links_shown = 2;
+        told_now.settings.links_shown = 2;
         let run = Scenario::new()
             .event(snapshot(read("a", with_links(links))))
-            .send(Msg::DetailsShown(Box::new(shown_now)));
+            .send_all([shown(Some("a"), None), told(told_now)]);
         // Rows: heading, two files, the row to show all.
         let all = run.send(Msg::DetailsClick(3));
         assert_eq!(all.state().details.opened, HashSet::from([Group::Files]));
@@ -940,11 +978,13 @@ mod tests {
         };
         let run = Scenario::new()
             .event(snapshot(read("s1", with_links(links))))
-            .send(Msg::DetailsShown(Box::new(Shown {
-                session: Some(session("s1")),
-                drawn: vec![Shot::console(1, 1, 1, 5, None)],
-                ..Default::default()
-            })));
+            .send_all([
+                shown(Some("s1"), None),
+                told(Told {
+                    drawn: vec![Shot::console(1, 1, 1, 5, None)],
+                    ..Default::default()
+                }),
+            ]);
         let Some(Listing::Links(entries)) = overview_of(&run) else {
             panic!("no overview");
         };
@@ -1152,13 +1192,13 @@ mod tests {
                 },
             );
             work.usage.insert(Agent::Claude, limits.clone());
-            let run = Scenario::new()
-                .event(snapshot(work))
-                .send(Msg::DetailsShown(Box::new(Shown {
-                    session: Some(session("a")),
+            let run = Scenario::new().event(snapshot(work)).send_all([
+                shown(Some("a"), None),
+                told(Told {
                     usage: usage_of,
                     ..Default::default()
-                })));
+                }),
+            ]);
             let got = usage(&run.state().details, run.state().host.work.as_ref(), 0);
             assert_eq!(
                 (got.len(), got[0].context),

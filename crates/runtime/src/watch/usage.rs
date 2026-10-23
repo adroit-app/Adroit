@@ -30,7 +30,9 @@ pub(super) async fn watch(mut watched: Watched) {
             }
         }
         watched
-            .wait(Duration::from_secs(30), |s| (s.details, s.usage))
+            .wait(Duration::from_secs(30), |s| {
+                (s.sight.details, s.sight.usage)
+            })
             .await;
     }
 }

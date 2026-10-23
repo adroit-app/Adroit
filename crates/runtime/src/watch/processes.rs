@@ -10,8 +10,10 @@ use crate::processes::Sampler;
 pub(super) async fn watch(mut watched: Watched) {
     let mut sampler = Sampler::default();
     loop {
-        let sight = watched.sight();
-        let shown = sight.session.filter(|_| sight.details && sight.overview);
+        let seen = watched.seen();
+        let shown = seen
+            .session
+            .filter(|_| seen.sight.details && seen.sight.overview);
         if let Some(session) = shown {
             let id = session.id.clone();
             match tokio::task::spawn_blocking(move || {
@@ -34,8 +36,8 @@ pub(super) async fn watch(mut watched: Watched) {
             .wait(Duration::from_secs(2), |s| {
                 (
                     s.session.as_ref().map(|s| s.id.clone()),
-                    s.overview,
-                    s.details,
+                    s.sight.overview,
+                    s.sight.details,
                 )
             })
             .await;

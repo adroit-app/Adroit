@@ -1,11 +1,16 @@
 //! What can happen to the window: what the user does, what the window is
 //! told, and what the work host says.
 
+use std::collections::BTreeMap;
+
+use adroit_model::TerminalSession;
 use adroit_protocol::Event;
 
 use crate::details::{self, Sheet};
 use crate::keymap::Context;
 use crate::layout::{Layout, Side};
+use crate::nav::Item;
+use crate::tree::{self, Showing};
 use crate::zoom;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -66,9 +71,39 @@ pub enum Msg {
     /// The work host said `Event`.
     Host(Event),
 
+    // The work.
+    /// List the sessions again now, looking afresh at where they run.
+    Relist,
+    /// When the user last typed into each session shown, by its terminal.
+    Typed(BTreeMap<u128, u64>),
+    /// The window started this terminal.
+    TerminalOpened(TerminalSession),
+    /// The window ended the terminal by this id.
+    TerminalClosed(u128),
+
+    // The tree.
+    /// What the content's focused window shows, and where.
+    Showing(Box<Showing>),
+    /// Select this row, or none.
+    TreeSelect(Option<Item>),
+    /// A key was pressed on the tree.
+    TreeKey(tree::Key),
+    /// Show the rows under `row`, or hide them.
+    TreeFold {
+        row: Item,
+        open: bool,
+    },
+    TreeFoldToggle(Item),
+    /// The filter now holds this.
+    TreeFilter(String),
+    /// The filter's field took the keys, or gave them up.
+    TreeFiltering(bool),
+    /// List every worktree, or only those where something runs.
+    TreeEveryWorktree,
+
     // The details panel.
-    /// The window shows what the details panel reads by.
-    DetailsShown(Box<details::Shown>),
+    /// What the window tells the details panel that the tree does not.
+    DetailsShown(Box<details::Told>),
     /// A sheet was chosen.
     DetailsSheet(Sheet),
     /// The sheet this far along was asked for.

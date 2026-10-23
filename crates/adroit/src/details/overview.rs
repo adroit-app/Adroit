@@ -14,7 +14,7 @@ use super::subagent::SubagentView;
 use crate::bridge::AppCtx;
 use crate::details::{
     Details, Entry, Listing, link_sections, opened_agent, opened_note, opened_process,
-    overview_facts, overview_listing, stats,
+    overview_facts, overview_listing, shown_session, stats,
 };
 use crate::icons::{Icon, IconView};
 
@@ -45,7 +45,7 @@ pub(super) fn Overview(
     let details: Details = app.details.read().clone();
     let host = app.host.read();
     let work = host.work.as_ref();
-    let session = details.shown.session.clone();
+    let session = shown_session(&details, work).cloned();
     let facts = session.as_ref().map(|s| {
         let stats = stats(&details, work).unwrap_or_default();
         overview_facts(s, &stats, s.last_input_ms.max(live_input_ms), now_ms)

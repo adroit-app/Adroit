@@ -9,7 +9,7 @@ use std::sync::Arc;
 use adroit_model::links::Links;
 use adroit_model::repository::{Listing, Revision, Spot};
 use adroit_model::usage::Limit;
-use adroit_model::{Agent, ConversationStats, Note, Process, Session};
+use adroit_model::{Agent, ConversationStats, Note, Process};
 use serde::{Deserialize, Serialize};
 
 use crate::TreeSight;
@@ -18,9 +18,9 @@ use crate::TreeSight;
 /// reads nothing for a window that shows nothing.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Sight {
-    /// The session shown, whose conversation and processes the details
-    /// read.
-    pub session: Option<Session>,
+    /// The session shown, by its id, whose conversation and processes the
+    /// details read.
+    pub session: Option<String>,
     /// Whether the details panel is open.
     pub details: bool,
     /// Whether the details panel is on its overview.

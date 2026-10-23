@@ -58,11 +58,7 @@ mod tests {
         round_trips(Request::Watch(Box::default()));
         round_trips(Request::ReadAgain);
         round_trips(Request::Watch(Box::new(Sight {
-            session: Some(Session {
-                id: "s".into(),
-                cwd: "/w".into(),
-                ..Default::default()
-            }),
+            session: Some("s".into()),
             details: true,
             overview: true,
             repository: Some(RepositorySight {

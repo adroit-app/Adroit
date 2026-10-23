@@ -24,7 +24,7 @@ pub(super) async fn watch(mut watched: Watched) {
             watched.record(read);
         }
         watched
-            .wait(Duration::from_secs(2), |s| s.tree.listed.clone())
+            .wait(Duration::from_secs(2), |s| s.sight.tree.listed.clone())
             .await;
     }
 }

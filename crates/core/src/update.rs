@@ -7,7 +7,7 @@ use crate::effect::Effect;
 use crate::msg::Msg;
 use crate::settle::settle;
 use crate::state::ViewState;
-use crate::{chrome, details, host};
+use crate::{chrome, details, host, tree};
 
 /// `msg` applied to `state`, and the state settled after it.
 pub fn step(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
@@ -48,7 +48,21 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
 
         Msg::Host(event) => host::receive(&mut state.host, event),
 
-        Msg::DetailsShown(shown) => details::show(&mut state.details, *shown),
+        Msg::Relist => vec![Effect::Host(Request::Relist)],
+        Msg::Typed(inputs) => vec![Effect::Host(Request::Typed { inputs })],
+        Msg::TerminalOpened(terminal) => vec![Effect::Host(Request::TerminalOpened { terminal })],
+        Msg::TerminalClosed(id) => vec![Effect::Host(Request::TerminalClosed { id })],
+
+        Msg::Showing(showing) => tree::showing(&mut state.tree, *showing),
+        Msg::TreeSelect(row) => tree::select(&mut state.tree, row),
+        Msg::TreeKey(key) => tree::press(&mut state.tree, key),
+        Msg::TreeFold { row, open } => tree::fold(&mut state.tree, &row, open),
+        Msg::TreeFoldToggle(row) => tree::toggle(&mut state.tree, &row),
+        Msg::TreeFilter(text) => tree::filter(&mut state.tree, text),
+        Msg::TreeFiltering(on) => tree::filtering(&mut state.tree, on),
+        Msg::TreeEveryWorktree => tree::every_worktree(&mut state.tree),
+
+        Msg::DetailsShown(told) => details::tell(&mut state.details, *told),
         Msg::DetailsSheet(sheet) => details::sheet(&mut state.details, sheet),
         Msg::DetailsSheetStep(delta) => details::step_sheet(&mut state.details, delta),
         Msg::DetailsKey(key) => details::press(&mut state.details, state.host.work.as_ref(), key),

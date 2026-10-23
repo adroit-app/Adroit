@@ -11,7 +11,7 @@ use adroit_nvim::{Embedded, UiState};
 use adroit_term::{Daemon, Palette, Pane};
 use dioxus::html::geometry::WheelDelta;
 use dioxus::prelude::*;
-use tokio::sync::{Notify, mpsc};
+use tokio::sync::mpsc;
 
 use crate::components::{EmptyState, KeyHint};
 use crate::icons::{Icon, IconView};
@@ -82,7 +82,6 @@ pub struct Hub {
     pub wake: mpsc::UnboundedSender<Tab>,
     /// The theme's palette, which a new theme replaces.
     pub palette: Signal<Palette>,
-    pub refresh: Rc<Notify>,
 }
 
 /// The prompt's mode as the window names it: a style class and a label.

@@ -48,7 +48,7 @@ pub(super) async fn watch(mut watched: Watched) {
             Err(error) => watched.record([TreeChange::Failing { error: Some(error) }]),
         }
         let asked = watched
-            .wait_listing(Duration::from_secs(2), |s| s.tree.every_worktree)
+            .wait_listing(Duration::from_secs(2), |s| s.sight.tree.every_worktree)
             .await;
         // Asked for by hand: look at every worktree again too.
         if asked {

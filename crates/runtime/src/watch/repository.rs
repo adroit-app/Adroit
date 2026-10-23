@@ -18,7 +18,7 @@ pub(super) async fn watch(mut watched: Watched) {
             }]);
         }
         watched
-            .wait(Duration::from_secs(2), |s| s.repository.clone())
+            .wait(Duration::from_secs(2), |s| s.sight.repository.clone())
             .await;
     }
 }

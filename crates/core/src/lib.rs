@@ -37,6 +37,7 @@ pub mod settle;
 pub mod state;
 pub mod status;
 pub mod tabs;
+pub mod tree;
 pub mod update;
 pub mod viewers;
 pub mod zoom;

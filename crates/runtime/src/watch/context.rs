@@ -11,9 +11,9 @@ use super::Watched;
 pub(super) async fn watch(watched: Watched) {
     let mut asked = Fresh::<(String, String)>::default();
     loop {
-        let sight = watched.sight();
-        let shown = sight.session.filter(|s| {
-            sight.details && adroit_agents::adapter(s.agent).capabilities().usage_limits
+        let seen = watched.seen();
+        let shown = seen.session.filter(|s| {
+            seen.sight.details && adroit_agents::adapter(s.agent).capabilities().usage_limits
         });
         let reading = shown.and_then(|s| {
             let stats = watched
