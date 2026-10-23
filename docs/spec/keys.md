@@ -27,8 +27,7 @@ What the keys do to a row of the tree or a tab of the content is also offered by
 right-clicking it, each entry with the keys bound to it. A tab closes with its
 `×`, a window takes the keys when clicked, a border between windows is dragged
 to resize them, a workspace's or worktree's row starts a session there with its `+`, and
-the buttons beside Workspaces filter the tree, list every worktree, read
-the sessions again and start a session.
+the buttons beside the tree's filter list every worktree and start a session.
 
 A click on the console, live or read, reaches a program that reads the mouse,
 as Claude Code does, at the cell clicked; a program that does not read it is
@@ -192,8 +191,8 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 | `tab.close` | close the content's tab shown and every window in it; agents and terminals keep running and remain reachable from the tree |
 | `window.close` | close the window, which ends adroit; its sessions run on |
 | `cursor.down`, `cursor.up`, `cursor.first`, `cursor.last` | move the selection in the tree; in the details panel, in the list it shows, or scroll what else it shows |
-| `cursor.open` | open the selected session, shell or worktree in the focused window and move to its console, or to the prompt of a session not started yet; fold or unfold a workspace; in the details panel, open the selected row |
-| `cursor.show` | show the selected session, shell or worktree, as `cursor.open` does, with the keys staying in the tree; fold or unfold a workspace; in the details panel, open the selected row |
+| `cursor.open` | open the selected session, shell or worktree in the focused window and move to its console, or to the prompt of a session not started yet; fold or unfold a workspace or a heading; in the details panel, open the selected row |
+| `cursor.show` | show the selected session, shell or worktree, as `cursor.open` does, with the keys staying in the tree; fold or unfold a workspace or a heading; in the details panel, open the selected row |
 | `cursor.fold` | fold the selected node; in the details panel, go back out to the list what it shows was opened from |
 | `cursor.copy` | in the details panel, copy the selected link of the overview: its address, or its file's path |
 | `cursor.reveal` | in the details panel, show the selected file of the overview in the Finder |

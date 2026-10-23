@@ -57,10 +57,12 @@ pub fn entries(target: &Target, session: Option<&Session>) -> Vec<(Action, &'sta
                 .chain(here)
                 .collect()
         }
-        Target::Row(Item::Workspace(_)) => [(Action::CursorOpen, "Fold or unfold")]
-            .into_iter()
-            .chain(here)
-            .collect(),
+        Target::Row(Item::Workspace(_) | Item::Heading(..)) => {
+            [(Action::CursorOpen, "Fold or unfold")]
+                .into_iter()
+                .chain(here)
+                .collect()
+        }
         Target::Tab(Tab::Session(_)) => [(Action::TabClose, "Close tab")]
             .into_iter()
             .chain(rename)

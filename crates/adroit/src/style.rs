@@ -111,6 +111,7 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .list-row.vacant { opacity: 0.5; }
 .list-row.dim { color: var(--text-2); }
 .list-row.mono { font-family: var(--mono); font-size: 12px; }
+.list-rows.sidebar-inbox { flex: none; max-height: 40%; }
 .sidebar-inbox .list-row { height: auto; padding: 7px 10px; align-items: flex-start; }
 .sidebar-inbox-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
 .sidebar-inbox-sub { color: var(--text-2); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
@@ -128,6 +129,10 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .shell-mark, .place-mark { flex: none; color: var(--text-3); display: inline-flex; }
 .list-row.head .place-mark { color: var(--text-2); }
 .list-row.shown .place-mark, .list-row.shown .shell-mark { color: var(--text-2); }
+.list-row.group { height: 24px; color: var(--text-3); font-size: 11.5px; font-weight: 500; }
+.list-row.group .place-mark { color: var(--text-3); }
+.tab-where { flex: none; padding: 0 5px; border-radius: 4px; background: var(--raised); color: var(--text-3); font-family: var(--mono); font-size: 10px; line-height: 16px; }
+.list-row.shown .tab-where { background: rgba(120,174,232,0.16); color: var(--run); }
 .sidebar-inbox .list-row-name .reads-only-mark { margin-left: 6px; vertical-align: -2px; }
 /* One line however many tabs there are, so the console keeps its height; the rest scrolls sideways. */
 .tabs { display: flex; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; align-items: center; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--line); flex: none; }
@@ -226,6 +231,7 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .panel-tab.active .icon { color: var(--text-2); }
 .sidebar-bar { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--line); flex: none; margin-bottom: 8px; }
 .sidebar-bar .sidebar-tools { flex: none; }
+.sidebar-bar .filter-field { flex: 1; min-width: 0; margin: 0; }
 .list-rows.details-git { flex: 1; user-select: text; }
 .details-file-status { color: var(--wait); white-space: pre; flex: none; }
 .commit { display: flex; align-items: center; gap: 6px; height: 40px; padding: 0 8px 0 4px; font-size: 12.5px; border-radius: 6px; cursor: default; }

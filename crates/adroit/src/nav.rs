@@ -1,9 +1,10 @@
-//! The sidebar as one column of items: the inbox first, then the workspaces.
+//! The tree as one column of items: the workspaces, each worktree's headings
+//! and what they hold, then the sessions waiting on the user.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use adroit_model::{InboxItem, Session, State, Tree, WorktreeNode};
+use adroit_model::{InboxItem, Session, State, TerminalProgram, Tree, WorktreeNode};
 
 use crate::tabs::Tab;
 
@@ -14,64 +15,168 @@ pub enum Item {
     /// A workspace, by the repository or directory it is.
     Workspace(PathBuf),
     Worktree(PathBuf),
+    /// A heading of a worktree, holding the rows of one kind.
+    Heading(PathBuf, Heading),
     Session(String),
-    /// A shell adroit runs, by the daemon's id.
+    /// A shell or a Neovim adroit runs, by the daemon's id.
     Terminal(u128),
 }
 
+/// What a worktree's heading holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Heading {
+    Sessions,
+    Shells,
+    Editors,
+}
+
+impl Heading {
+    pub const ALL: [Heading; 3] = [Heading::Sessions, Heading::Shells, Heading::Editors];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Heading::Sessions => "Sessions",
+            Heading::Shells => "Shells",
+            Heading::Editors => "Editors",
+        }
+    }
+}
+
 impl Item {
-    /// The key used to remember whether a node is collapsed.
+    /// The key used to remember whether a node is folded.
     pub fn fold_key(&self) -> Option<String> {
         match self {
             Item::Workspace(root) => Some(format!("ws:{}", root.display())),
             Item::Worktree(path) => Some(format!("wt:{}", path.display())),
+            Item::Heading(path, heading) => Some(format!("{heading:?}:{}", path.display())),
             _ => None,
         }
     }
 }
 
-/// Every item the sidebar shows, top to bottom. Children of a collapsed node
-/// are left out.
-pub fn items(tree: &Tree, inbox: &[InboxItem], collapsed: &HashSet<String>) -> Vec<Item> {
-    let open = |i: &Item| !i.fold_key().is_some_and(|k| collapsed.contains(&k));
-    let mut out: Vec<Item> = inbox
-        .iter()
-        .map(|i| Item::Waiting(i.session.id.clone()))
-        .collect();
+/// Which nodes of the tree are folded: those the user folded or unfolded,
+/// each against how it starts.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Folds(HashSet<String>);
+
+impl Folds {
+    /// Whether `item` shows the rows under it. A row that does not fold has
+    /// none to show.
+    pub fn is_open(&self, item: &Item) -> bool {
+        item.fold_key().is_some_and(|k| !self.0.contains(&k))
+    }
+
+    pub fn set(&mut self, item: &Item, open: bool) {
+        let Some(key) = item.fold_key() else {
+            return;
+        };
+        if open {
+            self.0.remove(&key);
+        } else {
+            self.0.insert(key);
+        }
+    }
+
+    pub fn toggle(&mut self, item: &Item) {
+        let open = self.is_open(item);
+        self.set(item, !open);
+    }
+}
+
+/// Every item the tree shows, top to bottom, the sessions waiting on the
+/// user last. Children of a folded node are left out.
+pub fn items(tree: &Tree, inbox: &[InboxItem], folds: &Folds) -> Vec<Item> {
+    let mut out = Vec::new();
     for ws in &tree.workspaces {
         let wi = Item::Workspace(ws.root.clone());
-        let ws_open = open(&wi);
+        let ws_open = folds.is_open(&wi);
         out.push(wi);
         if !ws_open {
             continue;
         }
         if ws.flat() {
-            out.extend(ws.worktrees.iter().flat_map(|w| rows_in(tree, w)));
+            for w in &ws.worktrees {
+                out.extend(headed(tree, w, folds));
+            }
             continue;
         }
         for w in &ws.worktrees {
             let ti = Item::Worktree(w.worktree.path.clone());
-            let t_open = open(&ti);
+            let t_open = folds.is_open(&ti);
             out.push(ti);
             if t_open {
-                out.extend(rows_in(tree, w));
+                out.extend(headed(tree, w, folds));
             }
+        }
+    }
+    out.extend(inbox.iter().map(|i| Item::Waiting(i.session.id.clone())));
+    out
+}
+
+/// A worktree's headings, each followed by its rows while it is open.
+fn headed(tree: &Tree, w: &WorktreeNode, folds: &Folds) -> Vec<Item> {
+    let mut out = Vec::new();
+    for heading in Heading::ALL {
+        let hi = Item::Heading(w.worktree.path.clone(), heading);
+        let open = folds.is_open(&hi);
+        out.push(hi);
+        if open {
+            out.extend(under(tree, w, heading));
         }
     }
     out
 }
 
-/// The rows of what runs in a worktree: its sessions, each followed by the
-/// sessions it started wherever they run, then its terminals. A session whose
-/// starter is listed is listed under it instead.
-fn rows_in(tree: &Tree, w: &WorktreeNode) -> Vec<Item> {
-    let mut rows = Vec::new();
-    for session in w.sessions.iter().filter(|s| starter(tree, s).is_none()) {
-        rows.push(Item::Session(session.id.clone()));
-        rows.extend(started_by(tree, session).map(|s| Item::Session(s.id.clone())));
+/// The rows under a worktree's heading. Sessions are each followed by the
+/// sessions they started, wherever those run; a session whose starter is
+/// listed is listed under it instead.
+pub fn under(tree: &Tree, w: &WorktreeNode, heading: Heading) -> Vec<Item> {
+    let runs = |program| {
+        w.terminals
+            .iter()
+            .filter(move |t| t.program == program)
+            .map(|t| Item::Terminal(t.id))
+    };
+    match heading {
+        Heading::Sessions => {
+            let mut rows = Vec::new();
+            for session in w.sessions.iter().filter(|s| starter(tree, s).is_none()) {
+                rows.push(Item::Session(session.id.clone()));
+                rows.extend(started_by(tree, session).map(|s| Item::Session(s.id.clone())));
+            }
+            rows
+        }
+        Heading::Shells => runs(TerminalProgram::Shell).collect(),
+        Heading::Editors => runs(TerminalProgram::Neovim).collect(),
     }
-    rows.extend(w.terminals.iter().map(|s| Item::Terminal(s.id)));
-    rows
+}
+
+/// How deep `item` sits in `tree`, counted from its workspace's row: a
+/// flat workspace holds its checkout's headings straight under it.
+pub fn depth(tree: &Tree, item: &Item) -> usize {
+    let heading_at = |worktree: &Path| {
+        let flat = tree.workspace_of(worktree).is_none_or(|ws| ws.flat());
+        if flat { 1 } else { 2 }
+    };
+    match item {
+        Item::Workspace(_) | Item::Waiting(_) => 0,
+        Item::Worktree(_) => 1,
+        Item::Heading(path, _) => heading_at(path),
+        Item::Session(id) => {
+            let Some(session) = find(tree, id).map(|(_, s)| s) else {
+                return 0;
+            };
+            match starter(tree, session) {
+                Some(s) => find(tree, &s.id).map_or(0, |(p, _)| heading_at(&p.worktree)) + 2,
+                None => tree
+                    .find(id)
+                    .map_or(0, |(_, w, _)| heading_at(&w.worktree.path) + 1),
+            }
+        }
+        Item::Terminal(id) => tree
+            .terminal(*id)
+            .map_or(0, |(_, w, _)| heading_at(&w.worktree.path) + 1),
+    }
 }
 
 /// The session that started `session`, while it is listed in `tree`.
@@ -313,11 +418,34 @@ pub fn row_of(list: &[Item], tree: &Tree, shown: Option<&Tab>, place: &Place) ->
         Some(Tab::Terminal(id)) => vec![Item::Terminal(*id)],
         _ => Vec::new(),
     };
+    rows.extend(heading_of(tree, shown));
     rows.push(Item::Worktree(place.worktree.clone()));
     if let Some(ws) = tree.workspace_of(&place.worktree) {
         rows.push(Item::Workspace(ws.root.clone()));
     }
     rows.into_iter().find(|item| list.contains(item))
+}
+
+/// The heading the row of what `shown` shows sits under.
+fn heading_of(tree: &Tree, shown: Option<&Tab>) -> Option<Item> {
+    match shown? {
+        Tab::Session(id) => {
+            let (_, w, s) = tree.find(id)?;
+            let w = starter(tree, s)
+                .and_then(|s| tree.find(&s.id))
+                .map_or(w, |(_, w, _)| w);
+            Some(Item::Heading(w.worktree.path.clone(), Heading::Sessions))
+        }
+        Tab::Terminal(id) => {
+            let (_, w, t) = tree.terminal(*id)?;
+            let heading = match t.program {
+                TerminalProgram::Shell => Heading::Shells,
+                TerminalProgram::Neovim => Heading::Editors,
+            };
+            Some(Item::Heading(w.worktree.path.clone(), heading))
+        }
+        _ => None,
+    }
 }
 
 /// The row to select once the console shows `now` instead of `before`, both in
@@ -354,7 +482,7 @@ pub fn place_of(tree: &Tree, item: &Item) -> Option<Place> {
         Item::Terminal(id) => tree.terminal(*id).map(|(_, _, s)| Place {
             worktree: s.cwd.clone(),
         }),
-        Item::Worktree(path) => Some(Place {
+        Item::Worktree(path) | Item::Heading(path, _) => Some(Place {
             worktree: path.clone(),
         }),
         // Not the root itself: a bare repository, a submodule or a separate
@@ -445,6 +573,39 @@ mod tests {
         Item::Session(id.into())
     }
 
+    fn sessions_of(path: &str) -> Item {
+        Item::Heading(path.into(), Heading::Sessions)
+    }
+
+    fn shells_of(path: &str) -> Item {
+        Item::Heading(path.into(), Heading::Shells)
+    }
+
+    fn editors_of(path: &str) -> Item {
+        Item::Heading(path.into(), Heading::Editors)
+    }
+
+    /// A worktree's headings with the rows under each.
+    fn group(path: &str, sessions: &[Item], shells: &[Item], editors: &[Item]) -> Vec<Item> {
+        [
+            &[sessions_of(path)][..],
+            sessions,
+            &[shells_of(path)],
+            shells,
+            &[editors_of(path)],
+            editors,
+        ]
+        .concat()
+    }
+
+    fn closed(rows: &[Item]) -> Folds {
+        let mut folds = Folds::default();
+        for row in rows {
+            folds.set(row, false);
+        }
+        folds
+    }
+
     fn at(path: &str) -> Place {
         Place {
             worktree: path.into(),
@@ -452,26 +613,22 @@ mod tests {
     }
 
     #[test]
-    fn the_inbox_comes_first_then_each_workspace_with_its_worktrees_and_sessions() {
+    fn each_workspace_lists_its_worktrees_headings_and_rows_then_the_inbox_comes_last() {
         let t = tree();
-        let got = items(&t, &inbox(&t), &HashSet::new());
-        assert_eq!(
-            got,
-            vec![
-                Item::Waiting("b".into()),
-                Item::Waiting("z".into()),
-                ws("/api"),
-                worktree("/api"),
-                session("a"),
-                session("b"),
-                worktree(OAUTH),
-                session("o"),
-                ws("/tmp"),
-                session("z"),
-                ws("/web"),
-                session("c"),
-            ]
-        );
+        let got = items(&t, &inbox(&t), &Folds::default());
+        let expected = [
+            vec![ws("/api"), worktree("/api")],
+            group("/api", &[session("a"), session("b")], &[], &[]),
+            vec![worktree(OAUTH)],
+            group(OAUTH, &[session("o")], &[], &[]),
+            vec![ws("/tmp")],
+            group("/tmp", &[session("z")], &[], &[]),
+            vec![ws("/web")],
+            group("/web", &[session("c")], &[], &[]),
+            vec![Item::Waiting("b".into()), Item::Waiting("z".into())],
+        ]
+        .concat();
+        assert_eq!(got, expected);
     }
 
     /// `a` runs in the main checkout of `api` and started `o`, which runs in
@@ -504,16 +661,21 @@ mod tests {
     fn a_started_session_is_listed_under_its_starter_wherever_it_runs() {
         let t = delegating_tree(true);
         assert_eq!(
-            items(&t, &[], &HashSet::new()),
-            vec![
-                ws("/api"),
-                worktree("/api"),
-                session("a"),
-                session("o"),
-                session("w"),
-                worktree(OAUTH),
-                ws("/web"),
+            items(&t, &[], &Folds::default()),
+            [
+                vec![ws("/api"), worktree("/api")],
+                group(
+                    "/api",
+                    &[session("a"), session("o"), session("w")],
+                    &[],
+                    &[]
+                ),
+                vec![worktree(OAUTH)],
+                group(OAUTH, &[], &[], &[]),
+                vec![ws("/web")],
+                group("/web", &[], &[], &[]),
             ]
+            .concat()
         );
         let o = find(&t, "o").unwrap().1;
         assert_eq!(starter(&t, o).map(|s| s.id.as_str()), Some("a"));
@@ -523,14 +685,14 @@ mod tests {
     fn a_started_session_whose_starter_has_ended_is_listed_where_it_runs() {
         let t = delegating_tree(false);
         assert_eq!(
-            items(&t, &[], &HashSet::new()),
-            vec![
-                ws("/api"),
-                worktree(OAUTH),
-                session("o"),
-                ws("/web"),
-                session("w"),
+            items(&t, &[], &Folds::default()),
+            [
+                vec![ws("/api"), worktree(OAUTH)],
+                group(OAUTH, &[session("o")], &[], &[]),
+                vec![ws("/web")],
+                group("/web", &[session("w")], &[], &[]),
             ]
+            .concat()
         );
     }
 
@@ -554,7 +716,7 @@ mod tests {
     #[test]
     fn the_selection_moves_to_the_new_tab_s_row_only_from_the_old_one_s() {
         let t = tree();
-        let list = items(&t, &inbox(&t), &HashSet::new());
+        let list = items(&t, &inbox(&t), &Folds::default());
         let shell = Tab::Terminal(1);
         let a = Tab::Session("a".into());
         let row_a = Some(session("a"));
@@ -577,7 +739,7 @@ mod tests {
     #[test]
     fn a_selected_row_that_leaves_gives_way_to_the_same_session_s_or_the_shown_tab_s() {
         let t = tree();
-        let list = items(&t, &inbox(&t), &HashSet::new());
+        let list = items(&t, &inbox(&t), &Folds::default());
         let shown = Tab::Session("a".into());
         let kept = |row: Item| row_kept(&list, &t, Some(&row), Some(&shown), &at("/api"));
         // "a" no longer waits: its inbox row leaves for its own.
@@ -591,23 +753,33 @@ mod tests {
     #[test]
     fn a_filter_keeps_the_sessions_whose_names_match_and_the_rows_above_them() {
         let t = tree();
-        let list = items(&narrowed(&t, "O"), &[], &HashSet::new());
+        let list = items(&narrowed(&t, "O"), &[], &Folds::default());
         // The worktree oauth is named with an o, and keeps all it holds.
-        assert_eq!(list, [ws("/api"), worktree(OAUTH), session("o")]);
+        assert_eq!(
+            list,
+            [
+                vec![ws("/api"), worktree(OAUTH)],
+                group(OAUTH, &[session("o")], &[], &[])
+            ]
+            .concat()
+        );
     }
 
     #[test]
     fn an_empty_filter_keeps_everything_and_one_matching_nothing_keeps_nothing() {
         let t = tree();
         assert_eq!(narrowed(&t, ""), t);
-        assert_eq!(items(&narrowed(&t, "nothing"), &[], &HashSet::new()), []);
+        assert_eq!(items(&narrowed(&t, "nothing"), &[], &Folds::default()), []);
     }
 
     #[test]
     fn a_filter_naming_a_workspace_keeps_all_beneath_it() {
         let t = tree();
-        let web = items(&narrowed(&t, "web"), &[], &HashSet::new());
-        assert_eq!(web, [ws("/web"), session("c")]);
+        let web = items(&narrowed(&t, "web"), &[], &Folds::default());
+        assert_eq!(
+            web,
+            [vec![ws("/web")], group("/web", &[session("c")], &[], &[])].concat()
+        );
     }
 
     #[test]
@@ -627,7 +799,7 @@ mod tests {
     #[test]
     fn a_session_tab_selects_the_session_s_row() {
         let t = tree();
-        let list = items(&t, &inbox(&t), &HashSet::new());
+        let list = items(&t, &inbox(&t), &Folds::default());
         assert_eq!(
             row_of(&list, &t, Some(&Tab::Session("b".into())), &at("/api")),
             Some(session("b"))
@@ -637,17 +809,15 @@ mod tests {
     #[test]
     fn a_tab_without_a_session_selects_its_worktree() {
         let t = tree();
-        let list = items(&t, &[], &HashSet::new());
+        let list = items(&t, &[], &Folds::default());
         assert_eq!(row_of(&list, &t, None, &at("/api")), Some(worktree("/api")));
     }
 
     #[test]
     fn a_session_folded_away_selects_the_nearest_row_still_shown() {
         let t = tree();
-        let mut collapsed = HashSet::new();
-        for row in [worktree("/api"), ws("/api")] {
-            collapsed.insert(row.fold_key().unwrap());
-            let list = items(&t, &[], &collapsed);
+        for row in [sessions_of("/api"), worktree("/api"), ws("/api")] {
+            let list = items(&t, &[], &closed(std::slice::from_ref(&row)));
             assert_eq!(
                 row_of(&list, &t, Some(&Tab::Session("a".into())), &at("/api")),
                 Some(row)
@@ -658,7 +828,7 @@ mod tests {
     #[test]
     fn a_session_of_a_flat_workspace_folded_away_selects_the_workspace() {
         let t = tree();
-        let collapsed = HashSet::from([ws("/tmp").fold_key().unwrap()]);
+        let collapsed = closed(&[ws("/tmp")]);
         let list = items(&t, &[], &collapsed);
         assert_eq!(
             row_of(&list, &t, Some(&Tab::Session("z".into())), &at("/tmp")),
@@ -669,7 +839,7 @@ mod tests {
     #[test]
     fn a_collapsed_node_hides_its_children() {
         let t = tree();
-        let collapsed = HashSet::from([worktree("/api").fold_key().unwrap()]);
+        let collapsed = closed(&[worktree("/api")]);
         let got = items(&t, &[], &collapsed);
         assert!(got.contains(&worktree("/api")));
         assert!(!got.contains(&session("a")));
@@ -834,28 +1004,24 @@ mod tests {
 
     #[test]
     fn each_shell_has_a_row_after_the_sessions_of_its_worktree() {
-        let got = items(&shelled(), &[], &HashSet::new());
+        let got = items(&shelled(), &[], &Folds::default());
         assert_eq!(
             got,
-            vec![
-                ws("/api"),
-                worktree("/api"),
-                session("a"),
-                session("b"),
-                shell(1),
-                worktree(DEV),
-                shell(2),
-                shell(3),
-                worktree(OAUTH),
-                session("o"),
-                ws("/notes"),
-                shell(5),
-                ws("/tmp"),
-                session("z"),
-                shell(4),
-                ws("/web"),
-                session("c"),
+            [
+                vec![ws("/api"), worktree("/api")],
+                group("/api", &[session("a"), session("b")], &[shell(1)], &[]),
+                vec![worktree(DEV)],
+                group(DEV, &[], &[shell(2), shell(3)], &[]),
+                vec![worktree(OAUTH)],
+                group(OAUTH, &[session("o")], &[], &[]),
+                vec![ws("/notes")],
+                group("/notes", &[], &[shell(5)], &[]),
+                vec![ws("/tmp")],
+                group("/tmp", &[session("z")], &[shell(4)], &[]),
+                vec![ws("/web")],
+                group("/web", &[session("c")], &[], &[]),
             ]
+            .concat()
         );
     }
 
@@ -863,7 +1029,7 @@ mod tests {
     fn folding_a_worktree_or_a_workspace_hides_its_shells() {
         let t = shelled();
         let folded = |row: Item| {
-            let collapsed = HashSet::from([row.fold_key().unwrap()]);
+            let collapsed = closed(&[row]);
             items(&t, &[], &collapsed)
         };
         let list = folded(worktree(DEV));
@@ -874,22 +1040,39 @@ mod tests {
     #[test]
     fn a_filter_keeps_the_shells_whose_names_match_as_it_keeps_sessions() {
         let t = shelled();
-        let list = items(&narrowed(&t, "LOG"), &[], &HashSet::new());
-        assert_eq!(list, [ws("/notes"), shell(5)]);
+        let list = items(&narrowed(&t, "LOG"), &[], &Folds::default());
+        assert_eq!(
+            list,
+            [vec![ws("/notes")], group("/notes", &[], &[shell(5)], &[])].concat()
+        );
         // A worktree named by the filter keeps every shell in it.
-        let dev = items(&narrowed(&t, "dev"), &[], &HashSet::new());
-        assert_eq!(dev, [ws("/api"), worktree(DEV), shell(2), shell(3)]);
-        let named = items(&narrowed(&t, "shell-2"), &[], &HashSet::new());
-        assert_eq!(named, [ws("/api"), worktree(DEV), shell(3)]);
+        let dev = items(&narrowed(&t, "dev"), &[], &Folds::default());
+        assert_eq!(
+            dev,
+            [
+                vec![ws("/api"), worktree(DEV)],
+                group(DEV, &[], &[shell(2), shell(3)], &[])
+            ]
+            .concat()
+        );
+        let named = items(&narrowed(&t, "shell-2"), &[], &Folds::default());
+        assert_eq!(
+            named,
+            [
+                vec![ws("/api"), worktree(DEV)],
+                group(DEV, &[], &[shell(3)], &[])
+            ]
+            .concat()
+        );
     }
 
     #[test]
     fn a_shell_tab_selects_the_shell_s_row_or_the_nearest_one_shown() {
         let t = shelled();
         let tab = Tab::Terminal(2);
-        let list = items(&t, &[], &HashSet::new());
+        let list = items(&t, &[], &Folds::default());
         assert_eq!(row_of(&list, &t, Some(&tab), &at(DEV)), Some(shell(2)));
-        let collapsed = HashSet::from([worktree(DEV).fold_key().unwrap()]);
+        let collapsed = closed(&[worktree(DEV)]);
         let folded = items(&t, &[], &collapsed);
         assert_eq!(
             row_of(&folded, &t, Some(&tab), &at(DEV)),
@@ -900,7 +1083,7 @@ mod tests {
     #[test]
     fn the_selection_moves_between_a_session_s_row_and_a_shell_s_with_the_tab() {
         let t = shelled();
-        let list = items(&t, &[], &HashSet::new());
+        let list = items(&t, &[], &Folds::default());
         let a = Tab::Session("a".into());
         let one = Tab::Terminal(1);
         let switch = |selected: Item, before: &Tab, now: &Tab| {
@@ -916,7 +1099,7 @@ mod tests {
     #[test]
     fn a_selected_shell_that_ends_gives_way_to_the_shown_tab_s_row() {
         let t = shelled();
-        let list = items(&t, &[], &HashSet::new());
+        let list = items(&t, &[], &Folds::default());
         let shown = Tab::Session("a".into());
         let kept = row_kept(&list, &t, Some(&shell(9)), Some(&shown), &at("/api"));
         assert_eq!(kept, Some(session("a")));
@@ -931,10 +1114,61 @@ mod tests {
     }
 
     #[test]
+    fn neovim_sits_under_editors_apart_from_the_shells() {
+        let mut nvim = sh(6, "nvim", DEV);
+        nvim.program = TerminalProgram::Neovim;
+        let t = shelled().with_terminals(&[sh(2, "shell", DEV), nvim]);
+        let w = t.worktrees().find(|w| w.worktree.path == Path::new(DEV));
+        let w = w.unwrap();
+        assert_eq!(under(&t, w, Heading::Shells), [shell(2)]);
+        assert_eq!(under(&t, w, Heading::Editors), [shell(6)]);
+        let list = items(&t, &[], &Folds::default());
+        assert_eq!(row_above(&list, &shell(6)), Some(editors_of(DEV)));
+    }
+
+    #[test]
+    fn folding_a_heading_hides_its_rows_and_leaves_the_other_headings() {
+        let list = items(&shelled(), &[], &closed(&[shells_of(DEV)]));
+        assert!(list.contains(&shells_of(DEV)) && list.contains(&editors_of(DEV)));
+        assert!(!list.contains(&shell(2)));
+    }
+
+    #[test]
+    fn a_fold_toggled_twice_is_open_again_and_a_row_that_does_not_fold_is_never_open() {
+        let mut folds = Folds::default();
+        assert!(folds.is_open(&sessions_of("/api")));
+        folds.toggle(&sessions_of("/api"));
+        assert!(!folds.is_open(&sessions_of("/api")));
+        folds.toggle(&sessions_of("/api"));
+        assert!(folds.is_open(&sessions_of("/api")));
+        folds.set(&session("a"), true);
+        assert!(!folds.is_open(&session("a")));
+    }
+
+    #[test]
+    fn a_flat_workspace_holds_its_headings_one_level_higher_than_a_worktree_does() {
+        let t = shelled();
+        assert_eq!(depth(&t, &ws("/api")), 0);
+        assert_eq!(depth(&t, &worktree(DEV)), 1);
+        assert_eq!(depth(&t, &shells_of(DEV)), 2);
+        assert_eq!(depth(&t, &shell(2)), 3);
+        assert_eq!(depth(&t, &shells_of("/tmp")), 1);
+        assert_eq!(depth(&t, &shell(4)), 2);
+        assert_eq!(depth(&t, &session("z")), 2);
+    }
+
+    #[test]
+    fn a_started_session_sits_a_level_below_its_starter() {
+        let t = delegating_tree(true);
+        assert_eq!(depth(&t, &session("a")), 3);
+        assert_eq!(depth(&t, &session("w")), 4);
+    }
+
+    #[test]
     fn a_closed_row_gives_way_to_the_one_above_it() {
-        let list = items(&shelled(), &[], &HashSet::new());
+        let list = items(&shelled(), &[], &Folds::default());
         assert_eq!(row_above(&list, &shell(3)), Some(shell(2)));
-        assert_eq!(row_above(&list, &shell(2)), Some(worktree(DEV)));
+        assert_eq!(row_above(&list, &shell(2)), Some(shells_of(DEV)));
         assert_eq!(row_above(&list, &ws("/api")), None);
         assert_eq!(row_above(&list, &shell(9)), None);
     }

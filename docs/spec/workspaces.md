@@ -15,13 +15,22 @@ A **workspace** is where sessions and the shells you open in adroit run:
   worktrees or in a directory below one;
 - otherwise the directory a session or a shell runs in.
 
-Inside a git workspace, each session and each shell sits under the worktree
-it runs in, a shell marked as a terminal; a worktree where only shells run is
-listed for them. A workspace where everything runs in its main checkout shows
-it straight under it, with no worktree row; one outside git always does.
+Inside a git workspace, each worktree where something runs has a row of its
+own; a worktree where only shells or Neovim run is listed for them. A
+workspace where everything runs in its main checkout shows that checkout's
+contents straight under it, with no worktree row; one outside git always does.
+
+What runs in a worktree sits under its headings, one for each kind: Sessions,
+Shells, and Editors for Neovim. A heading folds, and its row counts what it
+holds. Shells and Neovim never sit straight under a workspace: where a
+workspace has no worktree row, the headings are its checkout's.
+
+A row of a session, a shell or a Neovim shows the numbers of the content's tabs
+it is shown in, and the row of what the focused window shows stands out.
 
 A session started by another session is listed under the one that started it,
-wherever it runs, and not under its own worktree; its row names its worktree
+wherever it runs, inside its starter's Sessions heading and not under its own
+worktree; its row names its worktree
 or directory when that differs from its starter's. Folding a session's row
 hides the sessions it started. Once its starter has ended, a started session
 is listed by the directory it runs in, like any other. There is one tree: no
@@ -42,9 +51,12 @@ Sessions running in other terminals are listed beside adroit's own. A
 session that has ended is listed no more; Claude Code keeps its conversation,
 which a session started later resumes with Claude Code's `/resume`.
 
+The filter at the top of the tree narrows it as it is typed into. The sessions
+waiting on you are listed again at the bottom of the tree, apart from it.
+
 ## Going to a session or starting one
 
-`Mod+p`, `w`, `+` beside Workspaces, or the Session menu opens the
+`Mod+p`, `w`, `+` beside the tree's filter, or the Session menu opens the
 **picker**. Its first row starts a [scratch session](#scratch-sessions). It
 lists every session next, each with where it runs and how it stands, and then
 the directories to start a new session in:

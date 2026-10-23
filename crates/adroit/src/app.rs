@@ -1205,6 +1205,7 @@ fn row_tip(item: &Item) -> &'static str {
         Item::Terminal(_) => {
             "A terminal adroit runs. Enter shows it; closing its tab leaves it running"
         }
+        Item::Heading(..) => "What runs in the worktree, of one kind. Enter folds it",
     }
 }
 
@@ -1686,7 +1687,7 @@ fn sample_conversation(
 fn App() -> Element {
     let mut tree = use_signal(Tree::default);
     let mut selected = use_signal(|| None::<Item>);
-    let mut collapsed = use_signal(HashSet::<String>::new);
+    let mut folds = use_signal(nav::Folds::default);
     let mut focus = use_signal(|| Area::Sidebar);
     // Whether every worktree git knows is listed, those without sessions too.
     let mut all_worktrees = use_signal(|| false);
@@ -3031,8 +3032,7 @@ fn App() -> Element {
     let mut sending = use_signal(|| false);
     let shown_tree = use_memo(move || nav::narrowed(&tree.read(), &filter.read()));
     let shown_ib = use_memo(move || inbox(&shown_tree.read()));
-    let items =
-        use_memo(move || nav::items(&shown_tree.read(), &shown_ib.read(), &collapsed.read()));
+    let items = use_memo(move || nav::items(&shown_tree.read(), &shown_ib.read(), &folds.read()));
 
     // A selected row that leaves the sidebar, as an inbox row does once its
     // session stops waiting, gives way to another rather than to nothing.
@@ -3116,14 +3116,7 @@ fn App() -> Element {
         }
         selected.set(Some(item.clone()));
         match &item {
-            Item::Workspace(_) => {
-                if let Some(k) = item.fold_key() {
-                    let mut c = collapsed.write();
-                    if !c.remove(&k) {
-                        c.insert(k);
-                    }
-                }
-            }
+            Item::Workspace(_) | Item::Heading(..) => folds.write().toggle(&item),
             Item::Waiting(id) | Item::Session(id) => {
                 if let Some(p) = nav::place_of(&tree.peek(), &item) {
                     place.set(Some(p));
@@ -4810,10 +4803,10 @@ fn App() -> Element {
                 Action::CursorLast => selected.set(list.last().cloned()),
                 Action::CursorOpen => {
                     if let Some(item) = cur {
-                        let folds = matches!(item, Item::Workspace(_));
+                        let toggles = matches!(item, Item::Workspace(_) | Item::Heading(..));
                         open(item);
                         match &*active.peek() {
-                            _ if folds => {}
+                            _ if toggles => {}
                             Some(Tab::Draft { .. }) => {
                                 focus.set(Area::Prompt);
                                 start_writing(nvim);
@@ -4829,8 +4822,8 @@ fn App() -> Element {
                     }
                 }
                 Action::CursorFold => {
-                    if let Some(k) = cur.as_ref().and_then(Item::fold_key) {
-                        collapsed.write().insert(k);
+                    if let Some(item) = &cur {
+                        folds.write().set(item, false);
                     }
                 }
                 // Only the overview's links are copied or revealed.
@@ -6289,64 +6282,40 @@ fn App() -> Element {
                     hidden: !layout().show_sidebar,
                     style: "width:{layout().drawn(body_width()).0}px",
                     onmousedown: move |_| focus.set(Area::Sidebar),
-                    if !inbox_now.is_empty() {
-                        div { class: "sidebar-title",
-                            span { "Waiting on you" }
-                            span { class: "kbd-list",
-                                if let Some(k) = k_waiting_prev.clone() { Keys { keys: k } }
-                                if let Some(k) = k_waiting_next.clone() { Keys { keys: k } }
-                            }
-                        }
-                        div { class: "list-rows sidebar-inbox",
-                            for it in inbox_now.iter() {
-                                {
-                                    let item = Item::Waiting(it.session.id.clone());
-                                    let is_sel = sel.as_ref() == Some(&item);
-                                    let shown = shown_id.as_deref() == Some(it.session.id.as_str());
-                                    let sub = format!(
-                                        "{} · {}",
-                                        it.workspace,
-                                        it.wait
-                                    );
-                                    let mut open = open;
-                                    let target = Target::Row(item.clone());
-                                    let badge = row_badge(&t, &item);
-                                    rsx! {
-                                        div {
-                                            key: "w-{it.session.id}",
-                                            class: match (is_sel, shown) {
-                                                (true, true) => "list-row selected shown",
-                                                (true, false) => "list-row selected",
-                                                (false, true) => "list-row shown",
-                                                (false, false) => "list-row",
-                                            },
-                                            onclick: move |_| open(item.clone()),
-                                            oncontextmenu: move |e: Event<MouseData>| {
-                                                e.prevent_default();
-                                                let at = e.client_coordinates();
-                                                menu.set(Some((at.x, at.y, target.clone())));
-                                            },
-                                            span { class: "state-glyph wait", title: "waiting", style: "margin-top:2px",
-                                                IconView { icon: Icon::Bell, size: 13 }
-                                            }
-                                            div { class: "sidebar-inbox-text",
-                                                span { class: "list-row-name",
-                                                    "{it.session.name}"
-                                                    SessionMark { mark: session_mark(it.session.reads_only()) }
-                                                }
-                                                span { class: "sidebar-inbox-sub", "{sub}" }
-                                            }
-                                            if let Some(label) = badge {
-                                                span { class: "agent-badge", title: "Session agent", "{label}" }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        div { class: "sidebar-divider" }
-                    }
                     div { class: "sidebar-bar",
+                        div {
+                            class: if filtering() { "filter-field on" } else { "filter-field" },
+                            title: "Narrow the list by name; Enter keeps it, Esc clears it",
+                            // A click goes on with what it holds, where `/` starts afresh.
+                            onclick: move |_| focus_filter(true),
+                            span { class: "filter-field-funnel", IconView { icon: Icon::Filter, size: 13 } }
+                            input {
+                                class: "filter-field-input",
+                                placeholder: "Filter",
+                                value: "{filter}",
+                                autocomplete: "off",
+                                spellcheck: "false",
+                                "autocorrect": "off",
+                                "autocapitalize": "off",
+                                onmounted: move |e: MountedEvent| filter_field.set(Some(e.data())),
+                                onfocus: move |_| {
+                                    focus.set(Area::Sidebar);
+                                    filtering.set(true);
+                                },
+                                onblur: move |_| filtering.set(false),
+                                oninput: move |e: Event<FormData>| filter.set(e.value()),
+                                onkeydown: move |e: Event<KeyboardData>| {
+                                    match keys::of_field(&e).map(|k| k.key) .as_deref() {
+                                        Some("Enter") => focus_filter(false),
+                                        Some("Escape") => {
+                                            filter.set(String::new());
+                                            focus_filter(false);
+                                        }
+                                        _ => {}
+                                    }
+                                },
+                            }
+                }
                         span { class: "sidebar-tools",
                             button {
                                 class: if all_worktrees() { "sidebar-tool on" } else { "sidebar-tool" },
@@ -6360,52 +6329,10 @@ fn App() -> Element {
                             }
                             span {
                                 class: "sidebar-tool",
-                                title: "Read the sessions again",
-                                onclick: {
-                                    let mut run = run_button.clone();
-                                    move |_| run(Action::Refresh)
-                                },
-                                IconView { icon: Icon::Refresh }
-                            }
-                            span {
-                                class: "sidebar-tool",
                                 title: "Start a session: choose where it works",
                                 onclick: move |_| open_picker(),
                                 IconView { icon: Icon::Plus }
                             }
-                        }
-                    }
-                    div {
-                        class: if filtering() { "filter-field on" } else { "filter-field" },
-                        title: "Narrow the list by name; Enter keeps it, Esc clears it",
-                        // A click goes on with what it holds, where `/` starts afresh.
-                        onclick: move |_| focus_filter(true),
-                        span { class: "filter-field-funnel", IconView { icon: Icon::Filter, size: 13 } }
-                        input {
-                            class: "filter-field-input",
-                            placeholder: "Filter",
-                            value: "{filter}",
-                            autocomplete: "off",
-                            spellcheck: "false",
-                            "autocorrect": "off",
-                            "autocapitalize": "off",
-                            onmounted: move |e: MountedEvent| filter_field.set(Some(e.data())),
-                            onfocus: move |_| {
-                                focus.set(Area::Sidebar);
-                                filtering.set(true);
-                            },
-                            onblur: move |_| filtering.set(false),
-                            oninput: move |e: Event<FormData>| filter.set(e.value()),
-                            onkeydown: move |e: Event<KeyboardData>| {
-                                match keys::of_field(&e).map(|k| k.key) .as_deref() {
-                                    Some("Enter") => focus_filter(false),
-                                    Some("Escape") => {
-                                        filter.set(String::new());
-                                        focus_filter(false);
-                                    }
-                                    _ => {}
-                                }
-                            },
                         }
                     }
                     div { class: "list-rows", style: "flex:1",
@@ -6421,13 +6348,13 @@ fn App() -> Element {
                                     Item::Session(id) => nav::find(&t, id).and_then(|(_, s)| session_mark(s.reads_only())),
                                     _ => None,
                                 };
-                                let (indent, class, text, meta, glyph_class) = match &it {
+                                let (class, text, meta, glyph_class) = match &it {
                                     Item::Workspace(root) => {
                                         let name = t
                                             .workspace_of(root)
                                             .map(|w| w.name.clone())
                                             .unwrap_or_else(|| short(root));
-                                        (0, "list-row head", name, String::new(), None)
+                                        ("list-row head", name, String::new(), None)
                                     }
                                     Item::Worktree(path) => {
                                         let node = t
@@ -6438,23 +6365,23 @@ fn App() -> Element {
                                             .or_else(|| path.file_name().map(|f| f.to_string_lossy().into_owned()))
                                             .unwrap_or_else(|| short(path));
                                         let empty = node.is_none_or(|w| w.sessions.is_empty() && w.terminals.is_empty());
-                                        (14, if empty { "list-row dim mono vacant" } else { "list-row dim mono" }, label, String::new(), None)
+                                        (if empty { "list-row dim mono vacant" } else { "list-row dim mono" }, label, String::new(), None)
+                                    }
+                                    Item::Heading(path, heading) => {
+                                        let shown = shown_tree.read();
+                                        let count = shown
+                                            .worktrees()
+                                            .find(|w| &w.worktree.path == path)
+                                            .map_or(0, |w| nav::under(&shown, w, *heading).len());
+                                        let count = if count > 0 { count.to_string() } else { String::new() };
+                                        ("list-row group", heading.name().to_string(), count, None)
                                     }
                                     Item::Session(id) => {
                                         let s = nav::find(&t, id).map(|(_, s)| s.clone());
                                         let starter = s.as_ref().and_then(|s| nav::starter(&t, s)).cloned();
-                                        // The rows are of the narrowed tree, where a
-                                        // workspace can be flat that is not in full.
-                                        let listed_under = starter.as_ref().map_or(id, |starter| &starter.id);
-                                        let under_worktree = shown_tree
-                                            .read()
-                                            .find(listed_under)
-                                            .is_some_and(|(ws, _, _)| !ws.flat());
-                                        let indent = if under_worktree { 28 } else { 14 };
                                         // A started session names where it runs when its starter runs elsewhere.
                                         let elsewhere = s.as_ref().zip(starter.as_ref()).filter(|(s, starter)| s.cwd != starter.cwd).map(|(s, _)| short(&s.cwd)).unwrap_or_default();
                                         (
-                                            if starter.is_some() { indent + 14 } else { indent },
                                             "list-row",
                                             s.as_ref().map(|s| s.name.clone()).unwrap_or_else(|| id.clone()),
                                             elsewhere,
@@ -6462,15 +6389,24 @@ fn App() -> Element {
                                         )
                                     }
                                     Item::Terminal(id) => {
-                                        let under_worktree = shown_tree
-                                            .read()
-                                            .terminal(*id)
-                                            .is_some_and(|(ws, _, _)| !ws.flat());
                                         let name = t.terminal(*id).map(|(_, _, s)| s.name.clone()).unwrap_or_default();
-                                        (if under_worktree { 28 } else { 14 }, "list-row", name, String::new(), None)
+                                        ("list-row", name, String::new(), None)
                                     }
-                                    Item::Waiting(_) => (0, "list-row", String::new(), String::new(), None),
+                                    Item::Waiting(_) => ("list-row", String::new(), String::new(), None),
                                 };
+                                // The rows are of the narrowed tree, where a
+                                // workspace can be flat that is not in full.
+                                let indent = 14 * nav::depth(&shown_tree.read(), &it);
+                                // The tabs of the content that show it.
+                                let chips = match &it {
+                                    Item::Session(id) => content_now.tabs_showing(&Tab::Session(id.clone())),
+                                    Item::Terminal(id) => content_now.tabs_showing(&Tab::Terminal(*id)),
+                                    _ => Vec::new(),
+                                }
+                                .iter()
+                                .map(usize::to_string)
+                                .collect::<Vec<_>>()
+                                .join(" ");
                                 let row_title = row_tip(&it).to_owned();
                                 let terminal = match &it {
                                     Item::Terminal(id) => Some(runs_of(&terminals.read(), *id)),
@@ -6478,9 +6414,11 @@ fn App() -> Element {
                                 };
                                 let place_icon = match &it {
                                     Item::Workspace(root) if t.workspace_of(root).is_some_and(|w| w.scratch) => Some(Icon::Notes),
-                                    Item::Workspace(_) if it.fold_key().is_some_and(|k| collapsed.read().contains(&k)) => Some(Icon::Folder),
+                                    Item::Workspace(_) if !folds.read().is_open(&it) => Some(Icon::Folder),
                                     Item::Workspace(_) => Some(Icon::FolderOpen),
                                     Item::Worktree(_) => Some(Icon::GitBranch),
+                                    Item::Heading(..) if folds.read().is_open(&it) => Some(Icon::ChevronDown),
+                                    Item::Heading(..) => Some(Icon::ChevronRight),
                                     _ => None,
                                 };
                                 let class = if is_sel { format!("{class} selected") } else { class.to_string() };
@@ -6535,6 +6473,9 @@ fn App() -> Element {
                                             span { class: "draft-mark", title: "Something is written for it in the prompt", "✎" }
                                         }
                                         span { class: "list-row-meta", "{meta}" }
+                                        if !chips.is_empty() {
+                                            span { class: "tab-where", title: "The tabs showing it", "{chips}" }
+                                        }
                                         if let Some(label) = badge {
                                             span { class: "agent-badge", title: "Session agent", "{label}" }
                                         }
@@ -6550,6 +6491,63 @@ fn App() -> Element {
                                                     }
                                                 },
                                                 IconView { icon: Icon::Plus, size: 13 }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if !inbox_now.is_empty() {
+                        div { class: "sidebar-divider" }
+                        div { class: "sidebar-title",
+                            span { "Waiting on you" }
+                            span { class: "kbd-list",
+                                if let Some(k) = k_waiting_prev.clone() { Keys { keys: k } }
+                                if let Some(k) = k_waiting_next.clone() { Keys { keys: k } }
+                            }
+                        }
+                        div { class: "list-rows sidebar-inbox",
+                            for it in inbox_now.iter() {
+                                {
+                                    let item = Item::Waiting(it.session.id.clone());
+                                    let is_sel = sel.as_ref() == Some(&item);
+                                    let shown = shown_id.as_deref() == Some(it.session.id.as_str());
+                                    let sub = format!(
+                                        "{} · {}",
+                                        it.workspace,
+                                        it.wait
+                                    );
+                                    let mut open = open;
+                                    let target = Target::Row(item.clone());
+                                    let badge = row_badge(&t, &item);
+                                    rsx! {
+                                        div {
+                                            key: "w-{it.session.id}",
+                                            class: match (is_sel, shown) {
+                                                (true, true) => "list-row selected shown",
+                                                (true, false) => "list-row selected",
+                                                (false, true) => "list-row shown",
+                                                (false, false) => "list-row",
+                                            },
+                                            onclick: move |_| open(item.clone()),
+                                            oncontextmenu: move |e: Event<MouseData>| {
+                                                e.prevent_default();
+                                                let at = e.client_coordinates();
+                                                menu.set(Some((at.x, at.y, target.clone())));
+                                            },
+                                            span { class: "state-glyph wait", title: "waiting", style: "margin-top:2px",
+                                                IconView { icon: Icon::Bell, size: 13 }
+                                            }
+                                            div { class: "sidebar-inbox-text",
+                                                span { class: "list-row-name",
+                                                    "{it.session.name}"
+                                                    SessionMark { mark: session_mark(it.session.reads_only()) }
+                                                }
+                                                span { class: "sidebar-inbox-sub", "{sub}" }
+                                            }
+                                            if let Some(label) = badge {
+                                                span { class: "agent-badge", title: "Session agent", "{label}" }
                                             }
                                         }
                                     }

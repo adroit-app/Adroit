@@ -425,6 +425,17 @@ impl<T: Clone + PartialEq> Content<T> {
             .any(|t| t.windows().iter().any(|w| w.shows == *thing))
     }
 
+    /// The numbers, counted from 1, of the tabs with a window showing
+    /// `thing`.
+    pub fn tabs_showing(&self, thing: &T) -> Vec<usize> {
+        self.tabs
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| t.windows().iter().any(|w| w.shows == *thing))
+            .map(|(at, _)| at + 1)
+            .collect()
+    }
+
     fn window(&mut self, shows: T) -> Window<T> {
         let id = self.next;
         self.next += 1;
@@ -914,6 +925,18 @@ mod tests {
         let mut c = C::default();
         c.open(thing);
         c
+    }
+
+    #[test]
+    fn a_thing_is_found_by_the_numbers_of_the_tabs_showing_it_counted_from_one() {
+        let mut c = one("a");
+        c.split(Axis::Row, "b");
+        c.split(Axis::Row, "a");
+        c.open_tab("b");
+        c.open_tab("c");
+        assert_eq!(c.tabs_showing(&"a"), vec![1]);
+        assert_eq!(c.tabs_showing(&"b"), vec![1, 2]);
+        assert_eq!(c.tabs_showing(&"z"), Vec::<usize>::new());
     }
 
     #[test]
