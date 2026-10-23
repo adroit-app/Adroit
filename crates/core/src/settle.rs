@@ -5,7 +5,7 @@ use adroit_protocol::{Request, Sight};
 
 use crate::effect::Effect;
 use crate::state::ViewState;
-use crate::{content, details, picker, tree};
+use crate::{content, details, overlay, picker, tree};
 
 type Rule = fn(&mut ViewState, &mut Vec<Effect>);
 
@@ -22,6 +22,7 @@ const RULES: &[Rule] = &[
     tree_rows,
     tree_kept,
     tree_switched,
+    overlay_rename,
     details_shown,
     details_refreshed,
     details_gone,
@@ -97,6 +98,11 @@ fn tree_kept(state: &mut ViewState, _: &mut Vec<Effect>) {
 fn tree_switched(state: &mut ViewState, _: &mut Vec<Effect>) {
     let showing = state.content.showing();
     tree::follow_switch(&mut state.tree, &showing, state.host.work.as_ref());
+}
+
+/// A name being typed goes when its row or its tab is no longer shown.
+fn overlay_rename(state: &mut ViewState, _: &mut Vec<Effect>) {
+    overlay::keep_rename(state);
 }
 
 /// The details panel reads by the session and the worktree the focused

@@ -5,6 +5,7 @@ use adroit_protocol::Request;
 use crate::chrome::{panels, status_line};
 use crate::effect::Effect;
 use crate::msg::Msg;
+use crate::overlay::{self, Menu};
 use crate::settle::settle;
 use crate::state::ViewState;
 use crate::{chrome, content, details, host, picker, tree};
@@ -117,5 +118,19 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         Msg::PickerChoose(at) => picker::choose(state, at),
         Msg::PickerDir(dir) => picker::start_in(state, dir),
         Msg::PickerEvery => picker::every(&mut state.picker),
+
+        Msg::HeldKey(key) => overlay::press(state, key),
+        Msg::MenuOpen { x, y, target } => overlay::open_menu(state, Menu { x, y, target }),
+        Msg::MenuClose => overlay::close_menu(state),
+        Msg::MenuRun { target, action } => overlay::run_menu(state, target, action),
+        Msg::Confirm(ask) => overlay::ask(state, *ask),
+        Msg::ConfirmStop { selection } => overlay::ask_stop(state, selection),
+        Msg::ConfirmAnswer(yes) => overlay::answer(state, yes),
+        Msg::RenameStart { id, place } => overlay::start_rename(state, &id, place),
+        Msg::RenameText { id, place, text } => overlay::type_name(state, &id, place, text),
+        Msg::RenameEnd { id, place, commit } => overlay::end_rename(state, &id, place, commit),
+        Msg::DaemonStanding(note) => overlay::daemon_standing(state, note),
+        Msg::DaemonRestarted(note) => overlay::daemon_restarted(state, note),
+        Msg::BannerClose => overlay::close_banner(state),
     }
 }

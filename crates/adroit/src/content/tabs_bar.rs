@@ -14,21 +14,17 @@ use crate::bridge::AppCtx;
 use crate::components::{SessionMark, TerminalMark, glyph, runs_of, session_mark};
 use crate::content::{Tab, thing_name};
 use crate::icons::{Icon, IconView};
-use crate::menu::Target;
 use crate::nav;
-use crate::rename::{Place as RenamePlace, Rename, SessionName};
+use crate::rename::{Place as RenamePlace, SessionName};
+use adroit_core::overlay::context_menu::Target;
 
 /// The bar. `drafted` are the tabs with something written for them kept
-/// aside; `renaming` the session being given a new name.
+/// aside.
 #[component]
 pub(super) fn TabsBar(
     completions: ReadSignal<Completions>,
     drafted: ReadSignal<HashSet<Tab>>,
-    renaming: Signal<Option<Rename>>,
-    onmenu: EventHandler<(f64, f64, Target)>,
     onclose: EventHandler<Target>,
-    onrename: EventHandler<(String, RenamePlace)>,
-    onrenamed: EventHandler<Rename>,
 ) -> Element {
     let app = use_context::<AppCtx>();
     // Each tab named after what its focused window shows.
@@ -105,7 +101,7 @@ pub(super) fn TabsBar(
                             oncontextmenu: move |e: Event<MouseData>| {
                                 e.prevent_default();
                                 let at = e.client_coordinates();
-                                onmenu.call((at.x, at.y, target.clone()));
+                                app.dispatch(Msg::MenuOpen { x: at.x, y: at.y, target: target.clone() });
                             },
                             span { class: "tab-number", "{number}" }
                             if let Some((g, icon, tip)) = glyph_class {
@@ -115,9 +111,7 @@ pub(super) fn TabsBar(
                             if matches!(tab, Tab::Draft { .. }) { span { class: "place-mark", IconView { icon: Icon::MessagePlus, size: 13 } } }
                             if let (Tab::Session(id), true) = (&tab, is_active) {
                                 SessionName {
-                                    id: id.clone(), name: name.clone(), place: RenamePlace::Tab, editing: renaming,
-                                    onstart: move |(id, place)| onrename.call((id, place)),
-                                    onfinish: move |r| onrenamed.call(r),
+                                    id: id.clone(), name: name.clone(), place: RenamePlace::Tab,
                                 }
                             } else { "{name}" }
                             SessionMark { mark }

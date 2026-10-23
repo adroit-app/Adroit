@@ -4,6 +4,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 
+use adroit_core::msg::Msg;
 use adroit_core::overlay::context_menu::Target;
 use adroit_core::tree;
 use adroit_model::{InboxItem, TerminalSession, Tree};
@@ -17,7 +18,7 @@ use crate::file_icons;
 use crate::files;
 use crate::icons::{Icon, IconView};
 use crate::nav::{self, Item};
-use crate::rename::{Place as RenamePlace, Rename, SessionName};
+use crate::rename::{Place as RenamePlace, SessionName};
 
 /// What a sidebar row is, told when the pointer rests on it.
 pub(crate) fn row_tip(item: &Item) -> &'static str {
@@ -69,12 +70,11 @@ fn short(path: &Path) -> String {
 }
 
 /// What a row reaches outside the tree and the content: the sessions'
-/// states, the drafts written for them, and the name being given.
+/// states, and the drafts written for them.
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) struct RowContext {
     pub(crate) completions: ReadSignal<Completions>,
     pub(crate) drafted: ReadSignal<HashSet<Tab>>,
-    pub(crate) renaming: Signal<Option<Rename>>,
 }
 
 /// What a row asks the window to do.
@@ -82,12 +82,8 @@ pub(crate) struct RowContext {
 pub(crate) struct RowEvents {
     /// Open the row as a click does.
     pub(crate) onopen: EventHandler<Item>,
-    /// Open a menu on the row, where the pointer is.
-    pub(crate) onmenu: EventHandler<(f64, f64, Target)>,
     /// Start a session where the row works.
     pub(crate) onstart: EventHandler<Item>,
-    pub(crate) onrename: EventHandler<(String, RenamePlace)>,
-    pub(crate) onrenamed: EventHandler<Rename>,
 }
 
 #[component]
@@ -298,7 +294,7 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
             oncontextmenu: move |e: Event<MouseData>| {
                 e.prevent_default();
                 let at = e.client_coordinates();
-                on.onmenu.call((at.x, at.y, target.clone()));
+                app.dispatch(Msg::MenuOpen { x: at.x, y: at.y, target: target.clone() });
             },
             if let Some((g, icon, tip)) = glyph_class {
                 span { class: "{g}", title: "{tip}", IconView { icon, size: 13 } }
@@ -313,9 +309,7 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
             span { class: "list-row-name",
                 if let Item::Session(id) = &it {
                     SessionName {
-                        id: id.clone(), name: text.clone(), place: RenamePlace::Sidebar, editing: context.renaming,
-                        onstart: move |asked| on.onrename.call(asked),
-                        onfinish: move |r| on.onrenamed.call(r),
+                        id: id.clone(), name: text.clone(), place: RenamePlace::Sidebar,
                     }
                 } else { "{text}" }
             }
@@ -373,7 +367,7 @@ pub(crate) fn WaitingRow(waiting: InboxItem, on: RowEvents) -> Element {
             oncontextmenu: move |e: Event<MouseData>| {
                 e.prevent_default();
                 let at = e.client_coordinates();
-                on.onmenu.call((at.x, at.y, target.clone()));
+                app.dispatch(Msg::MenuOpen { x: at.x, y: at.y, target: target.clone() });
             },
             span { class: "state-glyph wait", title: "waiting", style: "margin-top:2px",
                 IconView { icon: Icon::Bell, size: 13 }

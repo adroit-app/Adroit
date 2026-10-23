@@ -29,14 +29,12 @@ use crate::content::{
 use crate::daemon;
 use crate::details::{self, Entry, Sheet, Shot, Source};
 use crate::editor;
-use crate::icons::{Icon, IconView};
 use crate::image_window;
 use crate::keymap::{Chord, Context, Keymap, MENU_KEYS, Step};
 use crate::keys;
 use crate::keys_help::{self, Press};
 use crate::keys_help_view;
 use crate::layout::Side;
-use crate::menu::{self, Target};
 use crate::menu_bar;
 use crate::nav::{self, Item};
 use crate::pasted;
@@ -51,10 +49,9 @@ use crate::scratch::{self, Moment};
 use crate::sessions;
 use crate::settings;
 use crate::settings_window;
-use crate::shell::{
-    self, header::Header, overlays::KeysHelp, panels::Splitter, status_bar::StatusBar,
-};
-use crate::standing::{self, Standing};
+use crate::shell::overlays::{ConfirmDialog, ContextMenu, DaemonBanner, KeysHelp, old_daemon_note};
+use crate::shell::{self, header::Header, panels::Splitter, status_bar::StatusBar};
+use crate::standing;
 use crate::style::{CSS, CellHeight, DEFAULT_CELL_HEIGHT};
 use crate::themes;
 use crate::tree::{RowContext, RowEvents, TreePanel};
@@ -66,6 +63,9 @@ use crate::zoom;
 use adroit_agents as agents;
 use adroit_core::effect::Effect as CoreEffect;
 use adroit_core::msg::Msg;
+use adroit_core::overlay::confirm::Ask;
+use adroit_core::overlay::context_menu::Target;
+use adroit_core::overlay::{self, Holder};
 use adroit_core::tree as tree_view;
 
 fn shows_usage(tab: Option<&Tab>, agent: adroit_model::Agent) -> bool {
@@ -287,68 +287,6 @@ fn nvim_program() -> String {
 /// This program, as a session should call it to reach the window.
 fn adroit_program() -> PathBuf {
     std::env::current_exe().unwrap_or_else(|_| "adroit".into())
-}
-
-/// A question the window holds the keys for until it is answered.
-#[derive(Debug, Clone, PartialEq)]
-enum Ask {
-    Stop(Session),
-    KillProcess(Session, crate::processes::Process),
-    RestartDaemon,
-}
-
-impl Ask {
-    fn kill_process(session: Option<&Session>, entry: Option<&Entry>) -> Option<Self> {
-        match entry? {
-            Entry::Process(process) if !process.zombie => {
-                Some(Self::KillProcess(session?.clone(), process.clone()))
-            }
-            _ => None,
-        }
-    }
-
-    fn dialog(&self) -> (Icon, String, String, &'static str) {
-        match self {
-            Self::Stop(s) => (
-                Icon::PlayerStop,
-                format!("End {}?", s.name),
-                "The agent exits where it runs. Its conversation remains in the provider's history.".into(),
-                "End",
-            ),
-            Self::KillProcess(s, p) => (
-                Icon::X,
-                format!("Kill {}?", p.name),
-                format!("Send SIGKILL to PID {} in session {}? Unsaved work in this process will be lost.", p.pid, s.name),
-                "Kill process",
-            ),
-            Self::RestartDaemon => (
-                Icon::ServerBolt,
-                "Restart the sessions' daemon?".into(),
-                "Every session it holds ends: agents and shells, with what they scrolled back. Conversations remain in the provider's history.".into(),
-                "Restart daemon",
-            ),
-        }
-    }
-
-    /// Whether answering yes loses what cannot be had back.
-    fn destroys(&self) -> bool {
-        matches!(self, Self::KillProcess(..) | Self::RestartDaemon)
-    }
-}
-
-/// What the banner says of a daemon this window cannot work with, as
-/// `standing` has it; `None` while it can, or none answers.
-fn old_daemon_note(standing: &Standing) -> Option<String> {
-    match standing {
-        Standing::Incompatible(Some(said)) => Some(format!(
-            "It runs adroit {said}, and this window adroit {}.",
-            crate::standing::build()
-        )),
-        Standing::Incompatible(None) => {
-            Some("It runs a build of adroit too old to say which.".into())
-        }
-        Standing::Absent | Standing::Compatible => None,
-    }
 }
 
 /// Now, in milliseconds since the Unix epoch.
@@ -737,17 +675,7 @@ fn App() -> Element {
     let mut send_next = use_signal(|| false);
     // The images the consoles drew.
     let gallery = use_signal(Gallery::default);
-    // The interactive session the dialog asks to take over.
-    let mut confirm = use_signal(|| None::<Ask>);
     let keys_help = use_memo(move || app.chrome.read().keys_help.clone());
-    // How the daemon stands against this build, and whether the banner
-    // offering to restart an old one was put away.
-    let mut daemon_standing = use_signal(|| Standing::Absent);
-    let mut daemon_banner_closed = use_signal(|| false);
-    // The session being given a new name, and the name typed so far.
-    let mut renaming = use_signal(|| None::<Rename>);
-    // The menu a right click opened, where it was clicked and on what.
-    let mut menu = use_signal(|| None::<(f64, f64, Target)>);
     // Whether the console passes every key on to the session it shows.
     let mut direct = use_signal(|| false);
     // Whether the session in the console shows a dialog of Claude Code's own,
@@ -853,7 +781,8 @@ fn App() -> Element {
                 if let Err(e) = daemon.start(&adroit_program(), &daemon::serve_args()).await {
                     app.status(Some(format!("cannot start the sessions' daemon: {e}")));
                 }
-                daemon_standing.set(standing::settled(&daemon).await);
+                let standing = standing::settled(&daemon).await;
+                app.dispatch(Msg::DaemonStanding(old_daemon_note(&standing)));
                 // Replaced silently when of another build: it ends no session.
                 if let Err(e) = work_host::ensure(
                     &work_host::socket(),
@@ -1357,7 +1286,7 @@ fn App() -> Element {
     // Leaving the sidebar, or opening a menu, stops typing into the filter,
     // so the keys a menu names run what they name.
     use_effect(move || {
-        let left = focus() != Area::Sidebar || menu().is_some();
+        let left = focus() != Area::Sidebar || app.overlays.read().menu.is_some();
         if left && app.tree.peek().filtering {
             focus_filter(false);
         }
@@ -1893,8 +1822,8 @@ fn App() -> Element {
                     Ok(()) => app.notice("Restarted the sessions' daemon".into()),
                     Err(e) => app.status(Some(format!("cannot restart the sessions' daemon: {e}"))),
                 }
-                daemon_standing.set(standing::settled(&hub.daemon).await);
-                daemon_banner_closed.set(false);
+                let standing = standing::settled(&hub.daemon).await;
+                app.dispatch(Msg::DaemonRestarted(old_daemon_note(&standing)));
                 app.dispatch(Msg::Relist);
             });
         }
@@ -1941,56 +1870,6 @@ fn App() -> Element {
                 }
             });
         }
-    };
-
-    let mut begin_rename = move |id: String, place: RenamePlace| {
-        let found = nav::find(&tree.peek(), &id).map(|(_, s)| s.clone());
-        match found {
-            Some(s) if s.state.takes_every_key() => {
-                app.notice(format!("Answer {} first, then rename it", s.name))
-            }
-            Some(s) => renaming.set(Some(Rename::of(&s, place))),
-            None => {}
-        }
-    };
-
-    use_effect(move || {
-        let rename = renaming.read().clone();
-        if let Some(r) = rename {
-            let visible = match r.place {
-                RenamePlace::Sidebar => layout.read().show_sidebar
-                    && app.tree.read().rows.iter().any(
-                        |item| matches!(item, Item::Session(id) | Item::Waiting(id) if *id == r.id),
-                    ),
-                RenamePlace::Tab => app
-                    .content
-                    .read()
-                    .windows
-                    .tabs()
-                    .iter()
-                    .any(|t| matches!(&t.focused().shows, Tab::Session(id) if *id == r.id)),
-            };
-            if !visible {
-                renaming.set(None);
-            }
-        }
-    });
-
-    // Ask to end a session adroit runs, chosen as for a take-over.
-
-    let mut ask_stop = move |selection: bool| {
-        let t = tree.peek();
-        let chosen = match &app.tree.peek().selected {
-            Some(Item::Session(id) | Item::Waiting(id)) if selection => Some(id.clone()),
-            _ => match &app.active() {
-                Some(Tab::Session(id)) => Some(id.clone()),
-                _ => None,
-            },
-        };
-        let Some((_, s)) = chosen.as_deref().and_then(|id| nav::find(&t, id)) else {
-            return;
-        };
-        confirm.set(Some(Ask::Stop(s.clone())));
     };
 
     let active_pane = {
@@ -2308,9 +2187,16 @@ fn App() -> Element {
         let leave_reading = leave_reading.clone();
         let start_terminal = start_terminal.clone();
         let resume = resume.clone();
+        let stop = stop.clone();
+        let restart_daemon = restart_daemon.clone();
+        let send_rename = send_rename.clone();
         move || {
             app.hand_over(move |effect| match effect {
                 CoreEffect::Resume(past) => resume(past),
+                CoreEffect::Stop(session) => stop(session),
+                CoreEffect::KillProcess { session, process } => kill_process(session, process),
+                CoreEffect::RestartDaemon => restart_daemon(),
+                CoreEffect::Rename(r) => send_rename(r),
                 CoreEffect::ShowShot { shot, session } => {
                     show_shot(&shot, &session, &gallery.peek())
                 }
@@ -2353,11 +2239,7 @@ fn App() -> Element {
     // Where text typed or pasted now goes. A dialog open types in its own
     // field, or takes no text.
     let text_goes = move || {
-        if app.picker.peek().open.is_some()
-            || renaming.peek().is_some()
-            || confirm.peek().is_some()
-            || keys_help.peek().is_some()
-        {
+        if overlay::takes_text_away(&app.held()) {
             return Typed::Nowhere;
         }
         typed_into(app.focus(), shows_session(), *direct.peek(), waits())
@@ -2688,7 +2570,7 @@ fn App() -> Element {
                 Action::SessionResume => app.dispatch(Msg::ResumeOpen),
                 Action::SessionAgentNext => switch_agent(true),
                 Action::SessionAgentPrev => switch_agent(false),
-                Action::SessionStop => ask_stop(on_list),
+                Action::SessionStop => app.dispatch(Msg::ConfirmStop { selection: on_list }),
                 Action::SessionRename => {
                     let chosen = match &cur {
                         Some(Item::Session(id) | Item::Waiting(id)) if on_list => Some(id.clone()),
@@ -2703,7 +2585,7 @@ fn App() -> Element {
                         } else {
                             RenamePlace::Tab
                         };
-                        begin_rename(id, place);
+                        app.dispatch(Msg::RenameStart { id, place });
                     }
                 }
                 Action::ScrollDown if on_console => console_scroll(-1),
@@ -2848,7 +2730,7 @@ fn App() -> Element {
                 }
                 Action::WorktreesToggle => app.dispatch(Msg::TreeEveryWorktree),
                 Action::SettingsOpen => settings_window::open(),
-                Action::DaemonRestart => confirm.set(Some(Ask::RestartDaemon)),
+                Action::DaemonRestart => app.dispatch(Msg::Confirm(Box::new(Ask::RestartDaemon))),
                 Action::WindowClose => dioxus::desktop::window().close(),
                 Action::TreeToggle => toggle_panel(Side::Sidebar),
                 Action::DetailsToggle => toggle_panel(Side::Details),
@@ -2864,29 +2746,18 @@ fn App() -> Element {
         }
     };
 
-    // Run what a menu entry names on what the menu was opened on, as its key
-    // would with that row selected or that tab shown.
-    let run_menu = {
-        let mut perform = perform.clone();
-        move |target: Target, action: Action| {
-            menu.set(None);
-            match target {
-                Target::Row(item) => {
-                    app.dispatch(Msg::TreeSelect(Some(item)));
-                    app.dispatch(Msg::Focus(Area::Sidebar));
+    // What a menu entry runs, once the view state has selected what it was
+    // opened on.
+    use_hook({
+        let perform = RefCell::new(perform.clone());
+        move || {
+            app.hand_perform(move |action| {
+                if let Ok(mut perform) = perform.try_borrow_mut() {
+                    perform(action, None);
                 }
-                Target::Tab(tab) => {
-                    app.dispatch(Msg::TabReveal(tab));
-                    app.dispatch(Msg::Focus(Area::Console));
-                }
-                Target::Link { at, .. } => {
-                    app.dispatch(Msg::DetailsSelect(at));
-                    app.dispatch(Msg::Focus(Area::Details));
-                }
-            }
-            perform(action, None);
+            })
         }
-    };
+    });
     // Run an action from a button, where the keys are now.
     let run_button = {
         let mut perform = perform.clone();
@@ -2955,17 +2826,14 @@ fn App() -> Element {
             {
                 return;
             }
-            if app.picker.peek().open.is_some()
-                || renaming.peek().is_some()
-                || confirm.peek().is_some()
-            {
+            if overlay::holds_menu_bar(&app.held()) {
                 return;
             }
             if action != Action::SettingsOpen {
                 desktop.window.set_focus();
             }
             app.dispatch(Msg::KeysHelpClose);
-            menu.set(None);
+            app.dispatch(Msg::MenuClose);
             pending.set(Vec::new());
             perform(action, None);
         }
@@ -2976,8 +2844,6 @@ fn App() -> Element {
         let enter_reading = enter_reading.clone();
         let mut leave_reading = leave_reading.clone();
         let mut perform = perform.clone();
-        let stop = stop.clone();
-        let restart_daemon = restart_daemon.clone();
         move |key: Key| {
             if key.key == "Process"
                 || key.key == "Dead"
@@ -2986,51 +2852,26 @@ fn App() -> Element {
             {
                 return;
             }
-            // A key closes a menu left open, and does nothing else.
-            if menu.peek().is_some() {
-                keys::trace(|| "dropped: a menu was open");
-                menu.set(None);
-                return;
-            }
-            // The keys help holds the keys while it is shown.
-            let shown = keys_help.peek().clone();
-            if let Some(here) = shown {
-                match keys_help::press(&keymap.peek(), &here, &key) {
-                    Press::Close => app.dispatch(Msg::KeysHelpClose),
-                    Press::Scroll(lines) => keys_help_view::scroll(lines),
-                    Press::Nothing => {}
-                }
-                return;
-            }
-            // The picker holds the keys while it is open, and so does the list
-            // of past conversations.
-            let picking = app.picker.peek().open.is_some();
-            if picking {
-                app.dispatch(Msg::PickerKey(key));
-                return;
-            }
-            // Renaming, the keys are its field's; none act behind it.
-            if renaming.peek().is_some() {
-                keys::trace(|| "dropped: renaming");
-                return;
-            }
-            // The dialog holds the keys until it is answered.
-            let asked = confirm.peek().clone();
-            if let Some(ask) = asked {
-                keys::trace(|| format!("to the dialog: {ask:?}"));
-                match key.key.as_str() {
-                    "y" | "Enter" => {
-                        confirm.set(None);
-                        match ask {
-                            Ask::Stop(s) => stop(s),
-                            Ask::KillProcess(session, process) => kill_process(session, process),
-                            Ask::RestartDaemon => restart_daemon(),
+            // What is drawn over the window holds the keys while it is. The
+            // keys help reads the bindings, which live here.
+            match app.held().first().copied() {
+                Some(Holder::KeysHelp) => {
+                    let shown = keys_help.peek().clone();
+                    if let Some(here) = shown {
+                        match keys_help::press(&keymap.peek(), &here, &key) {
+                            Press::Close => app.dispatch(Msg::KeysHelpClose),
+                            Press::Scroll(lines) => keys_help_view::scroll(lines),
+                            Press::Nothing => {}
                         }
                     }
-                    "n" | "Escape" => confirm.set(None),
-                    _ => {}
+                    return;
                 }
-                return;
+                Some(holder) => {
+                    keys::trace(|| format!("to the {holder:?}"));
+                    app.dispatch(Msg::HeldKey(key));
+                    return;
+                }
+                None => {}
             }
             let area = app.focus();
             if area == Area::Prompt && matches!(text_goes(), Typed::Prompt) {
@@ -3415,11 +3256,10 @@ fn App() -> Element {
         }
         _ => false,
     };
+    let held = overlay::holding(&app.overlays.read(), &app.picker.read(), &app.chrome.read());
     let takes_text = match area {
         // A dialog's text is typed in its own field.
-        _ if app.picker.read().open.is_some() || renaming().is_some() => false,
-        _ if confirm().is_some() => false,
-        _ if keys_help().is_some() => false,
+        _ if overlay::takes_text_away(&held) => false,
         Area::Console => passing || answering || !session_shown,
         Area::Prompt => {
             answering || (selected_image().is_none() && matches!(mode.0, "insert" | "cmd"))
@@ -3489,11 +3329,6 @@ fn App() -> Element {
         Context::Global,
         &Action::ConsoleSend(Chord::parse("Ctrl+q").ok()),
     );
-    let old_daemon = if daemon_banner_closed() {
-        None
-    } else {
-        old_daemon_note(&daemon_standing.read())
-    };
 
     let focused_body = rsx! {
         div {
@@ -3635,25 +3470,14 @@ fn App() -> Element {
                     context: RowContext {
                         completions: completions.into(),
                         drafted: drafted.into(),
-                        renaming,
                     },
                     on: RowEvents {
                         onopen: EventHandler::new(move |item| {
                             open(item, Some(Opening::Existing), false);
                         }),
-                        onmenu: EventHandler::new(move |(x, y, target)| menu.set(Some((x, y, target)))),
-                        onstart: {
-                            let run = run_menu.clone();
-                            EventHandler::new(move |item| {
-                                let mut run = run.clone();
-                                run(Target::Row(item), Action::SessionNew);
-                            })
-                        },
-                        onrename: EventHandler::new(move |(id, place)| begin_rename(id, place)),
-                        onrenamed: {
-                            let send = send_rename.clone();
-                            EventHandler::new(send)
-                        },
+                        onstart: EventHandler::new(move |item| {
+                            app.dispatch(Msg::MenuRun { target: Target::Row(item), action: Action::SessionNew });
+                        }),
                     },
                     field: filter_field,
                     waiting_keys: (k_waiting_prev.clone(), k_waiting_next.clone()),
@@ -3677,24 +3501,11 @@ fn App() -> Element {
                     viewer_command,
                     completions,
                     drafted,
-                    renaming,
                     boxes: win_boxes,
                     frame,
                     cell_width: cw,
                     background: console_background.clone(),
-                    onmenu: move |(x, y, target)| menu.set(Some((x, y, target))),
-                    ontabclose: {
-                        let run = run_menu.clone();
-                        move |target| {
-                            let mut run = run.clone();
-                            run(target, Action::TabClose);
-                        }
-                    },
-                    onrename: move |(id, place)| begin_rename(id, place),
-                    onrenamed: {
-                        let send = send_rename.clone();
-                        move |r| send(r)
-                    },
+                    ontabclose: move |target| app.dispatch(Msg::MenuRun { target, action: Action::TabClose }),
                 }
                 if layout().show_details {
                     Splitter { side: Side::Details }
@@ -3714,27 +3525,16 @@ fn App() -> Element {
                         back_keys: k_back.clone(),
                         on_kill: move |(session, process): (Session, crate::processes::Process)| {
                             if let Some(ask) = Ask::kill_process(Some(&session), Some(&Entry::Process(process))) {
-                                confirm.set(Some(ask));
+                                app.dispatch(Msg::Confirm(Box::new(ask)));
                             }
                         },
                         on_menu: move |m: details::LinkMenu| {
-                            menu.set(Some((m.x, m.y, Target::Link { at: m.at, file: m.file })));
+                            app.dispatch(Msg::MenuOpen { x: m.x, y: m.y, target: Target::Link { at: m.at, file: m.file } });
                         },
                     }
                 }
             }
-            if let Some(note) = old_daemon {
-                div { class: "daemon-banner",
-                    IconView { icon: Icon::ServerBolt }
-                    span { class: "daemon-banner-title", "This window cannot work with the sessions' daemon" }
-                    span { class: "daemon-banner-note", title: "{note}", "{note} Restarting it ends every session it holds." }
-                    span { class: "flex-spacer" }
-                    button { class: "button", onclick: move |_| daemon_banner_closed.set(true), "Later" }
-                    button { class: "button danger", onclick: move |_| confirm.set(Some(Ask::RestartDaemon)),
-                        "Restart…"
-                    }
-                }
-            }
+            DaemonBanner {}
             StatusBar { mode: footer_mode, class: footer_class, dialog: in_dialog,
                 if let Some(k) = k_moves.clone() {
                     span { class: "kbd-list", Keys { keys: k } " move" }
@@ -3787,107 +3587,9 @@ fn App() -> Element {
                 }
             }
             Picker {}
-            if let Some((x, y, target)) = menu() {
-                {
-                    let session = match &target {
-                        Target::Row(Item::Session(id) | Item::Waiting(id))
-                        | Target::Tab(Tab::Session(id)) => nav::find(&t, id).map(|(_, s)| s.clone()),
-                        _ => None,
-                    };
-                    // The keys that work wherever the keys are come first.
-                    let contexts: &[Context] = match target {
-                        Target::Row(_) => &[Context::Global, Context::Tree],
-                        Target::Tab(_) => &[Context::Global, Context::Console, Context::Tree],
-                        Target::Link { .. } => &[Context::Details, Context::Tree, Context::Global],
-                    };
-                    // Each entry with whether a separator goes above it.
-                    let entries: Vec<(Action, &str, Option<String>, bool)> = menu::groups(&target, session.as_ref())
-                        .into_iter()
-                        .enumerate()
-                        .flat_map(|(g, group)| {
-                            group.into_iter().enumerate().map(move |(i, (a, label))| (a, label, g > 0 && i == 0))
-                        })
-                        .map(|(a, label, apart)| {
-                            let keys = km.keys_in(contexts, &a);
-                            (a, label, keys, apart)
-                        })
-                        .collect();
-                    rsx! {
-                        div {
-                            class: "context-menu-shade",
-                            onclick: move |_| menu.set(None),
-                            oncontextmenu: move |e: Event<MouseData>| {
-                                e.prevent_default();
-                                menu.set(None);
-                            },
-                            div {
-                                class: "context-menu",
-                                style: "left:{x}px;top:{y}px",
-                                onclick: move |e| e.stop_propagation(),
-                                for (action , label , keys , apart) in entries {
-                                    {
-                                        let target = target.clone();
-                                        let mut run = run_menu.clone();
-                                        let act = action.clone();
-                                        rsx! {
-                                            Fragment { key: "{action}",
-                                                if apart {
-                                                    div { class: "context-menu-sep" }
-                                                }
-                                                div {
-                                                    class: "context-menu-item",
-                                                    onclick: move |_| run(target.clone(), act.clone()),
-                                                    span { class: "context-menu-icon",
-                                                        if let Some(icon) = action.icon() {
-                                                            IconView { icon, size: 15 }
-                                                        }
-                                                    }
-                                                    span { class: "context-menu-label", "{label}" }
-                                                    if let Some(k) = keys {
-                                                        span { class: "context-menu-keys", Keys { keys: k } }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            ContextMenu { keymap: km.clone() }
             KeysHelp { keymap: km.clone() }
-            if let Some(ask) = confirm() {
-                {
-                    let stop = stop.clone();
-                    let restart_daemon = restart_daemon.clone();
-                    let (icon, title, body, act) = ask.dialog();
-                    rsx! {
-                        div { class: "dialog-scrim",
-                            div { class: "dialog",
-                                div { class: "dialog-title", IconView { icon, size: 16 } "{title}" }
-                                div { "{body}" }
-                                div { class: "dialog-actions",
-                                    button { class: "button", onclick: move |_| confirm.set(None),
-                                        kbd { "n" } "Cancel"
-                                    }
-                                    button { class: if ask.destroys() { "button danger" } else { "button primary" },
-                                        onclick: move |_| {
-                                            confirm.set(None);
-                                            match &ask {
-                                                Ask::Stop(s) => stop(s.clone()),
-                                                Ask::KillProcess(session, process) => kill_process(session.clone(), process.clone()),
-                                                Ask::RestartDaemon => restart_daemon(),
-                                            }
-                                        },
-                                        kbd { "y" } "{act}"
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            ConfirmDialog {}
         }
     }
 }
@@ -3895,61 +3597,6 @@ fn App() -> Element {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_daemon_this_window_cannot_work_with_is_named_beside_this_window_s_build() {
-        let note = old_daemon_note(&Standing::Incompatible(Some(
-            "0.1.0 (v0.1.0-3-gabc)".into(),
-        )))
-        .unwrap();
-        assert!(note.contains("0.1.0 (v0.1.0-3-gabc)"), "{note}");
-        assert!(note.contains(&standing::build()), "{note}");
-    }
-
-    #[test]
-    fn a_daemon_too_old_to_say_its_versions_is_shown_too() {
-        assert!(old_daemon_note(&Standing::Incompatible(None)).is_some());
-    }
-
-    #[test]
-    fn a_daemon_this_window_can_work_with_or_none_at_all_shows_no_banner() {
-        assert_eq!(old_daemon_note(&Standing::Compatible), None);
-        assert_eq!(old_daemon_note(&Standing::Absent), None);
-    }
-
-    #[test]
-    fn restarting_the_daemon_is_asked_as_a_loss_as_killing_a_process_is() {
-        assert!(Ask::RestartDaemon.destroys());
-        assert!(!Ask::Stop(Session::default()).destroys());
-    }
-
-    #[test]
-    fn killing_an_overview_process_requires_a_confirmation_bound_to_its_session_and_identity() {
-        let session = Session {
-            id: "session-one".into(),
-            name: "work".into(),
-            ..Default::default()
-        };
-        let mut process = crate::processes::Process {
-            pid: 123,
-            started_secs: 456,
-            name: "node_repl".into(),
-            ..Default::default()
-        };
-        let ask =
-            Ask::kill_process(Some(&session), Some(&Entry::Process(process.clone()))).unwrap();
-        assert_eq!(ask, Ask::KillProcess(session.clone(), process.clone()));
-        let (_, title, body, action) = ask.dialog();
-        assert!(title.contains("node_repl"));
-        assert!(body.contains("123"));
-        assert!(body.contains("work"));
-        assert!(body.contains("SIGKILL"));
-        assert_eq!(action, "Kill process");
-        assert!(Ask::kill_process(None, Some(&Entry::Process(process.clone()))).is_none());
-        assert!(Ask::kill_process(Some(&session), None).is_none());
-        process.zombie = true;
-        assert!(Ask::kill_process(Some(&session), Some(&Entry::Process(process))).is_none());
-    }
 
     #[test]
     fn usage_depends_only_on_the_console_agent() {

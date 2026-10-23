@@ -4,12 +4,14 @@
 
 use std::rc::Rc;
 
+use adroit_core::actions::Action;
 use adroit_core::chrome::Chrome;
 use adroit_core::content::{Area, ContentView, Tab, kept_name};
 use adroit_core::details::{Details, Scroll};
 use adroit_core::effect::Effect;
 use adroit_core::host::Host as HostView;
 use adroit_core::msg::Msg;
+use adroit_core::overlay::{self, Holder, Overlays};
 use adroit_core::picker::PickerView;
 use adroit_core::state::ViewState;
 use adroit_core::tree::TreeView;
@@ -24,6 +26,9 @@ use crate::settings;
 
 /// What runs an effect handed to `App`.
 type Handed = Rc<dyn Fn(Effect)>;
+
+/// What runs an action handed to `App`.
+type Performer = Rc<dyn Fn(Action)>;
 
 /// What components read of the view state and how they change it. A slice's
 /// signal is set only when `step` changed that slice, so a component reading
@@ -40,8 +45,11 @@ pub(crate) struct AppCtx {
     pub(crate) tree: Signal<TreeView>,
     pub(crate) details: Signal<Details>,
     pub(crate) picker: Signal<PickerView>,
+    pub(crate) overlays: Signal<Overlays>,
     /// What runs the effects whose state `App` still holds.
     handed: CopyValue<Option<Handed>>,
+    /// What runs an action where the keys are now, which `App` still does.
+    performer: CopyValue<Option<Performer>>,
 }
 
 /// The window's view state, opened once for the component that calls it,
@@ -79,7 +87,9 @@ pub(crate) fn use_app() -> AppCtx {
             tree: Signal::new(view.tree.clone()),
             details: Signal::new(view.details.clone()),
             picker: Signal::new(view.picker.clone()),
+            overlays: Signal::new(view.overlays.clone()),
             handed: CopyValue::new(None),
+            performer: CopyValue::new(None),
             view: CopyValue::new(view),
             link: CopyValue::new(link),
             loopback: CopyValue::new(loopback),
@@ -114,6 +124,7 @@ impl AppCtx {
         set_changed(self.tree, &view.tree);
         set_changed(self.details, &view.details);
         set_changed(self.picker, &view.picker);
+        set_changed(self.overlays, &view.overlays);
     }
 
     /// Start keeping read, in the background, what the window shows and
@@ -128,6 +139,22 @@ impl AppCtx {
     pub(crate) fn hand_over(&self, run: impl Fn(Effect) + 'static) {
         let mut handed = self.handed;
         handed.set(Some(Rc::new(run)));
+    }
+
+    /// Hand the actions a menu entry runs to `perform`.
+    pub(crate) fn hand_perform(&self, perform: impl Fn(Action) + 'static) {
+        let mut performer = self.performer;
+        performer.set(Some(Rc::new(perform)));
+    }
+
+    /// What is drawn over the window and holds the keys, the first to
+    /// take a key first.
+    pub(crate) fn held(&self) -> Vec<Holder> {
+        overlay::holding(
+            &self.overlays.peek(),
+            &self.picker.peek(),
+            &self.chrome.peek(),
+        )
     }
 
     fn run(&self, effects: Vec<Effect>) {
@@ -182,7 +209,17 @@ impl AppCtx {
             | Effect::StartWriting
             | Effect::PromptEntered
             | Effect::KeepPanes { .. }
-            | Effect::Resume(_)) => self.hand(effect),
+            | Effect::Resume(_)
+            | Effect::Stop(_)
+            | Effect::KillProcess { .. }
+            | Effect::RestartDaemon
+            | Effect::Rename(_)) => self.hand(effect),
+            Effect::Perform(action) => {
+                let performer = self.performer.read().clone();
+                if let Some(perform) = performer {
+                    perform(action);
+                }
+            }
             Effect::KeepLayout(layout) => layout.save(),
             Effect::LapseNotice {
                 notice,

@@ -12,6 +12,9 @@ use crate::content::{Area, Border, DraftOptions, Opening, Tab, WindowId};
 use crate::details::{self, Sheet};
 use crate::keymap::Context;
 use crate::layout::{Layout, Side};
+use crate::overlay::confirm::Ask;
+use crate::overlay::context_menu::Target;
+use crate::overlay::rename::Place as RenamePlace;
 use crate::tree;
 use crate::tree::nav::{Item, Place};
 use crate::zoom;
@@ -212,4 +215,53 @@ pub enum Msg {
     PickerDir(PathBuf),
     /// List every directory's conversations, or the directory's again.
     PickerEvery,
+
+    // The overlays.
+    /// A key while something drawn over the window holds the keys.
+    HeldKey(Key),
+    /// A right click opened a menu at `x`, `y` on `target`.
+    MenuOpen {
+        x: f64,
+        y: f64,
+        target: Target,
+    },
+    MenuClose,
+    /// Run `action` on `target`, as its key would there.
+    MenuRun {
+        target: Target,
+        action: Action,
+    },
+    /// Ask this, holding the keys until it is answered.
+    Confirm(Box<Ask>),
+    /// Ask to end the selected row's session, from the tree, or else the
+    /// one shown.
+    ConfirmStop {
+        selection: bool,
+    },
+    /// The question answered yes or no.
+    ConfirmAnswer(bool),
+    /// Start typing a new name for the session `id` where `place` shows it.
+    RenameStart {
+        id: String,
+        place: RenamePlace,
+    },
+    /// The field for the session `id` where `place` shows it now holds
+    /// `text`.
+    RenameText {
+        id: String,
+        place: RenamePlace,
+        text: String,
+    },
+    /// The field left, the name typed kept or given up.
+    RenameEnd {
+        id: String,
+        place: RenamePlace,
+        commit: bool,
+    },
+    /// How the sessions' daemon stands, as the banner would say it.
+    DaemonStanding(Option<String>),
+    /// The daemon was restarted, and now stands so.
+    DaemonRestarted(Option<String>),
+    /// The banner was put away.
+    BannerClose,
 }

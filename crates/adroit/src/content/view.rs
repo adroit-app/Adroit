@@ -14,9 +14,8 @@ use super::window::{ContentWindow, WindowBorder, window_strip};
 use crate::actions::Action;
 use crate::bridge::AppCtx;
 use crate::content::{Tab, WindowId};
-use crate::menu::Target;
-use crate::rename::{Place as RenamePlace, Rename};
 use crate::viewers;
+use adroit_core::overlay::context_menu::Target;
 
 /// The panel, drawn `focused` while the console or the prompt has the keys.
 /// `focused_body` is what the focused window shows under its strip, the
@@ -29,16 +28,12 @@ pub(crate) fn ContentPanel(
     viewer_command: ReadSignal<Option<(WindowId, viewers::Command)>>,
     completions: ReadSignal<Completions>,
     drafted: ReadSignal<HashSet<Tab>>,
-    renaming: Signal<Option<Rename>>,
     boxes: Signal<HashMap<WindowId, (f64, f64)>>,
     frame: Signal<u64>,
     cell_width: f64,
     background: String,
-    onmenu: EventHandler<(f64, f64, Target)>,
     /// A tab's close button was pressed, after its tab was shown.
     ontabclose: EventHandler<Target>,
-    onrename: EventHandler<(String, RenamePlace)>,
-    onrenamed: EventHandler<Rename>,
 ) -> Element {
     let app = use_context::<AppCtx>();
     // How large the content's windows are drawn, which a border's drag is
@@ -95,7 +90,7 @@ pub(crate) fn ContentPanel(
     rsx! {
         div { class: if focused { "app-panel center-panel focused" } else { "app-panel center-panel" },
             onmousedown: move |_| app.dispatch(Msg::Focus(crate::content::Area::Console)),
-            TabsBar { completions, drafted, renaming, onmenu, onclose: ontabclose, onrename, onrenamed }
+            TabsBar { completions, drafted, onclose: ontabclose }
             div { class: "content-windows",
                 onresize: move |e: Event<ResizeData>| {
                     e.stop_propagation();

@@ -30,7 +30,6 @@ use adroit_core::keys_edit;
 use adroit_core::keys_help;
 mod keys_help_view;
 mod keys_pane;
-pub use adroit_core::overlay::context_menu as menu;
 use adroit_runtime::layout;
 pub mod menu_bar;
 mod picker;

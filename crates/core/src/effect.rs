@@ -6,9 +6,13 @@ use adroit_protocol::Request;
 
 use std::collections::BTreeSet;
 
+use adroit_model::{Process, Session};
+
+use crate::actions::Action;
 use crate::content::{Tab, TerminalAsk};
 use crate::details::{Scroll, Shot};
 use crate::layout::Layout;
+use crate::overlay::rename::Rename;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Effect {
@@ -69,4 +73,16 @@ pub enum Effect {
     /// Tell the user, outside the window, that these sessions started
     /// waiting, each by its name and what it waits for.
     NotifyWaiting(Vec<(String, String)>),
+
+    // The overlays.
+    /// Run `action` where the keys are now.
+    Perform(Action),
+    /// End this session.
+    Stop(Session),
+    /// Kill `process`, which runs in `session`.
+    KillProcess { session: Session, process: Process },
+    /// Replace the sessions' daemon with one of this build.
+    RestartDaemon,
+    /// Name a session anew.
+    Rename(Rename),
 }
