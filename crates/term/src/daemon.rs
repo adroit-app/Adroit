@@ -30,7 +30,7 @@ pub enum Error {
     NotFound(String),
     #[error("the daemon at {0} did not start")]
     NotStarted(PathBuf),
-    #[error("{0} is not a folder of yours alone, as the daemon's socket needs")]
+    #[error("{0} is not a folder of yours alone, as a host's socket needs")]
     OpenFolder(PathBuf),
     #[error("{0}")]
     Protocol(String),
@@ -149,34 +149,19 @@ impl Daemon {
 
     /// The process listening at the socket, whatever it answers, if any does.
     pub fn pid(&self) -> Option<u32> {
-        let stream = std::os::unix::net::UnixStream::connect(&self.socket).ok()?;
-        peer_pid(&stream)
+        listening(&self.socket)
     }
 
     /// Stop the daemon, ending every session it holds, and wait until its
     /// process is gone; whether one was listening to stop.
     pub async fn stop(&self) -> Result<bool> {
-        let Some(pid) = self.pid() else {
-            return Ok(false);
-        };
         // A daemon from before felis could be asked to stop, or one too busy
         // to answer, is signalled instead.
-        let asked = tokio::time::timeout(ASK_STOP, async {
+        stop_listening(&self.socket, || async {
             self.ops().await?.daemon_stop(StopMode::Force).await?;
-            Ok::<_, Error>(())
+            Ok(())
         })
-        .await;
-        if matches!(asked, Ok(Ok(()))) && gone(pid, STOPPING).await {
-            return Ok(true);
-        }
-        for signal in [libc::SIGTERM, libc::SIGKILL] {
-            // SAFETY: kill(2) only sends a signal to the process named.
-            unsafe { libc::kill(pid as libc::pid_t, signal) };
-            if gone(pid, STOPPING).await {
-                return Ok(true);
-            }
-        }
-        Err(Error::NotStopped(pid))
+        .await
     }
 
     /// Stop the daemon if one listens, then start `program` with `args` as
@@ -376,7 +361,7 @@ pub(crate) fn spawn_args(spawn: Spawn) -> SpawnArgs {
 /// own, and a child of the system rather than of adroit, so neither closing
 /// adroit nor ending its process tree, as a tool stopping it does, ends the
 /// program.
-pub(crate) fn detached(program: &Path, args: &[String]) -> std::io::Result<()> {
+pub fn detached(program: &Path, args: &[String]) -> std::io::Result<()> {
     use std::os::unix::process::CommandExt;
     // The shell leads a new session, starts the program in the background
     // and exits, leaving the program to the system.
@@ -403,6 +388,36 @@ pub(crate) fn detached(program: &Path, args: &[String]) -> std::io::Result<()> {
             program.display()
         )))
     }
+}
+
+/// The process listening at `socket`, whatever it answers, if any does.
+pub fn listening(socket: &Path) -> Option<u32> {
+    let stream = std::os::unix::net::UnixStream::connect(socket).ok()?;
+    peer_pid(&stream)
+}
+
+/// Stop the process listening at `socket` and wait until it is gone, asking
+/// it with `ask` first and signalling it when that fails or it does not end;
+/// whether one was listening to stop.
+pub async fn stop_listening<F>(socket: &Path, ask: impl FnOnce() -> F) -> Result<bool>
+where
+    F: std::future::Future<Output = Result<()>>,
+{
+    let Some(pid) = listening(socket) else {
+        return Ok(false);
+    };
+    let asked = tokio::time::timeout(ASK_STOP, ask()).await;
+    if matches!(asked, Ok(Ok(()))) && gone(pid, STOPPING).await {
+        return Ok(true);
+    }
+    for signal in [libc::SIGTERM, libc::SIGKILL] {
+        // SAFETY: kill(2) only sends a signal to the process named.
+        unsafe { libc::kill(pid as libc::pid_t, signal) };
+        if gone(pid, STOPPING).await {
+            return Ok(true);
+        }
+    }
+    Err(Error::NotStopped(pid))
 }
 
 /// How long a daemon is given to take the request to stop.
@@ -472,9 +487,9 @@ fn peer_pid(stream: &std::os::unix::net::UnixStream) -> Option<u32> {
     (read == 0 && cred.pid > 0).then_some(cred.pid as u32)
 }
 
-/// Make the folder `socket` is in, open to no one else, as the daemon
-/// listens only in such a folder; one already there has to be so.
-fn own_dir(socket: &Path) -> Result<()> {
+/// Make the folder `socket` is in, open to no one else, as adroit's hosts
+/// listen only in such a folder; one already there has to be so.
+pub fn own_dir(socket: &Path) -> Result<()> {
     use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
     let Some(dir) = socket.parent().filter(|d| !d.as_os_str().is_empty()) else {
         return Ok(());

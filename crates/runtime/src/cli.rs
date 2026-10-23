@@ -17,6 +17,7 @@ pub enum Command {
     Editor(Vec<String>),
     Session(Vec<String>),
     Daemon(DaemonCommand),
+    Host(HostCommand),
 }
 
 /// What `adroit daemon` is asked to do with the daemon of the instance.
@@ -27,7 +28,15 @@ pub enum DaemonCommand {
     Restart,
 }
 
-pub const USAGE: &str = "usage: adroit [--instance <name> | --version | terminal … | mcp … | editor … | session … | daemon [stop | restart]]";
+/// What `adroit host` is asked to do with the work host of the instance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostCommand {
+    Serve,
+    Stop,
+    Restart,
+}
+
+pub const USAGE: &str = "usage: adroit [--instance <name> | --version | terminal … | mcp … | editor … | session … | daemon [stop | restart] | host [stop | restart]]";
 
 /// The command `args` ask for; `None` for one adroit does not know, which
 /// must not open a window: a program that ran an older adroit's subcommand
@@ -51,6 +60,12 @@ pub fn command(args: &[String]) -> Option<Command> {
             [] => Some(Command::Daemon(DaemonCommand::Serve)),
             [verb] if verb == "stop" => Some(Command::Daemon(DaemonCommand::Stop)),
             [verb] if verb == "restart" => Some(Command::Daemon(DaemonCommand::Restart)),
+            _ => None,
+        },
+        Some("host") => match &args[1..] {
+            [] => Some(Command::Host(HostCommand::Serve)),
+            [verb] if verb == "stop" => Some(Command::Host(HostCommand::Stop)),
+            [verb] if verb == "restart" => Some(Command::Host(HostCommand::Restart)),
             _ => None,
         },
         _ => None,
@@ -128,6 +143,15 @@ mod tests {
         assert_eq!(
             asked(&["daemon", "restart"]),
             Some(Command::Daemon(DaemonCommand::Restart))
+        );
+        assert_eq!(asked(&["host"]), Some(Command::Host(HostCommand::Serve)));
+        assert_eq!(
+            asked(&["host", "stop"]),
+            Some(Command::Host(HostCommand::Stop))
+        );
+        assert_eq!(
+            asked(&["host", "restart"]),
+            Some(Command::Host(HostCommand::Restart))
         );
         assert_eq!(asked(&["--version"]), Some(Command::Version));
     }

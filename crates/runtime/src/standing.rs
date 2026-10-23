@@ -1,4 +1,5 @@
-//! Which build of adroit the daemon listening is, told apart from this one.
+//! Whether the window can work with the hosts listening, judged by the
+//! versions of their protocols they say they speak, and which build each is.
 
 use std::path::{Path, PathBuf};
 
@@ -8,7 +9,7 @@ use adroit_term::Daemon;
 /// for one built outside a checkout, which its version alone names.
 pub const DESCRIBED: Option<&str> = option_env!("ADROIT_DESCRIBE");
 
-/// The build of adroit this is, to tell a daemon of another from.
+/// The build of adroit this is, as a host says it.
 pub fn build() -> String {
     build_of(env!("CARGO_PKG_VERSION"), DESCRIBED)
 }
@@ -20,28 +21,34 @@ fn build_of(version: &str, described: Option<&str>) -> String {
     }
 }
 
-/// How the daemon listening stands against this build.
+/// Whether two peers share a version of a protocol.
+pub fn shares(theirs: &[u32], ours: &[u32]) -> bool {
+    theirs.iter().any(|v| ours.contains(v))
+}
+
+/// How the terminal host listening stands against this build.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Standing {
     /// None listens.
     Absent,
-    Current,
-    /// Of another build: the one it says, or `None` when it is too old to
-    /// say.
-    Old(Option<String>),
+    /// It speaks a version of the terminal protocol this build does.
+    Compatible,
+    /// It speaks none this build does: of the build it says, or `None` when
+    /// it is too old to say which versions it speaks.
+    Incompatible(Option<String>),
 }
 
-/// How the daemon at `daemon` stands against this build.
+/// How the terminal host at `daemon` stands against this build.
 pub fn standing(daemon: &Daemon) -> Standing {
-    judge(daemon.pid(), stamped(daemon.socket()), &build())
+    judge(daemon.pid(), said(daemon.socket()), adroit_term::SPEAKS)
 }
 
-/// [`standing`], giving a daemon that has only just started a moment to say
-/// its build.
+/// [`standing`], giving a terminal host that has only just started a moment
+/// to say its versions.
 pub async fn settled(daemon: &Daemon) -> Standing {
     let mut stands = standing(daemon);
     for _ in 0..20 {
-        if stands != Standing::Old(None) {
+        if stands != Standing::Incompatible(None) {
             break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -50,50 +57,86 @@ pub async fn settled(daemon: &Daemon) -> Standing {
     stands
 }
 
-/// How a daemon stands, from the process listening and the build last said
-/// beside its socket, by the process that said it.
-fn judge(listening: Option<u32>, said: Option<(u32, String)>, build: &str) -> Standing {
+/// What a terminal host said beside its socket.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Said {
+    /// The process that said it.
+    pid: u32,
+    build: String,
+    speaks: Vec<u32>,
+}
+
+/// How a terminal host stands, from the process listening and what was said
+/// last beside its socket.
+fn judge(listening: Option<u32>, said: Option<Said>, ours: &[u32]) -> Standing {
     let Some(pid) = listening else {
         return Standing::Absent;
     };
     match said {
-        Some((by, said)) if by == pid && said == build => Standing::Current,
-        Some((by, said)) if by == pid => Standing::Old(Some(said)),
-        // What another process said is left from a daemon gone before.
-        _ => Standing::Old(None),
+        Some(said) if said.pid == pid && shares(&said.speaks, ours) => Standing::Compatible,
+        Some(said) if said.pid == pid => Standing::Incompatible(Some(said.build)),
+        // What another process said is left from a host gone before.
+        _ => Standing::Incompatible(None),
     }
 }
 
-/// Where the daemon at `socket` says which build it is.
-fn stamp_path(socket: &Path) -> PathBuf {
-    socket.with_extension("build")
+/// Where the terminal host at `socket` says what it speaks. A host from
+/// before protocols had versions wrote its build elsewhere, and so says none.
+fn says_path(socket: &Path) -> PathBuf {
+    socket.with_extension("speaks")
 }
 
-/// Say beside `socket` that process `pid` serving there is `build`.
-fn stamp(socket: &Path, pid: u32, build: &str) -> std::io::Result<()> {
-    let path = stamp_path(socket);
+/// Say beside `socket` what the process serving there speaks.
+fn say(socket: &Path, said: &Said) -> std::io::Result<()> {
+    let path = says_path(socket);
     // Written aside and moved in, so a window never reads it half written.
-    let aside = path.with_extension(format!("build.{pid}"));
-    std::fs::write(&aside, format!("{pid}\n{build}\n"))?;
+    let aside = path.with_extension(format!("speaks.{}", said.pid));
+    let versions: Vec<String> = said.speaks.iter().map(u32::to_string).collect();
+    std::fs::write(
+        &aside,
+        format!(
+            "pid {}\nbuild {}\nspeaks {}\n",
+            said.pid,
+            said.build,
+            versions.join(" ")
+        ),
+    )?;
     std::fs::rename(&aside, &path)
 }
 
-/// The process and build said last beside `socket`.
-fn stamped(socket: &Path) -> Option<(u32, String)> {
-    let text = std::fs::read_to_string(stamp_path(socket)).ok()?;
-    let (pid, build) = text.trim_end().split_once('\n')?;
-    Some((pid.parse().ok()?, build.into()))
+/// What was said last beside `socket`.
+fn said(socket: &Path) -> Option<Said> {
+    let text = std::fs::read_to_string(says_path(socket)).ok()?;
+    let field = |key: &str| {
+        text.lines()
+            .find_map(|line| line.strip_prefix(key)?.strip_prefix(' '))
+    };
+    Some(Said {
+        pid: field("pid")?.parse().ok()?,
+        build: field("build")?.into(),
+        speaks: field("speaks")?
+            .split_whitespace()
+            .map(str::parse)
+            .collect::<Result<_, _>>()
+            .ok()?,
+    })
 }
 
-/// Say `build` beside the socket once this process listens there; nothing
-/// when another process does, as this one is then about to fail.
-pub(crate) async fn stamp_when_listening(daemon: &Daemon, build: &str) {
+/// Say `build` and the terminal protocol's versions beside the socket once
+/// this process listens there; nothing when another process does, as this
+/// one is then about to fail.
+pub(crate) async fn say_when_listening(daemon: &Daemon, build: &str, speaks: &[u32]) {
     let me = std::process::id();
     for _ in 0..500 {
         match daemon.pid() {
             Some(pid) if pid == me => {
-                if let Err(e) = stamp(daemon.socket(), me, build) {
-                    eprintln!("adroit: cannot say the daemon's build: {e}");
+                let said = Said {
+                    pid: me,
+                    build: build.into(),
+                    speaks: speaks.to_vec(),
+                };
+                if let Err(e) = say(daemon.socket(), &said) {
+                    eprintln!("adroit: cannot say what the terminal host speaks: {e}");
                 }
                 return;
             }
@@ -103,9 +146,44 @@ pub(crate) async fn stamp_when_listening(daemon: &Daemon, build: &str) {
     }
 }
 
+/// What the window does with the work host listening.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WorkHost {
+    /// None listens: start one.
+    Absent,
+    /// Of this build and speaking a version the window does.
+    Keep,
+    /// One the window cannot work with, of another build, or one that says
+    /// nothing: replace it, which ends no session.
+    Replace,
+}
+
+/// How the work host stands, from what it said when asked, against `ours`
+/// and `build`; `said` is `None` where none listens, and `Some(None)` where
+/// one listens but says nothing it can be judged by.
+pub fn judge_work_host(
+    said: Option<Option<(&[u32], &str)>>,
+    ours: &[u32],
+    build: &str,
+) -> WorkHost {
+    match said {
+        None => WorkHost::Absent,
+        Some(Some((speaks, said))) if shares(speaks, ours) && said == build => WorkHost::Keep,
+        Some(_) => WorkHost::Replace,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn said(pid: u32, build: &str, speaks: &[u32]) -> Option<Said> {
+        Some(Said {
+            pid,
+            build: build.into(),
+            speaks: speaks.to_vec(),
+        })
+    }
 
     #[test]
     fn a_build_is_named_by_its_version_and_what_git_said_of_its_source() {
@@ -117,38 +195,90 @@ mod tests {
     }
 
     #[test]
-    fn a_daemon_of_this_build_stands_current_and_one_of_another_stands_old() {
-        let ours = Some((42, "0.3.0".to_string()));
-        assert_eq!(judge(Some(42), ours.clone(), "0.3.0"), Standing::Current);
+    fn a_terminal_host_sharing_a_version_is_worked_with_whatever_its_build() {
         assert_eq!(
-            judge(Some(42), ours, "0.4.0"),
-            Standing::Old(Some("0.3.0".into()))
+            judge(Some(42), said(42, "0.2.0", &[1]), &[1]),
+            Standing::Compatible
+        );
+        assert_eq!(
+            judge(Some(42), said(42, "0.4.0", &[1, 2]), &[2, 3]),
+            Standing::Compatible
         );
     }
 
     #[test]
-    fn a_daemon_too_old_to_say_its_build_stands_old() {
-        assert_eq!(judge(Some(42), None, "0.3.0"), Standing::Old(None));
-        let another_process = Some((7, "0.3.0".to_string()));
+    fn a_terminal_host_sharing_no_version_is_one_the_window_cannot_work_with() {
         assert_eq!(
-            judge(Some(42), another_process, "0.3.0"),
-            Standing::Old(None)
+            judge(Some(42), said(42, "0.2.0", &[1]), &[2]),
+            Standing::Incompatible(Some("0.2.0".into()))
+        );
+        assert_eq!(
+            judge(Some(42), said(42, "0.2.0", &[]), &[1]),
+            Standing::Incompatible(Some("0.2.0".into()))
         );
     }
 
     #[test]
-    fn where_no_daemon_listens_nothing_stands() {
-        let left = Some((42, "0.3.0".to_string()));
-        assert_eq!(judge(None, left, "0.3.0"), Standing::Absent);
+    fn a_terminal_host_too_old_to_say_its_versions_is_one_the_window_cannot_work_with() {
+        assert_eq!(judge(Some(42), None, &[1]), Standing::Incompatible(None));
+        assert_eq!(
+            judge(Some(42), said(7, "0.3.0", &[1]), &[1]),
+            Standing::Incompatible(None)
+        );
     }
 
     #[test]
-    fn the_build_a_daemon_writes_beside_its_socket_is_read_back() {
+    fn where_no_terminal_host_listens_nothing_stands() {
+        assert_eq!(judge(None, said(42, "0.3.0", &[1]), &[1]), Standing::Absent);
+    }
+
+    #[test]
+    fn what_a_terminal_host_says_beside_its_socket_is_read_back() {
         let dir = tempfile::tempdir().unwrap();
         let socket = dir.path().join("daemon.sock");
-        assert_eq!(stamped(&socket), None);
-        stamp(&socket, 42, "0.3.0 (v0.2.0-4-gabc)").unwrap();
-        assert_eq!(stamped(&socket), Some((42, "0.3.0 (v0.2.0-4-gabc)".into())));
+        assert_eq!(super::said(&socket), None);
+        let saying = said(42, "0.3.0 (v0.2.0-4-gabc)", &[1, 2]).unwrap();
+        say(&socket, &saying).unwrap();
+        assert_eq!(super::said(&socket), Some(saying));
+    }
+
+    #[test]
+    fn the_build_a_host_from_before_versions_wrote_says_no_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("daemon.sock");
+        std::fs::write(socket.with_extension("build"), "42\n0.3.0\n").unwrap();
+        assert_eq!(super::said(&socket), None);
+    }
+
+    #[test]
+    fn a_work_host_of_this_build_speaking_a_shared_version_is_kept() {
+        let speaks: &[u32] = &[1, 2];
+        assert_eq!(
+            judge_work_host(Some(Some((speaks, "0.3.0"))), &[2], "0.3.0"),
+            WorkHost::Keep
+        );
+    }
+
+    #[test]
+    fn a_work_host_of_another_build_or_sharing_no_version_is_replaced() {
+        let speaks: &[u32] = &[1];
+        assert_eq!(
+            judge_work_host(Some(Some((speaks, "0.2.0"))), &[1], "0.3.0"),
+            WorkHost::Replace
+        );
+        assert_eq!(
+            judge_work_host(Some(Some((speaks, "0.3.0"))), &[2], "0.3.0"),
+            WorkHost::Replace
+        );
+        assert_eq!(
+            judge_work_host(Some(None), &[1], "0.3.0"),
+            WorkHost::Replace
+        );
+    }
+
+    #[test]
+    fn where_no_work_host_listens_one_is_started() {
+        assert_eq!(judge_work_host(None, &[1], "0.3.0"), WorkHost::Absent);
     }
 
     /// A folder for a socket, whose path has to be short.
@@ -160,16 +290,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_daemon_says_its_build_once_it_listens_itself() {
+    async fn a_terminal_host_says_its_versions_once_it_listens_itself() {
         let dir = short_dir();
         let socket = dir.path().join("d.sock");
         let _listening = std::os::unix::net::UnixListener::bind(&socket).unwrap();
-        stamp_when_listening(&Daemon::new(&socket), "0.3.0").await;
-        assert_eq!(stamped(&socket), Some((std::process::id(), "0.3.0".into())));
+        say_when_listening(&Daemon::new(&socket), "0.3.0", &[1]).await;
+        assert_eq!(
+            super::said(&socket),
+            said(std::process::id(), "0.3.0", &[1])
+        );
+        assert_eq!(standing(&Daemon::new(&socket)), Standing::Compatible);
     }
 
     #[tokio::test]
-    async fn a_daemon_just_started_is_given_a_moment_to_say_its_build() {
+    async fn a_terminal_host_just_started_is_given_a_moment_to_say_its_versions() {
         let dir = short_dir();
         let socket = dir.path().join("d.sock");
         let _listening = std::os::unix::net::UnixListener::bind(&socket).unwrap();
@@ -177,15 +311,16 @@ mod tests {
             let socket = socket.clone();
             tokio::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-                stamp(&socket, std::process::id(), &build()).unwrap();
+                let said = said(std::process::id(), &build(), adroit_term::SPEAKS).unwrap();
+                say(&socket, &said).unwrap();
             })
         };
-        assert_eq!(settled(&Daemon::new(&socket)).await, Standing::Current);
+        assert_eq!(settled(&Daemon::new(&socket)).await, Standing::Compatible);
         saying.await.unwrap();
     }
 
     #[tokio::test]
-    async fn a_daemon_that_finds_another_listening_says_nothing_over_it() {
+    async fn a_terminal_host_that_finds_another_listening_says_nothing_over_it() {
         let dir = short_dir();
         let socket = dir.path().join("d.sock");
         let mut other = std::process::Command::new(std::env::current_exe().unwrap())
@@ -207,15 +342,15 @@ mod tests {
             }
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
-        assert!(listened, "the other daemon never listened");
-        stamp_when_listening(&Daemon::new(&socket), "0.3.0").await;
+        assert!(listened, "the other terminal host never listened");
+        say_when_listening(&Daemon::new(&socket), "0.3.0", &[1]).await;
         let _ = other.kill();
         let _ = other.wait();
-        assert_eq!(stamped(&socket), None);
+        assert_eq!(super::said(&socket), None);
     }
 
     #[test]
-    #[ignore = "invoked in a subprocess as another daemon listening"]
+    #[ignore = "invoked in a subprocess as another terminal host listening"]
     fn listening_fixture() {
         let socket = std::env::var_os("ADROIT_TEST_LISTEN_SOCKET").unwrap();
         let listener = std::os::unix::net::UnixListener::bind(socket).unwrap();

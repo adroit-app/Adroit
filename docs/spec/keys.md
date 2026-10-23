@@ -224,7 +224,7 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 | `tree.toggle`, `details.toggle` | show or hide the tree, the details panel |
 | `settings.open` | open the Settings window |
 | `keys.help` | show every binding in force, area by area, the areas the keys are in first, each with what its action does; `Escape`, `q` or the key that showed it closes it, and no other key acts behind it |
-| `daemon.restart` | restart the sessions' daemon after asking, ending every session it holds ([details](sessions.md#the-daemon)) |
+| `daemon.restart` | restart the sessions' daemon after asking, ending every session it holds ([details](sessions.md#the-hosts)) |
 | `zoom.in`, `zoom.out`, `zoom.reset` | draw the window larger or smaller a step, or at the zoom the settings give |
 | `filter` | narrow the tree to the sessions, shells, workspaces and worktrees whose names hold what is typed next; `Enter` keeps it, `Escape` clears it |
 | `details.overview`, `details.changes`, `details.log` | show that sheet of the details panel ([details](details.md)), and the panel when it is hidden |

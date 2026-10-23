@@ -1,4 +1,4 @@
-//! The session daemon's side of delegation: it answers sessions on a socket,
+//! The work host's side of delegation: it answers sessions on a socket,
 //! starts the sessions they ask for, hands Codex its messages and watches
 //! every session it keeps a record of.
 use std::{

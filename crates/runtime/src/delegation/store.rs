@@ -43,7 +43,7 @@ CREATE TABLE messages (
 CREATE INDEX undelivered ON messages(recipient, delivered);
 ";
 
-/// What the window or the daemon knows of a session before its program starts.
+/// What the window or the work host knows of a session before its program starts.
 #[derive(Debug, Clone)]
 pub struct NewSession {
     pub parent: Option<SessionId>,
@@ -506,7 +506,7 @@ fn newer(schema: i64) -> Error {
     Error::new(
         Code::Unsupported,
         format!(
-            "a newer adroit has written this database (schema {schema}); restart the session daemon from the installed application"
+            "a newer adroit has written this database (schema {schema}); restart the work host from the installed application"
         ),
     )
 }

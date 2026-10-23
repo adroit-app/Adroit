@@ -71,6 +71,7 @@ use crate::themes;
 use crate::view::Keys;
 use crate::viewers;
 use crate::window_socket::{Request, Response, ask, bind, serve, socket_path};
+use crate::work_host;
 use crate::zoom;
 use adroit_agents as agents;
 
@@ -761,16 +762,18 @@ impl Ask {
     }
 }
 
-/// What the banner says of a daemon of another build, as `standing` has it;
-/// `None` while the daemon is of this build or none answers.
+/// What the banner says of a daemon this window cannot work with, as
+/// `standing` has it; `None` while it can, or none answers.
 fn old_daemon_note(standing: &Standing) -> Option<String> {
     match standing {
-        Standing::Old(Some(said)) => Some(format!(
+        Standing::Incompatible(Some(said)) => Some(format!(
             "It runs adroit {said}, and this window adroit {}.",
             crate::standing::build()
         )),
-        Standing::Old(None) => Some("It runs a build of adroit too old to say which.".into()),
-        Standing::Absent | Standing::Current => None,
+        Standing::Incompatible(None) => {
+            Some("It runs a build of adroit too old to say which.".into())
+        }
+        Standing::Absent | Standing::Compatible => None,
     }
 }
 
@@ -1877,6 +1880,16 @@ fn App() -> Element {
                     status.set(Some(format!("cannot start the sessions' daemon: {e}")));
                 }
                 daemon_standing.set(standing::settled(&daemon).await);
+                // Replaced silently when of another build: it ends no session.
+                if let Err(e) = work_host::ensure(
+                    &work_host::socket(),
+                    &adroit_program(),
+                    &work_host::serve_args(),
+                )
+                .await
+                {
+                    status.set(Some(format!("cannot start the work host: {e}")));
+                }
                 // What git said of each directory a session runs in, and of
                 // each repository's worktrees, with when it said it.
                 let mut cache: HashMap<PathBuf, (Instant, Option<Worktree>)> = HashMap::new();
@@ -7224,7 +7237,7 @@ fn App() -> Element {
             if let Some(note) = old_daemon {
                 div { class: "daemon-banner",
                     IconView { icon: Icon::ServerBolt }
-                    span { class: "daemon-banner-title", "The sessions' daemon is out of date" }
+                    span { class: "daemon-banner-title", "This window cannot work with the sessions' daemon" }
                     span { class: "daemon-banner-note", title: "{note}", "{note} Restarting it ends every session it holds." }
                     span { class: "flex-spacer" }
                     button { class: "button", onclick: move |_| daemon_banner_closed.set(true), "Later" }
@@ -7540,20 +7553,23 @@ mod tests {
     }
 
     #[test]
-    fn a_daemon_of_another_build_is_named_beside_this_window_s() {
-        let note = old_daemon_note(&Standing::Old(Some("0.1.0 (v0.1.0-3-gabc)".into()))).unwrap();
+    fn a_daemon_this_window_cannot_work_with_is_named_beside_this_window_s_build() {
+        let note = old_daemon_note(&Standing::Incompatible(Some(
+            "0.1.0 (v0.1.0-3-gabc)".into(),
+        )))
+        .unwrap();
         assert!(note.contains("0.1.0 (v0.1.0-3-gabc)"), "{note}");
         assert!(note.contains(&standing::build()), "{note}");
     }
 
     #[test]
-    fn a_daemon_too_old_to_say_its_build_is_shown_as_old_too() {
-        assert!(old_daemon_note(&Standing::Old(None)).is_some());
+    fn a_daemon_too_old_to_say_its_versions_is_shown_too() {
+        assert!(old_daemon_note(&Standing::Incompatible(None)).is_some());
     }
 
     #[test]
-    fn a_daemon_of_this_build_or_none_at_all_shows_no_banner() {
-        assert_eq!(old_daemon_note(&Standing::Current), None);
+    fn a_daemon_this_window_can_work_with_or_none_at_all_shows_no_banner() {
+        assert_eq!(old_daemon_note(&Standing::Compatible), None);
         assert_eq!(old_daemon_note(&Standing::Absent), None);
     }
 

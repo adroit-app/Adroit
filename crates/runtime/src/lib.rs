@@ -29,12 +29,14 @@ pub mod system_usage;
 pub mod terminals;
 pub mod themes;
 pub mod window_socket;
+pub mod work_host;
 
 use adroit_core::{icons, nav, tabs};
 
 pub use daemon::cli as daemon_cli;
 pub use start::cli as session_cli;
 pub use terminals::cli as terminal_cli;
+pub use work_host::cli as host_cli;
 
 #[cfg(test)]
 #[path = "../tests/support/daemon.rs"]

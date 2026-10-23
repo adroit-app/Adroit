@@ -1,4 +1,4 @@
-//! What a session asks the daemon, one JSON line each way.
+//! What a session asks the work host, one JSON line each way.
 use std::path::{Path, PathBuf};
 
 use adroit_model::{Agent, AgentPermissions, MessageId, SessionId};
@@ -143,21 +143,19 @@ pub(crate) async fn read_frame(reader: &mut (impl AsyncBufRead + Unpin)) -> Resu
     }
 }
 
-/// Asks the daemon at `root` as the session `credential` names.
+/// Asks the work host serving `root` as the session `credential` names.
 pub async fn ask(
     root: &Path,
     credential: &str,
     command: Command,
     thread: Option<String>,
 ) -> Result<Value> {
-    let stream = tokio::net::UnixStream::connect(socket(root))
-        .await
-        .map_err(|error| {
-            Error::new(
-                Code::Storage,
-                format!("cannot reach the session daemon: {error}"),
-            )
-        })?;
+    let stream = connect(&socket(root)).await.map_err(|error| {
+        Error::new(
+            Code::Storage,
+            format!("cannot reach the work host: {error}"),
+        )
+    })?;
     let (read, mut write) = stream.into_split();
     let mut bytes = serde_json::to_vec(&Request {
         version: VERSION,
@@ -173,6 +171,62 @@ pub async fn ask(
     response.result
 }
 
+/// How long a request waits for a work host to listen again, as one being
+/// replaced is stopped and its successor started.
+const REPLACING: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Connect to `socket`, waiting while no work host listens there.
+async fn connect(socket: &Path) -> std::io::Result<tokio::net::UnixStream> {
+    let until = tokio::time::Instant::now() + REPLACING;
+    loop {
+        match tokio::net::UnixStream::connect(socket).await {
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
+                ) && tokio::time::Instant::now() < until =>
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+            connected => return connected,
+        }
+    }
+}
+
 fn transport(error: impl std::fmt::Display) -> Error {
     Error::new(Code::Storage, error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_request_made_while_the_work_host_is_replaced_waits_for_the_new_one() {
+        let dir = tempfile::Builder::new()
+            .prefix("adroit-")
+            .tempdir_in("/tmp")
+            .unwrap();
+        let root = dir.path().to_path_buf();
+        let replacing = {
+            let root = root.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                let listener = tokio::net::UnixListener::bind(socket(&root)).unwrap();
+                let (stream, _) = listener.accept().await.unwrap();
+                let (read, mut write) = stream.into_split();
+                read_frame(&mut BufReader::new(read)).await.unwrap();
+                let mut bytes = serde_json::to_vec(&Response {
+                    version: VERSION,
+                    result: Ok(Value::from("answered")),
+                })
+                .unwrap();
+                bytes.push(b'\n');
+                write.write_all(&bytes).await.unwrap();
+            })
+        };
+        let answer = ask(&root, "credential", Command::Context, None).await;
+        assert_eq!(answer.unwrap(), Value::from("answered"));
+        replacing.await.unwrap();
+    }
 }

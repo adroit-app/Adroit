@@ -65,6 +65,7 @@ mod view;
 pub mod viewers;
 pub use adroit_core::zoom;
 use adroit_runtime::window_socket;
+use adroit_runtime::work_host;
 
-pub use adroit_runtime::{daemon_cli, session_cli, terminal_cli};
+pub use adroit_runtime::{daemon_cli, host_cli, session_cli, terminal_cli};
 pub use app::launch;

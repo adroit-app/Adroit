@@ -1,5 +1,5 @@
 //! The window's and the command line's side of delegation: recording the
-//! sessions the user starts, which the daemon then serves like any other.
+//! sessions the user starts, which the work host then serves like any other.
 use std::path::{Path, PathBuf};
 
 use adroit_model::{Agent, SessionId};
@@ -11,7 +11,7 @@ use super::{
 };
 use crate::{execution::StartRequest, settings::Settings};
 
-/// Where the daemon keeps delegation state and listens for sessions.
+/// Where the work host keeps delegation state and listens for sessions.
 pub fn root() -> PathBuf {
     crate::paths::instance_state().join("delegation")
 }
