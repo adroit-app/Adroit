@@ -103,7 +103,9 @@ pub fn launch() {
     let cfg = Desktop::new()
         .with_window(
             WindowBuilder::new()
-                .with_title(title(option_env!("ADROIT_DESCRIBE")))
+                .with_title(title(
+                    option_env!("ADROIT_DESCRIBE").filter(|_| cfg!(debug_assertions)),
+                ))
                 .with_inner_size(LogicalSize::new(1440.0, 900.0)),
         )
         .with_menu(menu_bar::build())
