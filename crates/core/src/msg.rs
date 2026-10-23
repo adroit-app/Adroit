@@ -10,7 +10,7 @@ use adroit_protocol::Event;
 use crate::actions::Action;
 use crate::content::{Area, Border, DraftOptions, Opening, Tab, WindowId};
 use crate::details::{self, Sheet};
-use crate::keymap::Context;
+use crate::keymap::{Context, Keymap};
 use crate::layout::{Layout, Side};
 use crate::overlay::confirm::Ask;
 use crate::overlay::context_menu::Target;
@@ -75,6 +75,9 @@ pub enum Msg {
     /// Show the keys help for these areas, nearest first.
     KeysHelpOpen(Vec<Context>),
     KeysHelpClose,
+    /// The key bindings were read: the defaults, with the user's file over
+    /// them.
+    KeysRead(Box<Keymap>),
 
     /// The work host said `Event`.
     Host(Event),

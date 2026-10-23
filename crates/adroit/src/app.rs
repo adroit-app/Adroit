@@ -31,8 +31,6 @@ use crate::editor;
 use crate::image_window;
 use crate::keymap::{Chord, Context, Keymap, MENU_KEYS, Step};
 use crate::keys;
-use crate::keys_help::{self, Press};
-use crate::keys_help_view;
 use crate::layout::Side;
 use crate::menu_bar;
 use crate::nav::{self, Item};
@@ -66,9 +64,9 @@ use adroit_core::console::route::{
 };
 use adroit_core::effect::Effect as CoreEffect;
 use adroit_core::msg::Msg;
+use adroit_core::overlay;
 use adroit_core::overlay::confirm::Ask;
 use adroit_core::overlay::context_menu::Target;
-use adroit_core::overlay::{self, Holder};
 use adroit_core::tree as tree_view;
 
 fn shows_usage(tab: Option<&Tab>, agent: adroit_model::Agent) -> bool {
@@ -618,12 +616,12 @@ fn App() -> Element {
     });
     // The keys pressed so far of a binding not complete yet.
     let mut pending = use_signal(Vec::<Key>::new);
-    let mut keymap = use_signal(Keymap::defaults);
+    // The key bindings in force, as the chrome holds them.
+    let keymap = use_memo(move || app.chrome.read().keymap.clone());
     // Whether the next key goes to the session as it is.
     let mut send_next = use_signal(|| false);
     // The images the consoles drew.
     let gallery = use_signal(Gallery::default);
-    let keys_help = use_memo(move || app.chrome.read().keys_help.clone());
     // Whether the console passes every key on to the session it shows.
     let mut direct = use_signal(|| false);
     // Whether the session in the console shows a dialog of Claude Code's own,
@@ -757,7 +755,7 @@ fn App() -> Element {
                         };
                         let failed = match read {
                             Ok(map) => {
-                                keymap.set(map);
+                                app.dispatch(Msg::KeysRead(Box::new(map)));
                                 None
                             }
                             Err(e) => Some(format!("{}: {e}", short(&keys_path()))),
@@ -2794,26 +2792,11 @@ fn App() -> Element {
             {
                 return;
             }
-            // What is drawn over the window holds the keys while it is. The
-            // keys help reads the bindings, which live here.
-            match app.held().first().copied() {
-                Some(Holder::KeysHelp) => {
-                    let shown = keys_help.peek().clone();
-                    if let Some(here) = shown {
-                        match keys_help::press(&keymap.peek(), &here, &key) {
-                            Press::Close => app.dispatch(Msg::KeysHelpClose),
-                            Press::Scroll(lines) => keys_help_view::scroll(lines),
-                            Press::Nothing => {}
-                        }
-                    }
-                    return;
-                }
-                Some(holder) => {
-                    keys::trace(|| format!("to the {holder:?}"));
-                    app.dispatch(Msg::HeldKey(key));
-                    return;
-                }
-                None => {}
+            // What is drawn over the window holds the keys while it is.
+            if let Some(holder) = app.held().first().copied() {
+                keys::trace(|| format!("to the {holder:?}"));
+                app.dispatch(Msg::HeldKey(key));
+                return;
             }
             let area = app.focus();
             if area == Area::Prompt && matches!(text_goes(), Typed::Prompt) {
@@ -3498,8 +3481,8 @@ fn App() -> Element {
                 }
             }
             Picker {}
-            ContextMenu { keymap: km.clone() }
-            KeysHelp { keymap: km.clone() }
+            ContextMenu {}
+            KeysHelp {}
             ConfirmDialog {}
         }
     }

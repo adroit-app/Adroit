@@ -5,9 +5,10 @@
 use adroit_model::Key;
 
 use crate::actions::Action;
-use crate::chrome::{Chrome, status_line};
+use crate::chrome::{self, Chrome, status_line};
 use crate::content::{Area, Tab};
 use crate::effect::Effect;
+use crate::keys_help::{self, Press};
 use crate::msg::Msg;
 use crate::picker::{self, PickerView};
 use crate::state::ViewState;
@@ -101,8 +102,7 @@ pub fn holds_menu_bar(held: &[Holder]) -> bool {
         .any(|h| matches!(h, Holder::Picker | Holder::Rename | Holder::Confirm))
 }
 
-/// A key while an overlay holds the keys. The keys help reads the bindings,
-/// which the window holds, and takes its keys there.
+/// A key while an overlay holds the keys.
 pub(crate) fn press(state: &mut ViewState, key: Key) -> Vec<Effect> {
     match holder(state) {
         Some(Holder::Menu) => {
@@ -115,8 +115,17 @@ pub(crate) fn press(state: &mut ViewState, key: Key) -> Vec<Effect> {
             "n" | "Escape" => answer(state, false),
             _ => Vec::new(),
         },
+        Some(Holder::KeysHelp) => {
+            let chrome = &mut state.chrome;
+            let here = chrome.keys_help.as_deref().unwrap_or_default();
+            match keys_help::press(&chrome.keymap, here, &key) {
+                Press::Close => chrome::close_keys_help(chrome),
+                Press::Scroll(lines) => vec![Effect::ScrollKeysHelp(lines)],
+                Press::Nothing => Vec::new(),
+            }
+        }
         // Renaming, the keys are its field's; none act behind it.
-        Some(Holder::Rename | Holder::KeysHelp) | None => Vec::new(),
+        Some(Holder::Rename) | None => Vec::new(),
     }
 }
 

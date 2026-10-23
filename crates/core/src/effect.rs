@@ -41,6 +41,8 @@ pub enum Effect {
     // The chrome.
     /// Keep this layout of the side panels for the next run.
     KeepLayout(Layout),
+    /// Scroll the keys help by this many lines, down when positive.
+    ScrollKeysHelp(i32),
     /// Tell the window with [`crate::msg::Msg::NoticeLapsed`], `after` this
     /// long, that the notice numbered `notice` saying `text` was shown.
     LapseNotice {

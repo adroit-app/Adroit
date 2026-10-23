@@ -1,12 +1,12 @@
 //! The window's chrome: its title, how far it is zoomed, how its side panels
-//! are laid out, what its status line says, and whether the keys help is
-//! shown.
+//! are laid out, what its status line says, the key bindings in force, and
+//! whether the keys help is shown.
 
 pub mod panels;
 pub mod status_line;
 
 use crate::effect::Effect;
-use crate::keymap::Context;
+use crate::keymap::{Context, Keymap};
 use crate::zoom::{self, Step};
 
 pub use panels::Panels;
@@ -22,6 +22,8 @@ pub struct Chrome {
     pub status: StatusLine,
     /// The keys help, with the areas the keys were in when it was opened.
     pub keys_help: Option<Vec<Context>>,
+    /// Every binding in force: the defaults, with the user's file over them.
+    pub keymap: Keymap,
 }
 
 impl Default for Chrome {
@@ -32,6 +34,7 @@ impl Default for Chrome {
             panels: Panels::default(),
             status: StatusLine::default(),
             keys_help: None,
+            keymap: Keymap::defaults(),
         }
     }
 }
@@ -78,6 +81,12 @@ pub(crate) fn open_keys_help(chrome: &mut Chrome, here: Vec<Context>) -> Vec<Eff
 
 pub(crate) fn close_keys_help(chrome: &mut Chrome) -> Vec<Effect> {
     chrome.keys_help = None;
+    Vec::new()
+}
+
+/// The key bindings read again.
+pub(crate) fn keys_read(chrome: &mut Chrome, keymap: Keymap) -> Vec<Effect> {
+    chrome.keymap = keymap;
     Vec::new()
 }
 

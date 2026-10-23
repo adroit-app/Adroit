@@ -47,6 +47,7 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         }
         Msg::KeysHelpOpen(here) => chrome::open_keys_help(&mut state.chrome, here),
         Msg::KeysHelpClose => chrome::close_keys_help(&mut state.chrome),
+        Msg::KeysRead(keymap) => chrome::keys_read(&mut state.chrome, *keymap),
 
         Msg::Host(event) => host::receive(&mut state.host, event),
 

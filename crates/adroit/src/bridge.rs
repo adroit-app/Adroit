@@ -221,6 +221,7 @@ impl AppCtx {
                 }
             }
             Effect::KeepLayout(layout) => layout.save(),
+            Effect::ScrollKeysHelp(lines) => crate::keys_help_view::scroll(lines),
             Effect::LapseNotice {
                 notice,
                 text,

@@ -361,3 +361,31 @@ fn the_banner_shows_what_the_daemon_says_until_put_away_and_again_after_a_restar
     let run = run.send(Msg::DaemonRestarted(None));
     assert_eq!(run.state().overlays.banner.shown(), None);
 }
+
+#[test]
+fn the_keys_help_takes_its_keys_by_the_bindings_the_chrome_holds() {
+    let user = crate::keymap::Keymap::with_user("[global]\n\"Ctrl+h\" = \"keys.help\"\n").unwrap();
+    let help = || {
+        window()
+            .send(Msg::KeysRead(Box::new(user.clone())))
+            .send(Msg::KeysHelpOpen(vec![Context::Console, Context::Global]))
+    };
+    assert_eq!(help().state().chrome.keymap, user);
+    // (key, what it asks done, whether the help is still shown)
+    let cases = [
+        (Key::new("j"), vec![Effect::ScrollKeysHelp(1)], true),
+        (
+            Key::new("u").ctrl(),
+            vec![Effect::ScrollKeysHelp(-10)],
+            true,
+        ),
+        (Key::new("x"), vec![], true),
+        (Key::new("Escape"), vec![], false),
+        (Key::new("h").ctrl(), vec![], false),
+    ];
+    for (key, effects, shown) in cases {
+        let run = help().send(Msg::HeldKey(key.clone()));
+        assert_eq!(run.last_effects(), effects, "{key:?}");
+        assert_eq!(run.state().chrome.keys_help.is_some(), shown, "{key:?}");
+    }
+}

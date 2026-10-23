@@ -11,7 +11,7 @@ use crate::actions::Action;
 use crate::bridge::AppCtx;
 use crate::components::Keys;
 use crate::icons::{Icon, IconView};
-use crate::keymap::{Context, Keymap};
+use crate::keymap::Context;
 use crate::keys_help;
 use crate::keys_help_view::KeysHelpView;
 use crate::nav::{self, Item};
@@ -19,15 +19,20 @@ use crate::standing::{self, Standing};
 use adroit_core::content::Tab;
 
 /// The keys help for the areas the chrome holds it open for, with the
-/// bindings `keymap` holds.
+/// bindings it holds.
 #[component]
-pub(crate) fn KeysHelp(keymap: Keymap) -> Element {
+pub(crate) fn KeysHelp() -> Element {
     let app = use_context::<AppCtx>();
-    let here = app.chrome.read().keys_help.clone();
+    let chrome = app.chrome.read();
+    let groups = chrome
+        .keys_help
+        .as_ref()
+        .map(|here| keys_help::groups(&chrome.keymap, here));
+    drop(chrome);
     rsx! {
-        if let Some(here) = here {
+        if let Some(groups) = groups {
             KeysHelpView {
-                groups: keys_help::groups(&keymap, &here),
+                groups,
                 onclose: move |_| app.dispatch(Msg::KeysHelpClose),
             }
         }
@@ -35,10 +40,11 @@ pub(crate) fn KeysHelp(keymap: Keymap) -> Element {
 }
 
 /// The menu a right click opened, each entry with the keys that run it
-/// there under `keymap`.
+/// there.
 #[component]
-pub(crate) fn ContextMenu(keymap: Keymap) -> Element {
+pub(crate) fn ContextMenu() -> Element {
     let app = use_context::<AppCtx>();
+    let keymap = app.chrome.read().keymap.clone();
     let Some(menu) = app.overlays.read().menu.clone() else {
         return rsx! {};
     };
