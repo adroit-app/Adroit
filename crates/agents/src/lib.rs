@@ -126,7 +126,6 @@ pub trait AgentAdapter: Sync {
     fn image_args(&self, _images: &[PathBuf]) -> Vec<String> {
         Vec::new()
     }
-    fn label(&self) -> &'static str;
     fn program(&self) -> String;
     /// What starts the agent with `args` as `launch` says, `shell` being the
     /// shell it may be started through: the program, its arguments, and `env`

@@ -3,7 +3,6 @@
 
 use std::path::PathBuf;
 
-use adroit_agents as agents;
 use adroit_core::completion::Completions;
 use adroit_core::tree as tree_view;
 use adroit_model::{State, TerminalProgram, TerminalSession, Tree};
@@ -66,7 +65,7 @@ pub(super) fn window_strip(
     Strip {
         mark,
         name: thing_name(tree, terminals, shows),
-        agent: session.map(|s| agents::adapter(s.agent).label()),
+        agent: session.map(|s| s.agent.label()),
         worktree: tree_view::place_of_tab(tree, terminals, shows).map(|p| p.worktree),
     }
 }

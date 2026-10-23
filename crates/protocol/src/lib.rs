@@ -2,6 +2,7 @@
 //! requests, the host's events, the work they describe, the versions each
 //! side speaks, and how a message is written on the wire.
 
+mod agents;
 mod codec;
 mod config;
 mod details;
@@ -15,6 +16,7 @@ mod version;
 mod wire;
 mod work;
 
+pub use agents::*;
 pub use codec::*;
 pub use config::*;
 pub use details::*;

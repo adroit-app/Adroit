@@ -35,6 +35,14 @@ impl Agent {
         }
     }
 
+    /// What the user calls the agent.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Claude => "Claude Code",
+            Self::Codex => "Codex",
+        }
+    }
+
     /// The agent after this one, going round to the first after the last.
     pub fn next(self) -> Self {
         let at = Self::ALL.iter().position(|a| *a == self).unwrap_or(0);
@@ -199,6 +207,12 @@ pub fn parse_agents(json: &str) -> Result<Vec<Running>, ParseError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_agent_is_called_by_its_program_s_own_name() {
+        assert_eq!(Agent::Claude.label(), "Claude Code");
+        assert_eq!(Agent::Codex.label(), "Codex");
+    }
 
     fn one(json: &str) -> Running {
         parse_agents(json).unwrap().remove(0)

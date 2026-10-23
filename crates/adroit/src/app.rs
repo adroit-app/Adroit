@@ -64,11 +64,6 @@ use adroit_core::overlay::confirm::Ask;
 use adroit_core::overlay::context_menu::Target;
 use adroit_core::tree as tree_view;
 
-fn shows_usage(tab: Option<&Tab>, agent: adroit_model::Agent) -> bool {
-    matches!(tab, Some(Tab::Session(_) | Tab::Draft { .. }))
-        && agents::adapter(agent).capabilities().usage_limits
-}
-
 /// The palette of the theme `settings` name, or adroit's own when it cannot
 /// be read.
 fn palette_of(settings: &settings::Settings) -> Result<Palette, String> {
@@ -707,21 +702,18 @@ fn App() -> Element {
         });
     });
 
-    // What else the details panel reads by, as the window shows it.
+    // The images the shown session's console drew, which the details panel
+    // lists.
     use_effect(move || {
         let t = tree.read();
         let tab = active.read().clone();
-        let agent = app.agent_of(tab.as_ref());
         let drawn = match &tab {
             Some(Tab::Session(id)) if nav::find(&t, id).is_some() => {
                 pictures::drawn(&gallery.read().store, id)
             }
             _ => Vec::new(),
         };
-        app.dispatch(Msg::DetailsShown(Box::new(details::Told {
-            usage: shows_usage(tab.as_ref(), agent).then_some(agent),
-            drawn,
-        })));
+        app.dispatch(Msg::DetailsShown(Box::new(details::Told { drawn })));
     });
 
     // The editor handoff belongs to the window, unlike terminal resources.
@@ -2059,7 +2051,7 @@ fn App() -> Element {
                     app.dispatch(Msg::PanelShow(Side::Details));
                 }
                 Action::WorktreesToggle => app.dispatch(Msg::TreeEveryWorktree),
-                Action::SettingsOpen => settings_window::open(),
+                Action::SettingsOpen => settings_window::open(app.agents()),
                 Action::DaemonRestart => app.dispatch(Msg::Confirm(Box::new(Ask::RestartDaemon))),
                 Action::WindowClose => dioxus::desktop::window().close(),
                 Action::TreeToggle => toggle_panel(Side::Sidebar),
@@ -2574,25 +2566,6 @@ fn App() -> Element {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn usage_depends_only_on_the_console_agent() {
-        use adroit_model::Agent;
-
-        for agent in [Agent::Claude, Agent::Codex] {
-            for tab in [
-                Tab::Session("session".into()),
-                Tab::Draft {
-                    worktree: "/project".into(),
-                    id: Default::default(),
-                },
-            ] {
-                assert!(shows_usage(Some(&tab), agent));
-            }
-            assert!(!shows_usage(Some(&Tab::Terminal(1)), agent));
-            assert!(!shows_usage(None, agent));
-        }
-    }
 
     #[test]
     fn the_clipboard_reads_the_text_as_utf_8_whatever_the_app_s_locale() {

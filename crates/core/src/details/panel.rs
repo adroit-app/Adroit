@@ -8,7 +8,9 @@ use std::path::PathBuf;
 use adroit_model::links::{Kind as LinkKind, Link, Links};
 use adroit_model::repository::Spot;
 use adroit_model::{Agent, ConversationStats, Note, Process, Session};
-use adroit_protocol::{DetailsWork, RepositorySight, Seq, SessionRead, Sight, WorkSnapshot};
+use adroit_protocol::{
+    AgentFacts, DetailsWork, RepositorySight, Seq, SessionRead, Sight, WorkSnapshot,
+};
 
 use super::{
     Drill, Entry, Gauge, Group, Listing, Related, Sheet, Shot, Source, View, capped, context_gauge,
@@ -41,7 +43,6 @@ pub struct Shown {
 /// session and the worktree the tree follows.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Told {
-    pub usage: Option<Agent>,
     pub drawn: Vec<Shot>,
 }
 
@@ -102,13 +103,25 @@ enum Use {
 
 /// The window told the panel `told`.
 pub(crate) fn tell(details: &mut Details, told: Told) -> Vec<Effect> {
-    let Told { usage, drawn } = told;
-    details.shown = Shown {
-        usage,
-        drawn,
-        ..std::mem::take(&mut details.shown)
-    };
+    details.shown.drawn = told.drawn;
     Vec::new()
+}
+
+/// The panel shows the account usage of `agent`, the one the prompt of `tab`
+/// goes to, for a session or a draft whose agent the host says has usage
+/// limits; none otherwise.
+pub(crate) fn follow_usage(
+    details: &mut Details,
+    tab: Option<&Tab>,
+    agent: Agent,
+    facts: Option<&AgentFacts>,
+) {
+    let shows = matches!(tab, Some(Tab::Session(_) | Tab::Draft { .. }))
+        && facts.is_some_and(|f| f.usage_limits);
+    let usage = shows.then_some(agent);
+    if details.shown.usage != usage {
+        details.shown.usage = usage;
+    }
 }
 
 /// The panel is open while its side panel is shown, and reads by the
@@ -640,8 +653,8 @@ mod tests {
     use adroit_model::subagents::{Agent as Subagent, Standing};
     use adroit_model::usage::{Limit, Severity, Window};
     use adroit_protocol::{
-        Change, ContextRead, ConversationRead, DetailsChange, Event, Listed, RepositoryRead,
-        Request, TreeWork, WorkPatch,
+        AgentsWork, Change, ContextRead, ConversationRead, DetailsChange, Event, Listed,
+        RepositoryRead, Request, TreeWork, WorkPatch,
     };
 
     use super::*;
@@ -688,6 +701,18 @@ mod tests {
                 how: None,
             },
             None => Msg::Window(crate::actions::Action::TabClose),
+        }
+    }
+
+    /// The host's word of `agent`, whose account has usage limits or not.
+    fn with_usage(agent: Agent, limits: bool) -> AgentsWork {
+        AgentsWork {
+            agents: vec![AgentFacts {
+                agent,
+                program: agent.key().into(),
+                usage_url: None,
+                usage_limits: limits,
+            }],
         }
     }
 
@@ -1004,7 +1029,6 @@ mod tests {
                 shown(Some("s1"), None),
                 told(Told {
                     drawn: vec![Shot::console(1, 1, 1, 5, None)],
-                    ..Default::default()
                 }),
             ]);
         let Some(Listing::Links(entries)) = overview_of(&run) else {
@@ -1218,13 +1242,15 @@ mod tests {
                 },
             );
             work.usage.insert(Agent::Claude, limits.clone());
-            let run = Scenario::new().event(snapshot(work)).send_all([
-                shown(Some("a"), None),
-                told(Told {
-                    usage: usage_of,
+            let run = Scenario::new()
+                .event(Event::Snapshot(Box::new(WorkSnapshot {
+                    seq: Seq(1),
+                    details: work,
+                    tree: listed(),
+                    agents: with_usage(Agent::Claude, usage_of.is_some()),
                     ..Default::default()
-                }),
-            ]);
+                })))
+                .send(shown(Some("a"), None));
             let got = usage(&run.state().details, run.state().host.work.as_ref(), 0);
             assert_eq!(
                 (got.len(), got[0].context),
@@ -1232,5 +1258,33 @@ mod tests {
                 "{read_id} {asked_id} {usage_of:?}"
             );
         }
+    }
+
+    #[test]
+    fn usage_depends_only_on_the_console_agent() {
+        for agent in [Agent::Claude, Agent::Codex] {
+            let facts = with_usage(agent, true);
+            let facts = facts.of(agent);
+            let usage = |tab: Option<&Tab>| {
+                let mut details = Details::default();
+                follow_usage(&mut details, tab, agent, facts);
+                details.shown.usage
+            };
+            for tab in [
+                Tab::Session("session".into()),
+                Tab::Draft {
+                    worktree: "/project".into(),
+                    id: Default::default(),
+                },
+            ] {
+                assert_eq!(usage(Some(&tab)), Some(agent));
+            }
+            assert_eq!(usage(Some(&Tab::Terminal(1))), None);
+            assert_eq!(usage(None), None);
+        }
+        let mut details = Details::default();
+        let draft = Tab::draft("/project");
+        follow_usage(&mut details, Some(&draft), Agent::Codex, None);
+        assert_eq!(details.shown.usage, None, "nothing told of the agent");
     }
 }

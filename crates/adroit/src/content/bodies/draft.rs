@@ -4,7 +4,6 @@
 
 use std::path::PathBuf;
 
-use adroit_agents as agents;
 use adroit_model::{Agent, AgentPermissions};
 use dioxus::prelude::*;
 
@@ -157,7 +156,7 @@ fn AgentChoices(current: Agent, keys: Option<String>, onchoose: EventHandler<Age
                             e.stop_propagation();
                             onchoose.call(agent);
                         },
-                        "{agents::adapter(agent).label()}"
+                        "{agent.label()}"
                     }
                 }
             }

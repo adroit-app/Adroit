@@ -36,11 +36,11 @@ mod tests {
     };
 
     use crate::{
-        Change, ConfigChange, ConfigFile, ConfigWork, ConversationRead, DetailsChange, DetailsWork,
-        Event, FileText, HistoryRead, Listed, Offers, PastChange, PastSight, PastWork, PickChange,
-        PickSight, PickWork, PlaceChange, PlaceRead, PlaceWork, PromptChange, PromptWork,
-        RepositoryRead, RepositorySight, Request, Seq, SessionRead, Sight, SystemUsage, TreeChange,
-        TreeSight, Version, WorkPatch, WorkSnapshot,
+        AgentFacts, AgentsWork, Change, ConfigChange, ConfigFile, ConfigWork, ConversationRead,
+        DetailsChange, DetailsWork, Event, FileText, HistoryRead, Listed, Offers, PastChange,
+        PastSight, PastWork, PickChange, PickSight, PickWork, PlaceChange, PlaceRead, PlaceWork,
+        PromptChange, PromptWork, RepositoryRead, RepositorySight, Request, Seq, SessionRead,
+        Sight, SystemUsage, TreeChange, TreeSight, Version, WorkPatch, WorkSnapshot,
     };
 
     fn round_trips<T>(message: T)
@@ -113,6 +113,7 @@ mod tests {
         });
         round_trips(Event::Snapshot(Box::new(WorkSnapshot {
             seq: Seq(7),
+            agents: Default::default(),
             details: DetailsWork::default(),
             tree: Default::default(),
             past: Default::default(),
@@ -123,6 +124,14 @@ mod tests {
         })));
         round_trips(Event::Snapshot(Box::new(WorkSnapshot {
             seq: Seq(7),
+            agents: AgentsWork {
+                agents: vec![AgentFacts {
+                    agent: adroit_model::Agent::Codex,
+                    program: "codex".into(),
+                    usage_url: Some("https://chatgpt.com/settings/usage".into()),
+                    usage_limits: true,
+                }],
+            },
             details: DetailsWork {
                 sessions: BTreeMap::from([(
                     "s".to_string(),

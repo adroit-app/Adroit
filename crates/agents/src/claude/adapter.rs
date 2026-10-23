@@ -72,9 +72,6 @@ impl AgentAdapter for Claude {
         prompt
     }
 
-    fn label(&self) -> &'static str {
-        "Claude Code"
-    }
     fn program(&self) -> String {
         super::claude_program()
     }

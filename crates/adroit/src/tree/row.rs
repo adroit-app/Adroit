@@ -46,9 +46,7 @@ pub(crate) fn row_tip(item: &Item) -> &'static str {
 /// The label of the agent a session's row runs.
 pub(crate) fn row_badge(tree: &Tree, item: &Item) -> Option<&'static str> {
     match item {
-        Item::Session(id) | Item::Waiting(id) => {
-            nav::find(tree, id).map(|(_, s)| adroit_agents::adapter(s.agent).label())
-        }
+        Item::Session(id) | Item::Waiting(id) => nav::find(tree, id).map(|(_, s)| s.agent.label()),
         _ => None,
     }
 }

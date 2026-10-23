@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    ConfigChange, ConfigWork, DetailsChange, DetailsWork, PastChange, PastWork, PickChange,
-    PickWork, PlaceChange, PlaceWork, PromptChange, PromptWork, TreeChange, TreeWork,
+    AgentsWork, ConfigChange, ConfigWork, DetailsChange, DetailsWork, PastChange, PastWork,
+    PickChange, PickWork, PlaceChange, PlaceWork, PromptChange, PromptWork, TreeChange, TreeWork,
 };
 
 /// Where an event stands in the order the host made its changes: each patch
@@ -25,6 +25,7 @@ impl Seq {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct WorkSnapshot {
     pub seq: Seq,
+    pub agents: AgentsWork,
     pub details: DetailsWork,
     pub tree: TreeWork,
     pub past: PastWork,

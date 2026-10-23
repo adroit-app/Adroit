@@ -8,9 +8,9 @@ use std::path::PathBuf;
 
 use adroit_model::{Agent, Session, TerminalSession};
 use adroit_protocol::{
-    Change, ConfigWork, DetailsChange, DetailsWork, Event, PastChange, PastWork, PickChange,
-    PickWork, PlaceChange, PlaceWork, PromptChange, PromptWork, Request, SPOKEN, Seq, Sight,
-    TreeChange, TreeWork, WorkPatch, WorkSnapshot, agree,
+    AgentFacts, AgentsWork, Change, ConfigWork, DetailsChange, DetailsWork, Event, PastChange,
+    PastWork, PickChange, PickWork, PlaceChange, PlaceWork, PromptChange, PromptWork, Request,
+    SPOKEN, Seq, Sight, TreeChange, TreeWork, WorkPatch, WorkSnapshot, agree,
 };
 use tokio::sync::{mpsc, watch};
 
@@ -18,6 +18,7 @@ use tokio::sync::{mpsc, watch};
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Work {
     seq: Seq,
+    agents: AgentsWork,
     details: DetailsWork,
     tree: TreeWork,
     past: PastWork,
@@ -32,6 +33,7 @@ impl Work {
     pub fn snapshot(&self) -> WorkSnapshot {
         WorkSnapshot {
             seq: self.seq,
+            agents: self.agents.clone(),
             details: self.details.clone(),
             tree: self.tree.clone(),
             past: self.past.clone(),
@@ -42,9 +44,11 @@ impl Work {
         }
     }
 
-    /// The work before anything is read but the configuration.
+    /// The work before anything is read but the configuration, with what
+    /// the agents' adapters tell of them.
     pub fn configured(config: ConfigWork) -> Self {
         Self {
+            agents: agent_facts(),
             config,
             ..Self::default()
         }
@@ -70,6 +74,23 @@ impl Work {
             Change::Config(change) => self.config.apply(change),
         }
     }
+}
+
+/// What each agent's adapter tells of it.
+fn agent_facts() -> AgentsWork {
+    let agents = Agent::ALL
+        .into_iter()
+        .map(|agent| {
+            let adapter = adroit_agents::adapter(agent);
+            AgentFacts {
+                agent,
+                program: adapter.program(),
+                usage_url: adapter.usage_url().map(String::from),
+                usage_limits: adapter.capabilities().usage_limits,
+            }
+        })
+        .collect();
+    AgentsWork { agents }
 }
 
 /// A window's request for the prompts an agent kept as sent in a project.
@@ -464,6 +485,18 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn the_host_tells_every_agent_s_program_and_usage_as_its_adapter_does() {
+        let work = Work::configured(ConfigWork::default()).snapshot();
+        for agent in Agent::ALL {
+            let adapter = adroit_agents::adapter(agent);
+            let facts = work.agents.of(agent).expect("every agent is told of");
+            assert_eq!(facts.program, adapter.program());
+            assert_eq!(facts.usage_url.as_deref(), adapter.usage_url());
+            assert_eq!(facts.usage_limits, adapter.capabilities().usage_limits);
+        }
+    }
 
     fn hello(versions: &[u32]) -> Request {
         Request::Hello {

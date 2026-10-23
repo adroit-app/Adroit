@@ -37,6 +37,7 @@ const RULES: &[Rule] = &[
     overlay_rename,
     details_shown,
     details_told,
+    details_usage,
     details_refreshed,
     details_gone,
     picker_offered,
@@ -199,6 +200,15 @@ fn details_shown(state: &mut ViewState, _: &mut Vec<Effect>) {
 fn details_told(state: &mut ViewState, _: &mut Vec<Effect>) {
     let open = state.chrome.panels.layout.show_details;
     details::follow_settings(&mut state.details, open, &state.config.settings.details);
+}
+
+/// The details panel shows the account usage of the agent the focused
+/// window's prompt goes to, while that agent has usage limits.
+fn details_usage(state: &mut ViewState, _: &mut Vec<Effect>) {
+    let tab = state.content.active().cloned();
+    let agent = content::agent_of(state, tab.as_ref());
+    let facts = state.host.work.as_ref().and_then(|w| w.agents.of(agent));
+    details::follow_usage(&mut state.details, tab.as_ref(), agent, facts);
 }
 
 /// What the host read again for the spot the details panel shows moves its

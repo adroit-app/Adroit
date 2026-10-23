@@ -9,23 +9,28 @@ use dioxus::prelude::*;
 use crate::icons::{Icon, IconView};
 
 /// The account's gauges, with a button to the agent's usage page while
-/// they include the account's limits, and the machine's.
+/// they include the account's limits, and the machine's: `usage_url` is
+/// the page where the agent's account shows its usage.
 #[component]
-pub(super) fn Usage(gauges: Vec<Gauge>, agent: Agent, system: Vec<SystemGauge>) -> Element {
+pub(super) fn Usage(
+    gauges: Vec<Gauge>,
+    agent: Agent,
+    usage_url: Option<String>,
+    system: Vec<SystemGauge>,
+) -> Element {
     let account = gauges.iter().any(|g| !g.context);
-    let adapter = adroit_agents::adapter(agent);
     rsx! {
         if !gauges.is_empty() {
             div { class: "details-usage",
                 title: "Account limits and context utilization reported by the session's agent",
                 div { class: "usage-header",
                     span { class: "details-label", "Usage" }
-                    if let Some(url) = adapter.usage_url().filter(|_| account) {
+                    if let Some(url) = usage_url.filter(|_| account) {
                         button { class: "usage-web",
-                            title: "Open {adapter.label()} usage settings in your browser",
+                            title: "Open {agent.label()} usage settings in your browser",
                             onclick: move |ev| {
                                 ev.stop_propagation();
-                                crate::bridge::open([url.into()]);
+                                crate::bridge::open([url.clone()]);
                             },
                             IconView { icon: Icon::Link, size: 12 }
                             "Web"

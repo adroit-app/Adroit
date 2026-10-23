@@ -190,7 +190,7 @@ pub fn resolve(
         Some(id) => args.extend(
             adapter
                 .resume_args(&agent_settings, id)
-                .ok_or_else(|| format!("{} cannot resume a conversation", adapter.label()))?,
+                .ok_or_else(|| format!("{} cannot resume a conversation", request.agent.label()))?,
         ),
         None => {
             args.extend(adapter.image_args(&request.images));

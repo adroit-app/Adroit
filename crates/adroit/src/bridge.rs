@@ -331,6 +331,15 @@ impl AppCtx {
         self.content.peek().focus
     }
 
+    /// What the work host told of each agent.
+    pub(crate) fn agents(&self) -> adroit_protocol::AgentsWork {
+        let host = self.host.peek();
+        host.work
+            .as_ref()
+            .map(|w| w.agents.clone())
+            .unwrap_or_default()
+    }
+
     /// The agent the prompt of `tab` goes to, read so a component or an
     /// effect follows it.
     pub(crate) fn agent_of(&self, tab: Option<&Tab>) -> adroit_model::Agent {

@@ -126,9 +126,6 @@ impl AgentAdapter for Codex {
             .collect()
     }
 
-    fn label(&self) -> &'static str {
-        "Codex"
-    }
     fn program(&self) -> String {
         "codex".into()
     }

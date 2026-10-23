@@ -9,6 +9,7 @@ use adroit_model::config::{
     Launch, SessionOptions, format_command, format_env, parse_command, parse_env,
 };
 use adroit_model::paths::tilde;
+use adroit_protocol::AgentsWork;
 use dioxus::desktop::{
     Config as Desktop, DesktopService, LogicalSize, WindowBuilder, WindowCloseBehaviour, window,
 };
@@ -30,7 +31,7 @@ thread_local! {
 }
 
 /// Bring the Settings window forward, opening it when it is not open.
-pub fn open() {
+pub fn open(agents: AgentsWork) {
     if let Some(w) = OPEN.with(|o| o.borrow().upgrade()) {
         w.window.set_visible(true);
         w.window.set_focus();
@@ -48,7 +49,10 @@ pub fn open() {
                 .with_inner_size(LogicalSize::new(820.0, 580.0))
                 .with_min_inner_size(LogicalSize::new(640.0, 420.0)),
         );
-    let _ = window().new_window(VirtualDom::new(SettingsWindow), cfg);
+    let _ = window().new_window(
+        VirtualDom::new_with_props(SettingsWindow, SettingsWindowProps { agents }),
+        cfg,
+    );
 }
 
 /// Close the Settings window, as the main window goes.
@@ -165,8 +169,9 @@ pub fn SettingsLoadError(error: Option<String>) -> Element {
     }
 }
 
+/// The settings, `agents` being what the work host tells of each agent.
 #[component]
-fn SettingsWindow() -> Element {
+fn SettingsWindow(agents: AgentsWork) -> Element {
     use_hook(|| {
         let me = window();
         OPEN.with(|o| *o.borrow_mut() = Rc::downgrade(&me));
@@ -221,7 +226,7 @@ fn SettingsWindow() -> Element {
                                 class: if agent() == choice { "settings-nav-item settings-agent on" } else { "settings-nav-item settings-agent" },
                                 aria_current: if agent() == choice { "page" } else { "false" },
                                 onclick: move |_| agent.set(choice),
-                                "{adroit_agents::adapter(choice).label()}"
+                                "{choice.label()}"
                             }
                         }
                     }
@@ -236,7 +241,14 @@ fn SettingsWindow() -> Element {
                     Pane::General => rsx! { General { now: now(), change } },
                     Pane::Console => rsx! { ConsolePane { now: now(), change } },
                     Pane::Prompt => rsx! { PromptPane { now: now(), change } },
-                    Pane::Agents => rsx! { AgentsPane { agent: agent(), now: now(), change } },
+                    Pane::Agents => rsx! {
+                        AgentsPane {
+                            agent: agent(),
+                            program: agents.of(agent()).map(|f| f.program.clone()).unwrap_or_default(),
+                            now: now(),
+                            change,
+                        }
+                    },
                     Pane::Programs => rsx! { ProgramsPane { now: now(), change } },
                     Pane::Keys => rsx! { KeysPane {} },
                 }
@@ -645,7 +657,7 @@ fn agent_choices(chosen: adroit_model::Agent) -> Vec<AgentChoice> {
         .into_iter()
         .map(|agent| AgentChoice {
             agent,
-            label: adroit_agents::adapter(agent).label(),
+            label: agent.label(),
             selected: agent == chosen,
         })
         .collect()
@@ -672,10 +684,15 @@ impl AgentSection {
 }
 
 #[component]
-fn AgentsPane(agent: adroit_model::Agent, now: Settings, change: Callback<Change>) -> Element {
+fn AgentsPane(
+    agent: adroit_model::Agent,
+    /// The program the agent runs unless its launch names another.
+    program: String,
+    now: Settings,
+    change: Callback<Change>,
+) -> Element {
     use adroit_model::Agent;
     let mut section = use_signal(|| AgentSection::Sessions);
-    let adapter = adroit_agents::adapter(agent);
     rsx! {
         div { class: "settings-agent-tabs", role: "group", aria_label: "Agent settings",
             for item in AgentSection::ALL {
@@ -700,7 +717,7 @@ fn AgentsPane(agent: adroit_model::Agent, now: Settings, change: Callback<Change
                 key: "launch-{agent.key()}",
                 title: "Launch",
                 hint: "The program and its arguments; empty for the agent's own command.",
-                placeholder: adapter.program(),
+                placeholder: program.clone(),
                 launch: now.launch(agent).clone(),
                 set: move |launch: Launch| change(Box::new(move |s: &mut Settings| *s.launch_mut(agent) = launch)),
             }

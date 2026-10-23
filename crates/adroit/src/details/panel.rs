@@ -74,6 +74,9 @@ pub(crate) fn DetailsPanel(
     let sheet_now = details.drill.sheet();
     let view = repository(&details, work).filter(|v| worktree.as_ref() == Some(&v.worktree));
     let gauges = usage(&details, work, now_ms());
+    let usage_url = work
+        .and_then(|w| w.agents.of(agent))
+        .and_then(|facts| facts.usage_url.clone());
     let system = work
         .and_then(|w| w.details.system.as_ref())
         .map(|s| system_gauges(s, &usage_settings))
@@ -115,6 +118,6 @@ pub(crate) fn DetailsPanel(
                 Repository { drill: details.drill.clone(), view, worktree: shown_kind, back_keys }
             }
         }
-        Usage { gauges, agent, system }
+        Usage { gauges, agent, usage_url, system }
     }
 }
