@@ -15,8 +15,8 @@ The settings are kept in `settings.toml`, in `$XDG_CONFIG_HOME/adroit/`, or in
 writes it whenever a setting changes, so comments in it are not kept. A
 setting it does not name uses its default. Invalid or unreadable configuration
 is reported in the main window and Settings, and Adroit refuses to overwrite
-it until corrected. The window remains available, while scheduling new Workers
-and Leader restarts pauses. Sessions already running continue.
+it until corrected. The window remains available, while sessions cannot start
+sessions of their own. Sessions already running continue.
 A value out of reason is brought into it.
 
 ```toml
@@ -90,13 +90,11 @@ reasoning_effort = ""
 approval_policy = ""
 sandbox_mode = ""
 
-# Active Worker attempts across runs, from 0 to 64. Zero pauses new starts
-# without stopping Workers already running. Leaders and terminals do not count.
-[orchestration]
-max_workers = 4
-# Active attempts for each independent request, also from 0 to 64.
-# This limits Worker capacity, not access to a working directory.
-max_workers_per_run = 2
+# How many sessions started by sessions may run at once, from 0 to 64. Zero
+# refuses new starts without ending those already running. Sessions you
+# start and terminals do not count.
+[delegation]
+max_started = 4
 
 # How a Neovim tab's Neovim starts, as Claude Code does: empty for `nvim`.
 [neovim]
@@ -116,7 +114,7 @@ via_shell = false
 model = ""
 permission_mode = ""
 disallowed_tools = []
-confirm_channel_warning = false
+confirm_channel_warning = true
 
 # Where the picker looks for directories to start a session in: the
 # repositories ghq keeps, and the folders in each of `roots`, `~` standing for

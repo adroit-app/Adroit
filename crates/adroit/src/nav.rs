@@ -17,8 +17,6 @@ pub enum Item {
     Session(String),
     /// A shell adroit runs, by the daemon's id.
     Terminal(u128),
-    /// Presentation-only subgroup of completed Workers in one request.
-    Completed(adroit_model::RunId),
 }
 
 impl Item {
@@ -48,7 +46,7 @@ pub fn items(tree: &Tree, inbox: &[InboxItem], collapsed: &HashSet<String>) -> V
             continue;
         }
         if ws.flat() {
-            out.extend(ws.worktrees.iter().flat_map(rows_in));
+            out.extend(ws.worktrees.iter().flat_map(|w| rows_in(tree, w)));
             continue;
         }
         for w in &ws.worktrees {
@@ -56,17 +54,40 @@ pub fn items(tree: &Tree, inbox: &[InboxItem], collapsed: &HashSet<String>) -> V
             let t_open = open(&ti);
             out.push(ti);
             if t_open {
-                out.extend(rows_in(w));
+                out.extend(rows_in(tree, w));
             }
         }
     }
     out
 }
 
-/// The rows of what runs in a worktree: its sessions, then its terminals.
-fn rows_in(w: &WorktreeNode) -> impl Iterator<Item = Item> + '_ {
-    let sessions = w.sessions.iter().map(|s| Item::Session(s.id.clone()));
-    sessions.chain(w.terminals.iter().map(|s| Item::Terminal(s.id)))
+/// The rows of what runs in a worktree: its sessions, each followed by the
+/// sessions it started wherever they run, then its terminals. A session whose
+/// starter is listed is listed under it instead.
+fn rows_in(tree: &Tree, w: &WorktreeNode) -> Vec<Item> {
+    let mut rows = Vec::new();
+    for session in w.sessions.iter().filter(|s| starter(tree, s).is_none()) {
+        rows.push(Item::Session(session.id.clone()));
+        rows.extend(started_by(tree, session).map(|s| Item::Session(s.id.clone())));
+    }
+    rows.extend(w.terminals.iter().map(|s| Item::Terminal(s.id)));
+    rows
+}
+
+/// The session that started `session`, while it is listed in `tree`.
+pub fn starter<'a>(tree: &'a Tree, session: &Session) -> Option<&'a Session> {
+    let parent = session.parent?;
+    tree.sessions()
+        .map(|(_, s)| s)
+        .find(|s| s.delegation == Some(parent))
+}
+
+/// The sessions `session` started that `tree` lists.
+pub fn started_by<'a>(tree: &'a Tree, session: &Session) -> impl Iterator<Item = &'a Session> {
+    let own = session.delegation;
+    tree.sessions()
+        .map(|(_, s)| s)
+        .filter(move |s| own.is_some() && s.parent == own)
 }
 
 /// The row above `item` in `list`, which stands where it stood once it is
@@ -246,15 +267,6 @@ pub fn row_kept(
 /// whose own name holds it keeps everything beneath it. An empty `text` keeps
 /// everything.
 pub fn narrowed(tree: &Tree, text: &str) -> Tree {
-    narrowed_with_session_label(tree, text, |_| None)
-}
-
-/// Also match a session's presentation label, without replacing its native name.
-pub fn narrowed_with_session_label(
-    tree: &Tree,
-    text: &str,
-    label: impl Fn(&Session) -> Option<String>,
-) -> Tree {
     if text.is_empty() {
         return tree.clone();
     }
@@ -272,8 +284,7 @@ pub fn narrowed_with_session_label(
                     .file_name()
                     .is_some_and(|f| named(&f.to_string_lossy()));
             if !own {
-                w.sessions
-                    .retain(|s| named(&s.name) || label(s).is_some_and(|label| named(&label)));
+                w.sessions.retain(|s| named(&s.name));
                 w.terminals.retain(|s| named(&s.name));
             }
             own || !w.sessions.is_empty() || !w.terminals.is_empty()
@@ -354,7 +365,6 @@ pub fn row_after_switch(
 /// directory.
 pub fn place_of(tree: &Tree, item: &Item) -> Option<Place> {
     match item {
-        Item::Completed(_) => None,
         Item::Waiting(id) | Item::Session(id) => find(tree, id).map(|(p, _)| p),
         Item::Terminal(id) => tree.terminal(*id).map(|(_, _, s)| Place {
             worktree: s.cwd.clone(),
@@ -475,6 +485,66 @@ mod tests {
                 session("z"),
                 ws("/web"),
                 session("c"),
+            ]
+        );
+    }
+
+    /// `a` runs in the main checkout of `api` and started `o`, which runs in
+    /// the `oauth` worktree, and `w`, which runs in `web`.
+    fn delegating_tree(starter_listed: bool) -> Tree {
+        let found: HashMap<PathBuf, Option<Worktree>> = [
+            ("/api", Some(wt("/api", "/api", "main"))),
+            (OAUTH, Some(wt(OAUTH, "/api", "oauth"))),
+            ("/web", Some(wt("/web", "/web", "main"))),
+        ]
+        .into_iter()
+        .map(|(p, w)| (PathBuf::from(p), w))
+        .collect();
+        let starter = adroit_model::SessionId::new();
+        let mut a = s("a", "/api", State::Working);
+        a.delegation = Some(starter);
+        let started = |id: &str, cwd: &str| Session {
+            delegation: Some(adroit_model::SessionId::new()),
+            parent: Some(starter),
+            ..s(id, cwd, State::Working)
+        };
+        let mut sessions = vec![started("o", OAUTH), started("w", "/web")];
+        if starter_listed {
+            sessions.push(a);
+        }
+        build(&sessions, &[], &found, &[], None)
+    }
+
+    #[test]
+    fn a_started_session_is_listed_under_its_starter_wherever_it_runs() {
+        let t = delegating_tree(true);
+        assert_eq!(
+            items(&t, &[], &HashSet::new()),
+            vec![
+                ws("/api"),
+                worktree("/api"),
+                session("a"),
+                session("o"),
+                session("w"),
+                worktree(OAUTH),
+                ws("/web"),
+            ]
+        );
+        let o = find(&t, "o").unwrap().1;
+        assert_eq!(starter(&t, o).map(|s| s.id.as_str()), Some("a"));
+    }
+
+    #[test]
+    fn a_started_session_whose_starter_has_ended_is_listed_where_it_runs() {
+        let t = delegating_tree(false);
+        assert_eq!(
+            items(&t, &[], &HashSet::new()),
+            vec![
+                ws("/api"),
+                worktree(OAUTH),
+                session("o"),
+                ws("/web"),
+                session("w"),
             ]
         );
     }

@@ -157,7 +157,7 @@ mod tests {
     fn the_development_channels_warning_names_the_channels_it_would_load() {
         assert_eq!(
             development_channels(&screen("dev-channels")),
-            Some(vec!["server:adroit_control".to_string()])
+            Some(vec!["server:adroit".to_string()])
         );
     }
 
@@ -167,15 +167,15 @@ mod tests {
             .into_iter()
             .map(|line| {
                 line.replace(
-                    "Channels: server:adroit_control",
-                    "Channels: server:adroit_control, plugin:other@market",
+                    "Channels: server:adroit",
+                    "Channels: server:adroit, plugin:other@market",
                 )
             })
             .collect::<Vec<_>>();
         assert_eq!(
             development_channels(&lines),
             Some(vec![
-                "server:adroit_control".to_string(),
+                "server:adroit".to_string(),
                 "plugin:other@market".to_string()
             ])
         );

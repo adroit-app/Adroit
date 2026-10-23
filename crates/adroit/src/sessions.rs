@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use adroit_model::{Kind, Session, State, TerminalProgram, TerminalSession};
 use adroit_term::tags;
 
+use crate::delegation::launch::{PARENT_TAG, SESSION_TAG};
+
 const KIND: &str = "adroit.kind";
 pub const NAME: &str = "adroit.name";
 /// The directory a session was started in, which the daemon does not list
@@ -20,8 +22,6 @@ const CONVERSATION: &str = "adroit.claude";
 /// The process Claude Code runs in, learned from its listing while the
 /// session still holds the conversation it was started with.
 const PID: &str = "adroit.pid";
-/// The conversation of the session this one was started from.
-const STARTED_FROM: &str = "adroit.from";
 /// Present on a session started with adroit's editor as its external editor.
 const EDITOR: &str = "adroit.editor";
 
@@ -52,9 +52,6 @@ pub fn follow_title(session: &mut Session, title: &str) -> Option<(u128, &'stati
     if conversation == session.session_id {
         return None;
     }
-    if !session.session_id.is_empty() {
-        session.binding = None;
-    }
     session.session_id = conversation.clone();
     Some((id, CONVERSATION, conversation))
 }
@@ -80,16 +77,8 @@ pub fn read(session: &adroit_term::Session) -> Option<Kept> {
     let cwd = PathBuf::from(tags::value(t, CWD)?);
     match tags::value(t, KIND)?.as_str() {
         kind if adroit_model::Agent::parse(kind).is_some() => Some(Kept::Agent(Session {
-            binding: match tags::value(t, "adroit.binding") {
-                Some(raw)
-                    if tags::value(t, "adroit.binding-conversation").is_some_and(|bound| {
-                        bound == tags::value(t, CONVERSATION).unwrap_or_default()
-                    }) =>
-                {
-                    Some(serde_json::from_str(&raw).ok()?)
-                }
-                _ => None,
-            },
+            delegation: tags::value(t, SESSION_TAG).and_then(|id| id.parse().ok()),
+            parent: tags::value(t, PARENT_TAG).and_then(|id| id.parse().ok()),
             agent: adroit_model::Agent::parse(kind)?,
             id: hex(session.id),
             session_id: tags::value(t, CONVERSATION).unwrap_or_default(),
@@ -109,7 +98,6 @@ pub fn read(session: &adroit_term::Session) -> Option<Kept> {
                 Some(raw) => serde_json::from_str(&raw).ok()?,
                 None => adroit_model::AgentPermissions::Default,
             },
-            started_from: tags::value(t, STARTED_FROM).unwrap_or_default(),
             adroit_editor: tags::value(t, EDITOR).is_some(),
         })),
         "terminal" => Some(Kept::Terminal(TerminalSession {
@@ -121,10 +109,6 @@ pub fn read(session: &adroit_term::Session) -> Option<Kept> {
                 "shell" => TerminalProgram::Shell,
                 "neovim" => TerminalProgram::Neovim,
                 _ => return None,
-            },
-            binding: match tags::value(t, "adroit.terminal-binding") {
-                Some(raw) => Some(serde_json::from_str(&raw).ok()?),
-                None => None,
             },
         })),
         _ => None,
@@ -154,7 +138,6 @@ pub fn follow(
                     .filter(|l| !l.session_id.is_empty() && l.session_id != s.session_id);
                 if let Some(l) = moved {
                     s.session_id = l.session_id.clone();
-                    s.binding = None;
                     learned.push((id, CONVERSATION, s.session_id.clone()));
                 }
             }
@@ -191,7 +174,6 @@ pub fn claude_tags(
     conversation: &str,
     permissions: &adroit_model::AgentPermissions,
     started_ms: u64,
-    started_from: Option<&str>,
 ) -> Vec<String> {
     let mut out = tags::tagged(KIND, "claude");
     out.extend(tags::tagged(NAME, name));
@@ -202,14 +184,10 @@ pub fn claude_tags(
         PERMISSIONS,
         &serde_json::to_string(permissions).expect("serializable permissions"),
     ));
-    if let Some(from) = started_from {
-        out.extend(tags::tagged(STARTED_FROM, from));
-    }
     out
 }
 
 /// Tags for any supported agent; Claude retains its original wire format.
-#[allow(clippy::too_many_arguments)]
 pub fn agent_tags(
     agent: adroit_model::Agent,
     name: &str,
@@ -217,16 +195,8 @@ pub fn agent_tags(
     conversation: &str,
     permissions: &adroit_model::AgentPermissions,
     started_ms: u64,
-    started_from: Option<&str>,
 ) -> Vec<String> {
-    let mut out = claude_tags(
-        name,
-        cwd,
-        conversation,
-        permissions,
-        started_ms,
-        started_from,
-    );
+    let mut out = claude_tags(name, cwd, conversation, permissions, started_ms);
     out.retain(|t| {
         !t.starts_with("adroit.kind=")
             && (!conversation.is_empty() || !t.starts_with("adroit.claude="))
@@ -251,7 +221,6 @@ pub fn terminal_tags(
     cwd: &std::path::Path,
     program: TerminalProgram,
     resource_id: adroit_model::TerminalResourceId,
-    binding: Option<&adroit_model::TerminalBinding>,
 ) -> Vec<String> {
     let mut out = tags::tagged(KIND, "terminal");
     out.extend(tags::tagged(NAME, name));
@@ -264,149 +233,11 @@ pub fn terminal_tags(
             TerminalProgram::Neovim => "neovim",
         },
     ));
-    if let Some(binding) = binding {
-        out.extend(tags::tagged(
-            "adroit.terminal-binding",
-            &serde_json::to_string(binding).expect("serializable terminal binding"),
-        ));
-    }
     out
 }
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn a_worker_waiting_before_its_first_conversation_remains_openable_under_its_leader() {
-        use crate::execution::{StartRequest, resolve};
-        use crate::leader_navigation::{RowRole, project};
-        use crate::nav::Item;
-        use crate::sessions::{Kept, read};
-        use crate::settings::Settings;
-        use adroit_model::*;
-        use std::path::Path;
-
-        let leader_id = LogicalSessionId::new();
-        let run_id = RunId::new();
-        let bindings = [
-            SessionBinding::leader(leader_id, Some(run_id)),
-            SessionBinding::worker(
-                LogicalSessionId::new(),
-                leader_id,
-                run_id,
-                TaskId::new(),
-                AttemptId::new(),
-            )
-            .unwrap(),
-        ];
-        let mut snapshot = ControlSnapshot::default();
-        let mut sessions = Vec::new();
-        for (index, binding) in bindings.into_iter().enumerate() {
-            let launch = resolve(
-                &Settings::default(),
-                StartRequest {
-                    binding: Some(binding.clone()),
-                    agent: Agent::Codex,
-                    model: Some("unavailable-model".into()),
-                    cwd: "/repo".into(),
-                    ..Default::default()
-                },
-                Path::new("/adroit"),
-            )
-            .unwrap();
-            let terminal = adroit_term::Session {
-                id: index as u128 + 1,
-                tags: launch.spawn.tags,
-                title: None,
-                exited: false,
-                status: None,
-                sequence: index as u64,
-            };
-            let mut unmarked = terminal.clone();
-            unmarked
-                .tags
-                .retain(|tag| !tag.starts_with("adroit.binding-conversation="));
-            let Some(Kept::Agent(unmarked)) = read(&unmarked) else {
-                panic!("native agent terminal");
-            };
-            assert!(unmarked.binding.is_none());
-            let Some(Kept::Agent(session)) = read(&terminal) else {
-                panic!("native agent terminal");
-            };
-            assert!(session.session_id.is_empty());
-            assert_eq!(session.binding, Some(binding.clone()));
-            snapshot.sessions.push(ManagedSession {
-                binding,
-                agent: Agent::Codex,
-                generation: 1,
-                state: ManagedSessionState::Running,
-                permissions: AgentPermissions::Default,
-                cwd: Some(session.cwd.clone()),
-                terminal_id: Some(session.id.clone()),
-                conversation_id: None,
-                readiness: Default::default(),
-                spawned_at_ms: None,
-            });
-            sessions.push(session);
-        }
-        snapshot.runs.push(RunRecord {
-            id: run_id,
-            leader_id,
-            brief: RunBrief::default(),
-            plan_revision: 1,
-            candidate_id: None,
-            state: RunState::Active,
-        });
-        let tree = build(&sessions, &[], &Default::default(), &[], None);
-        let rows = project(&tree, &snapshot);
-        assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0].role, RowRole::Leader);
-        assert_eq!(rows[1].role, RowRole::Worker);
-        assert_eq!(rows[1].item, Item::Session(sessions[1].id.clone()));
-        assert!(tree.find(&sessions[1].id).is_some());
-    }
-
-    #[test]
-    fn changing_conversation_does_not_transfer_a_worker_assignment() {
-        use adroit_model::{AttemptId, LogicalSessionId, RunId, SessionBinding, TaskId};
-        let binding = SessionBinding::worker(
-            LogicalSessionId::new(),
-            LogicalSessionId::new(),
-            RunId::new(),
-            TaskId::new(),
-            AttemptId::new(),
-        )
-        .unwrap();
-        let mut tags = agent_tags(
-            adroit_model::Agent::Codex,
-            "review",
-            std::path::Path::new("/repo"),
-            "first",
-            &adroit_model::AgentPermissions::Default,
-            1,
-            None,
-        );
-        tags.extend(adroit_term::tags::tagged(
-            "adroit.binding",
-            &serde_json::to_string(&binding).unwrap(),
-        ));
-        tags.extend(adroit_term::tags::tagged(
-            "adroit.binding-conversation",
-            "first",
-        ));
-        let Some(Kept::Agent(mut session)) = read(&kept(42, tags.clone())) else {
-            panic!("agent")
-        };
-        assert_eq!(session.binding, Some(binding));
-        follow_title(&mut session, "Codex · 11234567-89ab-cdef-0123-456789abcdef");
-        assert!(session.binding.is_none());
-        tags.retain(|tag| !tag.starts_with(&format!("{CONVERSATION}=")));
-        tags.extend(adroit_term::tags::tagged(CONVERSATION, "second"));
-        let Some(Kept::Agent(session)) = read(&kept(42, tags)) else {
-            panic!("agent")
-        };
-        assert!(session.binding.is_none());
-    }
-
     #[test]
     fn a_session_launched_with_adroit_s_editor_is_known_to_hand_its_input_back() {
         use crate::execution::{StartRequest, resolve};
@@ -531,7 +362,6 @@ mod tests {
                 "",
                 &adroit_model::AgentPermissions::ReadOnly,
                 42,
-                None,
             ),
         );
         s.status = Some(Status {
@@ -561,7 +391,6 @@ mod tests {
                 "uuid",
                 &adroit_model::AgentPermissions::ReadOnly,
                 42,
-                None,
             ),
         );
         s.status = Some(Status {
@@ -593,7 +422,6 @@ mod tests {
                 "uuid",
                 &adroit_model::AgentPermissions::Default,
                 0,
-                None,
             ),
         );
         let Some(Kept::Agent(c)) = read(&s) else {
@@ -601,26 +429,31 @@ mod tests {
         };
         assert_eq!(c.session_id, "uuid");
         assert!(!c.reads_only());
-        assert_eq!(c.started_from, "");
+        assert_eq!(c.parent, None);
     }
 
     #[test]
-    fn a_session_started_from_another_keeps_the_conversation_it_came_from() {
-        let s = kept(
-            7,
-            claude_tags(
-                "fix",
-                std::path::Path::new("/api"),
-                "uuid",
-                &adroit_model::AgentPermissions::Default,
-                0,
-                Some("parent-uuid"),
-            ),
+    fn a_started_session_is_read_back_with_the_session_that_started_it() {
+        let parent = adroit_model::SessionId::new();
+        let delegation = crate::delegation::launch::Delegation::new(
+            adroit_model::SessionId::new(),
+            Some(parent),
+            "/state".into(),
+            "token".into(),
         );
-        let Some(Kept::Agent(c)) = read(&s) else {
+        let mut tags = claude_tags(
+            "fix",
+            std::path::Path::new("/api"),
+            "uuid",
+            &adroit_model::AgentPermissions::Default,
+            0,
+        );
+        tags.extend(delegation.tags());
+        let Some(Kept::Agent(c)) = read(&kept(7, tags)) else {
             panic!("not a session");
         };
-        assert_eq!(c.started_from, "parent-uuid");
+        assert_eq!(c.delegation, Some(delegation.id));
+        assert_eq!(c.parent, Some(parent));
     }
 
     #[test]
@@ -633,7 +466,6 @@ mod tests {
                 "uuid",
                 &adroit_model::AgentPermissions::Default,
                 0,
-                None,
             ),
         );
         let Some(Kept::Agent(c)) = read(&s) else {
@@ -644,22 +476,12 @@ mod tests {
     }
 
     #[test]
-    fn a_terminal_keeps_its_resource_id_program_and_optional_owner() {
+    fn a_terminal_keeps_its_resource_id_and_program() {
         for program in [TerminalProgram::Shell, TerminalProgram::Neovim] {
             let resource_id = adroit_model::TerminalResourceId::new();
-            let binding = adroit_model::TerminalBinding {
-                run_id: adroit_model::RunId::new(),
-                worker_id: None,
-            };
             let s = kept(
                 9,
-                terminal_tags(
-                    "tool",
-                    std::path::Path::new("/api"),
-                    program,
-                    resource_id,
-                    Some(&binding),
-                ),
+                terminal_tags("tool", std::path::Path::new("/api"), program, resource_id),
             );
             assert_eq!(
                 read(&s),
@@ -669,7 +491,6 @@ mod tests {
                     name: "tool".into(),
                     cwd: "/api".into(),
                     program,
-                    binding: Some(binding),
                 }))
             );
         }
@@ -685,7 +506,6 @@ mod tests {
                 std::path::Path::new("/api"),
                 TerminalProgram::Shell,
                 adroit_model::TerminalResourceId::new(),
-                None,
             ),
         );
         s.exited = true;
@@ -699,7 +519,6 @@ mod tests {
             conversation,
             &adroit_model::AgentPermissions::Default,
             0,
-            None,
         );
         if let Some(pid) = pid {
             tags.extend(tags::tagged(PID, &pid.to_string()));

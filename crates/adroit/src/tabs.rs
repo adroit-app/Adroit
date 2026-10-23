@@ -22,38 +22,18 @@ pub fn shows_prompt(tab: Option<&Tab>) -> bool {
     !matches!(tab, Some(Tab::Terminal(_)))
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DraftOptions {
-    pub mode: crate::execution::StartMode,
     pub agent: Option<Agent>,
     pub model: Option<String>,
     pub permissions: AgentPermissions,
 }
 
-impl Default for DraftOptions {
-    fn default() -> Self {
-        Self::for_view(false)
-    }
-}
-
 impl DraftOptions {
-    pub fn for_view(leader_view: bool) -> Self {
-        Self {
-            mode: if leader_view {
-                crate::execution::StartMode::Leader
-            } else {
-                crate::execution::StartMode::Standalone
-            },
-            agent: None,
-            model: None,
-            permissions: AgentPermissions::Default,
-        }
-    }
-
     /// The options chosen with nothing open, used up by the draft they were
-    /// chosen for, or else the view's.
-    pub fn for_new_draft(next: &mut Option<Self>, leader_view: bool) -> Self {
-        next.take().unwrap_or_else(|| Self::for_view(leader_view))
+    /// chosen for, or else the defaults.
+    pub fn for_new_draft(next: &mut Option<Self>) -> Self {
+        next.take().unwrap_or_default()
     }
 }
 
@@ -209,40 +189,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn drafts_keep_their_creation_mode_when_the_agent_or_other_view_changes() {
-        use crate::execution::StartMode;
-        for (leader_view, expected) in [(false, StartMode::Standalone), (true, StartMode::Leader)] {
-            let draft = Tab::draft("/repo");
-            let mut options = [(draft.clone(), DraftOptions::for_view(leader_view))]
-                .into_iter()
-                .collect();
-            let mut last = None;
-            crate::agents::choose(&mut options, Some(draft.clone()), Agent::Codex, &mut last);
-            assert_eq!(options[&draft].mode, expected);
-            assert_eq!(options[&draft].agent, Some(Agent::Codex));
-            assert_ne!(
-                options[&draft].mode,
-                DraftOptions::for_view(!leader_view).mode
-            );
-        }
-        assert_eq!(DraftOptions::default().mode, StartMode::Standalone);
-    }
-
-    #[test]
     fn options_chosen_with_nothing_open_go_to_the_next_draft_only() {
-        use crate::execution::StartMode;
         let chosen = DraftOptions {
-            mode: StartMode::Leader,
             agent: None,
             model: Some("opus".into()),
             permissions: AgentPermissions::ReadOnly,
         };
         let mut next = Some(chosen.clone());
-        assert_eq!(DraftOptions::for_new_draft(&mut next, false), chosen);
+        assert_eq!(DraftOptions::for_new_draft(&mut next), chosen);
         assert_eq!(next, None);
         assert_eq!(
-            DraftOptions::for_new_draft(&mut next, true),
-            DraftOptions::for_view(true)
+            DraftOptions::for_new_draft(&mut next),
+            DraftOptions::default()
         );
     }
 

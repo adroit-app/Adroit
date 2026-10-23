@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use adroit_model::{RunId, TerminalProgram, TerminalResourceId, TerminalSession};
+use adroit_model::{TerminalProgram, TerminalResourceId, TerminalSession};
 use adroit_term::Daemon;
 
 use crate::execution::{TerminalStartRequest, resolve_terminal, spawn_headless};
@@ -62,7 +62,7 @@ pub async fn start(
 
 #[derive(Debug, PartialEq, Eq)]
 enum Operation {
-    List(Option<RunId>),
+    List,
     Screen(TerminalResourceId),
     Stop(TerminalResourceId),
     Start {
@@ -76,7 +76,6 @@ fn parse(args: &[String]) -> Option<(Operation, bool)> {
     let (command, rest) = args.split_first()?;
     let mut json = false;
     let mut resource = None;
-    let mut run = None;
     let mut program = TerminalProgram::Shell;
     let mut dir = None;
     let mut name = None;
@@ -87,7 +86,6 @@ fn parse(args: &[String]) -> Option<(Operation, bool)> {
             ("screen" | "stop", "--terminal") if resource.is_none() => {
                 resource = Some(rest.next()?.parse().ok()?)
             }
-            ("list", "--run") if run.is_none() => run = Some(rest.next()?.parse().ok()?),
             ("start", "--program") => {
                 program = match rest.next()?.as_str() {
                     "shell" => TerminalProgram::Shell,
@@ -101,7 +99,7 @@ fn parse(args: &[String]) -> Option<(Operation, bool)> {
         }
     }
     let operation = match command.as_str() {
-        "list" => Operation::List(run),
+        "list" => Operation::List,
         "screen" => Operation::Screen(resource?),
         "stop" => Operation::Stop(resource?),
         "start" => Operation::Start { program, dir, name },
@@ -112,14 +110,8 @@ fn parse(args: &[String]) -> Option<(Operation, bool)> {
 
 async fn execute(daemon: &Daemon, operation: Operation, json: bool) -> Result<String, String> {
     match operation {
-        Operation::List(run) => {
-            let terminals: Vec<_> = list(daemon)
-                .await?
-                .into_iter()
-                .filter(|t| {
-                    run.is_none() || t.binding.as_ref().is_some_and(|b| Some(b.run_id) == run)
-                })
-                .collect();
+        Operation::List => {
+            let terminals = list(daemon).await?;
             if json {
                 serde_json::to_string(&terminals).map_err(|e| e.to_string())
             } else {
@@ -175,7 +167,6 @@ async fn execute(daemon: &Daemon, operation: Operation, json: bool) -> Result<St
                     program,
                     // Not `agent_env`: a shell or Neovim keeps the user's own editor.
                     env: crate::daemon::terminal_env(),
-                    binding: None,
                 },
             )
             .await?;
@@ -191,7 +182,7 @@ async fn execute(daemon: &Daemon, operation: Operation, json: bool) -> Result<St
 pub fn cli(args: &[String]) -> i32 {
     let Some((operation, json)) = parse(args) else {
         eprintln!(
-            "usage: adroit terminal start [--program shell|neovim] [--dir PATH] [--name NAME] [--json]\n       adroit terminal list [--run ID] [--json]\n       adroit terminal screen|stop --terminal ID [--json]"
+            "usage: adroit terminal start [--program shell|neovim] [--dir PATH] [--name NAME] [--json]\n       adroit terminal list [--json]\n       adroit terminal screen|stop --terminal ID [--json]"
         );
         return 2;
     };

@@ -48,17 +48,11 @@ pub fn login_path(shell: &str) -> Option<String> {
     (out.status.success() && !path.trim().is_empty()).then(|| path.trim().to_string())
 }
 
-pub fn reserved_control(name: &str) -> bool {
+/// The variables that say which session a program acts as.
+pub fn reserved_delegation(name: &str) -> bool {
     matches!(
         name,
-        "ADROIT_CONTROL_TOKEN"
-            | "ADROIT_CONTROL_ROOT"
-            | "ADROIT_SESSION_ID"
-            | "ADROIT_SESSION_GENERATION"
-            | "ADROIT_LEADER_ID"
-            | "ADROIT_RUN_ID"
-            | "ADROIT_TASK_ID"
-            | "ADROIT_ATTEMPT_ID"
+        crate::delegation::launch::TOKEN_ENV | crate::delegation::launch::ROOT_ENV
     )
 }
 
@@ -76,7 +70,7 @@ pub fn inherited(names: impl IntoIterator<Item = String>) -> Vec<String> {
     names
         .into_iter()
         .filter(|n| {
-            reserved_control(n)
+            reserved_delegation(n)
                 || n == "CODEX_THREAD_ID"
                 || n == "NVIM"
                 || n == "NVIM_LISTEN_ADDRESS"
@@ -91,19 +85,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_new_application_does_not_inherit_its_callers_control_identity() {
+    fn a_new_application_does_not_inherit_the_session_its_caller_acts_as() {
         assert_eq!(
             dropped(&[
-                "ADROIT_CONTROL_TOKEN",
-                "ADROIT_SESSION_ID",
-                "ADROIT_SESSION_GENERATION",
+                "ADROIT_DELEGATION_TOKEN",
+                "ADROIT_DELEGATION_ROOT",
                 "ADROIT_INSTANCE"
             ]),
-            [
-                "ADROIT_CONTROL_TOKEN",
-                "ADROIT_SESSION_ID",
-                "ADROIT_SESSION_GENERATION"
-            ]
+            ["ADROIT_DELEGATION_TOKEN", "ADROIT_DELEGATION_ROOT"]
         );
     }
 

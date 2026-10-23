@@ -8,11 +8,6 @@ closed, if that still runs.
 
 ## Agents
 
-Sessions started from Workspaces default to Standalone: they run without
-controller ownership, an orchestration bridge, or Leader / Worker role policy.
-Sessions started from Leader / Workers default to Leader. The draft offers this
-choice before launch and keeps it when switching views or agents.
-
 A session runs Claude Code or Codex CLI in its own terminal interface. Each
 session is given its agent while it is still a draft, before its first prompt
 is sent. The empty window and drafts offer the agent choices, and
@@ -21,7 +16,7 @@ for new sessions while the window is open. Reopening the app starts with the
 default in Settings under General, or `agent` in [settings.toml](settings.md).
 The draft also offers a model and permission profile for that launch; changing
 these choices keeps its prompt and attachments. The empty window offers the
-mode, model and permission profile too, and the next new session starts with
+model and permission profile too, and the next new session starts with
 what was chosen there. A session keeps its agent once it runs, whatever the default becomes. Both
 kinds can run in the same workspace.
 
@@ -92,57 +87,9 @@ console then says so, and it is listed no more.
 
 ## Started by a session
 
-A session can start another, and so can any program running in one.
-Use --agent claude or --agent codex to override the default agent:
-
-```console
-$ adroit session start --dir ~/src/api -- "Find why the login test is flaky"
-find-login-test
-```
-
-The command starts an unassigned session directly in a directory below a
-repository root, whether the window is open or not. At a repository root or a
-directory outside version control, it refuses a managed Leader start and asks
-you to start that Leader in the Adroit window. The window lists and shows
-unassigned CLI sessions. The command
-prints the name it goes by, which is also the name Claude Code's messaging
-between sessions addresses it by. The prompt is read from standard input when
-none follows `--`.
-
-- `--dir <path>` is where it works, the current directory when not given.
-- `--name <name>` names it; without one it is named from its prompt, as the
-  window names a session. A name already taken gets a number.
-- `--model <model>` selects the model for this launch, overriding the selected
-  agent's configured model without changing defaults for other sessions. If
-  neither specifies a model, the agent uses its own default. The agent's TUI
-  can still change its model after launch.
-- `--permissions default|read_only` selects the launch's permission profile.
-  Read-only uses Codex's read-only sandbox. A read-only Claude Code session
-  loses its file-editing tools and runs its shell commands in Claude Code's
-  sandbox, which keeps them from writing to its directory or the repository's
-  history; the user's and the repository's Claude Code settings cannot loosen
-  this. Where that sandbox cannot run, the session fails to start.
-- `--permissions-file <path>` reads custom permissions from JSON instead of a
-  named profile. These are provider-specific options, not a read-only promise.
-  The file is one of:
-
-  ```json
-  {"agent":"claude","permission_mode":"plan","disallowed_tools":["Edit","Write"]}
-  ```
-
-  ```json
-  {"agent":"codex","approval_policy":"on-request","sandbox_mode":"workspace-write"}
-  ```
-
-  The provider must match `--agent`; unknown fields are rejected.
-
-Run from a Claude Code session, the new session is known to have been started
-from that one. The sessions adroit starts are told of the command, so Claude
-can hand work to a session of its own instead of an agent inside itself, and
-hear back from it by Claude Code's messaging.
-
-When the daemon cannot be reached, the command fails with a message on
-standard error and exit status 1.
+A session can start sessions of its own, message other sessions and report
+back to the one that started it, and `adroit session start` starts one from a
+terminal ([sessions that start sessions](delegation.md)).
 
 ## Keeping the Mac awake
 

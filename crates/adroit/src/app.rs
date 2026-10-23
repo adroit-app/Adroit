@@ -142,11 +142,19 @@ fn copy_to_clipboard(text: &str) -> std::io::Result<()> {
     Ok(())
 }
 
+/// What was read for a session's overview, each with the session it was read
+/// for: its conversation's links, and the messages it sent and received.
+#[derive(Clone, Copy, Default)]
+struct Read<'a> {
+    links: Option<&'a (String, Links)>,
+    notes: Option<&'a (String, Vec<crate::details::Note>)>,
+}
+
 /// The overview's rows for the session `shown`, when its links were read for
 /// it, the `folded` groups showing only their headings; the sessions it
 /// worked with are found in `tree`, its images in `gallery`.
 fn overview_listing(
-    read: Option<&(String, Links)>,
+    read: Read<'_>,
     shown: Option<&Tab>,
     folded: &HashSet<Group>,
     opened: &HashSet<Group>,
@@ -157,9 +165,14 @@ fn overview_listing(
     let Some(Tab::Session(id)) = shown else {
         return None;
     };
-    let read = read.filter(|(held, _)| held == id);
+    let notes = read
+        .notes
+        .filter(|(held, _)| held == id)
+        .map(|(_, notes)| notes.as_slice())
+        .unwrap_or_default();
+    let read = read.links.filter(|(held, _)| held == id);
     let processes = processes.filter(|(held, _)| held == id);
-    if read.is_none() && processes.is_none() {
+    if read.is_none() && processes.is_none() && notes.is_empty() {
         return None;
     }
     let empty = Links::default();
@@ -180,6 +193,7 @@ fn overview_listing(
     );
     let mut shots = pictures::shots(&gallery.store, id, &links.images, &gallery.thumbs);
     shots.truncate(d.links_kept);
+    let entries = crate::details::with_notes(entries, notes, folded, opened, d.links_shown);
     let entries = with_agents(entries, &links.agents, folded);
     let entries = crate::details::with_processes(
         entries,
@@ -346,6 +360,25 @@ fn link_sections(entries: &[Entry], worktree: &Path, home: &Path) -> Vec<LinkSec
                             if p.zombie { " · zombie" } else { "" }
                         ),
                         target: format!("PID {} · {}", p.pid, p.command),
+                        file: false,
+                        thumb: None,
+                    });
+                }
+            }
+            Entry::Message(n) => {
+                if let Some(section) = out.last_mut() {
+                    section.rows.push(LinkRow {
+                        at,
+                        icon: if n.kind == "report" {
+                            Icon::Check
+                        } else {
+                            Icon::Message
+                        },
+                        tone: "",
+                        label: n.summary().to_owned(),
+                        badge: None,
+                        tag: n.tag(now_ms()),
+                        target: n.body.clone(),
                         file: false,
                         thumb: None,
                     });
@@ -1076,9 +1109,6 @@ fn row_tip(item: &Item) -> &'static str {
         Item::Workspace(_) => {
             "A workspace: a git repository or a directory sessions run in. Enter folds it; n starts a session there"
         }
-        Item::Completed(_) => {
-            "Completed Workers. Enter folds or unfolds; sessions remain available"
-        }
         Item::Worktree(_) => {
             "A worktree: a checkout of the repository, on a branch of its own. Enter or n starts a session in it, s a shell"
         }
@@ -1249,11 +1279,11 @@ async fn start(
     spawn: Spawn,
     size: Size,
     tab_of: impl Fn(u128) -> Tab,
-    ownership: Option<crate::control::managed::StartOwnership>,
+    recorded: Option<crate::delegation::app::Recorded>,
 ) -> adroit_term::Result<u128> {
     let palette = hub.palette.peek().clone();
     let wake = hub.wake.clone();
-    let failure_owner = ownership.clone();
+    let failure_owner = recorded.clone();
     let pane = Pane::start_prepared(
         &hub.daemon,
         spawn,
@@ -1266,8 +1296,8 @@ async fn start(
             }
         },
         move |id| async move {
-            match ownership {
-                Some(ownership) => ownership.attach(id).await,
+            match recorded {
+                Some(recorded) => recorded.attach(id).await,
                 None => Ok(()),
             }
         },
@@ -1277,7 +1307,7 @@ async fn start(
         Ok(pane) => pane,
         Err(error) => {
             if let Some(owner) = failure_owner {
-                owner.failed(&error).await;
+                owner.failed().await;
             }
             return Err(error);
         }
@@ -1314,9 +1344,6 @@ async fn read_sessions(
                 if let Some(title) = &s.title
                     && let Some(tag) = sessions::follow_title(&mut c, title)
                 {
-                    if c.binding.is_some() {
-                        learned.push((s.id, "adroit.binding-conversation", c.session_id.clone()));
-                    }
                     learned.push(tag);
                 }
                 if s.status.is_none()
@@ -1386,18 +1413,11 @@ fn sheet_action(sheet: Sheet) -> Action {
     }
 }
 
-fn session_mark(
-    role: Option<adroit_model::SessionRole>,
-    reads_only: bool,
-) -> Option<(Icon, &'static str)> {
-    if role == Some(adroit_model::SessionRole::Worker) {
-        Some((Icon::Cpu, "Worker"))
-    } else {
-        reads_only.then_some((Icon::Book, "only reads"))
-    }
+fn session_mark(reads_only: bool) -> Option<(Icon, &'static str)> {
+    reads_only.then_some((Icon::Book, "only reads"))
 }
 
-/// The session's role or read-only mark, shared by rows and tabs.
+/// The session's read-only mark, shared by rows and tabs.
 #[component]
 fn SessionMark(mark: Option<(Icon, &'static str)>) -> Element {
     rsx! {
@@ -1466,37 +1486,6 @@ fn sample_conversation(
 #[component]
 fn App() -> Element {
     let mut tree = use_signal(Tree::default);
-    let mut leader_view = use_signal(|| false);
-    let mut include_managed = use_signal(|| false);
-    let mut orchestration = use_signal(adroit_model::ControlSnapshot::default);
-    let mut orchestration_error = use_signal(|| None::<String>);
-    use_hook(move || {
-        spawn(async move {
-            loop {
-                let result = match crate::control::client::Client::human(&crate::control::root()) {
-                    Ok(client) => client.ui_snapshot().await,
-                    Err(error) => Err(error),
-                };
-                match result {
-                    Ok(next) => {
-                        if *orchestration.peek() != next {
-                            orchestration.set(next);
-                        }
-                        if orchestration_error.peek().is_some() {
-                            orchestration_error.set(None);
-                        }
-                    }
-                    Err(error) => {
-                        let error = Some(format!("Controller unavailable: {error}"));
-                        if *orchestration_error.peek() != error {
-                            orchestration_error.set(error);
-                        }
-                    }
-                }
-                tokio::time::sleep(Duration::from_secs(1)).await;
-            }
-        });
-    });
     let mut selected = use_signal(|| None::<Item>);
     let mut collapsed = use_signal(HashSet::<String>::new);
     let mut focus = use_signal(|| Area::Sidebar);
@@ -1625,9 +1614,6 @@ fn App() -> Element {
     let mut selected_image = use_signal(|| None::<PathBuf>);
     let prompts = use_hook(|| prompts::keeper(nvim, drafted, shown_images));
     use_effect(move || {
-        let _ = prompts.send(Op::ObserveLeaders(Box::new(orchestration.read().clone())));
-    });
-    use_effect(move || {
         let has_images = !shown_images.read().is_empty();
         selected_image.set(None);
         let s = settings::current();
@@ -1665,6 +1651,7 @@ fn App() -> Element {
     let mut git_view = use_signal(|| None::<View>);
     // What the conversation of a session brought up, by the session's id.
     let mut overview_links = use_signal(|| None::<(String, Links)>);
+    let mut overview_notes = use_signal(|| None::<(String, Vec<crate::details::Note>)>);
     let mut overview_stats =
         use_signal(|| None::<(ConversationKey, adroit_model::ConversationStats)>);
     let mut overview_clock = use_signal(now_ms);
@@ -2360,7 +2347,20 @@ fn App() -> Element {
                                     overview_stats.set(next_stats);
                                 }
                                 held = Some((key, t));
-                                if let Some((links, thumbs)) = overview {
+                                if let Some((mut links, thumbs)) = overview {
+                                    // Adroit carries what its sessions tell each other.
+                                    if let Some(record) = s.delegation {
+                                        let root = crate::delegation::app::root();
+                                        links.peers =
+                                            crate::delegation::app::peers_at(&root, record).await;
+                                        let notes = Some((
+                                            s.id.clone(),
+                                            crate::delegation::app::notes_at(&root, record).await,
+                                        ));
+                                        if *overview_notes.peek() != notes {
+                                            overview_notes.set(notes);
+                                        }
+                                    }
                                     if gallery.peek().thumbs != thumbs {
                                         gallery.write().thumbs = thumbs;
                                     }
@@ -2755,83 +2755,10 @@ fn App() -> Element {
     });
     // Keep sessions visible while a prompt is in flight, even across tab switches.
     let mut sending = use_signal(|| false);
-    let mut expanded_completed = use_signal(HashSet::<adroit_model::RunId>::new);
-    let shown_tree = use_memo(move || {
-        let visible = crate::leader_navigation::workspace_tree(
-            &tree.read(),
-            leader_view() || include_managed(),
-        );
-        crate::leader_navigation::narrowed(&visible, &orchestration.read(), &filter.read())
-    });
+    let shown_tree = use_memo(move || nav::narrowed(&tree.read(), &filter.read()));
     let shown_ib = use_memo(move || inbox(&shown_tree.read()));
-    let leader_rows =
-        use_memo(move || crate::leader_navigation::project(&tree.read(), &orchestration.read()));
-    let display_leader_rows = use_memo(move || {
-        let rows = leader_rows.read();
-        if !filter.read().is_empty() || sending() {
-            return rows.clone();
-        }
-        let mut reveal = HashSet::new();
-        if let Some(Item::Session(id) | Item::Waiting(id)) = selected.read().as_ref() {
-            reveal.insert(id.clone());
-        }
-        if let Some(Tab::Session(id)) = active.read().as_ref() {
-            reveal.insert(id.clone());
-        }
-        reveal.extend(drafted.read().iter().filter_map(|tab| match tab {
-            Tab::Session(id) => Some(id.clone()),
-            _ => None,
-        }));
-        crate::leader_navigation::group_completed(
-            &rows,
-            &tree.read(),
-            &orchestration.read(),
-            &completions.read(),
-            &expanded_completed.read(),
-            &reveal,
-        )
-    });
-    let items = use_memo(move || {
-        if !leader_view() {
-            return nav::items(&shown_tree.read(), &shown_ib.read(), &collapsed.read());
-        }
-        let narrowed = shown_tree.read();
-        let rows = display_leader_rows.read();
-        let matching: HashSet<_> = rows
-            .iter()
-            .filter(|row| match &row.item {
-                Item::Session(id) => narrowed.find(id).is_some(),
-                Item::Terminal(id) => narrowed.terminal(*id).is_some(),
-                _ => false,
-            })
-            .filter_map(|row| row.run_id)
-            .collect();
-        let mut out: Vec<_> = shown_ib
-            .read()
-            .iter()
-            .map(|item| Item::Waiting(item.session.id.clone()))
-            .collect();
-        let visible: Vec<_> = rows
-            .iter()
-            .filter(|row| match &row.item {
-                Item::Session(id) => {
-                    narrowed.find(id).is_some()
-                        || (row.role == crate::leader_navigation::RowRole::Leader
-                            && row.run_id.is_some_and(|id| matching.contains(&id)))
-                }
-                Item::Terminal(id) => narrowed.terminal(*id).is_some(),
-                Item::Completed(_) => true,
-                _ => false,
-            })
-            .cloned()
-            .collect();
-        out.extend(crate::leader_navigation::repository_items(
-            &tree.read(),
-            &visible,
-            &collapsed.read(),
-        ));
-        out
-    });
+    let items =
+        use_memo(move || nav::items(&shown_tree.read(), &shown_ib.read(), &collapsed.read()));
 
     // A selected row that leaves the sidebar, as an inbox row does once its
     // session stops waiting, gives way to another rather than to nothing.
@@ -2888,7 +2815,7 @@ fn App() -> Element {
         let draft = Tab::draft(worktree);
         draft_options.write().insert(
             draft.clone(),
-            tabs::DraftOptions::for_new_draft(&mut next_options.write(), *leader_view.peek()),
+            tabs::DraftOptions::for_new_draft(&mut next_options.write()),
         );
         draft
     };
@@ -2900,12 +2827,6 @@ fn App() -> Element {
         }
         selected.set(Some(item.clone()));
         match &item {
-            Item::Completed(run) => {
-                let mut expanded = expanded_completed.write();
-                if !expanded.remove(run) {
-                    expanded.insert(*run);
-                }
-            }
             Item::Workspace(_) => {
                 if let Some(k) = item.fold_key() {
                     let mut c = collapsed.write();
@@ -2954,7 +2875,7 @@ fn App() -> Element {
                     Tab::Session(s.id.clone()),
                     s.name.clone(),
                     Some(completions.read().state(s).clone()),
-                    session_mark(s.binding.as_ref().map(|b| b.role()), s.reads_only()),
+                    session_mark(s.reads_only()),
                 )
             })
             .collect();
@@ -2971,7 +2892,7 @@ fn App() -> Element {
                 .read()
                 .get(draft)
                 .is_some_and(|o| o.permissions == adroit_model::AgentPermissions::ReadOnly);
-            out.push((draft.clone(), title, None, session_mark(None, reader)));
+            out.push((draft.clone(), title, None, session_mark(reader)));
         }
         out
     });
@@ -3191,7 +3112,6 @@ fn App() -> Element {
                             match scratch::start_dir(&worktree, &scratch_dir(), Moment::now()) {
                                 Ok(worktree) => {
                                     let request = crate::execution::StartRequest {
-                                        mode: options.mode,
                                         agent,
                                         name: name.clone(),
                                         cwd: worktree,
@@ -3203,16 +3123,17 @@ fn App() -> Element {
                                         started_ms: now_ms(),
                                         ..Default::default()
                                     };
-                                    match crate::control::managed::prepare(
-                                        &crate::control::root(),
+                                    match crate::delegation::app::prepare(
+                                        &crate::delegation::app::root(),
                                         &launch_settings,
                                         request,
+                                        None,
                                         &adroit_program(),
                                     )
                                     .await
                                     {
-                                        Ok(prepared) => {
-                                            let mut spawn = prepared.resolved.spawn;
+                                        Ok((resolved, recorded)) => {
+                                            let mut spawn = resolved.spawn;
                                             spawn.cols = size.cols;
                                             spawn.rows = size.rows;
                                             start(
@@ -3220,7 +3141,7 @@ fn App() -> Element {
                                                 spawn,
                                                 size,
                                                 |id| Tab::Session(sessions::hex(id)),
-                                                prepared.ownership,
+                                                Some(recorded),
                                             )
                                             .await
                                             .map_err(|e| format!("cannot start {name}: {e}"))
@@ -3323,9 +3244,28 @@ fn App() -> Element {
                     return;
                 }
                 let size = *console_size.peek();
-                let mut args = adapter.integration_args(&adroit_program());
+                let program_path = adroit_program();
+                let mut args = adapter.integration_args(&program_path);
+                let mut request = crate::execution::StartRequest {
+                    agent: now.agent,
+                    name: now.name.clone(),
+                    cwd: now.cwd.clone(),
+                    started_ms: now_ms(),
+                    ..Default::default()
+                };
+                let recorded = crate::delegation::app::record(
+                    &crate::delegation::app::root(),
+                    &settings::current(),
+                    &mut request,
+                    None,
+                )
+                .await;
+                if let Some(delegation) = &request.delegation {
+                    args.extend(delegation.args(now.agent, &program_path));
+                    args.extend(adapter.instruction_args(delegation.instructions()));
+                }
                 args.extend(resume);
-                let (program, args, env) = agents::launch(now.agent, args, daemon::agent_env());
+                let (program, args, mut env) = agents::launch(now.agent, args, daemon::agent_env());
                 let mut tags = sessions::agent_tags(
                     now.agent,
                     &now.name,
@@ -3333,9 +3273,12 @@ fn App() -> Element {
                     &now.session_id,
                     &adroit_model::AgentPermissions::Default,
                     now_ms(),
-                    None,
                 );
                 tags.extend(sessions::editor_tags(&env));
+                if let Some(delegation) = &request.delegation {
+                    env.extend(delegation.environment());
+                    tags.extend(delegation.tags());
+                }
                 let spawn = Spawn {
                     program,
                     args,
@@ -3350,7 +3293,7 @@ fn App() -> Element {
                     spawn,
                     size,
                     |id| Tab::Session(sessions::hex(id)),
-                    None,
+                    recorded.ok(),
                 )
                 .await
                 {
@@ -3526,12 +3469,6 @@ fn App() -> Element {
         let hub = hub.clone();
         move |asked: Session| {
             let hub = hub.clone();
-            let identity = orchestration
-                .peek()
-                .sessions
-                .iter()
-                .find(|session| session.terminal_id.as_deref() == Some(asked.id.as_str()))
-                .map(adroit_model::ManagedSession::reference);
             spawn(async move {
                 let Some(id) = sessions::id_of(&asked.id) else {
                     return;
@@ -3539,19 +3476,9 @@ fn App() -> Element {
                 match hub.daemon.end(id).await {
                     Ok(()) => {
                         notify.notice(format!("ended {}", asked.name));
-                        if let Some(identity) = identity {
-                            let result = crate::control::app_command(
-                                &crate::control::root(),
-                                adroit_model::RequestId::new(),
-                                None,
-                                crate::control::protocol::Command::CloseSession {
-                                    identity,
-                                    terminal_id: asked.id.clone(),
-                                },
-                            )
-                            .await
-                            .map(|_| ());
-                            if let Err(error) = result {
+                        if let Some(record) = asked.delegation {
+                            let root = crate::delegation::app::root();
+                            if let Err(error) = crate::delegation::app::ended(&root, record).await {
                                 status.set(Some(format!(
                                     "ended {}, but cannot record its exit: {error}",
                                     asked.name
@@ -4162,7 +4089,10 @@ fn App() -> Element {
                     let d = drill.peek();
                     if d.sheet() == Sheet::Overview {
                         return overview_listing(
-                            overview_links.peek().as_ref(),
+                            Read {
+                                links: overview_links.peek().as_ref(),
+                                notes: overview_notes.peek().as_ref(),
+                            },
                             active.peek().as_ref(),
                             &folded_groups.peek(),
                             &opened_groups.peek(),
@@ -4391,7 +4321,10 @@ fn App() -> Element {
                                     let o = reopened(&opened_groups.peek(), group, shut);
                                     opened_groups.set(o);
                                     let now = overview_listing(
-                                        overview_links.peek().as_ref(),
+                                        Read {
+                                            links: overview_links.peek().as_ref(),
+                                            notes: overview_notes.peek().as_ref(),
+                                        },
                                         active.peek().as_ref(),
                                         &f,
                                         &opened_groups.peek(),
@@ -4445,6 +4378,16 @@ fn App() -> Element {
                                     }
                                     Use::Reveal => {}
                                 },
+                                (None, Some(how), Some(Entry::Message(n))) => match how {
+                                    Use::Open => {
+                                        d.open(l);
+                                    }
+                                    Use::Copy => notify.notice(match copy_to_clipboard(&n.body) {
+                                        Ok(()) => "Copied the message".into(),
+                                        Err(e) => format!("cannot copy: {e}"),
+                                    }),
+                                    Use::Reveal => {}
+                                },
                                 (None, Some(how), Some(Entry::Agent(a))) => match how {
                                     Use::Open => {
                                         d.open(l);
@@ -4495,7 +4438,7 @@ fn App() -> Element {
                 Action::CursorLast => selected.set(list.last().cloned()),
                 Action::CursorOpen => {
                     if let Some(item) = cur {
-                        let folds = matches!(item, Item::Workspace(_) | Item::Completed(_));
+                        let folds = matches!(item, Item::Workspace(_));
                         open(item);
                         match &*active.peek() {
                             _ if folds => {}
@@ -4514,9 +4457,6 @@ fn App() -> Element {
                     }
                 }
                 Action::CursorFold => {
-                    if let Some(Item::Completed(run)) = cur.as_ref() {
-                        expanded_completed.write().remove(run);
-                    }
                     if let Some(k) = cur.as_ref().and_then(Item::fold_key) {
                         collapsed.write().insert(k);
                     }
@@ -4592,26 +4532,6 @@ fn App() -> Element {
                                 name,
                                 cwd: p.worktree.clone(),
                                 program: runs,
-                                binding: {
-                                    let context = if on_list {
-                                        cur.clone()
-                                    } else {
-                                        match active.peek().as_ref() {
-                                            Some(Tab::Session(id)) => {
-                                                Some(Item::Session(id.clone()))
-                                            }
-                                            Some(Tab::Terminal(id)) => Some(Item::Terminal(*id)),
-                                            _ => None,
-                                        }
-                                    };
-                                    context.as_ref().and_then(|item| {
-                                        crate::leader_navigation::terminal_binding(
-                                            &tree.peek(),
-                                            &orchestration.peek(),
-                                            item,
-                                        )
-                                    })
-                                },
                                 // Not `agent_env`: a shell or Neovim keeps the user's own editor.
                                 env: daemon::terminal_env(),
                             },
@@ -4733,7 +4653,10 @@ fn App() -> Element {
                 }
                 Target::Link { at, .. } => {
                     let listing = overview_listing(
-                        overview_links.peek().as_ref(),
+                        Read {
+                            links: overview_links.peek().as_ref(),
+                            notes: overview_notes.peek().as_ref(),
+                        },
                         active.peek().as_ref(),
                         &folded_groups.peek(),
                         &opened_groups.peek(),
@@ -5393,7 +5316,10 @@ fn App() -> Element {
         .unwrap_or_default();
     let overview_now = if sheet_now == Sheet::Overview {
         overview_listing(
-            overview_links().as_ref(),
+            Read {
+                links: overview_links().as_ref(),
+                notes: overview_notes().as_ref(),
+            },
             active_tab.as_ref(),
             &folded_groups(),
             &opened_groups(),
@@ -5414,6 +5340,15 @@ fn App() -> Element {
             .find(|a| a.call == call)
             .cloned()
     });
+    let opened_note = drill_now.message().and_then(|id| {
+        overview_notes()
+            .as_ref()
+            .filter(|(held, _)| Some(held) == shown_id.as_ref())?
+            .1
+            .iter()
+            .find(|n| n.id == id)
+            .cloned()
+    });
     let opened_process = drill_now.process().and_then(|key| {
         process_rows
             .read()
@@ -5428,7 +5363,9 @@ fn App() -> Element {
         let entries = match &overview_now {
             // A subagent opened stands in for the rows.
             Some(Listing::Links(entries))
-                if drill_now.agent().is_none() && drill_now.process().is_none() =>
+                if drill_now.agent().is_none()
+                    && drill_now.message().is_none()
+                    && drill_now.process().is_none() =>
             {
                 entries.as_slice()
             }
@@ -5445,7 +5382,10 @@ fn App() -> Element {
     // folds or unfolds its group.
     let mut click_link = move |at: usize| {
         let Some(l) = overview_listing(
-            overview_links.peek().as_ref(),
+            Read {
+                links: overview_links.peek().as_ref(),
+                notes: overview_notes.peek().as_ref(),
+            },
             active.peek().as_ref(),
             &folded_groups.peek(),
             &opened_groups.peek(),
@@ -5482,7 +5422,7 @@ fn App() -> Element {
                 Went::Told(told) => notify.notice(told),
                 Went::Nowhere => {}
             },
-            Some(Entry::Agent(_) | Entry::Process(_)) => {
+            Some(Entry::Agent(_) | Entry::Message(_) | Entry::Process(_)) => {
                 let mut d = drill.peek().clone();
                 if d.open(&l) {
                     drill.set(d);
@@ -5715,7 +5655,7 @@ fn App() -> Element {
                                             div { class: "sidebar-inbox-text",
                                                 span { class: "list-row-name",
                                                     "{it.session.name}"
-                                                    SessionMark { mark: session_mark(it.session.binding.as_ref().map(|b| b.role()), it.session.reads_only()) }
+                                                    SessionMark { mark: session_mark(it.session.reads_only()) }
                                                 }
                                                 span { class: "sidebar-inbox-sub", "{sub}" }
                                             }
@@ -5730,26 +5670,7 @@ fn App() -> Element {
                         div { class: "sidebar-divider" }
                     }
                     div { class: "sidebar-bar",
-                        div { class: "panel-tabs", role: "group", "aria-label": "Session view",
-                            button { class: if leader_view() { "panel-tab" } else { "panel-tab active" }, "aria-pressed": !leader_view(), title: "Workspaces", onclick: move |_| leader_view.set(false),
-                                IconView { icon: Icon::Folder, size: 13 }
-                                span { class: "panel-tab-label", "Workspaces" }
-                            }
-                            button { class: if leader_view() { "panel-tab active" } else { "panel-tab" }, "aria-pressed": leader_view(), title: "Leader / Workers", onclick: move |_| leader_view.set(true),
-                                IconView { icon: Icon::Sitemap, size: 13 }
-                                span { class: "panel-tab-label", "Leader / Workers" }
-                            }
-                        }
                         span { class: "sidebar-tools",
-                            if !leader_view() {
-                                button {
-                                    class: if include_managed() { "sidebar-tool on" } else { "sidebar-tool" },
-                                    "aria-pressed": include_managed(),
-                                    title: if include_managed() { "Hide Leader / Worker sessions" } else { "Show Leader / Worker sessions" },
-                                    onclick: move |_| include_managed.set(!include_managed()),
-                                    IconView { icon: Icon::UsersGroup }
-                                }
-                            }
                             button {
                                 class: if all_worktrees() { "sidebar-tool on" } else { "sidebar-tool" },
                                 "aria-pressed": all_worktrees(),
@@ -5810,11 +5731,6 @@ fn App() -> Element {
                             },
                         }
                     }
-                    if leader_view() {
-                        if let Some(error) = orchestration_error() {
-                            div { class: "leader-controller-error", role: "status", "{error}" }
-                        }
-                    }
                     div { class: "list-rows", style: "flex:1",
                         if t.workspaces.is_empty() {
                             div { class: "list-row dim", "No sessions yet" }
@@ -5825,23 +5741,10 @@ fn App() -> Element {
                                 let is_sel = sel.as_ref() == Some(&it);
                                 let mut open = open;
                                 let mark = match &it {
-                                    Item::Session(id) => nav::find(&t, id).and_then(|(_, s)| session_mark(s.binding.as_ref().map(|b| b.role()), s.reads_only())),
+                                    Item::Session(id) => nav::find(&t, id).and_then(|(_, s)| session_mark(s.reads_only())),
                                     _ => None,
                                 };
-                                let ownership = leader_view().then(|| display_leader_rows.read().iter().find(|row| row.item == it).cloned()).flatten();
-                                let worker_display = match &it {
-                                    Item::Session(id) => nav::find(&t, id).and_then(|(_, session)| crate::leader_navigation::worker_presentation(session, &orchestration.read())),
-                                    _ => None,
-                                };
-                                let request = ownership.as_ref().and_then(|row| row.run_id).and_then(|id| orchestration.read().runs.iter().find(|run| run.id == id).cloned());
                                 let (indent, class, text, meta, glyph_class) = match &it {
-                                    Item::Completed(run) => {
-                                        let count = ownership.as_ref().and_then(|row| match row.role { crate::leader_navigation::RowRole::Completed(count) => Some(count), _ => None }).unwrap_or(0);
-                                        let displayed = display_leader_rows.read();
-                                        let is_open = displayed.iter().skip_while(|row| row.item != it).nth(1).is_some_and(|row| row.run_id == Some(*run) && row.role == crate::leader_navigation::RowRole::Worker);
-                                        let arrow = if is_open { "▾" } else { "▸" };
-                                        (14, "list-row head", format!("{arrow} Completed ({count})"), String::new(), None)
-                                    }
                                     Item::Workspace(root) => {
                                         let name = t
                                             .workspace_of(root)
@@ -5862,17 +5765,22 @@ fn App() -> Element {
                                     }
                                     Item::Session(id) => {
                                         let s = nav::find(&t, id).map(|(_, s)| s.clone());
+                                        let starter = s.as_ref().and_then(|s| nav::starter(&t, s)).cloned();
                                         // The rows are of the narrowed tree, where a
                                         // workspace can be flat that is not in full.
+                                        let listed_under = starter.as_ref().map_or(id, |starter| &starter.id);
                                         let under_worktree = shown_tree
                                             .read()
-                                            .find(id)
+                                            .find(listed_under)
                                             .is_some_and(|(ws, _, _)| !ws.flat());
+                                        let indent = if under_worktree { 28 } else { 14 };
+                                        // A started session names where it runs when its starter runs elsewhere.
+                                        let elsewhere = s.as_ref().zip(starter.as_ref()).filter(|(s, starter)| s.cwd != starter.cwd).map(|(s, _)| short(&s.cwd)).unwrap_or_default();
                                         (
-                                            if under_worktree { 28 } else { 14 },
+                                            if starter.is_some() { indent + 14 } else { indent },
                                             "list-row",
                                             s.as_ref().map(|s| s.name.clone()).unwrap_or_else(|| id.clone()),
-                                            if s.as_ref().is_some_and(|s| s.binding.is_none()) { "Standalone".into() } else { String::new() },
+                                            elsewhere,
                                             s.map(|s| glyph(completions.read().state(&s))),
                                         )
                                     }
@@ -5886,22 +5794,7 @@ fn App() -> Element {
                                     }
                                     Item::Waiting(_) => (0, "list-row", String::new(), String::new(), None),
                                 };
-                                let (indent, class, text, meta) = if let Some(row) = &ownership {
-                                    use crate::leader_navigation::RowRole;
-                                    match row.role {
-                                        RowRole::Leader => (14, "list-row head", request.as_ref().map(|run| run.brief.title.clone()).unwrap_or(text), request.as_ref().map(|run| run.state.word().to_owned()).unwrap_or_else(|| "Leader".into())),
-                                        RowRole::Completed(_) => (28, class, text, meta),
-                                        RowRole::Worker => {
-                                            let grouped = display_leader_rows.read().iter().take_while(|row| row.item != it).any(|previous| previous.run_id == row.run_id && matches!(previous.role, RowRole::Completed(_)));
-                                            (if grouped {42} else {28}, class, text, "Worker".to_owned())
-                                        },
-                                        RowRole::Terminal => (if row.run_id.is_some() {28} else {14}, class, text, "Terminal".to_owned()),
-                                        RowRole::Unassigned => (14, class, text, if meta.is_empty() { "Unassigned".to_owned() } else { meta }),
-                                    }
-                                } else { (indent, class, text, meta) };
-                                let (text, meta) = worker_display.as_ref().map(|display| (display.label.clone(), display.metadata.clone())).unwrap_or((text, meta));
-                                let row_title = ownership.as_ref().and_then(|row| row.reason.clone()).unwrap_or_else(|| row_tip(&it).to_owned());
-                                let row_title = worker_display.as_ref().and_then(|display| display.instructions.as_ref()).map(|instructions| format!("{row_title}\n\n{instructions}")).unwrap_or(row_title);
+                                let row_title = row_tip(&it).to_owned();
                                 let terminal = match &it {
                                     Item::Terminal(id) => Some(runs_of(&terminals.read(), *id)),
                                     _ => None,
@@ -6179,7 +6072,7 @@ fn App() -> Element {
                                             onchoose: move |a| choose_agent(None, a),
                                         }
                                         DraftLaunchOptions {
-                                            options: next_options.read().clone().unwrap_or_else(|| tabs::DraftOptions::for_view(leader_view())),
+                                            options: next_options.read().clone().unwrap_or_default(),
                                             onchange: move |options| next_options.set(Some(options)),
                                         }
                                     }
@@ -6294,18 +6187,6 @@ fn App() -> Element {
                     }
                     div { class: "details-scroll",
                     if sheet_now == Sheet::Overview {
-                    if leader_view() {
-                        if let Some(item) = match &active_tab {
-                            Some(Tab::Session(id)) => Some(Item::Session(id.clone())),
-                            Some(Tab::Terminal(id)) => Some(Item::Terminal(*id)),
-                            _ => None,
-                        } {
-                            crate::leader_details::RequestDetails {
-                                snapshot: orchestration(), tree: t.clone(), item,
-                                on_open: move |id: String| open(Item::Session(id)),
-                            }
-                        }
-                    }
                     if let Some(s) = &shown_session {
                         div { class: "details-block",
                             span { class: "details-label", "{s.name}" }
@@ -6338,6 +6219,19 @@ fn App() -> Element {
                     if let Some(agent) = opened_agent {
                         SubagentView {
                             agent,
+                            now_ms: now_ms(),
+                            back_keys: k_back.clone(),
+                            on_back: move |_| {
+                                let mut d = drill.peek().clone();
+                                if d.back() {
+                                    drill.set(d);
+                                }
+                            },
+                        }
+                    }
+                    if let Some(note) = opened_note {
+                        crate::message_view::MessageView {
+                            note,
                             now_ms: now_ms(),
                             back_keys: k_back.clone(),
                             on_back: move |_| {
@@ -6859,27 +6753,11 @@ fn DraftLaunchOptions(
 ) -> Element {
     let model_options = options.clone();
     let permission_options = options.clone();
-    let mode_options = options.clone();
     rsx! {
         div {
             class: "launch-form-options",
             onmousedown: move |event| event.stop_propagation(),
             onkeydown: move |event| event.stop_propagation(),
-            label { class: "launch-form-label", r#for: "launch-mode", "Mode" }
-            select {
-                id: "launch-mode",
-                aria_label: "Session mode",
-                value: if options.mode == crate::execution::StartMode::Leader { "leader" } else { "standalone" },
-                oninput: move |event| {
-                    let mut next = mode_options.clone();
-                    next.mode = if event.value() == "leader" {
-                        crate::execution::StartMode::Leader
-                    } else { crate::execution::StartMode::Standalone };
-                    onchange.call(next);
-                },
-                option { value: "standalone", "Standalone" }
-                option { value: "leader", "Leader" }
-            }
             label { class: "launch-form-label", r#for: "launch-model", "Model" }
             input {
                 id: "launch-model",
@@ -6995,24 +6873,9 @@ mod tests {
     }
 
     #[test]
-    fn worker_marks_identify_the_role_independently_of_permissions() {
-        use adroit_model::SessionRole;
-
-        for reads_only in [false, true] {
-            let worker = session_mark(Some(SessionRole::Worker), reads_only);
-            assert_eq!(worker, Some((Icon::Cpu, "Worker")));
-            assert_ne!(worker, session_mark(Some(SessionRole::Leader), reads_only));
-        }
-    }
-
-    #[test]
-    fn other_sessions_and_drafts_keep_their_read_only_marks() {
-        use adroit_model::SessionRole;
-
-        for role in [None, Some(SessionRole::Leader)] {
-            assert_eq!(session_mark(role, true), Some((Icon::Book, "only reads")));
-            assert_eq!(session_mark(role, false), None);
-        }
+    fn sessions_and_drafts_that_only_read_are_marked() {
+        assert_eq!(session_mark(true), Some((Icon::Book, "only reads")));
+        assert_eq!(session_mark(false), None);
     }
 
     #[test]
@@ -7050,7 +6913,7 @@ mod tests {
         let read = ("session-one".into(), vec![process]);
         let folded = HashSet::new();
         let listing = overview_listing(
-            None,
+            Read::default(),
             Some(&Tab::Session("session-one".into())),
             &folded,
             &folded,
@@ -7068,7 +6931,7 @@ mod tests {
         );
         assert!(
             overview_listing(
-                None,
+                Read::default(),
                 Some(&Tab::Session("session-two".into())),
                 &folded,
                 &folded,
@@ -7281,7 +7144,10 @@ mod tests {
             .keep("s1", pictures::Kept::of(drawn, 5).unwrap());
         let open = HashSet::new();
         let Some(Listing::Links(entries)) = overview_listing(
-            Some(&read),
+            Read {
+                links: Some(&read),
+                notes: None,
+            },
             Some(&Tab::Session("s1".into())),
             &open,
             &open,
@@ -7315,7 +7181,10 @@ mod tests {
         let t = Tree::default();
         assert!(
             overview_listing(
-                Some(&read),
+                Read {
+                    links: Some(&read),
+                    notes: None,
+                },
                 Some(&shown("s1")),
                 &open,
                 &open,
@@ -7327,7 +7196,10 @@ mod tests {
         );
         assert!(
             overview_listing(
-                Some(&read),
+                Read {
+                    links: Some(&read),
+                    notes: None,
+                },
                 Some(&shown("s2")),
                 &open,
                 &open,
@@ -7339,7 +7211,10 @@ mod tests {
         );
         assert!(
             overview_listing(
-                Some(&read),
+                Read {
+                    links: Some(&read),
+                    notes: None,
+                },
                 Some(&Tab::Terminal(1)),
                 &open,
                 &open,

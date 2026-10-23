@@ -149,22 +149,20 @@ fn serve(rt: &tokio::runtime::Runtime) -> adroit_term::Result<()> {
     let running = move |n| keeper.keep(awake::wanted(n, Settings::load().keep_awake));
     rt.block_on(async {
         tokio::spawn(async { stamp_when_listening(&daemon(), &build()).await });
-        let mut control =
-            match crate::control::service::Service::bind(&crate::control::root()).await {
-                Ok(service) => Some(service),
-                Err(error) => {
-                    eprintln!("adroit: orchestration is unavailable: {error}");
-                    None
-                }
-            };
-        if let Some(service) = &mut control {
-            if let Err(error) =
-                service.supervise_checked(daemon(), adroit_program(), Settings::try_load)
-            {
-                eprintln!("adroit: orchestration supervision is unavailable: {error}");
+        let _delegation = match crate::delegation::service::Service::start(
+            &crate::delegation::app::root(),
+            daemon(),
+            adroit_program(),
+            Settings::try_load,
+        )
+        .await
+        {
+            Ok(service) => Some(service),
+            Err(error) => {
+                eprintln!("adroit: sessions cannot start or message sessions: {error}");
+                None
             }
-            service.watch_models(Settings::try_load);
-        }
+        };
         Daemon::serve(&socket(), AWAKE_EVERY, running).await
     })
 }

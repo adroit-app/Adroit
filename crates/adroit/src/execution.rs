@@ -3,28 +3,15 @@
 use std::path::{Path, PathBuf};
 
 use adroit_model::{
-    Agent, AgentPermissions, CustomPermissions, TerminalBinding, TerminalProgram,
-    TerminalResourceId, TerminalSession,
+    Agent, AgentPermissions, CustomPermissions, TerminalProgram, TerminalResourceId,
+    TerminalSession,
 };
 use adroit_term::{Daemon, Palette, Pane, Size, Spawn};
 
-use crate::{agents, sessions, settings::Settings};
-
-mod control;
-pub use control::{CLAUDE_CHANNEL, ControlContext};
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum StartMode {
-    /// Preserve automatic root detection for existing command-line callers.
-    #[default]
-    Automatic,
-    Standalone,
-    Leader,
-}
+use crate::{agents, delegation::launch::Delegation, sessions, settings::Settings};
 
 #[derive(Debug, Clone, Default)]
 pub struct StartRequest {
-    pub mode: StartMode,
     pub agent: Agent,
     pub model: Option<String>,
     pub name: String,
@@ -32,12 +19,13 @@ pub struct StartRequest {
     pub prompt: String,
     pub images: Vec<PathBuf>,
     pub permissions: AgentPermissions,
-    pub binding: Option<adroit_model::SessionBinding>,
-    pub control: Option<ControlContext>,
+    /// How the session reaches other sessions; none for a launch Adroit
+    /// keeps no record of.
+    pub delegation: Option<Delegation>,
+    /// Codex's own developer instructions, which Adroit's are added to.
     pub developer_instructions: Option<String>,
     pub env: Vec<(String, String)>,
     pub started_ms: u64,
-    pub started_from: Option<String>,
 }
 
 pub use adroit_model::ModelSource;
@@ -50,8 +38,6 @@ pub struct ResolvedLaunch {
     pub model: Option<String>,
     pub model_source: ModelSource,
     pub conversation: String,
-    /// Policy requested at launch; this is not proof of runtime enforcement.
-    pub role_version: Option<u32>,
     pub spawn: Spawn,
 }
 
@@ -60,7 +46,6 @@ pub struct TerminalStartRequest {
     pub name: String,
     pub cwd: PathBuf,
     pub program: TerminalProgram,
-    pub binding: Option<TerminalBinding>,
     pub env: Vec<(String, String)>,
 }
 
@@ -94,13 +79,7 @@ pub fn resolve_terminal(
         }
     };
     let resource_id = TerminalResourceId::new();
-    let tags = sessions::terminal_tags(
-        &request.name,
-        &request.cwd,
-        request.program,
-        resource_id,
-        request.binding.as_ref(),
-    );
+    let tags = sessions::terminal_tags(&request.name, &request.cwd, request.program, resource_id);
     ResolvedTerminalLaunch {
         terminal: TerminalSession {
             resource_id,
@@ -108,7 +87,6 @@ pub fn resolve_terminal(
             name: request.name,
             cwd: request.cwd.clone(),
             program: request.program,
-            binding: request.binding,
         },
         spawn: Spawn {
             program,
@@ -153,37 +131,18 @@ pub fn resolve(
     request: StartRequest,
     adroit_program: &Path,
 ) -> Result<ResolvedLaunch, String> {
-    if let Some(context) = &request.control {
-        context.validate(request.binding.as_ref())?;
-    }
-    let (mut settings, target) = configured(settings, &request)?;
+    let (settings, target) = configured(settings, &request)?;
     let adapter = agents::adapter(request.agent);
     let conversation = adapter.conversation();
     let mut args = adapter.integration_args(adroit_program);
-    if let Some(context) = &request.control {
-        args.extend(context.args(request.agent, adroit_program));
-    }
-    let role_version = if let Some(binding) = &request.binding {
-        let role = crate::roles::instructions(binding);
+    if let Some(delegation) = &request.delegation {
+        args.extend(delegation.args(request.agent, adroit_program));
         let instructions = match (&request.developer_instructions, request.agent) {
-            (Some(base), Agent::Codex) => format!("{base}\n\n{role}"),
-            _ => role,
+            (Some(base), Agent::Codex) => format!("{base}\n\n{}", delegation.instructions()),
+            _ => delegation.instructions().to_owned(),
         };
-        if request.agent == Agent::Codex
-            && serde_json::to_string(&instructions)
-                .map_err(|error| error.to_string())?
-                .len()
-                > 64 * 1024
-        {
-            return Err(
-                "Codex developer instructions exceed the safe per-session launch limit".into(),
-            );
-        }
-        args.extend(adapter.role_args(&mut settings, binding.role(), &instructions));
-        Some(crate::roles::VERSION)
-    } else {
-        None
-    };
+        args.extend(adapter.instruction_args(&instructions));
+    }
     args.extend(adapter.image_args(&request.images));
     args.extend(adapter.start_args(
         &settings,
@@ -193,9 +152,9 @@ pub fn resolve(
     ));
     let (program, args, mut env) =
         agents::launch_with_settings(&settings, request.agent, args, request.env);
-    if let (Some(context), Some(binding)) = (&request.control, &request.binding) {
-        env.retain(|(name, _)| !crate::env::reserved_control(name));
-        env.extend(context.environment(binding));
+    if let Some(delegation) = &request.delegation {
+        env.retain(|(name, _)| !crate::env::reserved_delegation(name));
+        env.extend(delegation.environment());
     }
     let started_ms = if request.started_ms == 0 {
         std::time::SystemTime::now()
@@ -212,24 +171,10 @@ pub fn resolve(
         &conversation,
         &request.permissions,
         started_ms,
-        request.started_from.as_deref(),
     );
     tags.extend(sessions::editor_tags(&env));
-    if let Some(binding) = &request.binding {
-        tags.extend(adroit_term::tags::tagged(
-            "adroit.binding",
-            &serde_json::to_string(binding).expect("serializable assignment"),
-        ));
-        tags.extend(adroit_term::tags::tagged(
-            "adroit.binding-conversation",
-            &conversation,
-        ));
-    }
-    if let Some(context) = &request.control {
-        tags.extend(adroit_term::tags::tagged(
-            "adroit.generation",
-            &context.identity.generation.to_string(),
-        ));
+    if let Some(delegation) = &request.delegation {
+        tags.extend(delegation.tags());
     }
     Ok(ResolvedLaunch {
         agent: request.agent,
@@ -237,7 +182,6 @@ pub fn resolve(
         model: target.model,
         model_source: target.model_source,
         conversation,
-        role_version,
         spawn: Spawn {
             program,
             args,

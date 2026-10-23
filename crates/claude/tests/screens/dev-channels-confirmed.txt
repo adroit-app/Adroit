@@ -2,7 +2,7 @@
 ▝▜██████▀  Opus 5.5 · Claude Max
  ▝▝   ▝▝   ~/ghq/github.com/adroit-app/Adroit/.claude/worktrees/adroit-2c9e2637-6a09-40a7-83e8-df0c0b41c23c
 
-▎ Channels (experimental) messages from server:adroit_control inject directly in this session · restart without
+▎ Channels (experimental) messages from server:adroit inject directly in this session · restart without
 ▎ --dangerously-load-development-channels to stop
 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────

@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{AgentPermissions, SessionBinding};
+use crate::{AgentPermissions, SessionId};
 
 /// The program that owns a session's conversation.
 #[derive(
@@ -43,8 +43,10 @@ impl Agent {
 /// terminal that Claude Code lists.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Session {
-    /// Explicit task ownership, independent of terminal and conversation IDs.
-    pub binding: Option<SessionBinding>,
+    /// Adroit's record of the session, for one Adroit started.
+    pub delegation: Option<SessionId>,
+    /// The session that started this one; none for one the user started.
+    pub parent: Option<SessionId>,
     pub agent: Agent,
     /// Which session this is: the daemon's id for one adroit runs, the
     /// conversation's for one in another terminal.
@@ -67,9 +69,6 @@ pub struct Session {
     /// The most recent input sent through Adroit, kept on the daemon session.
     pub last_input_ms: Option<u64>,
     pub permissions: AgentPermissions,
-    /// The conversation of the session this one was started from; empty for
-    /// one the user started.
-    pub started_from: String,
     /// Whether the session runs with adroit's editor as its external editor,
     /// so that asking it for its input hands the input to the window; false
     /// when that is not known, as for one started by an earlier version.
@@ -199,7 +198,8 @@ pub fn parse_agents(json: &str) -> Result<Vec<Session>, ParseError> {
         .map(|raw| {
             let status = raw.status.unwrap_or_default();
             Session {
-                binding: None,
+                delegation: None,
+                parent: None,
                 agent: Agent::Claude,
                 id: raw.session_id.clone(),
                 name: raw.name.unwrap_or_else(|| raw.session_id.clone()),
@@ -215,7 +215,6 @@ pub fn parse_agents(json: &str) -> Result<Vec<Session>, ParseError> {
                 started_ms: raw.started_at,
                 last_input_ms: None,
                 permissions: AgentPermissions::default(),
-                started_from: String::new(),
                 adroit_editor: false,
             }
         })

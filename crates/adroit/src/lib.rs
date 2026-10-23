@@ -4,15 +4,14 @@ mod agents;
 mod alerts;
 mod app;
 mod awake;
-pub mod candidates;
 pub mod cli;
 mod complete;
 mod completion;
 mod console;
 pub mod console_keys;
 mod console_read;
-pub mod control;
 mod daemon;
+pub mod delegation;
 mod details;
 pub mod editor;
 pub mod env;
@@ -28,10 +27,9 @@ mod keys;
 mod keys_edit;
 mod keys_pane;
 mod layout;
-mod leader_details;
-pub mod leader_navigation;
 pub mod menu;
 pub mod menu_bar;
+mod message_view;
 pub mod nav;
 mod pasted;
 mod paths;
@@ -64,10 +62,6 @@ pub use app::launch;
 pub use daemon::cli as daemon_cli;
 pub use start::cli as session_cli;
 pub use terminals::cli as terminal_cli;
-
-mod roles;
-
-pub mod workareas;
 
 #[cfg(test)]
 #[path = "../tests/support/daemon.rs"]

@@ -21,10 +21,13 @@ Overview, Changes and Log.
   verifies that it is still the same process belonging to the session. A zombie has already exited and must be reaped by
   its parent. Processes that cannot be associated with the session are omitted.
   Below, it lists the other sessions it worked with:
-  the one it was started from and those it started
-  ([sessions](sessions.md#started-by-a-session)) while they run, then those it
-  messaged or heard from through Claude Code, newest first, each saying how
-  the two are tied. Then it lists the subagents the session set to work
+  the one that started it and those it started
+  ([sessions that start sessions](delegation.md)) while they run, then those
+  it messaged or heard from through Adroit, ended ones included, newest
+  first, each saying how the two are tied. Then it lists the messages it sent
+  and received through Adroit, newest first, each with who sent it to whom;
+  opening one shows it whole. A report stays listed after the sessions on
+  both ends have ended. Then it lists the subagents the session set to work
   through Claude Code: those still at work, the latest first, then the few
   that ended last, each named by what it was last asked about, marked with
   what kind it is, and saying how it stands and for how long it has run or
@@ -47,8 +50,7 @@ Overview, Changes and Log.
   change.
 
 Opening a session of the overview shows it, wherever it runs; one that runs
-no more is listed by its name and says so. Copying one copies its name, which
-Claude Code's messaging addresses it by.
+no more is listed by its name and says so. Copying one copies its name.
 
 Each kind of link shows its newest few, five unless the settings say
 otherwise ([settings](settings.md#settingstoml)), and a row that shows the

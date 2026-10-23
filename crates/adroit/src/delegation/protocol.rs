@@ -1,0 +1,178 @@
+//! What a session asks the daemon, one JSON line each way.
+use std::path::{Path, PathBuf};
+
+use adroit_model::{Agent, AgentPermissions, MessageId, SessionId};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+use super::{Code, Error, Result};
+
+pub const VERSION: u32 = 1;
+pub const MAX_FRAME: usize = 1024 * 1024;
+
+pub fn socket(root: &Path) -> PathBuf {
+    root.join("delegation.sock")
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Request {
+    pub version: u32,
+    pub credential: String,
+    pub command: Command,
+    /// The Codex thread a tool was called from, which tells the session's own
+    /// conversation from its subagents'.
+    #[serde(default)]
+    pub thread: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Response {
+    pub version: u32,
+    pub result: std::result::Result<Value, Error>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum Command {
+    Context,
+    StartSession(Start),
+    Send(Send),
+    Sessions(Sessions),
+    Report(Report),
+    StopSession(Stop),
+    Models,
+    /// The oldest message waiting for the caller, as its agent is to read it.
+    Next,
+    Delivered {
+        id: MessageId,
+    },
+}
+
+impl Command {
+    /// Whether the command acts for the session rather than reading.
+    pub fn acts(&self) -> bool {
+        matches!(
+            self,
+            Self::StartSession(_) | Self::Send(_) | Self::Report(_) | Self::StopSession(_)
+        )
+    }
+}
+
+/// Start a session with a first prompt.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Start {
+    /// The complete first prompt: goal, scope, what to check and what to report.
+    pub prompt: String,
+    /// The directory to work in, or to make the worktree of; your own when omitted.
+    #[serde(default)]
+    pub dir: Option<PathBuf>,
+    /// Work in a new worktree of that directory: a jj workspace or a Git worktree.
+    #[serde(default)]
+    pub worktree: bool,
+    /// The revision the new worktree starts from; your current change or commit when omitted.
+    #[serde(default)]
+    pub base: Option<String>,
+    /// `claude` or `codex`; the configured default when omitted.
+    #[serde(default)]
+    pub agent: Option<Agent>,
+    /// A model the agent lists (see `models`); its default when omitted.
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub permissions: Option<AgentPermissions>,
+    /// A short name; made from the prompt when omitted.
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+/// Send a message to another session.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Send {
+    /// The recipient's id, as `sessions` lists it.
+    pub to: SessionId,
+    pub body: String,
+}
+
+/// List the sessions Adroit runs.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Sessions {
+    /// Only sessions working in the repository holding this directory.
+    #[serde(default)]
+    pub repo: Option<PathBuf>,
+    /// Only sessions working in this directory or below it.
+    #[serde(default)]
+    pub dir: Option<PathBuf>,
+}
+
+/// Report to the session that started you; this session then ends.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Report {
+    /// What was done, where it is, how it was checked and what remains.
+    pub body: String,
+}
+
+/// End a session you started.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Stop {
+    pub id: SessionId,
+}
+
+pub(crate) async fn read_frame(reader: &mut (impl AsyncBufRead + Unpin)) -> Result<Vec<u8>> {
+    let mut frame = Vec::new();
+    loop {
+        let available = reader.fill_buf().await.map_err(transport)?;
+        if available.is_empty() {
+            return Err(Error::new(Code::Invalid, "the frame is incomplete"));
+        }
+        let end = available.iter().position(|byte| *byte == b'\n');
+        let count = end.map_or(available.len(), |index| index + 1);
+        if frame.len() + count > MAX_FRAME {
+            return Err(Error::new(Code::Invalid, "the frame is too large"));
+        }
+        frame.extend_from_slice(&available[..count]);
+        reader.consume(count);
+        if end.is_some() {
+            return Ok(frame);
+        }
+    }
+}
+
+/// Asks the daemon at `root` as the session `credential` names.
+pub async fn ask(
+    root: &Path,
+    credential: &str,
+    command: Command,
+    thread: Option<String>,
+) -> Result<Value> {
+    let stream = tokio::net::UnixStream::connect(socket(root))
+        .await
+        .map_err(|error| {
+            Error::new(
+                Code::Storage,
+                format!("cannot reach the session daemon: {error}"),
+            )
+        })?;
+    let (read, mut write) = stream.into_split();
+    let mut bytes = serde_json::to_vec(&Request {
+        version: VERSION,
+        credential: credential.to_owned(),
+        command,
+        thread,
+    })
+    .map_err(transport)?;
+    bytes.push(b'\n');
+    write.write_all(&bytes).await.map_err(transport)?;
+    let frame = read_frame(&mut BufReader::new(read)).await?;
+    let response: Response = serde_json::from_slice(&frame).map_err(transport)?;
+    response.result
+}
+
+fn transport(error: impl std::fmt::Display) -> Error {
+    Error::new(Code::Storage, error.to_string())
+}

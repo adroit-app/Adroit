@@ -24,9 +24,7 @@ opened next. Sent with nothing open, it starts a
 
 What a session's tab kept follows the session when it goes by another id,
 as after a take-over. Hiding a session tab keeps its unsent text and attachments
-with that session. Stopping a Leader also preserves them; explicitly restarting
-the same Leader restores them in its replacement conversation, including after
-closing and reopening the window. Closing an unstarted draft transfers its
+with that session. Closing an unstarted draft transfers its
 prompt to the next available prompt.
 
 Text taken from Claude Code's input goes to the tab it was taken for, even

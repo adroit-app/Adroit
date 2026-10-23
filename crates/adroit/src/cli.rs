@@ -12,7 +12,8 @@ pub enum Command {
     Version,
     /// A subcommand, and the arguments that follow it.
     Terminal(Vec<String>),
-    Control(Vec<String>),
+    /// Serve a session's `adroit` MCP server on standard input and output.
+    Mcp(Vec<String>),
     Editor(Vec<String>),
     Session(Vec<String>),
     Daemon(DaemonCommand),
@@ -26,7 +27,7 @@ pub enum DaemonCommand {
     Restart,
 }
 
-pub const USAGE: &str = "usage: adroit [--instance <name> | --version | terminal … | control … | editor … | session … | daemon [stop | restart]]";
+pub const USAGE: &str = "usage: adroit [--instance <name> | --version | terminal … | mcp … | editor … | session … | daemon [stop | restart]]";
 
 /// The command `args` ask for; `None` for one adroit does not know, which
 /// must not open a window: a program that ran an older adroit's subcommand
@@ -42,7 +43,7 @@ pub fn command(args: &[String]) -> Option<Command> {
             _ => None,
         },
         Some("--version") if args.len() == 1 => Some(Command::Version),
-        Some("control") => Some(Command::Control(rest())),
+        Some("mcp") => Some(Command::Mcp(rest())),
         Some("terminal") => Some(Command::Terminal(rest())),
         Some("editor") => Some(Command::Editor(rest())),
         Some("session") => Some(Command::Session(rest())),

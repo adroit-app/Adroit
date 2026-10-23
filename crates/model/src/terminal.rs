@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{LogicalSessionId, RunId, TerminalResourceId};
+use crate::TerminalResourceId;
 
 /// A terminal program, independent of any agent conversation or task result.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -14,13 +14,6 @@ pub struct TerminalSession {
     pub name: String,
     pub cwd: PathBuf,
     pub program: TerminalProgram,
-    pub binding: Option<TerminalBinding>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TerminalBinding {
-    pub run_id: RunId,
-    pub worker_id: Option<LogicalSessionId>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]

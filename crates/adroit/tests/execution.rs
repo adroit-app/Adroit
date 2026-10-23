@@ -1,7 +1,8 @@
+use adroit::delegation::launch::Delegation;
 use adroit::execution::{ModelSource, StartRequest, resolve};
 use adroit::settings::Settings;
 use adroit_model::Agent;
-use adroit_model::{AgentPermissions, CustomPermissions, LogicalSessionId, RunId, SessionBinding};
+use adroit_model::{AgentPermissions, CustomPermissions, SessionId};
 use std::path::Path;
 
 fn request(agent: Agent, model: Option<&str>) -> StartRequest {
@@ -150,7 +151,7 @@ fn all_launch_arguments_and_environment_use_the_given_settings_snapshot() {
 }
 
 #[test]
-fn a_read_only_worker_keeps_its_permissions_when_its_model_changes() {
+fn a_read_only_session_keeps_its_permissions_when_its_model_changes() {
     let mut settings = Settings::default();
     settings.codex_sessions.sandbox_mode = "danger-full-access".into();
     let mut request = request(Agent::Codex, Some("review-model"));
@@ -238,290 +239,112 @@ fn custom_permissions_do_not_cross_providers_or_replace_the_model() {
     assert!(resolve(&Settings::default(), claude, Path::new("/adroit")).is_err());
 }
 
-#[test]
-fn a_worker_launch_keeps_its_explicit_assignment_even_at_the_repository_root() {
-    use adroit_model::{AttemptId, LogicalSessionId, RunId, SessionBinding, TaskId};
-    let binding = SessionBinding::worker(
-        LogicalSessionId::new(),
-        LogicalSessionId::new(),
-        RunId::new(),
-        TaskId::new(),
-        AttemptId::new(),
+fn recorded(parent: Option<SessionId>) -> Delegation {
+    Delegation::new(
+        SessionId::new(),
+        parent,
+        "/private/delegation".into(),
+        "test-secret-token".into(),
     )
-    .unwrap();
-    let mut request = request(Agent::Codex, None);
-    request.binding = Some(binding.clone());
-    let launch = resolve(&Settings::default(), request, Path::new("/adroit")).unwrap();
-    let raw = adroit_term::tags::value(&launch.spawn.tags, "adroit.binding").unwrap();
-    assert_eq!(
-        serde_json::from_str::<SessionBinding>(&raw).unwrap(),
-        binding
-    );
-    assert_eq!(
-        adroit_term::tags::value(&launch.spawn.tags, "adroit.binding-conversation").as_deref(),
-        Some(launch.conversation.as_str())
-    );
 }
 
 #[test]
-fn a_codex_leader_requests_native_delegation_restrictions_per_launch() {
-    use adroit_model::{LogicalSessionId, RunId, SessionBinding};
-    let mut request = request(Agent::Codex, None);
-    request.binding = Some(SessionBinding::leader(
-        LogicalSessionId::new(),
-        Some(RunId::new()),
-    ));
-    let launch = resolve(&Settings::default(), request, Path::new("/adroit")).unwrap();
-    assert_eq!(launch.role_version, Some(2));
-    for policy in [
-        "agents.enabled=false",
-        "features.multi_agent=false",
-        "features.multi_agent_v2=false",
-    ] {
-        assert!(
-            launch
-                .spawn
-                .args
-                .windows(2)
-                .any(|args| args == ["-c", policy])
-        );
-    }
-    assert!(
-        launch
-            .spawn
-            .args
-            .iter()
-            .any(|arg| arg.starts_with("developer_instructions=")
-                && arg.contains("Leader")
-                && arg.contains("internal subagents"))
-    );
-}
-
-#[test]
-fn a_claude_leader_combines_its_tool_restriction_with_custom_permissions() {
-    use adroit_model::{LogicalSessionId, RunId, SessionBinding};
-    let mut request = request(Agent::Claude, None);
-    request.binding = Some(SessionBinding::leader(
-        LogicalSessionId::new(),
-        Some(RunId::new()),
-    ));
-    request.permissions = AgentPermissions::Custom(Box::new(CustomPermissions::Claude {
-        permission_mode: "default".into(),
-        disallowed_tools: vec!["Write".into()],
-    }));
-    let launch = resolve(&Settings::default(), request, Path::new("/adroit")).unwrap();
-    let args = &launch.spawn.args;
-    assert!(
-        args.windows(2)
-            .any(|args| args[0] == "--append-system-prompt" && args[1].contains("Leader"))
-    );
-    let flags: Vec<_> = args
-        .windows(2)
-        .filter(|args| args[0] == "--disallowedTools")
-        .collect();
-    assert_eq!(flags.len(), 1);
-    for tool in ["Agent", "Task", "Write"] {
-        assert!(flags[0][1].split(',').any(|name| name == tool));
-    }
-}
-
-#[test]
-fn worker_policy_does_not_disable_delegation_and_unmanaged_sessions_get_no_role() {
-    use adroit_model::{AttemptId, LogicalSessionId, RunId, SessionBinding, TaskId};
-    let mut worker = request(Agent::Codex, None);
-    worker.binding = Some(
-        SessionBinding::worker(
-            LogicalSessionId::new(),
-            LogicalSessionId::new(),
-            RunId::new(),
-            TaskId::new(),
-            AttemptId::new(),
-        )
-        .unwrap(),
-    );
-    let launch = resolve(&Settings::default(), worker, Path::new("/adroit")).unwrap();
-    assert_eq!(launch.role_version, Some(2));
-    assert!(
-        !launch
-            .spawn
-            .args
-            .iter()
-            .any(|arg| arg == "agents.enabled=false")
-    );
-    let unmanaged = resolve(
-        &Settings::default(),
-        request(Agent::Codex, None),
-        Path::new("/adroit"),
-    )
-    .unwrap();
-    assert_eq!(unmanaged.role_version, None);
-    assert!(
-        !unmanaged
-            .spawn
-            .args
-            .iter()
-            .any(|arg| arg.starts_with("developer_instructions="))
-    );
-}
-
-#[test]
-fn managed_control_uses_per_session_native_configuration_without_tokens_in_arguments() {
-    use adroit::execution::ControlContext;
-    use adroit_model::{LogicalSessionId, SessionBinding, SessionRef};
+fn a_recorded_session_carries_its_credential_in_the_environment_alone() {
     for agent in [Agent::Claude, Agent::Codex] {
-        let id = LogicalSessionId::new();
-        let identity = SessionRef { id, generation: 3 };
         let mut request = request(agent, None);
-        request.binding = Some(SessionBinding::leader(id, None));
-        request.control = Some(ControlContext::new(
-            identity,
-            "/private/control".into(),
-            "test-secret-token".into(),
-        ));
+        request.delegation = Some(recorded(None));
         request
             .env
-            .push(("ADROIT_CONTROL_TOKEN".into(), "outer-token".into()));
+            .push(("ADROIT_DELEGATION_TOKEN".into(), "outer-token".into()));
         let mut settings = Settings::default();
-        settings
-            .claude
-            .env
-            .insert("ADROIT_CONTROL_TOKEN".into(), "configured-token".into());
-        settings
-            .codex
-            .env
-            .insert("ADROIT_CONTROL_TOKEN".into(), "configured-token".into());
-        let before = settings.clone();
-        let launch = resolve(
-            &settings,
-            request,
-            Path::new("/Applications/Adroit.app/Contents/MacOS/adroit"),
-        )
-        .unwrap();
-        assert_eq!(settings, before);
+        for launch in [&mut settings.claude, &mut settings.codex] {
+            launch
+                .env
+                .insert("ADROIT_DELEGATION_TOKEN".into(), "configured-token".into());
+        }
+        let launch = resolve(&settings, request, Path::new("/bin/adroit")).unwrap();
         let credentials: Vec<_> = launch
             .spawn
             .env
             .iter()
-            .filter(|(name, _)| name == "ADROIT_CONTROL_TOKEN")
+            .filter(|(name, _)| name == "ADROIT_DELEGATION_TOKEN")
             .collect();
-        assert_eq!(credentials.len(), 1);
-        assert_eq!(credentials[0].1, "test-secret-token");
-        assert!(
-            launch
-                .spawn
-                .env
-                .contains(&("ADROIT_SESSION_GENERATION".into(), "3".into()))
-        );
-        assert!(
-            launch
-                .spawn
-                .env
-                .contains(&("ADROIT_CONTROL_ROOT".into(), "/private/control".into()))
+        assert_eq!(
+            credentials,
+            [&("ADROIT_DELEGATION_TOKEN".into(), "test-secret-token".into())]
         );
         assert!(
             launch
                 .spawn
                 .args
                 .iter()
+                .chain(&launch.spawn.tags)
                 .all(|arg| !arg.contains("test-secret-token"))
         );
-        assert!(
-            launch
-                .spawn
-                .tags
-                .iter()
-                .all(|tag| !tag.contains("test-secret-token"))
-        );
-        match agent {
-            Agent::Claude => {
-                assert!(
-                    launch
-                        .spawn
-                        .args
-                        .windows(2)
-                        .any(|pair| pair == ["--allowedTools", "mcp__adroit_control__*"])
-                );
-                let config = launch
-                    .spawn
-                    .args
-                    .windows(2)
-                    .find(|pair| pair[0] == "--mcp-config")
-                    .unwrap();
-                let config: serde_json::Value = serde_json::from_str(&config[1]).unwrap();
-                assert_eq!(
-                    config["mcpServers"]["adroit_control"]["args"],
-                    serde_json::json!(["control", "mcp", "--channel"])
-                );
-                assert!(launch.spawn.args.windows(2).any(|pair| pair
-                    == [
-                        "--dangerously-load-development-channels",
-                        "server:adroit_control"
-                    ]));
-                assert!(
-                    !launch
-                        .spawn
-                        .args
-                        .iter()
-                        .any(|arg| arg == "--strict-mcp-config")
-                );
-            }
-            Agent::Codex => {
-                assert!(launch.spawn.args.iter().any(
-                    |arg| arg == "mcp_servers.adroit_control.tool_input_schema_max_bytes=65536"
-                ));
-                assert!(launch.spawn.args.iter().any(|arg| arg
-                    == "mcp_servers.adroit_control.default_tools_approval_mode=\"approve\""));
-                assert!(
-                    launch
-                        .spawn
-                        .args
-                        .iter()
-                        .any(|arg| arg == "mcp_servers.adroit_control.required=true")
-                );
-            }
-        }
     }
 }
 
 #[test]
-fn a_control_context_must_match_the_explicit_session_assignment() {
-    use adroit::execution::ControlContext;
-    use adroit_model::{LogicalSessionId, SessionBinding, SessionRef};
-    let mut request = request(Agent::Codex, None);
-    request.binding = Some(SessionBinding::leader(LogicalSessionId::new(), None));
-    request.control = Some(ControlContext::new(
-        SessionRef {
-            id: LogicalSessionId::new(),
-            generation: 1,
-        },
-        "/private/control".into(),
-        "test-secret-token".into(),
-    ));
-    let error = resolve(&Settings::default(), request, Path::new("/adroit")).unwrap_err();
-    assert!(error.contains("assignment"));
-    assert!(!error.contains("test-secret-token"));
+fn claude_code_reaches_adroit_through_its_mcp_server_loaded_as_a_channel() {
+    let mut request = request(Agent::Claude, None);
+    request.delegation = Some(recorded(None));
+    let launch = resolve(&Settings::default(), request, Path::new("/bin/adroit")).unwrap();
+    let args = &launch.spawn.args;
+    let config = args
+        .windows(2)
+        .find(|pair| pair[0] == "--mcp-config")
+        .unwrap();
+    let config: serde_json::Value = serde_json::from_str(&config[1]).unwrap();
+    assert_eq!(
+        config["mcpServers"]["adroit"]["args"],
+        serde_json::json!(["mcp", "--channel"])
+    );
+    assert!(
+        args.windows(2)
+            .any(|pair| pair == ["--dangerously-load-development-channels", "server:adroit"])
+    );
+    assert!(
+        args.windows(2)
+            .any(|pair| pair == ["--allowedTools", "mcp__adroit__*"])
+    );
+    assert!(args.iter().any(|arg| arg == "--append-system-prompt"));
 }
 
 #[test]
-fn role_composition_refuses_oversized_user_instructions_without_truncating_them() {
-    let base = "x".repeat(64 * 1024);
-    let result = adroit::execution::resolve(
-        &Settings::default(),
-        StartRequest {
-            agent: Agent::Codex,
-            cwd: "/tmp".into(),
-            binding: Some(SessionBinding::leader(
-                LogicalSessionId::new(),
-                Some(RunId::new()),
-            )),
-            developer_instructions: Some(base),
-            ..Default::default()
-        },
-        std::path::Path::new("/adroit"),
-    );
+fn codex_reaches_adroit_through_its_mcp_server_and_keeps_its_own_instructions() {
+    let mut request = request(Agent::Codex, None);
+    request.delegation = Some(recorded(Some(SessionId::new())));
+    request.developer_instructions = Some("Be terse.".into());
+    let launch = resolve(&Settings::default(), request, Path::new("/bin/adroit")).unwrap();
+    let args = &launch.spawn.args;
     assert!(
-        result
-            .unwrap_err()
-            .contains("safe per-session launch limit")
+        args.iter()
+            .any(|arg| arg == "mcp_servers.adroit.required=true")
     );
+    let instructions = args
+        .iter()
+        .find(|arg| arg.starts_with("developer_instructions="))
+        .unwrap();
+    assert!(instructions.contains("Be terse."), "{instructions}");
+    assert!(instructions.contains("report"), "{instructions}");
+}
+
+#[test]
+fn a_launch_adroit_keeps_no_record_of_carries_no_mcp_server() {
+    for agent in [Agent::Claude, Agent::Codex] {
+        let launch = resolve(
+            &Settings::default(),
+            request(agent, None),
+            Path::new("/bin/adroit"),
+        )
+        .unwrap();
+        assert!(launch.spawn.args.iter().all(|arg| !arg.contains("mcp")));
+        assert!(
+            launch
+                .spawn
+                .env
+                .iter()
+                .all(|(name, _)| !name.starts_with("ADROIT_DELEGATION"))
+        );
+    }
 }

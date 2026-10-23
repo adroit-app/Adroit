@@ -72,8 +72,8 @@ override its model and select a permission profile. Sessions already running kee
 adroit session start --agent codex --dir ~/src/api/src -- "Review the API"
 ```
 
-The command starts an unassigned session in a directory below a repository
-root. Start a managed Leader at the root from the Adroit window.
+Sessions can also start sessions of their own and message each other
+([details](docs/spec/delegation.md)).
 
 Read-only Codex sessions use its read-only sandbox. External Codex discovery and
 takeover, embedded prompt history and slash completion, usage limits and
@@ -162,7 +162,8 @@ just ci    # everything CI runs: format check, lint, tests
 ```
 
 The test recipe and native daemon fixtures remove inherited Adroit assignment
-variables, so checks can run from a managed Worker without borrowing its identity.
+variables, so checks can run from a session Adroit started without borrowing
+its identity.
 On macOS, a Codex workspace sandbox also needs temporary Unix sockets for the
 native integration tests. From the development shell, run:
 

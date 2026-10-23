@@ -68,12 +68,8 @@ pub trait AgentAdapter: Sync {
         Box::pin(async { Ok(None) })
     }
 
-    fn role_args(
-        &self,
-        settings: &mut Settings,
-        role: adroit_model::SessionRole,
-        instructions: &str,
-    ) -> Vec<String>;
+    /// Arguments that add Adroit's `instructions` to the agent's own.
+    fn instruction_args(&self, instructions: &str) -> Vec<String>;
 
     fn deliver(
         &self,
@@ -162,7 +158,7 @@ pub trait AgentAdapter: Sync {
     fn dialog_open(&self, _screen: &[String]) -> bool {
         false
     }
-    fn startup_readiness(&self, _screen: &[String]) -> Option<adroit_model::WorkerReadiness> {
+    fn startup_readiness(&self, _screen: &[String]) -> Option<adroit_model::StartupReadiness> {
         None
     }
     fn screen_state(&self, _screen: &[String]) -> Option<adroit_model::State> {
@@ -493,7 +489,7 @@ mod tests {
 
     #[test]
     fn claude_startup_classification_requires_a_live_prompt_or_human_decision() {
-        use adroit_model::WorkerReadiness::*;
+        use adroit_model::StartupReadiness::*;
         let claude = adapter(Agent::Claude);
         let screen = |text: &str| text.lines().map(str::to_owned).collect::<Vec<_>>();
         assert_eq!(
@@ -532,7 +528,7 @@ mod tests {
 
     #[test]
     fn a_claude_dialog_open_at_startup_awaits_the_user_s_input() {
-        use adroit_model::WorkerReadiness::*;
+        use adroit_model::StartupReadiness::*;
         let claude = adapter(Agent::Claude);
         assert_eq!(
             claude.startup_readiness(&claude_screen("dev-channels")),
@@ -549,7 +545,7 @@ mod tests {
         let claude = adapter(Agent::Claude);
         assert_eq!(
             claude.startup_readiness(&claude_screen("dev-channels-confirmed")),
-            Some(adroit_model::WorkerReadiness::Ready)
+            Some(adroit_model::StartupReadiness::Ready)
         );
     }
 }

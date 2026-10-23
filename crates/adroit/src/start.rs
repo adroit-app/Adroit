@@ -1,5 +1,5 @@
-//! `adroit session start`: start a session in the daemon from a command, as
-//! a session hands work to another.
+//! `adroit session start`: start a session in the daemon from a command,
+//! the user's own or that of a session handing work on.
 
 use std::io::Read;
 use std::path::PathBuf;
@@ -12,10 +12,7 @@ use crate::sessions::{self, Kept};
 use crate::settings::Settings;
 use crate::tabs::{fresh_name, label_from, label_of};
 
-const USAGE: &str = "usage: adroit session start [--dir <path>] [--name <name>] [--permissions <default|read_only> | --permissions-file <path>] [--agent <claude|codex>] [--model <model>] [-- <prompt>]";
-
-/// Where Claude Code tells a command it runs which conversation it is.
-const CONVERSATION_ENV: &str = "CLAUDE_CODE_SESSION_ID";
+const USAGE: &str = "usage: adroit session start [--dir <path>] [--worktree [--base <rev>]] [--name <name>] [--permissions <default|read_only> | --permissions-file <path>] [--agent <claude|codex>] [--model <model>] [-- <prompt>]";
 
 /// The size a session starts at, until a window shows it at its own.
 const COLS: u16 = 120;
@@ -25,6 +22,8 @@ const ROWS: u16 = 40;
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Asked {
     dir: Option<PathBuf>,
+    worktree: bool,
+    base: Option<String>,
     name: Option<String>,
     permissions: AgentPermissions,
     permissions_file: Option<PathBuf>,
@@ -41,6 +40,8 @@ fn parse(args: &[String]) -> Option<Asked> {
     while let Some(arg) = rest.next() {
         match arg.as_str() {
             "--dir" => asked.dir = Some(rest.next()?.into()),
+            "--worktree" => asked.worktree = true,
+            "--base" => asked.base = Some(rest.next()?.clone()),
             "--name" => asked.name = Some(rest.next()?.clone()),
             "--permissions" if !permissions_given => {
                 asked.permissions = match rest.next()?.as_str() {
@@ -69,21 +70,16 @@ fn parse(args: &[String]) -> Option<Asked> {
             _ => return None,
         }
     }
-    Some(asked)
+    (asked.worktree || asked.base.is_none()).then_some(asked)
 }
 
 /// The name the session goes by: the one given, or one made from its prompt,
 /// numbered when taken.
-fn name_for(given: Option<&str>, prompt: &str, taken: &[&str]) -> String {
+pub(crate) fn name_for(given: Option<&str>, prompt: &str, taken: &[&str]) -> String {
     let label = given
         .and_then(label_of)
         .unwrap_or_else(|| label_from(prompt));
     fresh_name(&label, taken)
-}
-
-/// The conversation the command was run from, as Claude Code tells it.
-fn started_from(value: Option<String>) -> Option<String> {
-    value.filter(|v| !v.trim().is_empty())
 }
 
 fn now_ms() -> u64 {
@@ -92,16 +88,13 @@ fn now_ms() -> u64 {
         .map_or(0, |d| d.as_millis() as u64)
 }
 
+/// Starts the session `asked` for as the user's own.
 async fn start(
     daemon: &Daemon,
     asked: &Asked,
     dir: PathBuf,
     prompt: &str,
-    from: Option<&str>,
 ) -> Result<String, String> {
-    if crate::control::managed::is_root(&dir)? {
-        return Err("Open the Adroit window and start a Leader there; session start cannot create a managed Leader without a window action".into());
-    }
     let listed = daemon
         .sessions()
         .await
@@ -115,54 +108,84 @@ async fn start(
         .collect();
     let taken: Vec<&str> = names.iter().map(String::as_str).collect();
     let name = name_for(asked.name.as_deref(), prompt, &taken);
+    let cwd = if asked.worktree {
+        let summary = prompt.lines().next().unwrap_or_default();
+        crate::delegation::worktree::create(&dir, &name, asked.base.as_deref(), summary)
+            .await?
+            .path
+    } else {
+        dir
+    };
     let settings = crate::settings::current();
     let request = crate::execution::StartRequest {
         agent: asked.agent.unwrap_or(settings.agent),
         model: asked.model.clone(),
         name: name.clone(),
-        cwd: dir,
+        cwd,
         permissions: asked.permissions.clone(),
         prompt: prompt.into(),
         env: crate::daemon::agent_env(),
         started_ms: now_ms(),
-        started_from: from.map(String::from),
         ..Default::default()
     };
     let program = std::env::current_exe().unwrap_or_else(|_| "adroit".into());
-    let prepared =
-        crate::control::managed::prepare(&crate::control::root(), &settings, request, &program)
-            .await?;
-    let mut spawn = prepared.resolved.spawn;
+    let (resolved, recorded) = crate::delegation::app::prepare(
+        &crate::delegation::app::root(),
+        &settings,
+        request,
+        None,
+        &program,
+    )
+    .await?;
+    let mut spawn = resolved.spawn;
     spawn.cols = COLS;
     spawn.rows = ROWS;
     let palette = crate::themes::palette(&settings.theme, &Settings::themes_dir())?;
-    let failure_owner = prepared.ownership.clone();
+    let attach = recorded.clone();
     let started =
         crate::execution::spawn_headless_prepared(daemon, spawn, &palette, move |id| async move {
-            match prepared.ownership {
-                Some(ownership) => ownership.attach(id).await,
-                None => Ok(()),
-            }
+            attach.attach(id).await
         })
         .await;
-    if let Err(error) = &started
-        && let Some(owner) = failure_owner
-    {
-        owner.failed(error).await;
+    if started.is_err() {
+        recorded.failed().await;
     }
     started.map_err(|e| format!("cannot start {name}: {e}"))?;
     Ok(name)
 }
 
+/// Asks the daemon to start the session `asked` for as the session that
+/// `credential` names, which it is then started by.
+async fn start_as(
+    root: &std::path::Path,
+    credential: &str,
+    asked: &Asked,
+    dir: PathBuf,
+    prompt: &str,
+) -> Result<String, String> {
+    let command =
+        crate::delegation::protocol::Command::StartSession(crate::delegation::protocol::Start {
+            prompt: prompt.into(),
+            dir: Some(dir),
+            worktree: asked.worktree,
+            base: asked.base.clone(),
+            agent: asked.agent,
+            model: asked.model.clone(),
+            permissions: Some(asked.permissions.clone()),
+            name: asked.name.clone(),
+        });
+    let started = crate::delegation::protocol::ask(root, credential, command, None)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(started["name"].as_str().unwrap_or_default().to_owned())
+}
+
 /// `adroit session <args>`. Returns the process exit code.
 pub fn cli(args: &[String]) -> i32 {
-    if std::env::var_os("ADROIT_CONTROL_TOKEN").is_some() {
-        eprintln!(
-            "adroit: managed agents delegate using put_task and queue_task; session start creates a human-owned session"
-        );
-        return 2;
-    }
-
+    // Read before the environment is cleared of the session's marks below.
+    let acting_as = std::env::var(crate::delegation::launch::TOKEN_ENV)
+        .ok()
+        .zip(std::env::var(crate::delegation::launch::ROOT_ENV).ok());
     let Some(mut asked) = (match args {
         [op, rest @ ..] if op == "start" => parse(rest),
         _ => None,
@@ -200,7 +223,6 @@ pub fn cli(args: &[String]) -> i32 {
         eprintln!("adroit: the prompt is empty");
         return 2;
     }
-    let from = started_from(std::env::var(CONVERSATION_ENV).ok());
     // The daemon hands the new session this process's environment, which
     // holds the marks of the session it was run from.
     let names = std::env::vars_os().map(|(k, _)| k.to_string_lossy().into_owned());
@@ -226,13 +248,14 @@ pub fn cli(args: &[String]) -> i32 {
         .build()
         .map_err(|e| e.to_string())
         .and_then(|rt| {
-            rt.block_on(start(
-                &crate::daemon::daemon(),
-                &asked,
-                dir,
-                prompt,
-                from.as_deref(),
-            ))
+            rt.block_on(async {
+                match &acting_as {
+                    Some((credential, root)) => {
+                        start_as(std::path::Path::new(root), credential, &asked, dir, prompt).await
+                    }
+                    None => start(&crate::daemon::daemon(), &asked, dir, prompt).await,
+                }
+            })
         });
     match started {
         Ok(name) => {
@@ -249,22 +272,6 @@ pub fn cli(args: &[String]) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[tokio::test]
-    async fn cli_cannot_prepare_a_managed_leader_without_a_window_action() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir(dir.path().join(".git")).unwrap();
-        let error = start(
-            &Daemon::new(dir.path().join("missing-daemon.sock")),
-            &Asked::default(),
-            dir.path().into(),
-            "Start an independent Leader",
-            None,
-        )
-        .await
-        .unwrap_err();
-        assert!(error.contains("Adroit window"), "{error}");
-    }
 
     fn args(words: &[&str]) -> Vec<String> {
         words.iter().map(|w| w.to_string()).collect()
@@ -286,6 +293,8 @@ mod tests {
             ])),
             Some(Asked {
                 dir: Some("/src/api".into()),
+                worktree: false,
+                base: None,
                 name: Some("flaky".into()),
                 permissions: AgentPermissions::ReadOnly,
                 permissions_file: None,
@@ -316,6 +325,14 @@ mod tests {
                 .agent
                 .is_none()
         );
+    }
+
+    #[test]
+    fn a_base_revision_is_taken_only_for_a_new_worktree() {
+        let asked = parse(&args(&["--worktree", "--base", "main", "--", "go"])).unwrap();
+        assert!(asked.worktree);
+        assert_eq!(asked.base.as_deref(), Some("main"));
+        assert_eq!(parse(&args(&["--base", "main", "--", "go"])), None);
     }
 
     #[test]
@@ -386,12 +403,5 @@ mod tests {
             name_for(Some("review"), "anything", &["review"]),
             "review-2"
         );
-    }
-
-    #[test]
-    fn a_session_is_started_from_the_conversation_claude_code_names() {
-        assert_eq!(started_from(Some("a08b".into())).as_deref(), Some("a08b"));
-        assert_eq!(started_from(Some(String::new())), None);
-        assert_eq!(started_from(None), None);
     }
 }

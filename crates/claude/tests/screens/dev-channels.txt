@@ -7,7 +7,7 @@
 
   Please use --channels to run a list of approved channels.
 
-  Channels: server:adroit_control
+  Channels: server:adroit
 
   ❯ 1. I am using this for local development
     2. Exit

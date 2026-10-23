@@ -22,16 +22,16 @@ pub struct CodexOptions {
 pub struct Codex;
 
 impl AgentAdapter for Codex {
-    fn startup_readiness(&self, screen: &[String]) -> Option<adroit_model::WorkerReadiness> {
+    fn startup_readiness(&self, screen: &[String]) -> Option<adroit_model::StartupReadiness> {
         match self.screen_state(screen) {
             Some(adroit_model::State::Idle | adroit_model::State::Working) => {
-                Some(adroit_model::WorkerReadiness::Ready)
+                Some(adroit_model::StartupReadiness::Ready)
             }
             Some(adroit_model::State::Waiting(adroit_model::Wait::Permission)) => {
-                Some(adroit_model::WorkerReadiness::AwaitingPermission)
+                Some(adroit_model::StartupReadiness::AwaitingPermission)
             }
             Some(adroit_model::State::Waiting(adroit_model::Wait::Input)) => {
-                Some(adroit_model::WorkerReadiness::AwaitingInput)
+                Some(adroit_model::StartupReadiness::AwaitingInput)
             }
             _ => None,
         }
@@ -73,7 +73,7 @@ impl AgentAdapter for Codex {
             )
             .await
             .ok_or_else(|| {
-                "cannot read effective Codex configuration before managed startup".to_owned()
+                "cannot read the effective Codex configuration before startup".to_owned()
             })?;
             let config = result
                 .get("config")
@@ -89,29 +89,14 @@ impl AgentAdapter for Codex {
         })
     }
 
-    fn role_args(
-        &self,
-        _settings: &mut Settings,
-        role: adroit_model::SessionRole,
-        instructions: &str,
-    ) -> Vec<String> {
-        let mut args = vec![
+    fn instruction_args(&self, instructions: &str) -> Vec<String> {
+        vec![
             "-c".into(),
             format!(
                 "developer_instructions={}",
                 serde_json::to_string(instructions).expect("serializable instructions")
             ),
-        ];
-        if role == adroit_model::SessionRole::Leader {
-            for policy in [
-                "agents.enabled=false",
-                "features.multi_agent=false",
-                "features.multi_agent_v2=false",
-            ] {
-                args.extend(["-c".into(), policy.into()]);
-            }
-        }
-        args
+        ]
     }
 
     fn deliver(
@@ -376,31 +361,31 @@ mod tests {
 
     #[test]
     fn startup_readiness_uses_the_codex_composer_and_permission_dialog() {
-        use adroit_model::WorkerReadiness;
+        use adroit_model::StartupReadiness;
         assert_eq!(Codex.startup_readiness(&screen("Starting Codex…")), None);
         assert_eq!(
             Codex.startup_readiness(&screen("› Ask Codex\n? for shortcuts")),
-            Some(WorkerReadiness::Ready)
+            Some(StartupReadiness::Ready)
         );
-        assert_eq!(Codex.startup_readiness(&screen("Would you like to run the following command?\n› 1. Yes, proceed (y)\n  2. No (esc)\nPress enter to confirm or esc to cancel")), Some(WorkerReadiness::AwaitingPermission));
+        assert_eq!(Codex.startup_readiness(&screen("Would you like to run the following command?\n› 1. Yes, proceed (y)\n  2. No (esc)\nPress enter to confirm or esc to cancel")), Some(StartupReadiness::AwaitingPermission));
     }
 
     #[test]
     fn startup_readiness_waits_for_live_codex_pickers() {
-        use adroit_model::WorkerReadiness;
+        use adroit_model::StartupReadiness;
         for hint in ["esc to dismiss", "esc to close", "esc to go back"] {
             let live = format!(
                 "Select Model and Effort\n\n› 1. Current\n  2. Other\n\nenter to select, {hint}"
             );
             assert_eq!(
                 Codex.startup_readiness(&screen(&live)),
-                Some(WorkerReadiness::AwaitingInput),
+                Some(StartupReadiness::AwaitingInput),
                 "{hint}"
             );
             let quoted = format!("{live}\n\n› Ask Codex\n\n? for shortcuts");
             assert_eq!(
                 Codex.startup_readiness(&screen(&quoted)),
-                Some(WorkerReadiness::Ready),
+                Some(StartupReadiness::Ready),
                 "{hint}"
             );
         }

@@ -105,7 +105,12 @@ pub struct Settings {
     /// How Codex is started.
     pub codex: Launch,
     pub codex_sessions: CodexOptions,
-    pub orchestration: OrchestrationSettings,
+    pub delegation: DelegationSettings,
+    /// What files written before sessions could start sessions hold here;
+    /// read so they still load, never written.
+    #[serde(skip_serializing)]
+    #[schemars(skip)]
+    pub orchestration: Retired,
     /// How far the window is zoomed when it opens.
     pub zoom: f64,
     /// The fewest lines the prompt shows.
@@ -148,17 +153,24 @@ pub struct Settings {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(default, deny_unknown_fields)]
-pub struct OrchestrationSettings {
-    pub max_workers: usize,
-    pub max_workers_per_run: usize,
+pub struct DelegationSettings {
+    /// How many sessions started by sessions may run at once.
+    pub max_started: usize,
 }
 
-impl Default for OrchestrationSettings {
+impl Default for DelegationSettings {
     fn default() -> Self {
-        Self {
-            max_workers: 4,
-            max_workers_per_run: 2,
-        }
+        Self { max_started: 4 }
+    }
+}
+
+/// A setting no longer read, accepted in whatever shape it was written.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Retired;
+
+impl<'de> Deserialize<'de> for Retired {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        serde::de::IgnoredAny::deserialize(deserializer).map(|_| Self)
     }
 }
 
@@ -172,7 +184,8 @@ impl Default for Settings {
             agent: adroit_model::Agent::Claude,
             codex: Launch::default(),
             codex_sessions: CodexOptions::default(),
-            orchestration: OrchestrationSettings::default(),
+            delegation: DelegationSettings::default(),
+            orchestration: Retired,
             zoom: 1.0,
             prompt_min_rows: 3,
             prompt_max_rows: 12,
@@ -243,8 +256,7 @@ impl Settings {
     /// The settings made sensible: rows of at least one and the most no fewer
     /// than the fewest, a zoom among the levels' range.
     pub fn sane(mut self) -> Self {
-        self.orchestration.max_workers = self.orchestration.max_workers.min(64);
-        self.orchestration.max_workers_per_run = self.orchestration.max_workers_per_run.min(64);
+        self.delegation.max_started = self.delegation.max_started.min(64);
         self.prompt_min_rows = self.prompt_min_rows.clamp(1, 40);
         self.prompt_max_rows = self.prompt_max_rows.clamp(self.prompt_min_rows, 60);
         let (least, most) = (
@@ -335,10 +347,7 @@ impl Settings {
         Self::read_path(path).unwrap_or_else(|error| {
             eprintln!("adroit: {error}");
             Self {
-                orchestration: OrchestrationSettings {
-                    max_workers: 0,
-                    max_workers_per_run: 0,
-                },
+                delegation: DelegationSettings { max_started: 0 },
                 ..Self::default()
             }
         })
@@ -463,15 +472,23 @@ mod tests {
     }
 
     #[test]
-    fn an_invalid_configuration_never_turns_paused_workers_into_default_capacity() {
+    fn an_invalid_configuration_never_turns_paused_starts_into_default_capacity() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("settings.toml");
-        std::fs::write(&path, "[orchestration]\nmax_workers = 0\n").unwrap();
-        assert_eq!(Settings::load_path(&path).orchestration.max_workers, 0);
-        std::fs::write(&path, "[orchestration]\nmax_workers = 0\nzoom = ").unwrap();
+        std::fs::write(&path, "[delegation]\nmax_started = 0\n").unwrap();
+        assert_eq!(Settings::load_path(&path).delegation.max_started, 0);
+        std::fs::write(&path, "[delegation]\nmax_started = 0\nzoom = ").unwrap();
         let recovery = Settings::load_path(&path).sane();
-        assert_eq!(recovery.orchestration.max_workers, 0);
-        assert_eq!(recovery.orchestration.max_workers_per_run, 0);
+        assert_eq!(recovery.delegation.max_started, 0);
+    }
+
+    #[test]
+    fn a_file_written_before_sessions_could_start_sessions_still_loads_and_loses_that_section() {
+        let settings =
+            Settings::parse("[orchestration]\nmax_workers = 2\nmax_workers_per_run = 1\n").unwrap();
+        assert_eq!(settings.delegation, DelegationSettings::default());
+        let written = toml::to_string_pretty(&settings).unwrap();
+        assert!(!written.contains("orchestration"), "{written}");
     }
 
     #[test]
@@ -491,15 +508,15 @@ mod tests {
     }
 
     #[test]
-    fn confirming_adroit_s_channel_warning_is_off_unless_the_user_turns_it_on() {
+    fn confirming_adroit_s_channel_warning_is_on_unless_the_user_turns_it_off() {
         assert!(
-            !Settings::parse("")
+            Settings::parse("")
                 .unwrap()
                 .sessions
                 .confirm_channel_warning
         );
-        let settings = Settings::parse("[sessions]\nconfirm_channel_warning = true\n").unwrap();
-        assert!(settings.sessions.confirm_channel_warning);
+        let settings = Settings::parse("[sessions]\nconfirm_channel_warning = false\n").unwrap();
+        assert!(!settings.sessions.confirm_channel_warning);
         assert_eq!(
             Settings::parse(&toml::to_string_pretty(&settings).unwrap()).unwrap(),
             settings
@@ -598,10 +615,8 @@ model = "chosen-model"
             agent: adroit_model::Agent::Claude,
             codex: Launch::default(),
             codex_sessions: CodexOptions::default(),
-            orchestration: OrchestrationSettings {
-                max_workers: 8,
-                max_workers_per_run: 3,
-            },
+            delegation: DelegationSettings { max_started: 8 },
+            orchestration: Retired,
             zoom: 1.1,
             prompt_min_rows: 2,
             prompt_max_rows: 20,

@@ -12,12 +12,8 @@ selected or shown terminal. Quitting the program also ends it. Closing the
 window leaves terminals running.
 
 Terminal resources have identities independent of their names and working
-directories. They may carry an explicit request and worker association; a
-shared terminal without one remains unassigned. A terminal opened from an
-Agent inherits that Agent's current request and optional Worker association.
-Starting from a directory alone does not guess an association. A terminal does
-not count as an agent or worker, and changing focus does not change its
-association.
+directories. A terminal is not an agent session: it neither starts sessions
+nor sends or receives messages between them.
 
 ## Commands
 
@@ -27,7 +23,6 @@ These commands talk to the instance's daemon and work without a window:
 adroit terminal start --program shell --dir /src/api --json
 adroit terminal start --program neovim --dir /src/api --json
 adroit terminal list --json
-adroit terminal list --run <run-id> --json
 adroit terminal screen --terminal <resource-id> --json
 adroit terminal stop --terminal <resource-id> --json
 ```
@@ -36,12 +31,11 @@ adroit terminal stop --terminal <resource-id> --json
 resource ID. `list` prints resource IDs and names separated by a tab, one per
 line; `screen` prints the visible screen without trailing empty rows. A
 resource is addressed by ID, not by a name or the caller's directory.
-`start` creates an unassigned terminal in the given directory, or the caller's
-current directory when omitted.
+`start` creates a terminal in the given directory, or the caller's current
+directory when omitted.
 
 A JSON resource contains `resource_id` (UUID), `name`, `cwd`, `program`
-(`shell` or `neovim`), and `binding` (null or an object with `run_id` and an
-optional `worker_id`). `list --json` returns an array of these resources.
+(`shell` or `neovim`). `list --json` returns an array of these resources.
 `screen --json` returns `resource_id` and `lines`; `stop --json` returns
 `resource_id` and `stopped`.
 
@@ -57,7 +51,7 @@ requests do not control terminal resources.
 
 Claude Code's external editor uses `adroit editor <file>` to hand over its
 input. Every agent session Adroit starts — from the window, from
-`adroit session start`, or as a Worker or restarted Leader — names it as
+`adroit session start`, or by another session — names it as
 `$VISUAL` and `$EDITOR` once the window has written it, keeping the user's own
 editor in `$ADROIT_USER_EDITOR`; shell and Neovim terminals keep the user's
 editor. The window asks for the input only of a session started this way. A

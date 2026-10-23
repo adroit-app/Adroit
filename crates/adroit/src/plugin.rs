@@ -55,18 +55,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn delegation_uses_typed_control_ownership_instead_of_peer_session_names() {
+    fn the_skill_names_adroit_s_tools_rather_than_claude_code_s_messaging() {
         let skill = start_session(Path::new("/adroit"));
-        for operation in [
-            "new_ids",
-            "put_task",
-            "queue_task",
-            "report_task",
-            "send_message",
-        ] {
-            assert!(skill.contains(operation), "{operation}");
+        for tool in ["start_session", "send", "sessions", "report", "models"] {
+            assert!(skill.contains(&format!("`{tool}`")), "{tool}");
         }
-        assert!(!skill.contains("session start"));
         assert!(!skill.contains("ListAgents"));
         assert!(!skill.contains("SendMessage"));
     }
@@ -74,14 +67,14 @@ mod tests {
     #[test]
     fn the_skill_names_the_adroit_it_was_written_by() {
         let skill = start_session(Path::new("/Applications/Adroit.app/Contents/MacOS/adroit"));
-        assert!(skill.contains("/Applications/Adroit.app/Contents/MacOS/adroit control"));
+        assert!(skill.contains("/Applications/Adroit.app/Contents/MacOS/adroit session start"));
         assert!(!skill.contains("@ADROIT@"));
     }
 
     #[test]
     fn a_program_path_with_spaces_is_quoted_for_the_shell() {
         let skill = start_session(Path::new("/My Apps/it's/adroit"));
-        assert!(skill.contains(r"'/My Apps/it'\''s/adroit' control"));
+        assert!(skill.contains(r"'/My Apps/it'\''s/adroit' session start"));
     }
 
     #[test]
@@ -105,7 +98,7 @@ mod tests {
         install(Path::new("/new/adroit"), dir.path()).unwrap();
         let skill =
             std::fs::read_to_string(dir.path().join("skills/start-session/SKILL.md")).unwrap();
-        assert!(skill.contains("/new/adroit control"));
+        assert!(skill.contains("/new/adroit session start"));
         assert!(!skill.contains("/old/adroit"));
     }
 }

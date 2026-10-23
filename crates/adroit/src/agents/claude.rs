@@ -3,8 +3,8 @@ use super::*;
 pub struct Claude;
 
 impl AgentAdapter for Claude {
-    fn startup_readiness(&self, screen: &[String]) -> Option<adroit_model::WorkerReadiness> {
-        use adroit_model::WorkerReadiness;
+    fn startup_readiness(&self, screen: &[String]) -> Option<adroit_model::StartupReadiness> {
+        use adroit_model::StartupReadiness;
         let rules = screen
             .iter()
             .enumerate()
@@ -32,7 +32,7 @@ impl AgentAdapter for Claude {
             && prompt
                 .is_some_and(|prompt| decision_question.is_none_or(|question| prompt > question))
         {
-            return Some(WorkerReadiness::Ready);
+            return Some(StartupReadiness::Ready);
         }
         let tail = screen
             .iter()
@@ -49,36 +49,19 @@ impl AgentAdapter for Claude {
                 || tail.contains("trust this directory")
                 || tail.contains("trust the files in this folder"))
         {
-            return Some(WorkerReadiness::AwaitingTrust);
+            return Some(StartupReadiness::AwaitingTrust);
         }
         if decision
             && (tail.contains("do you want to allow")
                 || tail.contains("allow this tool")
                 || tail.contains("permission to"))
         {
-            return Some(WorkerReadiness::AwaitingPermission);
+            return Some(StartupReadiness::AwaitingPermission);
         }
-        adroit_claude::dialog::dialog_open(screen).then_some(WorkerReadiness::AwaitingInput)
+        adroit_claude::dialog::dialog_open(screen).then_some(StartupReadiness::AwaitingInput)
     }
 
-    fn role_args(
-        &self,
-        settings: &mut Settings,
-        role: adroit_model::SessionRole,
-        instructions: &str,
-    ) -> Vec<String> {
-        if role == adroit_model::SessionRole::Leader {
-            for tool in ["Agent", "Task"] {
-                if !settings
-                    .sessions
-                    .disallowed_tools
-                    .iter()
-                    .any(|held| held == tool)
-                {
-                    settings.sessions.disallowed_tools.push(tool.into());
-                }
-            }
-        }
+    fn instruction_args(&self, instructions: &str) -> Vec<String> {
         vec!["--append-system-prompt".into(), instructions.into()]
     }
 

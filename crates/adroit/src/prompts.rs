@@ -29,28 +29,6 @@ pub struct Drafts {
 }
 
 impl Drafts {
-    fn rebind(&mut self, previous: &Tab, next: &Tab, shown_text: Option<String>) -> Option<String> {
-        let visible = self
-            .shown
-            .as_ref()
-            .is_some_and(|tab| tab == previous || tab == next);
-        if let Some(text) = shown_text {
-            self.kept.insert(self.shown.clone(), text);
-        }
-        if let Some(source) = self
-            .kept
-            .remove(&Some(previous.clone()))
-            .filter(|text| !text.is_empty())
-        {
-            let target = self.kept.entry(Some(next.clone())).or_default();
-            if !target.is_empty() {
-                target.push_str("\n\n");
-            }
-            target.push_str(&source);
-        }
-        visible.then(|| self.kept.remove(&self.shown).unwrap_or_default())
-    }
-
     /// `now` is shown, the prompt having held `taken` for the tab shown
     /// before. What to put in the prompt for `now`, if anything was kept.
     pub fn show(&mut self, now: Option<Tab>, taken: String) -> Option<String> {
@@ -160,48 +138,6 @@ impl Drafts {
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct LeaderDrafts(HashMap<adroit_model::LogicalSessionId, LeaderDraft>);
-
-#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct LeaderDraft {
-    generation: u64,
-    terminal: Option<(u64, String)>,
-}
-
-impl LeaderDrafts {
-    fn update(&mut self, snapshot: &adroit_model::ControlSnapshot) -> Vec<(Tab, Tab)> {
-        let mut moved = Vec::new();
-        for session in &snapshot.sessions {
-            if session.binding.role() != adroit_model::SessionRole::Leader {
-                continue;
-            }
-            let id = session.binding.logical_id();
-            let cached = self.0.entry(id).or_default();
-            if session.generation < cached.generation {
-                continue;
-            }
-            cached.generation = session.generation;
-            let Some(terminal) = &session.terminal_id else {
-                continue;
-            };
-            if let Some((generation, previous)) = &cached.terminal {
-                if session.generation <= *generation {
-                    continue;
-                }
-                if terminal != previous {
-                    moved.push((
-                        Tab::Session(previous.clone()),
-                        Tab::Session(terminal.clone()),
-                    ));
-                }
-            }
-            cached.terminal = Some((session.generation, terminal.clone()));
-        }
-        moved
-    }
-}
-
 /// Where recalling the prompts sent has got to; the prompts themselves are
 /// Claude Code's, read each time.
 #[derive(Debug, Default)]
@@ -263,7 +199,6 @@ pub enum Op {
     /// Lines for a tab; answered with whether the prompt took them.
     Add(Option<Tab>, Vec<String>, Option<oneshot::Sender<bool>>),
     Follow(Vec<Session>),
-    ObserveLeaders(Box<adroit_model::ControlSnapshot>),
     /// The shown tab's text, with the tab it was written for, leaving the
     /// prompt empty.
     Take(oneshot::Sender<Taken>),
@@ -307,7 +242,6 @@ where
 struct DraftCheckpoint {
     text: BTreeMap<String, String>,
     images: BTreeMap<String, Vec<PathBuf>>,
-    leaders: LeaderDrafts,
 }
 
 impl DraftCheckpoint {
@@ -328,7 +262,6 @@ impl DraftCheckpoint {
         Ok(Self {
             text: Self::read(&directory.join("drafts.json"))?.unwrap_or_default(),
             images: Self::read(&directory.join("attachments.json"))?.unwrap_or_default(),
-            leaders: LeaderDrafts::default(),
         })
     }
 
@@ -341,7 +274,7 @@ impl DraftCheckpoint {
         }
         let temporary = directory.join(format!(
             ".draft-checkpoint-{}.tmp",
-            adroit_model::RequestId::new()
+            adroit_model::DraftId::new()
         ));
         let result = (|| {
             std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
@@ -414,9 +347,7 @@ pub fn keeper(
         };
         let mut drafts = Drafts::restored(checkpoint.text);
         let mut images = crate::pasted::Attachments::restored(checkpoint.images);
-        let mut leaders = checkpoint.leaders;
         let mut saved = None;
-        let mut pending_observation = None;
         let mut opened = false;
         let mut history = History::default();
         let mut deferred = VecDeque::new();
@@ -448,53 +379,7 @@ pub fn keeper(
                 } else {
                     op
                 };
-                let checkpoint_due = matches!(&op, Op::Save | Op::ObserveLeaders(_));
-                let observation = match &op {
-                    Op::ObserveLeaders(snapshot) => Some(snapshot.clone()),
-                    Op::Save => pending_observation.take(),
-                    _ => None,
-                };
-                if let Some(snapshot) = observation {
-                    let mut staged = leaders.clone();
-                    let mut accepted = true;
-                    for (previous, next) in staged.update(&snapshot) {
-                        let visible = drafts
-                            .shown
-                            .as_ref()
-                            .is_some_and(|tab| tab == &previous || tab == &next);
-                        let text = if visible {
-                            history.reset();
-                            match &nv {
-                                Some(nv) => match nv.take_text().await {
-                                    Ok(text) => Some(text),
-                                    Err(error) => {
-                                        eprintln!(
-                                            "adroit: cannot recover the Leader draft: {error}"
-                                        );
-                                        accepted = false;
-                                        break;
-                                    }
-                                },
-                                None => None,
-                            }
-                        } else {
-                            None
-                        };
-                        if let Some(text) = drafts.rebind(&previous, &next, text)
-                            && (nv.is_none() || !put(text.clone()).await)
-                        {
-                            drafts.kept.insert(drafts.shown.clone(), text);
-                            opened = false;
-                        }
-                        images.rebind(&previous, &next);
-                    }
-                    if !accepted {
-                        pending_observation = Some(snapshot);
-                        continue;
-                    }
-                    leaders = staged;
-                    pending_observation = None;
-                }
+                let checkpoint_due = matches!(&op, Op::Save);
                 match op {
                     Op::Show(now) => {
                         if now == drafts.shown {
@@ -535,7 +420,6 @@ pub fn keeper(
                         images.follow(&sessions);
                         drafts.follow(&sessions);
                     }
-                    Op::ObserveLeaders(_) => {}
                     Op::Attach(path) => images.add(vec![path]),
                     Op::RemoveImage(path) => images.remove(&path),
                     Op::RestoreImages(tab, paths) => images.restore(tab, paths),
@@ -572,7 +456,6 @@ pub fn keeper(
                     let checkpoint = DraftCheckpoint {
                         text: drafts.saved(&text),
                         images: images.saved(),
-                        leaders: leaders.clone(),
                     };
                     if writable && let Err(error) = checkpoint.keep(&directory, &mut saved) {
                         eprintln!("adroit: cannot save the prompt checkpoint: {error}");
@@ -654,77 +537,6 @@ mod tests {
     }
 
     #[test]
-    fn a_checkpoint_restores_a_leaders_draft_after_restart_while_the_window_was_closed() {
-        use adroit_model::*;
-        let directory = tempfile::tempdir().unwrap();
-        let logical = LogicalSessionId::new();
-        let other = LogicalSessionId::new();
-        let record = |id, generation, terminal: &str| ManagedSession {
-            binding: SessionBinding::leader(id, Some(RunId::new())),
-            agent: Agent::Codex,
-            generation,
-            state: ManagedSessionState::Running,
-            permissions: AgentPermissions::Default,
-            cwd: Some("/same-root".into()),
-            terminal_id: Some(terminal.into()),
-            conversation_id: None,
-            readiness: Default::default(),
-            spawned_at_ms: None,
-        };
-        let snapshot = |sessions| ControlSnapshot {
-            sessions,
-            ..Default::default()
-        };
-        let mut leaders = LeaderDrafts::default();
-        leaders.update(&snapshot(vec![
-            record(logical, 1, "old"),
-            record(other, 1, "other"),
-        ]));
-        let checkpoint = DraftCheckpoint {
-            text: BTreeMap::from([
-                ("session:old".into(), "saved request draft".into()),
-                ("session:other".into(), "unrelated draft".into()),
-            ]),
-            images: BTreeMap::from([("session:old".into(), vec![PathBuf::from("/old.png")])]),
-            leaders,
-        };
-        let mut saved = None;
-        checkpoint.keep(directory.path(), &mut saved).unwrap();
-        std::fs::write(
-            directory.path().join("drafts.json"),
-            "stale invalid legacy file",
-        )
-        .unwrap();
-        let restored = DraftCheckpoint::load(directory.path()).unwrap();
-        assert_eq!(restored, checkpoint);
-        let mut drafts = Drafts::restored(restored.text);
-        let mut images = crate::pasted::Attachments::restored(restored.images);
-        let mut leaders = restored.leaders;
-        for (previous, next) in leaders.update(&snapshot(vec![
-            record(logical, 2, "new"),
-            record(other, 1, "other"),
-        ])) {
-            drafts.rebind(&previous, &next, None);
-            images.rebind(&previous, &next);
-        }
-        assert_eq!(
-            drafts.show(Some(Tab::Session("new".into())), String::new()),
-            Some("saved request draft".into())
-        );
-        images.show(Some(Tab::Session("new".into())));
-        assert_eq!(images.current(), &[PathBuf::from("/old.png")]);
-        assert_eq!(
-            drafts.show(Some(Tab::Session("other".into())), String::new()),
-            Some("unrelated draft".into())
-        );
-        assert!(
-            leaders
-                .update(&snapshot(vec![record(logical, 1, "old")]))
-                .is_empty()
-        );
-    }
-
-    #[test]
     fn failed_checkpoint_writes_do_not_advance_the_saved_baseline_and_can_retry() {
         let directory = tempfile::tempdir().unwrap();
         let blocked = directory.path().join("not-a-directory");
@@ -767,130 +579,6 @@ mod tests {
         )
         .unwrap();
         assert!(DraftCheckpoint::load(directory.path()).is_err());
-    }
-
-    #[test]
-    fn leader_draft_recovery_uses_only_authoritative_identity_and_forward_generations() {
-        use adroit_model::*;
-        let leader = LogicalSessionId::new();
-        let other = LogicalSessionId::new();
-        let run = RunId::new();
-        let record = |id, generation, terminal: Option<&str>| ManagedSession {
-            binding: SessionBinding::leader(id, Some(run)),
-            agent: Agent::Codex,
-            generation,
-            state: if terminal.is_some() {
-                ManagedSessionState::Exited
-            } else {
-                ManagedSessionState::Preparing
-            },
-            permissions: AgentPermissions::Default,
-            cwd: Some("/same-root".into()),
-            terminal_id: terminal.map(String::from),
-            conversation_id: None,
-            readiness: Default::default(),
-            spawned_at_ms: None,
-        };
-        let snapshot = |session| ControlSnapshot {
-            sessions: vec![session],
-            ..Default::default()
-        };
-        let mut cache = LeaderDrafts::default();
-        assert!(
-            cache
-                .update(&snapshot(record(leader, 1, Some("old"))))
-                .is_empty()
-        );
-        assert!(
-            cache
-                .update(&snapshot(record(other, 2, Some("unrelated"))))
-                .is_empty()
-        );
-        assert!(cache.update(&snapshot(record(leader, 2, None))).is_empty());
-        assert!(
-            cache
-                .update(&snapshot(record(leader, 1, Some("stale"))))
-                .is_empty()
-        );
-        assert_eq!(
-            cache.update(&snapshot(record(leader, 2, Some("new")))),
-            vec![(Tab::Session("old".into()), Tab::Session("new".into()))]
-        );
-        assert!(
-            cache
-                .update(&snapshot(record(leader, 2, Some("new"))))
-                .is_empty()
-        );
-        assert!(cache.update(&snapshot(record(leader, 4, None))).is_empty());
-        assert!(
-            cache
-                .update(&snapshot(record(leader, 3, Some("reordered"))))
-                .is_empty()
-        );
-        assert_eq!(
-            cache.update(&snapshot(record(leader, 4, Some("latest")))),
-            vec![(Tab::Session("new".into()), Tab::Session("latest".into()))]
-        );
-    }
-
-    #[test]
-    fn rebinding_a_restarted_leader_recovers_text_and_images_without_touching_another_request() {
-        let old = Tab::Session("root-a-generation-1".into());
-        let new = Tab::Session("root-a-generation-2".into());
-        let other = Tab::Session("root-b".into());
-        let mut drafts = Drafts::default();
-        let mut images = crate::pasted::Attachments::default();
-        drafts.show(Some(old.clone()), String::new());
-        images.show(Some(old.clone()));
-        images.add(vec!["/old.png".into()]);
-        drafts.show(Some(other.clone()), "original request draft".into());
-        images.show(Some(other.clone()));
-        images.add(vec!["/other.png".into()]);
-        drafts.show(Some(new.clone()), "unrelated request draft".into());
-        images.show(Some(new.clone()));
-        images.add(vec!["/new.png".into()]);
-        drafts.show(Some(other.clone()), "new conversation draft".into());
-        images.show(Some(other.clone()));
-
-        assert_eq!(drafts.rebind(&old, &new, None), None);
-        images.rebind(&old, &new);
-        assert_eq!(images.current(), &[PathBuf::from("/other.png")]);
-        assert_eq!(
-            drafts.show(Some(new.clone()), "unrelated request draft".into()),
-            Some("new conversation draft\n\noriginal request draft".into())
-        );
-        images.show(Some(new));
-        assert_eq!(
-            images.current(),
-            &[PathBuf::from("/new.png"), PathBuf::from("/old.png")]
-        );
-        assert_eq!(
-            drafts.show(Some(other), String::new()),
-            Some("unrelated request draft".into())
-        );
-        assert!(!drafts.saved("").contains_key("session:root-a-generation-1"));
-    }
-
-    #[test]
-    fn rebinding_merges_a_visible_target_buffer_and_does_not_duplicate_a_visible_source() {
-        let old = Tab::Session("old".into());
-        let new = Tab::Session("new".into());
-        let mut drafts = Drafts::default();
-        drafts.show(Some(old.clone()), String::new());
-        assert_eq!(
-            drafts.rebind(&old, &new, Some("old draft".into())),
-            Some(String::new())
-        );
-        assert_eq!(
-            drafts.show(Some(new.clone()), String::new()),
-            Some("old draft".into())
-        );
-        drafts.show(Some(old.clone()), "target draft".into());
-        drafts.show(Some(new.clone()), "recovered source".into());
-        assert_eq!(
-            drafts.rebind(&old, &new, Some("target draft".into())),
-            Some("target draft\n\nrecovered source".into())
-        );
     }
 
     fn session(id: &str) -> Option<Tab> {

@@ -460,6 +460,7 @@ impl Listing {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Group {
     Sessions,
+    Messages,
     Agents,
     Processes,
     Artifacts,
@@ -480,6 +481,7 @@ impl Group {
     pub fn title(self) -> &'static str {
         match self {
             Group::Sessions => "Sessions",
+            Group::Messages => "Messages",
             Group::Agents => "Subagents",
             Group::Processes => "Processes",
             Group::Artifacts => "Artifacts",
@@ -499,6 +501,7 @@ pub enum Entry {
         folded: bool,
     },
     Session(Related),
+    Message(Note),
     Agent(Agent),
     Process(crate::processes::Process),
     Link(Link),
@@ -517,6 +520,7 @@ impl Entry {
             // takes a heading's place.
             Entry::Heading { group, .. } => match group {
                 Group::Sessions => "\0sessions",
+                Group::Messages => "\0messages",
                 Group::Agents => "\0agents",
                 Group::Processes => "\0processes",
                 Group::Artifacts => "\0artifacts",
@@ -525,12 +529,14 @@ impl Entry {
                 Group::Files => "\0files",
             },
             Entry::Session(r) => r.name.as_str(),
+            Entry::Message(n) => n.id.as_str(),
             Entry::Agent(a) => a.call.as_str(),
             Entry::Process(p) => &p.key,
             Entry::Link(l) => l.target.as_str(),
             Entry::Image(s) => s.key.as_str(),
             Entry::More { group, .. } => match group {
                 Group::Sessions => "\0more sessions",
+                Group::Messages => "\0more messages",
                 Group::Agents => "\0more agents",
                 Group::Processes => "\0more processes",
                 Group::Artifacts => "\0more artifacts",
@@ -546,6 +552,7 @@ impl Entry {
         match self {
             Entry::Heading { group, .. } => *group,
             Entry::Session(_) => Group::Sessions,
+            Entry::Message(_) => Group::Messages,
             Entry::Agent(_) => Group::Agents,
             Entry::Process(_) => Group::Processes,
             Entry::Link(l) => Group::of(&l.kind),
@@ -608,13 +615,13 @@ pub fn related(shown: &Session, sessions: &[&Session], peers: &[Peer]) -> Vec<Re
         }
     };
     let others = || sessions.iter().filter(|s| s.id != shown.id);
-    if !shown.started_from.is_empty()
-        && let Some(s) = others().find(|s| s.session_id == shown.started_from)
+    if let Some(parent) = shown.parent
+        && let Some(s) = others().find(|s| s.delegation == Some(parent))
     {
         tie(&s.name, Some(&s.id), Tie::StartedBy);
     }
-    if !shown.session_id.is_empty() {
-        for s in others().filter(|s| s.started_from == shown.session_id) {
+    if let Some(own) = shown.delegation {
+        for s in others().filter(|s| s.parent == Some(own)) {
             tie(&s.name, Some(&s.id), Tie::Started);
         }
     }
@@ -694,8 +701,83 @@ pub fn overview_shown(
     out
 }
 
+/// A message the session shown sent or received through Adroit, as the
+/// overview lists it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Note {
+    pub id: String,
+    /// Whether the session shown sent it.
+    pub outgoing: bool,
+    /// The session on the other end, by name; Adroit for its own notices.
+    pub other: String,
+    /// `message`, `report` or `notice`.
+    pub kind: &'static str,
+    pub body: String,
+    pub sent_ms: u64,
+}
+
+impl Note {
+    /// Its first line, to list it by.
+    pub fn summary(&self) -> &str {
+        self.body.lines().next().unwrap_or_default()
+    }
+
+    /// Who it went between and what it is, `now_ms` telling how long ago.
+    pub fn tag(&self, now_ms: u64) -> String {
+        let way = if self.outgoing { "to" } else { "from" };
+        format!(
+            "{} · {way} {} · {}",
+            self.kind,
+            self.other,
+            ago(now_ms.saturating_sub(self.sent_ms))
+        )
+    }
+}
+
+/// The overview's `entries` with `notes`, newest first, under their heading
+/// after the sessions; a `folded` group shows its heading alone, and only
+/// the first few show until the group is opened whole.
+pub fn with_notes(
+    mut entries: Vec<Entry>,
+    notes: &[Note],
+    folded: &HashSet<Group>,
+    opened: &HashSet<Group>,
+    first: usize,
+) -> Vec<Entry> {
+    if notes.is_empty() {
+        return entries;
+    }
+    let at = entries
+        .iter()
+        .position(|e| e.group() != Group::Sessions)
+        .unwrap_or(entries.len());
+    let group = Group::Messages;
+    let shut = folded.contains(&group);
+    let mut rows = vec![Entry::Heading {
+        group,
+        count: notes.len(),
+        folded: shut,
+    }];
+    if !shut {
+        let shown = if opened.contains(&group) {
+            notes.len()
+        } else {
+            first.min(notes.len())
+        };
+        rows.extend(notes[..shown].iter().cloned().map(Entry::Message));
+        if shown < notes.len() {
+            rows.push(Entry::More {
+                group,
+                hidden: notes.len() - shown,
+            });
+        }
+    }
+    entries.splice(at..at, rows);
+    entries
+}
+
 /// The overview's `entries` with `agents` under their heading after the
-/// sessions; a `folded` group shows its heading alone.
+/// sessions and messages; a `folded` group shows its heading alone.
 pub fn with_agents(
     mut entries: Vec<Entry>,
     agents: &[Agent],
@@ -706,7 +788,7 @@ pub fn with_agents(
     }
     let at = entries
         .iter()
-        .position(|e| e.group() != Group::Sessions)
+        .position(|e| !matches!(e.group(), Group::Sessions | Group::Messages))
         .unwrap_or(entries.len());
     let shut = folded.contains(&Group::Agents);
     let mut rows = vec![Entry::Heading {
@@ -734,7 +816,7 @@ pub fn with_processes(
     }
     let at = entries
         .iter()
-        .position(|e| !matches!(e.group(), Group::Sessions | Group::Agents))
+        .position(|e| !matches!(e.group(), Group::Sessions | Group::Messages | Group::Agents))
         .unwrap_or(entries.len());
     let group = Group::Processes;
     let shut = folded.contains(&group);
@@ -817,6 +899,8 @@ enum Opened {
     File(Change),
     /// A subagent of the overview, by its call, and its description.
     Agent(String, String),
+    /// A message of the overview, by its id, and its first line.
+    Message(String, String),
     Process(String, String),
 }
 
@@ -856,6 +940,13 @@ impl Drill {
         }
     }
 
+    pub fn message(&self) -> Option<&str> {
+        match self.opened.last() {
+            Some(Opened::Message(id, _)) => Some(id),
+            _ => None,
+        }
+    }
+
     pub fn process(&self) -> Option<&str> {
         match self.opened.last() {
             Some(Opened::Process(key, _)) => Some(key),
@@ -888,6 +979,7 @@ impl Drill {
                 Opened::Commit(c) => format!("{} {}", c.short, c.subject),
                 Opened::File(f) => f.shown(),
                 Opened::Agent(_, description) => description.clone(),
+                Opened::Message(_, summary) => summary.clone(),
                 Opened::Process(_, name) => name.clone(),
             })
             .collect()
@@ -944,6 +1036,7 @@ impl Drill {
             Listing::Log(commits) => Opened::Commit(commits[at].clone()),
             Listing::Links(entries) => match &entries[at] {
                 Entry::Agent(a) => Opened::Agent(a.call.clone(), shown_agent(a, 0).0),
+                Entry::Message(n) => Opened::Message(n.id.clone(), n.summary().to_owned()),
                 Entry::Process(p) => Opened::Process(p.key.clone(), p.name.clone()),
                 _ => return false,
             },
@@ -973,6 +1066,7 @@ impl Drill {
             Opened::Commit(c) => c.id,
             Opened::File(f) => f.path,
             Opened::Agent(call, _) => call,
+            Opened::Message(id, _) => id,
             Opened::Process(key, _) => key,
         };
         // Where it was is not kept; should it be gone meanwhile, the list's
@@ -1770,12 +1864,25 @@ mod tests {
         assert_eq!(d.selected(&folded), Some(1));
     }
 
-    fn running(id: &str, name: &str, conversation: &str, from: &str) -> Session {
+    /// The record a label stands for, the same each time it is asked for.
+    fn record(label: &str) -> Option<adroit_model::SessionId> {
+        use std::hash::{Hash, Hasher};
+        if label.is_empty() {
+            return None;
+        }
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        label.hash(&mut hasher);
+        let hash = hasher.finish() & 0xffff_ffff_ffff;
+        format!("00000000-0000-4000-8000-{hash:012x}").parse().ok()
+    }
+
+    /// A session `id` whose record is `own`, started by the one whose record is `from`.
+    fn running(id: &str, name: &str, own: &str, from: &str) -> Session {
         Session {
             id: id.into(),
             name: name.into(),
-            session_id: conversation.into(),
-            started_from: from.into(),
+            delegation: record(own),
+            parent: record(from),
             ..Default::default()
         }
     }
@@ -1842,7 +1949,7 @@ mod tests {
     }
 
     #[test]
-    fn a_session_is_not_related_to_itself_and_one_without_a_conversation_to_none() {
+    fn a_session_is_not_related_to_itself_and_one_adroit_keeps_no_record_of_to_none() {
         let shown = running("2", "fix", "", "");
         let stray = running("3", "stray", "c-stray", "");
         let all = [&shown, &stray];

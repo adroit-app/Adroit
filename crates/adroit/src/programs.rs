@@ -84,7 +84,7 @@ impl Launch {
 
 /// How sessions of one kind run: Claude Code's model, its permission mode and
 /// the tools denied; what is left empty is Claude Code's own choice.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct SessionOptions {
     pub model: String,
@@ -96,6 +96,18 @@ pub struct SessionOptions {
     /// Confirm Claude Code's warning about loading development channels for
     /// the user when it names Adroit's own channel alone.
     pub confirm_channel_warning: bool,
+}
+
+impl Default for SessionOptions {
+    fn default() -> Self {
+        Self {
+            model: String::new(),
+            permission_mode: String::new(),
+            disallowed_tools: Vec::new(),
+            read_only: None,
+            confirm_channel_warning: true,
+        }
+    }
 }
 
 impl SessionOptions {

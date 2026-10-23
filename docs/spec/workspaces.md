@@ -20,6 +20,13 @@ it runs in, a shell marked as a terminal; a worktree where only shells run is
 listed for them. A workspace where everything runs in its main checkout shows
 it straight under it, with no worktree row; one outside git always does.
 
+A session started by another session is listed under the one that started it,
+wherever it runs, and not under its own worktree; its row names its worktree
+or directory when that differs from its starter's. Folding a session's row
+hides the sessions it started. Once its starter has ended, a started session
+is listed by the directory it runs in, like any other. There is one tree: no
+view lists sessions by role or request.
+
 Opening a terminal's row shows it in the console and moves the keys there,
 as opening a session's row does. Closing its tab hides it; Stop Terminal
 explicitly ends its program ([terminals](terminals.md)). Going from session to
