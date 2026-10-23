@@ -40,6 +40,7 @@ pub use adroit_core::tree::nav;
 use adroit_runtime::pasted;
 use adroit_runtime::paths;
 mod picker_view;
+mod resume_view;
 use adroit_core::prompt_tab;
 use adroit_runtime::pictures;
 use adroit_runtime::processes;

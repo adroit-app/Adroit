@@ -28,6 +28,9 @@ pub struct StartRequest {
     pub developer_instructions: Option<String>,
     pub env: Vec<(String, String)>,
     pub started_ms: u64,
+    /// The conversation the session continues, by its id; a new one when
+    /// none is given.
+    pub resume: Option<String>,
 }
 
 pub use adroit_model::ModelSource;
@@ -170,7 +173,10 @@ pub fn resolve(
     let (settings, target) = configured(settings, &request)?;
     let agent_settings = crate::programs::agents_of(&settings);
     let adapter = agents::adapter(request.agent);
-    let conversation = adapter.conversation();
+    let conversation = request
+        .resume
+        .clone()
+        .unwrap_or_else(|| adapter.conversation());
     let mut args = adapter.integration_args(adroit_program, &crate::paths::instance_state());
     if let Some(delegation) = &request.delegation {
         args.extend(delegation.args(request.agent, adroit_program));
@@ -180,13 +186,22 @@ pub fn resolve(
         };
         args.extend(adapter.instruction_args(&instructions));
     }
-    args.extend(adapter.image_args(&request.images));
-    args.extend(adapter.start_args(
-        &agent_settings,
-        &request.name,
-        &conversation,
-        &adapter.image_prompt(&request.prompt, &request.images),
-    ));
+    match &request.resume {
+        Some(id) => args.extend(
+            adapter
+                .resume_args(&agent_settings, id)
+                .ok_or_else(|| format!("{} cannot resume a conversation", adapter.label()))?,
+        ),
+        None => {
+            args.extend(adapter.image_args(&request.images));
+            args.extend(adapter.start_args(
+                &agent_settings,
+                &request.name,
+                &conversation,
+                &adapter.image_prompt(&request.prompt, &request.images),
+            ));
+        }
+    }
     let (program, args, mut env) =
         agents::launch_with_settings(&agent_settings, request.agent, args, request.env);
     if let Some(delegation) = &request.delegation {

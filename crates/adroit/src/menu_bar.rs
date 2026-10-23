@@ -78,6 +78,7 @@ pub fn sections() -> Vec<Section> {
                 Run(Action::SessionAgentNext),
                 Run(Action::SessionAgentPrev),
                 Run(Action::SessionPick),
+                Run(Action::SessionResume),
                 Separator,
                 Run(Action::PromptSend),
                 Run(Action::PromptImages),

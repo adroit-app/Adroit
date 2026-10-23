@@ -7,7 +7,7 @@ use crate::effect::Effect;
 use crate::msg::Msg;
 use crate::settle::settle;
 use crate::state::ViewState;
-use crate::{chrome, content, details, host, tree};
+use crate::{chrome, content, details, host, resume, tree};
 
 /// `msg` applied to `state`, and the state settled after it.
 pub fn step(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
@@ -107,5 +107,12 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         Msg::DetailsSelect(at) => details::select(&mut state.details, state.host.work.as_ref(), at),
         Msg::DetailsBack => details::back(&mut state.details),
         Msg::DetailsReadAgain => vec![Effect::Host(Request::ReadAgain)],
+
+        Msg::ResumeOpen => resume::open(state),
+        Msg::ResumeClose => resume::close(&mut state.resume),
+        Msg::ResumeQuery(text) => resume::query(&mut state.resume, text),
+        Msg::ResumeKey(key) => resume::press(state, &key),
+        Msg::ResumeEvery => resume::toggle_every(&mut state.resume),
+        Msg::ResumeChoose(at) => resume::choose(state, at),
     }
 }

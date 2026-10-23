@@ -64,6 +64,8 @@ pub enum Effect {
         sessions: BTreeSet<String>,
         terminals: BTreeSet<u128>,
     },
+    /// Continue this conversation in a new session.
+    Resume(adroit_model::Past),
     /// Tell the user, outside the window, that these sessions started
     /// waiting, each by its name and what it waits for.
     NotifyWaiting(Vec<(String, String)>),

@@ -68,6 +68,7 @@ pub enum Action {
     SessionPick,
     SessionNew,
     SessionScratch,
+    SessionResume,
     SessionStop,
     SessionRename,
     SessionAgentNext,
@@ -279,6 +280,7 @@ pub static ACTIONS: &[ActionSpec] = &[
         .bar("New Session", Icon::MessagePlus)
         .row("New session here", Start),
     S::new(A::SessionScratch, "session.scratch").bar("New Scratch Session", Icon::Notes),
+    S::new(A::SessionResume, "session.resume").bar("Resume Conversation…", Icon::TransferIn),
     S::new(A::SessionStop, "session.stop")
         .bar("End…", Icon::PlayerStop)
         .row("End…", End),
@@ -500,6 +502,7 @@ mod tests {
             SessionPick,
             SessionNew,
             SessionScratch,
+            SessionResume,
             SessionStop,
             SessionRename,
             SessionAgentNext,

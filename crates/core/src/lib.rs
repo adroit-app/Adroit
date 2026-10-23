@@ -27,6 +27,7 @@ pub mod picker;
 pub mod prompt_tab;
 pub mod prompts;
 pub mod rename;
+pub mod resume;
 pub mod scenario;
 pub mod settings;
 pub mod settle;

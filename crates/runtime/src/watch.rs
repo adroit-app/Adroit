@@ -16,6 +16,7 @@ mod context;
 mod conversation;
 mod entries;
 mod marks;
+mod past;
 mod processes;
 mod repository;
 mod sessions;
@@ -147,6 +148,7 @@ fn lock(host: &Mutex<Host>) -> MutexGuard<'_, Host> {
 pub fn start(watched: Watched) {
     tokio::spawn(sessions::watch(watched.clone()));
     tokio::spawn(marks::watch(watched.clone()));
+    tokio::spawn(past::watch(watched.clone()));
     tokio::spawn(entries::watch(watched.clone()));
     tokio::spawn(repository::watch(watched.clone()));
     tokio::spawn(conversation::watch(watched.clone()));

@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex};
 
 use adroit_model::{Session, TerminalSession};
 use adroit_protocol::{
-    Change, DetailsChange, DetailsWork, Event, Request, SPOKEN, Seq, Sight, TreeChange, TreeWork,
-    WorkPatch, WorkSnapshot, agree,
+    Change, DetailsChange, DetailsWork, Event, PastChange, PastWork, Request, SPOKEN, Seq, Sight,
+    TreeChange, TreeWork, WorkPatch, WorkSnapshot, agree,
 };
 use tokio::sync::{mpsc, watch};
 
@@ -17,6 +17,7 @@ pub struct Work {
     seq: Seq,
     details: DetailsWork,
     tree: TreeWork,
+    past: PastWork,
 }
 
 impl Work {
@@ -26,6 +27,7 @@ impl Work {
             seq: self.seq,
             details: self.details.clone(),
             tree: self.tree.clone(),
+            past: self.past.clone(),
         }
     }
 
@@ -42,6 +44,7 @@ impl Work {
         match change {
             Change::Details(change) => self.details.apply(change),
             Change::Tree(change) => self.tree.apply(change),
+            Change::Past(change) => self.past.apply(change),
         }
     }
 }
@@ -257,11 +260,19 @@ impl Host {
             .keys()
             .cloned()
             .map(|dir| TreeChange::EntriesLeft { dir });
+        let past = self
+            .work
+            .past
+            .listed
+            .as_ref()
+            .filter(|(of, _)| sight.past.as_ref() != Some(of))
+            .map(|_| Change::Past(PastChange::Left));
         sessions
             .chain(repositories)
             .map(Change::from)
             .chain(marks.chain(entries).map(Change::from))
             .filter(|c| !in_sight(c, sight))
+            .chain(past)
             .collect()
     }
 }
@@ -278,6 +289,8 @@ fn in_sight(change: &Change, sight: &Sight) -> bool {
         Change::Tree(TreeChange::Entries { dir, .. } | TreeChange::EntriesLeft { dir }) => {
             sight.tree.listed.contains(dir)
         }
+        Change::Past(PastChange::Listed { sight: of, .. }) => sight.past.as_ref() == Some(of),
+        Change::Past(PastChange::Left) => true,
     }
 }
 
@@ -360,11 +373,12 @@ pub fn scenario(work: Work, requests: impl IntoIterator<Item = Request>) -> (Wor
 
 #[cfg(test)]
 mod tests {
-    use adroit_model::Session;
     use adroit_model::links::Links;
     use adroit_model::repository::{Listing, Spot};
+    use adroit_model::{Agent, Past, Session};
     use adroit_protocol::{
-        Event, RepositoryRead, RepositorySight, Request, SPOKEN, Seq, Version, WorkSnapshot,
+        Event, PastChange, PastSight, PastWork, RepositoryRead, RepositorySight, Request, SPOKEN,
+        Seq, Version, WorkSnapshot,
     };
 
     use super::*;
@@ -502,7 +516,7 @@ mod tests {
                 .into_iter()
                 .filter_map(|c| match c {
                     Change::Details(c) => Some(c),
-                    Change::Tree(_) => None,
+                    Change::Tree(_) | Change::Past(_) => None,
                 })
                 .collect(),
             _ => Vec::new(),
@@ -524,6 +538,81 @@ mod tests {
             assert_eq!(changes(host.record(read.clone())), want, "{read:?}");
         }
         assert_eq!(host.work().snapshot().seq, Seq(2));
+    }
+
+    fn listing(dir: Option<&str>) -> Request {
+        Request::Watch(Box::new(Sight {
+            past: Some(PastSight {
+                dir: dir.map(Into::into),
+            }),
+            ..Default::default()
+        }))
+    }
+
+    fn pasts(dir: Option<&str>, ids: &[&str]) -> PastChange {
+        PastChange::Listed {
+            sight: PastSight {
+                dir: dir.map(Into::into),
+            },
+            conversations: ids
+                .iter()
+                .map(|id| Past {
+                    agent: Agent::Claude,
+                    id: id.to_string(),
+                    cwd: "/r".into(),
+                    title: id.to_string(),
+                    at_ms: 0,
+                })
+                .collect(),
+        }
+    }
+
+    fn past_changes(events: impl IntoIterator<Item = Event>) -> Vec<PastChange> {
+        events
+            .into_iter()
+            .flat_map(|e| match e {
+                Event::Patch(patch) => patch.changes,
+                _ => Vec::new(),
+            })
+            .filter_map(|c| match c {
+                Change::Past(c) => Some(c),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_conversations_listed_reach_the_window_only_for_the_list_it_shows() {
+        let mut host = Host::default();
+        host.handle(listing(Some("/r")));
+        // (listed, what the window is sent)
+        let cases = [
+            (pasts(Some("/r"), &["a"]), vec![pasts(Some("/r"), &["a"])]),
+            (pasts(Some("/r"), &["a"]), vec![]),
+            (pasts(None, &["a", "b"]), vec![]),
+            (pasts(Some("/q"), &["c"]), vec![]),
+        ];
+        for (read, want) in cases {
+            assert_eq!(past_changes(host.record([read.clone()])), want, "{read:?}");
+        }
+    }
+
+    #[test]
+    fn closing_or_changing_the_list_drops_the_conversations_listed() {
+        let mut host = Host::default();
+        host.handle(listing(Some("/r")));
+        host.record([pasts(Some("/r"), &["a"])]);
+        assert_eq!(
+            past_changes(host.handle(listing(None))),
+            vec![PastChange::Left]
+        );
+        host.record([pasts(None, &["a", "b"])]);
+        assert_eq!(
+            past_changes(host.handle(watch(None, None))),
+            vec![PastChange::Left]
+        );
+        assert_eq!(host.work().snapshot().past, PastWork::default());
+        assert!(host.handle(watch(None, None)).is_empty());
     }
 
     #[test]
@@ -570,7 +659,7 @@ mod tests {
             })
             .filter_map(|c| match c {
                 Change::Tree(c) => Some(c),
-                Change::Details(_) => None,
+                Change::Details(_) | Change::Past(_) => None,
             })
             .collect()
     }

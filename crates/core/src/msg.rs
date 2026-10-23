@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
-use adroit_model::{Agent, TerminalSession};
+use adroit_model::{Agent, Key, TerminalSession};
 use adroit_protocol::Event;
 
 use crate::actions::Action;
@@ -191,4 +191,17 @@ pub enum Msg {
     DetailsBack,
     /// What the panel shows changed by the window's hand; read it again now.
     DetailsReadAgain,
+
+    // The list of past conversations.
+    /// Open it on where the focused window works.
+    ResumeOpen,
+    ResumeClose,
+    /// Its query field now holds this.
+    ResumeQuery(String),
+    /// A key its query field does not type with.
+    ResumeKey(Key),
+    /// List every directory's conversations, or the directory's again.
+    ResumeEvery,
+    /// A row was chosen, by its place among those drawn.
+    ResumeChoose(usize),
 }

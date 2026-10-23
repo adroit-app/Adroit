@@ -4,6 +4,7 @@ mod commands;
 mod identity;
 mod metrics;
 mod models;
+mod past;
 mod rpc;
 mod transcript;
 mod usage;
@@ -164,15 +165,8 @@ impl AgentAdapter for Codex {
         if !transcript::thread_id(&session.session_id) {
             return None;
         }
-        let root = settings
-            .codex
-            .env
-            .get("CODEX_HOME")
-            .map(PathBuf::from)
-            .or_else(|| std::env::var_os("CODEX_HOME").map(PathBuf::from))
-            .unwrap_or_else(|| home.join(".codex"));
         Some(Box::new(transcript::Transcript::open(
-            root,
+            root(settings, home),
             session.session_id.clone(),
             &session.cwd,
             home,
@@ -300,6 +294,19 @@ impl AgentAdapter for Codex {
             .any(|s| s.trim_start().starts_with("• ") && s.contains("esc to interrupt"));
         Some(if working { State::Working } else { State::Idle })
     }
+    fn past(
+        &self,
+        settings: &AgentSettings,
+        home: &Path,
+        dir: Option<&Path>,
+    ) -> Vec<adroit_model::Past> {
+        past::read(&root(settings, home), dir)
+    }
+    fn resume_args(&self, settings: &AgentSettings, conversation: &str) -> Option<Vec<String>> {
+        let mut args = vec!["resume".into(), conversation.into()];
+        args.extend(options(settings));
+        Some(args)
+    }
     fn start_args(
         &self,
         settings: &AgentSettings,
@@ -307,33 +314,52 @@ impl AgentAdapter for Codex {
         _conversation: &str,
         prompt: &str,
     ) -> Vec<String> {
-        let mut args = vec!["--no-alt-screen".into()];
-        let options = &settings.codex_sessions;
-        let model = options.model.trim();
-        if !model.is_empty() {
-            args.extend(["--model".into(), model.into()]);
-        }
-        let effort = options.reasoning_effort.trim();
-        if !effort.is_empty() {
-            args.extend([
-                "-c".into(),
-                format!(
-                    "model_reasoning_effort={}",
-                    serde_json::to_string(effort).unwrap()
-                ),
-            ]);
-        }
-        for (flag, value) in [
-            ("--ask-for-approval", &options.approval_policy),
-            ("--sandbox", &options.sandbox_mode),
-        ] {
-            if !value.trim().is_empty() {
-                args.extend([flag.into(), value.trim().into()]);
-            }
-        }
+        let mut args = options(settings);
         args.extend(["--".into(), prompt.into()]);
         args
     }
+}
+
+/// Where Codex keeps its state: `CODEX_HOME` as the settings or the
+/// environment set it, else `.codex` in `home`.
+fn root(settings: &AgentSettings, home: &Path) -> PathBuf {
+    settings
+        .codex
+        .env
+        .get("CODEX_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("CODEX_HOME").map(PathBuf::from))
+        .unwrap_or_else(|| home.join(".codex"))
+}
+
+/// How a session runs, as `settings` say: what Codex is given ahead of a
+/// prompt, whether it starts a conversation or resumes one.
+fn options(settings: &AgentSettings) -> Vec<String> {
+    let mut args = vec!["--no-alt-screen".into()];
+    let options = &settings.codex_sessions;
+    let model = options.model.trim();
+    if !model.is_empty() {
+        args.extend(["--model".into(), model.into()]);
+    }
+    let effort = options.reasoning_effort.trim();
+    if !effort.is_empty() {
+        args.extend([
+            "-c".into(),
+            format!(
+                "model_reasoning_effort={}",
+                serde_json::to_string(effort).unwrap()
+            ),
+        ]);
+    }
+    for (flag, value) in [
+        ("--ask-for-approval", &options.approval_policy),
+        ("--sandbox", &options.sandbox_mode),
+    ] {
+        if !value.trim().is_empty() {
+            args.extend([flag.into(), value.trim().into()]);
+        }
+    }
+    args
 }
 
 #[cfg(test)]
@@ -395,6 +421,31 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn a_conversation_resumes_by_its_id_run_as_a_new_session_would_be() {
+        let mut settings = AgentSettings::default();
+        settings.codex_sessions.model = "codex-model".into();
+        settings.codex_sessions.sandbox_mode = "read-only".into();
+        assert_eq!(
+            Codex.resume_args(&settings, ID),
+            Some(
+                [
+                    "resume",
+                    ID,
+                    "--no-alt-screen",
+                    "--model",
+                    "codex-model",
+                    "--sandbox",
+                    "read-only"
+                ]
+                .map(String::from)
+                .to_vec()
+            )
+        );
+    }
+
+    const ID: &str = "019f7a4b-fee9-74d3-9977-5bc9bb134d11";
 
     #[test]
     fn sessions_keep_their_output_in_terminal_scrollback() {

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{DetailsChange, DetailsWork, TreeChange, TreeWork};
+use crate::{DetailsChange, DetailsWork, PastChange, PastWork, TreeChange, TreeWork};
 
 /// Where an event stands in the order the host made its changes: each patch
 /// is one past the one before it, and a snapshot carries the number of the
@@ -24,6 +24,7 @@ pub struct WorkSnapshot {
     pub seq: Seq,
     pub details: DetailsWork,
     pub tree: TreeWork,
+    pub past: PastWork,
 }
 
 /// A change to the work since the patch numbered one less.
@@ -39,6 +40,7 @@ pub struct WorkPatch {
 pub enum Change {
     Details(DetailsChange),
     Tree(TreeChange),
+    Past(PastChange),
 }
 
 impl WorkSnapshot {
@@ -47,6 +49,7 @@ impl WorkSnapshot {
         match change {
             Change::Details(change) => self.details.apply(change),
             Change::Tree(change) => self.tree.apply(change),
+            Change::Past(change) => self.past.apply(change),
         }
     }
 }
@@ -60,5 +63,11 @@ impl From<DetailsChange> for Change {
 impl From<TreeChange> for Change {
     fn from(change: TreeChange) -> Self {
         Change::Tree(change)
+    }
+}
+
+impl From<PastChange> for Change {
+    fn from(change: PastChange) -> Self {
+        Change::Past(change)
     }
 }

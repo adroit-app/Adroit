@@ -31,12 +31,14 @@ mod tests {
     use adroit_model::repository::Marks;
     use adroit_model::repository::{Listing, Rev, Spot};
     use adroit_model::usage::{Limit, Severity, Window};
-    use adroit_model::{Session, TerminalSession, Tree, WorkspaceNode, Worktree, WorktreeNode};
+    use adroit_model::{
+        Past, Session, TerminalSession, Tree, WorkspaceNode, Worktree, WorktreeNode,
+    };
 
     use crate::{
-        Change, ConversationRead, DetailsChange, DetailsWork, Event, Listed, RepositoryRead,
-        RepositorySight, Request, Seq, SessionRead, Sight, SystemUsage, TreeChange, TreeSight,
-        Version, WorkPatch, WorkSnapshot,
+        Change, ConversationRead, DetailsChange, DetailsWork, Event, Listed, PastChange, PastSight,
+        PastWork, RepositoryRead, RepositorySight, Request, Seq, SessionRead, Sight, SystemUsage,
+        TreeChange, TreeSight, Version, WorkPatch, WorkSnapshot,
     };
 
     fn round_trips<T>(message: T)
@@ -71,6 +73,9 @@ mod tests {
                 marked: BTreeSet::from(["/w".into()]),
                 listed: BTreeSet::from(["/w".into(), "/w/src".into()]),
             },
+            past: Some(PastSight {
+                dir: Some("/w".into()),
+            }),
         })));
         round_trips(Request::Relist);
         round_trips(Request::Typed {
@@ -99,6 +104,7 @@ mod tests {
             seq: Seq(7),
             details: DetailsWork::default(),
             tree: Default::default(),
+            past: Default::default(),
         })));
         round_trips(Event::Snapshot(Box::new(WorkSnapshot {
             seq: Seq(7),
@@ -116,6 +122,18 @@ mod tests {
                 ..Default::default()
             },
             tree: Default::default(),
+            past: PastWork {
+                listed: Some((
+                    PastSight::default(),
+                    vec![Past {
+                        agent: adroit_model::Agent::Codex,
+                        id: "019f7a4b".into(),
+                        cwd: "/w".into(),
+                        title: "review".into(),
+                        at_ms: 1,
+                    }],
+                )),
+            },
         })));
         round_trips(Event::Patch(WorkPatch {
             seq: Seq(8),
@@ -212,6 +230,13 @@ mod tests {
                 Change::Tree(TreeChange::MarksLeft {
                     worktree: "/w".into(),
                 }),
+                Change::Past(PastChange::Listed {
+                    sight: PastSight {
+                        dir: Some("/w".into()),
+                    },
+                    conversations: Vec::new(),
+                }),
+                Change::Past(PastChange::Left),
             ],
         }));
     }

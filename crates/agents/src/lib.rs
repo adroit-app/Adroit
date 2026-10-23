@@ -203,8 +203,20 @@ pub trait AgentAdapter: Sync {
     ) -> Vec<(u128, Learned)> {
         Vec::new()
     }
+    /// The arguments that continue the conversation `conversation` in a new
+    /// session, run as `settings` say; none for an agent that cannot.
     fn resume_args(&self, _settings: &AgentSettings, _conversation: &str) -> Option<Vec<String>> {
         None
+    }
+    /// The conversations the agent kept that ran in `dir`, or in any
+    /// directory when none is given, `home` being the user's home.
+    fn past(
+        &self,
+        _settings: &AgentSettings,
+        _home: &Path,
+        _dir: Option<&Path>,
+    ) -> Vec<adroit_model::Past> {
+        Vec::new()
     }
     fn conversation(&self) -> String {
         String::new()
@@ -371,7 +383,6 @@ mod tests {
             )
             .is_none()
         );
-        assert!(a.resume_args(&AgentSettings::default(), "uuid").is_none());
         assert!(a.rename_command("fix").is_none());
     }
 

@@ -174,6 +174,14 @@ impl AgentAdapter for Claude {
             &options(&settings.sessions),
         ))
     }
+    fn past(
+        &self,
+        _settings: &AgentSettings,
+        home: &Path,
+        dir: Option<&Path>,
+    ) -> Vec<adroit_model::Past> {
+        super::past::read(&super::places::projects(home), dir)
+    }
     fn conversation(&self) -> String {
         super::new_session_id()
     }

@@ -389,6 +389,7 @@ mod tests {
             ("Mod+n", Action::SessionNew),
             ("Mod+s", Action::ShellOpen),
             ("Mod+e", Action::NeovimOpen),
+            ("Mod+t", Action::SessionResume),
             ("Mod+Backspace", Action::SessionStop),
             ("Mod+f", Action::Filter),
             ("Mod+r", Action::Refresh),
@@ -890,6 +891,7 @@ mod tests {
         for (key, action) in [
             ("$", Action::ShellOpen),
             ("e", Action::NeovimOpen),
+            ("O", Action::SessionResume),
             ("n", Action::SessionNew),
         ] {
             assert_eq!(step(&map, &tree, &[], key), Step::Run(action), "{key}");

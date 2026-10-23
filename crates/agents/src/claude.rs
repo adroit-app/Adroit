@@ -16,6 +16,7 @@ pub mod history;
 pub mod links;
 pub mod metrics;
 pub mod models;
+mod past;
 pub mod places;
 mod plugin;
 pub mod subagents;

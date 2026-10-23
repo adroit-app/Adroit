@@ -709,6 +709,7 @@ mod tests {
             seq: Seq(1),
             details,
             tree: listed(),
+            ..Default::default()
         }))
     }
 

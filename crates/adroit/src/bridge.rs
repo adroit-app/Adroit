@@ -10,6 +10,7 @@ use adroit_core::details::{Details, Scroll};
 use adroit_core::effect::Effect;
 use adroit_core::host::Host as HostView;
 use adroit_core::msg::Msg;
+use adroit_core::resume::ResumeView;
 use adroit_core::state::ViewState;
 use adroit_core::tree::TreeView;
 use adroit_core::update::step;
@@ -38,6 +39,7 @@ pub(crate) struct AppCtx {
     pub(crate) content: Signal<ContentView>,
     pub(crate) tree: Signal<TreeView>,
     pub(crate) details: Signal<Details>,
+    pub(crate) resume: Signal<ResumeView>,
     /// What runs the effects whose state `App` still holds.
     handed: CopyValue<Option<Handed>>,
 }
@@ -75,6 +77,7 @@ pub(crate) fn use_app() -> AppCtx {
             content: Signal::new(view.content.clone()),
             tree: Signal::new(view.tree.clone()),
             details: Signal::new(view.details.clone()),
+            resume: Signal::new(view.resume.clone()),
             handed: CopyValue::new(None),
             view: CopyValue::new(view),
             link: CopyValue::new(link),
@@ -109,6 +112,7 @@ impl AppCtx {
         set_changed(self.content, &view.content);
         set_changed(self.tree, &view.tree);
         set_changed(self.details, &view.details);
+        set_changed(self.resume, &view.resume);
     }
 
     /// Start keeping read, in the background, what the window shows and
@@ -176,7 +180,8 @@ impl AppCtx {
             | Effect::PromptClose(_)
             | Effect::StartWriting
             | Effect::PromptEntered
-            | Effect::KeepPanes { .. }) => self.hand(effect),
+            | Effect::KeepPanes { .. }
+            | Effect::Resume(_)) => self.hand(effect),
             Effect::KeepLayout(layout) => layout.save(),
             Effect::LapseNotice {
                 notice,

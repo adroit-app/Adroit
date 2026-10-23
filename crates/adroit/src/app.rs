@@ -49,6 +49,7 @@ use crate::programs;
 use crate::prompt_tab::{PromptTab, TabGoes};
 use crate::prompts::{self, Op, Prompts};
 use crate::rename::{Place as RenamePlace, Rename};
+use crate::resume_view::ResumeView;
 use crate::scratch::{self, Moment};
 use crate::sessions;
 use crate::settings;
@@ -1376,9 +1377,10 @@ fn App() -> Element {
         );
     });
 
-    // So is the picker's.
+    // So is the picker's, and the list of past conversations'.
     use_effect(move || {
         let _ = picking();
+        let _ = app.resume.read().cursor;
         document::eval(
             "requestAnimationFrame(() => document.querySelectorAll('.dialog.picker-dialog .list-row.selected')
                .forEach((r) => r.scrollIntoView({ block: 'nearest' })));",
@@ -1766,6 +1768,69 @@ fn App() -> Element {
             choose_agent(tab, if forward { now.next() } else { now.prev() });
         }
         _ => app.notice("Only a session not started yet can change its agent".into()),
+    };
+
+    // Continue a conversation an agent kept in a new session, in the
+    // directory it ran in, shown where the user is.
+    let resume = {
+        let hub = hub.clone();
+        move |past: adroit_model::Past| {
+            let hub = hub.clone();
+            spawn(async move {
+                let size = *console_size.peek();
+                let taken: Vec<String> = tree
+                    .peek()
+                    .sessions()
+                    .map(|(_, s)| s.name.clone())
+                    .collect();
+                let taken: Vec<&str> = taken.iter().map(String::as_str).collect();
+                let name = fresh_name(&label_from(&past.title), &taken);
+                app.status(Some(format!("resuming {name}…")));
+                let request = crate::execution::StartRequest {
+                    agent: past.agent,
+                    name: name.clone(),
+                    cwd: past.cwd.clone(),
+                    resume: Some(past.id.clone()),
+                    env: daemon::agent_env(),
+                    started_ms: now_ms(),
+                    ..Default::default()
+                };
+                let started = match crate::delegation::app::prepare(
+                    &crate::delegation::app::root(),
+                    &settings::current(),
+                    request,
+                    None,
+                    &adroit_program(),
+                )
+                .await
+                {
+                    Ok((resolved, recorded)) => {
+                        let mut spawn = resolved.spawn;
+                        spawn.cols = size.cols;
+                        spawn.rows = size.rows;
+                        let tab_of = |id| Tab::Session(sessions::hex(id));
+                        start(app, &hub, spawn, size, tab_of, Some(recorded))
+                            .await
+                            .map_err(|e| e.to_string())
+                    }
+                    Err(e) => Err(e),
+                };
+                match started {
+                    Ok(id) => {
+                        app.status(None);
+                        let id = sessions::hex(id);
+                        app.dispatch(Msg::Relist);
+                        app.dispatch(Msg::TreeSelect(Some(Item::Session(id.clone()))));
+                        app.dispatch(Msg::Show {
+                            thing: Tab::Session(id),
+                            place: None,
+                            how: None,
+                        });
+                    }
+                    Err(e) => app.status(Some(format!("cannot resume {name}: {e}"))),
+                }
+            });
+        }
     };
 
     // Open the picker on the sessions and the directories they run in; those
@@ -2383,8 +2448,10 @@ fn App() -> Element {
         let request_pull = request_pull.clone();
         let leave_reading = leave_reading.clone();
         let start_terminal = start_terminal.clone();
+        let resume = resume.clone();
         move || {
             app.hand_over(move |effect| match effect {
+                CoreEffect::Resume(past) => resume(past),
                 CoreEffect::ShowShot { shot, session } => {
                     show_shot(&shot, &session, &gallery.peek())
                 }
@@ -2428,6 +2495,7 @@ fn App() -> Element {
     // field, or takes no text.
     let text_goes = move || {
         if picking.peek().is_some()
+            || app.resume.peek().open
             || renaming.peek().is_some()
             || confirm.peek().is_some()
             || keys_help.peek().is_some()
@@ -2759,6 +2827,7 @@ fn App() -> Element {
                     app.dispatch(Msg::Focus(Area::Prompt));
                     start_writing(nvim);
                 }
+                Action::SessionResume => app.dispatch(Msg::ResumeOpen),
                 Action::SessionAgentNext => switch_agent(true),
                 Action::SessionAgentPrev => switch_agent(false),
                 Action::SessionStop => ask_stop(on_list),
@@ -3028,7 +3097,11 @@ fn App() -> Element {
             {
                 return;
             }
-            if picking.peek().is_some() || renaming.peek().is_some() || confirm.peek().is_some() {
+            if picking.peek().is_some()
+                || app.resume.peek().open
+                || renaming.peek().is_some()
+                || confirm.peek().is_some()
+            {
                 return;
             }
             if action != Action::SettingsOpen {
@@ -3137,9 +3210,14 @@ fn App() -> Element {
                 }
                 return;
             }
-            // The picker holds the keys while it is open.
+            // The picker holds the keys while it is open, and so does the list
+            // of past conversations.
             if picking.peek().is_some() {
                 picker_key(key);
+                return;
+            }
+            if app.resume.peek().open {
+                app.dispatch(Msg::ResumeKey(key));
                 return;
             }
             // Renaming, the keys are its field's; none act behind it.
@@ -3550,7 +3628,7 @@ fn App() -> Element {
     };
     let takes_text = match area {
         // A dialog's text is typed in its own field.
-        _ if picking.read().is_some() || renaming().is_some() => false,
+        _ if picking.read().is_some() || app.resume.read().open || renaming().is_some() => false,
         _ if confirm().is_some() => false,
         _ if keys_help().is_some() => false,
         Area::Console => passing || answering || !session_shown,
@@ -3561,7 +3639,7 @@ fn App() -> Element {
     };
     let (footer_mode, footer_class) = match area {
         // The picker holds every key while it is open, the console's too.
-        _ if picking.read().is_some() => ("PICK".to_string(), "normal"),
+        _ if picking.read().is_some() || app.resume.read().open => ("PICK".to_string(), "normal"),
         Area::Console if passing => ("DIRECT".to_string(), "pass"),
         Area::Console if answering || matches!(active_tab, Some(Tab::Terminal(_))) => {
             ("PASS".to_string(), "pass")
@@ -4016,6 +4094,7 @@ fn App() -> Element {
                 }
             }
             KeysHelp { keymap: km.clone() }
+            ResumeView {}
             if let Some(ask) = confirm() {
                 {
                     let stop = stop.clone();

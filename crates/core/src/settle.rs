@@ -131,6 +131,7 @@ fn watched(state: &mut ViewState, effects: &mut Vec<Effect>) {
 pub(crate) fn sight(state: &ViewState) -> Sight {
     Sight {
         tree: tree::sight(&state.tree),
+        past: state.resume.sight(),
         ..details::sight(&state.details)
     }
 }

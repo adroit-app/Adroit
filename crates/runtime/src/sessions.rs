@@ -227,6 +227,39 @@ mod tests {
     }
 
     #[test]
+    fn a_conversation_resumed_runs_its_agent_s_resume_and_keeps_its_id() {
+        use crate::execution::{StartRequest, resolve};
+        let id = "019f7a4b-fee9-74d3-9977-5bc9bb134d11";
+        for (agent, resume) in [
+            (adroit_model::Agent::Claude, ["--resume", id]),
+            (adroit_model::Agent::Codex, ["resume", id]),
+        ] {
+            let launch = resolve(
+                &crate::settings::Settings::default(),
+                StartRequest {
+                    agent,
+                    cwd: "/repo".into(),
+                    resume: Some(id.into()),
+                    ..Default::default()
+                },
+                std::path::Path::new("/adroit"),
+            )
+            .unwrap();
+            let args = &launch.spawn.args;
+            assert!(args.windows(2).any(|w| w == resume), "{agent:?}: {args:?}");
+            assert!(
+                !args.iter().any(|a| a == "--session-id"),
+                "{agent:?}: {args:?}"
+            );
+            assert_eq!(launch.conversation, id);
+            let Some(Kept::Agent(session)) = read(&kept(42, launch.spawn.tags)) else {
+                panic!("an agent session")
+            };
+            assert_eq!(session.session_id, id);
+        }
+    }
+
+    #[test]
     fn a_session_whose_tags_do_not_say_how_it_was_launched_is_not_asked_for_its_input() {
         let tags = [tags::tagged(KIND, "claude"), tags::tagged(CWD, "/tmp")].concat();
         let Some(Kept::Agent(session)) = read(&kept(42, tags)) else {

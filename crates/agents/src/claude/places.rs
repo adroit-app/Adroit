@@ -19,6 +19,11 @@ fn claude_home(home: &Path) -> (PathBuf, PathBuf) {
     }
 }
 
+/// Where Claude Code keeps the conversations of every directory.
+pub(crate) fn projects(home: &Path) -> PathBuf {
+    claude_home(home).1
+}
+
 /// The directories Claude Code's own state names as used.
 pub fn parse_known(json: &str) -> Vec<PathBuf> {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(json) else {

@@ -5,6 +5,7 @@
 mod codec;
 mod details;
 mod message;
+mod past;
 mod tree;
 mod version;
 mod wire;
@@ -13,6 +14,7 @@ mod work;
 pub use codec::*;
 pub use details::*;
 pub use message::*;
+pub use past::*;
 pub use tree::*;
 pub use version::*;
 pub use work::*;
