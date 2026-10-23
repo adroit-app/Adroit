@@ -11,7 +11,7 @@ use adroit_runtime::complete;
 mod components;
 mod console;
 pub use adroit_core::console_keys;
-pub use adroit_core::content;
+mod content;
 pub use adroit_core::file_icons;
 pub use adroit_core::filer;
 use adroit_core::fonts;

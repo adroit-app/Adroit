@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use adroit_agents::claude::{commands, places};
-use adroit_model::{Kind, Session, State, TerminalProgram, TerminalSession, Tree};
+use adroit_model::{Kind, Session};
 use adroit_nvim::{Embedded, Event as NvimEvent, notation};
 use adroit_term::{Key, Palette, Pane, Screen, Size, Spawn};
 use adroit_vcs::{Repo, ghq};
@@ -19,18 +19,17 @@ use crate::bridge::{AppCtx, use_app};
 use crate::bundled_font::{faces, use_bundled_font};
 use crate::complete::{self, candidates};
 use crate::completion::Completions;
-use crate::components::{SessionMark, TerminalMark, glyph, runs_of, session_mark};
 use crate::console::{Composer, ConsoleScreen, Hub, Panes, ReaderScreen, mode_of};
 use crate::console_keys::direct_key;
 use crate::console_read;
 use crate::content::{
-    self, Area, Axis, Opening, Tab, TerminalAsk, WindowId, draft as draft_agent, file_name,
-    fresh_name, label_from, named, shows_prompt, thing_name,
+    Area, Axis, ContentPanel, DraftForm, Elsewhere, NothingOpen, Opening, Starting, Tab,
+    TerminalAsk, WindowId, draft as draft_agent, file_name, fresh_name, label_from, named,
+    shows_prompt,
 };
 use crate::daemon;
 use crate::details::{self, Entry, Sheet, Shot, Source};
 use crate::editor;
-use crate::file_icons;
 use crate::filer::{Filer, read_dirs};
 use crate::icons::{Icon, IconView};
 use crate::image_window;
@@ -50,7 +49,7 @@ use crate::pictures::{self, Gallery};
 use crate::programs;
 use crate::prompt_tab::{PromptTab, TabGoes};
 use crate::prompts::{self, Op, Prompts};
-use crate::rename::{Place as RenamePlace, Rename, SessionName};
+use crate::rename::{Place as RenamePlace, Rename};
 use crate::scratch::{self, Moment};
 use crate::sessions;
 use crate::settings;
@@ -422,107 +421,6 @@ fn app_key(key: &Key) -> bool {
     key.meta || Chord::held_mod(key)
 }
 
-/// What a window's strip says of what it shows.
-#[derive(Debug, Clone, PartialEq)]
-struct Strip {
-    mark: StripMark,
-    name: String,
-    agent: Option<&'static str>,
-    worktree: Option<PathBuf>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-enum StripMark {
-    State(State),
-    Terminal(TerminalProgram),
-    Draft,
-    /// A file's glyph, and the style that colours it.
-    File(&'static str, String),
-}
-
-fn window_strip(
-    tree: &Tree,
-    terminals: &[TerminalSession],
-    completions: &Completions,
-    shows: &Tab,
-) -> Strip {
-    let session = match shows {
-        Tab::Session(id) => nav::find(tree, id).map(|(_, s)| s),
-        _ => None,
-    };
-    let mark = match shows {
-        Tab::Session(_) => StripMark::State(
-            session
-                .map(|s| completions.state(s).clone())
-                .unwrap_or_default(),
-        ),
-        Tab::Terminal(id) => StripMark::Terminal(runs_of(terminals, *id)),
-        Tab::Draft { .. } => StripMark::Draft,
-        Tab::Viewer(path) => {
-            let icon = file_icons::find(path, file_icons::Kind::File);
-            let colour = icon
-                .colour
-                .map(|c| format!("color:{}", c.css()))
-                .unwrap_or_default();
-            StripMark::File(icon.glyph, colour)
-        }
-    };
-    Strip {
-        mark,
-        name: thing_name(tree, terminals, shows),
-        agent: session.map(|s| agents::adapter(s.agent).label()),
-        worktree: tree_view::place_of_tab(tree, terminals, shows).map(|p| p.worktree),
-    }
-}
-
-/// A window's viewer, handed the actions sent to this window alone.
-#[component]
-fn ViewerWindow(
-    window: WindowId,
-    path: PathBuf,
-    commands: ReadSignal<Option<(WindowId, viewers::Command)>>,
-    on_close: EventHandler<()>,
-) -> Element {
-    let command = use_memo(move || commands().filter(|(w, _)| *w == window).map(|(_, c)| c));
-    rsx! {
-        div { class: "win-viewer",
-            viewers::Viewer { path, command, on_close }
-        }
-    }
-}
-
-/// The strip on top of a window: what it shows, by its state, name and
-/// agent, and the worktree it is in.
-#[component]
-fn WindowStrip(strip: Strip) -> Element {
-    let (g, icon, tip) = match &strip.mark {
-        StripMark::State(state) => glyph(state),
-        StripMark::Terminal(_) => ("", Icon::Terminal2, ""),
-        StripMark::Draft => ("place-mark", Icon::MessagePlus, "new session"),
-        StripMark::File(..) => ("", Icon::File, ""),
-    };
-    let shell = matches!(strip.mark, StripMark::Terminal(_));
-    rsx! {
-        div { class: if shell { "win-bar shell" } else { "win-bar" },
-            match strip.mark {
-                StripMark::Terminal(runs) => rsx! { TerminalMark { runs } },
-                StripMark::File(glyph, colour) => rsx! { span { class: "nf", style: "{colour}", "aria-hidden": "true", "{glyph}" } },
-                _ => rsx! { span { class: "{g}", title: "{tip}", IconView { icon, size: 13 } } },
-            }
-            span { class: "win-name", "{strip.name}" }
-            if let Some(label) = strip.agent {
-                span { class: "agent-badge", title: "Session agent", "{label}" }
-            }
-            span { class: "flex-spacer" }
-            if let Some(w) = &strip.worktree {
-                span { class: "win-where", title: "{short(w)}",
-                    "{w.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| short(w))}"
-                }
-            }
-        }
-    }
-}
-
 /// Start writing in the prompt, whatever mode it was left in: a draft asks
 /// for its first prompt.
 fn start_writing(nvim: Signal<Option<Arc<Embedded>>>) {
@@ -851,10 +749,9 @@ fn App() -> Element {
     // The side panels' widths and whether they are shown, as the chrome
     // holds them.
     let layout = use_memo(move || app.chrome.read().panels.layout);
-    // How large the content's windows are drawn, all of them and each that
-    // is not focused, whose program is sized to it.
-    let mut windows_box = use_signal(|| (0.0f64, 0.0f64));
-    let mut win_boxes = use_signal(HashMap::<WindowId, (f64, f64)>::new);
+    // How large each window of the content that is not focused is drawn,
+    // whose program is sized to it.
+    let win_boxes = use_signal(HashMap::<WindowId, (f64, f64)>::new);
     let toggle_panel = move |side: Side| app.dispatch(Msg::PanelToggle(side));
     // The tabs with something written for them kept aside.
     let drafted = use_signal(HashSet::<Tab>::new);
@@ -1616,37 +1513,6 @@ fn App() -> Element {
         });
     };
 
-    // The content's tabs, each named after what its focused window shows.
-    let tabs = use_memo(move || {
-        let t = tree.read();
-        let terms = terminals.read();
-        let view = app.content.read();
-        view.windows
-            .tabs()
-            .iter()
-            .map(|tab| {
-                let shows = tab.focused().shows.clone();
-                let (state, mark) = match &shows {
-                    Tab::Session(id) => nav::find(&t, id).map_or((None, None), |(_, s)| {
-                        (
-                            Some(completions.read().state(s).clone()),
-                            session_mark(s.reads_only()),
-                        )
-                    }),
-                    Tab::Draft { .. } => {
-                        let reader = view.drafts.options.get(&shows).is_some_and(|o| {
-                            o.permissions == adroit_model::AgentPermissions::ReadOnly
-                        });
-                        (None, session_mark(reader))
-                    }
-                    Tab::Terminal(_) | Tab::Viewer(_) => (None, None),
-                };
-                let name = thing_name(&t, &terms, &shows);
-                (shows, name, state, mark, tab.windows().len())
-            })
-            .collect::<Vec<_>>()
-    });
-
     let submit = {
         let hub = hub.clone();
         move || {
@@ -2350,10 +2216,13 @@ fn App() -> Element {
                     && app.tree.read().rows.iter().any(
                         |item| matches!(item, Item::Session(id) | Item::Waiting(id) if *id == r.id),
                     ),
-                RenamePlace::Tab => tabs
+                RenamePlace::Tab => app
+                    .content
                     .read()
+                    .windows
+                    .tabs()
                     .iter()
-                    .any(|(tab, ..)| matches!(tab, Tab::Session(id) if *id == r.id)),
+                    .any(|t| matches!(&t.focused().shows, Tab::Session(id) if *id == r.id)),
             };
             if !visible {
                 renaming.set(None);
@@ -3924,26 +3793,11 @@ fn App() -> Element {
         Area::Prompt => &[Context::Prompt, Context::Global],
     };
     let k_waiting_next_here = km.keys_in(here, &Action::WaitingNext);
-    let k_down = km.keys_for(Context::Tree, &Action::CursorDown);
-    let k_up = km.keys_for(Context::Tree, &Action::CursorUp);
-    let k_open = km.keys_for(Context::Tree, &Action::CursorGo);
-    let k_open_beside = km.keys_for_all(
-        Context::Tree,
-        &[Action::CursorSplit, Action::CursorVsplit, Action::CursorTab],
-    );
     let k_back = km
         .keys_in(&[Context::Details, Context::Tree], &Action::CursorFold)
         .unwrap_or_default();
-    let k_new = km.keys_for(Context::Tree, &Action::SessionNew);
-    let k_shell = km.keys_for(Context::Tree, &Action::ShellOpen);
-    // The empty window's button is pressed from wherever the focus is.
-    let k_pick = km
-        .keys_for(Context::Global, &Action::SessionPick)
-        .or_else(|| km.keys_for(Context::Tree, &Action::SessionPick));
-    let k_sidebar = km.keys_for(Context::Global, &Action::WindowLeft);
     let k_take_over = km.keys_for(Context::Console, &Action::SessionTakeOver);
     let k_send = km.keys_for(Context::Prompt, &Action::PromptSend);
-    let k_agent = km.keys_for(Context::Draft, &Action::SessionAgentNext);
     let k_write = km.keys_for(Context::Console, &Action::PromptWrite);
     let k_escape = km.keys_for(
         Context::Console,
@@ -3972,44 +3826,26 @@ fn App() -> Element {
             },
             match (&active_tab, has_pane) {
                 (Some(tab @ Tab::Draft { worktree, .. }), _) => rsx! {
-                    div { class: "console-empty",
-                        div { class: "console-empty-head",
-                            IconView { icon: Icon::MessagePlus, size: 28 }
-                            div { class: "console-empty-title", "New session" }
-                            div { class: "console-empty-path", "{short(worktree)}" }
-                        }
-                        div { class: "launch-form",
-                            AgentChoices {
-                                current: current_agent,
-                                keys: k_agent.clone(),
-                                onchoose: move |a| {
-                                    choose_agent(app.active(), a);
-                                    app.dispatch(Msg::Focus(Area::Prompt));
-                                    let writing = nvim
-                                        .peek()
-                                        .as_ref()
-                                        .is_some_and(|n| n.state().mode().starts_with("insert"));
-                                    if !writing {
-                                        start_writing(nvim);
-                                    }
-                                },
+                    DraftForm {
+                        worktree: worktree.clone(),
+                        agent: current_agent,
+                        options: app.content.read().drafts.options.get(tab).cloned().unwrap_or_default(),
+                        keymap: km.clone(),
+                        onagent: move |a| {
+                            choose_agent(app.active(), a);
+                            app.dispatch(Msg::Focus(Area::Prompt));
+                            let writing = nvim
+                                .peek()
+                                .as_ref()
+                                .is_some_and(|n| n.state().mode().starts_with("insert"));
+                            if !writing {
+                                start_writing(nvim);
                             }
-                            DraftLaunchOptions {
-                                options: app.content.read().drafts.options.get(tab).cloned().unwrap_or_default(),
-                                onchange: {
-                                    let tab = tab.clone();
-                                    move |options| app.dispatch(Msg::DraftOptions { tab: Some(tab.clone()), options })
-                                },
-                            }
-                        }
-                        div { class: "console-legend",
-                            if let Some(k) = k_send.clone() {
-                                div { class: "console-legend-keys", Keys { keys: k } }
-                                div { "Send the prompt written below" }
-                            }
-                            div { class: "console-legend-keys", kbd { "name: …" } }
-                            div { "As its first line, names the session" }
-                        }
+                        },
+                        onoptions: {
+                            let tab = tab.clone();
+                            move |options| app.dispatch(Msg::DraftOptions { tab: Some(tab.clone()), options })
+                        },
                     }
                 },
                 (Some(_), true) if reading() => rsx! {
@@ -4018,79 +3854,23 @@ fn App() -> Element {
                 (Some(tab), true) => rsx! {
                     ConsoleScreen { tab: tab.clone(), frame, cell_width: cw, focused: area == Area::Console }
                 },
-                (Some(Tab::Session(id)), false) if nav::find(&t, id).is_some_and(|(_, s)| s.kind == Kind::Interactive) => {
-                    let ready = nav::find(&t, id).is_some_and(|(_, s)| s.can_take_over());
-                    rsx! {
-                        div { class: "console-empty",
-                            IconView { icon: Icon::Terminal, size: 28 }
-                            div { class: "console-empty-title", "Running in another terminal" }
-                            if ready {
-                                div { "It shows only in the terminal it was started in. Press " if let Some(k) = k_take_over.clone() { Keys { keys: k } } " to take it over here; Claude Code stops in that terminal." }
-                            } else {
-                                div { "It shows only in the terminal it was started in, and is in the middle of a turn. Press " if let Some(k) = k_take_over.clone() { Keys { keys: k } } " once it is idle to take it over here." }
-                            }
-                            div { class: "console-empty-hint", "Or press " kbd { "←" } " on its empty prompt in that terminal." }
-                        }
+                (Some(Tab::Session(id)), false) if nav::find(&t, id).is_some_and(|(_, s)| s.kind == Kind::Interactive) => rsx! {
+                    Elsewhere {
+                        ready: nav::find(&t, id).is_some_and(|(_, s)| s.can_take_over()),
+                        take_over: k_take_over.clone(),
                     }
                 },
                 (Some(_), false) => rsx! {
-                    div { class: "console-empty", "Starting…" }
+                    Starting {}
                 },
                 (None, _) => rsx! {
-                    div { class: "console-empty",
-                        IconView { icon: Icon::LayoutDashboard, size: 28 }
-                        div { class: "console-empty-title", "Nothing open" }
-                        div { class: "console-empty-start",
-                            button {
-                                class: "button primary",
-                                onclick: move |_| open_picker(),
-                                if let Some(k) = k_pick.clone() { Keys { keys: k } }
-                                "Start a session"
-                            }
-                            div { class: "console-empty-hint", "Pick the directory it works in: a workspace, a Claude Code project, a ghq repository, or any folder." }
-                        }
-                        div { class: "launch-form",
-                            div { class: "launch-form-label", "Starts in" }
-                            div { class: "launch-form-where", "A scratch session" }
-                            AgentChoices {
-                                current: current_agent,
-                                keys: k_agent.clone(),
-                                onchoose: move |a| choose_agent(None, a),
-                            }
-                            DraftLaunchOptions {
-                                options: app.content.read().drafts.next.clone().unwrap_or_default(),
-                                onchange: move |options| app.dispatch(Msg::DraftOptions { tab: None, options }),
-                            }
-                        }
-                        div { class: "console-legend",
-                            div { class: "console-legend-head",
-                                "In the tree"
-                                if let Some(k) = k_sidebar.clone() { span { class: "console-legend-reach", Keys { keys: k } " goes there" } }
-                            }
-                            if k_down.is_some() || k_up.is_some() {
-                                div { class: "console-legend-keys",
-                                    if let Some(k) = k_down.clone() { Keys { keys: k } }
-                                    if let Some(k) = k_up.clone() { Keys { keys: k } }
-                                }
-                                div { "Move through the list" }
-                            }
-                            if let Some(k) = k_open.clone() {
-                                div { class: "console-legend-keys", Keys { keys: k } }
-                                div { "Open the selected row" }
-                            }
-                            if let Some(k) = k_open_beside.clone() {
-                                div { class: "console-legend-keys", Keys { keys: k } }
-                                div { "Open it in a split below, beside, or a new tab" }
-                            }
-                            if let Some(k) = k_new.clone() {
-                                div { class: "console-legend-keys", Keys { keys: k } }
-                                div { "Start a session on a workspace row" }
-                            }
-                            if let Some(k) = k_shell.clone() {
-                                div { class: "console-legend-keys", Keys { keys: k } }
-                                div { "Open a shell on a workspace row" }
-                            }
-                        }
+                    NothingOpen {
+                        agent: current_agent,
+                        options: app.content.read().drafts.next.clone().unwrap_or_default(),
+                        keymap: km.clone(),
+                        onpick: move |_| open_picker(),
+                        onagent: move |a| choose_agent(None, a),
+                        onoptions: move |options| app.dispatch(Msg::DraftOptions { tab: None, options }),
                     }
                 },
             }
@@ -4134,137 +3914,6 @@ fn App() -> Element {
                     onremoveimage: move |path| { let _ = prompts.send(Op::RemoveImage(path)); },
                 }
             }
-        }
-    };
-    // The shown tab's windows, each where its share of the content puts it,
-    // the focused one with the console and the prompt, and the borders
-    // between them, which a drag moves.
-    let content_now = app.content.read().windows.clone();
-    let focused_window = content_now.focused_window();
-    let mut focused_body = Some(focused_body);
-    let windows_el: Vec<Element> = match content_now.current() {
-        None => vec![focused_body.take().unwrap_or_else(|| rsx! {})],
-        Some(tab) => {
-            let terms = terminals.read().clone();
-            let mut out = Vec::new();
-            for (id, r) in tab.rects() {
-                let Some(shows) = content_now.shows(id).cloned() else {
-                    continue;
-                };
-                let focused = Some(id) == focused_window;
-                let strip = window_strip(&t, &terms, &completions.read(), &shows);
-                // A viewer is drawn the same focused or not, so it keeps its
-                // zoom, page and playback as the focus moves.
-                let body = if let Tab::Viewer(path) = &shows {
-                    rsx! {
-                        ViewerWindow {
-                            key: "{id}",
-                            window: id,
-                            path: path.clone(),
-                            commands: viewer_command,
-                            on_close: move |_| app.dispatch(Msg::Window(Action::WindowQuit)),
-                        }
-                    }
-                } else if focused {
-                    focused_body.take().unwrap_or_else(|| rsx! {})
-                } else {
-                    let has = hub.panes.borrow().contains_key(&shows);
-                    rsx! {
-                        div {
-                            class: "console",
-                            style: "--console-bg:{console_background};background:{console_background}",
-                            onresize: move |e: Event<ResizeData>| {
-                                e.stop_propagation();
-                                if let Ok(sz) = e.data().get_content_box_size() {
-                                    let size = (sz.width, sz.height);
-                                    if win_boxes.peek().get(&id) != Some(&size) {
-                                        win_boxes.write().insert(id, size);
-                                    }
-                                }
-                            },
-                            match &shows {
-                                Tab::Draft { worktree, .. } => rsx! {
-                                    div { class: "console-empty",
-                                        IconView { icon: Icon::MessagePlus, size: 28 }
-                                        div { class: "console-empty-title", "New session" }
-                                        div { class: "console-empty-path", "{short(worktree)}" }
-                                    }
-                                },
-                                _ if has => rsx! {
-                                    ConsoleScreen { tab: shows.clone(), frame, cell_width: cw, focused: false }
-                                },
-                                _ => rsx! {
-                                    div { class: "console-empty", "Starting…" }
-                                },
-                            }
-                        }
-                    }
-                };
-                let style = format!(
-                    "left:calc({}% + 2px);top:calc({}% + 2px);width:calc({}% - 4px);height:calc({}% - 4px)",
-                    r.left * 100.0,
-                    r.top * 100.0,
-                    r.width * 100.0,
-                    r.height * 100.0
-                );
-                out.push(rsx! {
-                    div {
-                        key: "{id}",
-                        class: if focused { "win focused" } else { "win" },
-                        style: "{style}",
-                        onmousedown: move |_| app.dispatch(Msg::WindowFocus(id)),
-                        WindowStrip { strip }
-                        {body}
-                    }
-                });
-            }
-            for b in tab.borders() {
-                let (x, y) = match b.axis {
-                    Axis::Row => (b.within.left + b.at * b.within.width, b.within.top),
-                    Axis::Column => (b.within.left, b.within.top + b.at * b.within.height),
-                };
-                let (class, style) = match b.axis {
-                    Axis::Row => (
-                        "win-border row",
-                        format!(
-                            "left:{}%;top:{}%;height:{}%",
-                            x * 100.0,
-                            y * 100.0,
-                            b.within.height * 100.0
-                        ),
-                    ),
-                    Axis::Column => (
-                        "win-border column",
-                        format!(
-                            "left:{}%;top:{}%;width:{}%",
-                            x * 100.0,
-                            y * 100.0,
-                            b.within.width * 100.0
-                        ),
-                    ),
-                };
-                let key = format!("border-{:?}-{}", b.split, b.after);
-                out.push(rsx! {
-                    div {
-                        key: "{key}",
-                        class: "{class}",
-                        style: "{style}",
-                        title: "Drag to resize the windows beside it",
-                        onmousedown: move |e: Event<MouseData>| {
-                            e.stop_propagation();
-                            e.prevent_default();
-                            let at = e.client_coordinates();
-                            let (w, h) = *windows_box.peek();
-                            let (from, px) = match b.axis {
-                                Axis::Row => (at.x, b.within.width * w),
-                                Axis::Column => (at.y, b.within.height * h),
-                            };
-                            app.dispatch(Msg::WindowDragStart { border: b.clone(), from, px });
-                        },
-                    }
-                });
-            }
-            out
         }
     };
 
@@ -4347,90 +3996,30 @@ fn App() -> Element {
                 if layout().show_sidebar {
                     Splitter { side: Side::Sidebar }
                 }
-                div { class: if matches!(area, Area::Console | Area::Prompt) { "app-panel center-panel focused" } else { "app-panel center-panel" },
-                    onmousedown: move |_| app.dispatch(Msg::Focus(Area::Console)),
-                    div { class: "tabs",
-                        // The worktree by name only: the header above holds its
-                        // whole path, and here it would crowd the tabs out.
-                        if let Some(p) = &current {
-                            span { class: "tabs-where", title: "{short(&p.worktree)}",
-                                "{p.worktree.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| short(&p.worktree))}"
-                            }
+                ContentPanel {
+                    focused: matches!(area, Area::Console | Area::Prompt),
+                    focused_body,
+                    viewer_command,
+                    completions,
+                    drafted,
+                    renaming,
+                    boxes: win_boxes,
+                    frame,
+                    cell_width: cw,
+                    background: console_background.clone(),
+                    onmenu: move |(x, y, target)| menu.set(Some((x, y, target))),
+                    ontabclose: {
+                        let run = run_menu.clone();
+                        move |target| {
+                            let mut run = run.clone();
+                            run(target, Action::TabClose);
                         }
-                        for (at , (tab , name , state , mark , count)) in tabs().into_iter().enumerate() {
-                            {
-                                let is_active = at == content_now.current_index();
-                                let shell = match &tab {
-                                    Tab::Terminal(id) => Some(runs_of(&terminals.read(), *id)),
-                                    _ => None,
-                                };
-                                let class = match (is_active, shell.is_some()) {
-                                    (true, true) => "tab active shell",
-                                    (true, false) => "tab active",
-                                    (false, true) => "tab shell",
-                                    (false, false) => "tab",
-                                };
-                                let glyph_class = state.as_ref().map(glyph);
-                                let target = Target::Tab(tab.clone());
-                                let closing = Target::Tab(tab.clone());
-                                let has_draft = drafted.read().contains(&tab);
-                                let number = at + 1;
-                                let windows = if count == 1 { "1 window".to_string() } else { format!("{count} windows") };
-                                rsx! {
-                                    span {
-                                        key: "{at}",
-                                        class: "{class}",
-                                        onclick: move |_| app.dispatch(Msg::TabShow(at)),
-                                        oncontextmenu: move |e: Event<MouseData>| {
-                                            e.prevent_default();
-                                            let at = e.client_coordinates();
-                                            menu.set(Some((at.x, at.y, target.clone())));
-                                        },
-                                        span { class: "tab-number", "{number}" }
-                                        if let Some((g, icon, tip)) = glyph_class {
-                                            span { class: "{g}", title: "{tip}", IconView { icon, size: 13 } }
-                                        }
-                                        if let Some(runs) = shell { TerminalMark { runs } }
-                                        if matches!(tab, Tab::Draft { .. }) { span { class: "place-mark", IconView { icon: Icon::MessagePlus, size: 13 } } }
-                                        if let (Tab::Session(id), true) = (&tab, is_active) {
-                                            SessionName {
-                                                id: id.clone(), name: name.clone(), place: RenamePlace::Tab, editing: renaming,
-                                                onstart: move |(id, place)| begin_rename(id, place),
-                                                onfinish: { let send = send_rename.clone(); move |r| send(r) },
-                                            }
-                                        } else { "{name}" }
-                                        SessionMark { mark }
-                                        span { class: "tab-count", title: "{windows}", "{count}" }
-                                        if has_draft {
-                                            span { class: "draft-mark", title: "Something is written for it in the prompt", "✎" }
-                                        }
-                                        span {
-                                            class: "tab-close",
-                                            title: "Close the tab; what its windows show runs on",
-                                            onclick: {
-                                                let mut run = run_menu.clone();
-                                                move |e: Event<MouseData>| {
-                                                    e.stop_propagation();
-                                                    app.dispatch(Msg::TabShow(at));
-                                                    run(closing.clone(), Action::TabClose);
-                                                }
-                                            },
-                                            IconView { icon: Icon::X, size: 12 }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    div { class: "content-windows",
-                        onresize: move |e: Event<ResizeData>| {
-                            e.stop_propagation();
-                            if let Ok(sz) = e.data().get_content_box_size() {
-                                windows_box.set((sz.width, sz.height));
-                            }
-                        },
-                        for w in windows_el { {w} }
-                    }
+                    },
+                    onrename: move |(id, place)| begin_rename(id, place),
+                    onrenamed: {
+                        let send = send_rename.clone();
+                        move |r| send(r)
+                    },
                 }
                 if layout().show_details {
                     Splitter { side: Side::Details }
@@ -4651,81 +4240,6 @@ fn App() -> Element {
                         }
                     }
                 }
-            }
-        }
-    }
-}
-
-#[component]
-fn AgentChoices(
-    current: adroit_model::Agent,
-    keys: Option<String>,
-    onchoose: EventHandler<adroit_model::Agent>,
-) -> Element {
-    rsx! {
-        div { class: "launch-form-label", "Agent" }
-        div { class: "launch-form-agent",
-            div { class: "segmented",
-                for agent in adroit_model::Agent::ALL {
-                    button {
-                        key: "{agent.key()}",
-                        class: if agent == current { "on" },
-                        onclick: move |e| {
-                            e.stop_propagation();
-                            onchoose.call(agent);
-                        },
-                        "{agents::adapter(agent).label()}"
-                    }
-                }
-            }
-            if let Some(keys) = keys {
-                span { class: "launch-form-keys", title: "Switches the agent", Keys { keys } }
-            }
-        }
-    }
-}
-
-#[component]
-fn DraftLaunchOptions(
-    options: content::DraftOptions,
-    onchange: Callback<content::DraftOptions>,
-) -> Element {
-    let model_options = options.clone();
-    let permission_options = options.clone();
-    rsx! {
-        div {
-            class: "launch-form-options",
-            onmousedown: move |event| event.stop_propagation(),
-            onkeydown: move |event| event.stop_propagation(),
-            label { class: "launch-form-label", r#for: "launch-model", "Model" }
-            input {
-                id: "launch-model",
-                r#type: "text",
-                aria_label: "Session model",
-                placeholder: "Agent default",
-                value: options.model.clone().unwrap_or_default(),
-                oninput: move |event| {
-                    let mut next = model_options.clone();
-                    let value = event.value();
-                    next.model = (!value.trim().is_empty()).then(|| value.trim().to_string());
-                    onchange.call(next);
-                },
-            }
-            label { class: "launch-form-label", r#for: "launch-permissions", "Permissions" }
-            select {
-                id: "launch-permissions",
-                aria_label: "Session permissions",
-                value: if options.permissions == adroit_model::AgentPermissions::ReadOnly { "read_only" } else { "default" },
-                oninput: move |event| {
-                    let mut next = permission_options.clone();
-                    next.permissions = match event.value().as_str() {
-                        "read_only" => adroit_model::AgentPermissions::ReadOnly,
-                        _ => adroit_model::AgentPermissions::Default,
-                    };
-                    onchange.call(next);
-                },
-                option { value: "default", "Default" }
-                option { value: "read_only", "Read only" }
             }
         }
     }
