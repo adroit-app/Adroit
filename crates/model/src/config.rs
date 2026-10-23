@@ -111,6 +111,16 @@ impl Default for SessionOptions {
     }
 }
 
+/// How Codex sessions start, apart from Claude Code's options.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct CodexOptions {
+    pub model: String,
+    pub reasoning_effort: String,
+    pub approval_policy: String,
+    pub sandbox_mode: String,
+}
+
 /// A command written as a shell would split it into words; `None` while a
 /// quote is left open.
 pub fn parse_command(text: &str) -> Option<Vec<String>> {

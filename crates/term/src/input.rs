@@ -2,48 +2,18 @@ use felis_protocol::messages::{
     FKey, Key as FelisKey, KeyEvent, KeyEventKind, KeyLocation, KeyMods, NamedKey,
 };
 
-/// A key press as the webview reports it: `key` is the DOM `KeyboardEvent.key`.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Key {
-    pub key: String,
-    pub ctrl: bool,
-    pub alt: bool,
-    pub shift: bool,
-    pub meta: bool,
-}
+pub use adroit_model::Key;
 
-impl Key {
-    pub fn new(key: &str) -> Self {
-        Self {
-            key: key.to_string(),
-            ..Self::default()
-        }
-    }
-
-    pub fn ctrl(mut self) -> Self {
-        self.ctrl = true;
-        self
-    }
-
-    pub fn alt(mut self) -> Self {
-        self.alt = true;
-        self
-    }
-
-    pub fn shift(mut self) -> Self {
-        self.shift = true;
-        self
-    }
-
-    pub fn meta(mut self) -> Self {
-        self.meta = true;
-        self
-    }
-
+/// A key press as felis takes it.
+pub(crate) trait Event {
     /// The key as felis takes it, for the daemon to send as the program's
     /// modes ask; `None` for keys that never reach the program, Command
     /// shortcuts and bare modifiers.
-    pub(crate) fn event(&self) -> Option<KeyEvent> {
+    fn event(&self) -> Option<KeyEvent>;
+}
+
+impl Event for Key {
+    fn event(&self) -> Option<KeyEvent> {
         if self.meta {
             return None;
         }

@@ -6,10 +6,8 @@ mod codex;
 mod delivery;
 pub use delivery::{DeliveryFailure, DeliveryFuture};
 
-pub use codex::CodexOptions;
-
 use adroit_model::Agent;
-use adroit_model::config::{Launch, SessionOptions};
+use adroit_model::config::{CodexOptions, Launch, SessionOptions};
 use std::path::{Path, PathBuf};
 
 /// A command that starts an agent: the program, its arguments and the

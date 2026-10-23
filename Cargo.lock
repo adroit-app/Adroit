@@ -48,8 +48,6 @@ dependencies = [
  "adroit-model",
  "adroit-vcs",
  "libc",
- "schemars",
- "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
@@ -85,6 +83,7 @@ dependencies = [
 name = "adroit-term"
 version = "0.0.0"
 dependencies = [
+ "adroit-model",
  "base64 0.23.1",
  "felis-client-core",
  "felis-daemon",

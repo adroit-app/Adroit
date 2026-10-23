@@ -5,6 +5,7 @@
 pub mod config;
 pub mod daemon;
 mod inbox;
+mod key;
 mod launch;
 mod metrics;
 mod models;
@@ -17,6 +18,7 @@ pub mod time;
 mod tree;
 
 pub use inbox::*;
+pub use key::*;
 pub use launch::*;
 pub use metrics::*;
 pub use models::*;

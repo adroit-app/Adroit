@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 
 use crate::paths::config_dir;
-pub use adroit_agents::CodexOptions;
+pub use adroit_model::config::CodexOptions;
 pub use adroit_model::config::{Launch, SessionOptions, ShellLaunch};
 
 /// Which Option keys count as Alt, sending Meta, in a console; the others type

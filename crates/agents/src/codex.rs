@@ -1,5 +1,4 @@
 use super::*;
-use serde::{Deserialize, Serialize};
 
 mod commands;
 mod identity;
@@ -8,16 +7,6 @@ mod models;
 mod rpc;
 mod transcript;
 mod usage;
-
-/// How Codex sessions start, apart from Claude Code's options.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(default, deny_unknown_fields)]
-pub struct CodexOptions {
-    pub model: String,
-    pub reasoning_effort: String,
-    pub approval_policy: String,
-    pub sandbox_mode: String,
-}
 
 pub struct Codex;
 

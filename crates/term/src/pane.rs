@@ -6,6 +6,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use base64::Engine;
+
+use crate::input::Event as _;
 use felis_client_core::renderer_effect::{RendererEffect, renderer_effect};
 use felis_client_core::{
     AttachIntent, Connection, ImageId, ImageLayout, ImageShadow, OutgoingFrame, ShadowScreen,
