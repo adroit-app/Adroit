@@ -61,6 +61,7 @@ use crate::standing::{self, Standing};
 use crate::status;
 use crate::style::{CSS, CellHeight, DEFAULT_CELL_HEIGHT};
 use crate::subagent_view::{SubagentView, agent_glyph};
+use crate::symbols_font::{FACE, use_symbols_font};
 use crate::tabs::{self, Tab, fresh_name, label_from, named, shows_prompt};
 use crate::themes;
 use crate::view::Keys;
@@ -107,7 +108,7 @@ pub fn launch() {
         )
         .with_menu(menu_bar::build())
         .with_background_color((15, 17, 20, 255))
-        .with_custom_head(format!("<style>{CSS}</style>"));
+        .with_custom_head(format!("<style>{FACE}{CSS}</style>"));
     dioxus::LaunchBuilder::desktop().with_cfg(cfg).launch(App);
 }
 
@@ -1761,6 +1762,7 @@ fn sample_conversation(
 
 #[component]
 fn App() -> Element {
+    use_symbols_font();
     let mut tree = use_signal(Tree::default);
     let mut selected = use_signal(|| None::<Item>);
     let mut folds = use_signal(nav::Folds::default);
@@ -6631,9 +6633,7 @@ fn App() -> Element {
                                     }
                                     Item::Session(id) => {
                                         let s = nav::find(&t, id).map(|(_, s)| s.clone());
-                                        let starter = s.as_ref().and_then(|s| nav::starter(&t, s)).cloned();
-                                        // A started session names where it runs when its starter runs elsewhere.
-                                        let elsewhere = s.as_ref().zip(starter.as_ref()).filter(|(s, starter)| s.cwd != starter.cwd).map(|(s, _)| short(&s.cwd)).unwrap_or_default();
+                                        let elsewhere = s.as_ref().and_then(|s| nav::runs_at(&t, s)).unwrap_or_default();
                                         (
                                             "list-row",
                                             s.as_ref().map(|s| s.name.clone()).unwrap_or_else(|| id.clone()),

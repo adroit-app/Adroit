@@ -53,6 +53,7 @@ mod start;
 pub mod status;
 mod style;
 mod subagent_view;
+mod symbols_font;
 mod system_usage;
 pub mod tabs;
 pub mod terminals;

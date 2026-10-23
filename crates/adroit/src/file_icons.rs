@@ -113,6 +113,16 @@ fn colour(glyph: &str) -> Option<Colour> {
         .map(|i| PALETTE[i].1)
 }
 
+/// Every glyph the tables can give a path.
+#[cfg(test)]
+pub(crate) fn every_glyph() -> impl Iterator<Item = &'static str> {
+    [BASENAME, EXTENSION, DIRECTORY, PATTERN]
+        .into_iter()
+        .flatten()
+        .map(|(_, g)| *g)
+        .chain([DEFAULT])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
