@@ -18,11 +18,11 @@ use crate::bridge::{AppCtx, use_app};
 use crate::bundled_font::{faces, use_bundled_font};
 use crate::complete::{self, candidates};
 use crate::completion::Completions;
-use crate::console::{Composer, ConsoleScreen, Hub, Panes, ReaderScreen, mode_of};
+use crate::console::{Consoles, Hub, Panes, mode_of};
 use crate::console_read;
 use crate::content::{
-    Area, Axis, ContentPanel, DraftForm, NothingOpen, Opening, Starting, Tab, TerminalAsk,
-    WindowId, draft as draft_agent, file_name, fresh_name, label_from, shows_prompt,
+    Area, Axis, ContentPanel, Opening, Tab, TerminalAsk, WindowId, draft as draft_agent, file_name,
+    fresh_name, label_from, shows_prompt,
 };
 use crate::daemon;
 use crate::details::{self, Entry, Sheet, Shot, Source};
@@ -283,16 +283,6 @@ fn now_ms() -> u64 {
 
 fn short(path: &Path) -> String {
     adroit_core::picker::short(path, &home())
-}
-
-/// Start writing in the prompt, whatever mode it was left in: a draft asks
-/// for its first prompt.
-fn start_writing(nvim: Signal<Option<Arc<Embedded>>>) {
-    if let Some(nv) = nvim.peek().clone() {
-        spawn(async move {
-            let _ = nv.start_writing().await;
-        });
-    }
 }
 
 /// Close a shell's windows, and show another thing of its worktree if no
@@ -1854,7 +1844,7 @@ fn App() -> Element {
     // The wheel over the console's reader: it scrolls the reader, and past
     // the first or last line it holds, a program that scrolls what it shows
     // itself, which the reader then follows.
-    let scroll_reader = {
+    let scroll_reader = use_callback({
         let active_pane = active_pane.clone();
         move |lines: i32| {
             let Some(r) = reader.peek().clone() else {
@@ -1880,11 +1870,11 @@ fn App() -> Element {
                 let _ = r.input(&keys).await;
             });
         }
-    };
+    });
 
     // A click on the reader goes to the cell of the program's screen under
     // it; the screen is the last of the lines the reader holds.
-    let click_reader = {
+    let click_reader = use_callback({
         let active_pane = active_pane.clone();
         move |(col, row): (usize, usize)| {
             let Some(p) = active_pane() else {
@@ -1896,7 +1886,28 @@ fn App() -> Element {
                 p.click(left + col, row);
             }
         }
+    });
+    let consoles = Consoles {
+        frame,
+        attached,
+        nvim,
+        prompt_frame,
+        prompt_view,
+        prompt_rows,
+        reader,
+        reader_frame,
+        reader_view,
+        read_rows,
+        cell_width,
+        console_box,
+        composer_height,
+        prompt_width,
+        font,
+        prompts,
+        scroll_reader,
+        click_reader,
     };
+    use_context_provider(|| consoles);
 
     // Claude Code reports no status for a dialog it opens itself, so the
     // console's screen tells, looked at again whenever it is redrawn.
@@ -1969,7 +1980,7 @@ fn App() -> Element {
                 CoreEffect::PromptClose(to) => {
                     let _ = prompts.send(Op::Close(to));
                 }
-                CoreEffect::StartWriting => start_writing(nvim),
+                CoreEffect::StartWriting => consoles.start_writing(),
                 CoreEffect::PaneKey(key) => {
                     if let Some(p) = active_pane() {
                         p.key(&key);
@@ -2319,7 +2330,7 @@ fn App() -> Element {
                     let back = action == Action::HistoryPrev;
                     app.dispatch(Msg::Recall { back, agent });
                     app.dispatch(Msg::Focus(Area::Prompt));
-                    start_writing(nvim);
+                    consoles.start_writing();
                 }
                 Action::SessionResume => app.dispatch(Msg::ResumeOpen),
                 Action::SessionAgentNext => switch_agent(true),
@@ -2726,7 +2737,6 @@ fn App() -> Element {
     let _ = attached();
     let area = focus();
     let cw = cell_width();
-    let has_pane = active_pane().is_some();
     let console_background = hub.palette.read().background.hex();
     // The theme's colours and the console's font, over the stylesheet's own.
     let root_style = {
@@ -2740,31 +2750,9 @@ fn App() -> Element {
             h = cell_height_now(),
         )
     };
-    // The images on the console's screen, which is the last of the lines the
-    // reader holds, moved as the reader is scrolled over them.
     let (reading, passing, dialog) = {
         let console = app.console.read();
         (console.reading, console.direct, console.dialog)
-    };
-    let reader_pictures: Vec<adroit_term::Picture> = if reading {
-        let _ = reader_frame();
-        let _ = frame();
-        let (top, left) = reader_view();
-        let (held, rows) = read_rows();
-        let down = held.saturating_sub(rows) as f32 - top as f32;
-        active_pane()
-            .map(|p| p.pictures())
-            .unwrap_or_default()
-            .into_iter()
-            .map(|mut p| {
-                p.dst[0] -= left as f32;
-                p.dst[1] += down;
-                p
-            })
-            .filter(|p| p.dst[0] + p.dst[2] > 0.0)
-            .collect()
-    } else {
-        Vec::new()
     };
     let t = tree.read().clone();
     let current = app.content.read().described().cloned();
@@ -2801,34 +2789,9 @@ fn App() -> Element {
             .get(tab)
             .and_then(|pane| pane.last_input_ms())
     });
-    let target = match &active_tab {
-        Some(Tab::Session(id)) => nav::find(&t, id)
-            .map(|(_, s)| s.name.clone())
-            .unwrap_or_else(|| id.clone()),
-        Some(Tab::Terminal(n)) => terminals
-            .read()
-            .iter()
-            .find(|s| s.id == *n)
-            .map(|s| s.name.clone())
-            .unwrap_or_default(),
-        Some(Tab::Draft { .. }) => "new session".into(),
-        Some(Tab::Viewer(path)) => file_name(path),
-        None => "new scratch session".into(),
-    };
-    let prompt_shown = shows_prompt(active_tab.as_ref());
-    let composer_room = if prompt_shown {
-        composer_height() + 22.0
-    } else {
-        0.0
-    };
-    let (mode, prompt_shell, shown_images, selected_image) = {
+    let (mode, selected_image) = {
         let prompt = app.prompt.read();
-        (
-            prompt.mode,
-            prompt.shell,
-            prompt.images.clone(),
-            prompt.selected.clone(),
-        )
+        (prompt.mode, prompt.selected.clone())
     };
     // Whether what has the keys takes text, which an input method may compose.
     let session_shown = matches!(active_tab, Some(Tab::Session(_)));
@@ -2884,7 +2847,6 @@ fn App() -> Element {
     let k_back = km
         .keys_in(&[Context::Details, Context::Tree], &Action::CursorFold)
         .unwrap_or_default();
-    let k_send = km.keys_for(Context::Prompt, &Action::PromptSend);
     let k_write = km.keys_for(Context::Console, &Action::PromptWrite);
     let k_escape = km.keys_for(
         Context::Console,
@@ -2895,102 +2857,6 @@ fn App() -> Element {
         Context::Global,
         &Action::ConsoleSend(Chord::parse("Ctrl+q").ok()),
     );
-
-    let focused_body = rsx! {
-        div {
-            class: "console",
-            style: "--composer:{composer_room}px;--console-bg:{console_background};background:{console_background}",
-            onresize: move |e: Event<ResizeData>| {
-                e.stop_propagation();
-                if let Ok(sz) = e.data().get_content_box_size() {
-                    console_box.set((sz.width, sz.height));
-                }
-            },
-            match (&active_tab, has_pane) {
-                (Some(tab @ Tab::Draft { worktree, .. }), _) => rsx! {
-                    DraftForm {
-                        worktree: worktree.clone(),
-                        agent: current_agent,
-                        options: app.content.read().drafts.options.get(tab).cloned().unwrap_or_default(),
-                        keymap: km.clone(),
-                        onagent: move |a| {
-                            choose_agent(app.active(), a);
-                            app.dispatch(Msg::Focus(Area::Prompt));
-                            let writing = nvim
-                                .peek()
-                                .as_ref()
-                                .is_some_and(|n| n.state().mode().starts_with("insert"));
-                            if !writing {
-                                start_writing(nvim);
-                            }
-                        },
-                        onoptions: {
-                            let tab = tab.clone();
-                            move |options| app.dispatch(Msg::DraftOptions { tab: Some(tab.clone()), options })
-                        },
-                    }
-                },
-                (Some(_), true) if reading => rsx! {
-                    ReaderScreen { reader, reader_frame, cell_width: cw, focused: area == Area::Console, pictures: reader_pictures.clone(), onscroll: { let mut scroll = scroll_reader.clone(); move |lines: i32| scroll(lines) }, onclick: { let click = click_reader.clone(); move |at| click(at) } }
-                },
-                (Some(tab), true) => rsx! {
-                    ConsoleScreen { tab: tab.clone(), frame, cell_width: cw, focused: area == Area::Console }
-                },
-                (Some(_), false) => rsx! {
-                    Starting {}
-                },
-                (None, _) => rsx! {
-                    NothingOpen {
-                        agent: current_agent,
-                        options: app.content.read().drafts.next.clone().unwrap_or_default(),
-                        keymap: km.clone(),
-                        onpick: move |_| app.dispatch(Msg::PickerOpen),
-                        onagent: move |a| choose_agent(None, a),
-                        onoptions: move |options| app.dispatch(Msg::DraftOptions { tab: None, options }),
-                    }
-                },
-            }
-            if passing && area == Area::Console {
-                div { class: "direct-banner",
-                    span { class: "direct-banner-title", "Passing every key" }
-                    span { "to the session. " kbd { "Esc" } " stops, " kbd { "Ctrl-c" } " sends Esc." }
-                }
-            }
-            if prompt_shown {
-                Composer {
-                    nvim,
-                    prompt_frame,
-                    cell_width: cw,
-                    focused: area == Area::Prompt,
-                    target: target.clone(),
-                    composer_height,
-                    prompt_width,
-                    onpick: move |_| {
-                        app.dispatch(Msg::ImageSelect(None));
-                        // A click on the prompt is to write there; the
-                        // first key typed would otherwise run as a command.
-                        let writing = nvim
-                            .peek()
-                            .as_ref()
-                            .is_some_and(|n| n.state().mode().starts_with("insert"));
-                        if !writing {
-                            start_writing(nvim);
-                        }
-                    },
-                    send_keys: k_send.clone(),
-                    view: prompt_view(),
-                    rows: prompt_rows(),
-                    shell: prompt_shell,
-                    answering,
-                    images: shown_images,
-                    image_keys: km.keys_for(Context::Prompt, &Action::PromptImages),
-                    selected_image,
-                    onselectimage: move |path| app.dispatch(Msg::ImageSelect(Some(path))),
-                    onremoveimage: move |path| { let _ = prompts.send(Op::RemoveImage(path)); },
-                }
-            }
-        }
-    };
 
     rsx! {
         style { "{root_style}" }
@@ -3062,7 +2928,6 @@ fn App() -> Element {
                 }
                 ContentPanel {
                     focused: matches!(area, Area::Console | Area::Prompt),
-                    focused_body,
                     viewer_command,
                     completions,
                     drafted,

@@ -8,7 +8,7 @@ use adroit_core::msg::Msg;
 use adroit_core::tree as tree_view;
 use dioxus::prelude::*;
 
-use super::bodies::{UnfocusedBody, ViewerWindow};
+use super::bodies::{FocusedBody, UnfocusedBody, ViewerWindow};
 use super::tabs_bar::TabsBar;
 use super::window::{ContentWindow, WindowBorder, window_strip};
 use crate::actions::Action;
@@ -18,13 +18,12 @@ use crate::viewers;
 use adroit_core::overlay::context_menu::Target;
 
 /// The panel, drawn `focused` while the console or the prompt has the keys.
-/// `focused_body` is what the focused window shows under its strip, the
-/// console and the prompt, or the whole panel's body while nothing is open.
-/// The other windows draw their programs at the sizes they put in `boxes`.
+/// The focused window shows its console and the prompt under its strip, the
+/// whole panel's body while nothing is open; the other windows draw their
+/// programs at the sizes they put in `boxes`.
 #[component]
 pub(crate) fn ContentPanel(
     focused: bool,
-    focused_body: Element,
     viewer_command: ReadSignal<Option<(WindowId, viewers::Command)>>,
     completions: ReadSignal<Completions>,
     drafted: ReadSignal<HashSet<Tab>>,
@@ -41,9 +40,8 @@ pub(crate) fn ContentPanel(
     let mut drawn = use_signal(|| (0.0f64, 0.0f64));
     let windows = app.content.read().windows.clone();
     let focused_window = windows.focused_window();
-    let mut focused_body = Some(focused_body);
     let windows_el: Vec<Element> = match windows.current() {
-        None => vec![focused_body.take().unwrap_or_else(|| rsx! {})],
+        None => vec![rsx! { FocusedBody {} }],
         Some(tab) => {
             let host = app.host.read();
             let work = host.work.as_ref();
@@ -68,7 +66,7 @@ pub(crate) fn ContentPanel(
                         }
                     }
                 } else if focused {
-                    focused_body.take().unwrap_or_else(|| rsx! {})
+                    rsx! { FocusedBody {} }
                 } else {
                     rsx! {
                         UnfocusedBody { id, shows, background: background.clone(), frame, cell_width, boxes }

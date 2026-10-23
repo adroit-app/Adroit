@@ -8,7 +8,6 @@ mod view;
 mod window;
 
 pub(crate) use adroit_core::content::*;
-pub(crate) use bodies::*;
 pub(crate) use view::*;
 
 fn short(path: &std::path::Path) -> String {

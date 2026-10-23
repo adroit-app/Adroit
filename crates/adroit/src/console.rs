@@ -84,6 +84,64 @@ pub struct Hub {
     pub palette: Signal<Palette>,
 }
 
+/// The window's own handles on the focused window's console, its reader and
+/// the prompt, which stay out of the view state: their Neovims, the frames
+/// they are drawn again by and the sizes they are drawn at.
+#[derive(Clone, Copy)]
+pub(crate) struct Consoles {
+    /// Moves when a pane on screen has new output.
+    pub frame: Signal<u64>,
+    /// Moves when a pane is started, for what the console says around it.
+    pub attached: Signal<u64>,
+    pub nvim: Signal<Option<Arc<Embedded>>>,
+    pub prompt_frame: Signal<u64>,
+    /// The line the prompt shows from, and how many it has.
+    pub prompt_view: Signal<(usize, usize)>,
+    /// The lines the prompt shows.
+    pub prompt_rows: Signal<usize>,
+    /// The console read in a Neovim of its own, while the console says it
+    /// is read.
+    pub reader: Signal<Option<Arc<Embedded>>>,
+    pub reader_frame: Signal<u64>,
+    /// The line and column the reader shows from, which images follow.
+    pub reader_view: Signal<(usize, usize)>,
+    /// How many lines the reader holds, and how many of them are the screen,
+    /// the last.
+    pub read_rows: Signal<(usize, usize)>,
+    pub cell_width: Signal<f64>,
+    /// How large the focused window's console is drawn.
+    pub console_box: Signal<(f64, f64)>,
+    pub composer_height: Signal<f64>,
+    pub prompt_width: Signal<f64>,
+    /// The settings the console's font is drawn by.
+    pub font: Signal<crate::settings::Settings>,
+    pub prompts: crate::prompts::Prompts,
+    /// The wheel over the reader, by lines.
+    pub scroll_reader: Callback<i32>,
+    /// A click on the reader, at a column and a row of it.
+    pub click_reader: Callback<(usize, usize)>,
+}
+
+impl Consoles {
+    /// Whether the prompt's Neovim is inserting.
+    pub(crate) fn writing(&self) -> bool {
+        self.nvim
+            .peek()
+            .as_ref()
+            .is_some_and(|n| n.state().mode().starts_with("insert"))
+    }
+
+    /// Start writing in the prompt, whatever mode it was left in: a draft
+    /// asks for its first prompt.
+    pub(crate) fn start_writing(&self) {
+        if let Some(nv) = self.nvim.peek().clone() {
+            spawn(async move {
+                let _ = nv.start_writing().await;
+            });
+        }
+    }
+}
+
 /// The prompt's mode as the window names it: a style class and a label.
 pub fn mode_of(state: &UiState) -> (&'static str, &'static str) {
     let m = state.mode();
