@@ -1,85 +1,8 @@
 //! Whole-machine usage, sampled away from the UI thread.
 
-use crate::icons::Icon;
 use crate::settings::UsageSettings;
 
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Snapshot {
-    pub cpu: Option<f32>,
-    pub gpu: Option<f32>,
-    pub memory: Option<f32>,
-    pub storage: Option<f32>,
-    pub cpu_note: String,
-    pub gpu_note: String,
-    pub memory_note: String,
-    pub storage_note: String,
-}
-
-pub struct Gauge {
-    pub label: &'static str,
-    pub icon: Icon,
-    pub class: String,
-    pub value: String,
-    pub used: f32,
-    pub note: String,
-}
-
-impl Snapshot {
-    pub fn gauges(&self, settings: &UsageSettings) -> Vec<Gauge> {
-        [
-            (
-                "CPU",
-                "cpu",
-                Icon::Cpu,
-                settings.cpu,
-                self.cpu,
-                &self.cpu_note,
-            ),
-            (
-                "GPU",
-                "gpu",
-                Icon::Gpu,
-                settings.gpu,
-                self.gpu,
-                &self.gpu_note,
-            ),
-            (
-                "Memory",
-                "memory",
-                Icon::Memory,
-                settings.memory,
-                self.memory,
-                &self.memory_note,
-            ),
-            (
-                "Storage",
-                "storage",
-                Icon::Database,
-                settings.storage,
-                self.storage,
-                &self.storage_note,
-            ),
-        ]
-        .into_iter()
-        .filter(|(_, _, _, enabled, _, _)| *enabled)
-        .map(|(label, kind, icon, _, used, note)| Gauge {
-            label,
-            icon,
-            class: format!(
-                "usage-resource {kind}{}",
-                match used {
-                    Some(n) if n > 95.0 => " critical",
-                    Some(n) if n > 90.0 => " warning",
-                    _ => "",
-                }
-            ),
-            value: used.map_or_else(|| "N/A".into(), |n| format!("{:.0}%", n.round())),
-            used: used.unwrap_or(0.0),
-            note: note.clone(),
-        })
-        .collect()
-    }
-}
+pub use adroit_protocol::SystemUsage as Snapshot;
 
 fn percent(used: u64, total: u64) -> Option<f32> {
     (total > 0).then(|| (used as f64 / total as f64 * 100.0).clamp(0.0, 100.0) as f32)
@@ -310,54 +233,6 @@ mod tests {
     }
 
     #[test]
-    fn resource_colors_remain_distinct_until_usage_exceeds_warning_thresholds() {
-        let settings = UsageSettings::default();
-        let snapshot = Snapshot {
-            cpu: Some(90.0),
-            gpu: Some(90.01),
-            memory: Some(95.0),
-            storage: Some(95.01),
-            ..Snapshot::default()
-        };
-        let gauges = snapshot.gauges(&settings);
-        assert_eq!(
-            gauges.iter().map(|g| g.class.as_str()).collect::<Vec<_>>(),
-            [
-                "usage-resource cpu",
-                "usage-resource gpu warning",
-                "usage-resource memory warning",
-                "usage-resource storage critical",
-            ]
-        );
-        let normal = Snapshot {
-            cpu: Some(20.0),
-            gpu: Some(30.0),
-            memory: Some(40.0),
-            storage: Some(50.0),
-            ..Snapshot::default()
-        };
-        assert_eq!(
-            normal
-                .gauges(&settings)
-                .iter()
-                .map(|g| g.class.as_str())
-                .collect::<Vec<_>>(),
-            [
-                "usage-resource cpu",
-                "usage-resource gpu",
-                "usage-resource memory",
-                "usage-resource storage",
-            ]
-        );
-        assert!(
-            Snapshot::default()
-                .gauges(&settings)
-                .iter()
-                .all(|g| !g.class.contains("warning") && !g.class.contains("critical"))
-        );
-    }
-
-    #[test]
     fn capacity_notes_keep_useful_precision_with_binary_units() {
         assert_eq!(
             capacity_note(34 * 1024_u64.pow(3), 64 * 1024_u64.pow(3)),
@@ -404,33 +279,6 @@ mod tests {
     }
 
     #[test]
-    fn gauges_include_their_own_supplementary_information() {
-        let snapshot = Snapshot {
-            cpu_note: "CPU details".into(),
-            gpu_note: "GPU details".into(),
-            memory_note: "34.0 / 64.0 GiB".into(),
-            storage_note: "700.0 / 950.0 GiB".into(),
-            ..Snapshot::default()
-        };
-        let gauges = snapshot.gauges(&UsageSettings::default());
-        assert_eq!(
-            gauges.iter().map(|g| g.note.as_str()).collect::<Vec<_>>(),
-            [
-                "CPU details",
-                "GPU details",
-                "34.0 / 64.0 GiB",
-                "700.0 / 950.0 GiB"
-            ]
-        );
-        assert!(
-            Snapshot::default()
-                .gauges(&UsageSettings::default())
-                .iter()
-                .all(|g| g.note.is_empty())
-        );
-    }
-
-    #[test]
     fn percentages_require_a_capacity_and_stay_within_the_gauge() {
         assert_eq!(percent(25, 100), Some(25.0));
         assert_eq!(percent(1, 0), None);
@@ -449,47 +297,5 @@ mod tests {
         assert_eq!(gpu_percent(r#""Device Utilization %"=0"#), Some(0.0));
         assert_eq!(gpu_percent(r#""Device Utilization %"=101"#), None);
         assert_eq!(gpu_percent("unavailable"), None);
-    }
-
-    #[test]
-    fn visibility_is_independent_of_resource_availability() {
-        let snapshot = Snapshot {
-            cpu: Some(12.5),
-            gpu: None,
-            memory: Some(50.0),
-            storage: Some(75.0),
-            ..Snapshot::default()
-        };
-        let settings = crate::settings::UsageSettings::default();
-        let gauges = snapshot.gauges(&settings);
-        assert_eq!(
-            gauges.iter().map(|g| g.label).collect::<Vec<_>>(),
-            ["CPU", "GPU", "Memory", "Storage"]
-        );
-        assert_eq!(
-            gauges.iter().map(|g| g.icon.name()).collect::<Vec<_>>(),
-            ["cpu", "gpu", "memory", "database"]
-        );
-        assert_eq!(gauges[0].value, "13%");
-        assert_eq!(gauges[1].value, "N/A");
-        assert_eq!(gauges[1].used, 0.0);
-        assert!(
-            snapshot
-                .gauges(&crate::settings::UsageSettings {
-                    cpu: false,
-                    gpu: false,
-                    memory: false,
-                    storage: false
-                })
-                .is_empty()
-        );
-        let only_memory = snapshot.gauges(&crate::settings::UsageSettings {
-            cpu: false,
-            gpu: false,
-            memory: true,
-            storage: false,
-        });
-        assert_eq!(only_memory.len(), 1);
-        assert_eq!(only_memory[0].label, "Memory");
     }
 }

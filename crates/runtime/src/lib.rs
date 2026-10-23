@@ -28,10 +28,11 @@ pub mod start;
 pub mod system_usage;
 pub mod terminals;
 pub mod themes;
+pub mod watch;
 pub mod window_socket;
 pub mod work;
 
-use adroit_core::{icons, nav, tabs};
+use adroit_core::{nav, tabs};
 
 pub use daemon::cli as daemon_cli;
 pub use start::cli as session_cli;

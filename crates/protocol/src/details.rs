@@ -154,41 +154,54 @@ pub enum DetailsChange {
 }
 
 impl DetailsWork {
-    /// The details with `change` made.
-    pub fn apply(&mut self, change: DetailsChange) {
+    /// The details with `change` made; whether that changed them.
+    pub fn apply(&mut self, change: DetailsChange) -> bool {
         match change {
             DetailsChange::Conversation {
                 session,
                 conversation,
-            } => self.session(session).conversation = Some(conversation),
+            } => set(&mut self.session(session).conversation, Some(conversation)),
             DetailsChange::Context { session, context } => {
-                self.session(session).context = Some(context)
+                set(&mut self.session(session).context, Some(context))
             }
-            DetailsChange::Links { session, links } => self.session(session).links = Some(links),
-            DetailsChange::Thumbs { session, thumbs } => self.session(session).thumbs = thumbs,
-            DetailsChange::Notes { session, notes } => self.session(session).notes = Some(notes),
+            DetailsChange::Links { session, links } => {
+                set(&mut self.session(session).links, Some(links))
+            }
+            DetailsChange::Thumbs { session, thumbs } => {
+                set(&mut self.session(session).thumbs, thumbs)
+            }
+            DetailsChange::Notes { session, notes } => {
+                set(&mut self.session(session).notes, Some(notes))
+            }
             DetailsChange::Processes { session, processes } => {
-                self.session(session).processes = Some(processes)
+                set(&mut self.session(session).processes, Some(processes))
             }
-            DetailsChange::SessionLeft { session } => {
-                self.sessions.remove(&session);
-            }
+            DetailsChange::SessionLeft { session } => self.sessions.remove(&session).is_some(),
             DetailsChange::Repository { worktree, read } => {
-                self.repositories.insert(worktree, read);
+                self.repositories.insert(worktree, read.clone()) != Some(read)
             }
             DetailsChange::RepositoryLeft { worktree } => {
-                self.repositories.remove(&worktree);
+                self.repositories.remove(&worktree).is_some()
             }
             DetailsChange::Usage { agent, limits } => {
-                self.usage.insert(agent, limits);
+                self.usage.insert(agent, limits.clone()) != Some(limits)
             }
-            DetailsChange::System { usage } => self.system = Some(usage),
+            DetailsChange::System { usage } => set(&mut self.system, Some(usage)),
         }
     }
 
     fn session(&mut self, id: String) -> &mut SessionRead {
         self.sessions.entry(id).or_default()
     }
+}
+
+/// `slot` holding `value`; whether it held something else.
+fn set<T: PartialEq>(slot: &mut T, value: T) -> bool {
+    if *slot == value {
+        return false;
+    }
+    *slot = value;
+    true
 }
 
 #[cfg(test)]
@@ -231,6 +244,28 @@ mod tests {
         assert_eq!(a.notes, Some(Vec::new()));
         assert_eq!(a.links, None);
         assert_eq!(work.sessions["b"].processes, Some(Vec::new()));
+    }
+
+    #[test]
+    fn a_change_says_whether_it_changed_anything() {
+        let mut work = DetailsWork::default();
+        let links = || DetailsChange::Links {
+            session: "a".into(),
+            links: Links::default(),
+        };
+        let left = || DetailsChange::SessionLeft {
+            session: "a".into(),
+        };
+        assert!(work.apply(links()));
+        assert!(!work.apply(links()));
+        assert!(work.apply(left()));
+        assert!(!work.apply(left()));
+        let usage = || DetailsChange::Usage {
+            agent: Agent::Claude,
+            limits: Vec::new(),
+        };
+        assert!(work.apply(usage()));
+        assert!(!work.apply(usage()));
     }
 
     #[test]

@@ -2260,7 +2260,7 @@ fn App() -> Element {
                     let wt = place.peek().as_ref().map(|p| p.worktree.clone());
                     let spot = drill.peek().spot();
                     let next = match (spot, wt) {
-                        (Some(s), Some(wt)) => Some(load(s, wt).await),
+                        (Some(s), Some(wt)) => Some(View::of(wt.clone(), load(s, &wt).await)),
                         _ => None,
                     };
                     // The panel may have moved on, or to another worktree,
@@ -5700,7 +5700,7 @@ fn App() -> Element {
         _ => Vec::new(),
     };
     let has_account_usage = !usage_now.is_empty();
-    let system_gauges = system_snapshot.read().gauges(&font.read().usage);
+    let system_gauges = crate::details::system_gauges(&system_snapshot.read(), &font.read().usage);
     let spot_now = spot();
     let view_now = git_view().filter(|v| {
         spot_now.as_ref() == Some(&v.spot)

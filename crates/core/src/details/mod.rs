@@ -11,7 +11,11 @@ use adroit_model::usage::{Limit, Severity, Window};
 use adroit_model::{Session, State};
 
 pub use adroit_model::Note;
+
+mod system;
+use adroit_protocol::RepositoryRead;
 use adroit_vcs::{Change, Commit, DiffLine, Rev, Spot};
+pub use system::*;
 
 /// One line of what the overview says about a session.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -830,6 +834,23 @@ pub struct View {
     pub worktree: PathBuf,
     pub listing: Listing,
     pub revision: Option<adroit_vcs::Revision>,
+}
+
+impl View {
+    /// What the host's `read` of the repository at `worktree` shows.
+    pub fn of(worktree: PathBuf, read: RepositoryRead) -> View {
+        View {
+            spot: read.spot,
+            worktree,
+            listing: match read.listing {
+                Ok(adroit_vcs::Listing::Files(files)) => Listing::Files(files),
+                Ok(adroit_vcs::Listing::Log(commits)) => Listing::Log(commits),
+                Ok(adroit_vcs::Listing::Diff(lines)) => Listing::Diff(lines),
+                Err(e) => Listing::Error(e),
+            },
+            revision: read.revision,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

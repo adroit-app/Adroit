@@ -3,8 +3,11 @@
 
 use std::sync::{Arc, Mutex};
 
-use adroit_protocol::{DetailsWork, Event, Request, SPOKEN, Seq, WorkSnapshot, agree};
-use tokio::sync::mpsc;
+use adroit_protocol::{
+    Change, DetailsChange, DetailsWork, Event, Request, SPOKEN, Seq, Sight, WorkPatch,
+    WorkSnapshot, agree,
+};
+use tokio::sync::{mpsc, watch};
 
 /// Everything the host holds of the work.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -21,20 +24,40 @@ impl Work {
             details: self.details.clone(),
         }
     }
+
+    pub fn details(&self) -> &DetailsWork {
+        &self.details
+    }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Host {
     work: Work,
+    /// What the window shows, which the host keeps read.
+    sight: watch::Sender<Sight>,
+}
+
+impl Default for Host {
+    fn default() -> Self {
+        Self::new(Work::default())
+    }
 }
 
 impl Host {
     pub fn new(work: Work) -> Self {
-        Self { work }
+        Self {
+            work,
+            sight: watch::Sender::new(Sight::default()),
+        }
     }
 
     pub fn work(&self) -> &Work {
         &self.work
+    }
+
+    /// What the window shows, as it changes.
+    pub fn sight(&self) -> watch::Receiver<Sight> {
+        self.sight.subscribe()
     }
 
     /// What the host tells the window that asked `request`.
@@ -50,8 +73,89 @@ impl Host {
                 }],
             },
             Request::Snapshot => vec![Event::Snapshot(self.work.snapshot())],
-            Request::Watch(_) => Vec::new(),
+            Request::Watch(sight) => {
+                self.sight.send_replace(*sight);
+                let left = self.left();
+                self.patch(left).into_iter().collect()
+            }
         }
+    }
+
+    /// The host read `changes`: those of what the window still shows that
+    /// change the work, as the next patch, or nothing when none do. What was
+    /// read for a session or worktree the window has moved away from while
+    /// it was read is dropped.
+    pub fn record(&mut self, changes: impl IntoIterator<Item = DetailsChange>) -> Option<Event> {
+        let sight = self.sight.borrow().clone();
+        let shown: Vec<_> = changes
+            .into_iter()
+            .filter(|c| in_sight(c, &sight))
+            .collect();
+        self.patch(shown)
+    }
+
+    /// `changes` made to the work, those that change it as the next patch.
+    fn patch(&mut self, changes: Vec<DetailsChange>) -> Option<Event> {
+        let changes: Vec<Change> = changes
+            .into_iter()
+            .filter(|c| self.work.details.apply(c.clone()))
+            .map(Change::Details)
+            .collect();
+        if changes.is_empty() {
+            return None;
+        }
+        self.work.seq = self.work.seq.next();
+        Some(Event::Patch(WorkPatch {
+            seq: self.work.seq,
+            changes,
+        }))
+    }
+
+    /// What the host holds of sessions and worktrees the window no longer
+    /// shows, to drop.
+    fn left(&self) -> Vec<DetailsChange> {
+        let sight = self.sight.borrow();
+        let sessions = self
+            .work
+            .details
+            .sessions
+            .keys()
+            .cloned()
+            .map(|session| DetailsChange::SessionLeft { session });
+        let repositories = self
+            .work
+            .details
+            .repositories
+            .keys()
+            .cloned()
+            .map(|worktree| DetailsChange::RepositoryLeft { worktree });
+        sessions
+            .chain(repositories)
+            .filter(|c| !in_sight(c, &sight))
+            .collect()
+    }
+}
+
+/// Whether `change` is of a session or worktree `sight` shows; one of
+/// neither always is.
+fn in_sight(change: &DetailsChange, sight: &Sight) -> bool {
+    match change {
+        DetailsChange::Conversation { session, .. }
+        | DetailsChange::Context { session, .. }
+        | DetailsChange::Links { session, .. }
+        | DetailsChange::Thumbs { session, .. }
+        | DetailsChange::Notes { session, .. }
+        | DetailsChange::Processes { session, .. }
+        | DetailsChange::SessionLeft { session } => {
+            sight.session.as_ref().is_some_and(|s| s.id == *session)
+        }
+        DetailsChange::Repository { worktree, .. } | DetailsChange::RepositoryLeft { worktree } => {
+            sight
+                .repository
+                .as_ref()
+                .is_some_and(|r| r.worktree == *worktree)
+        }
+        DetailsChange::Usage { .. } | DetailsChange::System { .. } => true,
     }
 }
 
@@ -76,6 +180,15 @@ impl Loopback {
             events,
         };
         (link, received)
+    }
+
+    /// Start reading, in the background, what the window shows: each fact
+    /// the host keeps current while it is in sight.
+    pub fn watch(&self) {
+        crate::watch::start(crate::watch::Watched::new(
+            self.host.clone(),
+            self.events.clone(),
+        ));
     }
 }
 
@@ -106,7 +219,12 @@ pub fn scenario(work: Work, requests: impl IntoIterator<Item = Request>) -> (Wor
 
 #[cfg(test)]
 mod tests {
-    use adroit_protocol::{Event, Request, SPOKEN, Seq, Version, WorkSnapshot};
+    use adroit_model::Session;
+    use adroit_model::links::Links;
+    use adroit_model::repository::{Listing, Spot};
+    use adroit_protocol::{
+        Event, RepositoryRead, RepositorySight, Request, SPOKEN, Seq, Version, WorkSnapshot,
+    };
 
     use super::*;
 
@@ -205,5 +323,99 @@ mod tests {
         let (link, events) = Loopback::new(Host::default());
         drop(events);
         link.send(Request::Snapshot);
+    }
+
+    fn watch(session: Option<&str>, worktree: Option<&str>) -> Request {
+        Request::Watch(Box::new(Sight {
+            session: session.map(|id| Session {
+                id: id.into(),
+                ..Default::default()
+            }),
+            repository: worktree.map(|w| RepositorySight {
+                worktree: w.into(),
+                spot: Spot::Log,
+            }),
+            ..Default::default()
+        }))
+    }
+
+    fn links(session: &str) -> DetailsChange {
+        DetailsChange::Links {
+            session: session.into(),
+            links: Links::default(),
+        }
+    }
+
+    fn log(worktree: &str) -> DetailsChange {
+        DetailsChange::Repository {
+            worktree: worktree.into(),
+            read: RepositoryRead {
+                spot: Spot::Log,
+                listing: Ok(Listing::Log(Vec::new())),
+                revision: None,
+            },
+        }
+    }
+
+    fn changes(event: Option<Event>) -> Vec<DetailsChange> {
+        match event {
+            Some(Event::Patch(patch)) => patch
+                .changes
+                .into_iter()
+                .map(|Change::Details(c)| c)
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    #[test]
+    fn what_the_host_reads_reaches_the_window_once_and_only_while_shown() {
+        let mut host = Host::default();
+        host.handle(watch(Some("a"), Some("/w")));
+        // (read, what the window is sent)
+        let cases = [
+            (vec![links("a")], vec![links("a")]),
+            (vec![links("a")], vec![]),
+            (vec![links("b"), log("/v")], vec![]),
+            (vec![log("/w"), log("/w")], vec![log("/w")]),
+        ];
+        for (read, want) in cases {
+            assert_eq!(changes(host.record(read.clone())), want, "{read:?}");
+        }
+        assert_eq!(host.work().snapshot().seq, Seq(2));
+    }
+
+    #[test]
+    fn moving_away_drops_what_was_read_for_what_is_no_longer_shown() {
+        let mut host = Host::default();
+        host.handle(watch(Some("a"), Some("/w")));
+        host.record([links("a"), log("/w")]);
+        let events = host.handle(watch(Some("a"), Some("/v")));
+        assert_eq!(
+            changes(events.into_iter().next()),
+            vec![DetailsChange::RepositoryLeft {
+                worktree: "/w".into()
+            }]
+        );
+        let events = host.handle(watch(None, None));
+        assert_eq!(
+            changes(events.into_iter().next()),
+            vec![DetailsChange::SessionLeft {
+                session: "a".into()
+            }]
+        );
+        assert_eq!(host.work().details(), &DetailsWork::default());
+        assert!(host.handle(watch(None, None)).is_empty());
+    }
+
+    #[test]
+    fn the_watchers_are_told_what_the_window_shows() {
+        let mut host = Host::default();
+        let sight = host.sight();
+        host.handle(watch(Some("a"), None));
+        assert_eq!(
+            sight.borrow().session.as_ref().map(|s| s.id.as_str()),
+            Some("a")
+        );
     }
 }

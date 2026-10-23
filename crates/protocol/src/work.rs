@@ -40,8 +40,8 @@ pub enum Change {
 }
 
 impl WorkSnapshot {
-    /// The work with `change` made.
-    pub fn apply(&mut self, change: Change) {
+    /// The work with `change` made; whether that changed it.
+    pub fn apply(&mut self, change: Change) -> bool {
         match change {
             Change::Details(change) => self.details.apply(change),
         }
