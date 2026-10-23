@@ -1,6 +1,6 @@
 //! Which area of the window has the keyboard, and where a window motion moves it.
 
-use crate::content::{Content, WindowId};
+use super::{Content, WindowId};
 
 /// The areas of the window, laid out as the sidebar on the left, the content's
 /// windows in the middle, and the details on the right. A window shows its

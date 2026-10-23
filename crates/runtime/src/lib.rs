@@ -33,7 +33,7 @@ pub mod window_socket;
 pub mod work;
 pub mod work_host;
 
-use adroit_core::tabs;
+use adroit_core::content;
 use adroit_core::tree::nav;
 
 pub use daemon::cli as daemon_cli;

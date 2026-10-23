@@ -15,9 +15,9 @@ use super::{
     gauges, newest_first, overview_shown, related, with_agents, with_images, with_notes,
     with_processes,
 };
+use crate::content::Tab;
 use crate::effect::Effect;
 use crate::settings::DetailsSettings;
-use crate::tabs::Tab;
 use crate::tree::Showing;
 
 /// What the window shows that the details panel reads by.

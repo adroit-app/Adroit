@@ -231,7 +231,7 @@ async fn execute(daemon: &Daemon, operation: Operation, json: bool) -> Result<St
                 .collect();
             let names: Vec<_> = taken.iter().map(String::as_str).collect();
             let base = name.unwrap_or_else(|| base_name(program, &command));
-            let name = crate::tabs::fresh_name(&base, &names);
+            let name = crate::content::fresh_name(&base, &names);
             let terminal = start(
                 daemon,
                 &crate::settings::current(),

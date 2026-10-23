@@ -93,8 +93,8 @@ pub fn save(dir: &Path, mime: &str, base64: &str, now: SystemTime) -> Result<Pat
 /// The attachments belonging to each prompt, including the one shown.
 #[derive(Default)]
 pub struct Attachments {
-    shown: Option<crate::tabs::Tab>,
-    kept: std::collections::HashMap<Option<crate::tabs::Tab>, Vec<PathBuf>>,
+    shown: Option<crate::content::Tab>,
+    kept: std::collections::HashMap<Option<crate::content::Tab>, Vec<PathBuf>>,
 }
 
 impl Attachments {
@@ -122,13 +122,13 @@ impl Attachments {
         self.kept.remove(&self.shown).unwrap_or_default()
     }
 
-    pub fn restore(&mut self, tab: Option<crate::tabs::Tab>, images: Vec<PathBuf>) {
+    pub fn restore(&mut self, tab: Option<crate::content::Tab>, images: Vec<PathBuf>) {
         self.kept.entry(tab).or_default().splice(0..0, images);
     }
 
-    pub fn show(&mut self, now: Option<crate::tabs::Tab>) {
+    pub fn show(&mut self, now: Option<crate::content::Tab>) {
         if self.shown.is_none()
-            && matches!(now, Some(crate::tabs::Tab::Draft { .. }))
+            && matches!(now, Some(crate::content::Tab::Draft { .. }))
             && self.kept.get(&now).is_none_or(Vec::is_empty)
         {
             let images = self.take();
@@ -137,7 +137,7 @@ impl Attachments {
         self.shown = now;
     }
 
-    pub fn close(&mut self, now: Option<crate::tabs::Tab>) {
+    pub fn close(&mut self, now: Option<crate::content::Tab>) {
         let mut images = self.take();
         self.shown = now;
         images.extend(self.take());
@@ -145,9 +145,9 @@ impl Attachments {
     }
 
     pub fn follow(&mut self, sessions: &[adroit_model::Session]) {
-        let moved = |tab: Option<crate::tabs::Tab>| match tab {
-            Some(crate::tabs::Tab::Session(ref id)) => crate::nav::successor(sessions, id)
-                .map(|id| Some(crate::tabs::Tab::Session(id.into())))
+        let moved = |tab: Option<crate::content::Tab>| match tab {
+            Some(crate::content::Tab::Session(ref id)) => crate::nav::successor(sessions, id)
+                .map(|id| Some(crate::content::Tab::Session(id.into())))
                 .unwrap_or(tab),
             _ => tab,
         };
@@ -158,7 +158,7 @@ impl Attachments {
             .collect();
     }
 
-    pub fn holding(&self) -> impl Iterator<Item = crate::tabs::Tab> + '_ {
+    pub fn holding(&self) -> impl Iterator<Item = crate::content::Tab> + '_ {
         self.kept
             .iter()
             .filter(|(tab, images)| **tab != self.shown && !images.is_empty())
@@ -172,7 +172,7 @@ impl Attachments {
             .filter_map(|(tab, images)| {
                 let name = match tab {
                     None => "nothing".into(),
-                    Some(tab) => crate::tabs::kept_name(tab)?,
+                    Some(tab) => crate::content::kept_name(tab)?,
                 };
                 Some((name, images.clone()))
             })
@@ -188,7 +188,7 @@ impl Attachments {
                     let tab = if name == "nothing" {
                         None
                     } else {
-                        Some(crate::tabs::from_kept(&name)?)
+                        Some(crate::content::from_kept(&name)?)
                     };
                     Some((tab, images))
                 })
@@ -291,7 +291,7 @@ mod tests {
 
     #[test]
     fn a_failed_send_restores_images_to_its_tab_before_any_new_attachments() {
-        use crate::tabs::Tab;
+        use crate::content::Tab;
         let a = Some(Tab::Session("a".into()));
         let b = Some(Tab::Session("b".into()));
         let mut images = Attachments::default();
@@ -311,7 +311,7 @@ mod tests {
 
     #[test]
     fn attachments_written_with_nothing_open_follow_the_next_draft_and_session_successors() {
-        use crate::tabs::Tab;
+        use crate::content::Tab;
         let mut images = Attachments::default();
         images.add(vec!["/one.png".into()]);
         images.show(Some(Tab::Draft {
@@ -332,7 +332,7 @@ mod tests {
 
     #[test]
     fn removing_all_images_leaves_a_draft_free_to_receive_the_empty_window_s_attachments() {
-        use crate::tabs::Tab;
+        use crate::content::Tab;
         let draft = Some(Tab::Draft {
             worktree: "/src".into(),
             id: Default::default(),
@@ -349,7 +349,7 @@ mod tests {
 
     #[test]
     fn attachments_follow_tabs_close_with_the_prompt_and_survive_reopening() {
-        use crate::tabs::Tab;
+        use crate::content::Tab;
         let a = Some(Tab::Session("a".into()));
         let b = Some(Tab::Session("b".into()));
         let mut images = Attachments::default();

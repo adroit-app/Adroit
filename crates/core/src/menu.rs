@@ -4,7 +4,7 @@
 use adroit_model::{Kind, Session};
 
 use crate::actions::{Action, Group};
-use crate::tabs::Tab;
+use crate::content::Tab;
 use crate::tree::nav::Item;
 
 /// What a menu was opened on.

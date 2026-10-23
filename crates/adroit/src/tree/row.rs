@@ -13,12 +13,12 @@ use dioxus::prelude::*;
 use crate::bridge::AppCtx;
 use crate::completion::Completions;
 use crate::components::{SessionMark, TerminalMark, glyph, runs_of, session_mark};
+use crate::content::Tab;
 use crate::file_icons;
 use crate::files;
 use crate::icons::{Icon, IconView};
 use crate::nav::{self, Item};
 use crate::rename::{Place as RenamePlace, Rename, SessionName};
-use crate::tabs::Tab;
 
 /// What a sidebar row is, told when the pointer rests on it.
 pub(crate) fn row_tip(item: &Item) -> &'static str {

@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use adroit_model::Session;
 
-use crate::tabs::{self, Tab};
+use crate::content::{self, Tab};
 use crate::tree::nav;
 
 /// The name the text written with nothing open is kept by.
@@ -78,7 +78,7 @@ impl Drafts {
     pub fn saved(&self, shown_text: &str) -> BTreeMap<String, String> {
         let name = |tab: &Option<Tab>| match tab {
             None => Some(NOTHING_OPEN.to_string()),
-            Some(tab) => tabs::kept_name(tab),
+            Some(tab) => content::kept_name(tab),
         };
         self.kept
             .iter()
@@ -96,7 +96,7 @@ impl Drafts {
             .into_iter()
             .filter_map(|(name, text)| match name.as_str() {
                 NOTHING_OPEN => Some((None, text)),
-                _ => tabs::from_kept(&name).map(|tab| (Some(tab), text)),
+                _ => content::from_kept(&name).map(|tab| (Some(tab), text)),
             })
             .collect();
         Self { shown: None, kept }

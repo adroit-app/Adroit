@@ -14,9 +14,9 @@ use dioxus::prelude::*;
 use tokio::sync::mpsc;
 
 use crate::components::{EmptyState, KeyHint};
+use crate::content::Tab;
 use crate::icons::{Icon, IconView};
 use crate::style::use_cell_height;
-use crate::tabs::Tab;
 use crate::view::ScreenView;
 
 /// How many completions the menu shows at a time.

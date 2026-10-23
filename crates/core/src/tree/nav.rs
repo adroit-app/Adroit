@@ -8,7 +8,7 @@ use adroit_model::{
     InboxItem, Session, State, TerminalProgram, TerminalSession, Tree, WorktreeNode,
 };
 
-use crate::tabs::Tab;
+use crate::content::Tab;
 use adroit_model::files::Entry;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

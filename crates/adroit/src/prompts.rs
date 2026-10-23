@@ -14,8 +14,8 @@ use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use tokio::sync::oneshot;
 
+use crate::content::Tab;
 use crate::paths::instance_state;
-use crate::tabs::Tab;
 
 use adroit_core::prompts::History;
 pub use adroit_core::prompts::*;

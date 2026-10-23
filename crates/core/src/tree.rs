@@ -13,8 +13,8 @@ use adroit_model::{InboxItem, State, TerminalSession, Tree, inbox};
 use adroit_protocol::{Request, Seq, TreeSight, TreeWork, WorkSnapshot};
 
 use crate::chrome::status_line::{self, StatusLine};
+use crate::content::Tab;
 use crate::effect::Effect;
-use crate::tabs::Tab;
 use nav::{Folds, Heading, Item, Place};
 
 /// What the content's focused window shows, and the worktree it is in, as

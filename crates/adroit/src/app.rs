@@ -24,14 +24,15 @@ use crate::components::{SessionMark, TerminalMark, glyph, runs_of, session_mark}
 use crate::console::{Composer, ConsoleScreen, Hub, Panes, ReaderScreen, mode_of};
 use crate::console_keys::direct_key;
 use crate::console_read;
-use crate::content::{Axis, Border, Content, Opening, WindowId};
+use crate::content::{
+    self, Area, Axis, Border, Content, Dir, Opening, Shown, Spot, Tab, WindowId, corner, cycled,
+    draft as draft_agent, fresh_name, label_from, moved, named, settled, shows_prompt,
+};
 use crate::daemon;
 use crate::details::{self, Entry, Sheet, Shot, Source};
-use crate::draft_agent;
 use crate::editor;
 use crate::file_icons;
 use crate::filer::{Filer, read_dirs};
-use crate::focus::{Area, Dir, Shown, Spot, corner, cycled, moved, settled};
 use crate::icons::{Icon, IconView};
 use crate::image_window;
 use crate::keymap::{Chord, Context, Keymap, MENU_KEYS, Step};
@@ -60,7 +61,6 @@ use crate::shell::{
 };
 use crate::standing::{self, Standing};
 use crate::style::{CSS, CellHeight, DEFAULT_CELL_HEIGHT};
-use crate::tabs::{self, Tab, fresh_name, label_from, named, shows_prompt};
 use crate::themes;
 use crate::tree::{RowContext, RowEvents, TreePanel};
 use crate::view::Keys;
@@ -960,8 +960,8 @@ fn App() -> Element {
     });
     // The agent chosen for a session not started yet, by its draft; the
     // default for new sessions otherwise.
-    let mut draft_options = use_signal(HashMap::<Tab, tabs::DraftOptions>::new);
-    let mut next_options = use_signal(|| None::<tabs::DraftOptions>);
+    let mut draft_options = use_signal(HashMap::<Tab, content::DraftOptions>::new);
+    let mut next_options = use_signal(|| None::<content::DraftOptions>);
     let mut last_agent = use_signal(|| None::<adroit_model::Agent>);
     let mut place = use_signal(|| None::<Place>);
     let mut frame = use_signal(|| 0u64);
@@ -1092,7 +1092,7 @@ fn App() -> Element {
         }
         match shown {
             Some(tab) => {
-                if let Some(name) = tabs::kept_name(&tab) {
+                if let Some(name) = content::kept_name(&tab) {
                     let _ = std::fs::write(shown_path(), name);
                 }
             }
@@ -1249,7 +1249,7 @@ fn App() -> Element {
         Rc::new(RefCell::new(
             std::fs::read_to_string(shown_path())
                 .ok()
-                .and_then(|name| tabs::from_kept(&name)),
+                .and_then(|name| content::from_kept(&name)),
         ))
     });
     // The tree as last looked at, against which the next list is.
@@ -1872,7 +1872,7 @@ fn App() -> Element {
         let draft = Tab::draft(worktree);
         draft_options.write().insert(
             draft.clone(),
-            tabs::DraftOptions::for_new_draft(&mut next_options.write()),
+            content::DraftOptions::for_new_draft(&mut next_options.write()),
         );
         draft
     };
@@ -5209,8 +5209,8 @@ fn AgentChoices(
 
 #[component]
 fn DraftLaunchOptions(
-    options: tabs::DraftOptions,
-    onchange: Callback<tabs::DraftOptions>,
+    options: content::DraftOptions,
+    onchange: Callback<content::DraftOptions>,
 ) -> Element {
     let model_options = options.clone();
     let permission_options = options.clone();

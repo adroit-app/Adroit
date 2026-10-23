@@ -8,9 +8,9 @@ use adroit_model::time::now_ms;
 use adroit_model::{AgentPermissions, CustomPermissions};
 use adroit_term::Daemon;
 
+use crate::content::{fresh_name, label_from, label_of};
 use crate::scratch::{self, Moment};
 use crate::sessions::{self, Kept};
-use crate::tabs::{fresh_name, label_from, label_of};
 
 const USAGE: &str = "usage: adroit session start [--dir <path>] [--worktree [--base <rev>]] [--name <name>] [--permissions <default|read_only> | --permissions-file <path>] [--agent <claude|codex>] [--model <model>] [-- <prompt>]";
 
