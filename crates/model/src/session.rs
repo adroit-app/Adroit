@@ -56,8 +56,7 @@ impl Agent {
     }
 }
 
-/// An agent session: one adroit runs, or one running in another
-/// terminal that Claude Code lists.
+/// An agent session adroit runs.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Session {
     /// Adroit's record of the session, for one Adroit started.
@@ -65,21 +64,15 @@ pub struct Session {
     /// The session that started this one; none for one the user started.
     pub parent: Option<SessionId>,
     pub agent: Agent,
-    /// Which session this is: the daemon's id for one adroit runs, the
-    /// conversation's for one in another terminal.
+    /// Which session this is: the daemon's id.
     pub id: String,
-    /// The conversation's id, which stays when a session is taken over and
-    /// runs under another id; empty until the conversation tells it.
+    /// The conversation's id; empty until the conversation tells it.
     pub session_id: String,
-    /// The process the session runs in, as Claude Code lists it; for one
-    /// adroit runs, unknown until it is listed.
+    /// The process the session runs in, as Claude Code lists it; unknown
+    /// until it is listed.
     pub pid: Option<u32>,
-    /// Whether Claude Code named the session idle, rather than adroit taking
-    /// it as idle for want of a state it knows.
-    pub said_idle: bool,
     pub name: String,
     pub cwd: PathBuf,
-    pub kind: Kind,
     pub state: State,
     /// When the session started, in milliseconds since the Unix epoch.
     pub started_ms: Option<u64>,
@@ -97,24 +90,13 @@ impl Session {
     pub fn reads_only(&self) -> bool {
         self.permissions == AgentPermissions::ReadOnly
     }
-
-    /// Whether adroit may stop the session's process and resume it in a
-    /// session of its own: one in another terminal, between turns.
-    pub fn can_take_over(&self) -> bool {
-        self.kind == Kind::Interactive
-            && self.pid.is_some()
-            && self.state == State::Idle
-            && self.said_idle
-    }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Kind {
-    /// Runs in another terminal, where adroit cannot show it.
-    Interactive,
-    /// Runs in adroit's daemon.
-    #[default]
-    Own,
+/// A conversation Claude Code lists as held by a process running now.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Running {
+    pub session_id: String,
+    pub pid: u32,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -195,45 +177,21 @@ struct Raw {
     #[serde(default)]
     pid: Option<u32>,
     #[serde(default)]
-    name: Option<String>,
-    cwd: PathBuf,
-    #[serde(default)]
     kind: Option<String>,
-    #[serde(default)]
-    status: Option<String>,
-    #[serde(default)]
-    started_at: Option<u64>,
 }
 
-/// The sessions running in other terminals, from the output of
-/// `claude agents --json`.
-pub fn parse_agents(json: &str) -> Result<Vec<Session>, ParseError> {
+/// The conversations running in a terminal of their own, adroit's sessions
+/// among them, from the output of `claude agents --json`.
+pub fn parse_agents(json: &str) -> Result<Vec<Running>, ParseError> {
     let raws: Vec<Raw> = serde_json::from_str(json)?;
     Ok(raws
         .into_iter()
-        .filter(|r| r.kind.as_deref() == Some("interactive") && r.pid.is_some())
-        .map(|raw| {
-            let status = raw.status.unwrap_or_default();
-            Session {
-                delegation: None,
-                parent: None,
-                agent: Agent::Claude,
-                id: raw.session_id.clone(),
-                name: raw.name.unwrap_or_else(|| raw.session_id.clone()),
+        .filter(|r| r.kind.as_deref() == Some("interactive"))
+        .filter_map(|raw| {
+            Some(Running {
                 session_id: raw.session_id,
-                pid: raw.pid,
-                said_idle: status == "idle",
-                cwd: raw.cwd,
-                kind: Kind::Interactive,
-                state: match status.as_str() {
-                    "busy" => State::Working,
-                    _ => State::Idle,
-                },
-                started_ms: raw.started_at,
-                last_input_ms: None,
-                permissions: AgentPermissions::default(),
-                adroit_editor: false,
-            }
+                pid: raw.pid?,
+            })
         })
         .collect())
 }
@@ -242,7 +200,7 @@ pub fn parse_agents(json: &str) -> Result<Vec<Session>, ParseError> {
 mod tests {
     use super::*;
 
-    fn one(json: &str) -> Session {
+    fn one(json: &str) -> Running {
         parse_agents(json).unwrap().remove(0)
     }
 
@@ -265,17 +223,16 @@ mod tests {
     }
 
     #[test]
-    fn a_session_in_another_terminal_is_read_from_claude_s_listing() {
+    fn a_running_conversation_is_read_from_claude_s_listing_with_its_process() {
         let s = one(r#"[{"pid":1,"cwd":"/r","kind":"interactive","startedAt":5,
             "sessionId":"abc","name":"r-6a","status":"idle"}]"#);
-        assert_eq!(s.id, "abc");
-        assert_eq!(s.session_id, "abc");
-        assert_eq!(s.name, "r-6a");
-        assert_eq!(s.cwd, PathBuf::from("/r"));
-        assert_eq!(s.kind, Kind::Interactive);
-        assert_eq!(s.state, State::Idle);
-        assert_eq!(s.started_ms, Some(5));
-        assert!(s.can_take_over());
+        assert_eq!(
+            s,
+            Running {
+                session_id: "abc".into(),
+                pid: 1
+            }
+        );
     }
 
     #[test]
@@ -286,38 +243,6 @@ mod tests {
             {"cwd":"/r","kind":"interactive","sessionId":"c","status":"idle"}
         ]"#;
         assert!(parse_agents(json).unwrap().is_empty());
-    }
-
-    #[test]
-    fn a_busy_session_is_working_and_cannot_be_taken_over() {
-        let s =
-            one(r#"[{"pid":1,"cwd":"/r","kind":"interactive","sessionId":"a","status":"busy"}]"#);
-        assert_eq!(s.state, State::Working);
-        assert!(!s.can_take_over());
-    }
-
-    #[test]
-    fn a_session_whose_state_claude_code_did_not_name_is_not_taken_over() {
-        let s = one(r#"[{"pid":1,"cwd":"/r","kind":"interactive","sessionId":"a"}]"#);
-        assert_eq!(s.state, State::Idle);
-        assert!(!s.can_take_over());
-    }
-
-    #[test]
-    fn a_session_without_a_name_is_named_by_its_id() {
-        let s = one(r#"[{"pid":1,"cwd":"/r","kind":"interactive","sessionId":"abc"}]"#);
-        assert_eq!(s.name, "abc");
-    }
-
-    #[test]
-    fn one_adroit_runs_is_not_taken_over() {
-        let s = Session {
-            kind: Kind::Own,
-            pid: Some(1),
-            said_idle: true,
-            ..Session::default()
-        };
-        assert!(!s.can_take_over());
     }
 
     #[test]

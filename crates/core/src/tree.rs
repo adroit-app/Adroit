@@ -192,19 +192,6 @@ pub(crate) fn build(view: &mut TreeView, work: Option<&WorkSnapshot>) {
     }
 }
 
-/// The selected row follows its session to the id it goes by now, once it
-/// has been taken over.
-pub(crate) fn follow_successor(view: &mut TreeView, work: Option<&WorkSnapshot>) {
-    let sessions = facts(work).sessions();
-    let moved = view
-        .selected
-        .as_ref()
-        .and_then(|row| nav::successor_row(sessions, row));
-    if moved.is_some() {
-        view.selected = moved;
-    }
-}
-
 /// A selected row that leaves the rows, as a waiting one does once its
 /// session stops waiting, gives way to another rather than to nothing.
 /// Only rows built anew are looked at: a row selected ahead of being
@@ -567,24 +554,6 @@ mod tests {
                 .send(shows_session("b", "/r"));
             assert_eq!(selected(&run), after, "{before:?}");
         }
-    }
-
-    #[test]
-    fn the_selection_follows_a_session_taken_over() {
-        let mut interactive = session("pid-1", "/r");
-        interactive.session_id = "conv".into();
-        let mut own = session("own", "/r");
-        own.session_id = "pid-1".into();
-        let run = Scenario::new()
-            .event(listing(vec![interactive]))
-            .send(Msg::TreeSelect(Some(Item::Session("pid-1".into()))))
-            .event(patch(
-                2,
-                vec![TreeChange::Listed {
-                    listed: Box::new(placed(vec![own])),
-                }],
-            ));
-        assert_eq!(selected(&run), Some(Item::Session("own".into())));
     }
 
     #[test]

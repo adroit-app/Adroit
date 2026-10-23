@@ -4,9 +4,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use adroit_model::{
-    InboxItem, Session, State, TerminalProgram, TerminalSession, Tree, WorktreeNode,
-};
+use adroit_model::{InboxItem, Session, TerminalProgram, TerminalSession, Tree, WorktreeNode};
 
 use crate::content::Tab;
 use adroit_model::files::Entry;
@@ -470,53 +468,20 @@ pub fn find<'a>(tree: &'a Tree, id: &str) -> Option<(Place, &'a Session)> {
     })
 }
 
-/// The id a session listed as `id` before goes by now, when it has been
-/// taken over and runs in adroit under an id of its own. `None` while it is still
-/// listed as `id`, and once it is gone.
-pub fn successor<'a>(sessions: &'a [Session], id: &str) -> Option<&'a str> {
-    if sessions.iter().any(|s| s.id == id) {
-        return None;
-    }
-    sessions
-        .iter()
-        .find(|s| s.session_id == id)
-        .map(|s| s.id.as_str())
-}
-
-/// Whether the session `id` names is no longer listed, nor goes by another
-/// id now.
+/// Whether the session `id` names is no longer listed.
 pub fn is_gone(sessions: &[Session], id: &str) -> bool {
-    !sessions.iter().any(|s| s.id == id) && successor(sessions, id).is_none()
+    !sessions.iter().any(|s| s.id == id)
 }
 
-/// Tabs kept for what they show, with each session's under the id it goes
-/// by now, and those of sessions no longer listed left out.
+/// Tabs kept for what they show, those of sessions no longer listed left out.
 pub fn followed(sessions: &[Session], tabs: &HashSet<Tab>) -> HashSet<Tab> {
     tabs.iter()
-        .filter_map(|tab| match tab {
-            Tab::Session(id) if sessions.iter().any(|s| &s.id == id) => Some(tab.clone()),
-            Tab::Session(id) => successor(sessions, id).map(|n| Tab::Session(n.to_string())),
-            _ => Some(tab.clone()),
+        .filter(|tab| match tab {
+            Tab::Session(id) => !is_gone(sessions, id),
+            _ => true,
         })
+        .cloned()
         .collect()
-}
-
-/// The row to select in place of `item` when the session it is for has moved
-/// over to adroit: that session's row under its new id, in the inbox while
-/// an inbox row is selected and the session still waits.
-pub fn successor_row(sessions: &[Session], item: &Item) -> Option<Item> {
-    let (Item::Session(id) | Item::Waiting(id)) = item else {
-        return None;
-    };
-    let new = successor(sessions, id)?;
-    let waits = sessions
-        .iter()
-        .any(|s| s.id == new && matches!(s.state, State::Waiting(_)));
-    Some(if matches!(item, Item::Waiting(_)) && waits {
-        Item::Waiting(new.to_string())
-    } else {
-        Item::Session(new.to_string())
-    })
 }
 
 /// The row to select once `selected` is no longer in `list`: the same
@@ -1186,17 +1151,11 @@ mod tests {
     }
 
     #[test]
-    fn a_session_is_gone_when_neither_it_nor_a_successor_is_listed() {
+    fn a_session_is_gone_once_it_is_not_listed() {
         let t = tree();
         let sessions: Vec<Session> = t.sessions().map(|(_, s)| s.clone()).collect();
         assert!(!is_gone(&sessions, "a"));
         assert!(is_gone(&sessions, "nowhere"));
-        let moved = Session {
-            id: "job".into(),
-            session_id: "uuid".into(),
-            ..Default::default()
-        };
-        assert!(!is_gone(&[moved], "uuid"));
     }
 
     #[test]
@@ -1702,23 +1661,10 @@ mod tests {
     }
 
     #[test]
-    fn a_session_taken_over_is_found_under_its_new_id() {
-        let sessions = [listed("a08bbcf2", "a08bbcf2-2cbf")];
-        assert_eq!(successor(&sessions, "a08bbcf2-2cbf"), Some("a08bbcf2"));
-    }
-
-    #[test]
-    fn a_session_still_listed_or_gone_has_no_successor() {
-        let sessions = [listed("a08bbcf2-2cbf", "a08bbcf2-2cbf")];
-        assert_eq!(successor(&sessions, "a08bbcf2-2cbf"), None);
-        assert_eq!(successor(&sessions, "ffffffff-0000"), None);
-    }
-
-    #[test]
-    fn tabs_kept_for_sessions_follow_them_and_go_with_them() {
+    fn tabs_kept_for_sessions_go_with_them() {
         let sessions = [listed("a08bbcf2", "a08bbcf2-2cbf"), listed("b", "b")];
         let kept: HashSet<Tab> = [
-            Tab::Session("a08bbcf2-2cbf".into()),
+            Tab::Session("a08bbcf2".into()),
             Tab::Session("b".into()),
             Tab::Session("gone".into()),
             Tab::Terminal(1),
@@ -1731,40 +1677,6 @@ mod tests {
         ]
         .into();
         assert_eq!(followed(&sessions, &kept), expected);
-    }
-
-    #[test]
-    fn the_row_of_a_session_taken_over_follows_it() {
-        let sessions = [listed("a08bbcf2", "a08bbcf2-2cbf")];
-        let moved = Some(session("a08bbcf2"));
-        assert_eq!(successor_row(&sessions, &session("a08bbcf2-2cbf")), moved);
-        assert_eq!(
-            successor_row(&sessions, &Item::Waiting("a08bbcf2-2cbf".into())),
-            moved
-        );
-    }
-
-    #[test]
-    fn an_inbox_row_stays_in_the_inbox_while_its_moved_session_waits() {
-        let sessions = [Session {
-            state: State::Waiting(Wait::Input),
-            ..listed("a08bbcf2", "a08bbcf2-2cbf")
-        }];
-        assert_eq!(
-            successor_row(&sessions, &Item::Waiting("a08bbcf2-2cbf".into())),
-            Some(Item::Waiting("a08bbcf2".into()))
-        );
-        assert_eq!(
-            successor_row(&sessions, &session("a08bbcf2-2cbf")),
-            Some(session("a08bbcf2"))
-        );
-    }
-
-    #[test]
-    fn a_row_not_for_a_moved_session_has_no_successor() {
-        let sessions = [listed("a08bbcf2", "a08bbcf2-2cbf")];
-        assert_eq!(successor_row(&sessions, &session("a08bbcf2")), None);
-        assert_eq!(successor_row(&sessions, &ws("/api")), None);
     }
     fn editing(id: u128, path: &str) -> TerminalSession {
         TerminalSession {

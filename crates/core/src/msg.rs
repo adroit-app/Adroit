@@ -153,11 +153,6 @@ pub enum Msg {
     },
     /// The sessions shown live here, or being attached to.
     PanesLive(BTreeSet<String>),
-    /// The session by this id is being taken over, or no longer.
-    TakingOver {
-        id: String,
-        on: bool,
-    },
 
     // The tree.
     /// Select this row, or none.

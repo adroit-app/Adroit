@@ -1,7 +1,6 @@
 //! What a listing of the sessions means for what the window shows: looked at
 //! each time the host lists them anew, and whenever which sessions are live
-//! here or being taken over changes, as a session ending or being taken over
-//! changes what it means.
+//! here changes, as a session ending changes what it means.
 
 use std::collections::BTreeSet;
 
@@ -34,18 +33,8 @@ pub(crate) fn tell_live(view: &mut ContentView, live: BTreeSet<String>) -> Vec<E
     Vec::new()
 }
 
-/// The session `id` is being taken over, or no longer.
-pub(crate) fn tell_moving(view: &mut ContentView, id: String, on: bool) -> Vec<Effect> {
-    if on {
-        view.moving.insert(id);
-    } else {
-        view.moving.remove(&id);
-    }
-    Vec::new()
-}
-
-/// The listing looked at anew, when it, the sessions live here or those
-/// being taken over changed since it last was.
+/// The listing looked at anew, when it or the sessions live here changed
+/// since it last was.
 pub(crate) fn listed(state: &mut ViewState) -> Vec<Effect> {
     let Some(work) = state.host.work.as_ref() else {
         return Vec::new();
@@ -54,7 +43,7 @@ pub(crate) fn listed(state: &mut ViewState) -> Vec<Effect> {
         return Vec::new();
     };
     let view = &mut state.content;
-    let key = (work.seq, view.live.clone(), view.moving.clone());
+    let key = (work.seq, view.live.clone());
     let anew = view
         .looked
         .as_ref()
@@ -77,34 +66,14 @@ pub(crate) fn listed(state: &mut ViewState) -> Vec<Effect> {
     {
         view.place = Some(p);
     }
-    // The windows each follow their session, which may be taken over from
-    // the sidebar while another window is focused.
-    let followed: Vec<(Tab, Tab)> =
-        view.windows
-            .shown()
-            .into_iter()
-            .filter_map(|t| match t {
-                Tab::Session(old) => nav::successor(sessions, old)
-                    .map(|new| (t.clone(), Tab::Session(new.to_string()))),
-                _ => None,
-            })
-            .collect();
-    for (old, new) in followed {
-        view.windows.replace(&old, new);
-    }
-    // A session gone from the list, not merely gone by another id, gives
-    // its windows up as a closed shell does. One being taken over is only
-    // between ids.
+    // A session gone from the list gives its windows up as a closed shell
+    // does.
     let ended: Vec<String> = view
         .windows
         .shown()
         .into_iter()
         .filter_map(|t| match t {
-            Tab::Session(id)
-                if nav::is_gone(sessions, id)
-                    && !view.moving.contains(id)
-                    && !view.live.contains(id) =>
-            {
+            Tab::Session(id) if nav::is_gone(sessions, id) && !view.live.contains(id) => {
                 Some(id.clone())
             }
             _ => None,
@@ -173,7 +142,7 @@ pub(crate) fn listed(state: &mut ViewState) -> Vec<Effect> {
 mod tests {
     use std::collections::HashMap;
 
-    use adroit_model::{Kind, Session, State, Tree, Wait, build};
+    use adroit_model::{Session, State, Tree, Wait, build};
 
     use super::*;
 
@@ -184,7 +153,6 @@ mod tests {
                 id: id.to_string(),
                 name: format!("{id}-name"),
                 cwd: "/tmp".into(),
-                kind: Kind::Own,
                 state: state.clone(),
                 ..Default::default()
             })

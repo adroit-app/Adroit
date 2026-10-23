@@ -1069,7 +1069,7 @@ mod tests {
 
     use adroit_vcs::DiffKind;
 
-    use adroit_model::{Kind, Session, State, Wait};
+    use adroit_model::{Session, State, Wait};
 
     #[test]
     fn processes_fold_expand_and_open_with_the_same_overview_navigation() {
@@ -1231,7 +1231,6 @@ mod tests {
     fn the_overview_leads_with_the_model_then_the_state_as_a_badge() {
         let s = Session {
             name: "demo/fix-x".into(),
-            kind: Kind::Own,
             state: State::Working,
             started_ms: Some(1_000_000),
             ..Default::default()
@@ -1285,7 +1284,6 @@ mod tests {
         let s = Session {
             name: "demo/look".into(),
             permissions: adroit_model::AgentPermissions::ReadOnly,
-            kind: Kind::Interactive,
             state: State::Idle,
             ..Default::default()
         };

@@ -6,7 +6,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use adroit_model::Session;
 use adroit_nvim::Embedded;
 use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -28,7 +27,6 @@ pub enum Op {
     Close(Option<Tab>),
     /// Lines for a tab; answered with whether the prompt took them.
     Add(Option<Tab>, Vec<String>, Option<oneshot::Sender<bool>>),
-    Follow(Vec<Session>),
     /// The shown tab's text, with the tab it was written for, leaving the
     /// prompt empty.
     Take(oneshot::Sender<Taken>),
@@ -246,10 +244,6 @@ pub fn keeper(
                             let _ = reply.send(took);
                         }
                     }
-                    Op::Follow(sessions) => {
-                        images.follow(&sessions);
-                        drafts.follow(&sessions);
-                    }
                     Op::Attach(path) => images.add(vec![path]),
                     Op::RemoveImage(path) => images.remove(&path),
                     Op::RestoreImages(tab, paths) => images.restore(tab, paths),
@@ -465,13 +459,6 @@ mod tests {
         images.show(other);
         assert_eq!(visible, "root-b draft");
         assert_eq!(images.current(), &[PathBuf::from("/root-b.png")]);
-        let remaining = [Session {
-            id: "root-b".into(),
-            session_id: "conversation-b".into(),
-            ..Default::default()
-        }];
-        drafts.follow(&remaining);
-        images.follow(&remaining);
         let saved_text = drafts.saved(&visible);
         let saved_images = images.saved();
         assert_eq!(

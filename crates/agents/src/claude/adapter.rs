@@ -164,8 +164,8 @@ impl AgentAdapter for Claude {
     fn follow(
         &self,
         own: &mut [adroit_model::Session],
-        listed: Vec<adroit_model::Session>,
-    ) -> (Vec<adroit_model::Session>, Vec<(u128, Learned)>) {
+        listed: Vec<adroit_model::Running>,
+    ) -> Vec<(u128, Learned)> {
         follow(own, listed)
     }
     fn resume_args(&self, settings: &AgentSettings, conversation: &str) -> Option<Vec<String>> {
@@ -252,13 +252,12 @@ fn asked(settings: &AgentSettings, args: Vec<String>) -> Started {
 
 /// Read Claude Code's `listed` sessions against adroit's `own`: each of `own`
 /// learns the process that holds its conversation, and follows that process
-/// to the conversation `/clear` or `/resume` moves it to. The sessions of
-/// `listed` that run in other terminals, and what was learned, by each
-/// session's daemon id.
+/// to the conversation `/clear` or `/resume` moves it to. What was learned, by
+/// each session's daemon id.
 fn follow(
     own: &mut [adroit_model::Session],
-    listed: Vec<adroit_model::Session>,
-) -> (Vec<adroit_model::Session>, Vec<(u128, Learned)>) {
+    listed: Vec<adroit_model::Running>,
+) -> Vec<(u128, Learned)> {
     let mut learned = Vec::new();
     for s in own.iter_mut().filter(|s| s.agent == Agent::Claude) {
         let Some(id) = adroit_model::daemon::id_of(&s.id) else {
@@ -268,7 +267,7 @@ fn follow(
             Some(pid) => {
                 let moved = listed
                     .iter()
-                    .find(|l| l.pid == Some(pid))
+                    .find(|l| l.pid == pid)
                     .filter(|l| !l.session_id.is_empty() && l.session_id != s.session_id);
                 if let Some(l) = moved {
                     s.session_id = l.session_id.clone();
@@ -280,7 +279,7 @@ fn follow(
                     .iter()
                     .filter(|_| !s.session_id.is_empty())
                     .find(|l| l.session_id == s.session_id)
-                    .and_then(|l| l.pid);
+                    .map(|l| l.pid);
                 if let Some(pid) = holding {
                     s.pid = Some(pid);
                     learned.push((id, Learned::Pid(pid)));
@@ -288,14 +287,5 @@ fn follow(
             }
         }
     }
-    let elsewhere = listed
-        .into_iter()
-        .filter(|l| {
-            !own.iter().any(|s| {
-                s.agent == l.agent
-                    && (s.session_id == l.session_id || (s.pid.is_some() && s.pid == l.pid))
-            })
-        })
-        .collect();
-    (elsewhere, learned)
+    learned
 }

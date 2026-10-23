@@ -1,7 +1,7 @@
 //! What a right click on a sidebar row, a tab or a link of the details
 //! panel's overview offers: the actions its keys would run there.
 
-use adroit_model::{Kind, Session};
+use adroit_model::Session;
 
 use crate::actions::{Action, Group};
 use crate::content::Tab;
@@ -30,14 +30,8 @@ fn offer(action: Action) -> (Action, &'static str) {
 /// `session` is the session the row or tab is for, when it is for one.
 pub fn entries(target: &Target, session: Option<&Session>) -> Vec<(Action, &'static str)> {
     let here = [Action::SessionNew, Action::ShellOpen, Action::NeovimOpen].map(offer);
-    let ending = session.map(|s| match s.kind {
-        Kind::Interactive => offer(Action::SessionTakeOver),
-        Kind::Own => offer(Action::SessionStop),
-    });
-    // A session in another terminal is named there.
-    let rename = session
-        .filter(|s| s.kind == Kind::Own)
-        .map(|_| offer(Action::SessionRename));
+    let ending = session.map(|_| offer(Action::SessionStop));
+    let rename = session.map(|_| offer(Action::SessionRename));
     // The key says where a row opens, as in fern.
     let opens = [
         Action::CursorGo,
@@ -126,8 +120,7 @@ mod tests {
 
     #[test]
     fn every_entry_of_every_menu_shows_an_icon_and_has_a_row_in_the_table() {
-        let own = session(Kind::Own);
-        let elsewhere = session(Kind::Interactive);
+        let own = session();
         let targets = [
             Target::Row(Item::Workspace("/api".into())),
             Target::Row(Item::Worktree("/api".into())),
@@ -139,7 +132,7 @@ mod tests {
             Target::Link { at: 0, file: true },
         ];
         for target in targets {
-            for s in [None, Some(&own), Some(&elsewhere)] {
+            for s in [None, Some(&own)] {
                 for (action, label) in entries(&target, s) {
                     assert!(action.icon().is_some(), "{label}");
                     assert!(action.spec().row.is_some(), "{label}");
@@ -162,7 +155,7 @@ mod tests {
 
     #[test]
     fn a_menu_draws_going_starting_and_ending_apart() {
-        let s = session(Kind::Own);
+        let s = session();
         assert_eq!(
             grouped(Target::Row(Item::Session("a".into())), Some(&s)),
             [
@@ -191,10 +184,9 @@ mod tests {
         Action::CursorShow,
     ];
 
-    fn session(kind: Kind) -> Session {
+    fn session() -> Session {
         Session {
             id: "a".into(),
-            kind,
             ..Default::default()
         }
     }
@@ -205,7 +197,7 @@ mod tests {
 
     #[test]
     fn a_session_adroit_runs_can_be_opened_renamed_started_beside_and_ended() {
-        let s = session(Kind::Own);
+        let s = session();
         assert_eq!(
             actions(Target::Row(Item::Session("a".into())), Some(&s)),
             [
@@ -222,16 +214,6 @@ mod tests {
             ]
             .concat()
         );
-    }
-
-    #[test]
-    fn an_interactive_session_is_taken_over_rather_than_stopped() {
-        let s = session(Kind::Interactive);
-        let got = actions(Target::Row(Item::Waiting("a".into())), Some(&s));
-        assert!(got.contains(&Action::SessionTakeOver));
-        assert!(!got.contains(&Action::SessionStop));
-        // Nor renamed, as it takes no message from here.
-        assert!(!got.contains(&Action::SessionRename));
     }
 
     #[test]
@@ -304,7 +286,7 @@ mod tests {
 
     #[test]
     fn closing_a_tab_and_stopping_its_agent_or_terminal_are_distinct_actions() {
-        let s = session(Kind::Own);
+        let s = session();
         assert_eq!(
             actions(Target::Tab(Tab::Session("a".into())), Some(&s)),
             [Action::TabClose, Action::SessionRename, Action::SessionStop]

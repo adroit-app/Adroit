@@ -3,8 +3,8 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
+use adroit_model::Session;
 use adroit_model::config::format_command;
-use adroit_model::{Kind, Session};
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
 
 pub use adroit_model::Process;
@@ -85,18 +85,17 @@ fn agent_runtime(process: &Process) -> bool {
 }
 
 fn associated<'a>(all: &'a [Process], session: &Session) -> Vec<&'a Process> {
-    let owner =
-        (session.kind == Kind::Own && !session.id.is_empty()).then_some(session.id.as_str());
+    let own = (!session.id.is_empty()).then_some(session.id.as_str());
     let root = session
         .pid
         .and_then(|pid| all.iter().find(|p| p.pid == pid))
         .or_else(|| {
             all.iter()
-                .filter(|p| owner.is_some() && p.owner.as_deref() == owner)
+                .filter(|p| own.is_some() && p.owner.as_deref() == own)
                 .min_by_key(|p| (p.started_secs, p.pid))
         });
     let Some(root) = root else { return Vec::new() };
-    let owner = owner.or(root.owner.as_deref());
+    let owner = own.or(root.owner.as_deref());
     let mut included = HashSet::from([root.pid]);
     loop {
         let mut changed = false;
@@ -115,10 +114,7 @@ fn associated<'a>(all: &'a [Process], session: &Session) -> Vec<&'a Process> {
         .filter(|p| {
             p.pid != root.pid
                 && !agent_runtime(p)
-                && (included.contains(&p.pid)
-                    || (session.kind == Kind::Own
-                        && owner.is_some()
-                        && p.owner.as_deref() == owner))
+                && (included.contains(&p.pid) || (own.is_some() && p.owner.as_deref() == own))
         })
         .collect();
     selected.sort_by_key(|p| p.pid);
@@ -167,7 +163,7 @@ pub fn kill(session: &Session, target: &Process) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adroit_model::{Kind, Session};
+    use adroit_model::Session;
 
     fn process(pid: u32, parent: u32, owner: Option<&str>) -> Process {
         Process {
@@ -190,7 +186,6 @@ mod tests {
             Some("/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl".into());
         let session = Session {
             pid: Some(10),
-            kind: Kind::Interactive,
             ..Default::default()
         };
         assert!(verified(&[root, runtime.clone()], &session, &runtime).is_err());
@@ -219,7 +214,6 @@ mod tests {
         let session = Session {
             id: "session".into(),
             pid: Some(100),
-            kind: Kind::Own,
             ..Default::default()
         };
         assert_eq!(
@@ -247,7 +241,6 @@ mod tests {
         ];
         let session = Session {
             id: "session".into(),
-            kind: Kind::Own,
             ..Session::default()
         };
         let shown = associated(&all, &session);
@@ -257,7 +250,6 @@ mod tests {
         );
         let external = Session {
             pid: Some(20),
-            kind: Kind::Interactive,
             ..Session::default()
         };
         assert_eq!(
@@ -279,7 +271,6 @@ mod tests {
         ];
         let session = Session {
             pid: Some(11),
-            kind: Kind::Interactive,
             ..Session::default()
         };
         assert_eq!(
@@ -303,7 +294,6 @@ mod tests {
     fn process_identity_includes_start_time_and_refuses_unrelated_or_reused_pids() {
         let session = Session {
             pid: Some(10),
-            kind: Kind::Interactive,
             ..Session::default()
         };
         let all = vec![
@@ -329,7 +319,6 @@ mod tests {
             .unwrap();
         let session = Session {
             pid: Some(std::process::id()),
-            kind: Kind::Interactive,
             ..Session::default()
         };
         let target = Sampler::default()

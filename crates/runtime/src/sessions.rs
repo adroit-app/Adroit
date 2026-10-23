@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use adroit_model::{Kind, Session, State, TerminalProgram, TerminalSession};
+use adroit_model::{Session, State, TerminalProgram, TerminalSession};
 use adroit_term::tags;
 
 use crate::delegation::launch::{PARENT_TAG, SESSION_TAG};
@@ -76,10 +76,8 @@ pub fn read(session: &adroit_term::Session) -> Option<Kept> {
             id: hex(session.id),
             session_id: tags::value(t, CONVERSATION).unwrap_or_default(),
             pid: tags::value(t, PID).and_then(|p| p.parse().ok()),
-            said_idle: false,
             name,
             cwd,
-            kind: Kind::Own,
             state: session
                 .status
                 .as_ref()
@@ -241,7 +239,6 @@ mod tests {
     fn user_input_times_are_kept_on_the_session_and_older_windows_cannot_replace_them() {
         let mut session = Session {
             id: hex(42),
-            kind: Kind::Own,
             ..Session::default()
         };
         let tag = note_input(&mut session, 1000).unwrap();
@@ -304,6 +301,7 @@ mod tests {
     use adroit_term::Status;
 
     use super::*;
+    use adroit_model::Running;
 
     fn kept(id: u128, tags: Vec<String>) -> adroit_term::Session {
         adroit_term::Session {
@@ -394,13 +392,9 @@ mod tests {
 
     /// Claude Code's listing read against `own`, with what was learned as
     /// the tags that keep it.
-    fn follow(
-        own: &mut [Session],
-        listed: Vec<Session>,
-    ) -> (Vec<Session>, Vec<(u128, &'static str, String)>) {
-        let (elsewhere, learned) =
-            adroit_agents::adapter(adroit_model::Agent::Claude).follow(own, listed);
-        (elsewhere, learned.into_iter().map(learned_tag).collect())
+    fn follow(own: &mut [Session], listed: Vec<Running>) -> Vec<(u128, &'static str, String)> {
+        let learned = adroit_agents::adapter(adroit_model::Agent::Claude).follow(own, listed);
+        learned.into_iter().map(learned_tag).collect()
     }
 
     #[test]
@@ -429,7 +423,7 @@ mod tests {
         assert!(c.reads_only());
         assert!(c.session_id.is_empty());
         let mut own = [c];
-        let (_, learned) = follow(&mut own, vec![listed("claude-uuid", 42)]);
+        let learned = follow(&mut own, vec![listed("claude-uuid", 42)]);
         assert!(learned.is_empty());
     }
 
@@ -460,7 +454,6 @@ mod tests {
         assert_eq!(c.session_id, "uuid");
         assert_eq!(c.started_ms, Some(42));
         assert!(c.reads_only());
-        assert_eq!(c.kind, Kind::Own);
         assert_eq!(c.state, State::Waiting(Wait::Permission));
     }
 
@@ -647,13 +640,10 @@ mod tests {
         c
     }
 
-    fn listed(conversation: &str, pid: u32) -> Session {
-        Session {
-            id: conversation.into(),
+    fn listed(conversation: &str, pid: u32) -> Running {
+        Running {
             session_id: conversation.into(),
-            pid: Some(pid),
-            kind: Kind::Interactive,
-            ..Default::default()
+            pid,
         }
     }
 
@@ -661,33 +651,30 @@ mod tests {
     fn a_session_learns_the_process_holding_its_conversation() {
         let mut ours = [own(7, "uuid", None)];
 
-        let (elsewhere, learned) = follow(&mut ours, vec![listed("uuid", 42), listed("other", 9)]);
+        let learned = follow(&mut ours, vec![listed("uuid", 42), listed("other", 9)]);
 
         assert_eq!(ours[0].pid, Some(42));
         assert_eq!(learned, vec![(7, PID, "42".to_string())]);
-        assert_eq!(elsewhere, vec![listed("other", 9)]);
     }
 
     #[test]
     fn a_session_follows_its_process_to_the_conversation_it_moves_to() {
         let mut ours = [own(7, "uuid", Some(42))];
 
-        let (elsewhere, learned) = follow(&mut ours, vec![listed("cleared", 42)]);
+        let learned = follow(&mut ours, vec![listed("cleared", 42)]);
 
         assert_eq!(ours[0].session_id, "cleared");
         assert_eq!(learned, vec![(7, CONVERSATION, "cleared".to_string())]);
-        assert!(elsewhere.is_empty());
     }
 
     #[test]
     fn a_session_whose_conversation_and_process_are_known_learns_nothing() {
         let mut ours = [own(7, "uuid", Some(42))];
 
-        let (elsewhere, learned) = follow(&mut ours, vec![listed("uuid", 42)]);
+        let learned = follow(&mut ours, vec![listed("uuid", 42)]);
 
         assert_eq!(ours[0].session_id, "uuid");
         assert!(learned.is_empty());
-        assert!(elsewhere.is_empty());
     }
 
     #[test]

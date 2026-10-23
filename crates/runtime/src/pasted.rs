@@ -144,20 +144,6 @@ impl Attachments {
         self.add(images);
     }
 
-    pub fn follow(&mut self, sessions: &[adroit_model::Session]) {
-        let moved = |tab: Option<crate::content::Tab>| match tab {
-            Some(crate::content::Tab::Session(ref id)) => crate::nav::successor(sessions, id)
-                .map(|id| Some(crate::content::Tab::Session(id.into())))
-                .unwrap_or(tab),
-            _ => tab,
-        };
-        self.shown = moved(self.shown.take());
-        self.kept = std::mem::take(&mut self.kept)
-            .into_iter()
-            .map(|(tab, images)| (moved(tab), images))
-            .collect();
-    }
-
     pub fn holding(&self) -> impl Iterator<Item = crate::content::Tab> + '_ {
         self.kept
             .iter()
@@ -310,7 +296,7 @@ mod tests {
     }
 
     #[test]
-    fn attachments_written_with_nothing_open_follow_the_next_draft_and_session_successors() {
+    fn attachments_written_with_nothing_open_follow_the_next_draft() {
         use crate::content::Tab;
         let mut images = Attachments::default();
         images.add(vec!["/one.png".into()]);
@@ -321,12 +307,7 @@ mod tests {
         assert_eq!(images.current(), &[PathBuf::from("/one.png")]);
         assert!(images.saved().is_empty());
         images.close(Some(Tab::Session("old".into())));
-        images.follow(&[adroit_model::Session {
-            id: "new".into(),
-            session_id: "old".into(),
-            ..Default::default()
-        }]);
-        images.show(Some(Tab::Session("new".into())));
+        images.show(Some(Tab::Session("old".into())));
         assert_eq!(images.current(), &[PathBuf::from("/one.png")]);
     }
 

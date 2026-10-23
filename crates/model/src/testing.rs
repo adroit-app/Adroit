@@ -9,8 +9,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::{
-    Agent, AgentPermissions, Kind, Session, SessionId, State, TerminalSession, Tree, Worktree,
-    build,
+    Agent, AgentPermissions, Session, SessionId, State, TerminalSession, Tree, Worktree, build,
 };
 
 /// A session adroit runs, with `id` as its id and its name.
@@ -19,7 +18,6 @@ pub fn session(id: impl Into<String>) -> SessionBuilder {
     SessionBuilder(Session {
         name: id.clone(),
         id,
-        kind: Kind::Own,
         ..Session::default()
     })
 }
@@ -50,11 +48,6 @@ impl SessionBuilder {
         self
     }
 
-    pub fn kind(mut self, kind: Kind) -> Self {
-        self.0.kind = kind;
-        self
-    }
-
     /// The conversation's id.
     pub fn session_id(mut self, id: impl Into<String>) -> Self {
         self.0.session_id = id.into();
@@ -63,11 +56,6 @@ impl SessionBuilder {
 
     pub fn pid(mut self, pid: u32) -> Self {
         self.0.pid = Some(pid);
-        self
-    }
-
-    pub fn said_idle(mut self, said: bool) -> Self {
-        self.0.said_idle = said;
         self
     }
 
@@ -220,10 +208,7 @@ mod tests {
     fn a_session_is_one_adroit_runs_named_by_its_id_until_told_otherwise() {
         let s = session("fix").build();
         assert_eq!((s.id.as_str(), s.name.as_str()), ("fix", "fix"));
-        assert_eq!(
-            (s.kind, s.state, s.agent),
-            (Kind::Own, State::Idle, Agent::Claude)
-        );
+        assert_eq!((s.state, s.agent), (State::Idle, Agent::Claude));
         let named = session("fix").name("Fix login").cwd("/api").build();
         assert_eq!(
             (named.id.as_str(), named.name.as_str(), named.cwd.as_path()),

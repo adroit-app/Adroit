@@ -23,7 +23,7 @@ use crate::tree::nav::Place;
 pub use focus::*;
 pub use layout::*;
 pub use listing::newly_waiting;
-pub(crate) use listing::{listed, tell_live, tell_moving};
+pub(crate) use listing::{listed, tell_live};
 pub use naming::*;
 pub use tab::*;
 pub(crate) use windows::*;
@@ -57,12 +57,10 @@ pub struct ContentView {
     /// The tree as last looked at, against which the next listing is.
     looked_at: Tree,
     /// What the listing was last looked at with.
-    looked: Option<(Seq, BTreeSet<String>, BTreeSet<String>)>,
+    looked: Option<(Seq, BTreeSet<String>)>,
     /// The sessions shown live here, or being attached to: one started a
     /// moment ago may not be listed yet.
     live: BTreeSet<String>,
-    /// The sessions being taken over: stopped, and not yet resumed here.
-    moving: BTreeSet<String>,
     /// What the kept tab was last made to say.
     kept: Option<Option<Tab>>,
     /// The tab the place last followed.
@@ -90,7 +88,6 @@ impl Default for ContentView {
             looked_at: Tree::default(),
             looked: None,
             live: BTreeSet::new(),
-            moving: BTreeSet::new(),
             kept: None,
             placed_for: None,
             settled_for: None,

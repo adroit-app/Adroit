@@ -112,6 +112,7 @@ const RETIRED: &[&str] = &[
     "sheet.next",
     "details.files",
     "details.diff",
+    "session.take_over",
 ];
 
 /// What a key comes to.
@@ -388,7 +389,6 @@ mod tests {
             ("Mod+n", Action::SessionNew),
             ("Mod+s", Action::ShellOpen),
             ("Mod+e", Action::NeovimOpen),
-            ("Mod+t", Action::SessionTakeOver),
             ("Mod+Backspace", Action::SessionStop),
             ("Mod+f", Action::Filter),
             ("Mod+r", Action::Refresh),
@@ -674,7 +674,7 @@ mod tests {
     #[test]
     fn a_binding_to_an_action_earlier_versions_had_is_read_and_dropped() {
         let map = Keymap::with_user(
-            "[tree]\n\"P\" = \"project.new\"\n\"c\" = \"coordinator.open\"\n\"J\" = \"cursor.down\"\n",
+            "[tree]\n\"P\" = \"project.new\"\n\"c\" = \"coordinator.open\"\n\"T\" = \"session.take_over\"\n\"J\" = \"cursor.down\"\n",
         )
         .unwrap();
         assert_eq!(
@@ -682,6 +682,7 @@ mod tests {
             Step::Run(Action::CursorDown)
         );
         assert_eq!(step(&map, &[Context::Tree], &[], "P"), Step::Nothing);
+        assert_eq!(step(&map, &[Context::Tree], &[], "T"), Step::Nothing);
     }
 
     #[test]
@@ -771,14 +772,14 @@ mod tests {
             Some("] w".into())
         );
         assert_eq!(
-            map.keys_for(Context::Tree, &Action::SessionTakeOver),
-            Some("T".into())
+            map.keys_for(Context::Tree, &Action::SessionStop),
+            Some("X".into())
         );
         let map =
-            Keymap::with_user("[tree]\n\"T\" = \"none\"\n\"t\" = \"session.take_over\"\n").unwrap();
+            Keymap::with_user("[tree]\n\"X\" = \"none\"\n\"Ctrl+x\" = \"session.stop\"\n").unwrap();
         assert_eq!(
-            map.keys_for(Context::Tree, &Action::SessionTakeOver),
-            Some("t".into())
+            map.keys_for(Context::Tree, &Action::SessionStop),
+            Some("Ctrl+x".into())
         );
     }
 
@@ -889,7 +890,6 @@ mod tests {
         for (key, action) in [
             ("$", Action::ShellOpen),
             ("e", Action::NeovimOpen),
-            ("T", Action::SessionTakeOver),
             ("n", Action::SessionNew),
         ] {
             assert_eq!(step(&map, &tree, &[], key), Step::Run(action), "{key}");
@@ -998,12 +998,6 @@ mod tests {
             "prompt.take_suggestion".parse(),
             Ok(Action::PromptTakeSuggestion)
         );
-    }
-
-    #[test]
-    fn capital_t_in_the_console_takes_the_session_over() {
-        assert_eq!(console(&[], "T"), Step::Run(Action::SessionTakeOver));
-        assert_eq!(console(&[], "t"), Step::Nothing);
     }
 
     #[test]

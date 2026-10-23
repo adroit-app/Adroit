@@ -2,9 +2,8 @@
 //! keeps of their conversations.
 
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
 
-use adroit_model::{ParseError, Session};
+use adroit_model::{ParseError, Running};
 use tokio::process::Command;
 
 mod adapter;
@@ -33,12 +32,6 @@ pub enum Error {
     Failed { program: String, stderr: String },
     #[error(transparent)]
     Sessions(#[from] ParseError),
-    #[error("process {pid} is still running")]
-    StillRunning { pid: u32 },
-    #[error("no process {pid} to stop")]
-    NoProcess { pid: u32 },
-    #[error("not permitted to stop process {pid}")]
-    NotPermitted { pid: u32 },
 }
 
 /// The program used to reach Claude Code: `$ADROIT_CLAUDE`, or `claude`.
@@ -69,11 +62,11 @@ async fn output(program: &str, mut cmd: Command) -> Result<String, Error> {
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-/// The sessions running in other terminals, which Claude Code, started by
-/// `start`, lists.
+/// The conversations running in a terminal of their own, adroit's sessions
+/// among them, which Claude Code, started by `start`, lists.
 pub async fn list_sessions(
     start: impl FnOnce(Vec<String>) -> Started,
-) -> Result<Vec<Session>, Error> {
+) -> Result<Vec<Running>, Error> {
     let (program, args, env) = start(vec!["agents".into(), "--json".into()]);
     let mut cmd = Command::new(&program);
     cmd.args(args).envs(env);
@@ -84,7 +77,7 @@ pub async fn list_sessions(
 /// The sessions in `out`, read from the first line a listing can be read
 /// from: a shell that starts Claude Code may print from its startup files
 /// first, lines starting with `[` among them.
-fn parse_listing(out: &str) -> Result<Vec<Session>, ParseError> {
+fn parse_listing(out: &str) -> Result<Vec<Running>, ParseError> {
     let starts = std::iter::once(0).chain(out.match_indices("\n[").map(|(at, _)| at + 1));
     let mut failed = None;
     for at in starts {
@@ -243,56 +236,6 @@ pub fn shell_line(prompt: &str) -> Option<&str> {
     prompt.strip_prefix('!')
 }
 
-/// How long a session's process is given to exit after each signal.
-pub const STOP_GRACE: Duration = Duration::from_secs(3);
-
-/// Ask a process to exit, with an interrupt first, as Ctrl-C would, and a
-/// termination once `grace` passes. A process still running after both is
-/// left alone and reported.
-pub async fn stop(pid: u32, grace: Duration) -> Result<(), Error> {
-    // kill(2) reads 0 and -1 as process groups, not one process.
-    let target = i32::try_from(pid)
-        .ok()
-        .filter(|&p| p > 1)
-        .ok_or(Error::NoProcess { pid })?;
-    for signal in [libc::SIGINT, libc::SIGTERM] {
-        if !alive(pid) {
-            return Ok(());
-        }
-        // SAFETY: kill(2) takes plain integers and touches no memory.
-        if unsafe { libc::kill(target, signal) } != 0 {
-            return match std::io::Error::last_os_error().raw_os_error() {
-                Some(libc::ESRCH) => Ok(()),
-                _ => Err(Error::NotPermitted { pid }),
-            };
-        }
-        let deadline = Instant::now() + grace;
-        while Instant::now() < deadline {
-            if !alive(pid) {
-                return Ok(());
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-    }
-    if alive(pid) {
-        Err(Error::StillRunning { pid })
-    } else {
-        Ok(())
-    }
-}
-
-/// Whether a process exists, including one owned by someone else.
-fn alive(pid: u32) -> bool {
-    let Ok(target) = i32::try_from(pid) else {
-        return false;
-    };
-    // SAFETY: signal 0 only checks that the process can be signalled.
-    if unsafe { libc::kill(target, 0) } == 0 {
-        return true;
-    }
-    std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -433,7 +376,7 @@ mod tests {
     }
 
     #[test]
-    fn a_taken_over_session_resumes_its_conversation() {
+    fn a_resumed_session_continues_its_conversation() {
         assert_eq!(
             resume_args("a08bbcf2-2cbf", &Options::default()),
             ["--resume", "a08bbcf2-2cbf"]
@@ -499,86 +442,5 @@ mod tests {
 
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].session_id, "abc");
-    }
-
-    /// A process that has set its signal handling up, reaped once it exits so
-    /// it does not linger as a zombie.
-    fn running(script: &str) -> u32 {
-        use std::io::BufRead;
-        let mut child = std::process::Command::new("perl")
-            .args([
-                "-e",
-                &format!("$| = 1; {script}; print qq(ready\\n); sleep 30"),
-            ])
-            .stdout(std::process::Stdio::piped())
-            .spawn()
-            .unwrap();
-        let mut line = String::new();
-        std::io::BufReader::new(child.stdout.take().unwrap())
-            .read_line(&mut line)
-            .unwrap();
-        let pid = child.id();
-        std::thread::spawn(move || child.wait());
-        pid
-    }
-
-    const GRACE: Duration = Duration::from_millis(300);
-
-    #[tokio::test]
-    async fn a_process_is_stopped_by_an_interrupt() {
-        let pid = running("");
-        stop(pid, GRACE).await.unwrap();
-        assert!(!alive(pid));
-    }
-
-    #[tokio::test]
-    async fn a_process_ignoring_the_interrupt_is_terminated() {
-        let pid = running(r#"$SIG{INT} = "IGNORE""#);
-        stop(pid, GRACE).await.unwrap();
-        assert!(!alive(pid));
-    }
-
-    #[tokio::test]
-    async fn a_process_that_will_not_exit_is_reported_and_left_running() {
-        let pid = running(r#"$SIG{INT} = $SIG{TERM} = "IGNORE""#);
-        let got = stop(pid, GRACE).await;
-        let still = alive(pid);
-        unsafe { libc::kill(pid as i32, libc::SIGKILL) };
-        assert!(matches!(got, Err(Error::StillRunning { .. })));
-        assert!(still);
-    }
-
-    /// A process of root's other than init, which this user may not signal.
-    fn someone_else_s() -> Option<u32> {
-        let out = std::process::Command::new("ps")
-            .args(["-A", "-o", "pid=,uid="])
-            .output()
-            .ok()?;
-        String::from_utf8_lossy(&out.stdout).lines().find_map(|l| {
-            let mut f = l.split_whitespace();
-            let pid: u32 = f.next()?.parse().ok()?;
-            (f.next()? == "0" && pid > 1).then_some(pid)
-        })
-    }
-
-    #[tokio::test]
-    async fn a_process_this_user_may_not_signal_is_reported_at_once() {
-        // SAFETY: geteuid(2) takes nothing and cannot fail.
-        if unsafe { libc::geteuid() } == 0 {
-            return;
-        }
-        let Some(pid) = someone_else_s() else { return };
-        let started = Instant::now();
-        let got = stop(pid, GRACE).await;
-        assert!(matches!(got, Err(Error::NotPermitted { .. })), "{got:?}");
-        assert!(started.elapsed() < GRACE);
-    }
-
-    #[tokio::test]
-    async fn no_signal_is_sent_for_a_pid_that_names_a_group() {
-        assert!(matches!(
-            stop(0, GRACE).await,
-            Err(Error::NoProcess { pid: 0 })
-        ));
     }
 }

@@ -63,7 +63,6 @@
 "Mod+n" = "session.new"
 "Mod+s" = "shell.open"
 "Mod+e" = "neovim.open"
-"Mod+t" = "session.take_over"
 "Mod+Backspace" = "session.stop"
 "Mod+f" = "filter"
 "Mod+r" = "refresh"
@@ -100,7 +99,6 @@
 "n" = "session.new"
 "$" = "shell.open"
 "e" = "neovim.open"
-"T" = "session.take_over"
 "x" = "cursor.close"
 "X" = "session.stop"
 "R" = "session.rename"
@@ -156,7 +154,6 @@
 "A" = "prompt.write"
 "o" = "prompt.write"
 "O" = "prompt.write"
-"T" = "session.take_over"
 "X" = "session.stop"
 
 [prompt]

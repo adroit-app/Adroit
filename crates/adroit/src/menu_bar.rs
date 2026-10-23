@@ -89,7 +89,6 @@ pub fn sections() -> Vec<Section> {
                 Run(Action::WindowClose),
                 Separator,
                 Run(Action::SessionRename),
-                Run(Action::SessionTakeOver),
                 Run(Action::SessionStop),
             ],
         },

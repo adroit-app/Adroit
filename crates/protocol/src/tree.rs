@@ -43,8 +43,7 @@ pub struct TreeWork {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(from = "WireListed", into = "WireListed")]
 pub struct Listed {
-    /// As listed, ahead of being placed: those the terminal host runs, then
-    /// those running in other terminals.
+    /// As listed, ahead of being placed.
     pub sessions: Vec<Session>,
     pub terminals: Vec<TerminalSession>,
     pub tree: Tree,

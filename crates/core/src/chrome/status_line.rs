@@ -102,10 +102,7 @@ mod tests {
                 ],
                 Some("failed"),
             ),
-            (
-                vec![Msg::Status(Some("taking over".into()))],
-                Some("taking over"),
-            ),
+            (vec![Msg::Status(Some("reading".into()))], Some("reading")),
             (vec![notice("a"), Msg::Status(None)], None),
         ];
         for (msgs, line) in cases {

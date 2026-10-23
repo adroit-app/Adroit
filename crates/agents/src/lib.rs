@@ -58,7 +58,7 @@ pub struct Capabilities {
 }
 
 type Listing = std::pin::Pin<
-    Box<dyn std::future::Future<Output = Result<Vec<adroit_model::Session>, String>> + Send>,
+    Box<dyn std::future::Future<Output = Result<Vec<adroit_model::Running>, String>> + Send>,
 >;
 
 type Probe<T> = std::pin::Pin<Box<dyn std::future::Future<Output = Option<Vec<T>>> + Send>>;
@@ -199,9 +199,9 @@ pub trait AgentAdapter: Sync {
     fn follow(
         &self,
         _own: &mut [adroit_model::Session],
-        listed: Vec<adroit_model::Session>,
-    ) -> (Vec<adroit_model::Session>, Vec<(u128, Learned)>) {
-        (listed, Vec::new())
+        _listed: Vec<adroit_model::Running>,
+    ) -> Vec<(u128, Learned)> {
+        Vec::new()
     }
     fn resume_args(&self, _settings: &AgentSettings, _conversation: &str) -> Option<Vec<String>> {
         None

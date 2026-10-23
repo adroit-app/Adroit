@@ -87,7 +87,6 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
             content::choose_options(&mut state.content, tab, options)
         }
         Msg::PanesLive(live) => content::tell_live(&mut state.content, live),
-        Msg::TakingOver { id, on } => content::tell_moving(&mut state.content, id, on),
 
         Msg::TreeSelect(row) => tree::select(&mut state.tree, row),
         Msg::TreeKey(key) => tree::press(&mut state.tree, key),

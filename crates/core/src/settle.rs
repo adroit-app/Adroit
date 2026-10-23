@@ -20,7 +20,6 @@ const RULES: &[Rule] = &[
     content_spot,
     tree_failing,
     tree_rows,
-    tree_successor,
     tree_kept,
     tree_switched,
     details_shown,
@@ -84,11 +83,6 @@ fn tree_failing(state: &mut ViewState, effects: &mut Vec<Effect>) {
 /// The tree's rows are built from what the host listed.
 fn tree_rows(state: &mut ViewState, _: &mut Vec<Effect>) {
     tree::build(&mut state.tree, state.host.work.as_ref());
-}
-
-/// The selected row follows its session once it is taken over.
-fn tree_successor(state: &mut ViewState, _: &mut Vec<Effect>) {
-    tree::follow_successor(&mut state.tree, state.host.work.as_ref());
 }
 
 /// A selected row that leaves the rows gives way to another.

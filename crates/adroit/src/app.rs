@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use adroit_agents::claude::{commands, places};
-use adroit_model::{Kind, Session};
+use adroit_model::Session;
 use adroit_nvim::{Embedded, Event as NvimEvent, notation};
 use adroit_term::{Key, Palette, Pane, Screen, Size, Spawn};
 use adroit_vcs::{Repo, ghq};
@@ -23,9 +23,8 @@ use crate::console::{Composer, ConsoleScreen, Hub, Panes, ReaderScreen, mode_of}
 use crate::console_keys::direct_key;
 use crate::console_read;
 use crate::content::{
-    Area, Axis, ContentPanel, DraftForm, Elsewhere, NothingOpen, Opening, Starting, Tab,
-    TerminalAsk, WindowId, draft as draft_agent, file_name, fresh_name, label_from, named,
-    shows_prompt,
+    Area, Axis, ContentPanel, DraftForm, NothingOpen, Opening, Starting, Tab, TerminalAsk,
+    WindowId, draft as draft_agent, file_name, fresh_name, label_from, named, shows_prompt,
 };
 use crate::daemon;
 use crate::details::{self, Entry, Sheet, Shot, Source};
@@ -298,7 +297,6 @@ fn adroit_program() -> PathBuf {
 /// A question the window holds the keys for until it is answered.
 #[derive(Debug, Clone, PartialEq)]
 enum Ask {
-    TakeOver(Session),
     Stop(Session),
     KillProcess(Session, crate::processes::Process),
     RestartDaemon,
@@ -316,12 +314,6 @@ impl Ask {
 
     fn dialog(&self) -> (Icon, String, String, &'static str) {
         match self {
-            Self::TakeOver(s) => (
-                Icon::TransferIn,
-                format!("Take over {}?", s.name),
-                "Claude Code stops in the terminal it runs in, and the conversation continues here. That terminal goes back to its shell.".into(),
-                "Take over",
-            ),
             Self::Stop(s) => (
                 Icon::PlayerStop,
                 format!("End {}?", s.name),
@@ -957,25 +949,14 @@ fn App() -> Element {
         }
     });
 
-    // What a list of the sessions means for the prompt and the console: the
-    // prompt's texts and what waits to be taken from a session's input
-    // follow each session to the id it goes by now. The windows follow in
-    // the view state.
+    // A list of the sessions drops the texts kept for those no longer listed.
     use_effect(move || {
         let Some(now) = listed() else {
             return;
         };
-        let sessions = &now.sessions;
-        let _ = prompts.send(Op::Follow(sessions.clone()));
-        let kept = nav::followed(sessions, &stale.peek());
+        let kept = nav::followed(&now.sessions, &stale.peek());
         if *stale.peek() != kept {
             stale.set(kept);
-        }
-        let asked = pull.peek().clone();
-        if let Some(Tab::Session(old)) = asked
-            && let Some(new) = nav::successor(sessions, &old)
-        {
-            pull.set(Some(Tab::Session(new.to_string())));
         }
     });
 
@@ -1787,135 +1768,6 @@ fn App() -> Element {
         _ => app.notice("Only a session not started yet can change its agent".into()),
     };
 
-    // Stop a session in its terminal and resume it here.
-    let take_over = {
-        let hub = hub.clone();
-        move |asked: Session| {
-            let hub = hub.clone();
-            spawn(async move {
-                app.status(Some(format!("taking over {}…", asked.name)));
-                // The session may have moved on while the dialog was open.
-                let adapter = agents::adapter(asked.agent);
-                let now = match adapter.list_sessions(crate::programs::agents()).await {
-                    Ok(list) => list
-                        .into_iter()
-                        .find(|s| s.session_id == asked.session_id && s.pid == asked.pid),
-                    Err(e) => {
-                        app.status(Some(e.to_string()));
-                        return;
-                    }
-                };
-                let Some(now) = now.filter(Session::can_take_over) else {
-                    app.status(Some(format!(
-                        "{} changed in its terminal; nothing was stopped",
-                        asked.name
-                    )));
-                    return;
-                };
-                let Some(resume) = adapter.resume_args(&crate::programs::agents(), &now.session_id)
-                else {
-                    app.status(Some("This agent cannot be taken over".into()));
-                    return;
-                };
-                app.dispatch(Msg::TakingOver {
-                    id: now.id.clone(),
-                    on: true,
-                });
-                let stopped = match now.pid {
-                    Some(pid) => {
-                        adroit_agents::claude::stop(pid, adroit_agents::claude::STOP_GRACE).await
-                    }
-                    None => Ok(()),
-                };
-                if let Err(e) = stopped {
-                    app.dispatch(Msg::TakingOver {
-                        id: now.id.clone(),
-                        on: false,
-                    });
-                    app.status(Some(format!("cannot take over {}: {e}", asked.name)));
-                    return;
-                }
-                let size = *console_size.peek();
-                let program_path = adroit_program();
-                let mut args =
-                    adapter.integration_args(&program_path, &crate::paths::instance_state());
-                let mut request = crate::execution::StartRequest {
-                    agent: now.agent,
-                    name: now.name.clone(),
-                    cwd: now.cwd.clone(),
-                    started_ms: now_ms(),
-                    ..Default::default()
-                };
-                let recorded = crate::delegation::app::record(
-                    &crate::delegation::app::root(),
-                    &settings::current(),
-                    &mut request,
-                    None,
-                )
-                .await;
-                if let Some(delegation) = &request.delegation {
-                    args.extend(delegation.args(now.agent, &program_path));
-                    args.extend(adapter.instruction_args(delegation.instructions()));
-                }
-                args.extend(resume);
-                let (program, args, mut env) =
-                    crate::programs::launch(now.agent, args, daemon::agent_env());
-                let mut tags = sessions::agent_tags(
-                    now.agent,
-                    &now.name,
-                    &now.cwd,
-                    &now.session_id,
-                    &adroit_model::AgentPermissions::Default,
-                    now_ms(),
-                );
-                tags.extend(sessions::editor_tags(&env));
-                if let Some(delegation) = &request.delegation {
-                    env.extend(delegation.environment());
-                    tags.extend(delegation.tags());
-                }
-                let spawn = Spawn {
-                    program,
-                    args,
-                    cwd: now.cwd.clone(),
-                    env,
-                    tags,
-                    cols: size.cols,
-                    rows: size.rows,
-                };
-                match start(
-                    app,
-                    &hub,
-                    spawn,
-                    size,
-                    |id| Tab::Session(sessions::hex(id)),
-                    recorded.ok(),
-                )
-                .await
-                {
-                    Ok(id) => {
-                        app.status(None);
-                        let id = sessions::hex(id);
-                        let was = Tab::Session(now.id.clone());
-                        app.dispatch(Msg::Replace {
-                            from: was,
-                            to: Tab::Session(id.clone()),
-                        });
-                        if matches!(app.tree.peek().selected.as_ref(), Some(Item::Session(s) | Item::Waiting(s)) if *s == now.id)
-                        {
-                            app.dispatch(Msg::TreeSelect(Some(Item::Session(id))));
-                        }
-                    }
-                    Err(e) => app.status(Some(format!("cannot resume {}: {e}", asked.name))),
-                }
-                app.dispatch(Msg::TakingOver {
-                    id: now.id.clone(),
-                    on: false,
-                });
-                app.dispatch(Msg::Relist);
-            });
-        }
-    };
-
     // Open the picker on the sessions and the directories they run in; those
     // Claude Code was used in, and ghq's repositories and roots, follow once
     // they are read.
@@ -2124,32 +1976,6 @@ fn App() -> Element {
         }
     };
 
-    // Ask to take over an interactive session: the selected one when
-    // `selection` and a session is selected, else the one the console shows.
-    let mut ask_take_over = move |selection: bool| {
-        let t = tree.peek();
-        let chosen = match &app.tree.peek().selected {
-            Some(Item::Session(id) | Item::Waiting(id)) if selection => Some(id.clone()),
-            _ => match &app.active() {
-                Some(Tab::Session(id)) => Some(id.clone()),
-                _ => None,
-            },
-        };
-        let Some((_, s)) = chosen.as_deref().and_then(|id| nav::find(&t, id)) else {
-            return;
-        };
-        if s.kind != Kind::Interactive {
-            app.notice(format!("{} already runs here", s.name));
-        } else if s.can_take_over() {
-            confirm.set(Some(Ask::TakeOver(s.clone())));
-        } else {
-            app.notice(format!(
-                "{} is in the middle of a turn; take it over once it is idle",
-                s.name
-            ));
-        }
-    };
-
     // Name a session anew: in its tags, which the sidebar shows, and to
     // Claude Code with its `/rename`, so its own interface says the same.
     let send_rename = {
@@ -2199,11 +2025,7 @@ fn App() -> Element {
             Some(s) if s.state.takes_every_key() => {
                 app.notice(format!("Answer {} first, then rename it", s.name))
             }
-            Some(s) if s.kind == Kind::Own => renaming.set(Some(Rename::of(&s, place))),
-            Some(s) => app.notice(format!(
-                "{} takes no message from here to rename it",
-                s.name
-            )),
+            Some(s) => renaming.set(Some(Rename::of(&s, place))),
             None => {}
         }
     };
@@ -2244,11 +2066,7 @@ fn App() -> Element {
         let Some((_, s)) = chosen.as_deref().and_then(|id| nav::find(&t, id)) else {
             return;
         };
-        if s.kind == Kind::Interactive {
-            app.notice(format!("{} runs in a terminal; end it there", s.name));
-        } else {
-            confirm.set(Some(Ask::Stop(s.clone())));
-        }
+        confirm.set(Some(Ask::Stop(s.clone())));
     };
 
     let active_pane = {
@@ -2943,7 +2761,6 @@ fn App() -> Element {
                 }
                 Action::SessionAgentNext => switch_agent(true),
                 Action::SessionAgentPrev => switch_agent(false),
-                Action::SessionTakeOver => ask_take_over(on_list),
                 Action::SessionStop => ask_stop(on_list),
                 Action::SessionRename => {
                     let chosen = match &cur {
@@ -3293,7 +3110,6 @@ fn App() -> Element {
         let enter_reading = enter_reading.clone();
         let mut leave_reading = leave_reading.clone();
         let mut perform = perform.clone();
-        let take_over = take_over.clone();
         let mut picker_key = picker_key;
         let stop = stop.clone();
         let restart_daemon = restart_daemon.clone();
@@ -3339,7 +3155,6 @@ fn App() -> Element {
                     "y" | "Enter" => {
                         confirm.set(None);
                         match ask {
-                            Ask::TakeOver(s) => take_over(s),
                             Ask::Stop(s) => stop(s),
                             Ask::KillProcess(session, process) => kill_process(session, process),
                             Ask::RestartDaemon => restart_daemon(),
@@ -3796,7 +3611,6 @@ fn App() -> Element {
     let k_back = km
         .keys_in(&[Context::Details, Context::Tree], &Action::CursorFold)
         .unwrap_or_default();
-    let k_take_over = km.keys_for(Context::Console, &Action::SessionTakeOver);
     let k_send = km.keys_for(Context::Prompt, &Action::PromptSend);
     let k_write = km.keys_for(Context::Console, &Action::PromptWrite);
     let k_escape = km.keys_for(
@@ -3853,12 +3667,6 @@ fn App() -> Element {
                 },
                 (Some(tab), true) => rsx! {
                     ConsoleScreen { tab: tab.clone(), frame, cell_width: cw, focused: area == Area::Console }
-                },
-                (Some(Tab::Session(id)), false) if nav::find(&t, id).is_some_and(|(_, s)| s.kind == Kind::Interactive) => rsx! {
-                    Elsewhere {
-                        ready: nav::find(&t, id).is_some_and(|(_, s)| s.can_take_over()),
-                        take_over: k_take_over.clone(),
-                    }
                 },
                 (Some(_), false) => rsx! {
                     Starting {}
@@ -4210,7 +4018,6 @@ fn App() -> Element {
             KeysHelp { keymap: km.clone() }
             if let Some(ask) = confirm() {
                 {
-                    let take_over = take_over.clone();
                     let stop = stop.clone();
                     let restart_daemon = restart_daemon.clone();
                     let (icon, title, body, act) = ask.dialog();
@@ -4227,7 +4034,6 @@ fn App() -> Element {
                                         onclick: move |_| {
                                             confirm.set(None);
                                             match &ask {
-                                                Ask::TakeOver(s) => take_over(s.clone()),
                                                 Ask::Stop(s) => stop(s.clone()),
                                                 Ask::KillProcess(session, process) => kill_process(session.clone(), process.clone()),
                                                 Ask::RestartDaemon => restart_daemon(),

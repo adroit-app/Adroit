@@ -144,32 +144,9 @@ fn a_session_that_ends_gives_its_windows_up_and_is_said_to_have_ended() {
 }
 
 #[test]
-fn a_session_live_here_or_being_taken_over_stays_though_it_is_not_listed() {
+fn a_session_live_here_stays_though_it_is_not_listed() {
     // (what holds it, whether it stays shown)
-    let cases: Vec<(Vec<Msg>, bool)> = vec![
-        (vec![], false),
-        (vec![live(&["a"])], true),
-        (
-            vec![Msg::TakingOver {
-                id: "a".into(),
-                on: true,
-            }],
-            true,
-        ),
-        (
-            vec![
-                Msg::TakingOver {
-                    id: "a".into(),
-                    on: true,
-                },
-                Msg::TakingOver {
-                    id: "a".into(),
-                    on: false,
-                },
-            ],
-            false,
-        ),
-    ];
+    let cases: Vec<(Vec<Msg>, bool)> = vec![(vec![], false), (vec![live(&["a"])], true)];
     for (held, stays) in cases {
         let run = listed_with(vec![session("a", "/r")])
             .send(show_session("a"))

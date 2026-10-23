@@ -1,6 +1,5 @@
 //! The sessions and terminals there are, placed by what git says of where
-//! each runs: those the terminal host runs for adroit and those running in
-//! other terminals, listed every two seconds or as soon as the window asks.
+//! each runs, listed every two seconds or as soon as the window asks.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
@@ -134,9 +133,8 @@ async fn worktrees(
         .collect()
 }
 
-/// Every session to list: those the daemon runs for adroit, with the terminals,
-/// and those Claude Code lists in other terminals, but for adroit's own,
-/// which Claude Code lists too.
+/// Every session to list, those the daemon runs for adroit, with the
+/// terminals.
 pub async fn read_sessions(
     daemon: &Daemon,
     inputs: &BTreeMap<u128, u64>,
@@ -172,17 +170,15 @@ pub async fn read_sessions(
             None => {}
         }
     }
-    // Without Claude Code, or with a listing it cannot give, the sessions in
-    // other terminals are not listed; adroit's own still are.
-    let mut elsewhere = Vec::new();
+    // Without Claude Code, or with a listing it cannot give, nothing is
+    // learned; the sessions are listed all the same.
     for agent in adroit_model::Agent::ALL {
         let adapter = adroit_agents::adapter(agent);
         let listed = adapter
             .list_sessions(crate::programs::agents())
             .await
             .unwrap_or_default();
-        let (external, tags) = adapter.follow(&mut own, listed);
-        elsewhere.extend(external);
+        let tags = adapter.follow(&mut own, listed);
         learned.extend(tags.into_iter().map(sessions::learned_tag));
     }
     // Kept on the session, so a window opened later follows it too; one not
@@ -197,6 +193,5 @@ pub async fn read_sessions(
             .tag(id, adroit_term::tags::tagged(key, &value), held)
             .await;
     }
-    own.extend(elsewhere);
     Ok((own, kept_shells))
 }

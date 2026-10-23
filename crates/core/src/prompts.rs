@@ -3,10 +3,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use adroit_model::Session;
-
 use crate::content::{self, Tab};
-use crate::tree::nav;
 
 /// The name the text written with nothing open is kept by.
 const NOTHING_OPEN: &str = "nothing";
@@ -121,21 +118,6 @@ impl Drafts {
             .filter(|(_, text)| !text.trim().is_empty())
             .filter_map(|(tab, _)| tab.clone())
             .collect()
-    }
-
-    /// Keep each session's text under the id it goes by now.
-    pub fn follow(&mut self, sessions: &[Session]) {
-        let moved = |tab: &Option<Tab>| match tab {
-            Some(Tab::Session(id)) => nav::successor(sessions, id)
-                .map(|new| Some(Tab::Session(new.to_string())))
-                .unwrap_or_else(|| tab.clone()),
-            _ => tab.clone(),
-        };
-        self.shown = moved(&self.shown);
-        self.kept = std::mem::take(&mut self.kept)
-            .into_iter()
-            .map(|(tab, text)| (moved(&tab), text))
-            .collect();
     }
 }
 
@@ -344,23 +326,6 @@ mod tests {
         assert_eq!(
             d.show(session("a"), String::new()),
             Some("one\ntwo\nthree".into())
-        );
-    }
-
-    #[test]
-    fn a_session_s_text_follows_it_to_its_new_id() {
-        let mut d = Drafts::default();
-        d.show(session("old"), String::new());
-        d.show(session("other"), "for old".into());
-        let moved = Session {
-            id: "new".into(),
-            session_id: "old".into(),
-            ..Default::default()
-        };
-        d.follow(&[moved]);
-        assert_eq!(
-            d.show(session("new"), String::new()),
-            Some("for old".into())
         );
     }
 }
