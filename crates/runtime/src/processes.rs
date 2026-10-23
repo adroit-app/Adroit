@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use adroit_model::Session;
-use adroit_model::config::format_command;
+use adroit_model::config::{format_command, parse_command};
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
 
 pub use adroit_model::Process;
@@ -75,13 +75,20 @@ fn agent_runtime(process: &Process) -> bool {
             "codex" | "claude" | "node_repl" | "codex-code-mode-host"
         )
     };
+    let file = process
+        .executable
+        .as_ref()
+        .and_then(|path| path.file_name())
+        .and_then(|name| name.to_str());
     reserved(&process.name)
-        || process
-            .executable
-            .as_ref()
-            .and_then(|path| path.file_name())
-            .and_then(|name| name.to_str())
-            .is_some_and(reserved)
+        || file.is_some_and(reserved)
+        || (file == Some("adroit") && serves_mcp(process))
+}
+
+/// Whether it runs `adroit mcp`, the server through which the agent reaches
+/// adroit's tools.
+fn serves_mcp(process: &Process) -> bool {
+    parse_command(&process.command).is_some_and(|args| args.get(1).is_some_and(|a| a == "mcp"))
 }
 
 fn associated<'a>(all: &'a [Process], session: &Session) -> Vec<&'a Process> {
@@ -227,6 +234,23 @@ mod tests {
             assert!(verified(&all, &session, runtime).is_err());
         }
         assert!(verified(&all, &session, &all[3]).is_ok());
+    }
+
+    #[test]
+    fn adroit_s_own_helper_is_a_supporting_runtime_but_its_other_commands_are_work() {
+        let mut helper = process(11, 10, None);
+        helper.executable = Some("/Applications/Adroit.app/Contents/MacOS/adroit".into());
+        helper.command = "/Applications/Adroit.app/Contents/MacOS/adroit mcp --channel".into();
+        assert!(agent_runtime(&helper));
+        helper.command = "'/Users/me/My Apps/adroit' mcp".into();
+        assert!(agent_runtime(&helper));
+        let mut work = helper.clone();
+        work.command = "adroit terminal start --name probe".into();
+        assert!(!agent_runtime(&work));
+        let mut other = helper;
+        other.executable = Some("/usr/local/bin/my-tool".into());
+        other.command = "my-tool mcp".into();
+        assert!(!agent_runtime(&other));
     }
 
     #[test]
