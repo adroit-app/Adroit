@@ -119,6 +119,8 @@ pub enum Effect {
         back: bool,
         sent: Vec<String>,
     },
+    /// The prompt shows what is written for this tab, or for nothing open.
+    PromptShow(Option<Tab>),
     /// Take this image away from the prompt shown.
     RemoveImage(PathBuf),
     /// Take what is written from the prompt to send it, telling the window

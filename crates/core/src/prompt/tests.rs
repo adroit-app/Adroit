@@ -480,3 +480,22 @@ mod sending {
         }
     }
 }
+
+#[test]
+fn the_prompt_shows_what_is_written_for_what_the_focused_window_shows() {
+    let shown = |run: &Scenario| {
+        run.last_effects()
+            .iter()
+            .filter_map(|e| match e {
+                Effect::PromptShow(tab) => Some(tab.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    let run = Scenario::new().send(Msg::Focus(crate::content::Area::Console));
+    assert!(shown(&run).is_empty());
+    let run = run.event(listing()).send(Msg::ShowSession("a".into()));
+    assert_eq!(shown(&run), [Some(Tab::Session("a".into()))]);
+    let run = run.send(Msg::Focus(crate::content::Area::Prompt));
+    assert!(shown(&run).is_empty());
+}

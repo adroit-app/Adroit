@@ -1175,12 +1175,6 @@ fn App() -> Element {
         }
     });
 
-    // The prompt shows what the focused window shows.
-    use_effect(move || {
-        let now = active.read().clone();
-        let _ = prompts.send(Op::Show(now));
-    });
-
     // A shell or a Neovim asked for starts here, where the hub is.
     let start_terminal = {
         let hub = hub.clone();
@@ -2053,6 +2047,9 @@ fn App() -> Element {
                 CoreEffect::TakePrompt => take_prompt(),
                 CoreEffect::SendPrompt(taken) => send_prompt(*taken),
                 CoreEffect::StartDraft(start) => start_draft(*start),
+                CoreEffect::PromptShow(tab) => {
+                    let _ = prompts.send(Op::Show(tab));
+                }
                 CoreEffect::PromptSent => {
                     let _ = prompts.send(Op::Sent);
                 }

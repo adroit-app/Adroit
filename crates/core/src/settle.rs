@@ -18,6 +18,7 @@ const RULES: &[Rule] = &[
     content_panels,
     content_focus,
     content_spot,
+    prompt_shown,
     console_area,
     console_listed,
     console_live,
@@ -80,6 +81,11 @@ fn content_spot(state: &mut ViewState, effects: &mut Vec<Effect>) {
     if content::follow_spot(&mut state.content) {
         effects.extend(console::prompt_entered(state));
     }
+}
+
+/// The prompt shows what is written for what the focused window shows.
+fn prompt_shown(state: &mut ViewState, effects: &mut Vec<Effect>) {
+    effects.extend(prompt::follow_shown(state));
 }
 
 /// Keys meant for one area do not carry over to another.

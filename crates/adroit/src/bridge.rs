@@ -234,6 +234,7 @@ impl AppCtx {
             | Effect::StartDraft(_)
             | Effect::PromptSent
             | Effect::PromptRestore { .. }
+            | Effect::PromptShow(_)
             | Effect::Resume(_)
             | Effect::Stop(_)
             | Effect::KillProcess { .. }

@@ -155,6 +155,10 @@ pub(crate) fn keeper(nvim: Signal<Option<Arc<Embedded>>>, app: AppCtx) -> Prompt
         }
     };
     let (tx, mut ops) = unbounded_channel();
+    // The prompt starts out showing what is written for nothing open, which
+    // the view state starts out showing too; showing it puts back what was
+    // written there before the window last closed.
+    let _ = tx.send(Op::Show(None));
     {
         let tx = tx.clone();
         spawn(async move {

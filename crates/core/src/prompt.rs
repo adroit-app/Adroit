@@ -38,6 +38,9 @@ pub struct PromptView {
     pub drafted: HashSet<Tab>,
     /// The images attached when last looked at.
     images_seen: Vec<PathBuf>,
+    /// What the prompt was last told to show; it starts out showing what
+    /// is written for nothing open.
+    shown_for: Option<Tab>,
     /// The prompt on its way, while one is.
     pub(crate) sending: Option<send::Sending>,
     /// A step through the prompts sent, waiting on the history the host
@@ -57,6 +60,7 @@ impl Default for PromptView {
             selected: None,
             drafted: HashSet::new(),
             images_seen: Vec::new(),
+            shown_for: None,
             sending: None,
             recall: None,
             asked: 0,
@@ -198,4 +202,15 @@ pub(crate) fn keep_selection(view: &mut PromptView) {
     }
     view.images_seen = view.images.clone();
     view.selected = None;
+}
+
+/// The prompt shows what is written for what the focused window shows.
+pub(crate) fn follow_shown(state: &mut ViewState) -> Vec<Effect> {
+    let now = state.content.active().cloned();
+    let view = &mut state.prompt;
+    if view.shown_for == now {
+        return Vec::new();
+    }
+    view.shown_for = now.clone();
+    vec![Effect::PromptShow(now)]
 }
