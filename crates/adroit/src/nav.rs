@@ -65,6 +65,7 @@ impl Item {
             Item::Workspace(root) => Some(format!("ws:{}", root.display())),
             Item::Worktree(path) => Some(format!("wt:{}", path.display())),
             Item::Heading(path, heading) => Some(format!("{heading:?}:{}", path.display())),
+            Item::Session(id) => Some(format!("session:{id}")),
             Item::File {
                 worktree,
                 path,
@@ -167,10 +168,24 @@ fn headed(
                 let root = &w.worktree.path;
                 files_in(root, root, folds, read, &mut out);
             }
-            _ => out.extend(under(tree, w, heading)),
+            _ => out.extend(
+                under(tree, w, heading)
+                    .into_iter()
+                    .filter(|i| !folded_away(tree, folds, i)),
+            ),
         }
     }
     out
+}
+
+/// Whether `item` is a started session whose starter's row is folded.
+fn folded_away(tree: &Tree, folds: &Folds, item: &Item) -> bool {
+    let Item::Session(id) = item else {
+        return false;
+    };
+    find(tree, id)
+        .and_then(|(_, s)| starter(tree, s))
+        .is_some_and(|s| !folds.is_open(&Item::Session(s.id.clone())))
 }
 
 /// The entries of `dir` in `worktree`, each open directory followed by its
@@ -638,6 +653,24 @@ pub enum Opens {
     Draft(PathBuf),
 }
 
+/// Whether `item` has rows under it to fold: a session only while it heads
+/// the sessions it started.
+pub fn holds(item: &Item, tree: &Tree) -> bool {
+    match item {
+        Item::Session(id) => find(tree, id).is_some_and(|(_, s)| {
+            starter(tree, s).is_none() && started_by(tree, s).next().is_some()
+        }),
+        _ => item.fold_key().is_some(),
+    }
+}
+
+/// Whether opening `item` in place unfolds it instead of what [`opens`]
+/// says: a folded row shows its rows first, as fern's `l` does, so a
+/// worktree or a session, which otherwise open, can be unfolded again.
+pub fn unfolds(item: &Item, tree: &Tree, folds: &Folds) -> bool {
+    holds(item, tree) && !folds.is_open(item)
+}
+
 /// What opening `item` shows: a file by its kind, in its viewer or in
 /// Neovim, the one already started on it if there is one; a worktree its
 /// first session, or else a new one.
@@ -984,6 +1017,25 @@ mod tests {
         );
         let o = find(&t, "o").unwrap().1;
         assert_eq!(starter(&t, o).map(|s| s.id.as_str()), Some("a"));
+    }
+
+    #[test]
+    fn a_folded_session_hides_the_sessions_it_started() {
+        let t = delegating_tree(true);
+        let mut folds = Folds::default();
+        folds.set(&session("a"), false);
+        assert_eq!(
+            rows(&t, &[], &folds),
+            [
+                vec![ws("/api"), worktree("/api")],
+                group("/api", &[session("a")], &[], &[]),
+                vec![worktree(OAUTH)],
+                group(OAUTH, &[], &[], &[]),
+                vec![ws("/web")],
+                group("/web", &[], &[], &[]),
+            ]
+            .concat()
+        );
     }
 
     #[test]
@@ -1481,8 +1533,8 @@ mod tests {
         assert!(!folds.is_open(&sessions_of("/api")));
         folds.toggle(&sessions_of("/api"));
         assert!(folds.is_open(&sessions_of("/api")));
-        folds.set(&session("a"), true);
-        assert!(!folds.is_open(&session("a")));
+        folds.set(&Item::Terminal(3), true);
+        assert!(!folds.is_open(&Item::Terminal(3)));
     }
 
     #[test]
@@ -1658,6 +1710,56 @@ mod tests {
         for item in [ws("/api"), sessions_of("/api"), dir] {
             assert_eq!(opens(&item, &t, &[]), Opens::Fold, "{item:?}");
         }
+    }
+
+    #[test]
+    fn a_folded_row_unfolds_before_it_opens_whatever_kind_it_is() {
+        let t = delegating_tree(true);
+        let folding = [
+            ws("/api"),
+            worktree(OAUTH),
+            sessions_of("/api"),
+            files_of("/api"),
+            file("/api", "/api/src", true),
+            session("a"),
+        ];
+        let mut folds = Folds::default();
+        for item in &folding {
+            folds.set(item, false);
+        }
+        for item in &folding {
+            assert!(unfolds(item, &t, &folds), "{item:?}");
+        }
+    }
+
+    #[test]
+    fn an_unfolded_row_or_one_that_does_not_fold_opens_as_it_always_does() {
+        let t = delegating_tree(true);
+        let mut folds = Folds::default();
+        folds.set(&files_of("/api"), true);
+        folds.set(&session("o"), false);
+        for item in [
+            ws("/api"),
+            worktree(OAUTH),
+            sessions_of("/api"),
+            files_of("/api"),
+            session("a"),
+            session("o"),
+            Item::Waiting("a".into()),
+            Item::Terminal(3),
+            file("/api", "/api/a.rs", false),
+        ] {
+            assert!(!unfolds(&item, &t, &folds), "{item:?}");
+        }
+    }
+
+    #[test]
+    fn only_a_session_that_started_sessions_listed_under_it_has_rows_to_fold() {
+        let t = delegating_tree(true);
+        assert!(holds(&session("a"), &t));
+        assert!(!holds(&session("o"), &t));
+        assert!(!holds(&Item::Waiting("a".into()), &t));
+        assert!(holds(&worktree(OAUTH), &t));
     }
 
     #[test]
