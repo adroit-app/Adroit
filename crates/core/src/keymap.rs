@@ -557,6 +557,36 @@ mod tests {
     }
 
     #[test]
+    fn another_workspace_is_a_key_away_from_every_area() {
+        let map = Keymap::defaults();
+        for ctx in [
+            Context::Tree,
+            Context::Details,
+            Context::Console,
+            Context::Prompt,
+        ] {
+            let areas = [ctx, Context::Global];
+            assert_eq!(
+                step(&map, &areas, &["Ctrl+q"], "}"),
+                Step::Run(Action::WorkspaceNext)
+            );
+            assert_eq!(
+                step(&map, &areas, &["Ctrl+q"], "{"),
+                Step::Run(Action::WorkspacePrev)
+            );
+        }
+        let tree = [Context::Tree, Context::Global];
+        assert_eq!(
+            step(&map, &tree, &[], "}"),
+            Step::Run(Action::WorkspaceNext)
+        );
+        assert_eq!(
+            step(&map, &tree, &[], "{"),
+            Step::Run(Action::WorkspacePrev)
+        );
+    }
+
+    #[test]
     fn each_sheet_of_the_details_panel_has_a_key_of_its_own_everywhere() {
         let map = Keymap::defaults();
         for (digit, action) in [
@@ -946,20 +976,28 @@ mod tests {
     }
 
     #[test]
-    fn tab_and_shift_tab_in_the_prompt_go_to_the_agent_even_while_writing() {
+    fn tab_in_the_prompt_takes_a_suggestion_and_shift_tab_goes_to_the_agent_even_while_writing() {
         for areas in [
             &[Context::Prompt][..],
             &[Context::Prompt, Context::Global],
             &[Context::Draft, Context::Prompt],
         ] {
-            for key in ["Tab", "Shift+Tab"] {
-                assert_eq!(
-                    step(&Keymap::defaults(), areas, &[], key),
-                    Step::Run(Action::ConsoleSend(None)),
-                    "{areas:?} {key}"
-                );
-            }
+            let prompt = |key| step(&Keymap::defaults(), areas, &[], key);
+            assert_eq!(
+                prompt("Tab"),
+                Step::Run(Action::PromptTakeSuggestion),
+                "{areas:?}"
+            );
+            assert_eq!(
+                prompt("Shift+Tab"),
+                Step::Run(Action::ConsoleSend(None)),
+                "{areas:?}"
+            );
         }
+        assert_eq!(
+            "prompt.take_suggestion".parse(),
+            Ok(Action::PromptTakeSuggestion)
+        );
     }
 
     #[test]

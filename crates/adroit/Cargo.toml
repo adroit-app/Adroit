@@ -31,3 +31,5 @@ objc2-pdf-kit.workspace = true
 [dev-dependencies]
 adroit-model = { workspace = true, features = ["testing"] }
 tempfile.workspace = true
+ttf-parser = "0.25.1"
+wuff = "0.2.9"

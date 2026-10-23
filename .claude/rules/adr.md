@@ -12,8 +12,8 @@ The three steps people skip:
 
 - Write the title first, as one sentence. It is the decision; everything else
   restates it or follows from it.
-- Ask of every line: would changing this take a new record that supersedes
-  this one? If an ordinary change would do, the line is specification — leave
-  it out.
+- Ask of every line: if this changed, would the decision have changed, and the
+  record be rewritten from its title? If an ordinary change would do, the line
+  is specification — leave it out.
 - When fixing a record, rewrite it from the title. Do not edit the previous
   draft.

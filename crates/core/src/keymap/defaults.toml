@@ -56,6 +56,8 @@
 "Ctrl+q [" = "waiting.prev"
 "Ctrl+q N" = "session.next"
 "Ctrl+q P" = "session.prev"
+"Ctrl+q }" = "workspace.next"
+"Ctrl+q {" = "workspace.prev"
 "Mod+p" = "session.pick"
 "Ctrl+q ." = "console.send Ctrl+q"
 "Mod+n" = "session.new"
@@ -111,6 +113,8 @@
 "!" = "worktrees.toggle"
 "] w" = "waiting.next"
 "[ w" = "waiting.prev"
+"}" = "workspace.next"
+"{" = "workspace.prev"
 
 [details]
 "j" = "cursor.down"
@@ -157,7 +161,7 @@
 
 [prompt]
 "Mod+i" = "prompt.images"
-"Tab" = "console.send"
+"Tab" = "prompt.take_suggestion"
 "Shift+Tab" = "console.send"
 "Ctrl+c" = "console.send Escape"
 "Ctrl+Enter" = "prompt.send"

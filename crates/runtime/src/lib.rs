@@ -13,6 +13,7 @@ pub mod details;
 pub mod editor;
 pub mod env;
 pub mod execution;
+pub mod fonts;
 pub mod layout;
 pub mod pasted;
 pub mod paths;

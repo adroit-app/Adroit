@@ -13,13 +13,14 @@ use adroit_model::{
     InboxItem, Kind, Session, State, TerminalProgram, TerminalSession, Tree, Worktree, build, inbox,
 };
 use adroit_nvim::{Embedded, Event as NvimEvent, notation};
-use adroit_term::{Daemon, Key, Palette, Pane, Size, Spawn};
+use adroit_term::{Daemon, Key, Palette, Pane, Screen, Size, Spawn};
 use adroit_vcs::{DiffKind, Repo, ghq};
 use dioxus::prelude::*;
 use tokio::sync::{Notify, mpsc, oneshot};
 
 use crate::actions::Action;
 use crate::alerts;
+use crate::bundled_font::{faces, use_bundled_font};
 use crate::complete::{self, candidates};
 use crate::completion::Completions;
 use crate::console::{Composer, ConsoleScreen, Hub, Panes, ReaderScreen, mode_of};
@@ -54,6 +55,7 @@ use crate::picker::{self, Candidate, Choice, Mode, Picker};
 use crate::picker_view::PickerView;
 use crate::pictures::{self, Gallery};
 use crate::programs;
+use crate::prompt_tab::{PromptTab, TabGoes};
 use crate::prompts::{self, Op, Prompts};
 use crate::rename::{Place as RenamePlace, Rename, SessionName};
 use crate::scratch::{self, Moment};
@@ -64,7 +66,6 @@ use crate::standing::{self, Standing};
 use crate::status;
 use crate::style::{CSS, CellHeight, DEFAULT_CELL_HEIGHT};
 use crate::subagent_view::{SubagentView, agent_glyph};
-use crate::symbols_font::{FACE, use_symbols_font};
 use crate::tabs::{self, Tab, fresh_name, label_from, named, shows_prompt};
 use crate::themes;
 use crate::view::Keys;
@@ -110,7 +111,7 @@ pub fn launch() {
         )
         .with_menu(menu_bar::build())
         .with_background_color((15, 17, 20, 255))
-        .with_custom_head(format!("<style>{FACE}{CSS}</style>"));
+        .with_custom_head(format!("<style>{}{CSS}</style>", faces()));
     dioxus::LaunchBuilder::desktop().with_cfg(cfg).launch(App);
 }
 
@@ -226,6 +227,19 @@ fn passes_enter(taken: Option<&(Option<Tab>, String)>) -> Option<String> {
     match taken {
         Some((Some(Tab::Session(id)), text)) if text.trim().is_empty() => Some(id.clone()),
         _ => None,
+    }
+}
+
+/// How long a session is given to repaint after Tab before its input is
+/// asked for anyway.
+const TAB_APPLIED_WAIT: Duration = Duration::from_millis(500);
+
+/// Wait until `pane` shows something other than `before`, or
+/// [`TAB_APPLIED_WAIT`] passes.
+async fn repainted(pane: &Pane, before: &Screen) {
+    let until = tokio::time::Instant::now() + TAB_APPLIED_WAIT;
+    while tokio::time::Instant::now() < until && pane.screen() == *before {
+        tokio::time::sleep(Duration::from_millis(16)).await;
     }
 }
 
@@ -998,9 +1012,11 @@ fn row_tip(item: &Item) -> &'static str {
             "A workspace: a git repository or a directory sessions run in. Enter folds it; n starts a session there"
         }
         Item::Worktree(_) => {
-            "A worktree: a checkout of the repository, on a branch of its own. Enter or n starts a session in it, s a shell"
+            "A worktree: a checkout of the repository, on a branch of its own. Enter or l unfolds it while folded, else opens its session; n starts a session in it, s a shell"
         }
-        Item::Session(_) | Item::Waiting(_) => "A session. Enter opens it",
+        Item::Session(_) | Item::Waiting(_) => {
+            "A session. Enter opens it, or unfolds the sessions it started while they are folded"
+        }
         Item::Terminal(_) => {
             "A terminal adroit runs. Enter shows it; closing its tab leaves it running"
         }
@@ -1477,6 +1493,7 @@ fn Terminal(runs: TerminalProgram) -> Element {
     let (icon, title) = match runs {
         TerminalProgram::Shell => (Icon::Terminal2, "shell"),
         TerminalProgram::Neovim => (Icon::Code, "Neovim"),
+        TerminalProgram::Command => (Icon::Terminal, "program"),
     };
     rsx! {
         span { class: "shell-mark", title,
@@ -1518,7 +1535,7 @@ fn sample_conversation(
 
 #[component]
 fn App() -> Element {
-    use_symbols_font();
+    use_bundled_font();
     let mut tree = use_signal(Tree::default);
     let mut selected = use_signal(|| None::<Item>);
     let mut folds = use_signal(nav::Folds::default);
@@ -1568,6 +1585,20 @@ fn App() -> Element {
     let active = use_signal(|| None::<Tab>);
     let content = use_signal(Content::<Tab>::default);
     let middle = Middle { content, active };
+    // The session last shown in each workspace, by its root, which
+    // `workspace.next` goes back to. Kept only while the window is open.
+    let mut last_shown = use_signal(HashMap::<PathBuf, String>::new);
+    use_effect(move || {
+        let Some(Tab::Session(id)) = active() else {
+            return;
+        };
+        let Some(root) = tree.read().find(&id).map(|(ws, _, _)| ws.root.clone()) else {
+            return;
+        };
+        if last_shown.peek().get(&root) != Some(&id) {
+            last_shown.write().insert(root, id);
+        }
+    });
     let mut window_focused = use_signal(|| dioxus::desktop::window().is_focused());
     let mut completions = use_signal(Completions::default);
     use_effect(move || {
@@ -3017,8 +3048,7 @@ fn App() -> Element {
             let taken: Vec<&str> = names.iter().map(String::as_str).collect();
             let base = match (&file, runs) {
                 (Some(f), _) => file_name(f),
-                (None, TerminalProgram::Shell) => "shell".into(),
-                (None, TerminalProgram::Neovim) => "nvim".into(),
+                (None, runs) => crate::terminals::base_name(runs, &[]),
             };
             let name = fresh_name(&base, &taken);
             let size = *console_size.peek();
@@ -3031,6 +3061,7 @@ fn App() -> Element {
                     // Not `agent_env`: a shell or Neovim keeps the user's own editor.
                     env: daemon::terminal_env(),
                     file,
+                    command: Vec::new(),
                 },
                 &programs::login_shell(),
             );
@@ -3054,7 +3085,8 @@ fn App() -> Element {
         }
     });
     // Open a row where `how` says, or as anything else opens a thing when it
-    // says nothing. Only the keys that open in place fold a row.
+    // says nothing. Only the keys that open in place fold a row, and on a
+    // folded one they unfold it first.
     let mut open = move |item: Item, how: Option<Opening>| {
         // Typing stops going to the filter once a row is taken; what it
         // narrowed to stays.
@@ -3063,6 +3095,10 @@ fn App() -> Element {
         }
         selected.set(Some(item.clone()));
         let in_place = matches!(how, None | Some(Opening::Existing | Opening::Here));
+        if in_place && nav::unfolds(&item, &shown_tree.peek(), &folds.peek()) {
+            folds.write().set(&item, true);
+            return;
+        }
         let show = move |thing: Tab| match how {
             Some(how) => middle.edit(|c| c.open_in(thing, how)),
             None => middle.open(thing),
@@ -4272,6 +4308,7 @@ fn App() -> Element {
     // which some actions pass on; a click has none.
     let perform = {
         let active_pane = active_pane.clone();
+        let request_pull = request_pull.clone();
         let mut submit = submit.clone();
         let hub = hub.clone();
         move |action: Action, key: Option<Key>| {
@@ -4516,6 +4553,7 @@ fn App() -> Element {
                 | Action::PromptWrite
                 | Action::PromptSend
                 | Action::PromptImages
+                | Action::PromptTakeSuggestion
                 | Action::HistoryPrev
                 | Action::HistoryNext
                     if !shows_prompt(thing.as_ref()) => {}
@@ -4533,6 +4571,56 @@ fn App() -> Element {
                     }
                 }
                 Action::PromptSend => submit(),
+                Action::PromptTakeSuggestion => {
+                    let Some(nv) = nvim.peek().clone() else {
+                        return;
+                    };
+                    let key = key.unwrap_or_else(|| Key::new("Tab"));
+                    let neovim_owns = {
+                        let s = nv.state();
+                        s.popup().is_some() || s.mode().starts_with("cmdline")
+                    };
+                    let tab = active.peek().clone();
+                    let hands_back = ANSWERS.load(Ordering::Relaxed)
+                        && matches!(&tab, Some(Tab::Session(id))
+                            if nav::find(&tree.peek(), id).is_some_and(|(_, s)| s.adroit_editor));
+                    let no_images = shown_images.peek().is_empty();
+                    let pane = pane.clone();
+                    let mut request_pull = request_pull.clone();
+                    spawn(async move {
+                        let empty = no_images && nv.text().await.is_ok_and(|t| t.trim().is_empty());
+                        let goes = PromptTab {
+                            neovim_owns,
+                            session: pane.is_some(),
+                            empty,
+                            hands_back,
+                        }
+                        .goes();
+                        let (TabGoes::Session | TabGoes::SessionThenBack, Some(p)) = (&goes, pane)
+                        else {
+                            if let Some(n) = notation(&key) {
+                                let _ = nv.input(&n).await;
+                            }
+                            return;
+                        };
+                        // Tab may type into Claude Code's input: an accepted
+                        // suggestion lands there.
+                        if let Some(tab @ Tab::Session(_)) = tab {
+                            stale.write().insert(tab);
+                        }
+                        let before = p.screen();
+                        p.key(&key);
+                        if goes == TabGoes::SessionThenBack {
+                            // Claude Code repaints the input once it takes the
+                            // suggestion, from faint to plain, or shows a hint
+                            // when it has none. Keys reach it in order, but
+                            // whether Ctrl-g sees the text Tab put in rests on
+                            // how it batches its updates; the repaint does not.
+                            repainted(&p, &before).await;
+                            request_pull();
+                        }
+                    });
+                }
                 Action::PromptImages => {
                     if matches!(text_goes(), Typed::Prompt) {
                         focus.set(Area::Prompt);
@@ -4808,10 +4896,11 @@ fn App() -> Element {
                             Action::CursorTab => Opening::Tab,
                             _ => Opening::Here,
                         };
-                        let toggles = matches!(
-                            nav::opens(&item, &shown_tree.peek(), &terminals.peek()),
-                            nav::Opens::Fold
-                        );
+                        let toggles = nav::unfolds(&item, &shown_tree.peek(), &folds.peek())
+                            || matches!(
+                                nav::opens(&item, &shown_tree.peek(), &terminals.peek()),
+                                nav::Opens::Fold
+                            );
                         open(item, Some(how));
                         // A Neovim still starting takes the keys once it has.
                         if terminal_ask.peek().is_some()
@@ -4839,7 +4928,7 @@ fn App() -> Element {
                     // An open node folds; any other row goes to the one it
                     // sits under, as fern's `h` does.
                     if let Some(item) = &cur {
-                        if folds.peek().is_open(item) {
+                        if folds.peek().is_open(item) && nav::holds(item, &shown_tree.peek()) {
                             folds.write().set(item, false);
                         } else if let Some(up) = nav::parent(&list, &shown_tree.peek(), item) {
                             selected.set(Some(up));
@@ -4888,6 +4977,18 @@ fn App() -> Element {
                         active.peek().as_ref(),
                         place.peek().as_ref(),
                         action == Action::SessionNext,
+                    );
+                    if let Some(id) = next {
+                        show_session(id);
+                    }
+                }
+                Action::WorkspaceNext | Action::WorkspacePrev => {
+                    let next = nav::next_workspace(
+                        &tree.peek(),
+                        active.peek().as_ref(),
+                        place.peek().as_ref(),
+                        &last_shown.peek(),
+                        action == Action::WorkspaceNext,
                     );
                     if let Some(id) = next {
                         show_session(id);

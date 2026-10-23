@@ -4,38 +4,32 @@ Status: Accepted
 
 ## Context
 
-The read-only permission profile was refused for Claude Code, because plan
-mode does not stop writes. Leaders were still offered the profile for either
-agent and chose a combination that could never start. A read-only Worker
-works in the live source directory, so the profile has to hold whatever
-permission mode the session runs in and whatever the user's or the
-repository's settings allow.
+A session can be started read-only, for investigation or review, whichever
+agent runs it. Claude Code's plan mode does not stop writes, and a read-only
+session works in the live source directory, so the restriction has to hold
+whatever permission mode it runs in and whatever the user's or repository's
+settings allow.
 
 ## Decision
 
-A read-only Claude Code session is launched with its file-editing tools
-denied and with settings, passed on its command line, that run its shell
-commands in Claude Code's operating-system sandbox. The sandbox denies writes
-to the session's directory and to the git history behind it, refuses the
-retry outside the sandbox, and stops Claude Code from starting when the
-sandbox is unavailable.
+A read-only Claude Code session is launched with its file-editing tools denied
+and with command-line settings that run its shell commands in Claude Code's
+operating-system sandbox, denying writes to its directory and the history
+behind it, refusing retries outside the sandbox, and refusing to start without
+the sandbox.
 
 ## Alternatives considered
 
 - Deny the editing tools alone. A shell command writes files just as well.
-- Deny the shell too. Investigation and review rely on read-only commands
-  such as searching and reading history.
-- Keep refusing the profile for Claude Code. Leaders cannot tell the
-  combination apart from a supported one, and read-only review would need
-  Codex.
+- Deny the shell too. Investigation relies on read-only commands.
+- Offer read-only for other agents only. Read-only review would need another
+  agent.
 
 ## Consequences
 
-- Command-line settings rank above the user's and the repository's files, and
-  denials only accumulate across them, so those files cannot loosen it.
-- Where the sandbox cannot run, a read-only Claude Code session fails to start
-  instead of running unconfined.
-- Commands the user has excluded from the sandbox in their own settings still
-  run outside it.
-- Tools that do not run through the shell, such as MCP servers and hooks, are
-  outside the sandbox.
+- Command-line settings rank above the user's and the repository's, and denials
+  only accumulate, so those files cannot loosen it.
+- Where the sandbox cannot run, the session fails to start instead of running
+  unconfined.
+- Commands the user excluded from the sandbox, and tools outside the shell such
+  as MCP servers and hooks, are not confined.

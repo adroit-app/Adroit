@@ -17,6 +17,9 @@ pub struct TerminalSession {
     /// The file Neovim was started on, if it was.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file: Option<PathBuf>,
+    /// The program and its arguments a command terminal runs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub command: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -25,4 +28,6 @@ pub enum TerminalProgram {
     #[default]
     Shell,
     Neovim,
+    /// Any program, started through the shell.
+    Command,
 }

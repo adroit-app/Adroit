@@ -171,9 +171,10 @@ impl<'de> Deserialize<'de> for Retired {
     }
 }
 
-/// The fonts the console falls back to, a Japanese one among them for what a
-/// monospace font leaves out.
-pub const MONO: &str = r#""SF Mono", Menlo, ui-monospace, "Hiragino Kaku Gothic ProN", monospace"#;
+/// The fonts the console falls back to: adroit's own first, for the Nerd Font
+/// glyphs a chosen font may lack, and a Japanese one for what a monospace
+/// font leaves out.
+pub const MONO: &str = r#""JetBrainsMono Nerd Font Mono", "SF Mono", Menlo, ui-monospace, "Hiragino Kaku Gothic ProN", monospace"#;
 
 impl Default for Settings {
     fn default() -> Self {
@@ -475,6 +476,16 @@ model = "chosen-model"
         assert!(family.starts_with("\"IntoneMono Nerd Font\", "), "{family}");
         assert!(family.ends_with("monospace"), "{family}");
         assert_eq!(Settings::default().console_font(), MONO);
+    }
+
+    #[test]
+    fn the_console_is_drawn_in_the_built_in_nerd_font_with_a_japanese_one_behind_it() {
+        let family = Settings::default().console_font();
+        assert!(
+            family.starts_with(&format!("\"{}\", ", crate::fonts::FAMILY)),
+            "{family}"
+        );
+        assert!(family.contains("\"Hiragino Kaku Gothic ProN\""), "{family}");
     }
 
     #[test]

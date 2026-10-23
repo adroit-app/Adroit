@@ -1,7 +1,7 @@
 //! The tree as one column of items: the workspaces, each worktree's headings
 //! and what they hold, then the sessions waiting on the user.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use adroit_model::{
@@ -65,6 +65,7 @@ impl Item {
             Item::Workspace(root) => Some(format!("ws:{}", root.display())),
             Item::Worktree(path) => Some(format!("wt:{}", path.display())),
             Item::Heading(path, heading) => Some(format!("{heading:?}:{}", path.display())),
+            Item::Session(id) => Some(format!("session:{id}")),
             Item::File {
                 worktree,
                 path,
@@ -167,10 +168,24 @@ fn headed(
                 let root = &w.worktree.path;
                 files_in(root, root, folds, read, &mut out);
             }
-            _ => out.extend(under(tree, w, heading)),
+            _ => out.extend(
+                under(tree, w, heading)
+                    .into_iter()
+                    .filter(|i| !folded_away(tree, folds, i)),
+            ),
         }
     }
     out
+}
+
+/// Whether `item` is a started session whose starter's row is folded.
+fn folded_away(tree: &Tree, folds: &Folds, item: &Item) -> bool {
+    let Item::Session(id) = item else {
+        return false;
+    };
+    find(tree, id)
+        .and_then(|(_, s)| starter(tree, s))
+        .is_some_and(|s| !folds.is_open(&Item::Session(s.id.clone())))
 }
 
 /// The entries of `dir` in `worktree`, each open directory followed by its
@@ -196,14 +211,23 @@ fn files_in(
     }
 }
 
+/// The heading a terminal running `program` is listed under: a command
+/// beside the shells, as it would run in one.
+fn listed_under(program: TerminalProgram) -> Heading {
+    match program {
+        TerminalProgram::Shell | TerminalProgram::Command => Heading::Shells,
+        TerminalProgram::Neovim => Heading::Editors,
+    }
+}
+
 /// What runs in a worktree, under one of its headings; Files holds no such
 /// rows. Sessions are each followed by the sessions they started, wherever
 /// those run; a session whose starter is listed is listed under it instead.
 pub fn under(tree: &Tree, w: &WorktreeNode, heading: Heading) -> Vec<Item> {
-    let runs = |program| {
+    let runs = |heading| {
         w.terminals
             .iter()
-            .filter(move |t| t.program == program)
+            .filter(move |t| listed_under(t.program) == heading)
             .map(|t| Item::Terminal(t.id))
     };
     match heading {
@@ -215,8 +239,7 @@ pub fn under(tree: &Tree, w: &WorktreeNode, heading: Heading) -> Vec<Item> {
             }
             rows
         }
-        Heading::Shells => runs(TerminalProgram::Shell).collect(),
-        Heading::Editors => runs(TerminalProgram::Neovim).collect(),
+        Heading::Shells | Heading::Editors => runs(heading).collect(),
         Heading::Files => Vec::new(),
     }
 }
@@ -382,6 +405,50 @@ pub fn next_session(
         }
     };
     Some(all[i % n].1.id.clone())
+}
+
+/// A session of the workspace after (or before) the one shown, in the
+/// tree's order, passing over workspaces with no session and wrapping
+/// around: the session `last` shown there, by the workspace's root, or else
+/// its first. A tab that shows no session goes from the workspace of its
+/// worktree, `place`; with neither, the first workspace is next and the last
+/// one before.
+pub fn next_workspace(
+    tree: &Tree,
+    shown: Option<&Tab>,
+    place: Option<&Place>,
+    last: &HashMap<PathBuf, String>,
+    forward: bool,
+) -> Option<String> {
+    let all = &tree.workspaces;
+    let n = all.len();
+    let session = match shown {
+        Some(Tab::Session(id)) => tree.find(id).map(|(ws, _, _)| ws.root.clone()),
+        _ => None,
+    };
+    let at = session
+        .and_then(|root| all.iter().position(|ws| ws.root == root))
+        .or_else(|| {
+            let p = place?;
+            all.iter()
+                .position(|ws| ws.worktrees.iter().any(|w| w.worktree.path == p.worktree))
+        });
+    let order: Vec<usize> = match (at, forward) {
+        (Some(i), true) => (1..=n).map(|d| (i + d) % n).collect(),
+        (Some(i), false) => (1..=n).map(|d| (i + n - d) % n).collect(),
+        (None, true) => (0..n).collect(),
+        (None, false) => (0..n).rev().collect(),
+    };
+    let ws = order
+        .into_iter()
+        .map(|i| &all[i])
+        .find(|ws| ws.sessions().next().is_some())?;
+    let remembered = last
+        .get(&ws.root)
+        .filter(|id| ws.sessions().any(|s| &s.id == *id));
+    remembered
+        .cloned()
+        .or_else(|| ws.sessions().next().map(|s| s.id.clone()))
 }
 
 /// Where the middle of the window is: the worktree, or the directory outside
@@ -556,11 +623,10 @@ fn heading_of(tree: &Tree, shown: Option<&Tab>) -> Option<Item> {
         }
         Tab::Terminal(id) => {
             let (_, w, t) = tree.terminal(*id)?;
-            let heading = match t.program {
-                TerminalProgram::Shell => Heading::Shells,
-                TerminalProgram::Neovim => Heading::Editors,
-            };
-            Some(Item::Heading(w.worktree.path.clone(), heading))
+            Some(Item::Heading(
+                w.worktree.path.clone(),
+                listed_under(t.program),
+            ))
         }
         _ => None,
     }
@@ -636,6 +702,24 @@ pub enum Opens {
     Edit(PathBuf, PathBuf),
     /// A session not started yet, in the worktree.
     Draft(PathBuf),
+}
+
+/// Whether `item` has rows under it to fold: a session only while it heads
+/// the sessions it started.
+pub fn holds(item: &Item, tree: &Tree) -> bool {
+    match item {
+        Item::Session(id) => find(tree, id).is_some_and(|(_, s)| {
+            starter(tree, s).is_none() && started_by(tree, s).next().is_some()
+        }),
+        _ => item.fold_key().is_some(),
+    }
+}
+
+/// Whether opening `item` in place unfolds it instead of what [`opens`]
+/// says: a folded row shows its rows first, as fern's `l` does, so a
+/// worktree or a session, which otherwise open, can be unfolded again.
+pub fn unfolds(item: &Item, tree: &Tree, folds: &Folds) -> bool {
+    holds(item, tree) && !folds.is_open(item)
 }
 
 /// What opening `item` shows: a file by its kind, in its viewer or in
@@ -965,6 +1049,25 @@ mod tests {
     }
 
     #[test]
+    fn a_folded_session_hides_the_sessions_it_started() {
+        let t = delegating_tree(true);
+        let mut folds = Folds::default();
+        folds.set(&session("a"), false);
+        assert_eq!(
+            rows(&t, &[], &folds),
+            [
+                vec![ws("/api"), worktree("/api")],
+                group("/api", &[session("a")], &[], &[]),
+                vec![worktree(OAUTH)],
+                group(OAUTH, &[], &[], &[]),
+                vec![ws("/web")],
+                group("/web", &[], &[], &[]),
+            ]
+            .concat()
+        );
+    }
+
+    #[test]
     fn a_started_session_running_elsewhere_names_the_worktree_s_directory_not_its_path() {
         let t = delegating_tree(true);
         let at = |id: &str| runs_at(&t, find(&t, id).unwrap().1);
@@ -1237,6 +1340,94 @@ mod tests {
     }
 
     #[test]
+    fn the_next_workspace_opens_its_first_session_and_wraps_around() {
+        let t = tree();
+        let shown = |id: &str| Some(Tab::Session(id.into()));
+        let none = HashMap::new();
+        let next = |id: &str, forward| next_workspace(&t, shown(id).as_ref(), None, &none, forward);
+        for (from, forward, to) in [
+            ("a", true, "z"),
+            ("o", true, "z"),
+            ("z", true, "c"),
+            ("c", true, "a"),
+            ("a", false, "c"),
+            ("o", false, "c"),
+            ("c", false, "z"),
+        ] {
+            assert_eq!(next(from, forward).as_deref(), Some(to), "{from} {forward}");
+        }
+    }
+
+    #[test]
+    fn the_next_workspace_opens_the_session_last_shown_there() {
+        let t = tree();
+        let shown = Some(Tab::Session("c".into()));
+        let last: HashMap<PathBuf, String> = [(PathBuf::from("/api"), "o".to_string())].into();
+        let next = next_workspace(&t, shown.as_ref(), None, &last, true);
+        assert_eq!(next.as_deref(), Some("o"));
+        // A session last shown that has gone gives way to the first.
+        let last: HashMap<PathBuf, String> = [(PathBuf::from("/api"), "gone".to_string())].into();
+        let next = next_workspace(&t, shown.as_ref(), None, &last, true);
+        assert_eq!(next.as_deref(), Some("a"));
+    }
+
+    #[test]
+    fn a_tab_without_a_session_goes_from_the_workspace_of_its_worktree() {
+        let t = tree();
+        let shell = Some(Tab::Terminal(1));
+        let none = HashMap::new();
+        let next = |path: &str, forward| {
+            next_workspace(&t, shell.as_ref(), Some(&at(path)), &none, forward)
+        };
+        assert_eq!(next(OAUTH, true).as_deref(), Some("z"));
+        assert_eq!(next("/web", true).as_deref(), Some("a"));
+        assert_eq!(next("/web", false).as_deref(), Some("z"));
+        // With nothing shown, the first workspace is next and the last before.
+        assert_eq!(
+            next_workspace(&t, None, None, &none, true).as_deref(),
+            Some("a")
+        );
+        assert_eq!(
+            next_workspace(&t, None, None, &none, false).as_deref(),
+            Some("c")
+        );
+        let nowhere = Some(at("/nowhere"));
+        let draft = next_workspace(&t, None, nowhere.as_ref(), &none, true);
+        assert_eq!(draft.as_deref(), Some("a"));
+        assert_eq!(
+            next_workspace(&Tree::default(), None, None, &none, true),
+            None
+        );
+    }
+
+    #[test]
+    fn a_workspace_with_no_session_is_passed_over() {
+        // `notes` holds only a shell.
+        let t = shelled();
+        let none = HashMap::new();
+        let shell = Some(Tab::Terminal(5));
+        let next =
+            |forward| next_workspace(&t, shell.as_ref(), Some(&at("/notes")), &none, forward);
+        assert_eq!(next(true).as_deref(), Some("z"));
+        assert_eq!(next(false).as_deref(), Some("a"));
+        let shown = Some(Tab::Session("a".into()));
+        let after = next_workspace(&t, shown.as_ref(), None, &none, true);
+        assert_eq!(after.as_deref(), Some("z"));
+    }
+
+    #[test]
+    fn with_one_workspace_the_next_is_the_session_last_shown_in_it() {
+        let t = tree();
+        let only = Tree {
+            workspaces: vec![t.workspaces[0].clone()],
+        };
+        let shown = Some(Tab::Session("b".into()));
+        let last: HashMap<PathBuf, String> = [(PathBuf::from("/api"), "b".to_string())].into();
+        let next = next_workspace(&only, shown.as_ref(), None, &last, true);
+        assert_eq!(next.as_deref(), Some("b"));
+    }
+
+    #[test]
     fn a_session_opens_its_worktree_with_the_sessions_there_as_tabs() {
         let t = tree();
         let place = place_of(&t, &session("a")).unwrap();
@@ -1439,6 +1630,19 @@ mod tests {
     }
 
     #[test]
+    fn a_command_sits_under_shells_in_the_order_started() {
+        let mut claude = sh(7, "claude", DEV);
+        claude.program = TerminalProgram::Command;
+        let t = shelled().with_terminals(&[sh(2, "shell", DEV), claude]);
+        let w = t.worktrees().find(|w| w.worktree.path == Path::new(DEV));
+        let w = w.unwrap();
+        assert_eq!(under(&t, w, Heading::Shells), [shell(2), shell(7)]);
+        assert_eq!(under(&t, w, Heading::Editors), []);
+        let list = rows(&t, &[], &Folds::default());
+        assert_eq!(row_above(&list, &shell(7)), Some(shell(2)));
+    }
+
+    #[test]
     fn folding_a_heading_hides_its_rows_and_leaves_the_other_headings() {
         let list = rows(&shelled(), &[], &closed(&[shells_of(DEV)]));
         assert!(list.contains(&shells_of(DEV)) && list.contains(&editors_of(DEV)));
@@ -1453,8 +1657,8 @@ mod tests {
         assert!(!folds.is_open(&sessions_of("/api")));
         folds.toggle(&sessions_of("/api"));
         assert!(folds.is_open(&sessions_of("/api")));
-        folds.set(&session("a"), true);
-        assert!(!folds.is_open(&session("a")));
+        folds.set(&Item::Terminal(3), true);
+        assert!(!folds.is_open(&Item::Terminal(3)));
     }
 
     #[test]
@@ -1626,6 +1830,56 @@ mod tests {
         for item in [ws("/api"), sessions_of("/api"), dir] {
             assert_eq!(opens(&item, &t, &[]), Opens::Fold, "{item:?}");
         }
+    }
+
+    #[test]
+    fn a_folded_row_unfolds_before_it_opens_whatever_kind_it_is() {
+        let t = delegating_tree(true);
+        let folding = [
+            ws("/api"),
+            worktree(OAUTH),
+            sessions_of("/api"),
+            files_of("/api"),
+            file("/api", "/api/src", true),
+            session("a"),
+        ];
+        let mut folds = Folds::default();
+        for item in &folding {
+            folds.set(item, false);
+        }
+        for item in &folding {
+            assert!(unfolds(item, &t, &folds), "{item:?}");
+        }
+    }
+
+    #[test]
+    fn an_unfolded_row_or_one_that_does_not_fold_opens_as_it_always_does() {
+        let t = delegating_tree(true);
+        let mut folds = Folds::default();
+        folds.set(&files_of("/api"), true);
+        folds.set(&session("o"), false);
+        for item in [
+            ws("/api"),
+            worktree(OAUTH),
+            sessions_of("/api"),
+            files_of("/api"),
+            session("a"),
+            session("o"),
+            Item::Waiting("a".into()),
+            Item::Terminal(3),
+            file("/api", "/api/a.rs", false),
+        ] {
+            assert!(!unfolds(&item, &t, &folds), "{item:?}");
+        }
+    }
+
+    #[test]
+    fn only_a_session_that_started_sessions_listed_under_it_has_rows_to_fold() {
+        let t = delegating_tree(true);
+        assert!(holds(&session("a"), &t));
+        assert!(!holds(&session("o"), &t));
+        assert!(!holds(&Item::Waiting("a".into()), &t));
+        assert!(holds(&worktree(OAUTH), &t));
     }
 
     #[test]

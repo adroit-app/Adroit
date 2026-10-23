@@ -130,10 +130,10 @@ alternate screen, leaves nothing scrolled off to read: moving or scrolling past 
 first or last line scrolls the program instead, and the reader follows; `gg` scrolls it to its start. Leaving the reader
 for the live console, or moving to the prompt, returns the session to its
 latest output.
-In the prompt, `Ctrl+c` sends `Escape` to the agent, and `Tab` and
-`Shift+Tab` are sent to it as they are, in insert mode too, but to Neovim while
-it shows its completions or its command line, or the prompt has no session to
-send them to. `global` bindings
+In the prompt, `Ctrl+c` sends `Escape` to the agent, `Shift+Tab` is sent to it
+as it is, and `Tab` on an empty prompt takes the prompt the agent suggests,
+in insert mode too; both are Neovim's while it shows its completions or its
+command line, or the prompt has no session to send them to. `global` bindings
 apply only outside Neovim's insert mode, but for `Mod` and Command keys and
 the prefix.
 
@@ -194,7 +194,7 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 | `window.close` | close the window, which ends adroit; its sessions run on |
 | `cursor.down`, `cursor.up`, `cursor.first`, `cursor.last` | move the selection in the tree; in the details panel, in the list it shows, or scroll what else it shows |
 | `cursor.go` | go to a window showing the selected session, shell, worktree or file, in any tab, or else open it as `cursor.open` does; in the details panel, open the selected row |
-| `cursor.open` | open the selected session, shell, worktree or file in the focused window, in place of what it shows, and move to it, or to the prompt of a session not started yet; fold or unfold a workspace, a heading or a directory; in the details panel, open the selected row |
+| `cursor.open` | open the selected session, shell, worktree or file in the focused window, in place of what it shows, and move to it, or to the prompt of a session not started yet; on a folded row, a worktree or a session holding others too, unfold it instead; fold or unfold a workspace, a heading or a directory; in the details panel, open the selected row |
 | `cursor.split`, `cursor.vsplit` | open the selected session, shell, worktree or file as `cursor.open` does, in a new window split off the focused one, below it or beside it |
 | `cursor.tab` | open the selected session, shell, worktree or file as `cursor.open` does, in a new tab after the one shown |
 | `cursor.show` | open the selected session, shell, worktree or file in the focused window as `cursor.open` does, with the keys staying in the tree; fold or unfold a workspace, a heading or a directory; in the details panel, open the selected row |
@@ -204,6 +204,7 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 | `cursor.reveal` | in the details panel, show the selected file of the overview in the Finder |
 | `waiting.next`, `waiting.prev` | open the next or previous session waiting on you |
 | `session.next`, `session.prev` | open the session after or before the one shown, in the tree's order over every session, folded away or filtered out too, going round at the ends; the keys stay in the area they are in |
+| `workspace.next`, `workspace.prev` | open a session of the workspace after or before the one shown, in the tree's order over every workspace holding a session, folded away or filtered out too, going round at the ends: the session last shown there since the window opened, or else its first; the keys stay in the area they are in |
 | `session.pick` | open the picker, to go to a session or choose where a new one works ([details](workspaces.md#going-to-a-session-or-starting-one)) |
 | `session.new` | start a session, with the prompt ready to write its first message: in the selected row's worktree or directory from the tree, in the one the focused window shows from elsewhere |
 | `session.scratch` | start a scratch session, with the prompt ready: one that runs in a new directory of its own, for talking about something no project holds ([details](workspaces.md#scratch-sessions)) |
@@ -232,6 +233,7 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 | `prompt.write` | give the prompt the keys, and the key pressed with them |
 | `prompt.send` | send what the prompt holds |
 | `prompt.images` | select an attached image |
+| `prompt.take_suggestion` | on an empty prompt, send the key pressed to the session and then bring the session's input into the prompt, so a prompt Claude Code suggests is taken to edit; an agent whose input cannot be taken back gets the key alone. On a prompt holding text or images, or while Neovim shows its completions or its command line, the key is Neovim's |
 | `prompt.history_prev`, `prompt.history_next` | put the prompt sent before or after the one shown in the prompt, to change and send again: those Claude Code recalls with its Up arrow where the focused window's session works. In the prompt, while Neovim shows its completions or its command line, the key is Neovim's |
 | `console.send` | send the key pressed to the session |
 | `console.send <key>` | send the key named instead, as in `console.send Escape` |
@@ -300,6 +302,8 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 "Ctrl+q [" = "waiting.prev"
 "Ctrl+q N" = "session.next"
 "Ctrl+q P" = "session.prev"
+"Ctrl+q }" = "workspace.next"
+"Ctrl+q {" = "workspace.prev"
 "Mod+p" = "session.pick"
 "Ctrl+q ." = "console.send Ctrl+q"
 "Mod+n" = "session.new"
@@ -355,6 +359,8 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 "!" = "worktrees.toggle"
 "] w" = "waiting.next"
 "[ w" = "waiting.prev"
+"}" = "workspace.next"
+"{" = "workspace.prev"
 
 [details]
 "j" = "cursor.down"
@@ -401,7 +407,7 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 
 [prompt]
 "Mod+i" = "prompt.images"
-"Tab" = "console.send"
+"Tab" = "prompt.take_suggestion"
 "Shift+Tab" = "console.send"
 "Ctrl+c" = "console.send Escape"
 "Ctrl+Enter" = "prompt.send"

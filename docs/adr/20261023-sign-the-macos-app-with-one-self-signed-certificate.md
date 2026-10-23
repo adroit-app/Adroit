@@ -12,8 +12,8 @@ has no Apple Developer ID.
 
 ## Decision
 
-Every build of the macOS app is signed by the same self-signed certificate,
-"Adroit Release", when the keychain has it, and ad hoc when it does not.
+Every build of the macOS app is signed by the same self-signed certificate
+when the keychain has it, and ad hoc when it does not.
 
 ## Alternatives considered
 

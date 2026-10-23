@@ -51,6 +51,8 @@ pub struct TerminalStartRequest {
     pub env: Vec<(String, String)>,
     /// The file to start Neovim on; a shell is started on none.
     pub file: Option<PathBuf>,
+    /// The program and its arguments a command terminal runs.
+    pub command: Vec<String>,
 }
 
 pub struct ResolvedTerminalLaunch {
@@ -73,6 +75,21 @@ pub fn resolve_terminal(
                 .collect::<Vec<_>>();
             (program, args, env)
         }
+        TerminalProgram::Command => {
+            // Through the shell, so the program finds what the user's startup
+            // files set, as it would typed into a shell terminal.
+            let launch = adroit_model::config::Launch {
+                command: request.command.clone(),
+                via_shell: true,
+                env: settings.shell.env.clone(),
+            };
+            let (program, args) = launch.command_line("", &[], &shell);
+            let env = [("SHELL".into(), shell.clone())]
+                .into_iter()
+                .chain(launch.env)
+                .collect::<Vec<_>>();
+            (program, args, env)
+        }
         TerminalProgram::Neovim => {
             let file: Vec<String> = request
                 .file
@@ -90,23 +107,23 @@ pub fn resolve_terminal(
     let file = request
         .file
         .filter(|_| request.program == TerminalProgram::Neovim);
-    let resource_id = TerminalResourceId::new();
-    let tags = sessions::terminal_tags(
-        &request.name,
-        &request.cwd,
-        request.program,
-        resource_id,
-        file.as_deref(),
-    );
+    let command = if request.program == TerminalProgram::Command {
+        request.command
+    } else {
+        Vec::new()
+    };
+    let terminal = TerminalSession {
+        resource_id: TerminalResourceId::new(),
+        id: 0,
+        name: request.name,
+        cwd: request.cwd.clone(),
+        program: request.program,
+        file,
+        command,
+    };
+    let tags = sessions::terminal_tags(&terminal);
     ResolvedTerminalLaunch {
-        terminal: TerminalSession {
-            resource_id,
-            id: 0,
-            name: request.name,
-            cwd: request.cwd.clone(),
-            program: request.program,
-            file,
-        },
+        terminal,
         spawn: Spawn {
             program,
             args,

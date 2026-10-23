@@ -17,6 +17,7 @@ use dioxus::prelude::*;
 use crate::components::{
     NumberField, Select, SettingGroup, SettingRow, TextArea, TextField, Toggle,
 };
+use crate::fonts;
 use crate::icons::{Icon, IconView};
 use crate::keys_pane::KeysPane;
 use crate::paths::{home, keys_path};
@@ -405,6 +406,11 @@ fn ConsolePane(now: Settings, change: Callback<Change>) -> Element {
     let themes_dir = crate::settings::themes_dir();
     let themes = crate::themes::names(&themes_dir);
     let known = themes.contains(&now.theme);
+    let installed = use_resource(|| async {
+        tokio::task::spawn_blocking(adroit_runtime::fonts::installed)
+            .await
+            .ok()
+    });
     rsx! {
         SettingGroup {
             SettingRow { label: "Theme", hint: "The console's colours. A theme of your own goes in the themes folder, a file in Ghostty's theme format named as the theme.",
@@ -434,11 +440,15 @@ fn ConsolePane(now: Settings, change: Callback<Change>) -> Element {
                     "Open"
                 }
             }
-            SettingRow { label: "Font", hint: "The family the console and the prompt are drawn in, as the system names it; empty for the built-in ones.",
-                TextField {
-                    value: "{now.font_family}",
-                    placeholder: "SF Mono",
-                    onchange: move |family: String| change(Box::new(move |s: &mut Settings| s.font_family = family)),
+            SettingRow { label: "Font", hint: "The family the console and the prompt are drawn in, among the monospace ones installed and adroit's own, which stands behind any other for Nerd Font glyphs.",
+                select {
+                    onchange: move |e| {
+                        let family = e.value();
+                        change(Box::new(move |s: &mut Settings| s.font_family = family));
+                    },
+                    for c in fonts::choices(installed.read().as_ref().and_then(|i| i.as_deref()), &now.font_family) {
+                        option { key: "{c.value}", value: "{c.value}", selected: now.font_family == c.value, "{c.label}" }
+                    }
                 }
             }
             SettingRow { label: "Size", hint: "In points; a line is as tall as the size needs.",

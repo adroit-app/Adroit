@@ -1,28 +1,29 @@
 # Keep pasted images apart from the prompt text until sending
 
-Status: Accepted; supersedes [Name a pasted image in the prompt by a file adroit saves](20261020-name-a-pasted-image-in-the-prompt-by-a-file-adroit-saves.md)
+Status: Accepted
 
 ## Context
 
-Image references mixed into the text cannot show what is attached and tie the
-prompt to Claude Code's syntax. A prompt may instead be sent to Codex, whose
-terminal input and launch arguments accept images differently.
+Neovim holds text only, and each agent takes images its own way. Image
+references mixed into the text cannot show what is attached and tie the prompt
+to one agent's syntax. A prompt may be sent long after it is written, after the
+clipboard has changed.
 
 ## Decision
 
-Keep pasted images as attachments apart from the prompt text, and let the
-receiving agent's adapter prepare them when sending.
+Pasted images are kept as attachments apart from the prompt text, copied when
+pasted, and the receiving agent's adapter prepares them when the prompt is
+sent.
 
 ## Alternatives considered
 
-- Keep image references in the text and draw previews for those references.
-  Editing a reference would change the attachment, and the text would still
-  depend on the receiving agent's syntax.
-- Forward the clipboard on sending. A later clipboard change would replace
-  the image the user meant to send.
+- Write a reference to a saved image file into the text. Editing the reference
+  changes the attachment, and the text depends on the agent's syntax.
+- Forward the clipboard when sending. A later clipboard change would replace
+  the image meant.
 
 ## Consequences
 
-- Images can be inspected and removed without editing the user's words.
-- Attachments need the same tab ownership and recovery as the prompt text.
+- Images can be seen and removed without editing the user's words.
+- Attachments belong to a tab, as the prompt text does.
 - Each agent's image input is an interface its adapter depends on.

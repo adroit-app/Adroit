@@ -4,6 +4,16 @@ use felis_protocol::messages::{
 
 pub use adroit_model::Key;
 
+/// What is sent to a session's program without a window.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Input {
+    /// Text as if it were typed, byte for byte.
+    Text(String),
+    /// Text pasted, bracketed when the program asks for it.
+    Paste(String),
+    Key(Key),
+}
+
 /// A key press as felis takes it.
 pub(crate) trait Event {
     /// The key as felis takes it, for the daemon to send as the program's

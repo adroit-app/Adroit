@@ -135,6 +135,8 @@ pub fn sections() -> Vec<Section> {
                 Separator,
                 Run(Action::SessionNext),
                 Run(Action::SessionPrev),
+                Run(Action::WorkspaceNext),
+                Run(Action::WorkspacePrev),
                 Run(Action::WaitingNext),
                 Run(Action::WaitingPrev),
                 Separator,

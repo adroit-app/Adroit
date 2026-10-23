@@ -63,6 +63,7 @@ mod tests {
     fn the_skill_names_the_adroit_it_was_written_by() {
         let skill = start_session(Path::new("/Applications/Adroit.app/Contents/MacOS/adroit"));
         assert!(skill.contains("/Applications/Adroit.app/Contents/MacOS/adroit session start"));
+        assert!(skill.contains("/Applications/Adroit.app/Contents/MacOS/adroit terminal start"));
         assert!(!skill.contains("@ADROIT@"));
     }
 

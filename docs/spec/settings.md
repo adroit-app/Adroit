@@ -34,9 +34,12 @@ prompt_min_rows = 3
 prompt_max_rows = 12
 
 # The font the console and the prompt are drawn in, as the system names its
-# family, ahead of the built-in ones; empty for those alone. Its size runs
-# from 8 to 32 points and its weight from 100 to 900. A line is as tall as the
-# font asks, as in a terminal.
+# family; empty for adroit's own, JetBrainsMono Nerd Font Mono. Adroit's own
+# stands behind any other, so Nerd Font glyphs draw whatever font is chosen,
+# and a Japanese font behind that. Its size runs from 8 to 32 points and its
+# weight from 100 to 900; adroit's own comes in regular and bold, and draws
+# other weights in the nearer of them. A line is as tall as the font asks, as
+# in a terminal.
 font_family = ""
 font_size = 13.0
 font_weight = 400
@@ -158,6 +161,11 @@ Choose an agent under Agents to change its launch options and the defaults
 for its sessions. Only that agent's options are offered; changes
 do not affect other agents or sessions already running. General sets the
 agent new sessions start with. Programs holds the shell and Neovim options.
+
+The Settings window offers the font among adroit's default, adroit's own and
+the families installed whose letters and digits are all as wide, the console
+being a grid. A family the settings name that is not installed is offered as
+such and kept, drawn in adroit's own meanwhile, until another is picked.
 
 A theme is adroit's own, one of those it comes with (Nightfox, TokyoNight,
 Catppuccin, Gruvbox, Dracula, Nord, Kanagawa, Rose Pine and GitHub Light among

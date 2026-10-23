@@ -27,9 +27,9 @@ workspace has no worktree row, the headings are its checkout's.
 
 Files starts folded. Unfolded, it lists the worktree's files as a file tree,
 directories first, each with its Nerd Font icon in the colour vim-glyph-palette
-gives it, drawn from a symbols font adroit carries whatever the console's font
-is. A directory is read when it is
-unfolded, `l` or `Enter` unfolding it and `h` folding it or going up to the
+gives it, drawn from adroit's own Nerd Font whatever the console's font
+is. A directory is read when it is unfolded, `l` or `Enter` unfolding it and
+`h` folding it or going up to the
 directory above. Names with a leading dot, and what git ignores, are drawn
 dim; the version control's own `.git` and `.jj` are not listed. A file jj or
 git sees changed is marked at the end of its row with the letter git gives it,
@@ -45,7 +45,7 @@ A session started by another session is listed under the one that started it,
 wherever it runs, inside its starter's Sessions heading and not under its own
 worktree. Its row leads with its name, and names its worktree or directory
 in short when that differs from its starter's and says more than its name.
-Folding a session's row hides the sessions it started. Once its starter has
+Folding a session's row hides the sessions it started. Opening a folded row in place, by key or by a click, unfolds it before it opens what it stands for, so every fold can be undone. Once its starter has
 ended, a started session is listed by the directory it runs in, like any
 other. There is one tree: no view lists sessions by role or request.
 
@@ -106,7 +106,8 @@ chooses the directory under the cursor. `Ctrl+f` goes back to the list and
 
 `n` on a row starts a session in that row's worktree or directory without the
 picker. `Ctrl+q N` and `Ctrl+q P` open the next and
-the previous session without asking.
+the previous session without asking, and `Ctrl+q }` and `Ctrl+q {` a session
+of the next and the previous workspace, the one last shown there.
 
 ## Scratch sessions
 
