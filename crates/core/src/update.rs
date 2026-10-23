@@ -21,14 +21,12 @@ pub fn step(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
 /// `msg` applied to the slices it concerns.
 pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
     match msg {
-        Msg::Opened { zoom, home } => {
+        Msg::Opened { home } => {
             state.picker.home = home;
-            let mut effects = chrome::open(&mut state.chrome, zoom);
-            effects.push(host::hello());
-            effects
+            vec![host::hello()]
         }
+        Msg::WindowFocused(on) => chrome::window_focused(&mut state.chrome, on),
         Msg::Zoom(step) => chrome::step(&mut state.chrome, step),
-        Msg::ZoomSetting(zoom) => chrome::setting(&mut state.chrome, zoom),
 
         Msg::PanelsKept(layout) => panels::kept(&mut state.chrome.panels, layout),
         Msg::BodyResized(body) => panels::resized(&mut state.chrome.panels, body),
@@ -48,7 +46,6 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         }
         Msg::KeysHelpOpen(here) => chrome::open_keys_help(&mut state.chrome, here),
         Msg::KeysHelpClose => chrome::close_keys_help(&mut state.chrome),
-        Msg::KeysRead(keymap) => chrome::keys_read(&mut state.chrome, *keymap),
 
         Msg::Host(event) => host::receive(&mut state.host, event),
 

@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use adroit_model::{Agent, Key};
 use adroit_protocol::Request;
 
+use crate::complete::{Offer, candidates};
 use crate::console::{self, route::Typed};
 use crate::content::{Area, Tab};
 use crate::effect::Effect;
@@ -49,6 +50,9 @@ pub struct PromptView {
     /// Counts the histories asked for, so an answer is taken for its own
     /// request alone.
     asked: u64,
+    /// What the running Neovim was last offered after `@`, and the
+    /// worktree it walks paths from; nothing while none runs.
+    offered: Option<(Vec<Offer>, Option<PathBuf>)>,
 }
 
 impl Default for PromptView {
@@ -64,6 +68,7 @@ impl Default for PromptView {
             sending: None,
             recall: None,
             asked: 0,
+            offered: None,
         }
     }
 }
@@ -213,4 +218,39 @@ pub(crate) fn follow_shown(state: &mut ViewState) -> Vec<Effect> {
     }
     view.shown_for = now.clone();
     vec![Effect::PromptShow(now)]
+}
+
+/// The prompt's Neovim, while it runs, is offered after `@` the sessions
+/// and the files of the worktree in the middle, which it walks paths from,
+/// each time they change.
+pub(crate) fn offer(state: &mut ViewState) -> Vec<Effect> {
+    if !state.console.prompt_runs {
+        state.prompt.offered = None;
+        return Vec::new();
+    }
+    let work = state.host.work.as_ref();
+    let place = state.content.place.as_ref();
+    let files = match (work, place) {
+        (Some(work), Some(p)) => work
+            .place
+            .of(&p.worktree)
+            .map(|r| r.files.as_slice())
+            .unwrap_or_default(),
+        _ => &[],
+    };
+    let offers = candidates(tree::listed(work), place, files);
+    let root = place.map(|p| p.worktree.clone());
+    let (was_offers, was_root) = match state.prompt.offered.take() {
+        Some((offers, root)) => (Some(offers), Some(root)),
+        None => (None, None),
+    };
+    let mut effects = Vec::new();
+    if was_offers.as_ref() != Some(&offers) {
+        effects.push(Effect::PromptOffer(offers.clone()));
+    }
+    if was_root.as_ref() != Some(&root) {
+        effects.push(Effect::PromptRoot(root.clone()));
+    }
+    state.prompt.offered = Some((offers, root));
+    effects
 }

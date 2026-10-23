@@ -127,8 +127,9 @@ pub(crate) fn listed(state: &mut ViewState) -> Vec<Effect> {
             view.windows.open(kept);
         }
     }
-    // Told only of what changed since the window first read the sessions.
-    if view.restored {
+    // Told only of what changed since the window first read the sessions,
+    // and only when the settings ask for it.
+    if view.restored && state.config.settings.notify_waiting {
         let waiting = newly_waiting(&was, next);
         if !waiting.is_empty() {
             effects.push(Effect::NotifyWaiting(waiting));

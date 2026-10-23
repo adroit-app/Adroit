@@ -124,8 +124,6 @@ pub(crate) struct Consoles {
     pub console_box: Signal<(f64, f64)>,
     pub composer_height: Signal<f64>,
     pub prompt_width: Signal<f64>,
-    /// The settings the console's font is drawn by.
-    pub font: Signal<crate::settings::Settings>,
     pub prompts: crate::prompts::Prompts,
     /// The wheel over the reader, by lines.
     pub scroll_reader: Callback<i32>,

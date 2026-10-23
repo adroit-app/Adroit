@@ -12,6 +12,7 @@ use tokio::sync::{mpsc, watch};
 
 use crate::work::{HistoryAsk, Host, Seen};
 
+mod config;
 mod context;
 mod conversation;
 mod entries;
@@ -159,6 +160,12 @@ impl Watched {
 
 fn lock(host: &Mutex<Host>) -> MutexGuard<'_, Host> {
     host.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// The watcher of the configuration, which the window works by from the
+/// first, run in the background for as long as the process lives.
+pub fn start_config(watched: Watched) {
+    tokio::spawn(config::watch(watched));
 }
 
 /// Every watcher, run in the background for as long as the process lives.

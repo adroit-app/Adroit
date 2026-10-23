@@ -320,6 +320,20 @@ impl Settings {
         format!("\"{quoted}\", {MONO}")
     }
 
+    /// The settings `file` holds, as designed when there is none, or why
+    /// they cannot be had, naming the file.
+    pub fn read(file: &adroit_protocol::ConfigFile) -> Result<Self, String> {
+        use adroit_protocol::FileText;
+        let path = file.path.display();
+        match &file.text {
+            FileText::Missing => Ok(Settings::default()),
+            FileText::Read { text } => {
+                Settings::parse(text).map_err(|error| format!("Cannot load {path}: {error}"))
+            }
+            FileText::Unreadable { error } => Err(format!("Cannot read {path}: {error}")),
+        }
+    }
+
     /// The settings in `text`; what it does not name is as designed.
     pub fn parse(text: &str) -> Result<Self, toml::de::Error> {
         let mut table: toml::Table = text.parse()?;
@@ -341,6 +355,37 @@ pub fn reread(current: &Settings, text: &str) -> Option<Settings> {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn a_file_missing_reads_as_designed_and_one_that_cannot_be_had_names_itself() {
+        use adroit_protocol::{ConfigFile, FileText};
+        let file = |text| ConfigFile {
+            path: "/c/settings.toml".into(),
+            text,
+        };
+        assert_eq!(
+            Settings::read(&file(FileText::Missing)),
+            Ok(Settings::default())
+        );
+        let read = Settings::read(&file(FileText::Read {
+            text: "zoom = 1.25\n".into(),
+        }));
+        assert_eq!(read.map(|s| s.zoom), Ok(1.25));
+        let broken = Settings::read(&file(FileText::Read {
+            text: "zoom = ".into(),
+        }))
+        .unwrap_err();
+        assert!(
+            broken.starts_with("Cannot load /c/settings.toml: "),
+            "{broken}"
+        );
+        assert_eq!(
+            Settings::read(&file(FileText::Unreadable {
+                error: "denied".into()
+            })),
+            Err("Cannot read /c/settings.toml: denied".into())
+        );
+    }
 
     #[test]
     fn each_agent_s_launch_is_the_one_written_under_its_name() {

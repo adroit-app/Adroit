@@ -6,6 +6,7 @@ use std::rc::Rc;
 
 use adroit_core::actions::Action;
 use adroit_core::chrome::Chrome;
+use adroit_core::config::Config;
 use adroit_core::console::ConsoleView;
 use adroit_core::content::{Area, ContentView, Tab, kept_name};
 use adroit_core::details::{Details, Scroll};
@@ -19,13 +20,14 @@ use adroit_core::state::ViewState;
 use adroit_core::tree::TreeView;
 use adroit_core::update::step;
 use adroit_model::Key;
-use adroit_runtime::work::{Host, HostLink, Loopback};
+use adroit_protocol::Event;
+use adroit_runtime::work::{Host, HostLink, Loopback, Work};
 use dioxus::core::{Runtime, current_scope_id};
 use dioxus::prelude::*;
+use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::layout::{Kept as _, Layout};
 use crate::paths::{home, instance_state, scratch_dir};
-use crate::settings;
 
 /// What runs an effect handed to `App`.
 type Handed = Rc<dyn Fn(Effect)>;
@@ -43,6 +45,7 @@ pub(crate) struct AppCtx {
     /// The host run in-process, whose watchers start once the daemon runs.
     loopback: CopyValue<Rc<Loopback>>,
     pub(crate) chrome: Signal<Chrome>,
+    pub(crate) config: Signal<Config>,
     pub(crate) host: Signal<HostView>,
     pub(crate) content: Signal<ContentView>,
     pub(crate) tree: Signal<TreeView>,
@@ -64,32 +67,36 @@ pub(crate) struct AppCtx {
 /// with the work host run in-process and its events fed back as messages.
 pub(crate) fn use_app() -> AppCtx {
     use_hook(|| {
-        let (link, mut events) = Loopback::new(Host::default());
+        let configured = Work::configured(adroit_runtime::config::read());
+        let (link, mut events) = Loopback::new(Host::new(configured));
         let loopback = Rc::new(link);
-        let link: Rc<dyn HostLink> = loopback.clone();
         let mut view = ViewState::default();
-        // The layout kept comes first: hiding a panel gives its keys away,
-        // and a panel kept hidden was not hidden now.
-        let mut effects = step(&mut view, Msg::PanelsKept(Layout::load()));
-        effects.extend(step(
-            &mut view,
-            Msg::Opened {
-                zoom: settings::current().zoom,
-                home: home(),
-            },
-        ));
         let kept = std::fs::read_to_string(shown_path())
             .ok()
             .and_then(|name| adroit_core::content::from_kept(&name));
-        effects.extend(step(
+        // The layout kept comes first: hiding a panel gives its keys away,
+        // and a panel kept hidden was not hidden now. The host's first
+        // answers are taken in before the window is drawn, so it opens in
+        // the configuration's zoom and theme.
+        let effects = pump(
             &mut view,
-            Msg::ContentOpened {
-                kept,
-                scratch: scratch_dir(),
-            },
-        ));
+            &*loopback,
+            &mut events,
+            [
+                Msg::PanelsKept(Layout::load()),
+                Msg::WindowFocused(dioxus::desktop::window().is_focused()),
+                Msg::Opened { home: home() },
+                Msg::ContentOpened {
+                    kept,
+                    scratch: scratch_dir(),
+                },
+            ],
+        );
+        loopback.watch_config();
+        let link: Rc<dyn HostLink> = loopback.clone();
         let app = AppCtx {
             chrome: Signal::new(view.chrome.clone()),
+            config: Signal::new(view.config.clone()),
             host: Signal::new(view.host.clone()),
             content: Signal::new(view.content.clone()),
             tree: Signal::new(view.tree.clone()),
@@ -130,6 +137,7 @@ impl AppCtx {
     fn publish(&self) {
         let view = self.view.read();
         set_changed(self.chrome, &view.chrome);
+        set_changed(self.config, &view.config);
         set_changed(self.host, &view.host);
         set_changed(self.content, &view.content);
         set_changed(self.tree, &view.tree);
@@ -210,13 +218,16 @@ impl AppCtx {
             },
             // Told only while the window is not in front.
             Effect::NotifyWaiting(waiting) => {
-                if settings::current().notify_waiting && !dioxus::desktop::window().is_focused() {
+                if !dioxus::desktop::window().is_focused() {
                     for (name, why) in waiting {
                         spawn(crate::alerts::notify_waiting(&name, &why));
                     }
                 }
             }
             effect @ (Effect::ShowShot { .. }
+            | Effect::FilterFocus(_)
+            | Effect::PromptOffer(_)
+            | Effect::PromptRoot(_)
             | Effect::StartTerminal(_)
             | Effect::PromptClose(_)
             | Effect::StartWriting
@@ -332,16 +343,6 @@ impl AppCtx {
     pub(crate) fn notice(&self, text: String) {
         self.dispatch(Msg::Notice(text));
     }
-
-    /// Show the error `text` while it lasts, or, with `None`, take back the
-    /// one this source showed before; a message shown since stays.
-    pub(crate) fn while_failing(&self, last: &mut Option<String>, text: Option<String>) {
-        self.dispatch(Msg::Failing {
-            last: last.clone(),
-            now: text.clone(),
-        });
-        *last = text;
-    }
 }
 
 fn set_changed<T: Clone + PartialEq + 'static>(mut signal: Signal<T>, now: &T) {
@@ -355,6 +356,26 @@ fn set_changed<T: Clone + PartialEq + 'static>(mut signal: Signal<T>, now: &T) {
 /// overlay its own message closes.
 fn as_from<O>(scope: ScopeId, run: impl FnOnce() -> O) -> O {
     Runtime::current().in_scope(scope, run)
+}
+
+/// `msgs` stepped in turn with every event the host sends back, the
+/// requests among their effects sent through `link`: the effects left for
+/// the window to carry out.
+fn pump(
+    view: &mut ViewState,
+    link: &dyn HostLink,
+    events: &mut UnboundedReceiver<Event>,
+    msgs: impl IntoIterator<Item = Msg>,
+) -> Vec<Effect> {
+    let mut queue: std::collections::VecDeque<Msg> = msgs.into_iter().collect();
+    let mut local = Vec::new();
+    while let Some(msg) = queue.pop_front() {
+        run(step(view, msg), link, |e| local.push(e));
+        while let Ok(event) = events.try_recv() {
+            queue.push_back(Msg::Host(event));
+        }
+    }
+    local
 }
 
 /// `effects` carried out in order: requests sent to the host through
@@ -372,12 +393,7 @@ fn run(effects: Vec<Effect>, link: &dyn HostLink, mut local: impl FnMut(Effect))
 mod tests {
     use adroit_core::host::Link;
     use adroit_core::zoom::Step;
-    use adroit_protocol::{SPOKEN, WorkSnapshot};
-    use tokio::sync::mpsc::UnboundedReceiver;
-
-    use std::collections::VecDeque;
-
-    use adroit_protocol::Event;
+    use adroit_protocol::{ConfigFile, ConfigWork, FileText, SPOKEN};
 
     use super::*;
 
@@ -391,8 +407,18 @@ mod tests {
     }
 
     impl Window {
-        fn open(zoom: f64) -> Self {
-            let (link, events) = Loopback::new(Host::default());
+        /// A window opened on a host that read these settings.
+        fn open(settings: &str) -> Self {
+            let config = ConfigWork {
+                settings: Some(ConfigFile {
+                    path: "/c/settings.toml".into(),
+                    text: FileText::Read {
+                        text: settings.into(),
+                    },
+                }),
+                keys: None,
+            };
+            let (link, events) = Loopback::new(Host::new(Work::configured(config)));
             let mut window = Self {
                 view: ViewState::default(),
                 link,
@@ -400,21 +426,14 @@ mod tests {
                 drawn: Vec::new(),
             };
             window.dispatch(Msg::Opened {
-                zoom,
                 home: Default::default(),
             });
             window
         }
 
         fn dispatch(&mut self, msg: Msg) {
-            let mut queue = VecDeque::from([msg]);
-            while let Some(msg) = queue.pop_front() {
-                let effects = step(&mut self.view, msg);
-                run(effects, &self.link, |e| self.drawn.push(e));
-                while let Ok(event) = self.events.try_recv() {
-                    queue.push_back(Msg::Host(event));
-                }
-            }
+            let drawn = pump(&mut self.view, &self.link, &mut self.events, [msg]);
+            self.drawn.extend(drawn);
         }
     }
 
@@ -474,31 +493,27 @@ mod tests {
 
     #[test]
     fn an_opened_window_greets_the_host_and_holds_the_work() {
-        let window = Window::open(1.25);
+        let window = Window::open("zoom = 1.25\n");
         assert_eq!(
             window.view.host.link,
             Link::Ready {
                 version: *SPOKEN.iter().max().unwrap()
             }
         );
-        assert_eq!(window.view.host.work, Some(WorkSnapshot::default()));
+        assert!(window.view.host.work.is_some());
+        assert_eq!(window.view.config.settings.zoom, 1.25);
         assert_eq!(window.drawn, vec![Effect::Zoom(1.25)]);
     }
 
     #[test]
     fn the_zoom_keys_redraw_the_window_and_never_reach_the_host() {
-        let mut window = Window::open(1.0);
+        let mut window = Window::open("");
         window.dispatch(Msg::Zoom(Step::In));
         window.dispatch(Msg::Zoom(Step::In));
         window.dispatch(Msg::Zoom(Step::Reset));
         assert_eq!(
             window.drawn,
-            vec![
-                Effect::Zoom(1.0),
-                Effect::Zoom(1.1),
-                Effect::Zoom(1.25),
-                Effect::Zoom(1.0)
-            ]
+            vec![Effect::Zoom(1.1), Effect::Zoom(1.25), Effect::Zoom(1.0)]
         );
         assert_eq!(window.view.chrome.zoom, 1.0);
     }

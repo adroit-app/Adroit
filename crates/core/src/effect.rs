@@ -75,6 +75,10 @@ pub enum Effect {
     /// waiting, each by its name and what it waits for.
     NotifyWaiting(Vec<(String, String)>),
 
+    // The tree.
+    /// Give the filter's field the keys, or take them from it.
+    FilterFocus(bool),
+
     // The console.
     /// Send this key to the focused window's program.
     PaneKey(Key),
@@ -133,6 +137,11 @@ pub enum Effect {
     /// Start a session from a draft with its first prompt, telling the
     /// window with [`crate::msg::Msg::PromptWent`] whether it started.
     StartDraft(Box<Start>),
+    /// Offer these after `@` in the prompt.
+    PromptOffer(Vec<crate::complete::Offer>),
+    /// Walk a path after `@` in the prompt from this worktree, or from
+    /// nowhere.
+    PromptRoot(Option<PathBuf>),
     /// A prompt went: stepping through those sent starts again from the
     /// newest.
     PromptSent,

@@ -256,7 +256,12 @@ fn what_shows_is_kept_for_the_next_run_once_the_kept_tab_had_its_chance() {
 fn a_session_that_starts_waiting_is_told_of_after_the_first_listing() {
     let mut waits = session("a", "/r");
     waits.state = State::Waiting(Wait::Permission);
-    let first = Scenario::new()
+    let notifying = || {
+        Scenario::new().event(crate::config::testing::configured(
+            "notify_waiting = true\n",
+        ))
+    };
+    let first = notifying()
         .send(opened(None))
         .event(listing(vec![waits.clone()], Vec::new()));
     assert!(
@@ -265,7 +270,10 @@ fn a_session_that_starts_waiting_is_told_of_after_the_first_listing() {
             .iter()
             .any(|e| matches!(e, Effect::NotifyWaiting(_)))
     );
-    let later = listed_with(vec![session("a", "/r")]).event(relisted(2, vec![waits], Vec::new()));
+    let later = notifying()
+        .send(opened(None))
+        .event(listing(vec![session("a", "/r")], Vec::new()))
+        .event(relisted(2, vec![waits], Vec::new()));
     assert_eq!(
         later
             .last_effects()
@@ -697,4 +705,22 @@ fn the_host_reads_the_worktree_in_the_middle_while_it_is_there() {
     assert_eq!(watched(&run), None);
     let run = run.send(show_session("a"));
     assert_eq!(watched(&run), Some("/r/a".into()));
+}
+
+#[test]
+fn a_session_that_starts_waiting_is_not_told_of_when_the_settings_say_so() {
+    let mut waits = session("a", "/r");
+    waits.state = State::Waiting(Wait::Permission);
+    let run = Scenario::new()
+        .event(crate::config::testing::configured(
+            "notify_waiting = false\n",
+        ))
+        .send(opened(None))
+        .event(listing(vec![session("a", "/r")], Vec::new()))
+        .event(relisted(2, vec![waits], Vec::new()));
+    assert!(
+        !run.effects()
+            .iter()
+            .any(|e| matches!(e, Effect::NotifyWaiting(_)))
+    );
 }

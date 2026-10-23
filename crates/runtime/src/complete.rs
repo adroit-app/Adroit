@@ -1,28 +1,15 @@
 //! What `@` and `/` in the prompt offer.
 
 use adroit_agents::claude::commands::Command;
-use adroit_model::Tree;
 use adroit_nvim::Candidate;
 
 pub use adroit_core::complete::*;
 
-use crate::nav::Place;
-
-/// The sessions to talk to, those of the open workspace first, then the files
-/// of the open worktree.
-pub fn candidates(tree: &Tree, place: Option<&Place>, files: &[String]) -> Vec<Candidate> {
-    // Told by its root: two repositories of one name are two workspaces.
-    let here = place.and_then(|p| tree.workspace_of(&p.worktree));
-    let far = tree
-        .workspaces
+/// What `@` offers, as the prompt's Neovim completes it.
+pub fn offered(offers: &[Offer]) -> Vec<Candidate> {
+    offers
         .iter()
-        .filter(|ws| here.is_none_or(|h| h.root != ws.root))
-        .flat_map(|ws| ws.sessions());
-    here.into_iter()
-        .flat_map(|ws| ws.sessions())
-        .chain(far)
-        .map(|s| Candidate::new(s.name.clone(), "session"))
-        .chain(files.iter().map(|f| Candidate::new(f.clone(), "file")))
+        .map(|o| Candidate::new(o.word.clone(), o.kind))
         .collect()
 }
 
@@ -61,8 +48,6 @@ pub fn commands(list: &[Command]) -> Vec<Candidate> {
 
 #[cfg(test)]
 mod tests {
-    use adroit_model::testing::{self, session};
-
     use super::*;
 
     #[test]
@@ -71,46 +56,6 @@ mod tests {
         assert_eq!(got[0].word, "$deploy");
     }
 
-    #[test]
-    fn the_open_workspace_s_sessions_come_before_the_others_and_files_last() {
-        let x = "/api/.claude/worktrees/x";
-        let tree = testing::tree()
-            .session(session("scratch").cwd("/tmp"))
-            .session(session("fix").cwd(x))
-            .checkout(x, "/api", "x")
-            .build();
-        let place = Place {
-            worktree: "/api".into(),
-        };
-        let got: Vec<_> = candidates(&tree, Some(&place), &["src/lib.rs".into()])
-            .into_iter()
-            .map(|c| (c.word, c.menu))
-            .collect();
-        assert_eq!(
-            got,
-            vec![
-                ("fix".into(), "session".into()),
-                ("scratch".into(), "session".into()),
-                ("src/lib.rs".into(), "file".into()),
-            ]
-        );
-    }
-
-    #[test]
-    fn a_workspace_of_the_same_name_elsewhere_is_not_the_open_one() {
-        let tree = testing::tree()
-            .session(session("there").cwd("/a/api"))
-            .session(session("here").cwd("/b/api"))
-            .build();
-        let place = Place {
-            worktree: "/b/api".into(),
-        };
-        let got: Vec<_> = candidates(&tree, Some(&place), &[])
-            .into_iter()
-            .map(|c| c.word)
-            .collect();
-        assert_eq!(got, vec!["here".to_string(), "there".to_string()]);
-    }
     fn command(name: &str, description: &str, argument_hint: &str) -> Command {
         Command {
             name: name.into(),

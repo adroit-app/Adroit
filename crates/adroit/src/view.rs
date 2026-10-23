@@ -21,8 +21,9 @@ pub fn ScreenView(
 ) -> Element {
     let ch = use_cell_height();
     let cw = cell_width;
+    let app = use_context::<crate::bridge::AppCtx>();
     let blinks =
-        screen.cursor.is_some_and(|c| c.blink) && crate::settings::current().console.cursor_blink;
+        screen.cursor.is_some_and(|c| c.blink) && app.config.read().settings.console.cursor_blink;
     let cursor = screen.cursor.filter(|_| show_cursor).map(|c| {
         let wide = screen.lines.get(c.row).is_some_and(|l| l.wide_at(c.col));
         let cells = if wide { 2.0 * cw } else { cw };

@@ -5,6 +5,7 @@ pub mod actions;
 pub mod chrome;
 pub mod complete;
 pub mod completion;
+pub mod config;
 pub mod console;
 pub mod content;
 pub mod details;

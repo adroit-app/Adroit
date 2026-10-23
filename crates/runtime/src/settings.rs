@@ -24,12 +24,7 @@ pub fn themes_dir() -> PathBuf {
 }
 
 fn read_path(path: &Path) -> Result<Settings, String> {
-    match std::fs::read_to_string(path) {
-        Ok(text) => Settings::parse(&text)
-            .map_err(|error| format!("Cannot load {}: {error}", path.display())),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Settings::default()),
-        Err(error) => Err(format!("Cannot read {}: {error}", path.display())),
-    }
+    Settings::read(&crate::config::file(path))
 }
 
 /// Keep the UI available for repairing an invalid configuration, with
@@ -80,31 +75,20 @@ pub fn current() -> Settings {
     SETTINGS.read().map(|s| s.clone()).unwrap_or_default()
 }
 
-/// Take in the file's settings whenever it changes on disk, edited by hand or
-/// by another program, looking every `every`.
-pub fn watch(every: std::time::Duration) {
-    let modified = || std::fs::metadata(path()).and_then(|m| m.modified()).ok();
-    std::thread::spawn(move || {
-        let mut seen = modified();
-        loop {
-            std::thread::sleep(every);
-            let now = modified();
-            if now == seen {
-                continue;
+/// Take in the settings `file` holds, as it changed on disk, edited by hand
+/// or by another program, and tell every window: a file that does not read
+/// leaves the settings as they are.
+pub fn take_in(file: &adroit_protocol::ConfigFile) {
+    match Settings::read(file) {
+        Ok(next) if next != current() => {
+            if let Ok(mut s) = SETTINGS.write() {
+                *s = next;
             }
-            seen = now;
-            match read_path(&path()) {
-                Ok(next) if next != current() => {
-                    if let Ok(mut s) = SETTINGS.write() {
-                        *s = next;
-                    }
-                }
-                Err(error) => eprintln!("adroit: {error}"),
-                _ => {}
-            }
-            let _ = CHANGED.send(());
         }
-    });
+        Err(error) => eprintln!("adroit: {error}"),
+        _ => {}
+    }
+    let _ = CHANGED.send(());
 }
 
 /// Make `next` the settings: keep them for the next run and tell every window.

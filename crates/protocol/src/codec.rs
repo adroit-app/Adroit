@@ -36,10 +36,11 @@ mod tests {
     };
 
     use crate::{
-        Change, ConversationRead, DetailsChange, DetailsWork, Event, HistoryRead, Listed, Offers,
-        PastChange, PastSight, PastWork, PickChange, PickSight, PickWork, PlaceChange, PlaceRead,
-        PlaceWork, PromptChange, PromptWork, RepositoryRead, RepositorySight, Request, Seq,
-        SessionRead, Sight, SystemUsage, TreeChange, TreeSight, Version, WorkPatch, WorkSnapshot,
+        Change, ConfigChange, ConfigFile, ConfigWork, ConversationRead, DetailsChange, DetailsWork,
+        Event, FileText, HistoryRead, Listed, Offers, PastChange, PastSight, PastWork, PickChange,
+        PickSight, PickWork, PlaceChange, PlaceRead, PlaceWork, PromptChange, PromptWork,
+        RepositoryRead, RepositorySight, Request, Seq, SessionRead, Sight, SystemUsage, TreeChange,
+        TreeSight, Version, WorkPatch, WorkSnapshot,
     };
 
     fn round_trips<T>(message: T)
@@ -118,6 +119,7 @@ mod tests {
             pick: Default::default(),
             place: Default::default(),
             prompt: Default::default(),
+            config: Default::default(),
         })));
         round_trips(Event::Snapshot(Box::new(WorkSnapshot {
             seq: Seq(7),
@@ -155,6 +157,10 @@ mod tests {
             },
             prompt: PromptWork {
                 history: Some(HistoryRead::default()),
+            },
+            config: ConfigWork {
+                settings: Some(ConfigFile::default()),
+                keys: None,
             },
         })));
         round_trips(Event::Patch(WorkPatch {
@@ -249,6 +255,25 @@ mod tests {
                     }],
                 }),
                 Change::Tree(TreeChange::EntriesLeft { dir: "/w".into() }),
+                Change::Config(ConfigChange::Settings {
+                    file: ConfigFile {
+                        path: "/c/settings.toml".into(),
+                        text: FileText::Read {
+                            text: "zoom = 1.25\n".into(),
+                        },
+                    },
+                }),
+                Change::Config(ConfigChange::Keys {
+                    file: ConfigFile {
+                        path: "/c/keys.toml".into(),
+                        text: FileText::Unreadable {
+                            error: "denied".into(),
+                        },
+                    },
+                }),
+                Change::Config(ConfigChange::Keys {
+                    file: ConfigFile::default(),
+                }),
                 Change::Tree(TreeChange::MarksLeft {
                     worktree: "/w".into(),
                 }),

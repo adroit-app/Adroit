@@ -8,9 +8,9 @@ use std::path::PathBuf;
 
 use adroit_model::{Agent, Session, TerminalSession};
 use adroit_protocol::{
-    Change, DetailsChange, DetailsWork, Event, PastChange, PastWork, PickChange, PickWork,
-    PlaceChange, PlaceWork, PromptChange, PromptWork, Request, SPOKEN, Seq, Sight, TreeChange,
-    TreeWork, WorkPatch, WorkSnapshot, agree,
+    Change, ConfigWork, DetailsChange, DetailsWork, Event, PastChange, PastWork, PickChange,
+    PickWork, PlaceChange, PlaceWork, PromptChange, PromptWork, Request, SPOKEN, Seq, Sight,
+    TreeChange, TreeWork, WorkPatch, WorkSnapshot, agree,
 };
 use tokio::sync::{mpsc, watch};
 
@@ -24,6 +24,7 @@ pub struct Work {
     pick: PickWork,
     place: PlaceWork,
     prompt: PromptWork,
+    config: ConfigWork,
 }
 
 impl Work {
@@ -37,6 +38,15 @@ impl Work {
             pick: self.pick.clone(),
             place: self.place.clone(),
             prompt: self.prompt.clone(),
+            config: self.config.clone(),
+        }
+    }
+
+    /// The work before anything is read but the configuration.
+    pub fn configured(config: ConfigWork) -> Self {
+        Self {
+            config,
+            ..Self::default()
         }
     }
 
@@ -57,6 +67,7 @@ impl Work {
             Change::Pick(change) => self.pick.apply(change),
             Change::Place(change) => self.place.apply(change),
             Change::Prompt(change) => self.prompt.apply(change),
+            Change::Config(change) => self.config.apply(change),
         }
     }
 }
@@ -352,6 +363,7 @@ fn in_sight(change: &Change, sight: &Sight) -> bool {
         Change::Place(PlaceChange::Read { read }) => sight.place.as_ref() == Some(&read.worktree),
         Change::Place(PlaceChange::Left) => true,
         Change::Prompt(PromptChange::History { .. }) => true,
+        Change::Config(_) => true,
     }
 }
 
@@ -395,6 +407,15 @@ impl Loopback {
             events,
         };
         (link, received)
+    }
+
+    /// Start reading the configuration again as it changes, in the
+    /// background.
+    pub fn watch_config(&self) {
+        crate::watch::start_config(crate::watch::Watched::new(
+            self.host.clone(),
+            self.events.clone(),
+        ));
     }
 
     /// Start reading, in the background, what the window shows: each fact
@@ -581,7 +602,8 @@ mod tests {
                     | Change::Past(_)
                     | Change::Pick(_)
                     | Change::Place(_)
-                    | Change::Prompt(_) => None,
+                    | Change::Prompt(_)
+                    | Change::Config(_) => None,
                 })
                 .collect(),
             _ => Vec::new(),
@@ -728,7 +750,8 @@ mod tests {
                 | Change::Past(_)
                 | Change::Pick(_)
                 | Change::Place(_)
-                | Change::Prompt(_) => None,
+                | Change::Prompt(_)
+                | Change::Config(_) => None,
             })
             .collect()
     }
@@ -1009,6 +1032,34 @@ mod tests {
             vec![TreeChange::EntriesLeft {
                 dir: "/home".into()
             }]
+        );
+    }
+
+    #[test]
+    fn the_configuration_read_reaches_every_window_once_whatever_it_shows() {
+        use adroit_protocol::{ConfigChange, ConfigFile, FileText};
+        let read = |text: &str| ConfigChange::Settings {
+            file: ConfigFile {
+                path: "/c/settings.toml".into(),
+                text: FileText::Read { text: text.into() },
+            },
+        };
+        let configured = Work::configured(ConfigWork {
+            settings: Some(match read("zoom = 1.25\n") {
+                ConfigChange::Settings { file } => file,
+                ConfigChange::Keys { .. } => unreachable!(),
+            }),
+            keys: None,
+        });
+        let mut host = Host::new(configured.clone());
+        assert_eq!(
+            host.handle(hello(&[1])).last(),
+            Some(&Event::Snapshot(Box::new(configured.snapshot())))
+        );
+        assert!(patched(host.record([read("zoom = 1.25\n")])).is_empty());
+        assert_eq!(
+            patched(host.record([read("zoom = 1.5\n")])),
+            vec![Change::Config(read("zoom = 1.5\n"))]
         );
     }
 }

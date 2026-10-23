@@ -6,6 +6,7 @@ pub mod alerts;
 pub mod awake;
 pub mod cli;
 pub mod complete;
+pub mod config;
 pub mod console_read;
 pub mod daemon;
 pub mod delegation;
@@ -34,7 +35,6 @@ pub mod work;
 pub mod work_host;
 
 use adroit_core::content;
-use adroit_core::tree::nav;
 
 pub use daemon::cli as daemon_cli;
 pub use start::cli as session_cli;

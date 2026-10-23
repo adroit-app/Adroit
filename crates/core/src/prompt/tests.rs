@@ -499,3 +499,52 @@ fn the_prompt_shows_what_is_written_for_what_the_focused_window_shows() {
     let run = run.send(Msg::Focus(crate::content::Area::Prompt));
     assert!(shown(&run).is_empty());
 }
+
+#[test]
+fn the_prompt_s_neovim_is_offered_the_sessions_and_the_middle_s_files_each_time_they_change() {
+    use crate::complete::Offer;
+    use adroit_protocol::{PlaceChange, PlaceRead};
+    let offers = |run: &Scenario| -> Vec<Effect> {
+        run.last_effects()
+            .iter()
+            .filter(|e| matches!(e, Effect::PromptOffer(_) | Effect::PromptRoot(_)))
+            .cloned()
+            .collect()
+    };
+    let shown = Scenario::new()
+        .event(listing())
+        .send(Msg::ShowSession("a".into()));
+    assert!(offers(&shown).is_empty(), "no Neovim runs to offer them");
+    let runs = shown.send(Msg::PromptRuns(true));
+    assert_eq!(
+        offers(&runs),
+        [
+            Effect::PromptOffer(vec![Offer::session("a")]),
+            Effect::PromptRoot(Some("/r/a".into())),
+        ]
+    );
+    let read = runs.event(Event::Patch(WorkPatch {
+        seq: Seq(2),
+        changes: vec![Change::Place(PlaceChange::Read {
+            read: PlaceRead {
+                worktree: "/r/a".into(),
+                files: vec!["src/lib.rs".into()],
+                jj: false,
+            },
+        })],
+    }));
+    assert_eq!(
+        offers(&read),
+        [Effect::PromptOffer(vec![
+            Offer::session("a"),
+            Offer::file("src/lib.rs"),
+        ])]
+    );
+    let typed = read.send(Msg::ConsoleTyped);
+    assert!(offers(&typed).is_empty());
+    // A Neovim started again is offered them again.
+    let again = typed
+        .send(Msg::PromptRuns(false))
+        .send(Msg::PromptRuns(true));
+    assert_eq!(offers(&again).len(), 2);
+}

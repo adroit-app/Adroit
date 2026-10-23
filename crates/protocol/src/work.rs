@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    DetailsChange, DetailsWork, PastChange, PastWork, PickChange, PickWork, PlaceChange, PlaceWork,
-    PromptChange, PromptWork, TreeChange, TreeWork,
+    ConfigChange, ConfigWork, DetailsChange, DetailsWork, PastChange, PastWork, PickChange,
+    PickWork, PlaceChange, PlaceWork, PromptChange, PromptWork, TreeChange, TreeWork,
 };
 
 /// Where an event stands in the order the host made its changes: each patch
@@ -31,6 +31,7 @@ pub struct WorkSnapshot {
     pub pick: PickWork,
     pub place: PlaceWork,
     pub prompt: PromptWork,
+    pub config: ConfigWork,
 }
 
 /// A change to the work since the patch numbered one less.
@@ -50,6 +51,7 @@ pub enum Change {
     Pick(PickChange),
     Place(PlaceChange),
     Prompt(PromptChange),
+    Config(ConfigChange),
 }
 
 impl WorkSnapshot {
@@ -62,6 +64,7 @@ impl WorkSnapshot {
             Change::Pick(change) => self.pick.apply(change),
             Change::Place(change) => self.place.apply(change),
             Change::Prompt(change) => self.prompt.apply(change),
+            Change::Config(change) => self.config.apply(change),
         }
     }
 }
@@ -99,5 +102,11 @@ impl From<PromptChange> for Change {
 impl From<PickChange> for Change {
     fn from(change: PickChange) -> Self {
         Change::Pick(change)
+    }
+}
+
+impl From<ConfigChange> for Change {
+    fn from(change: ConfigChange) -> Self {
+        Change::Config(change)
     }
 }

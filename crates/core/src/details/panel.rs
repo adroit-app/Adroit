@@ -41,10 +41,8 @@ pub struct Shown {
 /// session and the worktree the tree follows.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Told {
-    pub open: bool,
     pub usage: Option<Agent>,
     pub drawn: Vec<Shot>,
-    pub settings: DetailsSettings,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -104,20 +102,22 @@ enum Use {
 
 /// The window told the panel `told`.
 pub(crate) fn tell(details: &mut Details, told: Told) -> Vec<Effect> {
-    let Told {
-        open,
-        usage,
-        drawn,
-        settings,
-    } = told;
+    let Told { usage, drawn } = told;
     details.shown = Shown {
-        open,
         usage,
         drawn,
-        settings,
         ..std::mem::take(&mut details.shown)
     };
     Vec::new()
+}
+
+/// The panel is open while its side panel is shown, and reads by the
+/// settings.
+pub(crate) fn follow_settings(details: &mut Details, open: bool, settings: &DetailsSettings) {
+    details.shown.open = open;
+    if details.shown.settings != *settings {
+        details.shown.settings = settings.clone();
+    }
 }
 
 /// The panel reads by what the focused window shows. What was opened in
@@ -928,6 +928,19 @@ mod tests {
     }
 
     #[test]
+    fn the_panel_is_open_with_its_side_panel_and_reads_by_the_settings() {
+        let run = Scenario::new().event(crate::config::testing::configured(
+            "[details]\nlinks_shown = 3\n",
+        ));
+        assert!(run.state().details.shown.open);
+        assert_eq!(run.state().details.shown.settings.links_shown, 3);
+        let hidden = run.send(Msg::PanelToggle(crate::layout::Side::Details));
+        assert!(!hidden.state().details.shown.open);
+        let again = hidden.send(Msg::PanelToggle(crate::layout::Side::Details));
+        assert!(again.state().details.shown.open);
+    }
+
+    #[test]
     fn a_group_folded_shows_its_first_few_again_once_unfolded() {
         let links = Links {
             files: (0..8)
@@ -935,14 +948,12 @@ mod tests {
                 .collect(),
             ..Default::default()
         };
-        let mut told_now = Told {
-            open: true,
-            ..Default::default()
-        };
-        told_now.settings.links_shown = 2;
         let run = Scenario::new()
+            .event(crate::config::testing::configured(
+                "[details]\nlinks_shown = 2\n",
+            ))
             .event(snapshot(read("a", with_links(links))))
-            .send_all([shown(Some("a"), None), told(told_now)]);
+            .send(shown(Some("a"), None));
         // Rows: heading, two files, the row to show all.
         let all = run.send(Msg::DetailsClick(3));
         assert_eq!(all.state().details.opened, HashSet::from([Group::Files]));

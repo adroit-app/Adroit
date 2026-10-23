@@ -5,11 +5,13 @@ use adroit_protocol::{Request, Sight};
 
 use crate::effect::Effect;
 use crate::state::ViewState;
-use crate::{console, content, details, overlay, picker, prompt, tree};
+use crate::{chrome, config, console, content, details, overlay, picker, prompt, tree};
 
 type Rule = fn(&mut ViewState, &mut Vec<Effect>);
 
 const RULES: &[Rule] = &[
+    config_taken,
+    chrome_zoom,
     content_listed,
     content_place,
     content_last_shown,
@@ -25,18 +27,33 @@ const RULES: &[Rule] = &[
     console_freed,
     prompt_recalled,
     prompt_images,
+    prompt_offered,
     tree_failing,
     tree_rows,
     tree_kept,
     tree_switched,
+    tree_completions,
+    tree_filter_left,
     overlay_rename,
     details_shown,
+    details_told,
     details_refreshed,
     details_gone,
     picker_offered,
     picker_listed,
     watched,
 ];
+
+/// The configuration the host read is the one the window works by.
+fn config_taken(state: &mut ViewState, effects: &mut Vec<Effect>) {
+    effects.extend(config::take_in(state));
+}
+
+/// The window is drawn at the zoom the settings name.
+fn chrome_zoom(state: &mut ViewState, effects: &mut Vec<Effect>) {
+    let zoom = state.config.settings.zoom;
+    effects.extend(chrome::follow_setting(&mut state.chrome, zoom));
+}
 
 /// What a new listing means for the windows: they follow their sessions,
 /// give up those that ended, and bring back the tab kept from the last run.
@@ -120,6 +137,11 @@ fn prompt_images(state: &mut ViewState, _: &mut Vec<Effect>) {
     prompt::keep_selection(&mut state.prompt);
 }
 
+/// The prompt's Neovim is offered after `@` what the window lists now.
+fn prompt_offered(state: &mut ViewState, effects: &mut Vec<Effect>) {
+    effects.extend(prompt::offer(state));
+}
+
 /// The status line says why the sessions cannot be listed, while they
 /// cannot.
 fn tree_failing(state: &mut ViewState, effects: &mut Vec<Effect>) {
@@ -148,6 +170,20 @@ fn tree_switched(state: &mut ViewState, _: &mut Vec<Effect>) {
     tree::follow_switch(&mut state.tree, &showing, state.host.work.as_ref());
 }
 
+/// A finished session the user sees is no longer marked finished.
+fn tree_completions(state: &mut ViewState, _: &mut Vec<Effect>) {
+    let shown = state.content.active().cloned();
+    let work = state.host.work.as_ref();
+    tree::see_completions(&mut state.tree, shown.as_ref(), state.chrome.focused, work);
+}
+
+/// Leaving the sidebar, or opening a menu, stops typing into the filter.
+fn tree_filter_left(state: &mut ViewState, effects: &mut Vec<Effect>) {
+    let left =
+        state.content.focus != crate::content::Area::Sidebar || state.overlays.menu.is_some();
+    effects.extend(tree::leave_filter(&mut state.tree, left));
+}
+
 /// A name being typed goes when its row or its tab is no longer shown.
 fn overlay_rename(state: &mut ViewState, _: &mut Vec<Effect>) {
     overlay::keep_rename(state);
@@ -157,6 +193,12 @@ fn overlay_rename(state: &mut ViewState, _: &mut Vec<Effect>) {
 /// window shows.
 fn details_shown(state: &mut ViewState, _: &mut Vec<Effect>) {
     details::follow(&mut state.details, &state.content.showing());
+}
+
+/// The details panel is open with its side panel and reads by the settings.
+fn details_told(state: &mut ViewState, _: &mut Vec<Effect>) {
+    let open = state.chrome.panels.layout.show_details;
+    details::follow_settings(&mut state.details, open, &state.config.settings.details);
 }
 
 /// What the host read again for the spot the details panel shows moves its

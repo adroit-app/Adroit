@@ -12,7 +12,6 @@ use tokio::sync::mpsc;
 
 use super::{mode_of, nvim_program, prompt_rows};
 use crate::bridge::AppCtx;
-use crate::settings;
 
 /// How long the prompt's Neovim has to live to be started again once it
 /// quits.
@@ -27,6 +26,8 @@ pub(crate) struct PromptNeovim {
     pub prompt_view: Signal<(usize, usize)>,
     /// The lines the prompt shows.
     pub prompt_rows: Signal<usize>,
+    /// The fewest and the most lines the settings let the prompt show.
+    bounds: Memo<(usize, usize)>,
     /// The lines Neovim asks for, which the settings bound.
     prompt_height: Signal<usize>,
     prompt_cols: Signal<u16>,
@@ -46,12 +47,18 @@ pub(crate) fn use_prompt_neovim(
         nvim: use_signal(|| None),
         prompt_frame: use_signal(|| 0),
         prompt_view: use_signal(|| (0, 0)),
-        prompt_rows: use_signal(|| settings::current().prompt_min_rows),
+        prompt_rows: use_signal(|| app.config.peek().settings.prompt_min_rows),
+        bounds: use_memo(move || {
+            let s = &app.config.read().settings;
+            (s.prompt_min_rows, s.prompt_max_rows)
+        }),
         prompt_height: use_signal(|| 1),
         prompt_cols: use_signal(|| 80),
     };
+    // Fitted again as images come and go, and as the settings bound it anew.
     use_effect(move || {
         let has_images = has_images();
+        let _ = (prompt.bounds)();
         if let Some(rows) = prompt.fit(has_images)
             && let Some(nv) = prompt.nvim.peek().clone()
         {
@@ -91,31 +98,14 @@ impl PromptNeovim {
     /// The rows the prompt shows for the lines Neovim asks for, as the
     /// settings bound them, when they changed.
     fn fit(&self, has_images: bool) -> Option<usize> {
-        let s = settings::current();
-        let rows = prompt_rows(
-            *self.prompt_height.peek(),
-            has_images,
-            s.prompt_min_rows,
-            s.prompt_max_rows,
-        );
+        let (least, most) = *self.bounds.peek();
+        let rows = prompt_rows(*self.prompt_height.peek(), has_images, least, most);
         if rows == *self.prompt_rows.peek() {
             return None;
         }
         let mut prompt_rows = self.prompt_rows;
         prompt_rows.set(rows);
         Some(rows)
-    }
-
-    /// The prompt's rows fitted again to settings read anew.
-    pub(crate) async fn refit(&self, has_images: bool) {
-        let Some(rows) = self.fit(has_images) else {
-            return;
-        };
-        let embedded = self.nvim.peek().clone();
-        if let Some(e) = embedded {
-            let cols = *self.prompt_cols.peek();
-            let _ = e.resize(cols, rows as u16).await;
-        }
     }
 
     async fn run(self, app: AppCtx, has_images: Memo<bool>, commands_wanted: Callback<()>) {

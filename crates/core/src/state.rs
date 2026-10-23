@@ -2,6 +2,7 @@
 //! only by `update`.
 
 use crate::chrome::Chrome;
+use crate::config::Config;
 use crate::console::ConsoleView;
 use crate::content::ContentView;
 use crate::details::Details;
@@ -14,6 +15,7 @@ use crate::tree::TreeView;
 #[derive(Debug, Clone, PartialEq)]
 pub struct ViewState {
     pub chrome: Chrome,
+    pub config: Config,
     pub host: Host,
     pub content: ContentView,
     pub tree: TreeView,
@@ -28,6 +30,7 @@ impl Default for ViewState {
     fn default() -> Self {
         let mut state = Self {
             chrome: Chrome::default(),
+            config: Config::default(),
             host: Host::default(),
             content: ContentView::default(),
             tree: TreeView::default(),
@@ -37,6 +40,11 @@ impl Default for ViewState {
             console: ConsoleView::default(),
             prompt: PromptView::default(),
         };
+        crate::details::follow_settings(
+            &mut state.details,
+            state.chrome.panels.layout.show_details,
+            &state.config.settings.details,
+        );
         // A window that shows nothing asks nothing of the host, which starts
         // out reading nothing.
         state.host.watched = crate::settle::sight(&state);

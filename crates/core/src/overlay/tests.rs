@@ -364,10 +364,16 @@ fn the_banner_shows_what_the_daemon_says_until_put_away_and_again_after_a_restar
 
 #[test]
 fn the_keys_help_takes_its_keys_by_the_bindings_the_chrome_holds() {
-    let user = crate::keymap::Keymap::with_user("[global]\n\"Ctrl+h\" = \"keys.help\"\n").unwrap();
+    let text = "[global]\n\"Ctrl+h\" = \"keys.help\"\n";
+    let user = crate::keymap::Keymap::with_user(text).unwrap();
     let help = || {
         window()
-            .send(Msg::KeysRead(Box::new(user.clone())))
+            .event(crate::config::testing::reconfigured(
+                2,
+                adroit_protocol::ConfigChange::Keys {
+                    file: crate::config::testing::keys_file(text),
+                },
+            ))
             .send(Msg::KeysHelpOpen(vec![Context::Console, Context::Global]))
     };
     assert_eq!(help().state().chrome.keymap, user);

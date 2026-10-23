@@ -14,6 +14,8 @@ pub use status_line::StatusLine;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Chrome {
+    /// Whether the window is the one in front, which the user is in.
+    pub focused: bool,
     /// The zoom the window is drawn at.
     pub zoom: f64,
     /// The zoom the settings name, which a reset returns to.
@@ -29,6 +31,7 @@ pub struct Chrome {
 impl Default for Chrome {
     fn default() -> Self {
         Self {
+            focused: true,
             zoom: 1.0,
             setting: 1.0,
             panels: Panels::default(),
@@ -48,13 +51,6 @@ pub fn title(described: Option<&str>) -> String {
     }
 }
 
-/// The window opened with the settings' zoom.
-pub(crate) fn open(chrome: &mut Chrome, setting: f64) -> Vec<Effect> {
-    chrome.setting = setting;
-    chrome.zoom = setting;
-    vec![Effect::Zoom(setting)]
-}
-
 /// A key asked to zoom in, out or back.
 pub(crate) fn step(chrome: &mut Chrome, step: Step) -> Vec<Effect> {
     chrome.zoom = match step {
@@ -64,13 +60,15 @@ pub(crate) fn step(chrome: &mut Chrome, step: Step) -> Vec<Effect> {
     vec![Effect::Zoom(chrome.zoom)]
 }
 
-/// The settings were read again; a new zoom there replaces the one the keys
-/// chose, and an unchanged one leaves it.
-pub(crate) fn setting(chrome: &mut Chrome, setting: f64) -> Vec<Effect> {
+/// The window is drawn at the zoom the settings name: a new zoom there
+/// replaces the one the keys chose, and an unchanged one leaves it.
+pub(crate) fn follow_setting(chrome: &mut Chrome, setting: f64) -> Vec<Effect> {
     if setting == chrome.setting {
         return Vec::new();
     }
-    open(chrome, setting)
+    chrome.setting = setting;
+    chrome.zoom = setting;
+    vec![Effect::Zoom(setting)]
 }
 
 /// The keys help shown for the keys of `here`, nearest first.
@@ -79,20 +77,22 @@ pub(crate) fn open_keys_help(chrome: &mut Chrome, here: Vec<Context>) -> Vec<Eff
     Vec::new()
 }
 
+pub(crate) fn window_focused(chrome: &mut Chrome, on: bool) -> Vec<Effect> {
+    chrome.focused = on;
+    Vec::new()
+}
+
 pub(crate) fn close_keys_help(chrome: &mut Chrome) -> Vec<Effect> {
     chrome.keys_help = None;
     Vec::new()
 }
 
-/// The key bindings read again.
-pub(crate) fn keys_read(chrome: &mut Chrome, keymap: Keymap) -> Vec<Effect> {
-    chrome.keymap = keymap;
-    Vec::new()
-}
-
 #[cfg(test)]
 mod tests {
+    use adroit_protocol::ConfigChange;
+
     use super::title;
+    use crate::config::testing::{configured, reconfigured, settings_file};
     use crate::effect::Effect;
     use crate::keymap::Context;
     use crate::msg::Msg;
@@ -101,85 +101,62 @@ mod tests {
 
     #[test]
     fn the_zoom_follows_the_keys_and_the_settings() {
-        // (messages, zoom drawn, effects of the last message)
-        let cases: Vec<(Vec<Msg>, f64, Vec<Effect>)> = vec![
-            (
-                vec![Msg::Opened {
-                    zoom: 1.25,
+        let opened = |zoom: &str| {
+            Scenario::new()
+                .send(Msg::Opened {
                     home: Default::default(),
-                }],
-                1.25,
-                vec![Effect::Zoom(1.25)],
-            ),
+                })
+                .event(configured(&format!("zoom = {zoom}\n")))
+        };
+        let set = |zoom: &str| {
+            reconfigured(
+                1,
+                ConfigChange::Settings {
+                    file: settings_file(&format!("zoom = {zoom}\n")),
+                },
+            )
+        };
+        // (run, zoom drawn, zoom effects of the last message)
+        let cases: Vec<(Scenario, f64, Vec<Effect>)> = vec![
+            (opened("1.25"), 1.25, vec![Effect::Zoom(1.25)]),
+            (opened("1.0"), 1.0, vec![]),
             (
-                vec![
-                    Msg::Opened {
-                        zoom: 1.0,
-                        home: Default::default(),
-                    },
-                    Msg::Zoom(Step::In),
-                ],
+                opened("1.0").send(Msg::Zoom(Step::In)),
                 1.1,
                 vec![Effect::Zoom(1.1)],
             ),
             (
-                vec![
-                    Msg::Opened {
-                        zoom: 1.0,
-                        home: Default::default(),
-                    },
-                    Msg::Zoom(Step::Out),
-                ],
+                opened("1.0").send(Msg::Zoom(Step::Out)),
                 0.9,
                 vec![Effect::Zoom(0.9)],
             ),
             (
-                vec![
-                    Msg::Opened {
-                        zoom: 1.25,
-                        home: Default::default(),
-                    },
-                    Msg::Zoom(Step::In),
-                    Msg::Zoom(Step::Reset),
-                ],
+                opened("1.25")
+                    .send(Msg::Zoom(Step::In))
+                    .send(Msg::Zoom(Step::Reset)),
                 1.25,
                 vec![Effect::Zoom(1.25)],
             ),
             (
-                vec![
-                    Msg::Opened {
-                        zoom: 1.0,
-                        home: Default::default(),
-                    },
-                    Msg::Zoom(Step::In),
-                    Msg::ZoomSetting(0.8),
-                ],
+                opened("1.0").send(Msg::Zoom(Step::In)).event(set("0.8")),
                 0.8,
                 vec![Effect::Zoom(0.8)],
             ),
             (
-                vec![
-                    Msg::Opened {
-                        zoom: 1.0,
-                        home: Default::default(),
-                    },
-                    Msg::Zoom(Step::In),
-                    Msg::ZoomSetting(1.0),
-                ],
+                opened("1.0").send(Msg::Zoom(Step::In)).event(set("1.0")),
                 1.1,
                 vec![],
             ),
         ];
-        for (msgs, zoom, effects) in cases {
-            let run = Scenario::new().send_all(msgs.clone());
-            assert_eq!(run.state().chrome.zoom, zoom, "{msgs:?}");
+        for (at, (run, zoom, effects)) in cases.into_iter().enumerate() {
+            assert_eq!(run.state().chrome.zoom, zoom, "case {at}");
             let last: Vec<_> = run
                 .last_effects()
                 .iter()
                 .filter(|e| matches!(e, Effect::Zoom(_)))
                 .cloned()
                 .collect();
-            assert_eq!(last, effects, "{msgs:?}");
+            assert_eq!(last, effects, "case {at}");
         }
     }
 

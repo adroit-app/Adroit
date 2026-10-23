@@ -132,10 +132,7 @@ mod tests {
     const HOME: &str = "/Users/me";
 
     fn window() -> Scenario {
-        Scenario::new().send(Msg::Opened {
-            zoom: 1.0,
-            home: HOME.into(),
-        })
+        Scenario::new().send(Msg::Opened { home: HOME.into() })
     }
 
     /// The rows the list draws; none while they are read.

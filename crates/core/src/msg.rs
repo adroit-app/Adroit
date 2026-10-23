@@ -11,7 +11,7 @@ use crate::actions::Action;
 use crate::console::Probe;
 use crate::content::{Area, Border, DraftOptions, Opening, Tab, WindowId};
 use crate::details::{self, Sheet};
-use crate::keymap::{Context, Keymap};
+use crate::keymap::Context;
 use crate::layout::{Layout, Side};
 use crate::overlay::confirm::Ask;
 use crate::overlay::context_menu::Target;
@@ -23,16 +23,15 @@ use crate::zoom;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Msg {
-    /// The window opened, with the zoom the settings name and the home
-    /// directory the paths it draws shorten to `~`.
+    /// The window opened, with the home directory the paths it draws
+    /// shorten to `~`.
     Opened {
-        zoom: f64,
         home: PathBuf,
     },
+    /// The window was brought to the front, or sent to the back.
+    WindowFocused(bool),
     /// A key asked to zoom.
     Zoom(zoom::Step),
-    /// The settings were read again, naming this zoom.
-    ZoomSetting(f64),
 
     // The side panels.
     /// The layout kept from the last run was read.
@@ -77,9 +76,6 @@ pub enum Msg {
     /// Show the keys help for these areas, nearest first.
     KeysHelpOpen(Vec<Context>),
     KeysHelpClose,
-    /// The key bindings were read: the defaults, with the user's file over
-    /// them.
-    KeysRead(Box<Keymap>),
 
     /// The work host said `Event`.
     Host(Event),

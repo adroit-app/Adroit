@@ -36,7 +36,6 @@ pub(crate) fn FocusedBody() -> Element {
         mut console_box,
         composer_height,
         prompt_width,
-        font,
         prompts,
         scroll_reader,
         click_reader,
@@ -52,7 +51,10 @@ pub(crate) fn FocusedBody() -> Element {
         tree,
         active_tab.as_ref(),
         &content.drafts.options,
-        content.drafts.last_agent.unwrap_or(font.read().agent),
+        content
+            .drafts
+            .last_agent
+            .unwrap_or(app.config.read().settings.agent),
     );
     let pane = active_tab
         .as_ref()

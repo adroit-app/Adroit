@@ -3,7 +3,6 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use adroit_agents::claude::commands;
@@ -16,8 +15,7 @@ use tokio::sync::{mpsc, oneshot};
 use crate::actions::Action;
 use crate::bridge::{AppCtx, use_app};
 use crate::bundled_font::{faces, use_bundled_font};
-use crate::complete::{self, candidates};
-use crate::completion::Completions;
+use crate::complete;
 use crate::console::{Consoles, Hub, Panes, PromptNeovim, Reader, use_prompt_neovim, use_reader};
 use crate::content::{
     Area, Axis, ContentPanel, Opening, Tab, TerminalAsk, WindowId, draft as draft_agent, file_name,
@@ -27,13 +25,13 @@ use crate::daemon;
 use crate::details::{self, Entry, Sheet, Shot, Source};
 use crate::editor;
 use crate::image_window;
-use crate::keymap::{Chord, Context, Keymap, MENU_KEYS};
+use crate::keymap::{Chord, Context, MENU_KEYS};
 use crate::keys;
 use crate::layout::Side;
 use crate::menu_bar;
 use crate::nav::{self, Item};
 use crate::pasted;
-use crate::paths::{home, instance_state, keys_path, scratch_dir};
+use crate::paths::{instance_state, scratch_dir};
 use crate::picker::Picker;
 use crate::pictures::{self, Gallery};
 use crate::programs;
@@ -71,16 +69,15 @@ fn shows_usage(tab: Option<&Tab>, agent: adroit_model::Agent) -> bool {
         && agents::adapter(agent).capabilities().usage_limits
 }
 
-/// The palette of the theme the settings name, or adroit's own when it
-/// cannot be read.
-fn initial_palette() -> Palette {
-    themes::palette(&settings::current().theme, &crate::settings::themes_dir()).unwrap_or_default()
+/// The palette of the theme `settings` name, or adroit's own when it cannot
+/// be read.
+fn palette_of(settings: &settings::Settings) -> Result<Palette, String> {
+    themes::palette(&settings.theme, &crate::settings::themes_dir())
 }
 
 /// Open the window.
 pub fn launch() {
     use dioxus::desktop::{Config as Desktop, LogicalSize, WindowBuilder};
-    settings::watch(Duration::from_secs(1));
     let cfg = Desktop::new()
         .with_window(
             WindowBuilder::new()
@@ -94,10 +91,6 @@ pub fn launch() {
         .with_custom_head(format!("<style>{}{CSS}</style>", faces()));
     dioxus::LaunchBuilder::desktop().with_cfg(cfg).launch(App);
 }
-
-/// Whether this window answers on the socket, and so takes Claude Code's
-/// input through its external editor.
-static ANSWERS: AtomicBool = AtomicBool::new(false);
 
 /// The program that puts its input on the system clipboard.
 fn clipboard_command() -> std::process::Command {
@@ -265,10 +258,6 @@ fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64)
-}
-
-fn short(path: &Path) -> String {
-    adroit_core::picker::short(path, &home())
 }
 
 /// Close a shell's windows, and show another thing of its worktree if no
@@ -494,19 +483,8 @@ fn App() -> Element {
     let active = use_memo(move || app.content.read().active().cloned());
     let focus = use_memo(move || app.content.read().focus);
     let place = use_memo(move || app.content.read().place.clone());
-    let mut window_focused = use_signal(|| dioxus::desktop::window().is_focused());
-    let mut completions = use_signal(Completions::default);
-    use_effect(move || {
-        let tab = active();
-        let shown = match (&tab, window_focused()) {
-            (Some(Tab::Session(id)), true) => Some(id.as_str()),
-            _ => None,
-        };
-        let next = completions.peek().updated(&tree.read(), shown);
-        if *completions.peek() != next {
-            completions.set(next);
-        }
-    });
+    // The finished sessions the user has seen, as the tree holds them.
+    let completions = use_memo(move || app.tree.read().completions.clone());
     let mut frame = use_signal(|| 0u64);
     // Moves when a pane is started, for what the console says around it.
     let mut attached = use_signal(|| 0u64);
@@ -517,13 +495,17 @@ fn App() -> Element {
     let prompt_width = use_signal(|| 0.0f64);
     // The zoom alone, which the console is measured again for.
     let zoomed = use_memo(move || app.chrome.read().zoom);
-    // The settings the console's font is drawn by, and the height of a line
-    // measured in it.
-    let mut font = use_signal(settings::current);
+    // The settings in force, the font the console is drawn by among them,
+    // and the height of a line measured in it.
+    let settings = use_memo(move || app.config.read().settings.clone());
+    let face = use_memo(move || {
+        let s = settings.read();
+        (s.font_family.clone(), s.font_size, s.font_weight)
+    });
     let mut cell_height_now = use_signal(|| DEFAULT_CELL_HEIGHT);
     use_context_provider(|| CellHeight(cell_height_now));
     // The theme's palette, which a new theme replaces.
-    let palette = use_signal(initial_palette);
+    let palette = use_signal(|| palette_of(&app.config.peek().settings).unwrap_or_default());
     // The side panels' widths and whether they are shown, as the chrome
     // holds them.
     let layout = use_memo(move || app.chrome.read().panels.layout);
@@ -594,9 +576,8 @@ fn App() -> Element {
     });
 
     // The daemon and the work host started, which lists the sessions from
-    // then on; the user's key bindings read again whenever their file
-    // changes, the host told when the user last typed into each session, and
-    // the view state which sessions are live here, as their panes exit.
+    // then on; the host told when the user last typed into each session,
+    // and the view state which sessions are live here, as their panes exit.
     use_hook({
         let panes = hub.panes.clone();
         let daemon = hub.daemon.clone();
@@ -629,29 +610,9 @@ fn App() -> Element {
                     app.status(Some(format!("cannot start the work host: {e}")));
                 }
                 app.watch();
-                let mut keys_read = None::<Option<String>>;
-                // What the keys file last failed with, to take back once it reads.
-                let mut keys_err = None;
                 let mut typed = BTreeMap::new();
                 let mut told_live = None;
                 loop {
-                    // The user's key bindings, read again whenever the file changes.
-                    let keys_text = std::fs::read_to_string(keys_path()).ok();
-                    if keys_read.as_ref() != Some(&keys_text) {
-                        let read = match keys_text.as_deref() {
-                            Some(text) => Keymap::with_user(text),
-                            None => Ok(Keymap::defaults()),
-                        };
-                        let failed = match read {
-                            Ok(map) => {
-                                app.dispatch(Msg::KeysRead(Box::new(map)));
-                                None
-                            }
-                            Err(e) => Some(format!("{}: {e}", short(&keys_path()))),
-                        };
-                        app.while_failing(&mut keys_err, failed);
-                        keys_read = Some(keys_text);
-                    }
                     let inputs: BTreeMap<u128, u64> = panes
                         .borrow()
                         .iter()
@@ -673,23 +634,6 @@ fn App() -> Element {
         }
     });
 
-    // What `@` in the prompt offers: the sessions, and the open worktree's
-    // files, as the host read them. The memo passes a list on only when it
-    // differs, so a session changing state resends nothing.
-    let files = use_memo(move || {
-        let host = app.host.read();
-        let place = place.read();
-        match (host.work.as_ref(), place.as_ref()) {
-            (Some(work), Some(p)) => work
-                .place
-                .of(&p.worktree)
-                .map(|r| r.files.clone())
-                .unwrap_or_default(),
-            _ => Vec::new(),
-        }
-    });
-    let offered = use_memo(move || candidates(&tree.read(), place.read().as_ref(), &files.read()));
-
     // What `/` offers: the agent's commands where the shown tab's session
     // runs, asked for when such a tab is shown or a `/` is typed and the list
     // there is missing or old; the old list is offered meanwhile.
@@ -705,7 +649,7 @@ fn App() -> Element {
                 .read()
                 .drafts
                 .last_agent
-                .unwrap_or(font.read().agent),
+                .unwrap_or(settings.read().agent),
         );
         agents::adapter(agent)
             .capabilities()
@@ -766,21 +710,6 @@ fn App() -> Element {
     let prompts = use_hook(|| prompts::keeper(nvim, app));
     use_effect(move || {
         let Some(nv) = nvim() else { return };
-        let list = offered();
-        spawn(async move {
-            let _ = nv.set_candidates(&list).await;
-        });
-    });
-    // A path after `@` is walked from the open worktree.
-    use_effect(move || {
-        let Some(nv) = nvim() else { return };
-        let root = place.read().as_ref().map(|p| p.worktree.clone());
-        spawn(async move {
-            let _ = nv.set_root(root.as_deref()).await;
-        });
-    });
-    use_effect(move || {
-        let Some(nv) = nvim() else { return };
         let list = offered_commands();
         spawn(async move {
             let _ = nv.set_commands(&list).await;
@@ -791,7 +720,7 @@ fn App() -> Element {
     use_effect(move || {
         let t = tree.read();
         let tab = active.read().clone();
-        let settings = font.read();
+        let settings = settings.read();
         let agent = draft_agent::for_tab(
             &t,
             tab.as_ref(),
@@ -809,10 +738,8 @@ fn App() -> Element {
             _ => Vec::new(),
         };
         app.dispatch(Msg::DetailsShown(Box::new(details::Told {
-            open: layout.read().show_details,
             usage: shows_usage(tab.as_ref(), agent).then_some(agent),
             drawn,
-            settings: settings.details.clone(),
         })));
     });
 
@@ -828,7 +755,6 @@ fn App() -> Element {
                         // this one, which never asked.
                         match editor::install(&adroit_program(), &socket) {
                             Ok(_) => {
-                                ANSWERS.store(true, Ordering::Relaxed);
                                 app.dispatch(Msg::EditorAnswers);
                             }
                             Err(e) => {
@@ -871,7 +797,7 @@ fn App() -> Element {
     // whenever the font changes or the window is zoomed, with the room the
     // console has.
     use_effect(move || {
-        let _ = font();
+        let _ = face();
         let _ = zoomed();
         spawn(async move {
             // A zoom is laid out after the frame it was asked in.
@@ -906,7 +832,7 @@ fn App() -> Element {
     use_effect(move || {
         let (width, height) = console_box();
         let cw = cell_width();
-        let _ = (font(), cell_height_now());
+        let _ = (face(), cell_height_now());
         if width <= 0.0 {
             return;
         }
@@ -952,7 +878,7 @@ fn App() -> Element {
             let boxes = win_boxes.read().clone();
             let cw = cell_width();
             let ch = cell_height_now();
-            let _ = (font(), tree.read(), attached());
+            let _ = (face(), tree.read(), attached());
             for (id, shows) in windows {
                 let Some(&(width, height)) = boxes.get(&id).filter(|(w, _)| *w > 0.0) else {
                     continue;
@@ -1025,15 +951,6 @@ fn App() -> Element {
             });
         }
     };
-    // Leaving the sidebar, or opening a menu, stops typing into the filter,
-    // so the keys a menu names run what they name.
-    use_effect(move || {
-        let left = focus() != Area::Sidebar || app.overlays.read().menu.is_some();
-        if left && app.tree.peek().filtering {
-            focus_filter(false);
-        }
-    });
-
     // A shell or a Neovim asked for starts here, where the hub is.
     let start_terminal = {
         let hub = hub.clone();
@@ -1059,7 +976,7 @@ fn App() -> Element {
             let name = fresh_name(&base, &taken);
             let size = *console_size.peek();
             let mut resolved = crate::execution::resolve_terminal(
-                &settings::current(),
+                &settings.peek(),
                 crate::execution::TerminalStartRequest {
                     name,
                     cwd: p.worktree.clone(),
@@ -1163,7 +1080,7 @@ fn App() -> Element {
                         .peek()
                         .drafts
                         .last_agent
-                        .unwrap_or(settings::current().agent),
+                        .unwrap_or(settings.peek().agent),
                 );
                 let taken = adroit_core::prompt::send::Taken {
                     shell_bang: agents::adapter(agent).capabilities().shell_bang,
@@ -1275,9 +1192,10 @@ fn App() -> Element {
                             started_ms: now_ms(),
                             ..Default::default()
                         };
+                        let settings = settings.peek().clone();
                         match crate::delegation::app::prepare(
                             &crate::delegation::app::root(),
-                            &settings::current(),
+                            &settings,
                             request,
                             None,
                             &adroit_program(),
@@ -1337,7 +1255,7 @@ fn App() -> Element {
                     .peek()
                     .drafts
                     .last_agent
-                    .unwrap_or(settings::current().agent),
+                    .unwrap_or(settings.peek().agent),
             );
             choose_agent(tab, if forward { now.next() } else { now.prev() });
         }
@@ -1369,9 +1287,10 @@ fn App() -> Element {
                     started_ms: now_ms(),
                     ..Default::default()
                 };
+                let settings = settings.peek().clone();
                 let started = match crate::delegation::app::prepare(
                     &crate::delegation::app::root(),
-                    &settings::current(),
+                    &settings,
                     request,
                     None,
                     &adroit_program(),
@@ -1407,41 +1326,28 @@ fn App() -> Element {
         }
     };
 
-    // The settings the Settings window changes are applied as they change.
-    use_hook({
+    // A new theme reaches every console open, what is drawn and what a
+    // program asking for its colours is told.
+    let theme = use_memo(move || settings.read().theme.clone());
+    let themed = use_hook(|| Rc::new(RefCell::new(theme.peek().clone())));
+    use_effect({
         let hub = hub.clone();
         move || {
-            spawn(async move {
-                let mut changed = settings::CHANGED.subscribe();
-                let mut was = settings::current();
-                while changed.recv().await.is_ok() {
-                    let s = settings::current();
-                    app.dispatch(Msg::ZoomSetting(s.zoom));
-                    let face = |s: &settings::Settings| {
-                        (s.font_family.clone(), s.font_size, s.font_weight)
-                    };
-                    if face(&s) != face(&was) || s.agent != was.agent || s.usage != was.usage {
-                        font.set(s.clone());
+            let theme = theme();
+            if *themed.borrow() == theme {
+                return;
+            }
+            themed.replace(theme);
+            match palette_of(&settings.peek()) {
+                Ok(p) => {
+                    for pane in hub.panes.borrow().values() {
+                        pane.set_palette(&p);
                     }
-                    // A new theme reaches every console open, what is drawn and
-                    // what a program asking for its colours is told.
-                    if s.theme != was.theme {
-                        match themes::palette(&s.theme, &crate::settings::themes_dir()) {
-                            Ok(p) => {
-                                for pane in hub.panes.borrow().values() {
-                                    pane.set_palette(&p);
-                                }
-                                let mut palette = hub.palette;
-                                palette.set(p);
-                            }
-                            Err(e) => app.status(Some(e)),
-                        }
-                    }
-                    let images = *has_images.peek();
-                    prompt_neovim.refit(images).await;
-                    was = s;
+                    let mut palette = hub.palette;
+                    palette.set(p);
                 }
-            });
+                Err(e) => app.status(Some(e)),
+            }
         }
     });
     use_drop(settings_window::close);
@@ -1525,7 +1431,7 @@ fn App() -> Element {
                 &tree.peek(),
                 Some(&Tab::Session(r.id.clone())),
                 &HashMap::new(),
-                settings::current().agent,
+                settings.peek().agent,
             );
             let hub = hub.clone();
             spawn(async move {
@@ -1607,7 +1513,6 @@ fn App() -> Element {
         console_box,
         composer_height,
         prompt_width,
-        font,
         prompts,
         scroll_reader,
         click_reader,
@@ -1630,7 +1535,7 @@ fn App() -> Element {
                             .read()
                             .drafts
                             .last_agent
-                            .unwrap_or(font.read().agent),
+                            .unwrap_or(settings.read().agent),
                     );
                     active_pane()
                         .is_some_and(|p| agents::adapter(agent).dialog_open(&p.screen().text()))
@@ -1765,6 +1670,22 @@ fn App() -> Element {
                 CoreEffect::PromptShow(tab) => {
                     let _ = prompts.send(Op::Show(tab));
                 }
+                CoreEffect::PromptOffer(offers) => {
+                    if let Some(nv) = nvim.peek().clone() {
+                        let list = complete::offered(&offers);
+                        spawn(async move {
+                            let _ = nv.set_candidates(&list).await;
+                        });
+                    }
+                }
+                CoreEffect::PromptRoot(root) => {
+                    if let Some(nv) = nvim.peek().clone() {
+                        spawn(async move {
+                            let _ = nv.set_root(root.as_deref()).await;
+                        });
+                    }
+                }
+                CoreEffect::FilterFocus(on) => focus_filter(on),
                 CoreEffect::PromptSent => {
                     let _ = prompts.send(Op::Sent);
                 }
@@ -1962,7 +1883,7 @@ fn App() -> Element {
                         s.popup().is_some() || s.mode().starts_with("cmdline")
                     };
                     let tab = app.active();
-                    let hands_back = ANSWERS.load(Ordering::Relaxed)
+                    let hands_back = app.console.peek().answers
                         && matches!(&tab, Some(Tab::Session(id))
                             if nav::find(&tree.peek(), id).is_some_and(|(_, s)| s.adroit_editor));
                     let no_images = !*has_images.peek();
@@ -2029,7 +1950,7 @@ fn App() -> Element {
                             .peek()
                             .drafts
                             .last_agent
-                            .unwrap_or(settings::current().agent),
+                            .unwrap_or(settings.peek().agent),
                     );
                     let back = action == Action::HistoryPrev;
                     app.dispatch(Msg::Recall { back, agent });
@@ -2243,17 +2164,10 @@ fn App() -> Element {
     });
     // The page learns which Option keys count as Alt, now and as the settings
     // change.
-    use_hook(|| {
-        spawn(async move {
-            let mut changed = settings::CHANGED.subscribe();
-            loop {
-                let as_alt = settings::current().console.option_as_alt.name();
-                document::eval(&format!("window.adroitOptionAsAlt = '{as_alt}';"));
-                if changed.recv().await.is_err() {
-                    break;
-                }
-            }
-        });
+    let as_alt = use_memo(move || settings.read().console.option_as_alt.name());
+    use_effect(move || {
+        let as_alt = as_alt();
+        document::eval(&format!("window.adroitOptionAsAlt = '{as_alt}';"));
     });
     // The window made key again gives the keys to its page, whatever in the
     // window took them meanwhile: AppKit sends them to the first responder,
@@ -2269,7 +2183,7 @@ fn App() -> Element {
             } = event
                 && *window_id == desktop.window.id()
             {
-                window_focused.set(*on);
+                app.dispatch(Msg::WindowFocused(*on));
                 if *on {
                     keys::trace(|| "window made key: the page takes the keys");
                     let _ = desktop.webview.focus();
@@ -2444,7 +2358,7 @@ fn App() -> Element {
     let console_background = hub.palette.read().background.hex();
     // The theme's colours and the console's font, over the stylesheet's own.
     let root_style = {
-        let s = font();
+        let s = settings.read();
         format!(
             ":root{{{theme}--term-font:{family};--term-size:{size}px;--term-weight:{weight};--cell-h:{h}px}}",
             theme = themes::css(&themes::window(&hub.palette.read())),
@@ -2485,7 +2399,7 @@ fn App() -> Element {
             .read()
             .drafts
             .last_agent
-            .unwrap_or(font.read().agent),
+            .unwrap_or(settings.read().agent),
     );
     let live_input_ms = active_tab.as_ref().and_then(|tab| {
         hub.panes
@@ -2566,7 +2480,7 @@ fn App() -> Element {
         style { "{root_style}" }
         div { class: "app",
             textarea { id: "adroit-keys", autofocus: true, readonly: !takes_text }
-            settings_window::SettingsLoadError {}
+            settings_window::SettingsLoadError { error: app.config.read().settings_error.clone() }
             Header { ontoggle: toggle_panel }
             div {
                 class: match (app.chrome.read().panels.drag.is_some(), app.content.read().drag.as_ref().map(|d| d.border.axis)) {
@@ -2652,7 +2566,7 @@ fn App() -> Element {
                         kind: if outside_git { details::Worktree::OutsideGit } else { details::Worktree::Repository },
                         live_input_ms,
                         agent: current_agent,
-                        usage_settings: font.read().usage,
+                        usage_settings: settings.read().usage,
                         sheet_keys: Sheet::ALL.map(|s| km.keys_for(Context::Global, &details::sheet_action(s)).unwrap_or_default()).to_vec(),
                         back_keys: k_back.clone(),
                         on_kill: move |(session, process): (Session, crate::processes::Process)| {

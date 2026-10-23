@@ -13,6 +13,7 @@ use adroit_model::{InboxItem, State, TerminalSession, Tree, inbox};
 use adroit_protocol::{Request, Seq, TreeSight, TreeWork, WorkSnapshot};
 
 use crate::chrome::status_line::{self, StatusLine};
+use crate::completion::Completions;
 use crate::content::{Showing, Tab};
 use crate::effect::Effect;
 use nav::{Folds, Heading, Item, Place};
@@ -34,6 +35,8 @@ pub struct TreeView {
     pub waiting: Vec<InboxItem>,
     /// The sessions waiting on the user that the filter keeps.
     pub narrowed_waiting: Vec<InboxItem>,
+    /// The sessions finished that the user has seen since.
+    pub completions: Completions,
     /// Every row, top to bottom, the sessions waiting on the user last.
     pub rows: Vec<Item>,
     /// The worktrees whose files the rows list.
@@ -261,6 +264,35 @@ pub(crate) fn tell_failing(
     status_line::failing(status, last.as_deref(), now.as_deref())
 }
 
+/// Typing into the filter stops once the keys leave the sidebar or a menu
+/// is opened, so the keys a menu names run what they name; what it narrowed
+/// to stays.
+pub(crate) fn leave_filter(view: &mut TreeView, left: bool) -> Vec<Effect> {
+    if !(left && view.filtering) {
+        return Vec::new();
+    }
+    view.filtering = false;
+    vec![Effect::FilterFocus(false)]
+}
+
+/// A finished session is seen once the focused window shows it while the
+/// user is in the window.
+pub(crate) fn see_completions(
+    view: &mut TreeView,
+    shown: Option<&Tab>,
+    focused: bool,
+    work: Option<&WorkSnapshot>,
+) {
+    let shown = match (shown, focused) {
+        (Some(Tab::Session(id)), true) => Some(id.as_str()),
+        _ => None,
+    };
+    let next = view.completions.updated(listed(work), shown);
+    if next != view.completions {
+        view.completions = next;
+    }
+}
+
 /// What the host keeps read for the tree.
 pub(crate) fn sight(view: &TreeView) -> TreeSight {
     TreeSight {
@@ -412,6 +444,68 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    #[test]
+    fn leaving_the_sidebar_or_opening_a_menu_stops_typing_into_the_filter() {
+        use crate::content::Area;
+        use crate::overlay::context_menu::Target;
+        let typing = || {
+            Scenario::new()
+                .send(Msg::Focus(Area::Sidebar))
+                .send(Msg::TreeFiltering(true))
+                .send(Msg::TreeFilter("a".into()))
+        };
+        let run = typing();
+        assert!(run.state().tree.filtering);
+        assert!(!run.effects().contains(&Effect::FilterFocus(false)));
+        let left = [
+            Msg::Focus(Area::Console),
+            Msg::Focus(Area::Details),
+            Msg::MenuOpen {
+                x: 0.0,
+                y: 0.0,
+                target: Target::Row(Item::Session("a".into())),
+            },
+        ];
+        for msg in left {
+            let run = typing().send(msg.clone());
+            assert!(!run.state().tree.filtering, "{msg:?}");
+            assert_eq!(run.state().tree.filter, "a", "{msg:?}");
+            assert!(
+                run.last_effects().contains(&Effect::FilterFocus(false)),
+                "{msg:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_finished_session_is_seen_once_shown_while_the_user_is_in_the_window() {
+        let done = |id: &str| Session {
+            state: State::Done,
+            ..session(id, "/r")
+        };
+        let finished = |run: &Scenario, id: &str| -> State {
+            let tree = listed(run.state().host.work.as_ref()).clone();
+            let (_, s) = nav::find(&tree, id).unwrap();
+            run.state().tree.completions.state(s).clone()
+        };
+        let listed_done = Scenario::new().event(listing(vec![done("a"), done("b")]));
+        assert_eq!(finished(&listed_done, "a"), State::Done);
+        let shown = listed_done.send(shows_session("a", "/r"));
+        assert_eq!(finished(&shown, "a"), State::Idle);
+        assert_eq!(finished(&shown, "b"), State::Done);
+        // Seen once, it stays seen when another is shown.
+        let other = shown.send(shows_session("b", "/r"));
+        assert_eq!(finished(&other, "a"), State::Idle);
+        // Shown while the window is in the back, it is not seen yet.
+        let away = Scenario::new()
+            .send(Msg::WindowFocused(false))
+            .event(listing(vec![done("a")]))
+            .send(shows_session("a", "/r"));
+        assert_eq!(finished(&away, "a"), State::Done);
+        let back = away.send(Msg::WindowFocused(true));
+        assert_eq!(finished(&back, "a"), State::Idle);
     }
 
     #[test]

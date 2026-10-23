@@ -133,8 +133,9 @@ pub(crate) fn open_with(how: &str, path: &Path, starter: &str) {
 const KEYS_STARTER: &str =
     "# Key bindings over the defaults, area by area, as in\n# [tree]\n# \"J\" = \"cursor.down\"\n";
 
+/// Why the settings cannot be had, while they cannot, as the file reads now.
 #[component]
-pub fn SettingsLoadError() -> Element {
+fn SettingsFileError() -> Element {
     let mut failure = use_signal(settings::load_error);
     use_hook(move || {
         spawn(async move {
@@ -145,7 +146,15 @@ pub fn SettingsLoadError() -> Element {
         });
     });
     rsx! {
-        if let Some(error) = failure() {
+        SettingsLoadError { error: failure() }
+    }
+}
+
+/// `error`, why the settings cannot be had, told over the window.
+#[component]
+pub fn SettingsLoadError(error: Option<String>) -> Element {
+    rsx! {
+        if let Some(error) = error {
             div {
                 class: "settings-error",
                 role: "alert",
@@ -219,7 +228,7 @@ fn SettingsWindow() -> Element {
                 }
             }
             main { class: "settings-pane",
-                SettingsLoadError {}
+                SettingsFileError {}
                 if let Some(e) = failed() {
                     div { class: "settings-error", "Could not keep the settings: {e}" }
                 }
