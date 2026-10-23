@@ -5,6 +5,7 @@ use std::cell::RefCell;
 use std::path::Path;
 use std::rc::{Rc, Weak};
 
+use adroit_model::paths::tilde;
 use dioxus::desktop::{
     Config as Desktop, DesktopService, LogicalSize, WindowBuilder, WindowCloseBehaviour, window,
 };
@@ -106,10 +107,6 @@ impl Pane {
             Pane::Keys => Icon::Keyboard,
         }
     }
-}
-
-fn short(path: &Path) -> String {
-    crate::picker::short(path, &home())
 }
 
 /// Hand `path` to `open` with `how`: `-R` shows it in the Finder, `-t` opens
@@ -430,7 +427,7 @@ fn General(now: Settings, change: Callback<Change>) -> Element {
         section { class: "settings-group",
             h2 { "Files" }
             for (name, path, starter) in files {
-                Row { key: "{name}", label: name, hint: short(&path),
+                Row { key: "{name}", label: name, hint: tilde(&path, &home()),
                     button { onclick: move |_| open_with("-R", &path, starter), "Show in Finder" }
                 }
             }
@@ -472,7 +469,7 @@ fn ConsolePane(now: Settings, change: Callback<Change>) -> Element {
                     }
                 }
             }
-            Row { label: "Themes folder", hint: short(&themes_dir),
+            Row { label: "Themes folder", hint: tilde(&themes_dir, &home()),
                 button {
                     onclick: move |_| {
                         let _ = std::fs::create_dir_all(&themes_dir);

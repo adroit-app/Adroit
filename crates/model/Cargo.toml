@@ -7,6 +7,10 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
+[features]
+# Builders for the values tests start from, for other crates' tests.
+testing = []
+
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true

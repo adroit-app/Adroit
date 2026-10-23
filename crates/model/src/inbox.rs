@@ -25,35 +25,24 @@ pub fn inbox(tree: &Tree) -> Vec<InboxItem> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use super::*;
-    use crate::{Kind, build};
-
-    fn session(name: &str, cwd: &str, state: State) -> Session {
-        Session {
-            id: name.into(),
-            name: name.into(),
-            cwd: cwd.into(),
-            kind: Kind::Own,
-            state,
-            ..Default::default()
-        }
-    }
+    use crate::testing::{session, tree};
 
     #[test]
     fn lists_only_waiting_sessions_with_their_workspace() {
-        let tree = build(
-            &[
-                session("busy", "/api", State::Working),
-                session("asks", "/api", State::Waiting(Wait::Permission)),
-                session("other", "/notes", State::Waiting(Wait::Input)),
-            ],
-            &[],
-            &HashMap::new(),
-            &[],
-            None,
-        );
+        let tree = tree()
+            .session(session("busy").cwd("/api").state(State::Working))
+            .session(
+                session("asks")
+                    .cwd("/api")
+                    .state(State::Waiting(Wait::Permission)),
+            )
+            .session(
+                session("other")
+                    .cwd("/notes")
+                    .state(State::Waiting(Wait::Input)),
+            )
+            .build();
         let items = inbox(&tree);
         assert_eq!(items.len(), 2);
         assert_eq!(items[0].session.name, "asks");

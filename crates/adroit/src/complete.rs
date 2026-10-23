@@ -74,10 +74,7 @@ pub fn commands(list: &[Command]) -> Vec<Candidate> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-    use std::path::PathBuf;
-
-    use adroit_model::{Kind, Session, State, Worktree, build};
+    use adroit_model::testing::{self, session};
 
     use super::*;
 
@@ -89,29 +86,12 @@ mod tests {
 
     #[test]
     fn the_open_workspace_s_sessions_come_before_the_others_and_files_last() {
-        let s = |name: &str, cwd: &str| Session {
-            id: name.into(),
-            name: name.into(),
-            cwd: cwd.into(),
-            kind: Kind::Own,
-            state: State::Idle,
-            ..Default::default()
-        };
-        let found = HashMap::from([(
-            PathBuf::from("/api/.claude/worktrees/x"),
-            Some(Worktree {
-                path: "/api/.claude/worktrees/x".into(),
-                repo: "/api".into(),
-                branch: None,
-            }),
-        )]);
-        let tree = build(
-            &[s("scratch", "/tmp"), s("fix", "/api/.claude/worktrees/x")],
-            &[],
-            &found,
-            &[],
-            None,
-        );
+        let x = "/api/.claude/worktrees/x";
+        let tree = testing::tree()
+            .session(session("scratch").cwd("/tmp"))
+            .session(session("fix").cwd(x))
+            .checkout(x, "/api", "x")
+            .build();
         let place = Place {
             worktree: "/api".into(),
         };
@@ -131,20 +111,10 @@ mod tests {
 
     #[test]
     fn a_workspace_of_the_same_name_elsewhere_is_not_the_open_one() {
-        let s = |name: &str, cwd: &str| Session {
-            id: name.into(),
-            name: name.into(),
-            cwd: cwd.into(),
-            kind: Kind::Own,
-            ..Default::default()
-        };
-        let tree = build(
-            &[s("there", "/a/api"), s("here", "/b/api")],
-            &[],
-            &HashMap::new(),
-            &[],
-            None,
-        );
+        let tree = testing::tree()
+            .session(session("there").cwd("/a/api"))
+            .session(session("here").cwd("/b/api"))
+            .build();
         let place = Place {
             worktree: "/b/api".into(),
         };
@@ -192,14 +162,7 @@ mod tests {
     }
 
     fn tree_with(name: &str, cwd: &str) -> Tree {
-        let s = Session {
-            id: name.into(),
-            name: name.into(),
-            cwd: cwd.into(),
-            kind: Kind::Own,
-            ..Default::default()
-        };
-        build(&[s], &[], &HashMap::new(), &[], None)
+        testing::tree().session(session(name).cwd(cwd)).build()
     }
 
     #[test]

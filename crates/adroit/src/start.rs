@@ -4,6 +4,7 @@
 use std::io::Read;
 use std::path::PathBuf;
 
+use adroit_model::time::now_ms;
 use adroit_model::{AgentPermissions, CustomPermissions};
 use adroit_term::Daemon;
 
@@ -80,12 +81,6 @@ pub(crate) fn name_for(given: Option<&str>, prompt: &str, taken: &[&str]) -> Str
         .and_then(label_of)
         .unwrap_or_else(|| label_from(prompt));
     fresh_name(&label, taken)
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as u64)
 }
 
 /// Starts the session `asked` for as the user's own.

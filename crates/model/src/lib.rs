@@ -6,8 +6,12 @@ mod inbox;
 mod launch;
 mod metrics;
 mod models;
+pub mod paths;
 mod session;
 mod terminal;
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;
+pub mod time;
 mod tree;
 
 pub use inbox::*;

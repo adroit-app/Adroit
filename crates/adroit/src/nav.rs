@@ -708,28 +708,12 @@ pub fn copied(item: &Item, tree: &Tree, terminals: &[TerminalSession]) -> Option
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use super::*;
-    use adroit_model::{Kind, State, TerminalSession, Wait, Worktree, build, inbox};
+    use adroit_model::testing::{self, worktree as wt};
+    use adroit_model::{State, TerminalSession, Wait, build, inbox};
 
     fn s(id: &str, cwd: &str, state: State) -> Session {
-        Session {
-            id: id.into(),
-            name: id.into(),
-            cwd: cwd.into(),
-            kind: Kind::Own,
-            state,
-            ..Default::default()
-        }
-    }
-
-    fn wt(path: &str, repo: &str, branch: &str) -> Worktree {
-        Worktree {
-            path: path.into(),
-            repo: repo.into(),
-            branch: Some(branch.into()),
-        }
+        testing::session(id).cwd(cwd).state(state).build()
     }
 
     const OAUTH: &str = "/api/.claude/worktrees/oauth";
@@ -738,15 +722,12 @@ mod tests {
     /// worktree; `web` one with sessions only in its main checkout; `tmp` is
     /// outside git.
     fn tree() -> Tree {
-        let found: HashMap<PathBuf, Option<Worktree>> = [
+        let found = testing::found(&[
             ("/api", Some(wt("/api", "/api", "main"))),
             (OAUTH, Some(wt(OAUTH, "/api", "oauth"))),
             ("/web", Some(wt("/web", "/web", "main"))),
             ("/tmp", None),
-        ]
-        .into_iter()
-        .map(|(p, w)| (PathBuf::from(p), w))
-        .collect();
+        ]);
         build(
             &[
                 s("a", "/api", State::Working),
@@ -920,14 +901,11 @@ mod tests {
     /// `a` runs in the main checkout of `api` and started `o`, which runs in
     /// the `oauth` worktree, and `w`, which runs in `web`.
     fn delegating_tree(starter_listed: bool) -> Tree {
-        let found: HashMap<PathBuf, Option<Worktree>> = [
+        let found = testing::found(&[
             ("/api", Some(wt("/api", "/api", "main"))),
             (OAUTH, Some(wt(OAUTH, "/api", "oauth"))),
             ("/web", Some(wt("/web", "/web", "main"))),
-        ]
-        .into_iter()
-        .map(|(p, w)| (PathBuf::from(p), w))
-        .collect();
+        ]);
         let starter = adroit_model::SessionId::new();
         let mut a = s("a", "/api", State::Working);
         a.delegation = Some(starter);
@@ -1251,10 +1229,7 @@ mod tests {
     fn a_workspace_without_a_main_checkout_works_in_its_first_worktree() {
         // A bare repository, a submodule or a separate git directory is
         // named by its git directory, which no session should start in.
-        let found = HashMap::from([(
-            PathBuf::from("/src/w1"),
-            Some(wt("/src/w1", "/src/api.git", "a")),
-        )]);
+        let found = testing::found(&[("/src/w1", Some(wt("/src/w1", "/src/api.git", "a")))]);
         let t = build(&[s("a", "/src/w1", State::Idle)], &[], &found, &[], None);
         assert_eq!(place_of(&t, &ws("/src/api.git")), Some(at("/src/w1")));
     }
@@ -1275,17 +1250,14 @@ mod tests {
     /// where no session runs, one in `tmp`, a workspace without a worktree
     /// row, and one in `notes`, outside git, where nothing else runs.
     fn shelled() -> Tree {
-        let found: HashMap<PathBuf, Option<Worktree>> = [
+        let found = testing::found(&[
             ("/api", Some(wt("/api", "/api", "main"))),
             (OAUTH, Some(wt(OAUTH, "/api", "oauth"))),
             (DEV, Some(wt(DEV, "/api", "dev"))),
             ("/web", Some(wt("/web", "/web", "main"))),
             ("/tmp", None),
             ("/notes", None),
-        ]
-        .into_iter()
-        .map(|(p, w)| (PathBuf::from(p), w))
-        .collect();
+        ]);
         let sessions: Vec<Session> = tree().sessions().map(|(_, s)| s.clone()).collect();
         build(
             &sessions,
@@ -1486,11 +1458,7 @@ mod tests {
     }
 
     fn listed(id: &str, session_id: &str) -> Session {
-        Session {
-            id: id.into(),
-            session_id: session_id.into(),
-            ..Default::default()
-        }
+        testing::session(id).session_id(session_id).build()
     }
 
     #[test]
