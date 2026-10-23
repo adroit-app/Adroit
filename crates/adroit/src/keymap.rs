@@ -165,7 +165,7 @@ pub const DEFAULTS: &str = r#"
 
 [prompt]
 "Mod+i" = "prompt.images"
-"Tab" = "console.send"
+"Tab" = "prompt.take_suggestion"
 "Shift+Tab" = "console.send"
 "Ctrl+c" = "console.send Escape"
 "Ctrl+Enter" = "prompt.send"
@@ -629,6 +629,7 @@ actions! {
     PromptWrite => "prompt.write",
     PromptSend => "prompt.send",
     PromptImages => "prompt.images",
+    PromptTakeSuggestion => "prompt.take_suggestion",
     HistoryPrev => "prompt.history_prev",
     HistoryNext => "prompt.history_next",
     SettingsOpen => "settings.open",
@@ -1632,20 +1633,28 @@ mod tests {
     }
 
     #[test]
-    fn tab_and_shift_tab_in_the_prompt_go_to_the_agent_even_while_writing() {
+    fn tab_in_the_prompt_takes_a_suggestion_and_shift_tab_goes_to_the_agent_even_while_writing() {
         for areas in [
             &[Context::Prompt][..],
             &[Context::Prompt, Context::Global],
             &[Context::Draft, Context::Prompt],
         ] {
-            for key in ["Tab", "Shift+Tab"] {
-                assert_eq!(
-                    step(&Keymap::defaults(), areas, &[], key),
-                    Step::Run(Action::ConsoleSend(None)),
-                    "{areas:?} {key}"
-                );
-            }
+            let prompt = |key| step(&Keymap::defaults(), areas, &[], key);
+            assert_eq!(
+                prompt("Tab"),
+                Step::Run(Action::PromptTakeSuggestion),
+                "{areas:?}"
+            );
+            assert_eq!(
+                prompt("Shift+Tab"),
+                Step::Run(Action::ConsoleSend(None)),
+                "{areas:?}"
+            );
         }
+        assert_eq!(
+            "prompt.take_suggestion".parse(),
+            Ok(Action::PromptTakeSuggestion)
+        );
     }
 
     #[test]

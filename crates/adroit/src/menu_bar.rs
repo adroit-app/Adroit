@@ -413,6 +413,7 @@ mod tests {
         "console.send_next",
         "console.pass_every_key",
         "prompt.write",
+        "prompt.take_suggestion",
         "prompt.history_prev",
         "prompt.history_next",
         "viewer.zoom_in",

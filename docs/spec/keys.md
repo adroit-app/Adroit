@@ -129,10 +129,10 @@ alternate screen, leaves nothing scrolled off to read: moving or scrolling past 
 first or last line scrolls the program instead, and the reader follows; `gg` scrolls it to its start. Leaving the reader
 for the live console, or moving to the prompt, returns the session to its
 latest output.
-In the prompt, `Ctrl+c` sends `Escape` to the agent, and `Tab` and
-`Shift+Tab` are sent to it as they are, in insert mode too, but to Neovim while
-it shows its completions or its command line, or the prompt has no session to
-send them to. `global` bindings
+In the prompt, `Ctrl+c` sends `Escape` to the agent, `Shift+Tab` is sent to it
+as it is, and `Tab` on an empty prompt takes the prompt the agent suggests,
+in insert mode too; both are Neovim's while it shows its completions or its
+command line, or the prompt has no session to send them to. `global` bindings
 apply only outside Neovim's insert mode, but for `Mod` and Command keys and
 the prefix.
 
@@ -230,6 +230,7 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 | `prompt.write` | give the prompt the keys, and the key pressed with them |
 | `prompt.send` | send what the prompt holds |
 | `prompt.images` | select an attached image |
+| `prompt.take_suggestion` | on an empty prompt, send the key pressed to the session and then bring the session's input into the prompt, so a prompt Claude Code suggests is taken to edit; an agent whose input cannot be taken back gets the key alone. On a prompt holding text or images, or while Neovim shows its completions or its command line, the key is Neovim's |
 | `prompt.history_prev`, `prompt.history_next` | put the prompt sent before or after the one shown in the prompt, to change and send again: those Claude Code recalls with its Up arrow where the focused window's session works. In the prompt, while Neovim shows its completions or its command line, the key is Neovim's |
 | `console.send` | send the key pressed to the session |
 | `console.send <key>` | send the key named instead, as in `console.send Escape` |
@@ -398,7 +399,7 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 
 [prompt]
 "Mod+i" = "prompt.images"
-"Tab" = "console.send"
+"Tab" = "prompt.take_suggestion"
 "Shift+Tab" = "console.send"
 "Ctrl+c" = "console.send Escape"
 "Ctrl+Enter" = "prompt.send"

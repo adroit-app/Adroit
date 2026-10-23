@@ -14,7 +14,7 @@ use adroit_model::{
     InboxItem, Kind, Session, State, TerminalProgram, TerminalSession, Tree, Worktree, build, inbox,
 };
 use adroit_nvim::{Embedded, Event as NvimEvent, notation};
-use adroit_term::{Daemon, Key, Palette, Pane, Size, Spawn};
+use adroit_term::{Daemon, Key, Palette, Pane, Screen, Size, Spawn};
 use dioxus::prelude::*;
 use tokio::sync::{Notify, mpsc, oneshot};
 
@@ -226,6 +226,63 @@ fn passes_enter(taken: Option<&(Option<Tab>, String)>) -> Option<String> {
     match taken {
         Some((Some(Tab::Session(id)), text)) if text.trim().is_empty() => Some(id.clone()),
         _ => None,
+    }
+}
+
+/// What the prompt stands in when Tab is pressed there.
+struct PromptTab {
+    /// Neovim shows its completions or its command line.
+    neovim_owns: bool,
+    /// The prompt is a running session's, which the key can reach.
+    session: bool,
+    /// The prompt holds no text and no image.
+    empty: bool,
+    /// The session hands its input back through adroit's editor.
+    hands_back: bool,
+}
+
+/// Where Tab pressed in the prompt goes.
+#[derive(Debug, PartialEq, Eq)]
+enum TabGoes {
+    Neovim,
+    Session,
+    /// To the session, which accepts the prompt it suggests, and then the
+    /// session's input to the prompt.
+    SessionThenBack,
+}
+
+impl PromptTab {
+    fn goes(&self) -> TabGoes {
+        // Text being written is Neovim's to complete; only an empty prompt
+        // leaves Tab nothing to do there.
+        match self {
+            Self {
+                neovim_owns: true, ..
+            }
+            | Self { session: false, .. }
+            | Self { empty: false, .. } => TabGoes::Neovim,
+            // An agent whose input cannot be taken back still gets its Tab,
+            // as it did before Tab took suggestions.
+            Self {
+                hands_back: false, ..
+            } => TabGoes::Session,
+            Self {
+                hands_back: true, ..
+            } => TabGoes::SessionThenBack,
+        }
+    }
+}
+
+/// How long a session is given to repaint after Tab before its input is
+/// asked for anyway.
+const TAB_APPLIED_WAIT: Duration = Duration::from_millis(500);
+
+/// Wait until `pane` shows something other than `before`, or
+/// [`TAB_APPLIED_WAIT`] passes.
+async fn repainted(pane: &Pane, before: &Screen) {
+    let until = tokio::time::Instant::now() + TAB_APPLIED_WAIT;
+    while tokio::time::Instant::now() < until && pane.screen() == *before {
+        tokio::time::sleep(Duration::from_millis(16)).await;
     }
 }
 
@@ -4511,6 +4568,7 @@ fn App() -> Element {
     // which some actions pass on; a click has none.
     let perform = {
         let active_pane = active_pane.clone();
+        let request_pull = request_pull.clone();
         let mut submit = submit.clone();
         let hub = hub.clone();
         move |action: Action, key: Option<Key>| {
@@ -4743,6 +4801,7 @@ fn App() -> Element {
                 | Action::PromptWrite
                 | Action::PromptSend
                 | Action::PromptImages
+                | Action::PromptTakeSuggestion
                 | Action::HistoryPrev
                 | Action::HistoryNext
                     if !shows_prompt(thing.as_ref()) => {}
@@ -4760,6 +4819,56 @@ fn App() -> Element {
                     }
                 }
                 Action::PromptSend => submit(),
+                Action::PromptTakeSuggestion => {
+                    let Some(nv) = nvim.peek().clone() else {
+                        return;
+                    };
+                    let key = key.unwrap_or_else(|| Key::new("Tab"));
+                    let neovim_owns = {
+                        let s = nv.state();
+                        s.popup().is_some() || s.mode().starts_with("cmdline")
+                    };
+                    let tab = active.peek().clone();
+                    let hands_back = ANSWERS.load(Ordering::Relaxed)
+                        && matches!(&tab, Some(Tab::Session(id))
+                            if nav::find(&tree.peek(), id).is_some_and(|(_, s)| s.adroit_editor));
+                    let no_images = shown_images.peek().is_empty();
+                    let pane = pane.clone();
+                    let mut request_pull = request_pull.clone();
+                    spawn(async move {
+                        let empty = no_images && nv.text().await.is_ok_and(|t| t.trim().is_empty());
+                        let goes = PromptTab {
+                            neovim_owns,
+                            session: pane.is_some(),
+                            empty,
+                            hands_back,
+                        }
+                        .goes();
+                        let (TabGoes::Session | TabGoes::SessionThenBack, Some(p)) = (&goes, pane)
+                        else {
+                            if let Some(n) = notation(&key) {
+                                let _ = nv.input(&n).await;
+                            }
+                            return;
+                        };
+                        // Tab may type into Claude Code's input: an accepted
+                        // suggestion lands there.
+                        if let Some(tab @ Tab::Session(_)) = tab {
+                            stale.write().insert(tab);
+                        }
+                        let before = p.screen();
+                        p.key(&key);
+                        if goes == TabGoes::SessionThenBack {
+                            // Claude Code repaints the input once it takes the
+                            // suggestion, from faint to plain, or shows a hint
+                            // when it has none. Keys reach it in order, but
+                            // whether Ctrl-g sees the text Tab put in rests on
+                            // how it batches its updates; the repaint does not.
+                            repainted(&p, &before).await;
+                            request_pull();
+                        }
+                    });
+                }
                 Action::PromptImages => {
                     if matches!(text_goes(), Typed::Prompt) {
                         focus.set(Area::Prompt);
@@ -7852,6 +7961,28 @@ mod tests {
         assert_eq!(passes_enter(Some(&draft)), None);
         assert_eq!(passes_enter(Some(&(None, String::new()))), None);
         assert_eq!(passes_enter(None), None);
+    }
+
+    #[test]
+    fn tab_in_an_empty_prompt_takes_the_suggestion_from_a_session_that_hands_its_input_back() {
+        let tab = |neovim_owns, session, empty, hands_back| {
+            PromptTab {
+                neovim_owns,
+                session,
+                empty,
+                hands_back,
+            }
+            .goes()
+        };
+        assert_eq!(tab(false, true, true, true), TabGoes::SessionThenBack);
+        assert_eq!(tab(false, true, true, false), TabGoes::Session);
+        for hands_back in [true, false] {
+            assert_eq!(tab(false, true, false, hands_back), TabGoes::Neovim);
+            for empty in [true, false] {
+                assert_eq!(tab(true, true, empty, hands_back), TabGoes::Neovim);
+                assert_eq!(tab(false, false, empty, hands_back), TabGoes::Neovim);
+            }
+        }
     }
 
     #[test]

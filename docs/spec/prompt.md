@@ -7,6 +7,11 @@ it as its next message, and a draft starts its session with it.
 The prompt is left empty, in Neovim's normal mode. Sent
 empty, it passes Ctrl+Enter itself to the session, as Claude Code's own
 input would take it; a draft gets nothing from an empty prompt.
+Tab on an empty prompt likewise goes to the session, where Claude Code takes
+the prompt it suggests into its input, and then brings that input into the
+prompt to edit; with no suggestion nothing comes. An agent whose input adroit
+cannot take back, such as Codex, gets the Tab alone. On a prompt holding text
+or images, Tab is Neovim's.
 
 A shell's window shows no prompt: its console takes the room and every key,
 and the keys that would go to the prompt stay with the shell.
