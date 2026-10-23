@@ -5,6 +5,7 @@ pub mod actions;
 pub mod complete;
 pub mod completion;
 pub mod content;
+pub mod details;
 pub mod file_icons;
 pub mod filer;
 pub mod files;

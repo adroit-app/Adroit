@@ -11,18 +11,22 @@ pub mod links;
 mod metrics;
 mod models;
 pub mod paths;
+mod process;
 mod session;
+pub mod subagents;
 mod terminal;
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;
 pub mod time;
 mod tree;
+pub mod usage;
 
 pub use inbox::*;
 pub use key::*;
 pub use launch::*;
 pub use metrics::*;
 pub use models::*;
+pub use process::*;
 pub use session::*;
 pub use terminal::*;
 pub use tree::*;

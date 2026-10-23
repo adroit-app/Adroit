@@ -8,20 +8,7 @@ use adroit_model::{Kind, Session};
 use dioxus::prelude::*;
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Process {
-    pub key: String,
-    pub pid: u32,
-    pub parent: Option<u32>,
-    pub name: String,
-    pub command: String,
-    pub cwd: Option<PathBuf>,
-    pub memory: u64,
-    pub started_secs: u64,
-    pub zombie: bool,
-    owner: Option<String>,
-    executable: Option<PathBuf>,
-}
+pub use adroit_model::Process;
 
 #[derive(Default)]
 pub struct Sampler {

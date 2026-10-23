@@ -7481,10 +7481,12 @@ mod tests {
             name: "work".into(),
             ..Default::default()
         };
-        let mut process = crate::processes::Process::default();
-        process.pid = 123;
-        process.started_secs = 456;
-        process.name = "node_repl".into();
+        let mut process = crate::processes::Process {
+            pid: 123,
+            started_secs: 456,
+            name: "node_repl".into(),
+            ..Default::default()
+        };
         let ask =
             Ask::kill_process(Some(&session), Some(&Entry::Process(process.clone()))).unwrap();
         assert_eq!(ask, Ask::KillProcess(session.clone(), process.clone()));
@@ -7502,10 +7504,12 @@ mod tests {
 
     #[test]
     fn process_rows_are_available_without_a_transcript_and_follow_only_the_shown_session() {
-        let mut process = crate::processes::Process::default();
-        process.key = "process-123".into();
-        process.pid = 123;
-        process.name = "server".into();
+        let process = crate::processes::Process {
+            key: "process-123".into(),
+            pid: 123,
+            name: "server".into(),
+            ..Default::default()
+        };
         let read = ("session-one".into(), vec![process]);
         let folded = HashSet::new();
         let listing = overview_listing(

@@ -59,6 +59,7 @@ name = "adroit-core"
 version = "0.0.0"
 dependencies = [
  "adroit-model",
+ "adroit-vcs",
  "nucleo-matcher",
  "regex",
  "schemars",
