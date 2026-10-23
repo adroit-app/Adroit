@@ -10,9 +10,9 @@ buffers, was not possible, and adroit's users work by Vim's keys.
 
 ## Decision
 
-What a console holds, its scrollback included, is read in a second embedded
-Neovim, as a buffer that cannot be changed, drawn in the console's place while
-it is read.
+What a console holds, its scrollback included, is read in a second Neovim the
+window attaches to, as a buffer that cannot be changed, drawn in the console's
+place while it is read.
 
 ## Alternatives considered
 
@@ -27,3 +27,5 @@ it is read.
 - A second Neovim runs beside the prompt's, configured apart from it.
 - Only what the terminal keeps can be read: a program on the alternate screen
   has no scrolled-off lines.
+- What is copied in it reaches the window's clipboard only through what Neovim
+  tells its interface.

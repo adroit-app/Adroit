@@ -17,8 +17,8 @@ There is one kind of session. Every session adroit starts can start sessions,
 message any other, and report to the session that started it. adroit carries
 the messages, addressed by session identity, and hands each to the receiving
 agent through that agent's own way of hearing from outside; handing it over is
-receipt. Which session started which, and the messages, are all the session
-daemon keeps between sessions: no request, task or verdict.
+receipt. Which session started which, and the messages, are all the work host
+keeps between sessions: no request, task or verdict.
 
 ## Alternatives considered
 

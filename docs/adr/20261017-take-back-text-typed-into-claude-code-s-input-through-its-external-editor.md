@@ -12,9 +12,9 @@ takes back what the editor leaves.
 ## Decision
 
 adroit names itself as the external editor of the sessions it starts. To take
-a session's input, it asks Claude Code to open the editor, moves the text into
-the prompt and hands back nothing. Asked when adroit did not ask, it opens the
-user's own editor.
+a session's input, the work host asks Claude Code to open the editor, moves the
+text into the prompt and hands back nothing. Asked when adroit did not ask, it
+opens the user's own editor.
 
 ## Alternatives considered
 
@@ -25,6 +25,6 @@ user's own editor.
 
 ## Consequences
 
-- One window at a time answers the sessions' editor requests.
+- The editor requests are answered whether or not a window is open.
 - Claude Code opens no editor while a dialog is open, so text is taken back
   only after the dialog is answered.

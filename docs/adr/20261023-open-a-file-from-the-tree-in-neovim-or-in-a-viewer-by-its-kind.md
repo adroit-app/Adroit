@@ -21,5 +21,5 @@ of their kind drawn by the window itself. A viewer only reads its file.
 
 ## Consequences
 
-- Viewers run in the window, not in the session daemon, and close with it.
+- Viewers run in the window, not in the hosts, and close with it.
 - A file of a kind adroit does not know opens in Neovim.

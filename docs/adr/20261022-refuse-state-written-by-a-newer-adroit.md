@@ -4,10 +4,10 @@ Status: Accepted
 
 ## Context
 
-The window, the command line and the session daemon open the same stored state,
-and need not be the same build: the daemon keeps running after adroit is
-replaced. A build that meets a record written by a newer one cannot read it,
-and once reported the whole store as damaged.
+The work host and the command line open the same stored state, and need not be
+the same build: a work host keeps running until it is replaced, and the command
+line is whatever build was installed last. A build that meets a record written
+by a newer one cannot read it, and once reported the whole store as damaged.
 
 ## Decision
 
@@ -20,12 +20,12 @@ apart from damage.
 
 - Let older builds ignore fields they do not know. Writing a record back drops
   what the newer build recorded, silently.
-- Check the version only on opening. A daemon opens once and outlives the build
-  that installed it, which is the case that fails.
+- Check the version only on opening. A work host opens once and outlives the
+  build that started it, which is the case that fails.
 
 ## Consequences
 
 - Changing a stored record's shape needs a new schema version.
-- An older daemon still running stops serving that state until it is
-  restarted.
+- An older work host still running stops serving that state until it is
+  replaced.
 - A newer build reads and upgrades what an older one wrote.
