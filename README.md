@@ -84,9 +84,13 @@ Codex's commands and menus directly; `Esc` returns to Adroit. See
 ### Keys
 
 The window has a sidebar, the console with the prompt below it, and a details
-panel. `Ctrl-w` followed by `h` `j` `k` `l` moves between them, as in Vim.
+panel. `Ctrl-q` followed by `h` `j` `k` `l` moves between them, as `Ctrl-w`
+does in Vim, and `w` `W` `p` `t` `b` move as Vim's do; the second key may be
+pressed with `Ctrl` held too. `Ctrl-q` works everywhere, the prompt's insert
+mode included, and `Ctrl-w` is left to the program: Neovim's windows, the
+shell's word.
 
-From anywhere, the prompt included: `Cmd-]` `Cmd-[` (or `Ctrl-w n` `Ctrl-w p`)
+From anywhere, the prompt included: `Cmd-]` `Cmd-[` (or `Ctrl-q Tab` `Ctrl-q Shift-Tab`)
 show the next or previous tab of the panel the keys are in, the console's
 tabs or the details panel's overview, changes and log, which `Cmd-1` to
 `Cmd-3` also show one by one; `Cmd-o` chooses where a new session
@@ -101,7 +105,7 @@ worktree, `Cmd-r` refreshes, `Cmd-t` takes over a session and
 | `Enter` `l` `o` | open a session or worktree; fold a workspace |
 | `L` `Shift-Enter` `Ctrl-Enter` | show a session or worktree in the console, with the keys staying in the sidebar |
 | `h` | fold |
-| `]w` `[w` | the next or previous session waiting on you, with the console ready to answer it; `Ctrl-w ]` `Ctrl-w [` from anywhere |
+| `]w` `[w` | the next or previous session waiting on you, with the console ready to answer it; `Ctrl-q ]` `Ctrl-q [` from anywhere |
 | `w` | choose where a new session works |
 | `n` | start a session in the selected worktree or directory |
 | `s` `x` | open a shell in the worktree; close the current tab, ending a shell or putting a session back to the sidebar only |
@@ -121,10 +125,10 @@ your own Neovim: move, search, select, and `y` copies to the clipboard. `q`
 goes back to the console live. The mouse wheel scrolls any console.
 `Ctrl-g Ctrl-o` sends the next key as it is, and `Ctrl-g i` passes every key on
 until `Esc`. While a session waits on you, at a permission prompt or a
-question, every key but `Ctrl-w` answers it as it is. Text that lands in
+question, every key but `Ctrl-q` sequences answers it as it is. Text that lands in
 Claude Code's own input meanwhile moves into the prompt when the keys stop
 going there, and whenever the prompt takes the keyboard. A shell takes every
-key; `Ctrl-w .` sends a literal `Ctrl-w`.
+key but `Ctrl-q` sequences; `Ctrl-q .` sends a literal `Ctrl-q`.
 
 In the prompt, keys go to Neovim, `/` offers Claude Code's own commands, your
 skills and plugins' included, `@` offers sessions and paths to walk into, a

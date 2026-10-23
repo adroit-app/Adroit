@@ -19,7 +19,7 @@ pub enum Dir {
 }
 
 impl Dir {
-    /// The direction a key names after `Ctrl-w`: `h j k l` or an arrow.
+    /// The direction a key names after `Ctrl-q`: `h j k l` or an arrow.
     pub fn from_key(key: &str) -> Option<Self> {
         match key {
             "h" | "ArrowLeft" => Some(Self::Left),
@@ -45,6 +45,55 @@ pub fn moved(from: Area, dir: Dir, prompt: bool) -> Area {
         (Prompt, Up) => Console,
         (Details, Left) => Console,
         (area, _) => area,
+    }
+}
+
+/// Which of the areas that can be hidden are shown; the console always is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Shown {
+    pub sidebar: bool,
+    pub prompt: bool,
+    pub details: bool,
+}
+
+impl Shown {
+    /// The areas shown, in the order the next area visits them.
+    fn order(self) -> Vec<Area> {
+        [
+            (Area::Sidebar, self.sidebar),
+            (Area::Console, true),
+            (Area::Prompt, self.prompt),
+            (Area::Details, self.details),
+        ]
+        .into_iter()
+        .filter_map(|(area, on)| on.then_some(area))
+        .collect()
+    }
+}
+
+/// The area after `from`, or before it unless `forward`, among those shown,
+/// going round at the ends.
+pub fn cycled(from: Area, forward: bool, shown: Shown) -> Area {
+    let order = shown.order();
+    let at = order
+        .iter()
+        .position(|a| *a == settled(from, shown.prompt))
+        .unwrap_or(0);
+    let n = order.len();
+    order[if forward {
+        (at + 1) % n
+    } else {
+        (at + n - 1) % n
+    }]
+}
+
+/// The first area shown, or the last unless `first`.
+pub fn corner(first: bool, shown: Shown) -> Area {
+    let order = shown.order();
+    if first {
+        order[0]
+    } else {
+        order[order.len() - 1]
     }
 }
 
@@ -124,6 +173,51 @@ mod tests {
         for (area, prompt, want) in table {
             assert_eq!(settled(area, prompt), want, "{area:?} {prompt}");
         }
+    }
+
+    const ALL_SHOWN: Shown = Shown {
+        sidebar: true,
+        prompt: true,
+        details: true,
+    };
+
+    #[test]
+    fn the_next_area_goes_from_the_sidebar_down_the_middle_to_the_details_and_round() {
+        let order = [Sidebar, Console, Prompt, Details, Sidebar];
+        for pair in order.windows(2) {
+            assert_eq!(cycled(pair[0], true, ALL_SHOWN), pair[1], "{pair:?}");
+            assert_eq!(cycled(pair[1], false, ALL_SHOWN), pair[0], "{pair:?}");
+        }
+    }
+
+    #[test]
+    fn the_next_area_passes_over_what_is_hidden() {
+        let shown = Shown {
+            sidebar: false,
+            prompt: false,
+            details: true,
+        };
+        assert_eq!(cycled(Console, true, shown), Details);
+        assert_eq!(cycled(Details, true, shown), Console);
+        assert_eq!(cycled(Console, false, shown), Details);
+    }
+
+    #[test]
+    fn the_first_area_is_the_sidebar_and_the_last_the_details_or_what_is_shown_nearest() {
+        assert_eq!(corner(true, ALL_SHOWN), Sidebar);
+        assert_eq!(corner(false, ALL_SHOWN), Details);
+        let middle = Shown {
+            sidebar: false,
+            prompt: true,
+            details: false,
+        };
+        assert_eq!(corner(true, middle), Console);
+        assert_eq!(corner(false, middle), Prompt);
+        let console_only = Shown {
+            prompt: false,
+            ..middle
+        };
+        assert_eq!(corner(false, console_only), Console);
     }
 
     #[test]

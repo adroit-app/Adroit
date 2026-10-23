@@ -8,16 +8,22 @@ use adroit_term::Key;
 /// The bindings adroit ships, in the format of the user's file.
 pub const DEFAULTS: &str = r#"
 [global]
-"Ctrl+w h" = "window.left"
-"Ctrl+w ArrowLeft" = "window.left"
-"Ctrl+w j" = "window.down"
-"Ctrl+w ArrowDown" = "window.down"
-"Ctrl+w k" = "window.up"
-"Ctrl+w ArrowUp" = "window.up"
-"Ctrl+w l" = "window.right"
-"Ctrl+w ArrowRight" = "window.right"
-"Ctrl+w n" = "tab.next"
-"Ctrl+w p" = "tab.prev"
+"Ctrl+q h" = "window.left"
+"Ctrl+q ArrowLeft" = "window.left"
+"Ctrl+q j" = "window.down"
+"Ctrl+q ArrowDown" = "window.down"
+"Ctrl+q k" = "window.up"
+"Ctrl+q ArrowUp" = "window.up"
+"Ctrl+q l" = "window.right"
+"Ctrl+q ArrowRight" = "window.right"
+"Ctrl+q w" = "window.next"
+"Ctrl+q Ctrl+q" = "window.next"
+"Ctrl+q W" = "window.prev"
+"Ctrl+q t" = "window.top"
+"Ctrl+q b" = "window.bottom"
+"Ctrl+q p" = "window.back"
+"Ctrl+q Tab" = "tab.next"
+"Ctrl+q Shift+Tab" = "tab.prev"
 "Cmd+]" = "tab.next"
 "Cmd+[" = "tab.prev"
 "Cmd+w" = "tab.close"
@@ -25,14 +31,14 @@ pub const DEFAULTS: &str = r#"
 "Cmd+1" = "details.overview"
 "Cmd+2" = "details.changes"
 "Cmd+3" = "details.log"
-"Ctrl+w ]" = "waiting.next"
-"Ctrl+w [" = "waiting.prev"
-"Ctrl+w N" = "session.next"
-"Ctrl+w P" = "session.prev"
+"Ctrl+q ]" = "waiting.next"
+"Ctrl+q [" = "waiting.prev"
+"Ctrl+q N" = "session.next"
+"Ctrl+q P" = "session.prev"
 "Cmd+}" = "session.next"
 "Cmd+{" = "session.prev"
 "Cmd+p" = "session.pick"
-"Ctrl+w ." = "console.send Ctrl+w"
+"Ctrl+q ." = "console.send Ctrl+q"
 "Cmd+n" = "session.new"
 "Cmd+Alt+n" = "session.scratch"
 "Cmd+s" = "shell.open"
@@ -438,6 +444,11 @@ actions! {
     WindowDown => "window.down",
     WindowUp => "window.up",
     WindowRight => "window.right",
+    WindowNext => "window.next",
+    WindowPrev => "window.prev",
+    WindowTop => "window.top",
+    WindowBottom => "window.bottom",
+    WindowBack => "window.back",
     TabNext => "tab.next",
     TabPrev => "tab.prev",
     CursorDown => "cursor.down",
@@ -557,19 +568,55 @@ impl Keymap {
 
     /// What `key` does after `pending`, looking at `contexts` in order. A
     /// binding that ends here runs at once, before one that only starts
-    /// here, and an earlier area's before a later one's.
+    /// here, and an earlier area's before a later one's. In a sequence begun
+    /// with Ctrl held, a later key held with Ctrl means what it means
+    /// without, as after Vim's `Ctrl-w`, unless bound so itself; Tab is
+    /// left out, as Ctrl with it does not reach the window everywhere.
     pub fn resolve(&self, contexts: &[Context], pending: &[Key], key: &Key) -> Step {
-        let pressed: Vec<&Key> = pending.iter().chain(Some(key)).collect();
+        let pressed: Vec<Key> = pending.iter().chain(Some(key)).cloned().collect();
+        let step = self.resolve_exactly(contexts, &pressed);
+        if step != Step::Nothing || !pressed[0].ctrl {
+            return step;
+        }
+        let loosened: Vec<Key> = pressed
+            .iter()
+            .enumerate()
+            .map(|(at, k)| Key {
+                ctrl: k.ctrl && (at == 0 || k.key == "Tab"),
+                ..k.clone()
+            })
+            .collect();
+        if loosened == pressed {
+            return step;
+        }
+        self.resolve_exactly(contexts, &loosened)
+    }
+
+    /// Whether `key` begins a `global` sequence held with Ctrl, as the
+    /// window commands' prefix does.
+    fn prefix(&self, key: &Key) -> bool {
+        key.ctrl
+            && self.bindings.iter().any(|(c, seq, a)| {
+                *c == Context::Global && seq.len() > 1 && *a != Action::None && seq[0].matches(key)
+            })
+    }
+
+    fn resolve_exactly(&self, contexts: &[Context], pressed: &[Key]) -> Step {
         let mut longer = false;
-        // A Command key is the window's wherever the keys are: no program
-        // or editor takes it, so it goes to the global bindings too.
-        let global = (key.meta && !contexts.contains(&Context::Global)).then_some(Context::Global);
+        // A Command key and the window commands' prefix are the window's
+        // wherever the keys are, Neovim's insert mode included, so they go
+        // to the global bindings too.
+        let first = &pressed[0];
+        let last = &pressed[pressed.len() - 1];
+        let global = ((first.meta || last.meta || self.prefix(first))
+            && !contexts.contains(&Context::Global))
+        .then_some(Context::Global);
         for ctx in contexts.iter().chain(global.as_ref()) {
             for (c, seq, action) in &self.bindings {
                 if c != ctx || seq.len() < pressed.len() {
                     continue;
                 }
-                if !seq.iter().zip(&pressed).all(|(chord, k)| chord.matches(k)) {
+                if !seq.iter().zip(pressed).all(|(chord, k)| chord.matches(k)) {
                     continue;
                 }
                 if seq.len() == pressed.len() {
@@ -605,7 +652,7 @@ impl Keymap {
     }
 
     /// The keys of several actions in one: the shared first key once, then
-    /// the key each adds, as in `Ctrl+w h j k l`; each in full otherwise.
+    /// the key each adds, as in `Ctrl+q h j k l`; each in full otherwise.
     pub fn keys_for_all(&self, ctx: Context, actions: &[Action]) -> Option<String> {
         let seqs: Vec<&Vec<Chord>> = actions
             .iter()
@@ -752,12 +799,12 @@ mod tests {
         let g = map.clashes(Context::Sidebar, "g", None);
         assert!(g.iter().any(|c| c == "g g is cursor.first"), "{g:?}");
         // Over a global binding, the area's wins there.
-        let w = map.clashes(Context::Sidebar, "Ctrl+w h", None);
+        let w = map.clashes(Context::Sidebar, "Ctrl+q h", None);
         assert_eq!(
             w,
-            vec!["Ctrl+w h is window.left everywhere; this one wins in sidebar".to_string()]
+            vec!["Ctrl+q h is window.left everywhere; this one wins in sidebar".to_string()]
         );
-        assert!(map.clashes(Context::Sidebar, "Ctrl+q", None).is_empty());
+        assert!(map.clashes(Context::Sidebar, "Ctrl+w", None).is_empty());
     }
 
     #[test]
@@ -986,11 +1033,11 @@ mod tests {
                 Step::Run(Action::SessionPick)
             );
             assert_eq!(
-                step(&map, &areas, &["Ctrl+w"], "N"),
+                step(&map, &areas, &["Ctrl+q"], "N"),
                 Step::Run(Action::SessionNext)
             );
             assert_eq!(
-                step(&map, &areas, &["Ctrl+w"], "P"),
+                step(&map, &areas, &["Ctrl+q"], "P"),
                 Step::Run(Action::SessionPrev)
             );
         }
@@ -1067,7 +1114,7 @@ mod tests {
         let map = Keymap::defaults();
         for ctx in [Context::Sidebar, Context::Details, Context::Console] {
             assert_eq!(
-                step(&map, &[ctx, Context::Global], &["Ctrl+w"], "l"),
+                step(&map, &[ctx, Context::Global], &["Ctrl+q"], "l"),
                 Step::Run(Action::WindowRight)
             );
         }
@@ -1101,9 +1148,9 @@ mod tests {
 
     #[test]
     fn none_takes_a_key_away_even_from_later_areas() {
-        let map = Keymap::with_user("[console]\n\"Ctrl+w\" = \"none\"\n").unwrap();
+        let map = Keymap::with_user("[console]\n\"Ctrl+q\" = \"none\"\n").unwrap();
         assert_eq!(
-            step(&map, &[Context::Console, Context::Global], &[], "Ctrl+w"),
+            step(&map, &[Context::Console, Context::Global], &[], "Ctrl+q"),
             Step::Run(Action::None)
         );
     }
@@ -1182,13 +1229,13 @@ mod tests {
         );
         assert_eq!(
             map.keys_in(&console, &Action::WaitingNext),
-            Some("Ctrl+w ]".into())
+            Some("Ctrl+q ]".into())
         );
         assert_eq!(map.keys_in(&console, &Action::CursorDown), None);
-        let map = Keymap::with_user("[global]\n\"Ctrl+w j\" = \"cursor.down\"\n").unwrap();
+        let map = Keymap::with_user("[global]\n\"Ctrl+q j\" = \"cursor.down\"\n").unwrap();
         assert_eq!(
             map.keys_in(&console, &Action::CursorDown),
-            Some("Ctrl+w j".into())
+            Some("Ctrl+q j".into())
         );
     }
 
@@ -1285,11 +1332,11 @@ mod tests {
         let answering = [Context::Global];
         let map = Keymap::defaults();
         assert_eq!(
-            step(&map, &answering, &["Ctrl+w"], "]"),
+            step(&map, &answering, &["Ctrl+q"], "]"),
             Step::Run(Action::WaitingNext)
         );
         assert_eq!(
-            step(&map, &answering, &["Ctrl+w"], "["),
+            step(&map, &answering, &["Ctrl+q"], "["),
             Step::Run(Action::WaitingPrev)
         );
     }
@@ -1438,21 +1485,133 @@ mod tests {
         let map = Keymap::defaults();
         assert_eq!(
             map.keys_for_all(Context::Global, &moves),
-            Some("Ctrl+w h j k l".into())
+            Some("Ctrl+q h j k l".into())
         );
         let map = Keymap::with_user(
-            "[global]\n\"Ctrl+w h\" = \"none\"\n\"Ctrl+w ArrowLeft\" = \"none\"\n\"Alt+h\" = \"window.left\"\n",
+            "[global]\n\"Ctrl+q h\" = \"none\"\n\"Ctrl+q ArrowLeft\" = \"none\"\n\"Alt+h\" = \"window.left\"\n",
         )
         .unwrap();
         assert_eq!(
             map.keys_for_all(Context::Global, &moves),
-            Some("Alt+h Ctrl+w j Ctrl+w k Ctrl+w l".into())
+            Some("Alt+h Ctrl+q j Ctrl+q k Ctrl+q l".into())
         );
         let map = Keymap::with_user(
-            "[global]\n\"Ctrl+w l\" = \"none\"\n\"Ctrl+w ArrowRight\" = \"none\"\n",
+            "[global]\n\"Ctrl+q l\" = \"none\"\n\"Ctrl+q ArrowRight\" = \"none\"\n",
         )
         .unwrap();
         assert_eq!(map.keys_for_all(Context::Global, &moves), None);
+    }
+
+    #[test]
+    fn window_and_tab_commands_begin_with_ctrl_q_in_every_area() {
+        let map = Keymap::defaults();
+        for ctx in [
+            Context::Sidebar,
+            Context::Details,
+            Context::Console,
+            Context::Prompt,
+        ] {
+            let areas = [ctx, Context::Global];
+            for (key, action) in [
+                ("h", Action::WindowLeft),
+                ("ArrowLeft", Action::WindowLeft),
+                ("j", Action::WindowDown),
+                ("ArrowDown", Action::WindowDown),
+                ("k", Action::WindowUp),
+                ("ArrowUp", Action::WindowUp),
+                ("l", Action::WindowRight),
+                ("ArrowRight", Action::WindowRight),
+                ("w", Action::WindowNext),
+                ("Ctrl+q", Action::WindowNext),
+                ("W", Action::WindowPrev),
+                ("t", Action::WindowTop),
+                ("b", Action::WindowBottom),
+                ("p", Action::WindowBack),
+                ("Tab", Action::TabNext),
+                ("Shift+Tab", Action::TabPrev),
+                ("]", Action::WaitingNext),
+                ("[", Action::WaitingPrev),
+                ("N", Action::SessionNext),
+                ("P", Action::SessionPrev),
+            ] {
+                assert_eq!(
+                    step(&map, &areas, &["Ctrl+q"], key),
+                    Step::Run(action),
+                    "{} {key}",
+                    ctx.name()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_key_after_the_prefix_means_the_same_with_ctrl_held_but_tab() {
+        let map = Keymap::defaults();
+        let areas = [Context::Console, Context::Global];
+        for (key, action) in [
+            ("Ctrl+h", Action::WindowLeft),
+            ("Ctrl+l", Action::WindowRight),
+            ("Ctrl+]", Action::WaitingNext),
+            ("Ctrl+w", Action::WindowNext),
+            ("Ctrl+N", Action::SessionNext),
+        ] {
+            assert_eq!(
+                step(&map, &areas, &["Ctrl+q"], key),
+                Step::Run(action),
+                "{key}"
+            );
+        }
+        assert_eq!(step(&map, &areas, &["Ctrl+q"], "Ctrl+Tab"), Step::Nothing);
+        // A key bound with Ctrl held is its own binding first.
+        let map = Keymap::with_user("[global]\n\"Ctrl+q Ctrl+h\" = \"refresh\"\n").unwrap();
+        assert_eq!(
+            step(&map, &areas, &["Ctrl+q"], "Ctrl+h"),
+            Step::Run(Action::Refresh)
+        );
+    }
+
+    #[test]
+    fn ctrl_q_dot_sends_ctrl_q_and_ctrl_w_is_left_to_the_program() {
+        let map = Keymap::defaults();
+        assert_eq!(
+            step(&map, &[Context::Console, Context::Global], &["Ctrl+q"], "."),
+            Step::Run(Action::ConsoleSend(Some(Chord::parse("Ctrl+q").unwrap())))
+        );
+        for areas in [
+            &[Context::Sidebar, Context::Global][..],
+            &[Context::Console, Context::Global],
+            &[Context::Prompt, Context::Global],
+            &[Context::Prompt],
+            &[Context::Global],
+        ] {
+            assert_eq!(step(&map, areas, &[], "Ctrl+w"), Step::Nothing, "{areas:?}");
+        }
+    }
+
+    #[test]
+    fn the_prefix_works_in_the_prompt_s_insert_mode() {
+        // In insert mode the window reads the prompt's bindings alone.
+        let insert = [Context::Prompt];
+        let map = Keymap::defaults();
+        assert_eq!(step(&map, &insert, &[], "Ctrl+q"), Step::Wait);
+        assert_eq!(
+            step(&map, &insert, &["Ctrl+q"], "k"),
+            Step::Run(Action::WindowUp)
+        );
+        // Other global bindings stay out of Neovim's way.
+        let map = Keymap::with_user("[global]\n\"Ctrl+x\" = \"refresh\"\n\"g t\" = \"refresh\"\n")
+            .unwrap();
+        assert_eq!(step(&map, &insert, &[], "Ctrl+x"), Step::Nothing);
+        assert_eq!(step(&map, &insert, &[], "g"), Step::Nothing);
+    }
+
+    #[test]
+    fn a_prefix_of_the_user_s_own_works_as_ctrl_q_does() {
+        let map = Keymap::with_user("[global]\n\"Ctrl+x k\" = \"window.up\"\n").unwrap();
+        assert_eq!(
+            step(&map, &[Context::Prompt], &["Ctrl+x"], "Ctrl+k"),
+            Step::Run(Action::WindowUp)
+        );
     }
 
     #[test]

@@ -350,7 +350,7 @@ fn BindingForm(
                 input {
                     class: if recording() { "binding-recorder recording settings-mono" } else { "binding-recorder settings-mono" },
                     readonly: recording(),
-                    placeholder: if recording() { "Press the keys…" } else { "Ctrl+w h, g g" },
+                    placeholder: if recording() { "Press the keys…" } else { "Ctrl+q h, g g" },
                     value: "{typed}",
                     oninput: move |e| typed.set(e.value()),
                     onkeydown: {
@@ -399,7 +399,7 @@ fn BindingForm(
                 select {
                     class: "binding-action-select",
                     onchange: move |e| chosen.set(e.value()),
-                    // An action with its argument, as `console.send Ctrl+w`,
+                    // An action with its argument, as `console.send Ctrl+q`,
                     // is kept as it was written.
                     if !Action::NAMES.contains(&was_action.as_str()) && !was_action.is_empty() {
                         option { value: "{was_action}", selected: chosen() == was_action, "{was_action}" }

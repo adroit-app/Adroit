@@ -117,7 +117,7 @@ reading it: what the console holds, scrolled off and on screen, colours kept,
 is read in Neovim, with your own Vim keys for moving, scrolling, searching and
 selecting, and a yank copies to the clipboard. It follows what the session
 writes meanwhile. `q`, `Esc` or `G` in normal mode goes back to the console live,
-and `i`, `a` and `o` to the prompt; `Ctrl-w` sequences stay `global`, and
+and `i`, `a` and `o` to the prompt; `Ctrl-q` sequences stay `global`, and
 one that ends no binding does nothing. The reader is for reading only: `:`,
 Ex mode, quitting and Vim's window commands do nothing in it, and a window or
 a tab a mapping or a plugin opens in it closes at once.
@@ -127,11 +127,12 @@ first or last line scrolls the program instead, and the reader follows; `gg` scr
 for the live console, or moving to the prompt, returns the session to its
 latest output.
 In the prompt, `Ctrl+c` sends `Escape` to the agent, and `global` bindings
-apply only outside Neovim's insert mode.
+apply only outside Neovim's insert mode, but for Command keys and the
+prefix.
 
 ### Keys
 
-A key is written as its modifiers, then its name, joined by `+`: `Ctrl+w`,
+A key is written as its modifiers, then its name, joined by `+`: `Ctrl+q`,
 `Shift+Tab`, `Ctrl+Alt+x`, `Cmd+p`. The modifiers are `Cmd`, `Ctrl`, `Alt`
 and `Shift`. Command with `c`, `v`, `x`, `a`, `z`, `q`, `h` and `m` stays
 with the menu: editing, quitting, hiding and minimizing.
@@ -145,14 +146,24 @@ same. Any other character is written as the one Shift types, `!` rather than
 `Shift+1`.
 
 A sequence is keys separated by spaces, pressed one after another: `g g`,
-`Ctrl+w h`. When the keys pressed so far complete one binding and start
+`Ctrl+q h`. When the keys pressed so far complete one binding and start
 another, the complete one runs.
+
+A key held with Ctrl that begins a `global` sequence, as `Ctrl+q` does, is a
+prefix: it reaches the `global` bindings wherever the keys are, as a Command
+key does. In a sequence begun with Ctrl held, a later key held with Ctrl too
+means what it means without, as after Vim's `Ctrl-w`, unless the sequence is
+bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
+`Ctrl+q Ctrl+Tab` is nothing.
 
 ### Actions
 
 | Action | Does |
 | --- | --- |
 | `window.left`, `window.down`, `window.up`, `window.right` | move to the area in that direction |
+| `window.next`, `window.prev` | move to the area after or before the one the keys are in, from the sidebar down the middle to the details panel, going round at the ends |
+| `window.top`, `window.bottom` | move to the first or the last of the areas shown, the sidebar or the details panel when shown |
+| `window.back` | move back to the area the keys were in before |
 | `tab.next`, `tab.prev` | show the next or previous tab of the area the keys are in: the details panel's sheets there, elsewhere the console's tabs, which are the sessions opened in the window, the worktree's shells and a draft |
 | `tab.close` | close the current tab; agents and terminals keep running and remain reachable from the sidebar |
 | `window.close` | close the window, which ends adroit; its sessions run on |
@@ -198,16 +209,22 @@ another, the complete one runs.
 
 ```toml
 [global]
-"Ctrl+w h" = "window.left"
-"Ctrl+w ArrowLeft" = "window.left"
-"Ctrl+w j" = "window.down"
-"Ctrl+w ArrowDown" = "window.down"
-"Ctrl+w k" = "window.up"
-"Ctrl+w ArrowUp" = "window.up"
-"Ctrl+w l" = "window.right"
-"Ctrl+w ArrowRight" = "window.right"
-"Ctrl+w n" = "tab.next"
-"Ctrl+w p" = "tab.prev"
+"Ctrl+q h" = "window.left"
+"Ctrl+q ArrowLeft" = "window.left"
+"Ctrl+q j" = "window.down"
+"Ctrl+q ArrowDown" = "window.down"
+"Ctrl+q k" = "window.up"
+"Ctrl+q ArrowUp" = "window.up"
+"Ctrl+q l" = "window.right"
+"Ctrl+q ArrowRight" = "window.right"
+"Ctrl+q w" = "window.next"
+"Ctrl+q Ctrl+q" = "window.next"
+"Ctrl+q W" = "window.prev"
+"Ctrl+q t" = "window.top"
+"Ctrl+q b" = "window.bottom"
+"Ctrl+q p" = "window.back"
+"Ctrl+q Tab" = "tab.next"
+"Ctrl+q Shift+Tab" = "tab.prev"
 "Cmd+]" = "tab.next"
 "Cmd+[" = "tab.prev"
 "Cmd+w" = "tab.close"
@@ -215,14 +232,14 @@ another, the complete one runs.
 "Cmd+1" = "details.overview"
 "Cmd+2" = "details.changes"
 "Cmd+3" = "details.log"
-"Ctrl+w ]" = "waiting.next"
-"Ctrl+w [" = "waiting.prev"
-"Ctrl+w N" = "session.next"
-"Ctrl+w P" = "session.prev"
+"Ctrl+q ]" = "waiting.next"
+"Ctrl+q [" = "waiting.prev"
+"Ctrl+q N" = "session.next"
+"Ctrl+q P" = "session.prev"
 "Cmd+}" = "session.next"
 "Cmd+{" = "session.prev"
 "Cmd+p" = "session.pick"
-"Ctrl+w ." = "console.send Ctrl+w"
+"Ctrl+q ." = "console.send Ctrl+q"
 "Cmd+n" = "session.new"
 "Cmd+Alt+n" = "session.scratch"
 "Cmd+s" = "shell.open"

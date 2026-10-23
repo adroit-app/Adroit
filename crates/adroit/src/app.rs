@@ -32,7 +32,7 @@ use crate::details::{
 };
 use crate::editor;
 use crate::filer::{Filer, read_dirs};
-use crate::focus::{Area, Dir, moved, settled};
+use crate::focus::{Area, Dir, Shown, corner, cycled, moved, settled};
 use crate::graph;
 use crate::icons::{Icon, IconView};
 use crate::image_window;
@@ -1063,7 +1063,7 @@ fn typed_into(area: Area, session: bool, direct: bool, waits: bool) -> Typed {
 
 /// Whether a key that ends no binding starts reading the console. Read
 /// already, the key broke off a `global` sequence, which is not the reader's:
-/// `Ctrl+w s` would split its window.
+/// `Ctrl+q s` would split its window.
 fn starts_reading(area: Area, session: bool, passing: bool, reading: bool) -> bool {
     area == Area::Console && session && !passing && !reading
 }
@@ -1073,23 +1073,23 @@ fn starts_reading(area: Area, session: bool, passing: bool, reading: bool) -> bo
 fn mode_tip(mode: &str, dialog: bool) -> &'static str {
     match mode {
         "PASS" if dialog => {
-            "The session shows a dialog: every key goes to it, but Ctrl+w sequences, until it closes"
+            "The session shows a dialog: every key goes to it, but Ctrl+q sequences, until it closes"
         }
-        "TREE" => "The sidebar has the keys: j and k move, Enter opens. Ctrl+w l goes right",
+        "TREE" => "The sidebar has the keys: j and k move, Enter opens. Ctrl+q l goes right",
         "DETAILS" => {
             "The details panel has the keys: j and k move or scroll, Enter opens, h goes back, Cmd+] and Cmd+[ change the sheet"
         }
         "CONSOLE" => {
-            "The console has the keys: Vim's moves read it, i writes a prompt below, Ctrl+w h goes back to the sidebar"
+            "The console has the keys: Vim's moves read it, i writes a prompt below, Ctrl+q h goes back to the sidebar"
         }
         "READ" | "VISUAL" => {
             "Vim's keys move, search, select and yank in the console; q, Esc or G goes back to it live, i writes a prompt"
         }
-        "PASS" => "Every key goes to the console's program, but Ctrl+w sequences",
+        "PASS" => "Every key goes to the console's program, but Ctrl+q sequences",
         "DIRECT" => "Every key goes to the session until Esc",
         "PICK" => "Choosing where a session works: type to narrow, Enter chooses, Esc closes",
         "INSERT" => "Writing a prompt: Ctrl+Enter sends it, Esc stops writing",
-        "NORMAL" => "The prompt takes Vim commands: i writes again, Ctrl+w k goes up",
+        "NORMAL" => "The prompt takes Vim commands: i writes again, Ctrl+q k goes up",
         _ => "The prompt is Neovim; this is its mode",
     }
 }
@@ -3971,6 +3971,8 @@ fn App() -> Element {
         }
     });
     let mut last_area = use_signal(|| Area::Sidebar);
+    // The area the keys were in before the one they are in now.
+    let mut came_from = use_signal(|| None::<Area>);
     use_effect({
         let mut request_pull = request_pull.clone();
         let mut leave_reading = leave_reading.clone();
@@ -3979,6 +3981,7 @@ fn App() -> Element {
             let before = *last_area.peek();
             if before != area {
                 last_area.set(area);
+                came_from.set(Some(before));
                 if area == Area::Prompt {
                     leave_reading();
                     request_pull();
@@ -4119,21 +4122,37 @@ fn App() -> Element {
                 }
             };
             let prompt = shows_prompt(active.peek().as_ref());
-            let mut window = |d: Dir| {
-                let to = moved(area, d, prompt);
+            let shown = {
                 let l = *layout.peek();
-                let hidden = (to == Area::Sidebar && !l.show_sidebar)
-                    || (to == Area::Details && !l.show_details);
-                if !hidden {
-                    focus.set(to);
+                Shown {
+                    sidebar: l.show_sidebar,
+                    prompt,
+                    details: l.show_details,
                 }
             };
+            let mut go = |to: Area| {
+                let hidden = (to == Area::Sidebar && !shown.sidebar)
+                    || (to == Area::Details && !shown.details);
+                if !hidden {
+                    focus.set(settled(to, prompt));
+                }
+            };
+            let mut window = |d: Dir| go(moved(area, d, prompt));
             match action {
                 Action::None => {}
                 Action::WindowLeft => window(Dir::Left),
                 Action::WindowDown => window(Dir::Down),
                 Action::WindowUp => window(Dir::Up),
                 Action::WindowRight => window(Dir::Right),
+                Action::WindowNext => go(cycled(area, true, shown)),
+                Action::WindowPrev => go(cycled(area, false, shown)),
+                Action::WindowTop => go(corner(true, shown)),
+                Action::WindowBottom => go(corner(false, shown)),
+                Action::WindowBack => {
+                    if let Some(to) = *came_from.peek() {
+                        go(to);
+                    }
+                }
                 // The tabs of the area the keys are in: the details panel's
                 // sheets there, the console's tabs elsewhere.
                 Action::TabNext | Action::TabPrev => {
@@ -4904,7 +4923,7 @@ fn App() -> Element {
             if (*direct.peek() || *send_next.peek()) && pull.peek().is_some() {
                 pull.set(None);
             }
-            // Passing every key on holds the keyboard, Ctrl-w included, until
+            // Passing every key on holds the keyboard, Ctrl-q included, until
             // Escape.
             if *direct.peek() && !key.meta {
                 if let Some(p) = &pane {
@@ -5528,9 +5547,9 @@ fn App() -> Element {
         &Action::ConsoleSend(Chord::parse("Escape").ok()),
     );
     let k_every = km.keys_for(Context::Console, &Action::ConsolePassEveryKey);
-    let k_ctrl_w = km.keys_for(
+    let k_ctrl_q = km.keys_for(
         Context::Global,
-        &Action::ConsoleSend(Chord::parse("Ctrl+w").ok()),
+        &Action::ConsoleSend(Chord::parse("Ctrl+q").ok()),
     );
     let old_daemon = if daemon_banner_closed() {
         None
@@ -6578,8 +6597,8 @@ fn App() -> Element {
                         span { class: "kbd-list", Keys { keys: k } " pass every key" }
                     }
                 } else if area == Area::Console {
-                    if let Some(k) = k_ctrl_w.clone() {
-                        span { class: "kbd-list", Keys { keys: k } " send Ctrl-w" }
+                    if let Some(k) = k_ctrl_q.clone() {
+                        span { class: "kbd-list", Keys { keys: k } " send Ctrl-q" }
                     }
                 }
             }
