@@ -99,12 +99,12 @@ mod tests {
                 Event::Welcome {
                     version: Version(1),
                 },
-                Event::Snapshot(WorkSnapshot {
+                Event::Snapshot(Box::new(WorkSnapshot {
                     seq: Seq(2),
                     ..Default::default()
-                }),
+                })),
             ],
-            Request::Snapshot | Request::Watch(_) | Request::ReadAgain => vec![],
+            _ => vec![],
         })
         .send(Msg::Opened { zoom: 1.0 });
         assert_eq!(

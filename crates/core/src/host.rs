@@ -47,7 +47,7 @@ pub(crate) fn receive(host: &mut Host, event: Event) -> Vec<Effect> {
         }
         Event::Refused { versions } => host.link = Link::Refused { versions },
         Event::Snapshot(snapshot) => {
-            host.work = Some(snapshot);
+            host.work = Some(*snapshot);
             host.resyncing = false;
         }
         Event::Patch(patch) => return patched(host, patch),
@@ -97,10 +97,10 @@ mod tests {
     }
 
     fn snapshot(seq: u64) -> Event {
-        Event::Snapshot(WorkSnapshot {
+        Event::Snapshot(Box::new(WorkSnapshot {
             seq: Seq(seq),
             ..Default::default()
-        })
+        }))
     }
 
     #[test]

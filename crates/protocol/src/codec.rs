@@ -23,17 +23,20 @@ pub fn decode<T: DeserializeOwned>(line: impl AsRef<str>) -> Result<T, DecodeErr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::path::Path;
 
-    use adroit_model::Session;
+    use adroit_model::files::Entry;
     use adroit_model::links::Links;
+    use adroit_model::repository::Marks;
     use adroit_model::repository::{Listing, Rev, Spot};
     use adroit_model::usage::{Limit, Severity, Window};
+    use adroit_model::{Session, TerminalSession, Tree, WorkspaceNode, Worktree, WorktreeNode};
 
     use crate::{
-        Change, ConversationRead, DetailsChange, DetailsWork, Event, RepositoryRead,
-        RepositorySight, Request, Seq, SessionRead, Sight, SystemUsage, Version, WorkPatch,
-        WorkSnapshot,
+        Change, ConversationRead, DetailsChange, DetailsWork, Event, Listed, RepositoryRead,
+        RepositorySight, Request, Seq, SessionRead, Sight, SystemUsage, TreeChange, TreeSight,
+        Version, WorkPatch, WorkSnapshot,
     };
 
     fn round_trips<T>(message: T)
@@ -67,7 +70,25 @@ mod tests {
                 spot: Spot::Files(Rev::Commit("abc".into())),
             }),
             usage: Some(adroit_model::Agent::Codex),
+            tree: TreeSight {
+                every_worktree: true,
+                marked: BTreeSet::from(["/w".into()]),
+                listed: BTreeSet::from(["/w".into(), "/w/src".into()]),
+            },
         })));
+        round_trips(Request::Relist);
+        round_trips(Request::Typed {
+            inputs: BTreeMap::from([(u128::MAX, 1_700_000_000_000)]),
+        });
+        round_trips(Request::TerminalOpened {
+            terminal: TerminalSession {
+                id: u128::MAX - 1,
+                name: "zsh".into(),
+                cwd: "/w".into(),
+                ..Default::default()
+            },
+        });
+        round_trips(Request::TerminalClosed { id: u128::MAX });
     }
 
     #[test]
@@ -78,11 +99,12 @@ mod tests {
         round_trips(Event::Refused {
             versions: vec![Version(3)],
         });
-        round_trips(Event::Snapshot(WorkSnapshot {
+        round_trips(Event::Snapshot(Box::new(WorkSnapshot {
             seq: Seq(7),
             details: DetailsWork::default(),
-        }));
-        round_trips(Event::Snapshot(WorkSnapshot {
+            tree: Default::default(),
+        })));
+        round_trips(Event::Snapshot(Box::new(WorkSnapshot {
             seq: Seq(7),
             details: DetailsWork {
                 sessions: BTreeMap::from([(
@@ -97,12 +119,19 @@ mod tests {
                 system: Some(SystemUsage::default()),
                 ..Default::default()
             },
-        }));
+            tree: Default::default(),
+        })));
         round_trips(Event::Patch(WorkPatch {
             seq: Seq(8),
             changes: vec![],
         }));
         let details = |change| Change::Details(change);
+        let shell = TerminalSession {
+            id: u128::MAX,
+            name: "zsh".into(),
+            cwd: "/w/src".into(),
+            ..Default::default()
+        };
         round_trips(Event::Patch(WorkPatch {
             seq: Seq(9),
             changes: vec![
@@ -137,6 +166,55 @@ mod tests {
                 }),
                 details(DetailsChange::SessionLeft {
                     session: "s".into(),
+                }),
+                Change::Tree(TreeChange::Listed {
+                    listed: Box::new(Listed {
+                        sessions: vec![Session {
+                            id: "s".into(),
+                            ..Default::default()
+                        }],
+                        terminals: vec![shell.clone()],
+                        tree: Tree {
+                            workspaces: vec![WorkspaceNode {
+                                root: "/w".into(),
+                                name: "w".into(),
+                                git: true,
+                                scratch: false,
+                                worktrees: vec![WorktreeNode {
+                                    worktree: Worktree::plain("/w"),
+                                    sessions: Vec::new(),
+                                    terminals: vec![shell.clone()],
+                                }],
+                            }],
+                        },
+                    }),
+                }),
+                Change::Tree(TreeChange::Failing {
+                    error: Some("no daemon".into()),
+                }),
+                Change::Tree(TreeChange::Marks {
+                    worktree: "/w".into(),
+                    marks: Marks::new(
+                        Path::new("/w"),
+                        &[adroit_model::repository::Change {
+                            status: " M".into(),
+                            path: "a.rs".into(),
+                            from: None,
+                        }],
+                        &["target/".into()],
+                        false,
+                    ),
+                }),
+                Change::Tree(TreeChange::Entries {
+                    dir: "/w".into(),
+                    entries: vec![Entry {
+                        path: "/w/a.rs".into(),
+                        dir: false,
+                    }],
+                }),
+                Change::Tree(TreeChange::EntriesLeft { dir: "/w".into() }),
+                Change::Tree(TreeChange::MarksLeft {
+                    worktree: "/w".into(),
                 }),
             ],
         }));

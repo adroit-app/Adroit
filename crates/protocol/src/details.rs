@@ -12,6 +12,8 @@ use adroit_model::usage::Limit;
 use adroit_model::{Agent, ConversationStats, Note, Process, Session};
 use serde::{Deserialize, Serialize};
 
+use crate::TreeSight;
+
 /// What a window shows that the host keeps read while it is shown. The host
 /// reads nothing for a window that shows nothing.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -27,6 +29,8 @@ pub struct Sight {
     pub repository: Option<RepositorySight>,
     /// The agent whose account usage the panel shows.
     pub usage: Option<Agent>,
+    /// What the tree lists.
+    pub tree: TreeSight,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

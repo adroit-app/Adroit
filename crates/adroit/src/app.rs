@@ -11,7 +11,7 @@ use adroit_model::{
     InboxItem, Kind, Session, State, TerminalProgram, TerminalSession, Tree, Worktree, build, inbox,
 };
 use adroit_nvim::{Embedded, Event as NvimEvent, notation};
-use adroit_term::{Daemon, Key, Palette, Pane, Screen, Size, Spawn};
+use adroit_term::{Key, Palette, Pane, Screen, Size, Spawn};
 use adroit_vcs::{Repo, ghq};
 use dioxus::prelude::*;
 use tokio::sync::{Notify, mpsc, oneshot};
@@ -54,7 +54,7 @@ use crate::prompt_tab::{PromptTab, TabGoes};
 use crate::prompts::{self, Op, Prompts};
 use crate::rename::{Place as RenamePlace, Rename, SessionName};
 use crate::scratch::{self, Moment};
-use crate::sessions::{self, Kept};
+use crate::sessions;
 use crate::settings;
 use crate::settings_window;
 use crate::shell::{
@@ -927,73 +927,6 @@ async fn start(
     Ok(id)
 }
 
-/// Every session to list: those the daemon runs for adroit, with the terminals,
-/// and those Claude Code lists in other terminals, but for adroit's own,
-/// which Claude Code lists too.
-async fn read_sessions(
-    daemon: &Daemon,
-    inputs: &HashMap<u128, u64>,
-) -> Result<(Vec<Session>, Vec<TerminalSession>), String> {
-    let kept = daemon.sessions().await.map_err(|e| e.to_string())?;
-    let (mut own, mut kept_shells) = (Vec::new(), Vec::new());
-    let mut learned = Vec::new();
-    for s in &kept {
-        match sessions::read(s) {
-            Some(Kept::Agent(mut c)) => {
-                if let Some(at) = inputs.get(&s.id)
-                    && let Some(tag) = sessions::note_input(&mut c, *at)
-                {
-                    learned.push(tag);
-                }
-                let adapter = agents::adapter(c.agent);
-                if let Some(title) = &s.title
-                    && let Some(tag) = sessions::follow_title(&mut c, title)
-                {
-                    learned.push(tag);
-                }
-                if s.status.is_none()
-                    && adapter.capabilities().screen_state
-                    && let Ok(Ok(screen)) =
-                        tokio::time::timeout(Duration::from_millis(300), daemon.visible(s.id)).await
-                    && let Some(state) = adapter.screen_state(&screen)
-                {
-                    c.state = state;
-                }
-                own.push(c);
-            }
-            Some(Kept::Terminal(sh)) => kept_shells.push(sh),
-            None => {}
-        }
-    }
-    // Without Claude Code, or with a listing it cannot give, the sessions in
-    // other terminals are not listed; adroit's own still are.
-    let mut elsewhere = Vec::new();
-    for agent in adroit_model::Agent::ALL {
-        let adapter = agents::adapter(agent);
-        let listed = adapter
-            .list_sessions(crate::programs::agents())
-            .await
-            .unwrap_or_default();
-        let (external, tags) = adapter.follow(&mut own, listed);
-        elsewhere.extend(external);
-        learned.extend(tags.into_iter().map(sessions::learned_tag));
-    }
-    // Kept on the session, so a window opened later follows it too; one not
-    // kept is learned again on the next read.
-    for (id, key, value) in learned {
-        let held = kept
-            .iter()
-            .find(|s| s.id == id)
-            .map(|s| adroit_term::tags::holding(&s.tags, key))
-            .unwrap_or_default();
-        let _ = daemon
-            .tag(id, adroit_term::tags::tagged(key, &value), held)
-            .await;
-    }
-    own.extend(elsewhere);
-    Ok((own, kept_shells))
-}
-
 /// Whether the session `id` is still shown live here, or being attached to:
 /// one started a moment ago may not be listed yet.
 fn alive_here(panes: &Panes, attaching: &RefCell<HashSet<Tab>>, id: &str) -> bool {
@@ -1413,7 +1346,7 @@ fn App() -> Element {
                         .filter(|(tab, _)| matches!(tab, Tab::Session(_)))
                         .filter_map(|(_, pane)| pane.last_input_ms().map(|at| (pane.id(), at)))
                         .collect();
-                    match read_sessions(&daemon, &inputs).await {
+                    match adroit_runtime::watch::read_sessions(&daemon, &inputs).await {
                         Ok((sessions, kept_shells)) => {
                             app.while_failing(&mut list_err, None);
                             if *terminals.peek() != kept_shells {

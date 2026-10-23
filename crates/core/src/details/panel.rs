@@ -561,6 +561,7 @@ fn sight(details: &Details) -> Sight {
             .zip(shown.worktree.clone())
             .map(|(spot, worktree)| RepositorySight { worktree, spot }),
         usage: shown.usage,
+        ..Default::default()
     }
 }
 
@@ -654,10 +655,11 @@ mod tests {
     }
 
     fn snapshot(details: DetailsWork) -> Event {
-        Event::Snapshot(WorkSnapshot {
+        Event::Snapshot(Box::new(WorkSnapshot {
             seq: Seq(1),
             details,
-        })
+            ..Default::default()
+        }))
     }
 
     fn patch(seq: u64, changes: Vec<DetailsChange>) -> Event {
