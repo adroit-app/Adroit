@@ -6,7 +6,7 @@ use adroit_protocol::Request;
 
 use std::collections::BTreeSet;
 
-use adroit_model::{Process, Session};
+use adroit_model::{Key, Process, Session};
 
 use crate::actions::Action;
 use crate::content::{Tab, TerminalAsk};
@@ -59,9 +59,6 @@ pub enum Effect {
     PromptClose(Option<Tab>),
     /// Start writing in the prompt, whatever mode it was left in.
     StartWriting,
-    /// The keys came into the prompt from elsewhere: the console stops being
-    /// read, and the session there is asked for what was typed into it.
-    PromptEntered,
     /// Keep this tab as the one shown for the next run, or none.
     KeepShown(Option<Tab>),
     /// Keep the panes and the images drawn only of these sessions and
@@ -75,6 +72,42 @@ pub enum Effect {
     /// Tell the user, outside the window, that these sessions started
     /// waiting, each by its name and what it waits for.
     NotifyWaiting(Vec<(String, String)>),
+
+    // The console.
+    /// Send this key to the focused window's program.
+    PaneKey(Key),
+    /// Send this key, which scrolls what it shows, to the focused window's
+    /// program, and draw it again.
+    PaneScrollKey(Key),
+    /// Type or paste this into the focused window's program.
+    PaneText { text: String, pasted: bool },
+    /// Turn the wheel over the focused window's program this many lines,
+    /// back when positive, and draw it again.
+    PaneWheel(i32),
+    /// Give this key to the console's reader.
+    ReaderKey(Key),
+    /// Start reading the console, giving the reader these keys, the ones that
+    /// started it.
+    ReadConsole(Vec<Key>),
+    /// The console shown live again: a program that scrolls itself is
+    /// returned to its latest output.
+    ConsoleLive,
+    /// Give this key to the prompt's Neovim.
+    PromptKey(Key),
+    /// Type or paste this into the prompt.
+    PromptText { text: String, pasted: bool },
+    /// Keep an image pasted, of the type `mime`, its bytes in base64, for the
+    /// prompt.
+    KeepImage { mime: String, data: String },
+    /// Run `action`, which `key` ran, where the keys are now.
+    PerformKey(Action, Key),
+    /// Ask the session in this tab for its input with `Ctrl-g`.
+    AskInput(Tab),
+    /// Tell the window with [`crate::msg::Msg::AskInput`] after this long.
+    AskInputAfter(Duration),
+    /// Tell the window with [`crate::msg::Msg::PullLapsed`] after this long
+    /// that the request numbered `pull` lapsed.
+    LapsePull { pull: u64, after: Duration },
 
     // The overlays.
     /// Run `action` where the keys are now.

@@ -8,7 +8,7 @@ use crate::msg::Msg;
 use crate::overlay::{self, Menu};
 use crate::settle::settle;
 use crate::state::ViewState;
-use crate::{chrome, content, details, host, picker, tree};
+use crate::{chrome, console, content, details, host, picker, tree};
 
 /// `msg` applied to `state`, and the state settled after it.
 pub fn step(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
@@ -119,6 +119,23 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         Msg::PickerChoose(at) => picker::choose(state, at),
         Msg::PickerDir(dir) => picker::start_in(state, dir),
         Msg::PickerEvery => picker::every(&mut state.picker),
+
+        msg @ (Msg::Key { .. }
+        | Msg::Text { .. }
+        | Msg::ImagePasted { .. }
+        | Msg::ConsoleTyped
+        | Msg::InputMayHold(_)
+        | Msg::SequenceDropped
+        | Msg::ConsoleSendNext
+        | Msg::ConsolePassEveryKey
+        | Msg::ReadingStarted
+        | Msg::Dialog(_)
+        | Msg::PromptRuns(_)
+        | Msg::EditorAnswers
+        | Msg::AskInput
+        | Msg::InputAsked(_)
+        | Msg::PullLapsed(_)
+        | Msg::InputTaken) => console::update(state, msg),
 
         Msg::HeldKey(key) => overlay::press(state, key),
         Msg::MenuOpen { x, y, target } => overlay::open_menu(state, Menu { x, y, target }),

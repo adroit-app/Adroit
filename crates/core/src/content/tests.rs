@@ -425,11 +425,11 @@ fn coming_into_the_prompt_asks_the_console_for_what_was_typed() {
     let run = Scenario::new()
         .send(show_session("a"))
         .send(Msg::Focus(Area::Console));
-    assert!(!run.last_effects().contains(&Effect::PromptEntered));
+    assert!(!run.last_effects().contains(&Effect::ConsoleLive));
     let into = run.send(Msg::Focus(Area::Prompt));
-    assert!(into.last_effects().contains(&Effect::PromptEntered));
+    assert!(into.last_effects().contains(&Effect::ConsoleLive));
     let again = into.send(Msg::Focus(Area::Prompt));
-    assert!(!again.last_effects().contains(&Effect::PromptEntered));
+    assert!(!again.last_effects().contains(&Effect::ConsoleLive));
 }
 
 #[test]

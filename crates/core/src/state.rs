@@ -2,6 +2,7 @@
 //! only by `update`.
 
 use crate::chrome::Chrome;
+use crate::console::ConsoleView;
 use crate::content::ContentView;
 use crate::details::Details;
 use crate::host::Host;
@@ -18,6 +19,7 @@ pub struct ViewState {
     pub details: Details,
     pub picker: PickerView,
     pub overlays: Overlays,
+    pub console: ConsoleView,
 }
 
 impl Default for ViewState {
@@ -30,6 +32,7 @@ impl Default for ViewState {
             details: Details::default(),
             picker: PickerView::default(),
             overlays: Overlays::default(),
+            console: ConsoleView::default(),
         };
         // A window that shows nothing asks nothing of the host, which starts
         // out reading nothing.

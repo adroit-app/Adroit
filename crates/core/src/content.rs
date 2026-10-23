@@ -416,20 +416,17 @@ pub(crate) fn settle_focus(view: &mut ContentView) {
     }
 }
 
-/// Where the keys were is remembered as they move; coming into the prompt
-/// from elsewhere asks the console to give back what it was typed.
-pub(crate) fn follow_spot(view: &mut ContentView) -> Vec<Effect> {
+/// Where the keys were is remembered as they move; whether they came into
+/// the prompt from elsewhere.
+pub(crate) fn follow_spot(view: &mut ContentView) -> bool {
     let spot = spot_of(view.focus, &view.windows);
     let before = view.spot;
     if before == spot {
-        return Vec::new();
+        return false;
     }
     view.spot = spot;
     view.came_from = Some(before);
-    if view.focus == Area::Prompt && before.area != Area::Prompt {
-        return vec![Effect::PromptEntered];
-    }
-    Vec::new()
+    view.focus == Area::Prompt && before.area != Area::Prompt
 }
 
 /// Where the keys are, in `area`: in the console or the prompt of the

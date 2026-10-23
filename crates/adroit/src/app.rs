@@ -29,7 +29,7 @@ use crate::daemon;
 use crate::details::{self, Entry, Sheet, Shot, Source};
 use crate::editor;
 use crate::image_window;
-use crate::keymap::{Chord, Context, Keymap, MENU_KEYS, Step};
+use crate::keymap::{Chord, Context, Keymap, MENU_KEYS};
 use crate::keys;
 use crate::layout::Side;
 use crate::menu_bar;
@@ -58,10 +58,9 @@ use crate::window_socket::{Request, Response, ask, bind, serve, socket_path};
 use crate::work_host;
 use crate::zoom;
 use adroit_agents as agents;
-use adroit_core::console::keys::direct_key;
-use adroit_core::console::route::{
-    self, Footing, Typed, app_key, passes, passes_enter, starts_reading, typed_into,
-};
+use adroit_core::console::reader::{self, Edge};
+use adroit_core::console::route::{self, Footing, Typed, passes_enter};
+use adroit_core::console::{Probe, ReaderAt};
 use adroit_core::effect::Effect as CoreEffect;
 use adroit_core::msg::Msg;
 use adroit_core::overlay;
@@ -224,11 +223,6 @@ fn keep_drawn(mut gallery: Signal<Gallery>, session: String, drawn: Vec<adroit_t
 /// quits.
 const NVIM_SETTLE: Duration = Duration::from_secs(2);
 
-/// How long Claude Code is given to call its external editor after `Ctrl-g`.
-/// The answer clears it, so it only has to outlast a slow start: a request
-/// arriving after it is taken for the user's own and opens their editor.
-const PULL_WAIT: Duration = Duration::from_secs(10);
-
 /// The console screen's top padding.
 const SCREEN_TOP: f64 = 10.0;
 
@@ -320,16 +314,12 @@ fn end_shell(hub: &Hub, id: u128) {
 /// Move the text a session handed its external editor in `path` into the
 /// prompt, leaving the file empty so the session's input is cleared. A file
 /// adroit did not ask for is left alone: the user opened the editor.
-async fn take_input(
-    path: &Path,
-    pull: &mut Signal<Option<Tab>>,
-    prompts: Prompts,
-    app: AppCtx,
-) -> Response {
-    let Some(tab) = pull.peek().clone() else {
+async fn take_input(path: &Path, prompts: Prompts, app: AppCtx) -> Response {
+    let asked = app.console.peek().pull.clone();
+    let Some(tab) = asked else {
         return Response::Declined;
     };
-    pull.set(None);
+    app.dispatch(Msg::InputTaken);
     let lines = editor::typed(&std::fs::read_to_string(path).unwrap_or_default());
     if lines.is_empty() {
         return Response::Taken(0);
@@ -562,12 +552,9 @@ fn App() -> Element {
     let prompt_width = use_signal(|| 0.0f64);
     let mut nvim = use_signal(|| None::<Arc<Embedded>>);
     // The console read in a Neovim of its own, for Vim's moves, search,
-    // selection and yank: whether the console's keys go to it, and it.
-    let mut reading = use_signal(|| false);
+    // selection and yank, while the console says it is read.
     let mut reader = use_signal(|| None::<Arc<Embedded>>);
     let mut reader_frame = use_signal(|| 0u64);
-    // The key the reader took last, for the second key of `gg`.
-    let mut read_last = use_signal(|| None::<adroit_term::Key>);
     // The line and column the reader shows from, which images follow.
     let mut reader_view = use_signal(|| (0usize, 0usize));
     // How many lines the reader holds, and how many of them are the screen,
@@ -614,41 +601,10 @@ fn App() -> Element {
             }
         }
     });
-    // The keys pressed so far of a binding not complete yet.
-    let mut pending = use_signal(Vec::<Key>::new);
     // The key bindings in force, as the chrome holds them.
     let keymap = use_memo(move || app.chrome.read().keymap.clone());
-    // Whether the next key goes to the session as it is.
-    let mut send_next = use_signal(|| false);
     // The images the consoles drew.
     let gallery = use_signal(Gallery::default);
-    // Whether the console passes every key on to the session it shows.
-    let mut direct = use_signal(|| false);
-    // Whether the session in the console shows a dialog of Claude Code's own,
-    // which, as a choice it waits on, takes every key.
-    let mut dialog = use_signal(|| false);
-    // The session asked to hand its input over through the external editor.
-    let mut pull = use_signal(|| None::<Tab>);
-    // Counts the requests, so one lapsing does not take a later one with it.
-    let mut pulls = use_signal(|| 0u64);
-    // The sessions whose input may hold text since it was last taken: keys
-    // went to them as they are, or they were just attached.
-    let mut stale = use_signal(HashSet::<Tab>::new);
-    // Keys meant for one area do not carry over to another: a sequence begun
-    // in the sidebar would otherwise complete as a console binding after a
-    // click there.
-    use_effect(move || {
-        let (area, _) = (focus(), active());
-        if area != Area::Console && *direct.peek() {
-            direct.set(false);
-        }
-        if !pending.peek().is_empty() {
-            pending.set(Vec::new());
-        }
-        if *send_next.peek() {
-            send_next.set(false);
-        }
-    });
 
     let hub = use_hook(|| {
         let (tx, mut rx) = mpsc::unbounded_channel::<Tab>();
@@ -781,17 +737,6 @@ fn App() -> Element {
                     tokio::time::sleep(Duration::from_secs(2)).await;
                 }
             });
-        }
-    });
-
-    // A list of the sessions drops the texts kept for those no longer listed.
-    use_effect(move || {
-        let Some(now) = listed() else {
-            return;
-        };
-        let kept = nav::followed(&now.sessions, &stale.peek());
-        if *stale.peek() != kept {
-            stale.set(kept);
         }
     });
 
@@ -937,7 +882,10 @@ fn App() -> Element {
                         // Claude Code's input; another one would hand it to
                         // this one, which never asked.
                         match editor::install(&adroit_program(), &socket) {
-                            Ok(_) => ANSWERS.store(true, Ordering::Relaxed),
+                            Ok(_) => {
+                                ANSWERS.store(true, Ordering::Relaxed);
+                                app.dispatch(Msg::EditorAnswers);
+                            }
                             Err(e) => {
                                 app.status(Some(format!("cannot write the editor script: {e}")))
                             }
@@ -957,7 +905,7 @@ fn App() -> Element {
                 };
                 while let Some((request, reply)) = asked.recv().await {
                     if let Request::Editor { path } = &request {
-                        let _ = reply.send(take_input(path, &mut pull, prompts, app).await);
+                        let _ = reply.send(take_input(path, prompts, app).await);
                         continue;
                     }
                     if request == Request::Show {
@@ -1025,6 +973,7 @@ fn App() -> Element {
                 };
                 let born = Instant::now();
                 nvim.set(Some(embedded.clone()));
+                app.dispatch(Msg::PromptRuns(true));
                 let rows = *prompt_rows.peek() as u16;
                 let cols = *prompt_cols.peek();
                 let _ = embedded.resize(cols, rows).await;
@@ -1069,6 +1018,7 @@ fn App() -> Element {
                     }
                 }
                 nvim.set(None);
+                app.dispatch(Msg::PromptRuns(false));
                 // One that quits as it starts would be started forever.
                 if born.elapsed() < NVIM_SETTLE {
                     app.status(Some(
@@ -1168,9 +1118,7 @@ fn App() -> Element {
                 let me = shows.clone();
                 let pane = ensure_pane(app, &hub, &shows, size, move || {
                     *attached.write() += 1;
-                    if matches!(me, Tab::Session(_)) {
-                        stale.write().insert(me);
-                    }
+                    app.dispatch(Msg::InputMayHold(me));
                 });
                 if let Some(pane) = pane {
                     pane.resize(size);
@@ -1191,9 +1139,7 @@ fn App() -> Element {
             let me = tab.clone();
             let pane = ensure_pane(app, &hub, &tab, size, move || {
                 *attached.write() += 1;
-                if matches!(me, Tab::Session(_)) {
-                    stale.write().insert(me);
-                }
+                app.dispatch(Msg::InputMayHold(me));
             });
             if let Some(pane) = pane {
                 pane.resize(size);
@@ -1832,7 +1778,7 @@ fn App() -> Element {
         let console_changed = console_changed.clone();
         move || {
             let _ = frame();
-            if reading() {
+            if app.console.read().reading {
                 console_changed.notify_one();
             }
         }
@@ -1872,7 +1818,7 @@ fn App() -> Element {
                 let mut shown = None::<u64>;
                 loop {
                     console_changed.notified().await;
-                    if !*reading.peek() {
+                    if !app.console.peek().reading {
                         shown = None;
                         continue;
                     }
@@ -1914,23 +1860,13 @@ fn App() -> Element {
             });
         }
     });
-    // Another tab shown is shown live.
-    use_effect(move || {
-        let _ = active();
-        if *reading.peek() {
-            reading.set(false);
-        }
-    });
     // A session left scrolled back would show its jump-to-bottom line live,
-    // moving with its layout. Leaving READ and entering the prompt both
-    // return it to its latest output.
-    let leave_reading = {
+    // moving with its layout.
+    let console_live = {
         let active_pane = active_pane.clone();
         move || {
-            reading.set(false);
-            read_last.set(None);
             if let Some(p) = active_pane().filter(|p| p.takes_mouse()) {
-                p.key(&console_read::newest());
+                p.key(&reader::newest());
             }
         }
     };
@@ -1963,7 +1899,7 @@ fn App() -> Element {
                     .await
                     .is_ok()
                 {
-                    reading.set(true);
+                    app.dispatch(Msg::ReadingStarted);
                     let _ = r.input(&keys.concat()).await;
                 }
             });
@@ -2017,16 +1953,6 @@ fn App() -> Element {
         }
     };
 
-    // Whether the console shows a session, which takes only its control keys.
-    let shows_session = move || matches!(&app.active(), Some(Tab::Session(_)));
-    // Whether that session waits on a choice, which every key answers.
-    let waits = move || match &app.active() {
-        Some(Tab::Session(id)) => {
-            *dialog.peek()
-                || nav::find(&tree.peek(), id).is_some_and(|(_, s)| s.state.takes_every_key())
-        }
-        _ => false,
-    };
     // Claude Code reports no status for a dialog it opens itself, so the
     // console's screen tells, looked at again whenever it is redrawn.
     use_effect({
@@ -2050,87 +1976,32 @@ fn App() -> Element {
                 }
                 _ => false,
             };
-            if *dialog.peek() != shows {
-                dialog.set(shows);
+            if app.console.peek().dialog != shows {
+                app.dispatch(Msg::Dialog(shows));
             }
         }
     });
 
     // Ask the session in the console to hand its input over: Ctrl-g opens
-    // Claude Code's external editor, which is `adroit editor`. Claude Code
-    // never calls it while a dialog is open, so the request lapses.
-    let request_pull = {
-        let active_pane = active_pane.clone();
-        move || {
-            let Some(tab) = app.active() else {
-                return;
-            };
-            let Tab::Session(id) = &tab else { return };
-            // A session whose editor is not adroit's would open the user's
-            // own editor in the pane, which then waits on keys nobody sends.
-            let hands_back = nav::find(&tree.peek(), id).is_some_and(|(_, s)| s.adroit_editor);
-            if waits()
-                || *direct.peek()
-                || !stale.peek().contains(&tab)
-                || nvim.peek().is_none()
-                || !ANSWERS.load(Ordering::Relaxed)
-                || !hands_back
-            {
-                return;
+    // its external editor, which is `adroit editor`.
+    let ask_input = {
+        let hub = hub.clone();
+        move |tab: Tab| {
+            let pane = hub.panes.borrow().get(&tab).cloned();
+            if let Some(p) = pane.filter(|p| !p.exited()) {
+                p.type_text("\x07");
+                app.dispatch(Msg::InputAsked(tab));
             }
-            let Some(p) = active_pane().filter(|p| !p.exited()) else {
-                return;
-            };
-            stale.write().remove(&tab);
-            let this = *pulls.peek() + 1;
-            pulls.set(this);
-            pull.set(Some(tab));
-            p.type_text("\x07");
-            spawn(async move {
-                tokio::time::sleep(PULL_WAIT).await;
-                if *pulls.peek() == this {
-                    pull.set(None);
-                }
-            });
         }
     };
-
-    // While every key went to the session, some may have landed in its input
-    // rather than a choice; take them back once the keys stop going there,
-    // and whenever the prompt takes the keyboard.
-    let mut was_free = use_signal(|| false);
-    use_effect({
-        let request_pull = request_pull.clone();
-        move || {
-            let t = tree.read();
-            let answering = match &*active.read() {
-                Some(Tab::Session(id)) => {
-                    nav::find(&t, id).is_some_and(|(_, s)| s.state.takes_every_key())
-                }
-                _ => false,
-            };
-            let free = answering || dialog() || direct();
-            let was = *was_free.peek();
-            if was == free {
-                return;
-            }
-            was_free.set(free);
-            if was {
-                let mut request_pull = request_pull.clone();
-                spawn(async move {
-                    // Let Claude Code put its input line back first.
-                    tokio::time::sleep(Duration::from_millis(300)).await;
-                    request_pull();
-                });
-            }
-        }
-    });
     // What the view state asks of the panes, the prompt and the console,
     // which live here.
     use_hook({
         let panes = hub.panes.clone();
-        let request_pull = request_pull.clone();
-        let leave_reading = leave_reading.clone();
+        let ask_input = ask_input.clone();
+        let console_live = console_live.clone();
+        let enter_reading = enter_reading.clone();
+        let active_pane = active_pane.clone();
         let start_terminal = start_terminal.clone();
         let resume = resume.clone();
         let stop = stop.clone();
@@ -2151,11 +2022,80 @@ fn App() -> Element {
                     let _ = prompts.send(Op::Close(to));
                 }
                 CoreEffect::StartWriting => start_writing(nvim),
-                CoreEffect::PromptEntered => {
-                    let (mut leave, mut pull) = (leave_reading.clone(), request_pull.clone());
-                    leave();
-                    pull();
+                CoreEffect::PaneKey(key) => {
+                    if let Some(p) = active_pane() {
+                        p.key(&key);
+                    }
                 }
+                CoreEffect::PaneScrollKey(key) => {
+                    if let Some(p) = active_pane() {
+                        p.key(&key);
+                        let mut frame = frame;
+                        *frame.write() += 1;
+                    }
+                }
+                CoreEffect::PaneText { text, pasted } => {
+                    if let Some(p) = active_pane() {
+                        if pasted {
+                            p.paste(&text);
+                        } else {
+                            p.type_text(&text);
+                        }
+                    }
+                }
+                CoreEffect::PaneWheel(lines) => {
+                    if let Some(p) = active_pane() {
+                        p.wheel(lines, 0, 0);
+                        let mut frame = frame;
+                        *frame.write() += 1;
+                    }
+                }
+                CoreEffect::ReaderKey(key) => {
+                    if let (Some(r), Some(n)) = (reader.peek().clone(), notation(&key)) {
+                        spawn(async move {
+                            let _ = r.input(&n).await;
+                        });
+                    }
+                }
+                CoreEffect::ReadConsole(keys) => {
+                    let enter = enter_reading.clone();
+                    enter(keys.iter().filter_map(notation).collect());
+                }
+                CoreEffect::ConsoleLive => console_live(),
+                CoreEffect::PromptKey(key) => {
+                    if let Some(n) = notation(&key)
+                        && let Some(nv) = nvim.peek().clone()
+                    {
+                        spawn(async move {
+                            if let Err(e) = nv.input(&n).await {
+                                keys::trace(|| format!("prompt refused {n}: {e}"));
+                            }
+                        });
+                    }
+                }
+                CoreEffect::PromptText { text, pasted } => {
+                    if let Some(nv) = nvim.peek().clone() {
+                        spawn(async move {
+                            if pasted {
+                                let _ = nv.paste(&text).await;
+                            } else {
+                                let _ = nv.type_text(&text).await;
+                            }
+                        });
+                    }
+                }
+                CoreEffect::KeepImage { mime, data } => {
+                    let dir = pasted::dir();
+                    let now = std::time::SystemTime::now();
+                    pasted::prune(&dir, now);
+                    match pasted::save(&dir, &mime, &data, now) {
+                        Ok(path) => {
+                            let _ = prompts.send(Op::Attach(path));
+                        }
+                        Err(e) => app.notice(e.to_string()),
+                    }
+                }
+                CoreEffect::AskInput(tab) => ask_input(tab),
                 // A session no longer listed has nothing to show; its pane is
                 // closed, and the images its console drew are not kept.
                 CoreEffect::KeepPanes {
@@ -2182,88 +2122,16 @@ fn App() -> Element {
         }
     });
 
-    // Where text typed or pasted now goes. A dialog open types in its own
-    // field, or takes no text.
-    let text_goes = move || {
-        if overlay::takes_text_away(&app.held()) {
-            return Typed::Nowhere;
-        }
-        typed_into(app.focus(), shows_session(), *direct.peek(), waits())
-    };
-
-    let type_text = {
-        let active_pane = active_pane.clone();
-        move |text: String, pasted: bool| {
-            keys::trace(|| format!("text {text:?} pasted={pasted}"));
-            match text_goes() {
-                Typed::Prompt => {
-                    app.dispatch(Msg::Focus(Area::Prompt));
-                    if let Some(nv) = nvim.peek().clone() {
-                        spawn(async move {
-                            if pasted {
-                                let _ = nv.paste(&text).await;
-                            } else {
-                                let _ = nv.type_text(&text).await;
-                            }
-                        });
-                    }
-                }
-                Typed::Program => {
-                    if let Some(p) = active_pane() {
-                        if pasted {
-                            p.paste(&text);
-                        } else {
-                            p.type_text(&text);
-                        }
-                    }
-                }
-                Typed::Nowhere => {}
-            }
-        }
-    };
-
-    // The console's program is handed an empty paste, as a
-    // terminal hands on an image paste: Claude Code then reads the image off
-    // the clipboard itself.
-    let paste_image = {
-        let type_text = type_text.clone();
-        move |mime: String, data: String| match text_goes() {
-            Typed::Prompt => {
-                let dir = pasted::dir();
-                let now = std::time::SystemTime::now();
-                pasted::prune(&dir, now);
-                match pasted::save(&dir, &mime, &data, now) {
-                    Ok(path) => {
-                        let _ = prompts.send(Op::Attach(path));
-                    }
-                    Err(e) => app.notice(e.to_string()),
-                }
-            }
-            Typed::Program => type_text(String::new(), true),
-            Typed::Nowhere => {}
-        }
-    };
-
     // Run an action where the keys are now: what a binding runs, and what a
     // click on a row's or a tab's menu runs. `key` is the key that ran it,
     // which some actions pass on; a click has none.
     let perform = {
         let active_pane = active_pane.clone();
-        let request_pull = request_pull.clone();
         let mut submit = submit.clone();
         let hub = hub.clone();
         move |action: Action, key: Option<Key>| {
             let area = app.focus();
             let pane = active_pane().filter(|_| matches!(area, Area::Console | Area::Prompt));
-            let write = |p: &Pane, k: &Key| {
-                p.key(k);
-            };
-            // A key sent as it is may type into Claude Code's input.
-            let mut typed = || {
-                if let Some(tab @ Tab::Session(_)) = app.active() {
-                    stale.write().insert(tab);
-                }
-            };
             let nvim_insert = nvim
                 .peek()
                 .as_ref()
@@ -2368,16 +2236,16 @@ fn App() -> Element {
                     if let Some(p) = &pane
                         && let Some(k) = chord.map(|c| c.key()).or(key)
                     {
-                        write(p, &k);
+                        p.key(&k);
                         // Control keys fill the input too: Up brings back an
                         // earlier prompt, Ctrl-_ undoes a clear.
-                        typed();
+                        app.dispatch(Msg::ConsoleTyped);
                     }
                 }
-                Action::ConsoleSendNext => send_next.set(true),
+                Action::ConsoleSendNext => app.dispatch(Msg::ConsoleSendNext),
                 Action::ConsolePassEveryKey => {
                     if pane.is_some() {
-                        direct.set(true);
+                        app.dispatch(Msg::ConsolePassEveryKey);
                     }
                 }
                 Action::PromptFocus
@@ -2417,7 +2285,6 @@ fn App() -> Element {
                             if nav::find(&tree.peek(), id).is_some_and(|(_, s)| s.adroit_editor));
                     let no_images = shown_images.peek().is_empty();
                     let pane = pane.clone();
-                    let mut request_pull = request_pull.clone();
                     spawn(async move {
                         let empty = no_images && nv.text().await.is_ok_and(|t| t.trim().is_empty());
                         let goes = PromptTab {
@@ -2437,7 +2304,7 @@ fn App() -> Element {
                         // Tab may type into Claude Code's input: an accepted
                         // suggestion lands there.
                         if let Some(tab @ Tab::Session(_)) = tab {
-                            stale.write().insert(tab);
+                            app.dispatch(Msg::InputMayHold(tab));
                         }
                         let before = p.screen();
                         p.key(&key);
@@ -2448,12 +2315,12 @@ fn App() -> Element {
                             // whether Ctrl-g sees the text Tab put in rests on
                             // how it batches its updates; the repaint does not.
                             repainted(&p, &before).await;
-                            request_pull();
+                            app.dispatch(Msg::AskInput);
                         }
                     });
                 }
                 Action::PromptImages => {
-                    if matches!(text_goes(), Typed::Prompt) {
+                    if app.text_goes() == Typed::Prompt {
                         app.dispatch(Msg::Focus(Area::Prompt));
                         selected_image.set(shown_images.peek().first().cloned());
                     }
@@ -2691,9 +2558,9 @@ fn App() -> Element {
     use_hook({
         let perform = RefCell::new(perform.clone());
         move || {
-            app.hand_perform(move |action| {
+            app.hand_perform(move |action, key| {
                 if let Ok(mut perform) = perform.try_borrow_mut() {
-                    perform(action, None);
+                    perform(action, key);
                 }
             })
         }
@@ -2774,16 +2641,13 @@ fn App() -> Element {
             }
             app.dispatch(Msg::KeysHelpClose);
             app.dispatch(Msg::MenuClose);
-            pending.set(Vec::new());
+            app.dispatch(Msg::SequenceDropped);
             perform(action, None);
         }
     });
 
     let handle_key = {
         let active_pane = active_pane.clone();
-        let enter_reading = enter_reading.clone();
-        let mut leave_reading = leave_reading.clone();
-        let mut perform = perform.clone();
         move |key: Key| {
             if key.key == "Process"
                 || key.key == "Dead"
@@ -2799,7 +2663,7 @@ fn App() -> Element {
                 return;
             }
             let area = app.focus();
-            if area == Area::Prompt && matches!(text_goes(), Typed::Prompt) {
+            if area == Area::Prompt && app.text_goes() == Typed::Prompt {
                 let images = shown_images.peek();
                 let chosen = selected_image.peek().clone();
                 if let Some(action) = pasted::image_key(&images, chosen.as_ref(), &key) {
@@ -2813,177 +2677,34 @@ fn App() -> Element {
                 }
                 selected_image.set(None);
             }
-            let pane = active_pane().filter(|_| area == Area::Console);
-            let write = |p: &Pane, k: &Key| {
-                p.key(k);
-            };
-            // A key sent as it is may type into Claude Code's input.
-            let mut typed = || {
-                if let Some(tab @ Tab::Session(_)) = app.active() {
-                    stale.write().insert(tab);
+            // What the window knows of its programs, which the view state
+            // routes the key by.
+            let pane = active_pane();
+            let reader = reader.peek().clone().map(|r| {
+                let screen = r.state().screen();
+                ReaderAt {
+                    normal: r.state().mode() == "normal",
+                    edge: Edge {
+                        line: reader_view.peek().0 + screen.cursor.map_or(0, |c| c.row),
+                        lines: read_rows.peek().0,
+                        page: screen.rows,
+                    },
                 }
-            };
-            // A Ctrl-g among keys sent as they are is the user's own: a request
-            // of adroit's still waiting would take its answer.
-            if (*direct.peek() || *send_next.peek()) && pull.peek().is_some() {
-                pull.set(None);
-            }
-            // Passing every key on holds the keyboard, Ctrl-q included, until
-            // Escape.
-            if *direct.peek() && !app_key(&key) {
-                if let Some(p) = &pane {
-                    match direct_key(&key) {
-                        Some(k) => {
-                            write(p, &k);
-                            typed();
-                        }
-                        None => direct.set(false),
-                    }
-                    return;
-                }
-                direct.set(false);
-            }
-            if *send_next.peek() && !app_key(&key) {
-                send_next.set(false);
-                if let Some(p) = &pane {
-                    write(p, &key);
-                    typed();
-                }
-                return;
-            }
-            // Reading, the keys are the reader's, but for those that begin a
-            // global binding and those that leave it from its normal mode:
-            // Escape, q and G for the live console, i, a and o for the prompt.
-            // A key taken as global is only global: the console's binding of
-            // it is for the live console.
-            let mut windowing = false;
-            if area == Area::Console
-                && *reading.peek()
-                && let Some(r) = reader.peek().clone()
-            {
-                windowing = !pending.peek().is_empty()
-                    || app_key(&key)
-                    || keymap.peek().resolve(&[Context::Global], &[], &key) != Step::Nothing;
-                if !windowing {
-                    let normal = r.state().mode() == "normal";
-                    match console_read::exit(&key, normal) {
-                        Some(console_read::Exit::Live) => {
-                            leave_reading();
-                            return;
-                        }
-                        Some(console_read::Exit::Prompt) => {}
-                        None => {
-                            // A program that scrolls what it shows itself, as
-                            // Claude Code on the alternate screen does, leaves
-                            // nothing scrolled off to read: moving past the
-                            // reader's first or last line scrolls the program,
-                            // and the reader follows what it then shows. `gg`
-                            // scrolls it to its start, and moves there too.
-                            let previous = read_last.peek().clone();
-                            read_last.set(Some(key.clone()));
-                            let program = active_pane().filter(|p| p.takes_mouse());
-                            if normal
-                                && let Some(p) = &program
-                                && let Some(to) = console_read::to_start(&key, previous.as_ref())
-                            {
-                                write(p, &to);
-                                *frame.write() += 1;
-                            } else if normal && let Some(p) = program {
-                                let screen = r.state().screen();
-                                let row = screen.cursor.map_or(0, |c| c.row);
-                                let edge = console_read::Edge {
-                                    line: reader_view.peek().0 + row,
-                                    lines: read_rows.peek().0,
-                                    page: screen.rows,
-                                };
-                                if let Some(by) = console_read::past_edge(&key, edge) {
-                                    p.wheel(by, 0, 0);
-                                    *frame.write() += 1;
-                                    return;
-                                }
-                            }
-                            if let Some(n) = notation(&key) {
-                                spawn(async move {
-                                    let _ = r.input(&n).await;
-                                });
-                            }
-                            return;
-                        }
-                    }
-                }
-            }
-            let nvim_insert = nvim
-                .peek()
-                .as_ref()
-                .is_some_and(|n| n.state().mode().starts_with("insert"));
-            let session = shows_session();
-            // A session waiting on a choice takes every key but the window's
-            // own as its answer; a shell takes every key but those.
-            let pane = pane.or_else(|| active_pane().filter(|_| area == Area::Prompt));
-            let passing = pane.is_some() && passes(area, session, waits());
-            let contexts =
-                route::contexts(area, app.active().as_ref(), passing, windowing, nvim_insert);
-            keys::trace(|| {
-                format!(
-                    "area={area:?} passing={passing} windowing={windowing} nvim_insert={nvim_insert} pending={:?}",
-                    pending.peek()
-                )
             });
-            let seq = pending.peek().clone();
-            let action = match keymap.peek().resolve(&contexts, &seq, &key) {
-                Step::Wait => {
-                    pending.write().push(key);
-                    return;
-                }
-                Step::Run(action) => {
-                    pending.set(Vec::new());
-                    action
-                }
-                Step::Nothing => {
-                    pending.set(Vec::new());
-                    // In a session's console, a key adroit does not bind is
-                    // a Vim key: it starts reading the console with it, and
-                    // with a sequence it broke off, such as `g` before `g`.
-                    if starts_reading(area, session, passing, *reading.peek()) && pane.is_some() {
-                        let keys: Vec<String> =
-                            seq.iter().chain(Some(&key)).filter_map(notation).collect();
-                        enter_reading(keys);
-                        return;
-                    }
-                    // A key that ends no binding is the area's to take, unless
-                    // it broke off a sequence.
-                    if !seq.is_empty() {
-                        keys::trace(|| "dropped: broke off a sequence");
-                        return;
-                    }
-                    match area {
-                        _ if passing => {
-                            if let Some(p) = &pane {
-                                write(p, &key);
-                                typed();
-                            }
-                        }
-                        Area::Prompt => {
-                            if let Some(n) = notation(&key)
-                                && let Some(nv) = nvim.peek().clone()
-                            {
-                                spawn(async move {
-                                    if let Err(e) = nv.input(&n).await {
-                                        keys::trace(|| format!("prompt refused {n}: {e}"));
-                                    }
-                                });
-                            }
-                        }
-                        _ => {}
-                    }
-                    return;
-                }
+            let probe = Probe {
+                pane: pane.is_some(),
+                scrolls_itself: pane.as_ref().is_some_and(|p| p.takes_mouse()),
+                reader,
+                inserting: nvim
+                    .peek()
+                    .as_ref()
+                    .is_some_and(|n| n.state().mode().starts_with("insert")),
             };
-            if action == Action::KeysHelp {
-                app.dispatch(Msg::KeysHelpOpen(contexts));
-                return;
-            }
-            perform(action, Some(key));
+            keys::trace(|| format!("area={area:?} {probe:?}"));
+            app.dispatch(Msg::Key {
+                key,
+                probe: Box::new(probe),
+            });
         }
     };
 
@@ -2994,8 +2715,6 @@ fn App() -> Element {
     // characters come as text.
     use_hook({
         let mut handle_key = handle_key.clone();
-        let type_text = type_text.clone();
-        let paste_image = paste_image.clone();
         let page_focused = page_focused.clone();
         move || {
             spawn(async move {
@@ -3031,19 +2750,21 @@ fn App() -> Element {
                         keys::Message::Trace { text } => keys::trace(|| format!("js {text}")),
                         keys::Message::Focused { on } => page_focused.set(on),
                         keys::Message::Paste { text } => {
-                            pending.set(Vec::new());
-                            type_text(text, true);
+                            keys::trace(|| format!("text {text:?} pasted=true"));
+                            app.dispatch(Msg::Text { text, pasted: true });
                         }
                         keys::Message::Image { mime, data } => {
-                            pending.set(Vec::new());
-                            paste_image(mime, data);
+                            app.dispatch(Msg::ImagePasted { mime, data });
                         }
                         keys::Message::Text { text } if text.chars().count() == 1 => {
                             handle_key(Key::new(&text));
                         }
                         keys::Message::Text { text } => {
-                            pending.set(Vec::new());
-                            type_text(text, false);
+                            keys::trace(|| format!("text {text:?} pasted=false"));
+                            app.dispatch(Msg::Text {
+                                text,
+                                pasted: false,
+                            });
                         }
                         keys::Message::Key { .. } | keys::Message::Lost => {}
                     }
@@ -3088,7 +2809,11 @@ fn App() -> Element {
     };
     // The images on the console's screen, which is the last of the lines the
     // reader holds, moved as the reader is scrolled over them.
-    let reader_pictures: Vec<adroit_term::Picture> = if reading() {
+    let (reading, passing, dialog) = {
+        let console = app.console.read();
+        (console.reading, console.direct, console.dialog)
+    };
+    let reader_pictures: Vec<adroit_term::Picture> = if reading {
         let _ = reader_frame();
         let _ = frame();
         let (top, left) = reader_view();
@@ -3158,9 +2883,8 @@ fn App() -> Element {
     };
     let mode = prompt_mode();
     // Whether what has the keys takes text, which an input method may compose.
-    let passing = direct();
     let session_shown = matches!(active_tab, Some(Tab::Session(_)));
-    let in_dialog = session_shown && dialog();
+    let in_dialog = session_shown && dialog;
     let answering = match &active_tab {
         Some(Tab::Session(id)) => {
             in_dialog || nav::find(&t, id).is_some_and(|(_, s)| s.state.takes_every_key())
@@ -3177,7 +2901,7 @@ fn App() -> Element {
         }
         Area::Sidebar | Area::Details => false,
     };
-    let reader_mode = reading().then(|| {
+    let reader_mode = reading.then(|| {
         let _ = reader_frame();
         reader()
             .map(|r| r.state().mode().to_string())
@@ -3258,7 +2982,7 @@ fn App() -> Element {
                         },
                     }
                 },
-                (Some(_), true) if reading() => rsx! {
+                (Some(_), true) if reading => rsx! {
                     ReaderScreen { reader, reader_frame, cell_width: cw, focused: area == Area::Console, pictures: reader_pictures.clone(), onscroll: { let mut scroll = scroll_reader.clone(); move |lines: i32| scroll(lines) }, onclick: { let click = click_reader.clone(); move |at| click(at) } }
                 },
                 (Some(tab), true) => rsx! {
@@ -3455,7 +3179,7 @@ fn App() -> Element {
                 } else if area == Area::Console && passing {
                     span { class: "kbd-list", kbd { "Esc" } " stop passing keys" }
                     span { class: "kbd-list", kbd { "Ctrl-c" } " send Esc" }
-                } else if area == Area::Console && session_shown && reading() {
+                } else if area == Area::Console && session_shown && reading {
                     span { class: "kbd-list", kbd { "v" } kbd { "V" } " select" }
                     span { class: "kbd-list", kbd { "y" } " copy" }
                     span { class: "kbd-list", kbd { "/" } " search" }

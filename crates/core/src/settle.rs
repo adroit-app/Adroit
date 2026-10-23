@@ -5,7 +5,7 @@ use adroit_protocol::{Request, Sight};
 
 use crate::effect::Effect;
 use crate::state::ViewState;
-use crate::{content, details, overlay, picker, tree};
+use crate::{console, content, details, overlay, picker, tree};
 
 type Rule = fn(&mut ViewState, &mut Vec<Effect>);
 
@@ -18,6 +18,10 @@ const RULES: &[Rule] = &[
     content_panels,
     content_focus,
     content_spot,
+    console_area,
+    console_listed,
+    console_live,
+    console_freed,
     tree_failing,
     tree_rows,
     tree_kept,
@@ -67,9 +71,34 @@ fn content_focus(state: &mut ViewState, _: &mut Vec<Effect>) {
     content::settle_focus(&mut state.content);
 }
 
-/// Where the keys were is remembered as they move.
+/// Where the keys were is remembered as they move; coming into the prompt
+/// from elsewhere stops reading the console and asks the session there for
+/// what was typed into it.
 fn content_spot(state: &mut ViewState, effects: &mut Vec<Effect>) {
-    effects.extend(content::follow_spot(&mut state.content));
+    if content::follow_spot(&mut state.content) {
+        effects.extend(console::prompt_entered(state));
+    }
+}
+
+/// Keys meant for one area do not carry over to another.
+fn console_area(state: &mut ViewState, _: &mut Vec<Effect>) {
+    console::keep_to_area(state);
+}
+
+/// A list of the sessions drops the inputs kept for those no longer listed.
+fn console_listed(state: &mut ViewState, _: &mut Vec<Effect>) {
+    console::keep_listed(state);
+}
+
+/// Another tab shown is shown live.
+fn console_live(state: &mut ViewState, _: &mut Vec<Effect>) {
+    console::live_when_shown(state);
+}
+
+/// What was typed into a session while every key went to it is asked for
+/// once the keys stop going there.
+fn console_freed(state: &mut ViewState, effects: &mut Vec<Effect>) {
+    effects.extend(console::ask_when_freed(state));
 }
 
 /// The status line says why the sessions cannot be listed, while they

@@ -8,6 +8,7 @@ use adroit_model::{Agent, Key, TerminalSession};
 use adroit_protocol::Event;
 
 use crate::actions::Action;
+use crate::console::Probe;
 use crate::content::{Area, Border, DraftOptions, Opening, Tab, WindowId};
 use crate::details::{self, Sheet};
 use crate::keymap::{Context, Keymap};
@@ -218,6 +219,52 @@ pub enum Msg {
     PickerDir(PathBuf),
     /// List every directory's conversations, or the directory's again.
     PickerEvery,
+
+    // The console.
+    /// A key pressed where no field of the window's own takes it, with what
+    /// the window knows of its programs then.
+    Key {
+        key: Key,
+        probe: Box<Probe>,
+    },
+    /// Text typed, or pasted, where the keys are.
+    Text {
+        text: String,
+        pasted: bool,
+    },
+    /// An image pasted, of the type `mime`, its bytes in base64.
+    ImagePasted {
+        mime: String,
+        data: String,
+    },
+    /// A key went to the session shown as it is.
+    ConsoleTyped,
+    /// The input of the session this tab shows may hold text: a pane just
+    /// attached to it, or a key may have typed there.
+    InputMayHold(Tab),
+    /// A sequence of keys begun is given up, as a menu bar entry runs.
+    SequenceDropped,
+    /// The next key goes to the session as it is.
+    ConsoleSendNext,
+    /// Every key goes to the session as it is, until Escape.
+    ConsolePassEveryKey,
+    /// The reader shows the console and takes its keys.
+    ReadingStarted,
+    /// The session shown shows a dialog of its agent's own, or none.
+    Dialog(bool),
+    /// The prompt's Neovim runs, or quit.
+    PromptRuns(bool),
+    /// The window answers the editor's requests, and so is handed a
+    /// session's input.
+    EditorAnswers,
+    /// Ask the session shown for its input, if it may hold text.
+    AskInput,
+    /// The session in this tab was asked for its input.
+    InputAsked(Tab),
+    /// The request for a session's input numbered so lapsed.
+    PullLapsed(u64),
+    /// The session's input was taken, or the request declined.
+    InputTaken,
 
     // The overlays.
     /// A key while something drawn over the window holds the keys.

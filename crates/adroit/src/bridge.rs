@@ -6,6 +6,8 @@ use std::rc::Rc;
 
 use adroit_core::actions::Action;
 use adroit_core::chrome::Chrome;
+use adroit_core::console::ConsoleView;
+use adroit_core::console::route::Typed;
 use adroit_core::content::{Area, ContentView, Tab, kept_name};
 use adroit_core::details::{Details, Scroll};
 use adroit_core::effect::Effect;
@@ -16,6 +18,7 @@ use adroit_core::picker::PickerView;
 use adroit_core::state::ViewState;
 use adroit_core::tree::TreeView;
 use adroit_core::update::step;
+use adroit_model::Key;
 use adroit_runtime::work::{Host, HostLink, Loopback};
 use dioxus::prelude::*;
 
@@ -27,8 +30,8 @@ use crate::settings;
 /// What runs an effect handed to `App`.
 type Handed = Rc<dyn Fn(Effect)>;
 
-/// What runs an action handed to `App`.
-type Performer = Rc<dyn Fn(Action)>;
+/// What runs an action handed to `App`, with the key that ran it.
+type Performer = Rc<dyn Fn(Action, Option<Key>)>;
 
 /// What components read of the view state and how they change it. A slice's
 /// signal is set only when `step` changed that slice, so a component reading
@@ -46,6 +49,7 @@ pub(crate) struct AppCtx {
     pub(crate) details: Signal<Details>,
     pub(crate) picker: Signal<PickerView>,
     pub(crate) overlays: Signal<Overlays>,
+    pub(crate) console: Signal<ConsoleView>,
     /// What runs the effects whose state `App` still holds.
     handed: CopyValue<Option<Handed>>,
     /// What runs an action where the keys are now, which `App` still does.
@@ -88,6 +92,7 @@ pub(crate) fn use_app() -> AppCtx {
             details: Signal::new(view.details.clone()),
             picker: Signal::new(view.picker.clone()),
             overlays: Signal::new(view.overlays.clone()),
+            console: Signal::new(view.console.clone()),
             handed: CopyValue::new(None),
             performer: CopyValue::new(None),
             view: CopyValue::new(view),
@@ -125,6 +130,7 @@ impl AppCtx {
         set_changed(self.details, &view.details);
         set_changed(self.picker, &view.picker);
         set_changed(self.overlays, &view.overlays);
+        set_changed(self.console, &view.console);
     }
 
     /// Start keeping read, in the background, what the window shows and
@@ -142,7 +148,7 @@ impl AppCtx {
     }
 
     /// Hand the actions a menu entry runs to `perform`.
-    pub(crate) fn hand_perform(&self, perform: impl Fn(Action) + 'static) {
+    pub(crate) fn hand_perform(&self, perform: impl Fn(Action, Option<Key>) + 'static) {
         let mut performer = self.performer;
         performer.set(Some(Rc::new(perform)));
     }
@@ -207,18 +213,38 @@ impl AppCtx {
             | Effect::StartTerminal(_)
             | Effect::PromptClose(_)
             | Effect::StartWriting
-            | Effect::PromptEntered
             | Effect::KeepPanes { .. }
+            | Effect::PaneKey(_)
+            | Effect::PaneScrollKey(_)
+            | Effect::PaneText { .. }
+            | Effect::PaneWheel(_)
+            | Effect::ReaderKey(_)
+            | Effect::ReadConsole(_)
+            | Effect::ConsoleLive
+            | Effect::PromptKey(_)
+            | Effect::PromptText { .. }
+            | Effect::KeepImage { .. }
+            | Effect::AskInput(_)
             | Effect::Resume(_)
             | Effect::Stop(_)
             | Effect::KillProcess { .. }
             | Effect::RestartDaemon
             | Effect::Rename(_)) => self.hand(effect),
-            Effect::Perform(action) => {
-                let performer = self.performer.read().clone();
-                if let Some(perform) = performer {
-                    perform(action);
-                }
+            Effect::Perform(action) => self.perform(action, None),
+            Effect::PerformKey(action, key) => self.perform(action, Some(key)),
+            Effect::AskInputAfter(after) => {
+                let app = *self;
+                spawn(async move {
+                    tokio::time::sleep(after).await;
+                    app.dispatch(Msg::AskInput);
+                });
+            }
+            Effect::LapsePull { pull, after } => {
+                let app = *self;
+                spawn(async move {
+                    tokio::time::sleep(after).await;
+                    app.dispatch(Msg::PullLapsed(pull));
+                });
             }
             Effect::KeepLayout(layout) => layout.save(),
             Effect::ScrollKeysHelp(lines) => crate::keys_help_view::scroll(lines),
@@ -239,6 +265,13 @@ impl AppCtx {
 }
 
 impl AppCtx {
+    fn perform(&self, action: Action, key: Option<Key>) {
+        let performer = self.performer.read().clone();
+        if let Some(perform) = performer {
+            perform(action, key);
+        }
+    }
+
     fn hand(&self, effect: Effect) {
         let handed = self.handed.read().clone();
         if let Some(run) = handed {
@@ -265,6 +298,11 @@ impl AppCtx {
     /// What the content's focused window shows now.
     pub(crate) fn active(&self) -> Option<Tab> {
         self.content.peek().active().cloned()
+    }
+
+    /// Where text typed or pasted now goes.
+    pub(crate) fn text_goes(&self) -> Typed {
+        adroit_core::console::text_goes(&self.view.peek())
     }
 
     /// The area that has the keys now.
