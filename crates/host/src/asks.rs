@@ -46,8 +46,28 @@ async fn answer(watched: &Watched, judged: &watch::Sender<Judged>, ask: Ask) -> 
         Ask::KeepImage { mime, data } => keep_image(&mime, &data),
         Ask::SaveSettings { text } => save_settings(text),
         Ask::SaveKeys { text } => save_keys(&text),
+        Ask::Run { args, cwd, input } => Ok(run(&args, &cwd, input).await),
     };
     answered.unwrap_or_else(|text| Answer::Failed { text })
+}
+
+/// The command `adroit <args>` run as in `cwd` with `input` on its standard
+/// input: what it wrote, and its exit status.
+async fn run(args: &[String], cwd: &std::path::Path, input: Option<String>) -> Answer {
+    let (wrote, code) = match args.split_first() {
+        Some((command, rest)) if command == "session" => crate::start::run(rest, cwd, input).await,
+        Some((command, rest)) if command == "terminal" => crate::terminals::run(rest, cwd).await,
+        _ => (Err(format!("the work host runs no command {args:?}")), 2),
+    };
+    let (stdout, stderr) = match wrote {
+        Ok(out) => (out, String::new()),
+        Err(error) => (String::new(), error),
+    };
+    Answer::Ran {
+        stdout,
+        stderr,
+        code,
+    }
 }
 
 /// Start the session `start` asks for, held, as the delegation store records
@@ -195,4 +215,31 @@ fn save_keys(text: &str) -> Result<Answer, String> {
     std::fs::write(&path, text).map_err(failed)?;
     let _ = settings::CHANGED.send(());
     Ok(Answer::Done)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_command_is_run_by_its_name_and_one_unknown_or_misspoken_is_refused_as_misused() {
+        let cwd = std::path::Path::new("/");
+        for args in [
+            vec!["daemon".to_string()],
+            vec![],
+            vec!["terminal".into(), "nonsense".into()],
+            vec!["session".into(), "stop".into()],
+        ] {
+            let Answer::Ran {
+                stdout,
+                stderr,
+                code,
+            } = run(&args, cwd, None).await
+            else {
+                panic!("{args:?} ran nothing");
+            };
+            assert_eq!((stdout.as_str(), code), ("", 2), "{args:?}");
+            assert!(!stderr.is_empty(), "{args:?}");
+        }
+    }
 }

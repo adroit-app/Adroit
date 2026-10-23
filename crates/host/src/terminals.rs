@@ -172,7 +172,12 @@ pub fn base_name(program: TerminalProgram, command: &[String]) -> String {
     }
 }
 
-async fn execute(daemon: &Daemon, operation: Operation, json: bool) -> Result<String, String> {
+async fn execute(
+    daemon: &Daemon,
+    operation: Operation,
+    json: bool,
+    cwd: &std::path::Path,
+) -> Result<String, String> {
     match operation {
         Operation::List => {
             let terminals = list(daemon).await?;
@@ -216,9 +221,7 @@ async fn execute(daemon: &Daemon, operation: Operation, json: bool) -> Result<St
             name,
             command,
         } => {
-            let cwd = dir
-                .map_or_else(std::env::current_dir, Ok)
-                .and_then(std::fs::canonicalize)
+            let cwd = std::fs::canonicalize(dir.map_or_else(|| cwd.to_path_buf(), |d| cwd.join(d)))
                 .map_err(|e| e.to_string())?;
             if !cwd.is_dir() {
                 return Err("the terminal directory is not a folder".into());
@@ -255,40 +258,36 @@ async fn execute(daemon: &Daemon, operation: Operation, json: bool) -> Result<St
     }
 }
 
+const USAGE: &str = "usage: adroit terminal start [--program shell|neovim] [--dir PATH] [--name NAME] [--json]\n       adroit terminal start --program command [--dir PATH] [--name NAME] [--json] -- PROGRAM [ARGS...]\n       adroit terminal list [--json]\n       adroit terminal input --terminal ID [--text TEXT | --paste TEXT | --keys KEY...]... [--json]\n       adroit terminal screen|stop --terminal ID [--json]";
+
+/// `adroit terminal <args>`, run by the work host. Returns the process exit
+/// code.
 pub fn cli(args: &[String]) -> i32 {
-    let Some((operation, json)) = parse(args) else {
-        eprintln!(
-            "usage: adroit terminal start [--program shell|neovim] [--dir PATH] [--name NAME] [--json]\n       adroit terminal start --program command [--dir PATH] [--name NAME] [--json] -- PROGRAM [ARGS...]\n       adroit terminal list [--json]\n       adroit terminal input --terminal ID [--text TEXT | --paste TEXT | --keys KEY...]... [--json]\n       adroit terminal screen|stop --terminal ID [--json]"
-        );
+    if parse(args).is_none() {
+        eprintln!("{USAGE}");
         return 2;
-    };
-    let result = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| e.to_string())
-        .and_then(|rt| {
-            rt.block_on(async {
-                tokio::time::timeout(
-                    std::time::Duration::from_secs(10),
-                    execute(&crate::daemon::daemon(), operation, json),
-                )
-                .await
-                .map_err(|_| {
-                    "the terminal command timed out; a requested start may have completed"
-                        .to_string()
-                })?
-            })
-        });
-    match result {
-        Ok(output) => {
-            println!("{output}");
-            0
-        }
-        Err(error) => {
-            eprintln!("adroit: {error}");
-            1
-        }
     }
+    let mut ask = vec!["terminal".to_string()];
+    ask.extend(args.iter().cloned());
+    crate::work_host::run_command(ask, None)
+}
+
+/// `adroit terminal <args>` as the work host runs it for a command run in
+/// `cwd`: what it prints, or why it failed, with its exit code.
+pub(crate) async fn run(args: &[String], cwd: &std::path::Path) -> (Result<String, String>, i32) {
+    let Some((operation, json)) = parse(args) else {
+        return (Err(USAGE.into()), 2);
+    };
+    let done = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        execute(&crate::daemon::daemon(), operation, json, cwd),
+    )
+    .await
+    .unwrap_or_else(|_| {
+        Err("the terminal command timed out; a requested start may have completed".into())
+    });
+    let code = if done.is_ok() { 0 } else { 1 };
+    (done, code)
 }
 
 #[cfg(test)]

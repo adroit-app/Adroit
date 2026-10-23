@@ -6,8 +6,8 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use adroit_protocol::client::{ask_stop, hello};
-use adroit_protocol::{Hello, SPOKEN, WorkHost, judge};
+use adroit_protocol::client::{Connection, ask_stop, hello};
+use adroit_protocol::{Answer, Ask, Event, Hello, Request, SPOKEN, WorkHost, agree, judge};
 
 use crate::cli::HostCommand;
 use crate::paths::instance_state;
@@ -143,6 +143,74 @@ pub async fn ensure(socket: &Path, program: &Path, args: &[String]) -> Result<bo
     }
     start(socket, program, args).await?;
     Ok(true)
+}
+
+/// Run `adroit <args>` in the work host of the instance, started where none
+/// runs, with `input` on its standard input, and say what it wrote. Returns
+/// the process exit code.
+pub fn run_command(args: Vec<String>, input: Option<String>) -> i32 {
+    let ran = (|| {
+        let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| e.to_string())?;
+        rt.block_on(asked(&socket(), Ask::Run { args, cwd, input }))
+    })();
+    match ran {
+        Ok(Answer::Ran {
+            stdout,
+            stderr,
+            code,
+        }) => {
+            if !stdout.is_empty() {
+                println!("{stdout}");
+            }
+            if !stderr.is_empty() {
+                eprintln!("adroit: {stderr}");
+            }
+            code
+        }
+        Ok(Answer::Failed { text }) | Err(text) => {
+            eprintln!("adroit: {text}");
+            1
+        }
+        Ok(answer) => {
+            eprintln!("adroit: the work host answered {answer:?}");
+            1
+        }
+    }
+}
+
+/// What the work host at `socket`, started where none runs, answers `ask`.
+/// One of another build is asked all the same when it shares a version
+/// with this one: a command is not to replace the host a window works with.
+async fn asked(socket: &Path, ask: Ask) -> std::result::Result<Answer, String> {
+    match hello(socket).await {
+        None => start(socket, &adroit_program(), &serve_args())
+            .await
+            .map_err(|e| e.to_string())?,
+        Some(Some(said)) if agree(SPOKEN, &said.speaks).is_some() => {}
+        Some(_) => return Err("the work host speaks no version this adroit does".into()),
+    }
+    let mut connection = Connection::open(socket)
+        .await
+        .map_err(|e| format!("cannot reach the work host: {e}"))?;
+    let gone = |e: std::io::Error| format!("the work host went away: {e}");
+    connection
+        .requests
+        .send(&Request::Ask {
+            asked: 1,
+            ask: Box::new(ask),
+        })
+        .await
+        .map_err(gone)?;
+    while let Some(event) = connection.events.next().await.map_err(gone)? {
+        if let Event::Answer { asked: 1, answer } = event {
+            return Ok(answer);
+        }
+    }
+    Err("the work host went away before it answered".into())
 }
 
 /// This program, as the work host is started with.

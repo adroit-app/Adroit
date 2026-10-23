@@ -180,86 +180,164 @@ pub fn cli(args: &[String]) -> i32 {
     let acting_as = std::env::var(crate::delegation::launch::TOKEN_ENV)
         .ok()
         .zip(std::env::var(crate::delegation::launch::ROOT_ENV).ok());
-    let Some(mut asked) = (match args {
-        [op, rest @ ..] if op == "start" => parse(rest),
-        _ => None,
-    }) else {
+    let Some(asked) = asked(args) else {
         eprintln!("{USAGE}");
         return 2;
     };
-    if let Some(path) = &asked.permissions_file {
-        let permissions = std::fs::read_to_string(path)
-            .map_err(|e| e.to_string())
-            .and_then(|text| {
-                serde_json::from_str::<CustomPermissions>(&text).map_err(|e| e.to_string())
-            });
-        match permissions {
-            Ok(options) => asked.permissions = AgentPermissions::Custom(Box::new(options)),
-            Err(e) => {
-                eprintln!("adroit: cannot read custom permissions: {e}");
-                return 2;
-            }
-        }
-    }
-    let prompt = match &asked.prompt {
-        Some(p) => p.clone(),
+    let input = match &asked.prompt {
+        Some(_) => None,
         None => {
             let mut p = String::new();
             if let Err(e) = std::io::stdin().read_to_string(&mut p) {
                 eprintln!("adroit: cannot read the prompt: {e}");
                 return 1;
             }
-            p
+            Some(p)
         }
     };
-    let prompt = prompt.trim();
-    if prompt.is_empty() {
-        eprintln!("adroit: the prompt is empty");
-        return 2;
-    }
-    // The daemon hands the new session this process's environment, which
-    // holds the marks of the session it was run from.
-    let names = std::env::vars_os().map(|(k, _)| k.to_string_lossy().into_owned());
-    for k in crate::env::inherited(names) {
-        // SAFETY: no other thread exists yet.
-        unsafe { std::env::remove_var(k) };
-    }
-    let dir = match asked
-        .dir
-        .clone()
-        .map_or_else(std::env::current_dir, Ok)
-        .and_then(std::fs::canonicalize)
-        .and_then(|d| scratch::start_dir(&d, &crate::paths::scratch_dir(), Moment::now()))
-    {
-        Ok(d) => d,
-        Err(e) => {
-            eprintln!("adroit: {e}");
-            return 1;
-        }
+    let Some((credential, root)) = acting_as else {
+        let mut ask = vec!["session".to_string()];
+        ask.extend(args.iter().cloned());
+        return crate::work_host::run_command(ask, input);
     };
-    let started = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| e.to_string())
-        .and_then(|rt| {
-            rt.block_on(async {
-                match &acting_as {
-                    Some((credential, root)) => {
-                        start_as(std::path::Path::new(root), credential, &asked, dir, prompt).await
-                    }
-                    None => start(&crate::daemon::daemon(), &asked, dir, prompt).await,
-                }
-            })
-        });
+    let started = (|| {
+        let asked = prepared(asked, input, &std::env::current_dir()?)?;
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?
+            .block_on(start_as(
+                std::path::Path::new(&root),
+                &credential,
+                &asked.asked,
+                asked.dir,
+                &asked.prompt,
+            ))
+            .map_err(Failure::Run)
+    })();
     match started {
         Ok(name) => {
             println!("{name}");
             0
         }
-        Err(e) => {
-            eprintln!("adroit: {e}");
-            1
+        Err(failure) => failure.told(),
+    }
+}
+
+/// What `adroit session start` was asked, read from `args`; none when they
+/// do not say it.
+fn asked(args: &[String]) -> Option<Asked> {
+    match args {
+        [op, rest @ ..] if op == "start" => parse(rest),
+        _ => None,
+    }
+}
+
+/// Why `adroit session start` did not start a session.
+#[derive(Debug)]
+enum Failure {
+    /// What it was asked cannot be done as asked.
+    Asked(String),
+    /// Starting it failed.
+    Run(String),
+}
+
+impl Failure {
+    /// Said on standard error; the exit code.
+    fn told(self) -> i32 {
+        match self {
+            Failure::Asked(e) => {
+                eprintln!("adroit: {e}");
+                2
+            }
+            Failure::Run(e) => {
+                eprintln!("adroit: {e}");
+                1
+            }
         }
+    }
+
+    fn text(&self) -> &str {
+        match self {
+            Failure::Asked(e) | Failure::Run(e) => e,
+        }
+    }
+
+    fn code(&self) -> i32 {
+        match self {
+            Failure::Asked(_) => 2,
+            Failure::Run(_) => 1,
+        }
+    }
+}
+
+impl From<std::io::Error> for Failure {
+    fn from(e: std::io::Error) -> Self {
+        Failure::Run(e.to_string())
+    }
+}
+
+/// A start asked for, its prompt and the folder it starts in settled.
+struct Prepared {
+    asked: Asked,
+    dir: PathBuf,
+    prompt: String,
+}
+
+/// `asked`, as run in `cwd` with `input` on its standard input: its custom
+/// permissions read, its prompt taken, and the folder it starts in made.
+fn prepared(
+    mut asked: Asked,
+    input: Option<String>,
+    cwd: &std::path::Path,
+) -> Result<Prepared, Failure> {
+    if let Some(path) = &asked.permissions_file {
+        let permissions = std::fs::read_to_string(cwd.join(path))
+            .map_err(|e| e.to_string())
+            .and_then(|text| {
+                serde_json::from_str::<CustomPermissions>(&text).map_err(|e| e.to_string())
+            })
+            .map_err(|e| Failure::Asked(format!("cannot read custom permissions: {e}")))?;
+        asked.permissions = AgentPermissions::Custom(Box::new(permissions));
+    }
+    let prompt = asked
+        .prompt
+        .clone()
+        .or(input)
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if prompt.is_empty() {
+        return Err(Failure::Asked("the prompt is empty".into()));
+    }
+    let dir = asked
+        .dir
+        .as_ref()
+        .map_or_else(|| cwd.to_path_buf(), |d| cwd.join(d));
+    let dir = std::fs::canonicalize(dir)
+        .and_then(|d| scratch::start_dir(&d, &crate::paths::scratch_dir(), Moment::now()))?;
+    Ok(Prepared { asked, dir, prompt })
+}
+
+/// `adroit session <args>` as the work host runs it for a command run in
+/// `cwd` with `input` on its standard input: what it prints, or why it
+/// failed, with its exit code.
+pub(crate) async fn run(
+    args: &[String],
+    cwd: &std::path::Path,
+    input: Option<String>,
+) -> (Result<String, String>, i32) {
+    let Some(asked) = asked(args) else {
+        return (Err(USAGE.into()), 2);
+    };
+    let started = match prepared(asked, input, cwd) {
+        Ok(p) => start(&crate::daemon::daemon(), &p.asked, p.dir, &p.prompt)
+            .await
+            .map_err(Failure::Run),
+        Err(failure) => Err(failure),
+    };
+    match started {
+        Ok(name) => (Ok(name), 0),
+        Err(failure) => (Err(failure.text().to_string()), failure.code()),
     }
 }
 

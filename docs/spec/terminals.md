@@ -20,7 +20,8 @@ nor sends or receives messages between them.
 
 ## Commands
 
-These commands talk to the instance's daemon and work without a window:
+These commands are run by the instance's work host, started when none runs,
+and work without a window:
 
 ```sh
 adroit terminal start --program shell --dir /src/api --json

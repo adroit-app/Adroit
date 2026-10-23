@@ -104,7 +104,8 @@ nothing.
 
 ## From a terminal
 
-The same start is available as a command, which works with the window closed:
+The same start is available as a command. The instance's work host runs it,
+started when none runs, so it works with the window closed:
 
 ```console
 $ adroit session start --dir ~/src/api --worktree -- "Find why the login test is flaky"

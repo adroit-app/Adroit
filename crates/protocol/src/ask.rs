@@ -28,6 +28,13 @@ pub enum Ask {
     /// Make `text` the key bindings over the defaults, as `keys.toml` holds
     /// them.
     SaveKeys { text: String },
+    /// Run the command `adroit <args>` as run in `cwd`, with `input` on its
+    /// standard input.
+    Run {
+        args: Vec<String>,
+        cwd: PathBuf,
+        input: Option<String>,
+    },
 }
 
 /// A session to start.
@@ -94,6 +101,12 @@ pub enum Answer {
     /// The image was kept here.
     Kept {
         path: PathBuf,
+    },
+    /// What the command wrote, and its exit status.
+    Ran {
+        stdout: String,
+        stderr: String,
+        code: i32,
     },
     Done,
     /// It failed, for this reason, said to the user.
