@@ -86,6 +86,7 @@ pub enum Command {
         identity: SessionRef,
     },
     Context,
+    Models,
     ResolveIds {
         ids: Vec<String>,
     },

@@ -46,6 +46,7 @@ impl Store {
             model,
             permissions,
         } = plan;
+        let checked = self.check_model(Some(agent), model.as_deref());
         self.transact(request, json!({"op":"authorize_independent_run","owner":owner,"workspace":workspace,"brief":brief,"agent":agent,"model":model,"permissions":permissions}), |connection| {
             let session = reference(connection, owner)?;
             if session.binding.role() != SessionRole::Leader { return Err(ControlError::new(ErrorCode::OwnershipMismatch, "only a managed Leader can receive independent-run authorization")); }
@@ -54,6 +55,7 @@ impl Store {
             if brief.title.trim().is_empty() || brief.goal.trim().is_empty() { return Err(invalid("an independent run needs a title and goal")); }
             checks::validate_gate(&brief.quality_gate)?;
             if model.as_ref().is_some_and(|model| model.trim().is_empty()) { return Err(invalid("the selected model is empty")); }
+            checked?;
             let (workspace, workspace_identity) = workspace_identity(&workspace)?;
             let grant = IndependentAuthorization { id: RequestId::new(), owner, workspace, workspace_identity: Some(workspace_identity), brief, agent, model, permissions, created: None };
             connection.execute("INSERT INTO independent_authorizations(id,leader_id,state,data) VALUES (?1,?2,'authorized',?3)", params![grant.id.to_string(),owner.id.to_string(),encode(&grant)?])?;

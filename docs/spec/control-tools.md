@@ -78,6 +78,14 @@ and `coordination_ids` arrays.
 the current Worker's assigned working area and returns their canonical fingerprint
 without file contents. It refuses Leaders and obsolete assignments.
 
+`models` lists, for each agent, the models its provider reports, and which agent
+a task without `target.agent` uses. A model named in a task's target or in an
+independent authorization must be one its agent lists; any other is refused,
+naming the listed ones, before anything is recorded. An agent whose provider has
+not answered has no list, and its models are not checked. A Worker whose model
+is no longer listed when it starts fails to start rather than reaching the
+provider.
+
 A Leader reads `context`, updates its existing run, records tasks with `put_task`,
 and makes them eligible with `queue_task`. It finishes its turn after dispatch;
 notifications bring back results and questions. A Worker uses `send_message` for

@@ -1841,3 +1841,149 @@ fn a_whole_snapshot_names_the_run_whose_record_cannot_be_read() {
     assert_eq!(error.code, adroit::control::store::ErrorCode::CorruptStore);
     assert!(error.message.contains(&run.to_string()), "{error}");
 }
+
+fn provider_model(id: &str) -> adroit_model::ProviderModel {
+    adroit_model::ProviderModel {
+        id: id.into(),
+        resolved: None,
+        name: id.into(),
+        description: String::new(),
+    }
+}
+
+fn plan_with_model(run: RunId, agent: Option<Agent>, model: &str) -> TaskPlan {
+    TaskPlan {
+        id: TaskId::new(),
+        run_id: run,
+        expected_revision: None,
+        brief: TaskBrief {
+            instructions: "Review the change".into(),
+            target: adroit_model::TargetPreference {
+                agent,
+                model: Some(model.into()),
+                permissions: AgentPermissions::Default,
+            },
+            ..Default::default()
+        },
+        dependencies: vec![],
+    }
+}
+
+#[test]
+fn a_task_naming_a_model_its_provider_does_not_list_is_refused_before_it_is_recorded() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (owner, run) = leader(&mut store, dir.path());
+    store.learn_models(Agent::Claude, vec![provider_model("opus")]);
+
+    let error = store
+        .put_task(
+            RequestId::new(),
+            owner,
+            plan_with_model(run, Some(Agent::Claude), "opsu"),
+        )
+        .unwrap_err();
+
+    assert_eq!(
+        error.code,
+        adroit::control::store::ErrorCode::InvalidRequest
+    );
+    assert!(error.message.contains("opus"), "{}", error.message);
+    assert!(store.snapshot().unwrap().tasks.is_empty());
+    store
+        .put_task(
+            RequestId::new(),
+            owner,
+            plan_with_model(run, Some(Agent::Claude), "opus"),
+        )
+        .unwrap();
+}
+
+#[test]
+fn a_task_without_an_agent_is_checked_against_the_default_agent_s_models() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (owner, run) = leader(&mut store, dir.path());
+    store.learn_models(Agent::Claude, vec![provider_model("opus")]);
+    store.learn_models(Agent::Codex, vec![provider_model("gpt-6-sol")]);
+    store.set_default_agent(Agent::Codex);
+
+    assert!(
+        store
+            .put_task(RequestId::new(), owner, plan_with_model(run, None, "opus"))
+            .is_err()
+    );
+    store
+        .put_task(
+            RequestId::new(),
+            owner,
+            plan_with_model(run, None, "gpt-6-sol"),
+        )
+        .unwrap();
+}
+
+#[test]
+fn models_are_not_checked_for_an_agent_whose_provider_has_not_answered() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (owner, run) = leader(&mut store, dir.path());
+    store.learn_models(Agent::Codex, vec![provider_model("gpt-6-sol")]);
+
+    store
+        .put_task(
+            RequestId::new(),
+            owner,
+            plan_with_model(run, Some(Agent::Claude), "anything"),
+        )
+        .unwrap();
+}
+
+#[test]
+fn a_recorded_task_is_returned_on_retry_even_after_its_model_is_no_longer_listed() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (owner, run) = leader(&mut store, dir.path());
+    store.learn_models(Agent::Claude, vec![provider_model("opus")]);
+    let request = RequestId::new();
+    let plan = plan_with_model(run, Some(Agent::Claude), "opus");
+    let recorded = store.put_task(request, owner, plan.clone()).unwrap().value;
+
+    store.learn_models(Agent::Claude, vec![provider_model("fable")]);
+
+    assert_eq!(
+        store.put_task(request, owner, plan).unwrap().value,
+        recorded
+    );
+}
+
+#[test]
+fn an_independent_run_naming_an_unlisted_model_is_not_authorized() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("control/state.sqlite3")).unwrap();
+    let (owner, _) = leader(&mut store, dir.path());
+    store.learn_models(Agent::Codex, vec![provider_model("gpt-6-sol")]);
+    let plan = |model: &str| adroit::control::store::IndependentAuthorizationPlan {
+        leader: owner,
+        workspace: dir.path().into(),
+        brief: RunBrief {
+            title: "Separate request".into(),
+            goal: "Investigate independently".into(),
+            ..Default::default()
+        },
+        agent: Agent::Codex,
+        model: Some(model.into()),
+        permissions: AgentPermissions::Default,
+    };
+
+    let error = store
+        .authorize_independent_run(RequestId::new(), plan("gpt-6-sool"))
+        .unwrap_err();
+
+    assert_eq!(
+        error.code,
+        adroit::control::store::ErrorCode::InvalidRequest
+    );
+    store
+        .authorize_independent_run(RequestId::new(), plan("gpt-6-sol"))
+        .unwrap();
+}

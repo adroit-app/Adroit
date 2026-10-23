@@ -20,6 +20,7 @@ mod dependencies;
 mod independent;
 pub use independent::{IndependentAuthorization, IndependentAuthorizationPlan, IndependentRun};
 mod lifecycle;
+mod models;
 mod native;
 mod results;
 mod runs;
@@ -99,6 +100,7 @@ impl<T> Reply<T> {
 
 pub struct Store {
     connection: Connection,
+    models: ModelCatalog,
 }
 
 const SCHEMA: &str = "
@@ -727,7 +729,10 @@ impl Store {
             connection.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         }
         connection.pragma_update(None, "journal_mode", "WAL")?;
-        Ok(Self { connection })
+        Ok(Self {
+            connection,
+            models: ModelCatalog::default(),
+        })
     }
 
     /// Fails once a newer build has upgraded the schema under this store.
@@ -908,6 +913,8 @@ impl Store {
         identity: SessionRef,
         plan: TaskPlan,
     ) -> Result<Reply<TaskRecord>> {
+        let target = &plan.brief.target;
+        let model = self.check_model(target.agent, target.model.as_deref());
         self.transact(
             request,
             json!({"op":"put_task", "caller":identity, "plan":plan}),
@@ -916,6 +923,7 @@ impl Store {
                 if plan.brief.instructions.trim().is_empty() {
                     return Err(invalid("a task needs instructions"));
                 }
+                model?;
                 candidates::task_candidate(
                     connection,
                     plan.run_id,

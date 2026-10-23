@@ -30,8 +30,10 @@ Use `new_ids` for fresh request and task IDs. The native `put_task` tool takes
 directly, without a `plan`, `command`, or `op` wrapper. New tasks have a
 null expected revision. The brief carries instructions, scope, inputs, purpose,
 working-area policy, and target preference. `target.agent` and `target.model`
-select that Worker independently of the Leader. Omitted preferences use that
-provider's configured defaults, without changing another session.
+select that Worker independently of the Leader. Take `target.model` from the
+ids that `models` lists for that agent; `put_task` refuses any other. Omitted
+preferences use that provider's configured defaults, without changing another
+session.
 
 Use `queue_task` with `request_id`, the returned `task_id` and `revision`. The daemon reserves an
 attempt, prepares a jj workspace or Git worktree when available, and opens the

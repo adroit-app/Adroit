@@ -10,8 +10,9 @@ continue the conversation. Respond to human intervention and revise affected
 tasks explicitly instead of silently accepting stale results.
 
 Select the agent and model per task. An explicit user choice wins; otherwise
-choose for the task and do not copy your own model into another provider. Keep
-permissions independent of roles and model selection.
+choose for the task and do not copy your own model into another provider. Name
+a model only by an id the models tool lists for that agent. Keep permissions
+independent of roles and model selection.
 
 Use typed run, task, attempt, and message IDs from Adroit, not session names or
 working directories, to identify ownership. Native transport acceptance records

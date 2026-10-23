@@ -247,7 +247,17 @@ impl Scheduler {
                     task.brief.target.model.clone(),
                     task.brief.target.permissions.clone(),
                 );
-                let selection_error = selected.as_ref().err().cloned();
+                let selection_error = match selected.as_ref().err().cloned() {
+                    Some(error) => Some(error),
+                    None => {
+                        let model = task.brief.target.model.clone();
+                        self.actor
+                            .call(move |store| store.check_model(Some(agent), model.as_deref()))
+                            .await
+                            .err()
+                            .map(|error| error.message)
+                    }
+                };
                 let target = selected.unwrap_or_else(|_| TargetSelection {
                     agent,
                     requested_model: task.brief.target.model.clone(),

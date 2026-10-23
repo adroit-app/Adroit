@@ -24,6 +24,7 @@ pub struct Service {
     _claim: File,
     actor: Actor,
     supervisor: Option<tokio::task::JoinHandle<()>>,
+    models: Option<tokio::task::JoinHandle<()>>,
     startup: Vec<SessionRef>,
 }
 
@@ -31,6 +32,9 @@ impl Drop for Service {
     fn drop(&mut self) {
         self.task.abort();
         if let Some(task) = &self.supervisor {
+            task.abort();
+        }
+        if let Some(task) = &self.models {
             task.abort();
         }
         let _ = std::fs::remove_file(&self.socket);
@@ -131,6 +135,23 @@ impl Service {
         Ok(())
     }
 
+    /// Keep the providers' model lists, which managed sessions' models are
+    /// checked against, asking each provider as `settings` start it.
+    pub fn watch_models(
+        &mut self,
+        settings: impl Fn() -> std::result::Result<crate::settings::Settings, String> + Send + 'static,
+    ) {
+        if let Some(task) = self.models.take() {
+            task.abort();
+        }
+        self.models = Some(tokio::spawn(super::models::watch(
+            self.actor.clone(),
+            settings,
+            |agent, settings, dir| crate::agents::adapter(agent).models(settings, dir),
+            super::models::Timing::default(),
+        )));
+    }
+
     pub async fn bind(root: &Path) -> Result<Self> {
         DirBuilder::new()
             .recursive(true)
@@ -189,6 +210,7 @@ impl Service {
             _claim: claim,
             actor,
             supervisor: None,
+            models: None,
             startup,
         })
     }
@@ -321,6 +343,7 @@ fn dispatch(store: &mut Store, human: &str, request: Request, trusted_app: bool)
                 | Command::ReadMessage { .. }
                 | Command::Mailbox { .. }
                 | Command::Context
+                | Command::Models
                 | Command::ResolveIds { .. }
                 | Command::NativeArguments { .. }
         )
@@ -340,6 +363,7 @@ fn dispatch(store: &mut Store, human: &str, request: Request, trusted_app: bool)
         && !matches!(
             &request.command,
             Command::Context
+                | Command::Models
                 | Command::ResolveIds { .. }
                 | Command::NativeArguments { .. }
                 | Command::NativeCall { .. }
@@ -435,6 +459,7 @@ fn dispatch(store: &mut Store, human: &str, request: Request, trusted_app: bool)
             value(store.accept_delivery(request.id, message_id, identity()?)?)
         }
         Command::Context => value(store.context(identity()?)?),
+        Command::Models => value(store.models()),
         Command::ResolveIds { ids } => store.resolve_native_ids(identity()?, ids),
         Command::NativeArguments { name, arguments } => {
             store.native_arguments(identity()?, &name, arguments)

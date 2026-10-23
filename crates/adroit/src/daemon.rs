@@ -157,11 +157,13 @@ fn serve(rt: &tokio::runtime::Runtime) -> adroit_term::Result<()> {
                     None
                 }
             };
-        if let Some(service) = &mut control
-            && let Err(error) =
+        if let Some(service) = &mut control {
+            if let Err(error) =
                 service.supervise_checked(daemon(), adroit_program(), Settings::try_load)
-        {
-            eprintln!("adroit: orchestration supervision is unavailable: {error}");
+            {
+                eprintln!("adroit: orchestration supervision is unavailable: {error}");
+            }
+            service.watch_models(Settings::try_load);
         }
         Daemon::serve(&socket(), AWAKE_EVERY, running).await
     })

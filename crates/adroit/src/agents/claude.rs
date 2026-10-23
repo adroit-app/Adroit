@@ -121,6 +121,16 @@ impl AgentAdapter for Claude {
             .await
         })
     }
+    fn models(&self, settings: Settings, dir: PathBuf) -> Probe<adroit_model::ProviderModel> {
+        Box::pin(async move {
+            adroit_claude::models::probe(
+                |args| super::launch_with_settings(&settings, Agent::Claude, args, Vec::new()),
+                &dir,
+                adroit_claude::commands::PROBE_TIMEOUT,
+            )
+            .await
+        })
+    }
     fn usage(&self, home: PathBuf) -> Probe<adroit_claude::usage::Limit> {
         Box::pin(async move {
             adroit_claude::usage::probe(

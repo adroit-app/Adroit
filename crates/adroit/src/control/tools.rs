@@ -53,7 +53,7 @@ static CATALOG: LazyLock<Vec<Value>> = LazyLock::new(|| {
             "description":format!("Adroit {name}: {} request_id is optional; supply it for an identical retry. IDs accept your session's short aliases or full UUIDs. Pass fields directly without command or op wrappers.", description(name)),
             "inputSchema":schema
         });
-        if matches!(name, "context" | "resolve_ids" | "snapshot" | "read_message" | "mailbox" | "events" | "candidate") {
+        if matches!(name, "context" | "models" | "resolve_ids" | "snapshot" | "read_message" | "mailbox" | "events" | "candidate") {
             tool["annotations"] = json!({"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false});
         }
         tool
@@ -141,6 +141,9 @@ fn references(value: &Value, pending: &mut VecDeque<String>) {
 fn description(name: &str) -> &'static str {
     match name {
         "context" => "Read your current session, run, task, attempt and working area.",
+        "models" => {
+            "Read the models each agent's provider accepts and which agent a task without target.agent runs. A task's target.model must be one of its agent's listed ids; an agent without a list is not checked."
+        }
         "resolve_ids" => {
             "Read full immutable identifiers for your aliases before passing them to another session."
         }
@@ -294,6 +297,17 @@ mod tests {
                 .unwrap()
                 .contains(&json!("request_id"))
         );
+    }
+
+    #[test]
+    fn the_models_tool_is_a_read_without_arguments() {
+        let tool = catalog()
+            .iter()
+            .find(|tool| tool["name"] == "models")
+            .unwrap();
+        assert_eq!(tool["annotations"]["readOnlyHint"], true);
+        let (_, command) = decode("models", json!({})).unwrap();
+        assert!(matches!(command, Command::Models));
     }
 
     #[test]

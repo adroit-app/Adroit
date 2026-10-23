@@ -33,7 +33,7 @@ pub enum Reply {
 
 /// The one line written to Claude Code: an `initialize` control request,
 /// never a user message, so no turn runs and no tokens are spent.
-const REQUEST: &str = "{\"request_id\":\"adroit\",\"type\":\"control_request\",\"request\":{\"subtype\":\"initialize\"}}\n";
+pub(crate) const REQUEST: &str = "{\"request_id\":\"adroit\",\"type\":\"control_request\",\"request\":{\"subtype\":\"initialize\"}}\n";
 
 /// Read one line of Claude Code's output.
 pub fn reply(line: &str) -> Reply {

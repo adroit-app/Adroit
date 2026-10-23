@@ -357,6 +357,7 @@ async fn validate_native_origin(
     if matches!(
         command,
         Command::Context
+            | Command::Models
             | Command::ResolveIds { .. }
             | Command::Snapshot
             | Command::ReadMessage { .. }

@@ -17,6 +17,7 @@ pub mod history;
 pub mod jj;
 pub mod links;
 pub mod metrics;
+pub mod models;
 pub mod places;
 pub mod subagents;
 pub mod usage;

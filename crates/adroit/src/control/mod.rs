@@ -43,6 +43,8 @@ pub fn session_root() -> std::path::PathBuf {
 
 pub mod managed;
 
+pub mod models;
+
 pub mod runtime;
 
 pub mod dispatcher;

@@ -105,6 +105,10 @@ pub trait AgentAdapter: Sync {
     fn commands(&self, _dir: PathBuf) -> Probe<adroit_claude::commands::Command> {
         Box::pin(async { None })
     }
+    /// The models the provider accepts, asked of it in `dir` as `settings` start it.
+    fn models(&self, _settings: Settings, _dir: PathBuf) -> Probe<adroit_model::ProviderModel> {
+        Box::pin(async { None })
+    }
     fn usage(&self, _home: PathBuf) -> Probe<adroit_claude::usage::Limit> {
         Box::pin(async { None })
     }

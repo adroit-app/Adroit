@@ -243,6 +243,51 @@ async fn failed_native_preparation_reports_failure_without_starting_in_the_sourc
 }
 
 #[tokio::test]
+async fn a_worker_whose_model_is_no_longer_listed_fails_to_start_and_tells_its_leader_why() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("source");
+    std::fs::create_dir_all(&source).unwrap();
+    let root = dir.path().join("control");
+    let actor = Actor::open(root.join("state.sqlite3")).await.unwrap();
+    let (owner, _) = planned(&actor, &source, 1).await;
+    actor
+        .call(|store| {
+            store.learn_models(
+                Agent::Codex,
+                vec![ProviderModel {
+                    id: "gpt-6-sol".into(),
+                    resolved: None,
+                    name: "GPT-6-Sol".into(),
+                    description: String::new(),
+                }],
+            );
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let mut scheduler = Scheduler::new(
+        actor.clone(),
+        Daemon::new(dir.path().join("absent.sock")),
+        root,
+        "/adroit".into(),
+    );
+
+    scheduler.tick(Settings::default(), 1).await.unwrap();
+
+    let snapshot = actor.call(|store| store.snapshot()).await.unwrap();
+    assert_eq!(snapshot.attempts[0].state, AttemptState::Failed);
+    assert_eq!(snapshot.tasks[0].state, TaskState::Failed);
+    let mailbox = actor
+        .call(move |store| store.mailbox(owner, 0, 10))
+        .await
+        .unwrap();
+    let body = &mailbox.messages[0].message.body;
+    assert!(body.contains("test-small"), "{body}");
+    assert!(body.contains("gpt-6-sol"), "{body}");
+    assert!(!source.join("started").exists());
+}
+
+#[tokio::test]
 async fn one_invalid_provider_profile_does_not_block_another_run() {
     let dir = tempfile::tempdir().unwrap();
     let source = dir.path().join("source");

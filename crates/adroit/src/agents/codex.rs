@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 mod commands;
 mod identity;
 mod metrics;
+mod models;
 mod rpc;
 mod transcript;
 mod usage;
@@ -213,6 +214,21 @@ impl AgentAdapter for Codex {
     }
     fn builtin_commands(&self) -> Vec<adroit_claude::commands::Command> {
         commands::builtins()
+    }
+    fn models(&self, settings: Settings, dir: PathBuf) -> Probe<adroit_model::ProviderModel> {
+        Box::pin(async move {
+            models::probe(
+                super::launch_with_settings(
+                    &settings,
+                    Agent::Codex,
+                    vec!["app-server".into()],
+                    Vec::new(),
+                ),
+                &dir,
+                adroit_claude::commands::PROBE_TIMEOUT,
+            )
+            .await
+        })
     }
     fn usage(&self, home: PathBuf) -> Probe<adroit_claude::usage::Limit> {
         Box::pin(async move {
