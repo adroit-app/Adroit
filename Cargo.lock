@@ -16,6 +16,7 @@ dependencies = [
  "adroit-core",
  "adroit-model",
  "adroit-nvim",
+ "adroit-protocol",
  "adroit-runtime",
  "adroit-term",
  "adroit-vcs",

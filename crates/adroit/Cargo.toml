@@ -11,6 +11,7 @@ adroit-agents.workspace = true
 adroit-core.workspace = true
 adroit-model.workspace = true
 adroit-nvim.workspace = true
+adroit-protocol.workspace = true
 adroit-runtime.workspace = true
 adroit-term.workspace = true
 adroit-vcs.workspace = true

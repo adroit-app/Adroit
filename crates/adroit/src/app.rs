@@ -20,6 +20,7 @@ use tokio::sync::{Notify, mpsc, oneshot};
 
 use crate::actions::Action;
 use crate::alerts;
+use crate::bridge::use_app;
 use crate::bundled_font::{faces, use_bundled_font};
 use crate::complete::{self, candidates};
 use crate::completion::Completions;
@@ -73,6 +74,7 @@ use crate::viewers;
 use crate::window_socket::{Request, Response, ask, bind, serve, socket_path};
 use crate::zoom;
 use adroit_agents as agents;
+use adroit_core::msg::Msg;
 
 fn shows_usage(tab: Option<&Tab>, agent: adroit_model::Agent) -> bool {
     matches!(tab, Some(Tab::Session(_) | Tab::Draft { .. }))
@@ -1650,7 +1652,7 @@ fn App() -> Element {
     // How many lines the reader holds, and how many of them are the screen,
     // the last.
     let mut read_rows = use_signal(|| (0usize, 0usize));
-    let mut zoomed = use_signal(|| settings::current().zoom);
+    let app = use_app();
     // The settings the console's font is drawn by, and the height of a line
     // measured in it.
     let mut font = use_signal(settings::current);
@@ -2636,7 +2638,7 @@ fn App() -> Element {
     // console has.
     use_effect(move || {
         let _ = font();
-        let _ = zoomed();
+        let _ = app.chrome.read().zoom;
         spawn(async move {
             // A zoom is laid out after the frame it was asked in.
             tokio::time::sleep(Duration::from_millis(50)).await;
@@ -3658,16 +3660,12 @@ fn App() -> Element {
     use_hook({
         let hub = hub.clone();
         move || {
-            let _ = dioxus::desktop::window().webview.zoom(*zoomed.peek());
             spawn(async move {
                 let mut changed = settings::CHANGED.subscribe();
                 let mut was = settings::current();
                 while changed.recv().await.is_ok() {
                     let s = settings::current();
-                    if s.zoom != was.zoom {
-                        zoomed.set(s.zoom);
-                        let _ = dioxus::desktop::window().webview.zoom(s.zoom);
-                    }
+                    app.dispatch(Msg::ZoomSetting(s.zoom));
                     let face = |s: &settings::Settings| {
                         (s.font_family.clone(), s.font_size, s.font_weight)
                     };
@@ -5081,15 +5079,9 @@ fn App() -> Element {
                 Action::WindowClose => dioxus::desktop::window().close(),
                 Action::TreeToggle => toggle_panel(Side::Sidebar),
                 Action::DetailsToggle => toggle_panel(Side::Details),
-                Action::ZoomIn | Action::ZoomOut | Action::ZoomReset => {
-                    let next = match action {
-                        Action::ZoomIn => zoom::next(*zoomed.peek(), zoom::Step::In),
-                        Action::ZoomOut => zoom::next(*zoomed.peek(), zoom::Step::Out),
-                        _ => settings::current().zoom,
-                    };
-                    zoomed.set(next);
-                    let _ = dioxus::desktop::window().webview.zoom(next);
-                }
+                Action::ZoomIn => app.dispatch(Msg::Zoom(zoom::Step::In)),
+                Action::ZoomOut => app.dispatch(Msg::Zoom(zoom::Step::Out)),
+                Action::ZoomReset => app.dispatch(Msg::Zoom(zoom::Step::Reset)),
                 Action::Filter => {
                     focus.set(Area::Sidebar);
                     filter.set(String::new());

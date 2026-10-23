@@ -3,6 +3,7 @@
 pub use adroit_core::actions;
 use adroit_runtime::alerts;
 mod app;
+mod bridge;
 mod bundled_font;
 use adroit_core::completion;
 pub use adroit_runtime::cli;
