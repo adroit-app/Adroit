@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use adroit_protocol::{Change, Event, Sight};
-use tokio::sync::{mpsc, watch};
+use tokio::sync::watch;
 
 use crate::work::{HistoryAsk, Host, Seen};
 
@@ -31,11 +31,14 @@ mod usage;
 
 pub use sessions::read_sessions;
 
+/// What tells the windows an event; it never waits.
+pub type Outbox = Arc<dyn Fn(Event) + Send + Sync>;
+
 /// What a watcher reaches the host through.
 #[derive(Clone)]
 pub struct Watched {
     host: Arc<Mutex<Host>>,
-    events: mpsc::UnboundedSender<Event>,
+    events: Outbox,
     seen: watch::Receiver<Seen>,
     again: watch::Receiver<u64>,
     relist: watch::Receiver<u64>,
@@ -46,7 +49,7 @@ pub struct Watched {
 }
 
 impl Watched {
-    pub fn new(host: Arc<Mutex<Host>>, events: mpsc::UnboundedSender<Event>) -> Self {
+    pub fn new(host: Arc<Mutex<Host>>, events: Outbox) -> Self {
         let (seen, again, relist, commands, inputs, history, redrawn) = {
             let host = lock(&host);
             (
@@ -104,14 +107,22 @@ impl Watched {
         }
     }
 
-    fn host(&self) -> MutexGuard<'_, Host> {
+    pub(crate) fn host(&self) -> MutexGuard<'_, Host> {
         lock(&self.host)
     }
 
     /// Tell the window `event`, which is not a change of the work.
     pub(crate) fn tell(&self, event: Event) {
-        // A window that stopped listening has closed; nothing is owed it.
-        let _ = self.events.send(event);
+        (self.events)(event);
+    }
+
+    /// Make the change `request` asks for to the work, and tell the windows
+    /// what it changed.
+    pub(crate) fn apply(&self, request: adroit_protocol::Request) {
+        let mut host = self.host();
+        for event in host.handle(request) {
+            (self.events)(event);
+        }
     }
 
     /// List the sessions again now.
@@ -125,11 +136,12 @@ impl Watched {
     }
 
     /// Tell the window what changed of what was read.
-    fn record<C: Into<Change>>(&self, changes: impl IntoIterator<Item = C>) {
-        let event = self.host().record(changes);
-        if let Some(event) = event {
-            // A window that stopped listening has closed; nothing is owed it.
-            let _ = self.events.send(event);
+    pub(crate) fn record<C: Into<Change>>(&self, changes: impl IntoIterator<Item = C>) {
+        // Told while the host is held, so patches go out in the order they
+        // were made, whichever watcher made them.
+        let mut host = self.host();
+        if let Some(event) = host.record(changes) {
+            (self.events)(event);
         }
     }
 

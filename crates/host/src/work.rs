@@ -244,7 +244,11 @@ impl Host {
                 self.ask_relist();
                 Vec::new()
             }
-            job @ (Request::Stop { .. } | Request::Kill { .. } | Request::Rename { .. }) => {
+            job @ (Request::Stop { .. }
+            | Request::Kill { .. }
+            | Request::Rename { .. }
+            | Request::Release { .. }
+            | Request::EndTerminal { .. }) => {
                 // Carried out by the host's watchers; the window that
                 // asked has gone when nothing takes it.
                 let _ = self.jobs.send(job);
@@ -299,6 +303,8 @@ impl Host {
                 }));
                 Vec::new()
             }
+            // Answered by the connection it came on, which waits for it.
+            Request::Ask { .. } => Vec::new(),
         }
     }
 
@@ -504,19 +510,25 @@ impl Loopback {
     /// Start reading the configuration again as it changes, in the
     /// background.
     pub fn watch_config(&self) {
-        crate::watch::start_config(crate::watch::Watched::new(
-            self.host.clone(),
-            self.events.clone(),
-        ));
+        crate::watch::start_config(self.watched());
     }
 
     /// Start reading, in the background, what the window shows: each fact
     /// the host keeps current while it is in sight.
     pub fn watch(&self) {
-        crate::watch::start(crate::watch::Watched::new(
+        crate::watch::start(self.watched());
+    }
+
+    fn watched(&self) -> crate::watch::Watched {
+        let events = self.events.clone();
+        crate::watch::Watched::new(
             self.host.clone(),
-            self.events.clone(),
-        ));
+            Arc::new(move |event| {
+                // A window that stopped listening has closed; nothing is
+                // owed it.
+                let _ = events.send(event);
+            }),
+        )
     }
 }
 

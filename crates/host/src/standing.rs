@@ -146,33 +146,6 @@ pub(crate) async fn say_when_listening(daemon: &Daemon, build: &str, speaks: &[u
     }
 }
 
-/// What the window does with the work host listening.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum WorkHost {
-    /// None listens: start one.
-    Absent,
-    /// Of this build and speaking a version the window does.
-    Keep,
-    /// One the window cannot work with, of another build, or one that says
-    /// nothing: replace it, which ends no session.
-    Replace,
-}
-
-/// How the work host stands, from what it said when asked, against `ours`
-/// and `build`; `said` is `None` where none listens, and `Some(None)` where
-/// one listens but says nothing it can be judged by.
-pub fn judge_work_host(
-    said: Option<Option<(&[u32], &str)>>,
-    ours: &[u32],
-    build: &str,
-) -> WorkHost {
-    match said {
-        None => WorkHost::Absent,
-        Some(Some((speaks, said))) if shares(speaks, ours) && said == build => WorkHost::Keep,
-        Some(_) => WorkHost::Replace,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -248,37 +221,6 @@ mod tests {
         let socket = dir.path().join("daemon.sock");
         std::fs::write(socket.with_extension("build"), "42\n0.3.0\n").unwrap();
         assert_eq!(super::said(&socket), None);
-    }
-
-    #[test]
-    fn a_work_host_of_this_build_speaking_a_shared_version_is_kept() {
-        let speaks: &[u32] = &[1, 2];
-        assert_eq!(
-            judge_work_host(Some(Some((speaks, "0.3.0"))), &[2], "0.3.0"),
-            WorkHost::Keep
-        );
-    }
-
-    #[test]
-    fn a_work_host_of_another_build_or_sharing_no_version_is_replaced() {
-        let speaks: &[u32] = &[1];
-        assert_eq!(
-            judge_work_host(Some(Some((speaks, "0.2.0"))), &[1], "0.3.0"),
-            WorkHost::Replace
-        );
-        assert_eq!(
-            judge_work_host(Some(Some((speaks, "0.3.0"))), &[2], "0.3.0"),
-            WorkHost::Replace
-        );
-        assert_eq!(
-            judge_work_host(Some(None), &[1], "0.3.0"),
-            WorkHost::Replace
-        );
-    }
-
-    #[test]
-    fn where_no_work_host_listens_one_is_started() {
-        assert_eq!(judge_work_host(None, &[1], "0.3.0"), WorkHost::Absent);
     }
 
     /// A folder for a socket, whose path has to be short.

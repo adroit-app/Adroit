@@ -1,5 +1,6 @@
 //! What the host carries out for a window that takes a while: ending a
-//! session, killing one of its processes, naming a session anew. Each is
+//! session or a terminal, killing one of its processes, naming a session
+//! anew, letting a held program go. Each is
 //! carried out on its own, and the window is told how it went.
 
 use std::time::Duration;
@@ -25,6 +26,8 @@ pub(crate) async fn run(watched: Watched, mut jobs: UnboundedReceiver<Request>) 
                     was,
                     agent,
                 } => rename(&watched, id, name, was, agent).await,
+                Request::Release { id } => crate::held::release(id).await,
+                Request::EndTerminal { id } => end_terminal(&watched, id).await,
                 _ => {}
             }
         });
@@ -52,6 +55,13 @@ async fn stop(watched: &Watched, asked: Session) {
         Err(e) => watched.tell(failure(format!("cannot end {}: {e}", asked.name))),
     }
     watched.relist();
+}
+
+/// End the terminal `id`, and list it no more.
+async fn end_terminal(watched: &Watched, id: u128) {
+    // One ended already is gone all the same.
+    let _ = crate::daemon::daemon().end(id).await;
+    watched.apply(Request::TerminalClosed { id });
 }
 
 /// Kill `process`, which runs in `session`.

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use adroit_model::{Agent, Process, Session, TerminalSession};
 use serde::{Deserialize, Serialize};
 
-use crate::{Sight, Typing, Version, WorkPatch, WorkSnapshot};
+use crate::{Answer, Ask, Sight, Typing, Version, WorkPatch, WorkSnapshot};
 
 /// What the window asks of the work host.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -74,6 +74,20 @@ pub enum Request {
         agent: Agent,
         project: PathBuf,
     },
+    /// What `ask` asks, answered once by `asked`, the number its asker gave
+    /// it.
+    Ask { asked: u64, ask: Box<Ask> },
+    /// Let the program of the session or terminal `id` go, which a window
+    /// attached to and told its colours.
+    Release {
+        #[serde(with = "crate::wire::wide")]
+        id: u128,
+    },
+    /// End the terminal `id`.
+    EndTerminal {
+        #[serde(with = "crate::wire::wide")]
+        id: u128,
+    },
 }
 
 /// What the work host tells a window.
@@ -96,6 +110,8 @@ pub enum Event {
         session: String,
         typing: Vec<Typing>,
     },
+    /// What came of the ask numbered `asked`, for the one that asked it.
+    Answer { asked: u64, answer: Answer },
 }
 
 /// What the host says of a request it carried out.

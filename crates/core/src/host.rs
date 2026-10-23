@@ -56,8 +56,9 @@ pub(crate) fn receive(host: &mut Host, event: Event) -> Vec<Effect> {
             host.resyncing = false;
         }
         Event::Patch(patch) => return patched(host, patch),
-        // Told the window as a whole, not its link.
-        Event::Told(_) | Event::Type { .. } => {}
+        // Told the window as a whole, not its link; an answer goes to
+        // what asked.
+        Event::Told(_) | Event::Type { .. } | Event::Answer { .. } => {}
     }
     Vec::new()
 }

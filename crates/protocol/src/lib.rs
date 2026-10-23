@@ -3,6 +3,7 @@
 //! side speaks, and how a message is written on the wire.
 
 mod agents;
+mod ask;
 mod codec;
 mod config;
 mod console;
@@ -18,6 +19,7 @@ mod wire;
 mod work;
 
 pub use agents::*;
+pub use ask::*;
 pub use codec::*;
 pub use config::*;
 pub use console::*;

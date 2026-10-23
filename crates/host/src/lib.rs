@@ -3,6 +3,7 @@
 //! is kept on disk from one run to the next.
 
 pub mod alerts;
+mod asks;
 pub mod awake;
 pub mod cli;
 pub mod complete;
@@ -16,6 +17,7 @@ pub mod editor;
 pub mod env;
 pub mod execution;
 pub mod fonts;
+mod held;
 mod jobs;
 pub mod layout;
 pub mod pasted;
@@ -24,11 +26,13 @@ pub mod pictures;
 pub mod processes;
 pub mod programs;
 pub mod scratch;
+pub mod serve;
 pub mod sessions;
 pub mod settings;
 pub mod standing;
 pub mod start;
 pub mod system_usage;
+mod terminal_host;
 pub mod terminals;
 pub mod themes;
 pub mod watch;

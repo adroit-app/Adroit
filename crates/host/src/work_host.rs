@@ -1,21 +1,19 @@
 //! The work host, `adroit host`: the process apart from the terminal host
-//! that lets sessions start and message sessions and judges how each stands,
-//! so that it can be replaced without ending a session.
+//! that holds the work, starts and lists the sessions, lets sessions start
+//! and message sessions and judges how each stands, so that it can be
+//! replaced without ending a session.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
+use adroit_protocol::{Hello, SPOKEN, WorkHost, judge};
+use serde::Serialize;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use crate::cli::HostCommand;
 use crate::paths::instance_state;
-use crate::standing::{WorkHost, build, judge_work_host};
-
-/// The versions of the work host's protocol this build speaks. A version is
-/// added, and one no longer spoken dropped, only when what is sent changes
-/// shape.
-pub const SPEAKS: &[u32] = &[1];
+use crate::serve::Served;
+use crate::standing::build;
 
 /// `$ADROIT_HOST`, or `host/host.sock` under the instance's state folder.
 pub fn socket() -> PathBuf {
@@ -29,27 +27,17 @@ pub fn serve_args() -> Vec<String> {
     vec!["host".into()]
 }
 
-/// What a work host says first on every connection, before it is asked
-/// anything.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Hello {
-    pub speaks: Vec<u32>,
-    pub build: String,
-}
-
-impl Hello {
-    /// What this build says.
-    pub fn ours() -> Self {
-        Self {
-            speaks: SPEAKS.to_vec(),
-            build: build(),
-        }
+/// What this build says first on every connection.
+pub fn hello_of_ours() -> Hello {
+    Hello {
+        speaks: SPOKEN.to_vec(),
+        build: build(),
     }
 }
 
-/// What a work host is asked once it has said hello. Its shape is the same
-/// in every version, so any window can replace any work host.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// What a work host is asked to stop by. Its shape is the same in every
+/// version, so any window can replace any work host.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 enum Ask {
     Stop,
@@ -110,11 +98,9 @@ impl WorkHostServer {
         })
     }
 
-    /// Say `hello` to everyone who connects, until one asks this host to
-    /// stop.
-    pub async fn serve(&self, hello: &Hello) {
-        let mut line = serde_json::to_vec(hello).expect("a hello is JSON");
-        line.push(b'\n');
+    /// Say `hello` to everyone who connects and answer them from
+    /// `served`, until one asks this host to stop.
+    pub async fn serve(&self, hello: Hello, served: Served) {
         let (stop, mut stopped) = tokio::sync::mpsc::channel::<()>(1);
         loop {
             let stream = tokio::select! {
@@ -124,21 +110,8 @@ impl WorkHostServer {
                 },
                 _ = stopped.recv() => return,
             };
-            let (line, stop) = (line.clone(), stop.clone());
-            tokio::spawn(async move {
-                let (read, mut write) = stream.into_split();
-                // One who asks without waiting for hello may have hung up
-                // already; what it asked is read all the same.
-                let _ = write.write_all(&line).await;
-                let mut lines = BufReader::new(read).lines();
-                while let Ok(Some(asked)) = lines.next_line().await {
-                    if let Ok(Ask::Stop) = serde_json::from_str(&asked) {
-                        let _ = write.write_all(b"{\"stopping\":true}\n").await;
-                        let _ = stop.send(()).await;
-                        return;
-                    }
-                }
-            });
+            let (hello, served, stop) = (hello.clone(), served.clone(), stop.clone());
+            tokio::spawn(async move { served.connection(stream, &hello, stop).await });
         }
     }
 }
@@ -159,11 +132,7 @@ pub async fn hello(socket: &Path) -> Option<Option<Hello>> {
 /// How the work host at `socket` stands against this build.
 pub async fn standing(socket: &Path) -> WorkHost {
     let said = hello(socket).await;
-    let said = said.as_ref().map(|said| {
-        said.as_ref()
-            .map(|h| (h.speaks.as_slice(), h.build.as_str()))
-    });
-    judge_work_host(said, SPEAKS, &build())
+    judge(said.as_ref().map(Option::as_ref), &build())
 }
 
 /// Stop the work host at `socket` and wait until it is gone; whether one was
@@ -255,12 +224,22 @@ async fn delegation() {
     std::future::pending::<()>().await;
 }
 
-/// Serve as the work host at `socket` until asked to stop.
+/// Serve as the work host at `socket` until asked to stop: the work, read
+/// from the configuration first and then kept read once the terminal host
+/// the sessions are listed from runs.
 async fn serve(socket: &Path) -> Result<()> {
     let server = WorkHostServer::bind(socket).await?;
-    let hello = Hello::ours();
+    let host = crate::work::Host::new(crate::work::Work::configured(crate::config::read()));
+    let judged = std::sync::Arc::new(tokio::sync::watch::Sender::new(None));
+    let served = Served::new(host, |watched| crate::asks::asks(watched, judged.clone()));
+    let watched = served.watched();
+    crate::watch::start_config(watched.clone());
+    tokio::spawn(async move {
+        crate::terminal_host::start(&judged).await;
+        crate::watch::start(watched);
+    });
     tokio::select! {
-        () = server.serve(&hello) => {}
+        () = server.serve(hello_of_ours(), served) => {}
         () = delegation() => {}
     }
     Ok(())
@@ -318,6 +297,10 @@ pub fn cli(asked: HostCommand) -> i32 {
 
 #[cfg(test)]
 mod tests {
+    use adroit_protocol::{
+        Answer, Ask, Change, Event, PromptChange, Request, Seq, Version, WorkPatch, decode, encode,
+    };
+
     use super::*;
 
     /// A folder for a socket, whose path has to be short.
@@ -335,9 +318,16 @@ mod tests {
 
     fn hello_of(build: &str, speaks: &[u32]) -> Hello {
         Hello {
-            speaks: speaks.to_vec(),
+            speaks: speaks.iter().copied().map(Version).collect(),
             build: build.into(),
         }
+    }
+
+    /// A host holding no work, answering every ask as done.
+    fn served() -> Served {
+        Served::new(crate::work::Host::default(), |_| {
+            std::sync::Arc::new(|_| Box::pin(async { Answer::Done }))
+        })
     }
 
     #[tokio::test]
@@ -348,7 +338,7 @@ mod tests {
         let said = hello_of("0.3.0", &[1, 2]);
         let serving = {
             let said = said.clone();
-            async move { server.serve(&said).await }
+            async move { server.serve(said, served()).await }
         };
         tokio::select! {
             () = serving => panic!("the host stopped unasked"),
@@ -368,14 +358,14 @@ mod tests {
         let dir = short_dir();
         let socket = dir.path().join("h.sock");
         let server = WorkHostServer::bind(&socket).await.unwrap();
-        let ours = Hello::ours();
+        let ours = hello_of_ours();
         tokio::select! {
-            () = server.serve(&ours) => panic!("the host stopped unasked"),
+            () = server.serve(ours.clone(), served()) => panic!("the host stopped unasked"),
             got = standing(&socket) => assert_eq!(got, WorkHost::Keep),
         }
-        let other = hello_of("0.0.1", SPEAKS);
+        let other = hello_of("0.0.1", &[1]);
         tokio::select! {
-            () = server.serve(&other) => panic!("the host stopped unasked"),
+            () = server.serve(other.clone(), served()) => panic!("the host stopped unasked"),
             got = standing(&socket) => assert_eq!(got, WorkHost::Replace),
         }
     }
@@ -394,7 +384,7 @@ mod tests {
         let socket = dir.path().join("h.sock");
         let server = WorkHostServer::bind(&socket).await.unwrap();
         let serving = tokio::spawn(async move {
-            server.serve(&Hello::ours()).await;
+            server.serve(hello_of_ours(), served()).await;
         });
         let mut stream = tokio::net::UnixStream::connect(&socket).await.unwrap();
         stream.write_all(b"{\"op\":\"stop\"}\n").await.unwrap();
@@ -411,7 +401,7 @@ mod tests {
         let socket = dir.path().join("h.sock");
         let server = WorkHostServer::bind(&socket).await.unwrap();
         let serving = tokio::spawn(async move {
-            server.serve(&Hello::ours()).await;
+            server.serve(hello_of_ours(), served()).await;
         });
         {
             let mut stream = tokio::net::UnixStream::connect(&socket).await.unwrap();
@@ -429,7 +419,7 @@ mod tests {
         let socket = dir.path().join("h.sock");
         let server = WorkHostServer::bind(&socket).await.unwrap();
         let serving = tokio::spawn(async move {
-            server.serve(&Hello::ours()).await;
+            server.serve(hello_of_ours(), served()).await;
         });
         ask_stop(&socket).await.unwrap();
         tokio::time::timeout(Duration::from_secs(5), serving)
@@ -454,5 +444,174 @@ mod tests {
         drop(std::os::unix::net::UnixListener::bind(&socket).unwrap());
         assert!(socket.exists());
         assert!(WorkHostServer::bind(&socket).await.is_ok());
+    }
+
+    /// One connected to a work host, as a window or a command is.
+    struct Peer {
+        lines: tokio::io::Lines<BufReader<tokio::net::unix::OwnedReadHalf>>,
+        write: tokio::net::unix::OwnedWriteHalf,
+    }
+
+    impl Peer {
+        /// Connected to the host at `socket`, its hello read.
+        async fn to(socket: &Path) -> Self {
+            let stream = tokio::net::UnixStream::connect(socket).await.unwrap();
+            let (read, write) = stream.into_split();
+            let mut peer = Self {
+                lines: BufReader::new(read).lines(),
+                write,
+            };
+            let hello: Hello = decode(peer.line().await).unwrap();
+            assert_eq!(hello, hello_of_ours());
+            peer
+        }
+
+        async fn line(&mut self) -> String {
+            tokio::time::timeout(Duration::from_secs(5), self.lines.next_line())
+                .await
+                .expect("the host said nothing")
+                .unwrap()
+                .expect("the host hung up")
+        }
+
+        async fn ask(&mut self, request: &Request) {
+            self.write
+                .write_all(encode(request).as_bytes())
+                .await
+                .unwrap();
+        }
+
+        async fn told(&mut self) -> Event {
+            decode(self.line().await).unwrap()
+        }
+    }
+
+    fn greeting() -> Request {
+        Request::Hello {
+            versions: SPOKEN.to_vec(),
+        }
+    }
+
+    /// A work host serving `served` at a socket of its own.
+    async fn serving(served: Served) -> (tempfile::TempDir, PathBuf) {
+        let dir = short_dir();
+        let socket = dir.path().join("h.sock");
+        let server = WorkHostServer::bind(&socket).await.unwrap();
+        tokio::spawn(async move { server.serve(hello_of_ours(), served).await });
+        (dir, socket)
+    }
+
+    fn composed(asked: u64) -> Vec<Change> {
+        vec![Change::Prompt(PromptChange::Composed {
+            composed: adroit_protocol::Composed {
+                asked,
+                ..Default::default()
+            },
+        })]
+    }
+
+    #[tokio::test]
+    async fn a_window_is_welcomed_with_the_work_and_then_told_each_change_in_order() {
+        let served = served();
+        let watched = served.watched();
+        let (_dir, socket) = serving(served).await;
+        let mut window = Peer::to(&socket).await;
+        window.ask(&greeting()).await;
+        assert_eq!(
+            window.told().await,
+            Event::Welcome {
+                version: *SPOKEN.iter().max().unwrap()
+            }
+        );
+        assert_eq!(window.told().await, Event::Snapshot(Box::default()));
+        watched.record(composed(1));
+        watched.record(composed(2));
+        for seq in 1..=2 {
+            assert_eq!(
+                window.told().await,
+                Event::Patch(WorkPatch {
+                    seq: Seq(seq),
+                    changes: composed(seq),
+                })
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn the_host_answers_a_window_on_its_connection_in_the_order_asked() {
+        let (_dir, socket) = serving(served()).await;
+        let mut window = Peer::to(&socket).await;
+        window.ask(&greeting()).await;
+        window.ask(&Request::Snapshot).await;
+        let mut got = Vec::new();
+        for _ in 0..3 {
+            got.push(window.told().await);
+        }
+        assert_eq!(
+            got,
+            vec![
+                Event::Welcome {
+                    version: *SPOKEN.iter().max().unwrap()
+                },
+                Event::Snapshot(Box::default()),
+                Event::Snapshot(Box::default()),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_closed_window_does_not_stop_the_host() {
+        let served = served();
+        let watched = served.watched();
+        let (_dir, socket) = serving(served).await;
+        {
+            let mut gone = Peer::to(&socket).await;
+            gone.ask(&greeting()).await;
+            gone.told().await;
+        }
+        watched.record(composed(1));
+        let mut window = Peer::to(&socket).await;
+        window.ask(&Request::Snapshot).await;
+        assert!(matches!(window.told().await, Event::Snapshot(s) if s.seq == Seq(1)));
+    }
+
+    #[tokio::test]
+    async fn an_ask_is_answered_by_its_number_to_the_one_that_asked_alone() {
+        let served = Served::new(crate::work::Host::default(), |_| {
+            std::sync::Arc::new(|ask| {
+                Box::pin(async move {
+                    match ask {
+                        Ask::KeepImage { mime, .. } => Answer::Failed { text: mime },
+                        _ => Answer::Done,
+                    }
+                })
+            })
+        });
+        let (_dir, socket) = serving(served).await;
+        let mut other = Peer::to(&socket).await;
+        other.ask(&greeting()).await;
+        other.told().await;
+        other.told().await;
+        let mut asker = Peer::to(&socket).await;
+        asker
+            .ask(&Request::Ask {
+                asked: 7,
+                ask: Box::new(Ask::KeepImage {
+                    mime: "image/tiff".into(),
+                    data: String::new(),
+                }),
+            })
+            .await;
+        assert_eq!(
+            asker.told().await,
+            Event::Answer {
+                asked: 7,
+                answer: Answer::Failed {
+                    text: "image/tiff".into()
+                },
+            }
+        );
+        other.ask(&Request::Snapshot).await;
+        assert!(matches!(other.told().await, Event::Snapshot(_)));
     }
 }
