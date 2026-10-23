@@ -5,6 +5,9 @@ its own, and a file you write changes, adds to or takes away from them. The
 prompt's keys are Neovim's and are set up in Neovim; the dialog that asks
 before taking over a session always answers to `y`, `Enter`, `n` and `Escape`,
 and attachment selection and the picker have their own keys ([workspaces](workspaces.md#going-to-a-session-or-starting-one)).
+`F1` shows every binding in force wherever the keys are, as does `?` where it
+types nothing: in the tree, the details panel, a viewer and a session's live
+console.
 
 ## In the menu bar
 
@@ -221,6 +224,7 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 | `refresh` | read the sessions, and what git says of where they run, again now |
 | `tree.toggle`, `details.toggle` | show or hide the tree, the details panel |
 | `settings.open` | open the Settings window |
+| `keys.help` | show every binding in force, area by area, the areas the keys are in first, each with what its action does; `Escape`, `q` or the key that showed it closes it, and no other key acts behind it |
 | `daemon.restart` | restart the sessions' daemon after asking, ending every session it holds ([details](sessions.md#the-daemon)) |
 | `zoom.in`, `zoom.out`, `zoom.reset` | draw the window larger or smaller a step, or at the zoom the settings give |
 | `filter` | narrow the tree to the sessions, shells, workspaces and worktrees whose names hold what is typed next; `Enter` keeps it, `Escape` clears it |
@@ -314,6 +318,7 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 "Mod+0" = "zoom.reset"
 "Mod+b" = "tree.toggle"
 "Mod+d" = "details.toggle"
+"F1" = "keys.help"
 
 [draft]
 "Ctrl+g a" = "session.agent_next"
@@ -352,6 +357,7 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 "!" = "worktrees.toggle"
 "] w" = "waiting.next"
 "[ w" = "waiting.prev"
+"?" = "keys.help"
 
 [details]
 "j" = "cursor.down"
@@ -395,6 +401,7 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 "O" = "prompt.write"
 "T" = "session.take_over"
 "X" = "session.stop"
+"?" = "keys.help"
 
 [prompt]
 "Mod+i" = "prompt.images"
@@ -404,6 +411,7 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 "Ctrl+Enter" = "prompt.send"
 "Ctrl+p" = "prompt.history_prev"
 "Ctrl+n" = "prompt.history_next"
+"F1" = "keys.help"
 
 [viewer]
 "j" = "scroll.down"
@@ -425,5 +433,6 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 "l" = "viewer.forward"
 "y" = "viewer.copy_path"
 "q" = "window.quit"
+"?" = "keys.help"
 
 ```

@@ -98,6 +98,7 @@ pub enum Action {
     HistoryNext,
     SettingsOpen,
     DaemonRestart,
+    KeysHelp,
     ZoomIn,
     ZoomOut,
     ZoomReset,
@@ -149,6 +150,9 @@ pub struct ActionSpec {
     /// What a right-click menu calls it, unless it says what it does there
     /// in words of its own.
     pub row: Option<Row>,
+    /// What the keys help calls it, where neither menu does, or where what
+    /// they call it says too little among the keys.
+    pub says: Option<&'static str>,
     pub icon: Option<Icon>,
 }
 
@@ -159,6 +163,7 @@ impl ActionSpec {
             name,
             bar: None,
             row: None,
+            says: None,
             icon: None,
         }
     }
@@ -171,6 +176,11 @@ impl ActionSpec {
 
     const fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
+        self
+    }
+
+    const fn says(mut self, label: &'static str) -> Self {
+        self.says = Some(label);
         self
     }
 
@@ -222,14 +232,16 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::TabNext, "tab.next").bar("Next Tab", Icon::ChevronRight),
     S::new(A::TabPrev, "tab.prev").bar("Previous Tab", Icon::ChevronLeft),
     S::new(A::TabLast, "tab.last").bar("Tab Before", Icon::ArrowBack),
-    S::new(A::CursorDown, "cursor.down"),
-    S::new(A::CursorUp, "cursor.up"),
-    S::new(A::CursorFirst, "cursor.first"),
-    S::new(A::CursorLast, "cursor.last"),
+    S::new(A::CursorDown, "cursor.down").says("Select the next row"),
+    S::new(A::CursorUp, "cursor.up").says("Select the previous row"),
+    S::new(A::CursorFirst, "cursor.first").says("Select the first row"),
+    S::new(A::CursorLast, "cursor.last").says("Select the last row"),
     S::new(A::CursorGo, "cursor.go")
+        .says("Go to it where it is shown")
         .icon(Icon::ArrowRight)
         .row("Open", Go),
     S::new(A::CursorOpen, "cursor.open")
+        .says("Open it here")
         .icon(Icon::ArrowRight)
         .row("Open", Go),
     S::new(A::CursorSplit, "cursor.split")
@@ -244,7 +256,7 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::CursorShow, "cursor.show")
         .icon(Icon::Eye)
         .row("Show", Go),
-    S::new(A::CursorFold, "cursor.fold"),
+    S::new(A::CursorFold, "cursor.fold").says("Fold, or go back"),
     S::new(A::CursorClose, "cursor.close")
         .icon(Icon::SquareMinus)
         .row("Close its windows", End),
@@ -295,41 +307,58 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::DetailsChanges, "details.changes").bar("Changes", Icon::FileDiff),
     S::new(A::DetailsLog, "details.log").bar("Log", Icon::GitCommit),
     S::new(A::WorktreesToggle, "worktrees.toggle").bar("Toggle All Worktrees", Icon::ListTree),
-    S::new(A::ScrollDown, "scroll.down"),
-    S::new(A::ScrollUp, "scroll.up"),
-    S::new(A::ScrollHalfDown, "scroll.half_down"),
-    S::new(A::ScrollHalfUp, "scroll.half_up"),
-    S::new(A::ScrollTop, "scroll.top"),
-    S::new(A::ScrollBottom, "scroll.bottom"),
-    S::new(A::ConsoleSendNext, "console.send_next"),
-    S::new(A::ConsolePassEveryKey, "console.pass_every_key"),
+    S::new(A::ScrollDown, "scroll.down").says("Scroll down"),
+    S::new(A::ScrollUp, "scroll.up").says("Scroll up"),
+    S::new(A::ScrollHalfDown, "scroll.half_down").says("Scroll down half a page"),
+    S::new(A::ScrollHalfUp, "scroll.half_up").says("Scroll up half a page"),
+    S::new(A::ScrollTop, "scroll.top").says("Scroll to the top"),
+    S::new(A::ScrollBottom, "scroll.bottom").says("Scroll to the bottom"),
+    S::new(A::ConsoleSendNext, "console.send_next").says("Send the next key as it is"),
+    S::new(A::ConsolePassEveryKey, "console.pass_every_key").says("Pass every key on"),
     S::new(A::PromptFocus, "prompt.focus").bar("Prompt", Icon::CursorText),
-    S::new(A::PromptWrite, "prompt.write"),
+    S::new(A::PromptWrite, "prompt.write").says("Write in the prompt"),
     S::new(A::PromptSend, "prompt.send").bar("Send Prompt", Icon::Send),
     S::new(A::PromptImages, "prompt.images").bar("Select Attached Image", Icon::Photo),
-    S::new(A::HistoryPrev, "prompt.history_prev"),
-    S::new(A::HistoryNext, "prompt.history_next"),
+    S::new(A::HistoryPrev, "prompt.history_prev").says("Previous prompt"),
+    S::new(A::HistoryNext, "prompt.history_next").says("Next prompt"),
     S::new(A::SettingsOpen, "settings.open").bar("Settings…", Icon::Settings),
     S::new(A::DaemonRestart, "daemon.restart").bar("Restart Session Daemon…", Icon::ServerBolt),
+    S::new(A::KeysHelp, "keys.help").bar("Keyboard Shortcuts", Icon::Keyboard),
     S::new(A::ZoomIn, "zoom.in").bar("Zoom In", Icon::ZoomIn),
     S::new(A::ZoomOut, "zoom.out").bar("Zoom Out", Icon::ZoomOut),
     S::new(A::ZoomReset, "zoom.reset").bar("Actual Size", Icon::ZoomReset),
     S::new(A::TreeToggle, "tree.toggle").bar("Toggle Tree", Icon::LayoutSidebar),
     S::new(A::DetailsToggle, "details.toggle").bar("Toggle Details", Icon::LayoutSidebarRight),
-    S::new(A::ViewerZoomIn, "viewer.zoom_in"),
-    S::new(A::ViewerZoomOut, "viewer.zoom_out"),
-    S::new(A::ViewerZoomFit, "viewer.zoom_fit"),
-    S::new(A::ViewerPageNext, "viewer.page_next"),
-    S::new(A::ViewerPagePrev, "viewer.page_prev"),
-    S::new(A::ViewerPlay, "viewer.play"),
-    S::new(A::ViewerBack, "viewer.back"),
-    S::new(A::ViewerForward, "viewer.forward"),
-    S::new(A::ViewerCopyPath, "viewer.copy_path"),
-    S::new(A::ConsoleSend(None), "console.send"),
-    S::new(A::TabGo(1), "tab.go"),
+    S::new(A::ViewerZoomIn, "viewer.zoom_in").says("Zoom in"),
+    S::new(A::ViewerZoomOut, "viewer.zoom_out").says("Zoom out"),
+    S::new(A::ViewerZoomFit, "viewer.zoom_fit").says("Fit to the window"),
+    S::new(A::ViewerPageNext, "viewer.page_next").says("Next page"),
+    S::new(A::ViewerPagePrev, "viewer.page_prev").says("Previous page"),
+    S::new(A::ViewerPlay, "viewer.play").says("Play or pause"),
+    S::new(A::ViewerBack, "viewer.back").says("Back"),
+    S::new(A::ViewerForward, "viewer.forward").says("Forward"),
+    S::new(A::ViewerCopyPath, "viewer.copy_path").says("Copy the path"),
+    S::new(A::ConsoleSend(None), "console.send").says("Send the key to the console"),
+    S::new(A::TabGo(1), "tab.go").says("Go to tab"),
 ];
 
 impl Action {
+    /// What the action does, in a few words: what the keys help lists it
+    /// as. Empty for [`Action::None`].
+    pub fn label(&self) -> String {
+        let spec = self.spec();
+        let label = spec
+            .says
+            .or(spec.bar)
+            .or(spec.row.map(|r| r.label))
+            .unwrap_or_default();
+        match self {
+            Action::ConsoleSend(Some(c)) => format!("Send {c} to the console"),
+            Action::TabGo(n) => format!("{label} {n}"),
+            _ => label.to_string(),
+        }
+    }
+
     /// The row of [`ACTIONS`] that describes this action.
     pub fn spec(&self) -> &'static ActionSpec {
         ACTIONS
@@ -499,6 +528,7 @@ mod tests {
             HistoryNext,
             SettingsOpen,
             DaemonRestart,
+            KeysHelp,
             ZoomIn,
             ZoomOut,
             ZoomReset,
@@ -554,6 +584,27 @@ mod tests {
             let shown = spec.bar.is_some() || spec.row.is_some();
             assert_eq!(spec.icon.is_some(), shown, "{}", spec.name);
         }
+    }
+
+    #[test]
+    fn every_action_but_none_says_what_it_does() {
+        for action in every_action() {
+            let said = action.label();
+            assert_eq!(said.is_empty(), action == Action::None, "{action:?}");
+        }
+    }
+
+    #[test]
+    fn an_action_on_the_menu_bar_says_what_the_menu_bar_calls_it() {
+        assert_eq!(Action::SettingsOpen.label(), "Settings…");
+        assert_eq!(Action::KeysHelp.label(), "Keyboard Shortcuts");
+    }
+
+    #[test]
+    fn an_action_with_an_argument_says_the_argument() {
+        let send: Action = "console.send Escape".parse().unwrap();
+        assert!(send.label().contains("Escape"), "{}", send.label());
+        assert!(Action::TabGo(3).label().contains('3'));
     }
 
     #[test]

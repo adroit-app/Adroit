@@ -30,6 +30,8 @@ mod image_window;
 pub mod keymap;
 mod keys;
 mod keys_edit;
+mod keys_help;
+mod keys_help_view;
 mod keys_pane;
 mod layout;
 pub mod menu;

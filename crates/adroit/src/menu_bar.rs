@@ -185,6 +185,10 @@ pub fn sections() -> Vec<Section> {
                 Sys(System::BringAllToFront),
             ],
         },
+        Section {
+            title: "Help",
+            entries: vec![Run(Action::KeysHelp)],
+        },
     ]
 }
 
@@ -293,6 +297,10 @@ pub fn build() -> Menu {
         #[cfg(target_os = "macos")]
         if section.title == "Window" {
             menu.set_as_windows_menu_for_nsapp();
+        }
+        #[cfg(target_os = "macos")]
+        if section.title == "Help" {
+            menu.set_as_help_menu_for_nsapp();
         }
         let _ = bar.append(&menu);
     }

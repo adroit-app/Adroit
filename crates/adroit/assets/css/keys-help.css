@@ -1,0 +1,16 @@
+.dialog.keys-help-dialog { width: min(1120px, calc(100% - 48px)); max-width: none; height: min(720px, calc(100% - 48px)); padding: 16px 12px 12px; gap: 8px; line-height: normal; }
+.dialog.keys-help-dialog .dialog-title { padding: 0 8px; }
+.keys-help-groups { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px; columns: 320px; column-gap: 24px; column-rule: 1px dashed var(--line-strong); }
+.keys-help-group { break-inside: avoid-column; padding: 4px 0 14px; }
+.keys-help-head { display: flex; align-items: center; gap: 8px; height: 24px; }
+.keys-help-title { color: var(--text); font-weight: 500; }
+.keys-help-group.here .keys-help-title { color: var(--wait); }
+.keys-help-here { font-size: 10.5px; color: var(--wait); background: rgba(232,180,94,0.16); border-radius: 4px; padding: 1px 6px; }
+.keys-help-hint { color: var(--text-3); font-size: 11.5px; margin-bottom: 4px; }
+.keys-help-row { display: flex; align-items: center; gap: 8px; min-height: 26px; padding: 0 6px; border-radius: 6px; font-size: 12.5px; }
+.keys-help-row:hover { background: var(--select); }
+.keys-help-icon { flex: none; display: inline-flex; width: 14px; color: var(--text-3); }
+.keys-help-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.keys-help-keys { flex: none; display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 55%; }
+.keys-help-seq { display: inline-flex; gap: 3px; }
+.keys-help-footer { display: flex; gap: 14px; padding: 6px 8px 0; border-top: 1px solid var(--line); color: var(--text-3); font-size: 11.5px; }

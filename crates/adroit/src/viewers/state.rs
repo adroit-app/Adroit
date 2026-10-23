@@ -275,7 +275,7 @@ mod tests {
     use crate::keymap::{Context, Keymap};
 
     #[test]
-    fn every_key_the_viewer_area_binds_runs_a_viewer_action() {
+    fn every_key_the_viewer_area_binds_runs_a_viewer_action_or_shows_the_keys() {
         let map = Keymap::defaults();
         let bound: Vec<(&str, String, String)> = map
             .listed()
@@ -285,6 +285,9 @@ mod tests {
         assert!(!bound.is_empty());
         for (_, keys, name) in bound {
             let action: Action = name.parse().unwrap();
+            if action == Action::KeysHelp {
+                continue;
+            }
             assert!(ViewerAction::of(&action).is_some(), "{keys} = {name}");
         }
         assert_eq!(ViewerAction::of(&Action::Refresh), None);

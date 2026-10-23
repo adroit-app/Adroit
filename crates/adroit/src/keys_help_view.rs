@@ -1,0 +1,64 @@
+//! The keys help drawn over the window. It only draws: the window feeds the
+//! keys into [`crate::keys_help::press`].
+
+use dioxus::document;
+use dioxus::prelude::*;
+
+use crate::components::{Dialog, KeyHint, Keys};
+use crate::icons::{Icon, IconView};
+use crate::keys_help::Group;
+
+/// How far a line of [`crate::keys_help::Press::Scroll`] scrolls, in pixels.
+const LINE: i32 = 40;
+
+/// Scroll the keys help shown by `lines`, down when positive.
+pub fn scroll(lines: i32) {
+    let by = lines * LINE;
+    document::eval(&format!(
+        "document.querySelector('.keys-help-groups')?.scrollBy({{ top: {by}, behavior: 'smooth' }});"
+    ));
+}
+
+#[component]
+pub fn KeysHelpView(groups: Vec<Group>, onclose: EventHandler<()>) -> Element {
+    rsx! {
+        div { onclick: move |_| onclose.call(()),
+            Dialog { kind: "keys-help-dialog", icon: Icon::Keyboard, title: "Keyboard Shortcuts",
+                div { class: "keys-help-groups",
+                    for group in groups {
+                        section {
+                            key: "{group.context.name()}",
+                            class: if group.here { "keys-help-group here" } else { "keys-help-group" },
+                            div { class: "keys-help-head",
+                                span { class: "keys-help-title", "{group.context.title()}" }
+                                if group.here {
+                                    span { class: "keys-help-here", "Here" }
+                                }
+                            }
+                            div { class: "keys-help-hint", "{group.context.hint()}" }
+                            for (i, row) in group.rows.into_iter().enumerate() {
+                                div { key: "{i}", class: "keys-help-row",
+                                    span { class: "keys-help-icon",
+                                        if let Some(icon) = row.icon {
+                                            IconView { icon, size: 14 }
+                                        }
+                                    }
+                                    span { class: "keys-help-label", "{row.label}" }
+                                    span { class: "keys-help-keys",
+                                        for keys in row.keys {
+                                            span { key: "{keys}", class: "keys-help-seq", Keys { keys: keys.clone() } }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                div { class: "keys-help-footer",
+                    KeyHint { keys: "j/k", does: "scroll" }
+                    KeyHint { keys: "Esc", does: "close" }
+                }
+            }
+        }
+    }
+}

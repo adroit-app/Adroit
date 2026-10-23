@@ -72,6 +72,7 @@
 "Mod+0" = "zoom.reset"
 "Mod+b" = "tree.toggle"
 "Mod+d" = "details.toggle"
+"F1" = "keys.help"
 
 [draft]
 "Ctrl+g a" = "session.agent_next"
@@ -110,6 +111,7 @@
 "!" = "worktrees.toggle"
 "] w" = "waiting.next"
 "[ w" = "waiting.prev"
+"?" = "keys.help"
 
 [details]
 "j" = "cursor.down"
@@ -153,6 +155,7 @@
 "O" = "prompt.write"
 "T" = "session.take_over"
 "X" = "session.stop"
+"?" = "keys.help"
 
 [prompt]
 "Mod+i" = "prompt.images"
@@ -162,6 +165,7 @@
 "Ctrl+Enter" = "prompt.send"
 "Ctrl+p" = "prompt.history_prev"
 "Ctrl+n" = "prompt.history_next"
+"F1" = "keys.help"
 
 [viewer]
 "j" = "scroll.down"
@@ -183,3 +187,4 @@
 "l" = "viewer.forward"
 "y" = "viewer.copy_path"
 "q" = "window.quit"
+"?" = "keys.help"

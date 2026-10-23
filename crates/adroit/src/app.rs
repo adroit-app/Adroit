@@ -42,6 +42,8 @@ use crate::icons::{Icon, IconView};
 use crate::image_window;
 use crate::keymap::{Chord, Context, Keymap, MENU_KEYS, Step};
 use crate::keys;
+use crate::keys_help::{self, Press};
+use crate::keys_help_view::{self, KeysHelpView};
 use crate::layout::{self, Layout, Side};
 use crate::menu::{self, Target};
 use crate::menu_bar;
@@ -1704,6 +1706,8 @@ fn App() -> Element {
     let mut opened_groups = use_signal(HashSet::<Group>::new);
     // The interactive session the dialog asks to take over.
     let mut confirm = use_signal(|| None::<Ask>);
+    // The keys help, with the areas the keys were in when it was opened.
+    let mut keys_help = use_signal(|| None::<Vec<Context>>);
     // How the daemon stands against this build, and whether the banner
     // offering to restart an old one was put away.
     let mut daemon_standing = use_signal(|| Standing::Absent);
@@ -4181,7 +4185,11 @@ fn App() -> Element {
     // Where text typed or pasted now goes. A dialog open types in its own
     // field, or takes no text.
     let text_goes = move || {
-        if picking.peek().is_some() || renaming.peek().is_some() || confirm.peek().is_some() {
+        if picking.peek().is_some()
+            || renaming.peek().is_some()
+            || confirm.peek().is_some()
+            || keys_help.peek().is_some()
+        {
             return Typed::Nowhere;
         }
         typed_into(*focus.peek(), shows_session(), *direct.peek(), waits())
@@ -4352,6 +4360,18 @@ fn App() -> Element {
             }
             match action {
                 Action::None => {}
+                Action::KeysHelp => {
+                    let here = match area {
+                        Area::Sidebar => vec![Context::Tree, Context::Global],
+                        Area::Details => vec![Context::Details, Context::Tree, Context::Global],
+                        Area::Console if matches!(thing, Some(Tab::Viewer(_))) => {
+                            vec![Context::Viewer, Context::Global]
+                        }
+                        Area::Console => vec![Context::Console, Context::Global],
+                        Area::Prompt => vec![Context::Prompt, Context::Global],
+                    };
+                    keys_help.set(Some(here));
+                }
                 Action::ViewerZoomIn
                 | Action::ViewerZoomOut
                 | Action::ViewerZoomFit
@@ -5076,6 +5096,7 @@ fn App() -> Element {
             if action != Action::SettingsOpen {
                 desktop.window.set_focus();
             }
+            keys_help.set(None);
             menu.set(None);
             pending.set(Vec::new());
             perform(action, None);
@@ -5168,6 +5189,16 @@ fn App() -> Element {
             if menu.peek().is_some() {
                 keys::trace(|| "dropped: a menu was open");
                 menu.set(None);
+                return;
+            }
+            // The keys help holds the keys while it is shown.
+            let shown = keys_help.peek().clone();
+            if let Some(here) = shown {
+                match keys_help::press(&keymap.peek(), &here, &key) {
+                    Press::Close => keys_help.set(None),
+                    Press::Scroll(lines) => keys_help_view::scroll(lines),
+                    Press::Nothing => {}
+                }
                 return;
             }
             // The picker holds the keys while it is open.
@@ -5394,6 +5425,10 @@ fn App() -> Element {
                     return;
                 }
             };
+            if action == Action::KeysHelp {
+                keys_help.set(Some(contexts));
+                return;
+            }
             perform(action, Some(key));
         }
     };
@@ -5779,6 +5814,7 @@ fn App() -> Element {
         // A dialog's text is typed in its own field.
         _ if picking.read().is_some() || renaming().is_some() => false,
         _ if confirm().is_some() => false,
+        _ if keys_help().is_some() => false,
         Area::Console => passing || answering || !session_shown,
         Area::Prompt => {
             answering || (selected_image().is_none() && matches!(mode.0, "insert" | "cmd"))
@@ -7228,6 +7264,12 @@ fn App() -> Element {
                             }
                         }
                     }
+                }
+            }
+            if let Some(here) = keys_help() {
+                KeysHelpView {
+                    groups: keys_help::groups(&km, &here),
+                    onclose: move |_| keys_help.set(None),
                 }
             }
             if let Some(ask) = confirm() {
