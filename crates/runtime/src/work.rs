@@ -3,19 +3,23 @@
 
 use std::sync::{Arc, Mutex};
 
-use adroit_protocol::{Event, Request, SPOKEN, Seq, WorkSnapshot, agree};
+use adroit_protocol::{DetailsWork, Event, Request, SPOKEN, Seq, WorkSnapshot, agree};
 use tokio::sync::mpsc;
 
 /// Everything the host holds of the work.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Work {
     seq: Seq,
+    details: DetailsWork,
 }
 
 impl Work {
     /// The work as a window is first shown it.
     pub fn snapshot(&self) -> WorkSnapshot {
-        WorkSnapshot { seq: self.seq }
+        WorkSnapshot {
+            seq: self.seq,
+            details: self.details.clone(),
+        }
     }
 }
 
@@ -46,6 +50,7 @@ impl Host {
                 }],
             },
             Request::Snapshot => vec![Event::Snapshot(self.work.snapshot())],
+            Request::Watch(_) => Vec::new(),
         }
     }
 }
@@ -113,7 +118,10 @@ mod tests {
 
     #[test]
     fn the_host_answers_hello_by_the_versions_both_speak() {
-        let work = Work { seq: Seq(4) };
+        let work = Work {
+            seq: Seq(4),
+            ..Default::default()
+        };
         let cases = [
             (
                 hello(&[1]),
@@ -121,7 +129,10 @@ mod tests {
                     Event::Welcome {
                         version: Version(1),
                     },
-                    Event::Snapshot(WorkSnapshot { seq: Seq(4) }),
+                    Event::Snapshot(WorkSnapshot {
+                        seq: Seq(4),
+                        ..Default::default()
+                    }),
                 ],
             ),
             (
@@ -145,9 +156,27 @@ mod tests {
 
     #[test]
     fn a_window_that_lost_track_is_sent_the_whole_work() {
-        let (work, events) = scenario(Work { seq: Seq(9) }, [Request::Snapshot]);
-        assert_eq!(events, vec![Event::Snapshot(WorkSnapshot { seq: Seq(9) })]);
-        assert_eq!(work, Work { seq: Seq(9) });
+        let (work, events) = scenario(
+            Work {
+                seq: Seq(9),
+                ..Default::default()
+            },
+            [Request::Snapshot],
+        );
+        assert_eq!(
+            events,
+            vec![Event::Snapshot(WorkSnapshot {
+                seq: Seq(9),
+                ..Default::default()
+            })]
+        );
+        assert_eq!(
+            work,
+            Work {
+                seq: Seq(9),
+                ..Default::default()
+            }
+        );
     }
 
     #[test]

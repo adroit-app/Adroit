@@ -3,11 +3,13 @@
 //! side speaks, and how a message is written on the wire.
 
 mod codec;
+mod details;
 mod message;
 mod version;
 mod work;
 
 pub use codec::*;
+pub use details::*;
 pub use message::*;
 pub use version::*;
 pub use work::*;

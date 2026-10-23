@@ -73,13 +73,9 @@ fn patched(host: &mut Host, patch: WorkPatch) -> Vec<Effect> {
     vec![Effect::Host(Request::Snapshot)]
 }
 
-#[expect(
-    clippy::never_loop,
-    reason = "no change has a variant until the first fact of the work moves to the host"
-)]
 fn apply(work: &mut WorkSnapshot, patch: WorkPatch) {
     for change in patch.changes {
-        match change {}
+        work.apply(change);
     }
     work.seq = patch.seq;
 }
@@ -101,7 +97,10 @@ mod tests {
     }
 
     fn snapshot(seq: u64) -> Event {
-        Event::Snapshot(WorkSnapshot { seq: Seq(seq) })
+        Event::Snapshot(WorkSnapshot {
+            seq: Seq(seq),
+            ..Default::default()
+        })
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{Version, WorkPatch, WorkSnapshot};
+use crate::{Sight, Version, WorkPatch, WorkSnapshot};
 
 /// What the window asks of the work host.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -10,6 +10,8 @@ pub enum Request {
     Hello { versions: Vec<Version> },
     /// Send the whole work again, as after losing track of the patches.
     Snapshot,
+    /// Keep read what the window now shows, in place of what it showed.
+    Watch(Box<Sight>),
 }
 
 /// What the work host tells a window.

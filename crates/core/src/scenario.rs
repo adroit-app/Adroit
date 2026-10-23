@@ -99,9 +99,12 @@ mod tests {
                 Event::Welcome {
                     version: Version(1),
                 },
-                Event::Snapshot(WorkSnapshot { seq: Seq(2) }),
+                Event::Snapshot(WorkSnapshot {
+                    seq: Seq(2),
+                    ..Default::default()
+                }),
             ],
-            Request::Snapshot => vec![],
+            Request::Snapshot | Request::Watch(_) => vec![],
         })
         .send(Msg::Opened { zoom: 1.0 });
         assert_eq!(
@@ -110,7 +113,7 @@ mod tests {
                 version: Version(1)
             }
         );
-        assert_eq!(run.state().host.work, Some(WorkSnapshot { seq: Seq(2) }));
+        assert_eq!(run.state().host.work.as_ref().map(|w| w.seq), Some(Seq(2)));
         assert_eq!(run.state().chrome.zoom, 1.0);
     }
 }

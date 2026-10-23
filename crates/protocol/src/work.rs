@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::{DetailsChange, DetailsWork};
+
 /// Where an event stands in the order the host made its changes: each patch
 /// is one past the one before it, and a snapshot carries the number of the
 /// last change it holds.
@@ -20,6 +22,7 @@ impl Seq {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct WorkSnapshot {
     pub seq: Seq,
+    pub details: DetailsWork,
 }
 
 /// A change to the work since the patch numbered one less.
@@ -29,7 +32,18 @@ pub struct WorkPatch {
     pub changes: Vec<Change>,
 }
 
-/// One change a patch makes to the work. Each fact of the work the host
-/// takes over adds its variants here.
+/// One change a patch makes to the work, by the part of the work it is in.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum Change {}
+#[serde(rename_all = "snake_case")]
+pub enum Change {
+    Details(DetailsChange),
+}
+
+impl WorkSnapshot {
+    /// The work with `change` made.
+    pub fn apply(&mut self, change: Change) {
+        match change {
+            Change::Details(change) => self.details.apply(change),
+        }
+    }
+}

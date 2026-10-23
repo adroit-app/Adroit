@@ -23,7 +23,18 @@ pub fn decode<T: DeserializeOwned>(line: impl AsRef<str>) -> Result<T, DecodeErr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Event, Request, Seq, Version, WorkPatch, WorkSnapshot};
+    use std::collections::BTreeMap;
+
+    use adroit_model::Session;
+    use adroit_model::links::Links;
+    use adroit_model::repository::{Listing, Rev, Spot};
+    use adroit_model::usage::{Limit, Severity, Window};
+
+    use crate::{
+        Change, ConversationRead, DetailsChange, DetailsWork, Event, RepositoryRead,
+        RepositorySight, Request, Seq, SessionRead, Sight, SystemUsage, Version, WorkPatch,
+        WorkSnapshot,
+    };
 
     fn round_trips<T>(message: T)
     where
@@ -41,6 +52,21 @@ mod tests {
             versions: vec![Version(1), Version(2)],
         });
         round_trips(Request::Snapshot);
+        round_trips(Request::Watch(Box::default()));
+        round_trips(Request::Watch(Box::new(Sight {
+            session: Some(Session {
+                id: "s".into(),
+                cwd: "/w".into(),
+                ..Default::default()
+            }),
+            details: true,
+            overview: true,
+            repository: Some(RepositorySight {
+                worktree: "/w".into(),
+                spot: Spot::Files(Rev::Commit("abc".into())),
+            }),
+            usage: Some(adroit_model::Agent::Codex),
+        })));
     }
 
     #[test]
@@ -51,10 +77,67 @@ mod tests {
         round_trips(Event::Refused {
             versions: vec![Version(3)],
         });
-        round_trips(Event::Snapshot(WorkSnapshot { seq: Seq(7) }));
+        round_trips(Event::Snapshot(WorkSnapshot {
+            seq: Seq(7),
+            details: DetailsWork::default(),
+        }));
+        round_trips(Event::Snapshot(WorkSnapshot {
+            seq: Seq(7),
+            details: DetailsWork {
+                sessions: BTreeMap::from([(
+                    "s".to_string(),
+                    SessionRead {
+                        links: Some(Links::default()),
+                        thumbs: BTreeMap::from([("/w/a.png".to_string(), Some("data:".into()))]),
+                        ..Default::default()
+                    },
+                )]),
+                usage: BTreeMap::from([(adroit_model::Agent::Claude, Vec::new())]),
+                system: Some(SystemUsage::default()),
+                ..Default::default()
+            },
+        }));
         round_trips(Event::Patch(WorkPatch {
             seq: Seq(8),
             changes: vec![],
+        }));
+        let details = |change| Change::Details(change);
+        round_trips(Event::Patch(WorkPatch {
+            seq: Seq(9),
+            changes: vec![
+                details(DetailsChange::Conversation {
+                    session: "s".into(),
+                    conversation: ConversationRead::default(),
+                }),
+                details(DetailsChange::Repository {
+                    worktree: "/w".into(),
+                    read: RepositoryRead {
+                        spot: Spot::Log,
+                        listing: Err("not a repository".into()),
+                        revision: None,
+                    },
+                }),
+                details(DetailsChange::Repository {
+                    worktree: "/w".into(),
+                    read: RepositoryRead {
+                        spot: Spot::Log,
+                        listing: Ok(Listing::Log(Vec::new())),
+                        revision: None,
+                    },
+                }),
+                details(DetailsChange::Usage {
+                    agent: adroit_model::Agent::Claude,
+                    limits: vec![Limit {
+                        window: Window::WeekOf("Opus".into()),
+                        percent: 12.5,
+                        resets_ms: Some(1),
+                        severity: Severity::Warning,
+                    }],
+                }),
+                details(DetailsChange::SessionLeft {
+                    session: "s".into(),
+                }),
+            ],
         }));
     }
 
