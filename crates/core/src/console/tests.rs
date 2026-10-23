@@ -404,6 +404,58 @@ fn a_session_that_stops_taking_every_key_is_asked_for_its_input_a_moment_later()
 }
 
 #[test]
+fn keys_and_text_that_answer_a_waiting_session_leave_its_input_alone() {
+    let waiting = Session {
+        state: State::Waiting(Wait::Permission),
+        ..session("a")
+    };
+    let answering = |area| {
+        window()
+            .send_all([Msg::PromptRuns(true), Msg::EditorAnswers])
+            .event(relisted(2, vec![waiting.clone(), session("b")]))
+            .send(Msg::Focus(area))
+    };
+    for area in [Area::Console, Area::Prompt] {
+        let run = answering(area).send(key("Enter"));
+        assert_eq!(run.last_effects(), [Effect::PaneKey(Key::new("Enter"))]);
+        let run = run.send(Msg::Text {
+            text: "1".into(),
+            pasted: false,
+        });
+        assert!(matches!(run.last_effects(), [Effect::PaneText { .. }]));
+        assert!(run.state().console.stale.is_empty(), "{area:?}");
+        // Answered, the session goes back to work with nothing to take back.
+        let run = run
+            .event(relisted(3, vec![session("a"), session("b")]))
+            .send(Msg::AskInput);
+        assert!(run.last_effects().is_empty(), "{area:?}");
+    }
+}
+
+#[test]
+fn a_working_session_is_asked_for_its_input_only_once_it_stops_working() {
+    let working = Session {
+        state: State::Working,
+        ..session("a")
+    };
+    let run = asking().event(relisted(2, vec![working, session("b")]));
+    assert!(
+        !run.last_effects()
+            .contains(&Effect::AskInputAfter(PULL_AFTER_FREE))
+    );
+    let entered = run.send(Msg::Focus(Area::Prompt));
+    assert_eq!(entered.last_effects(), [Effect::ConsoleLive]);
+    assert!(entered.state().console.stale.contains(&tab("a")));
+    let idle = entered.event(relisted(3, vec![session("a"), session("b")]));
+    assert!(
+        idle.last_effects()
+            .contains(&Effect::AskInputAfter(PULL_AFTER_FREE))
+    );
+    let asked = idle.send(Msg::AskInput);
+    assert_eq!(asked.last_effects(), [Effect::AskInput(tab("a"))]);
+}
+
+#[test]
 fn a_session_no_longer_listed_has_no_input_kept() {
     let run = asking().send(Msg::InputMayHold(tab("b")));
     let run = run.event(relisted(2, vec![session("a")]));

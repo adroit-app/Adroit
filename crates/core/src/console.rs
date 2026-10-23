@@ -11,7 +11,7 @@ mod tests;
 use std::collections::HashSet;
 use std::time::Duration;
 
-use adroit_model::Key;
+use adroit_model::{Key, State};
 use adroit_protocol::Listed;
 
 use crate::actions::Action;
@@ -68,8 +68,9 @@ pub struct ConsoleView {
     read_for: Option<Option<Tab>>,
     /// The listing the sessions' inputs were last kept by.
     listed_seen: Option<Listed>,
-    /// Whether keys went to the session as they are when last looked at.
-    free: bool,
+    /// Whether the session shown was held from being asked for its input
+    /// when last looked at.
+    held: bool,
 }
 
 /// What the window knows of its programs when a key is pressed, which the
@@ -235,11 +236,11 @@ pub(crate) fn press(state: &mut ViewState, key: Key, probe: Probe) -> Vec<Effect
             if !seq.is_empty() {
                 return Vec::new();
             }
+            // Passed on as an answer, the key goes to the choice, not the
+            // input: taking the input back after it would send Ctrl-g to a
+            // session that has gone back to work.
             return match area {
-                _ if passing => {
-                    typed(state);
-                    vec![Effect::PaneKey(key)]
-                }
+                _ if passing => vec![Effect::PaneKey(key)],
                 Area::Prompt => vec![Effect::PromptKey(key)],
                 _ => Vec::new(),
             };
@@ -288,7 +289,9 @@ pub(crate) fn text(state: &mut ViewState, text: String, pasted: bool) -> Vec<Eff
             effects
         }
         Typed::Program => {
-            typed(state);
+            if state.console.direct {
+                typed(state);
+            }
             vec![Effect::PaneText { text, pasted }]
         }
         Typed::Nowhere => Vec::new(),
@@ -322,7 +325,8 @@ pub(crate) fn prompt_entered(state: &mut ViewState) -> Vec<Effect> {
 /// `Ctrl-g` opens its external editor, which is `adroit editor`. A session
 /// whose editor is not adroit's would open the user's own editor in the
 /// pane, which then waits on keys nobody sends; one waiting on an answer
-/// never calls it, so the request would lapse.
+/// never calls it, so the request would lapse. One at work is left to it:
+/// its input is asked for once it stops.
 pub(crate) fn ask_input(state: &ViewState) -> Vec<Effect> {
     let Some(tab @ Tab::Session(id)) = state.content.active() else {
         return Vec::new();
@@ -331,6 +335,7 @@ pub(crate) fn ask_input(state: &ViewState) -> Vec<Effect> {
     let hands_back =
         nav::find(tree::listed(state.host.work.as_ref()), id).is_some_and(|(_, s)| s.adroit_editor);
     if waits(state)
+        || works(state)
         || console.direct
         || !console.stale.contains(tab)
         || !console.prompt_runs
@@ -457,24 +462,35 @@ pub(crate) fn live_when_shown(state: &mut ViewState) {
 
 /// While every key went to the session, some may have landed in its input
 /// rather than a choice; they are taken back once the keys stop going
-/// there, after the session puts its input line back.
+/// there, after the session puts its input line back. A session at work is
+/// asked once it stops instead: its editor opened then would interrupt it.
 pub(crate) fn ask_when_freed(state: &mut ViewState) -> Vec<Effect> {
-    let free = answering_or_passing(state);
+    let held = held_from_input(state);
     let console = &mut state.console;
-    let was = std::mem::replace(&mut console.free, free);
-    if was && !free {
+    let was = std::mem::replace(&mut console.held, held);
+    if was && !held {
         return vec![Effect::AskInputAfter(PULL_AFTER_FREE)];
     }
     Vec::new()
 }
 
-/// Whether keys go to the session shown as they are: it waits on a choice,
-/// shows a dialog, or the console passes every key on.
-fn answering_or_passing(state: &ViewState) -> bool {
+/// Whether the session shown is not to be asked for its input now: keys go
+/// to it as they are, as it waits on a choice, shows a dialog or the console
+/// passes every key on, or it works.
+fn held_from_input(state: &ViewState) -> bool {
     let waiting = match state.content.active() {
         Some(Tab::Session(id)) => nav::find(tree::listed(state.host.work.as_ref()), id)
             .is_some_and(|(_, s)| s.state.takes_every_key()),
         _ => false,
     };
-    waiting || state.console.dialog || state.console.direct
+    waiting || state.console.dialog || state.console.direct || works(state)
+}
+
+/// Whether the session shown is at work.
+fn works(state: &ViewState) -> bool {
+    match state.content.active() {
+        Some(Tab::Session(id)) => nav::find(tree::listed(state.host.work.as_ref()), id)
+            .is_some_and(|(_, s)| s.state == State::Working),
+        _ => false,
+    }
 }
