@@ -51,7 +51,6 @@ use crate::view::Keys;
 use crate::viewers;
 use crate::window_socket::{Request, Response, ask, bind, serve, socket_path};
 use crate::work_host;
-use adroit_agents as agents;
 use adroit_core::console::reader::{self, Edge};
 use adroit_core::console::route::{self, Footing, passes_enter};
 use adroit_core::console::{Probe, ReaderAt};
@@ -1302,23 +1301,16 @@ fn App() -> Element {
     };
     use_context_provider(|| consoles);
 
-    // Claude Code reports no status for a dialog it opens itself, so the
-    // console's screen tells, looked at again whenever it is redrawn.
-    use_effect({
-        let active_pane = active_pane.clone();
-        move || {
-            let _ = frame();
-            let shows = match &*active.read() {
-                Some(tab @ Tab::Session(_)) => {
-                    let agent = app.agent_of(Some(tab));
-                    active_pane()
-                        .is_some_and(|p| agents::adapter(agent).dialog_open(&p.screen().text()))
-                }
-                _ => false,
-            };
-            if app.console.peek().dialog != shows {
-                app.dispatch(Msg::Dialog(shows));
-            }
+    // An agent reports no status for a dialog it opens itself, so the host
+    // looks at the screen of the session shown whenever it is redrawn.
+    use_effect(move || {
+        let _ = frame();
+        if let Some(tab @ Tab::Session(id)) = &*active.read() {
+            let agent = app.agent_of(Some(tab));
+            app.tell_host(adroit_protocol::Request::Redrawn {
+                session: id.clone(),
+                agent,
+            });
         }
     });
 

@@ -7,7 +7,6 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-adroit-agents.workspace = true
 adroit-core.workspace = true
 adroit-model.workspace = true
 adroit-nvim.workspace = true

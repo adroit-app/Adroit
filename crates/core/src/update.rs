@@ -129,7 +129,6 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         | Msg::ConsoleSendNext
         | Msg::ConsolePassEveryKey
         | Msg::ReadingStarted
-        | Msg::Dialog(_)
         | Msg::PromptRuns(_)
         | Msg::EditorAnswers
         | Msg::AskInput

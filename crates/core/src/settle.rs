@@ -22,6 +22,7 @@ const RULES: &[Rule] = &[
     content_spot,
     prompt_shown,
     console_area,
+    console_dialog,
     console_listed,
     console_live,
     console_freed,
@@ -111,6 +112,11 @@ fn prompt_shown(state: &mut ViewState, effects: &mut Vec<Effect>) {
 /// Keys meant for one area do not carry over to another.
 fn console_area(state: &mut ViewState, _: &mut Vec<Effect>) {
     console::keep_to_area(state);
+}
+
+/// The session shown has a dialog of its agent's own open as the host saw.
+fn console_dialog(state: &mut ViewState, _: &mut Vec<Effect>) {
+    console::follow_dialog(state);
 }
 
 /// A list of the sessions drops the inputs kept for those no longer listed.

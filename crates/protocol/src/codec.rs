@@ -37,11 +37,11 @@ mod tests {
 
     use crate::{
         AgentFacts, AgentsWork, Change, CommandsRead, CommandsSight, Composed, ConfigChange,
-        ConfigFile, ConfigWork, ConversationRead, DetailsChange, DetailsWork, Event, FileText,
-        HistoryRead, Listed, Offers, PastChange, PastSight, PastWork, PickChange, PickSight,
-        PickWork, PlaceChange, PlaceRead, PlaceWork, PromptChange, PromptWork, RepositoryRead,
-        RepositorySight, Request, Seq, SessionRead, Sight, SystemUsage, Told, TreeChange,
-        TreeSight, Typing, Version, WorkPatch, WorkSnapshot,
+        ConfigFile, ConfigWork, ConsoleChange, ConsoleWork, ConversationRead, DetailsChange,
+        DetailsWork, Dialog, Event, FileText, HistoryRead, Listed, Offers, PastChange, PastSight,
+        PastWork, PickChange, PickSight, PickWork, PlaceChange, PlaceRead, PlaceWork, PromptChange,
+        PromptWork, RepositoryRead, RepositorySight, Request, Seq, SessionRead, Sight, SystemUsage,
+        Told, TreeChange, TreeSight, Typing, Version, WorkPatch, WorkSnapshot,
     };
 
     fn round_trips<T>(message: T)
@@ -107,6 +107,10 @@ mod tests {
             project: "/w".into(),
         });
         round_trips(Request::CommandsWanted);
+        round_trips(Request::Redrawn {
+            session: "0a".into(),
+            agent: adroit_model::Agent::Codex,
+        });
         let session = Box::new(adroit_model::Session {
             id: "0a".into(),
             name: "fix".into(),
@@ -166,6 +170,7 @@ mod tests {
             place: Default::default(),
             prompt: Default::default(),
             config: Default::default(),
+            console: Default::default(),
         })));
         round_trips(Event::Snapshot(Box::new(WorkSnapshot {
             seq: Seq(7),
@@ -225,6 +230,12 @@ mod tests {
             config: ConfigWork {
                 settings: Some(ConfigFile::default()),
                 keys: None,
+            },
+            console: ConsoleWork {
+                dialog: Some(Dialog {
+                    session: "0a".into(),
+                    open: false,
+                }),
             },
         })));
         round_trips(Event::Patch(WorkPatch {
@@ -377,6 +388,12 @@ mod tests {
                         agent: adroit_model::Agent::Codex,
                         dir: "/w".into(),
                         commands: Vec::new(),
+                    },
+                }),
+                Change::Console(ConsoleChange::Dialog {
+                    dialog: Dialog {
+                        session: "0a".into(),
+                        open: true,
                     },
                 }),
                 Change::Prompt(PromptChange::Composed {

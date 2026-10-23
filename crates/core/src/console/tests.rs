@@ -61,6 +61,20 @@ fn relisted(seq: u64, sessions: Vec<Session>) -> Event {
     })
 }
 
+/// The host's `seq`th word: whether `session`'s screen shows a dialog.
+fn dialog(seq: u64, session: &str, open: bool) -> Event {
+    use adroit_protocol::{ConsoleChange, Dialog};
+    Event::Patch(WorkPatch {
+        seq: Seq(seq),
+        changes: vec![Change::Console(ConsoleChange::Dialog {
+            dialog: Dialog {
+                session: session.into(),
+                open,
+            },
+        })],
+    })
+}
+
 fn tab(id: &str) -> Tab {
     Tab::Session(id.into())
 }
@@ -310,7 +324,7 @@ fn a_session_is_asked_for_its_input_only_when_it_can_hand_it_back() {
     let cases: Vec<(&str, Vec<Msg>)> = vec![
         ("no Neovim", vec![Msg::PromptRuns(false)]),
         ("passing keys", vec![Msg::ConsolePassEveryKey]),
-        ("a dialog", vec![Msg::Dialog(true)]),
+        ("a dialog", vec![Msg::Host(dialog(2, "a", true))]),
     ];
     for (why, msgs) in cases {
         let run = asking().send_all(msgs).send(Msg::AskInput);
@@ -437,4 +451,17 @@ fn text_or_a_menu_bar_entry_breaks_off_a_sequence_begun() {
     assert!(typed.state().console.pending.is_empty());
     let menu = begun().send(Msg::SequenceDropped);
     assert!(menu.state().console.pending.is_empty());
+}
+
+#[test]
+fn a_dialog_is_open_while_the_host_saw_one_on_the_screen_of_the_session_shown() {
+    let run = window().event(dialog(2, "a", true));
+    assert!(run.state().console.dialog);
+    assert!(waits(run.state()));
+    let run = run.send(Msg::ShowSession("b".into()));
+    assert!(!run.state().console.dialog, "b's screen was not looked at");
+    let run = run.event(dialog(3, "b", false));
+    assert!(!run.state().console.dialog);
+    let run = run.event(dialog(4, "b", true));
+    assert!(run.state().console.dialog);
 }

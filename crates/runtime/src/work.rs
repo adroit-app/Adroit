@@ -8,9 +8,9 @@ use std::path::PathBuf;
 
 use adroit_model::{Agent, Session, TerminalSession};
 use adroit_protocol::{
-    AgentFacts, AgentsWork, Change, ConfigWork, DetailsChange, DetailsWork, Event, PastChange,
-    PastWork, PickChange, PickWork, PlaceChange, PlaceWork, PromptChange, PromptWork, Request,
-    SPOKEN, Seq, Sight, TreeChange, TreeWork, WorkPatch, WorkSnapshot, agree,
+    AgentFacts, AgentsWork, Change, ConfigWork, ConsoleWork, DetailsChange, DetailsWork, Event,
+    PastChange, PastWork, PickChange, PickWork, PlaceChange, PlaceWork, PromptChange, PromptWork,
+    Request, SPOKEN, Seq, Sight, TreeChange, TreeWork, WorkPatch, WorkSnapshot, agree,
 };
 use tokio::sync::{mpsc, watch};
 
@@ -26,6 +26,7 @@ pub struct Work {
     place: PlaceWork,
     prompt: PromptWork,
     config: ConfigWork,
+    console: ConsoleWork,
 }
 
 impl Work {
@@ -41,6 +42,7 @@ impl Work {
             place: self.place.clone(),
             prompt: self.prompt.clone(),
             config: self.config.clone(),
+            console: self.console.clone(),
         }
     }
 
@@ -72,6 +74,7 @@ impl Work {
             Change::Place(change) => self.place.apply(change),
             Change::Prompt(change) => self.prompt.apply(change),
             Change::Config(change) => self.config.apply(change),
+            Change::Console(change) => self.console.apply(change),
         }
     }
 }
@@ -124,6 +127,9 @@ pub struct Host {
     inputs: watch::Sender<BTreeMap<u128, u64>>,
     /// The history the window last asked for.
     history: watch::Sender<Option<HistoryAsk>>,
+    /// The session whose screen the window drew anew last, with the agent
+    /// its prompt goes to.
+    redrawn: watch::Sender<Option<(String, Agent)>>,
     /// What the window asked carried out in the background, and where it
     /// waits until the host's watchers start.
     jobs: mpsc::UnboundedSender<Request>,
@@ -147,6 +153,7 @@ impl Host {
             commands: watch::Sender::new(0),
             inputs: watch::Sender::new(BTreeMap::new()),
             history: watch::Sender::new(None),
+            redrawn: watch::Sender::new(None),
             jobs,
             queued: Some(queued),
         }
@@ -179,6 +186,11 @@ impl Host {
     /// When the user last typed into each session, as the window last said.
     pub fn inputs(&self) -> watch::Receiver<BTreeMap<u128, u64>> {
         self.inputs.subscribe()
+    }
+
+    /// The session whose screen the window drew anew, each time it does.
+    pub fn redrawn(&self) -> watch::Receiver<Option<(String, Agent)>> {
+        self.redrawn.subscribe()
     }
 
     /// The history the window asks for, each time it asks.
@@ -236,6 +248,10 @@ impl Host {
                 // Carried out by the host's watchers; the window that
                 // asked has gone when nothing takes it.
                 let _ = self.jobs.send(job);
+                Vec::new()
+            }
+            Request::Redrawn { session, agent } => {
+                self.redrawn.send_replace(Some((session, agent)));
                 Vec::new()
             }
             Request::CommandsWanted => {
@@ -439,6 +455,7 @@ fn in_sight(change: &Change, sight: &Sight) -> bool {
             sight.commands.as_ref().is_some_and(|s| read.is_for(s))
         }
         Change::Config(_) => true,
+        Change::Console(_) => true,
     }
 }
 
@@ -736,7 +753,8 @@ mod tests {
                     | Change::Pick(_)
                     | Change::Place(_)
                     | Change::Prompt(_)
-                    | Change::Config(_) => None,
+                    | Change::Config(_)
+                    | Change::Console(_) => None,
                 })
                 .collect(),
             _ => Vec::new(),
@@ -884,7 +902,8 @@ mod tests {
                 | Change::Pick(_)
                 | Change::Place(_)
                 | Change::Prompt(_)
-                | Change::Config(_) => None,
+                | Change::Config(_)
+                | Change::Console(_) => None,
             })
             .collect()
     }

@@ -20,7 +20,7 @@ use adroit_core::state::ViewState;
 use adroit_core::tree::TreeView;
 use adroit_core::update::step;
 use adroit_model::Key;
-use adroit_protocol::Event;
+use adroit_protocol::{Event, Request};
 use adroit_runtime::work::{Host, HostLink, Loopback, Work};
 use dioxus::core::{Runtime, current_scope_id};
 use dioxus::prelude::*;
@@ -146,6 +146,13 @@ impl AppCtx {
         set_changed(self.overlays, &view.overlays);
         set_changed(self.console, &view.console);
         set_changed(self.prompt, &view.prompt);
+    }
+
+    /// Tell the host what the view state does not hold, as it happens many
+    /// times a second: that the console's screen was drawn anew.
+    pub(crate) fn tell_host(&self, request: Request) {
+        let link = self.link.read().clone();
+        link.send(request);
     }
 
     /// Start keeping read, in the background, what the window shows and

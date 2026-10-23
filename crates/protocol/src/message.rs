@@ -53,6 +53,9 @@ pub enum Request {
         was: String,
         agent: Agent,
     },
+    /// The screen of the session `session`, whose prompt goes to `agent`,
+    /// was drawn anew in the window's console.
+    Redrawn { session: String, agent: Agent },
     /// Ask again for the commands `/` offers where the window has in sight,
     /// if those held are old, as a `/` typed asks.
     CommandsWanted,

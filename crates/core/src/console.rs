@@ -383,7 +383,6 @@ fn set(console: &mut ConsoleView, msg: Msg) -> Vec<Effect> {
         Msg::ConsoleSendNext => console.send_next = true,
         Msg::ConsolePassEveryKey => console.direct = true,
         Msg::ReadingStarted => console.reading = true,
-        Msg::Dialog(open) => console.dialog = open,
         Msg::PromptRuns(runs) => console.prompt_runs = runs,
         Msg::EditorAnswers => console.answers = true,
         Msg::InputAsked(tab) => return input_asked(console, tab),
@@ -427,6 +426,18 @@ pub(crate) fn keep_listed(state: &mut ViewState) {
     }
     console.stale = nav::followed(&now.sessions, &console.stale);
     console.listed_seen = Some(now.clone());
+}
+
+/// The session shown has a dialog of its agent's own open while the host
+/// last saw one on its screen.
+pub(crate) fn follow_dialog(state: &mut ViewState) {
+    let open = match (state.content.active(), state.host.work.as_ref()) {
+        (Some(Tab::Session(id)), Some(work)) => work.console.dialog_open(id),
+        _ => false,
+    };
+    if state.console.dialog != open {
+        state.console.dialog = open;
+    }
 }
 
 /// Another tab shown is shown live.

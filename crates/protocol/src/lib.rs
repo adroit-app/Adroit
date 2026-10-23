@@ -5,6 +5,7 @@
 mod agents;
 mod codec;
 mod config;
+mod console;
 mod details;
 mod message;
 mod past;
@@ -19,6 +20,7 @@ mod work;
 pub use agents::*;
 pub use codec::*;
 pub use config::*;
+pub use console::*;
 pub use details::*;
 pub use message::*;
 pub use past::*;

@@ -257,8 +257,6 @@ pub enum Msg {
     ConsolePassEveryKey,
     /// The reader shows the console and takes its keys.
     ReadingStarted,
-    /// The session shown shows a dialog of its agent's own, or none.
-    Dialog(bool),
     /// The prompt's Neovim runs, or quit.
     PromptRuns(bool),
     /// The window answers the editor's requests, and so is handed a

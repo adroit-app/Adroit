@@ -16,6 +16,7 @@ mod commands;
 mod config;
 mod context;
 mod conversation;
+mod dialog;
 mod entries;
 mod history;
 mod marks;
@@ -41,11 +42,12 @@ pub struct Watched {
     commands: watch::Receiver<u64>,
     inputs: watch::Receiver<BTreeMap<u128, u64>>,
     history: watch::Receiver<Option<HistoryAsk>>,
+    redrawn: watch::Receiver<Option<(String, adroit_model::Agent)>>,
 }
 
 impl Watched {
     pub fn new(host: Arc<Mutex<Host>>, events: mpsc::UnboundedSender<Event>) -> Self {
-        let (seen, again, relist, commands, inputs, history) = {
+        let (seen, again, relist, commands, inputs, history, redrawn) = {
             let host = lock(&host);
             (
                 host.seen(),
@@ -54,6 +56,7 @@ impl Watched {
                 host.commands_wanted(),
                 host.inputs(),
                 host.history(),
+                host.redrawn(),
             )
         };
         Self {
@@ -65,6 +68,7 @@ impl Watched {
             commands,
             inputs,
             history,
+            redrawn,
         }
     }
 
@@ -87,6 +91,17 @@ impl Watched {
     async fn asked_history(&mut self) -> Option<HistoryAsk> {
         self.history.changed().await.ok()?;
         self.history.borrow_and_update().clone()
+    }
+
+    /// The session whose screen the window drew anew next, with the agent
+    /// its prompt goes to; none once the host is gone.
+    async fn redrawn(&mut self) -> Option<(String, adroit_model::Agent)> {
+        loop {
+            self.redrawn.changed().await.ok()?;
+            if let Some(drawn) = self.redrawn.borrow_and_update().clone() {
+                return Some(drawn);
+            }
+        }
     }
 
     fn host(&self) -> MutexGuard<'_, Host> {
@@ -225,6 +240,7 @@ pub fn start(watched: Watched) {
     tokio::spawn(past::watch(watched.clone()));
     tokio::spawn(offers::watch(watched.clone()));
     tokio::spawn(commands::watch(watched.clone()));
+    tokio::spawn(dialog::watch(watched.clone()));
     tokio::spawn(place::watch(watched.clone()));
     tokio::spawn(history::watch(watched.clone()));
     tokio::spawn(entries::watch(watched.clone()));
