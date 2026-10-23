@@ -34,8 +34,9 @@ Run `just ci` before reporting a change as done. CI runs the same recipe.
 
 | Path | What lives there |
 | --- | --- |
-| `crates/adroit/` | the `adroit` application binary: the window's Dioxus UI, its menu bar and Settings window |
-| `crates/adroit/assets/` | the windows' stylesheets and page scripts, taken in with `include_str!` |
+| `crates/adroit/` | the `adroit` application binary: which of the window, the hosts and the commands to run |
+| `crates/window/` | the window: its Dioxus UI, menu bar and Settings window |
+| `crates/window/assets/` | the windows' stylesheets and page scripts, taken in with `include_str!` |
 | `crates/agents/` | each agent's adapter: how Claude Code and Codex are started, asked and read back |
 | `crates/agents/plugin/` | the Claude Code plugin every session adroit starts loads |
 | `crates/core/` | the window's state and the rules it changes by, with no UI and no programs run |
@@ -78,6 +79,7 @@ Scoped Commits:
 | Scope | Covers |
 | --- | --- |
 | `adroit` | `crates/adroit/` |
+| `window` | `crates/window/` |
 | `agents` | `crates/agents/` |
 | `core` | `crates/core/` |
 | `host` | `crates/host/` |

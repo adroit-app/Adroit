@@ -6,5 +6,5 @@ fn main() {
         eprintln!("usage: viewer <file>");
         std::process::exit(2);
     };
-    adroit::viewers::try_in_window(path.into());
+    adroit_window::viewers::try_in_window(path.into());
 }

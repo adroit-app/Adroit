@@ -12,6 +12,7 @@ use super::message::MessageView;
 use super::process::ProcessView;
 use super::subagent::SubagentView;
 use crate::bridge::AppCtx;
+use crate::components::{Fact, Facts, ListRow, Section};
 use crate::details::{
     Details, Entry, Listing, link_sections, opened_agent, opened_note, opened_process,
     overview_facts, overview_listing, shown_session, stats,

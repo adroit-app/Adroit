@@ -1,0 +1,35 @@
+[package]
+name = "adroit-window"
+description = "The adroit window: the Dioxus UI that shows the work its hosts hold, its menu bar and its Settings window"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+adroit-core.workspace = true
+adroit-model.workspace = true
+adroit-nvim.workspace = true
+adroit-protocol.workspace = true
+adroit-host.workspace = true
+adroit-term.workspace = true
+dioxus = { version = "0.7.10", features = ["desktop"] }
+image.workspace = true
+resvg.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+tokio.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2.workspace = true
+objc2-app-kit.workspace = true
+objc2-foundation.workspace = true
+objc2-pdf-kit.workspace = true
+
+[dev-dependencies]
+adroit-model = { workspace = true, features = ["testing"] }
+tempfile.workspace = true
+ttf-parser = "0.25.1"
+wuff = "0.2.9"

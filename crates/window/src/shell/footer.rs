@@ -9,6 +9,7 @@ use dioxus::prelude::*;
 
 use super::Ui;
 use super::status_bar::StatusBar;
+use crate::components::{Hint, KeyHint};
 use crate::input::{Answering, answering};
 use crate::view::Keys;
 

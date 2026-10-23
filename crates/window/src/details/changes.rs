@@ -8,6 +8,7 @@ use dioxus::prelude::*;
 
 use super::log::LogRows;
 use crate::bridge::AppCtx;
+use crate::components::{Breadcrumbs, ListRow};
 use crate::details::{Drill, Listing, View};
 use crate::icons::{Icon, IconView};
 

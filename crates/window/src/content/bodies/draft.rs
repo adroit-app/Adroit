@@ -9,6 +9,7 @@ use dioxus::prelude::*;
 
 use super::super::short;
 use crate::actions::Action;
+use crate::components::{Button, EmptyState, Keys, Legend, LegendRow};
 use crate::content::DraftOptions;
 use crate::icons::{Icon, IconView};
 use crate::keymap::{Context, Keymap};
