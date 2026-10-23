@@ -114,7 +114,7 @@ pub(crate) fn DetailsPanel(
             if details.drill.spot().is_some() {
                 Repository { drill: details.drill.clone(), view, worktree: shown_kind, back_keys }
             }
-            Usage { gauges, agent, system }
         }
+        Usage { gauges, agent, system }
     }
 }
