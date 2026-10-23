@@ -53,7 +53,8 @@ pub const DEFAULTS: &str = r#"
 "Mod+d" = "details.toggle"
 
 [draft]
-"Tab" = "session.agent_next"
+"Ctrl+g a" = "session.agent_next"
+"Ctrl+g A" = "session.agent_prev"
 
 [sidebar]
 "j" = "cursor.down"
@@ -125,11 +126,13 @@ pub const DEFAULTS: &str = r#"
 "A" = "prompt.write"
 "o" = "prompt.write"
 "O" = "prompt.write"
-"t" = "session.take_over"
+"T" = "session.take_over"
 "X" = "session.stop"
 
 [prompt]
 "Mod+i" = "prompt.images"
+"Tab" = "console.send"
+"Shift+Tab" = "console.send"
 "Ctrl+c" = "console.send Escape"
 "Ctrl+Enter" = "prompt.send"
 "Ctrl+p" = "prompt.history_prev"
@@ -500,6 +503,7 @@ actions! {
     SessionStop => "session.stop",
     SessionRename => "session.rename",
     SessionAgentNext => "session.agent_next",
+    SessionAgentPrev => "session.agent_prev",
     ShellOpen => "shell.open",
     TerminalStop => "terminal.stop",
     NeovimOpen => "neovim.open",
@@ -1413,44 +1417,54 @@ mod tests {
     }
 
     #[test]
-    fn tab_switches_the_draft_agent_and_otherwise_keeps_the_areas_own_binding() {
+    fn ctrl_g_a_switches_the_draft_agent_forward_and_ctrl_g_capital_a_back() {
         for area in [Context::Prompt, Context::Console, Context::Sidebar] {
-            let got = step(
-                &Keymap::defaults(),
-                &[Context::Draft, area, Context::Global],
-                &[],
-                "Tab",
-            );
-            assert_eq!(got, Step::Run(Action::SessionAgentNext), "{area:?}");
+            let draft = [Context::Draft, area, Context::Global];
             assert_eq!(
-                step(&Keymap::defaults(), &[area, Context::Global], &[], "Cmd+g"),
-                Step::Nothing,
+                step(&Keymap::defaults(), &draft, &["Ctrl+g"], "a"),
+                Step::Run(Action::SessionAgentNext),
+                "{area:?}"
+            );
+            assert_eq!(
+                step(&Keymap::defaults(), &draft, &["Ctrl+g"], "A"),
+                Step::Run(Action::SessionAgentPrev),
                 "{area:?}"
             );
         }
-        assert_eq!(
-            step(
-                &Keymap::defaults(),
-                &[Context::Console, Context::Global],
-                &[],
-                "Tab"
-            ),
-            Step::Run(Action::ConsoleSend(None))
-        );
-        assert_eq!(
-            step(&Keymap::defaults(), &[Context::Prompt], &[], "Tab"),
-            Step::Nothing
-        );
+        // Writing the draft's prompt, too.
         assert_eq!(
             step(
                 &Keymap::defaults(),
                 &[Context::Draft, Context::Prompt],
-                &[],
-                "Tab"
+                &["Ctrl+g"],
+                "a"
             ),
             Step::Run(Action::SessionAgentNext)
         );
-        assert_eq!("session.agent_next".parse(), Ok(Action::SessionAgentNext));
+        assert_eq!("session.agent_prev".parse(), Ok(Action::SessionAgentPrev));
+    }
+
+    #[test]
+    fn tab_and_shift_tab_in_the_prompt_go_to_the_agent_even_while_writing() {
+        for areas in [
+            &[Context::Prompt][..],
+            &[Context::Prompt, Context::Global],
+            &[Context::Draft, Context::Prompt],
+        ] {
+            for key in ["Tab", "Shift+Tab"] {
+                assert_eq!(
+                    step(&Keymap::defaults(), areas, &[], key),
+                    Step::Run(Action::ConsoleSend(None)),
+                    "{areas:?} {key}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn capital_t_in_the_console_takes_the_session_over() {
+        assert_eq!(console(&[], "T"), Step::Run(Action::SessionTakeOver));
+        assert_eq!(console(&[], "t"), Step::Nothing);
     }
 
     #[test]

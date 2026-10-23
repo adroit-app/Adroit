@@ -30,6 +30,12 @@ impl Agent {
         Self::ALL[(at + 1) % Self::ALL.len()]
     }
 
+    /// The agent before this one, going round to the last before the first.
+    pub fn prev(self) -> Self {
+        let at = Self::ALL.iter().position(|a| *a == self).unwrap_or(0);
+        Self::ALL[(at + Self::ALL.len() - 1) % Self::ALL.len()]
+    }
+
     pub fn parse(key: &str) -> Option<Self> {
         match key {
             "claude" => Some(Self::Claude),
@@ -237,6 +243,14 @@ mod tests {
         }
         assert_eq!(seen, Agent::ALL);
         assert_eq!(seen.last().unwrap().next(), Agent::Claude);
+    }
+
+    #[test]
+    fn switching_the_agent_back_undoes_switching_it() {
+        for agent in Agent::ALL {
+            assert_eq!(agent.next().prev(), agent);
+        }
+        assert_eq!(Agent::Claude.prev(), Agent::ALL[Agent::ALL.len() - 1]);
     }
 
     #[test]

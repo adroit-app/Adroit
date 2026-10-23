@@ -3196,7 +3196,7 @@ fn App() -> Element {
     };
 
     // A session started already keeps its own agent.
-    let mut switch_agent = move || match active.peek().clone() {
+    let mut switch_agent = move |forward: bool| match active.peek().clone() {
         tab if agents::can_choose(tab.as_ref()) => {
             let now = agents::for_tab(
                 &tree.peek(),
@@ -3204,7 +3204,7 @@ fn App() -> Element {
                 &draft_options.peek(),
                 last_agent.peek().unwrap_or(settings::current().agent),
             );
-            choose_agent(tab, now.next());
+            choose_agent(tab, if forward { now.next() } else { now.prev() });
         }
         _ => notify.notice("Only a session not started yet can change its agent".into()),
     };
@@ -4170,6 +4170,21 @@ fn App() -> Element {
                         cycle_tab(delta);
                     }
                 }
+                // The key pressed is Neovim's while it shows its completions
+                // or its command line, as Tab is there, and while the prompt
+                // has no agent to send it to.
+                Action::ConsoleSend(None)
+                    if area == Area::Prompt
+                        && let Some(nv) = nvim.peek().clone().filter(|n| {
+                            let s = n.state();
+                            pane.is_none() || s.popup().is_some() || s.mode().starts_with("cmdline")
+                        })
+                        && let Some(n) = key.as_ref().and_then(notation) =>
+                {
+                    spawn(async move {
+                        let _ = nv.input(&n).await;
+                    });
+                }
                 Action::ConsoleSend(chord) => {
                     if let Some(p) = &pane
                         && let Some(k) = chord.map(|c| c.key()).or(key)
@@ -4258,7 +4273,8 @@ fn App() -> Element {
                     focus.set(Area::Prompt);
                     start_writing(nvim);
                 }
-                Action::SessionAgentNext => switch_agent(),
+                Action::SessionAgentNext => switch_agent(true),
+                Action::SessionAgentPrev => switch_agent(false),
                 Action::SessionTakeOver => ask_take_over(on_list),
                 Action::SessionStop => ask_stop(on_list),
                 Action::SessionRename => {

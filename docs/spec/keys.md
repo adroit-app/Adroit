@@ -126,7 +126,10 @@ alternate screen, leaves nothing scrolled off to read: moving or scrolling past 
 first or last line scrolls the program instead, and the reader follows; `gg` scrolls it to its start. Leaving the reader
 for the live console, or moving to the prompt, returns the session to its
 latest output.
-In the prompt, `Ctrl+c` sends `Escape` to the agent, and `global` bindings
+In the prompt, `Ctrl+c` sends `Escape` to the agent, and `Tab` and
+`Shift+Tab` are sent to it as they are, in insert mode too, but to Neovim while
+it shows its completions or its command line, or the prompt has no session to
+send them to. `global` bindings
 apply only outside Neovim's insert mode, but for `Mod` and Command keys and
 the prefix.
 
@@ -183,7 +186,7 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 | `session.pick` | open the picker, to go to a session or choose where a new one works ([details](workspaces.md#going-to-a-session-or-starting-one)) |
 | `session.new` | start a session, with the prompt ready to write its first message: in the selected row's worktree or directory from the sidebar, in the one the console shows from elsewhere |
 | `session.scratch` | start a scratch session, with the prompt ready: one that runs in a new directory of its own, for talking about something no project holds ([details](workspaces.md#scratch-sessions)) |
-| `session.agent_next` | while a session not started yet is shown, switch the agent it is to run to the next one ([details](sessions.md#agents)) |
+| `session.agent_next`, `session.agent_prev` | while a session not started yet is shown, switch the agent it is to run to the next or the previous one ([details](sessions.md#agents)) |
 | `session.take_over` | take over an interactive session ([details](interactive-sessions.md)) |
 | `session.stop` | end a session adroit runs after asking; Claude Code keeps its conversation, for `/resume` in a session started later |
 | `session.rename` | edit the name of a session adroit runs in place; the sidebar shows it, and the session is sent Claude Code's `/rename` so its own interface says it too |
@@ -259,7 +262,8 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 "Mod+d" = "details.toggle"
 
 [draft]
-"Tab" = "session.agent_next"
+"Ctrl+g a" = "session.agent_next"
+"Ctrl+g A" = "session.agent_prev"
 
 [sidebar]
 "j" = "cursor.down"
@@ -331,11 +335,13 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 "A" = "prompt.write"
 "o" = "prompt.write"
 "O" = "prompt.write"
-"t" = "session.take_over"
+"T" = "session.take_over"
 "X" = "session.stop"
 
 [prompt]
 "Mod+i" = "prompt.images"
+"Tab" = "console.send"
+"Shift+Tab" = "console.send"
 "Ctrl+c" = "console.send Escape"
 "Ctrl+Enter" = "prompt.send"
 "Ctrl+p" = "prompt.history_prev"
