@@ -10,6 +10,7 @@ mod completion;
 mod console;
 pub mod console_keys;
 mod console_read;
+pub mod content;
 mod daemon;
 pub mod delegation;
 mod details;
