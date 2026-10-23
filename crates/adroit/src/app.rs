@@ -20,7 +20,6 @@ use crate::bundled_font::{faces, use_bundled_font};
 use crate::complete::{self, candidates};
 use crate::completion::Completions;
 use crate::console::{Composer, ConsoleScreen, Hub, Panes, ReaderScreen, mode_of};
-use crate::console_keys::direct_key;
 use crate::console_read;
 use crate::content::{
     Area, Axis, ContentPanel, DraftForm, NothingOpen, Opening, Starting, Tab, TerminalAsk,
@@ -61,6 +60,10 @@ use crate::window_socket::{Request, Response, ask, bind, serve, socket_path};
 use crate::work_host;
 use crate::zoom;
 use adroit_agents as agents;
+use adroit_core::console::keys::direct_key;
+use adroit_core::console::route::{
+    self, Footing, Typed, app_key, passes, passes_enter, starts_reading, typed_into,
+};
 use adroit_core::effect::Effect as CoreEffect;
 use adroit_core::msg::Msg;
 use adroit_core::overlay::confirm::Ask;
@@ -130,15 +133,6 @@ pub(crate) fn copy_to_clipboard(text: &str) -> std::io::Result<()> {
         .write_all(text.as_bytes())?;
     child.wait()?;
     Ok(())
-}
-
-/// The session an empty prompt sent passes Ctrl+Enter to: the one whose tab
-/// it was written for; a draft or a shell gets nothing from an empty one.
-fn passes_enter(taken: Option<&(Option<Tab>, String)>) -> Option<String> {
-    match taken {
-        Some((Some(Tab::Session(id)), text)) if text.trim().is_empty() => Some(id.clone()),
-        _ => None,
-    }
 }
 
 /// How long a session is given to repaint after Tab before its input is
@@ -298,52 +292,6 @@ fn now_ms() -> u64 {
 
 fn short(path: &Path) -> String {
     adroit_core::picker::short(path, &home())
-}
-
-/// Whether every key but the window's own goes to the program in the
-/// console: a shell's from the console, and a session waiting on a choice
-/// from the prompt as well, so its choices move without leaving the prompt.
-fn passes(area: Area, session: bool, waits: bool) -> bool {
-    match area {
-        Area::Console => !session || waits,
-        Area::Prompt => session && waits,
-        Area::Sidebar | Area::Details => false,
-    }
-}
-
-/// Where typed or pasted text goes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Typed {
-    Prompt,
-    /// The program in the console.
-    Program,
-    Nowhere,
-}
-
-/// Where text typed or pasted in `area` goes: text for a `session` is
-/// written in the prompt, but while the console passes keys `direct`ly or
-/// the session `waits` on an answer.
-fn typed_into(area: Area, session: bool, direct: bool, waits: bool) -> Typed {
-    match area {
-        Area::Console if session && !direct && !waits => Typed::Prompt,
-        Area::Console => Typed::Program,
-        Area::Prompt if passes(area, session, waits) => Typed::Program,
-        Area::Prompt => Typed::Prompt,
-        Area::Sidebar | Area::Details => Typed::Nowhere,
-    }
-}
-
-/// Whether a key that ends no binding starts reading the console. Read
-/// already, the key broke off a `global` sequence, which is not the reader's:
-/// `Ctrl+q s` would split its window.
-fn starts_reading(area: Area, session: bool, passing: bool, reading: bool) -> bool {
-    area == Area::Console && session && !passing && !reading
-}
-
-/// Whether `key` is one of the window's own wherever the keys are: held with
-/// Command or with `Mod`.
-fn app_key(key: &Key) -> bool {
-    key.meta || Chord::held_mod(key)
 }
 
 /// Start writing in the prompt, whatever mode it was left in: a draft asks
@@ -1396,7 +1344,7 @@ fn App() -> Element {
                 if let Some(id) = taken
                     .as_ref()
                     .filter(|(_, _, images)| images.is_empty())
-                    .and_then(|(tab, text, _)| passes_enter(Some(&(tab.clone(), text.clone()))))
+                    .and_then(|(tab, text, _)| passes_enter(tab.as_ref(), text))
                 {
                     let size = *console_size.peek();
                     if let Some(p) = pane_for(app, &hub, &Tab::Session(id), size).await {
@@ -2356,16 +2304,10 @@ fn App() -> Element {
             match action {
                 Action::None => {}
                 Action::KeysHelp => {
-                    let here = match area {
-                        Area::Sidebar => vec![Context::Tree, Context::Global],
-                        Area::Details => vec![Context::Details, Context::Tree, Context::Global],
-                        Area::Console if matches!(thing, Some(Tab::Viewer(_))) => {
-                            vec![Context::Viewer, Context::Global]
-                        }
-                        Area::Console => vec![Context::Console, Context::Global],
-                        Area::Prompt => vec![Context::Prompt, Context::Global],
-                    };
-                    app.dispatch(Msg::KeysHelpOpen(here));
+                    app.dispatch(Msg::KeysHelpOpen(route::help_contexts(
+                        area,
+                        thing.as_ref(),
+                    )));
                 }
                 Action::ViewerZoomIn
                 | Action::ViewerZoomOut
@@ -2996,22 +2938,8 @@ fn App() -> Element {
             // own as its answer; a shell takes every key but those.
             let pane = pane.or_else(|| active_pane().filter(|_| area == Area::Prompt));
             let passing = pane.is_some() && passes(area, session, waits());
-            let contexts: &[Context] = match area {
-                _ if passing || windowing => &[Context::Global],
-                Area::Sidebar => &[Context::Tree, Context::Global],
-                Area::Details => &[Context::Details, Context::Tree, Context::Global],
-                Area::Console if matches!(&app.active(), Some(Tab::Viewer(_))) => {
-                    &[Context::Viewer, Context::Global]
-                }
-                Area::Console => &[Context::Console, Context::Global],
-                Area::Prompt if nvim_insert => &[Context::Prompt],
-                Area::Prompt => &[Context::Prompt, Context::Global],
-            };
-            let contexts: Vec<_> = draft_agent::can_choose(app.active().as_ref())
-                .then_some(Context::Draft)
-                .into_iter()
-                .chain(contexts.iter().copied())
-                .collect();
+            let contexts =
+                route::contexts(area, app.active().as_ref(), passing, windowing, nvim_insert);
             keys::trace(|| {
                 format!(
                     "area={area:?} passing={passing} windowing={windowing} nvim_insert={nvim_insert} pending={:?}",
@@ -3266,34 +3194,23 @@ fn App() -> Element {
         }
         Area::Sidebar | Area::Details => false,
     };
-    let (footer_mode, footer_class) = match area {
-        // The picker holds every key while it is open, the console's too.
-        _ if app.picker.read().open.is_some() => ("PICK".to_string(), "normal"),
-        Area::Console if passing => ("DIRECT".to_string(), "pass"),
-        Area::Console if answering || matches!(active_tab, Some(Tab::Terminal(_))) => {
-            ("PASS".to_string(), "pass")
-        }
-        Area::Console if reading() => {
-            let _ = reader_frame();
-            let m = reader()
-                .map(|r| r.state().mode().to_string())
-                .unwrap_or_default();
-            let word = if m.starts_with("visual") || m.starts_with("select") {
-                "VISUAL"
-            } else {
-                "READ"
-            };
-            (word.to_string(), "normal")
-        }
-        Area::Console if matches!(active_tab, Some(Tab::Viewer(_))) => {
-            ("VIEWER".to_string(), "normal")
-        }
-        Area::Console => ("CONSOLE".to_string(), "normal"),
-        Area::Prompt if answering => ("PASS".to_string(), "pass"),
-        Area::Prompt => (mode.1.to_string(), mode.0),
-        Area::Sidebar => ("TREE".into(), "normal"),
-        Area::Details => ("DETAILS".into(), "normal"),
-    };
+    let reader_mode = reading().then(|| {
+        let _ = reader_frame();
+        reader()
+            .map(|r| r.state().mode().to_string())
+            .unwrap_or_default()
+    });
+    // The picker holds every key while it is open, the console's too.
+    let (footer_mode, footer_class) = Footing {
+        picking: app.picker.read().open.is_some(),
+        area,
+        shown: active_tab.as_ref(),
+        direct: passing,
+        answering,
+        reading: reader_mode.as_deref(),
+        prompt: mode,
+    }
+    .mode();
     // What the window says about its keys, from the bindings in force.
     let km = keymap.read().clone();
     let k_moves = km.keys_for_all(
@@ -3308,13 +3225,7 @@ fn App() -> Element {
     let k_waiting_prev = km.keys_for(Context::Tree, &Action::WaitingPrev);
     let k_waiting_next = km.keys_for(Context::Tree, &Action::WaitingNext);
     // The footer names the keys that work where the keys are now.
-    let here: &[Context] = match area {
-        Area::Sidebar => &[Context::Tree, Context::Global],
-        Area::Details => &[Context::Details, Context::Tree, Context::Global],
-        Area::Console => &[Context::Console, Context::Global],
-        Area::Prompt => &[Context::Prompt, Context::Global],
-    };
-    let k_waiting_next_here = km.keys_in(here, &Action::WaitingNext);
+    let k_waiting_next_here = km.keys_in(route::footer_contexts(area), &Action::WaitingNext);
     let k_back = km
         .keys_in(&[Context::Details, Context::Tree], &Action::CursorFold)
         .unwrap_or_default();
@@ -3618,24 +3529,6 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_prompt_passes_ctrl_enter_to_its_session_alone() {
-        let session = (Some(Tab::Session("s1".into())), "  \n".to_string());
-        assert_eq!(passes_enter(Some(&session)), Some("s1".to_string()));
-        let written = (Some(Tab::Session("s1".into())), "hi".to_string());
-        assert_eq!(passes_enter(Some(&written)), None);
-        let draft = (
-            Some(Tab::Draft {
-                worktree: "/w".into(),
-                id: Default::default(),
-            }),
-            String::new(),
-        );
-        assert_eq!(passes_enter(Some(&draft)), None);
-        assert_eq!(passes_enter(Some(&(None, String::new()))), None);
-        assert_eq!(passes_enter(None), None);
-    }
-
-    #[test]
     fn the_clipboard_reads_the_text_as_utf_8_whatever_the_app_s_locale() {
         let cmd = clipboard_command();
         let lc_all = cmd
@@ -3643,72 +3536,6 @@ mod tests {
             .find(|(k, _)| *k == "LC_ALL")
             .and_then(|(_, v)| v);
         assert_eq!(lc_all, Some(std::ffi::OsStr::new("en_US.UTF-8")));
-    }
-
-    #[test]
-    fn an_unbound_key_in_a_session_s_console_starts_reading_unless_it_is_read_already() {
-        // (area, a session shown, its keys passed on, reading) -> reading starts
-        let table = [
-            (Area::Console, true, false, false, true),
-            (Area::Console, true, false, true, false),
-            (Area::Console, true, true, false, false),
-            (Area::Console, false, false, false, false),
-            (Area::Prompt, true, false, false, false),
-            (Area::Sidebar, true, false, false, false),
-        ];
-        for (area, session, passing, reading, want) in table {
-            assert_eq!(
-                starts_reading(area, session, passing, reading),
-                want,
-                "{area:?} {session} {passing} {reading}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_shell_takes_the_console_s_keys_and_a_waiting_session_the_prompt_s_too() {
-        // (area, a session shown, it waits) -> the keys go to the console's program
-        let table = [
-            (Area::Console, false, false, true),
-            (Area::Console, true, false, false),
-            (Area::Console, true, true, true),
-            (Area::Prompt, false, false, false),
-            (Area::Prompt, true, false, false),
-            (Area::Prompt, true, true, true),
-            (Area::Sidebar, true, true, false),
-            (Area::Details, true, true, false),
-        ];
-        for (area, session, waits, want) in table {
-            assert_eq!(
-                passes(area, session, waits),
-                want,
-                "{area:?} {session} {waits}"
-            );
-        }
-    }
-
-    #[test]
-    fn text_for_a_session_is_written_in_the_prompt_and_the_rest_goes_to_the_console_s_program() {
-        use Typed::*;
-        // (area, a session shown, keys passed directly, it waits) -> where text goes
-        let table = [
-            (Area::Prompt, true, false, false, Prompt),
-            (Area::Prompt, false, false, false, Prompt),
-            (Area::Prompt, true, false, true, Program),
-            (Area::Console, true, false, false, Prompt),
-            (Area::Console, true, true, false, Program),
-            (Area::Console, true, false, true, Program),
-            (Area::Console, false, false, false, Program),
-            (Area::Sidebar, true, false, false, Nowhere),
-            (Area::Details, false, true, true, Nowhere),
-        ];
-        for (area, session, direct, waits, want) in table {
-            assert_eq!(
-                typed_into(area, session, direct, waits),
-                want,
-                "{area:?} {session} {direct} {waits}"
-            );
-        }
     }
 
     #[test]

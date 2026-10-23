@@ -5,7 +5,7 @@ pub mod actions;
 pub mod chrome;
 pub mod complete;
 pub mod completion;
-pub mod console_keys;
+pub mod console;
 pub mod content;
 pub mod details;
 pub mod effect;

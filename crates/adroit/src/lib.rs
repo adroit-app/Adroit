@@ -10,7 +10,6 @@ pub use adroit_runtime::cli;
 use adroit_runtime::complete;
 mod components;
 mod console;
-pub use adroit_core::console_keys;
 mod content;
 pub use adroit_core::file_icons;
 use adroit_core::fonts;
