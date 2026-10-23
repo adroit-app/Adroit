@@ -13,9 +13,7 @@ describe.
   time since the last user input, the tokens the whole conversation has used,
   and its prompt and tool call counts.
   Input sent through Adroit includes answers to approvals and choices; its
-  latest time stays with the running session when the window closes. For
-  sessions in other terminals, only inputs recorded in the conversation can
-  be recovered. Unreported metrics are omitted. The Processes group lists live
+  latest time stays with the running session when the window closes. Unreported metrics are omitted. The Processes group lists live
   work processes belonging to the session. The agent and its supporting
   runtimes are excluded from both the list and kill targets; work processes
   launched through those runtimes remain available. Opening one

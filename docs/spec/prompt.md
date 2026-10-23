@@ -29,8 +29,7 @@ What is written with nothing open becomes the first prompt of a new session
 opened next. Sent with nothing open, it starts a
 [scratch session](workspaces.md#scratch-sessions).
 
-What was kept for a session follows it when it goes by another id, as after a
-take-over. Closing a session's windows keeps its unsent text and attachments
+Closing a session's windows keeps its unsent text and attachments
 with that session. Closing the last window of an unstarted draft transfers its
 prompt to what the focused window shows next.
 

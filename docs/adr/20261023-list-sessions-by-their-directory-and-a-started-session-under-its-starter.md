@@ -29,6 +29,5 @@ is listed.
 
 ## Consequences
 
-- Sessions running in other terminals sit beside adroit's own.
 - Grouping costs a git lookup per directory.
 - A session whose starter has gone is listed by its directory again.

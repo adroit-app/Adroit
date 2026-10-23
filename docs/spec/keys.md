@@ -2,9 +2,11 @@
 
 Every key adroit handles itself runs a named action. adroit ships bindings of
 its own, and a file you write changes, adds to or takes away from them. The
-prompt's keys are Neovim's and are set up in Neovim; the dialog that asks
-before taking over a session always answers to `y`, `Enter`, `n` and `Escape`,
-and attachment selection and the picker have their own keys ([workspaces](workspaces.md#going-to-a-session-or-starting-one)).
+prompt's keys are Neovim's and are set up in Neovim; a dialog that asks
+before ending something always answers to `y`, `Enter`, `n` and `Escape`, and
+attachment selection, the picker and the list of past conversations have their
+own keys ([workspaces](workspaces.md#going-to-a-session-or-starting-one),
+[sessions](sessions.md#resuming-a-past-conversation)).
 `F1` shows every binding in force wherever the keys are.
 
 ## In the menu bar
@@ -53,8 +55,8 @@ where each key goes.
   `~/.config/adroit/` when `$XDG_CONFIG_HOME` is unset.
 
 A missing file keeps adroit's own bindings. A binding to `coordinator.open`,
-`project.new`, `project.edit`, `workspace.pick`, `details.files` or
-`details.diff`, actions earlier versions had, is read and dropped. The area
+`project.new`, `project.edit`, `workspace.pick`, `details.files`,
+`details.diff` or `session.take_over`, actions earlier versions had, is read and dropped. The area
 earlier versions called `sidebar` is read as `tree`, and `sidebar.toggle` as
 `tree.toggle`. The window
 reads the file again when it changes; a mistake in it is reported at the bottom
@@ -76,8 +78,8 @@ there until it is fixed.
 [tree]
 "Ctrl+n" = "cursor.down"
 "Ctrl+p" = "cursor.up"
-"T" = "none"
-"t" = "session.take_over"
+"X" = "none"
+"Ctrl+x" = "session.stop"
 
 [console]
 "Ctrl+c" = "console.send Ctrl+c"
@@ -209,7 +211,7 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 | `session.new` | start a session, with the prompt ready to write its first message: in the selected row's worktree or directory from the tree, in the one the focused window shows from elsewhere |
 | `session.scratch` | start a scratch session, with the prompt ready: one that runs in a new directory of its own, for talking about something no project holds ([details](workspaces.md#scratch-sessions)) |
 | `session.agent_next`, `session.agent_prev` | while a session not started yet is shown, switch the agent it is to run to the next or the previous one ([details](sessions.md#agents)) |
-| `session.take_over` | take over an interactive session ([details](interactive-sessions.md)) |
+| `session.resume` | list the conversations Claude Code and Codex kept, to resume one in a new session ([details](sessions.md#resuming-a-past-conversation)) |
 | `session.stop` | end a session adroit runs after asking; Claude Code keeps its conversation, for `/resume` in a session started later |
 | `session.rename` | edit the name of a session adroit runs in place; the tree shows it, and the session is sent Claude Code's `/rename` so its own interface says it too |
 | `shell.open` | open a shell in the worktree |
@@ -309,7 +311,6 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 "Mod+n" = "session.new"
 "Mod+s" = "shell.open"
 "Mod+e" = "neovim.open"
-"Mod+t" = "session.take_over"
 "Mod+Backspace" = "session.stop"
 "Mod+f" = "filter"
 "Mod+r" = "refresh"
@@ -346,7 +347,6 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 "n" = "session.new"
 "$" = "shell.open"
 "e" = "neovim.open"
-"T" = "session.take_over"
 "x" = "cursor.close"
 "X" = "session.stop"
 "R" = "session.rename"
@@ -402,7 +402,6 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 "A" = "prompt.write"
 "o" = "prompt.write"
 "O" = "prompt.write"
-"T" = "session.take_over"
 "X" = "session.stop"
 
 [prompt]

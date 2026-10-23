@@ -34,9 +34,7 @@ conversation, including after switching conversations in Codex.
 For a Codex session already running when Adroit was updated, run
 `/title app-name thread-id` in Codex to enable the overview's conversation list.
 
-Adroit currently lists only the Codex sessions it starts. Discovery and
-takeover of external Codex sessions and Codex prompt history in the embedded
-prompt are not available. Codex menus, approvals and questions take keys
+Codex prompt history in the embedded prompt is not available. Codex menus, approvals and questions take keys
 directly while they are open. Use Codex's own interface for its commands and
 menus:
 `Ctrl-g i` passes keys through until `Esc`. Renaming in Adroit changes the
@@ -104,6 +102,27 @@ The window restarts the terminal host with Restart Session Daemon
 
 A session ends when its program exits or when it is ended from adroit. Its
 console then says so, and it is listed no more.
+
+## Resuming a past conversation
+
+Claude Code and Codex keep each conversation after its session ends, and
+adroit lists only the sessions it runs. Resume Conversation in the Session
+menu, or `session.resume`, opens a list of the conversations both agents kept
+for the directory the focused window works in, the newest first, each with its
+agent, its title or first prompt, its directory and when it was last talked
+in. `Ctrl+a` lists those of every directory instead, and pressed again only
+the directory's; with nothing open, every directory's are listed. Typing
+narrows the list by a fuzzy match on the title and the directory. `Ctrl+n`
+and `Ctrl+p` (or the arrow keys, `Tab` and `Shift+Tab`) move, `Enter` chooses,
+and `Escape` closes the list.
+
+Choosing a conversation resumes it in a new session of its agent, in the
+directory it ran in, with the agent's own resume. Nothing running is stopped
+or changed. A conversation a session of this instance already holds is not
+resumed a second time: choosing it shows that session.
+
+Conversations no one wrote a prompt in, and those Codex ran without its own
+interface, are not listed.
 
 ## Started by a session
 

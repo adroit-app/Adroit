@@ -64,9 +64,10 @@ just macos-import-identity ~/adroit-identity
 Press `w` to choose where a session works, from the directories sessions run
 in, those Claude Code was used in, the repositories ghq keeps, or a file tree,
 and say what you want done. adroit keeps no list of its own: the sessions are
-the ones it runs, which keep running when the window closes, and the ones
-Claude Code reports running in other terminals
-([details](docs/spec/workspaces.md)). While they run, the Mac does not go to
+the ones it runs, which keep running when the window closes
+([details](docs/spec/workspaces.md)). `Mod-t` lists the past conversations of
+Claude Code and Codex, to resume one in a new session
+([details](docs/spec/sessions.md#resuming-a-past-conversation)). While they run, the Mac does not go to
 idle sleep, so they go on with the display off
 ([details](docs/spec/sessions.md#keeping-the-mac-awake)).
 
@@ -85,8 +86,7 @@ adroit session start --agent codex --dir ~/src/api/src -- "Review the API"
 Sessions can also start sessions of their own and message each other
 ([details](docs/spec/delegation.md)).
 
-Read-only Codex sessions use its read-only sandbox. External Codex discovery and
-takeover, embedded prompt history and slash completion, usage limits and
+Read-only Codex sessions use its read-only sandbox. Embedded prompt history and slash completion, usage limits and
 transcript-derived details are not yet supported. Use `Ctrl-g i` to operate
 Codex's commands and menus directly; `Esc` returns to Adroit. See
 [the session specification](docs/spec/sessions.md#agents) for the scope.
@@ -107,7 +107,7 @@ the keys are in, the content's tabs or the details panel's overview, changes
 and log, which `Mod-1` to `Mod-3` also show one by one; `Mod-p` chooses where
 a new session works, `Mod-n` starts one where the console is, `Mod-s` opens a
 shell there and `Mod-e` Neovim, `Mod-f` filters the tree, `Mod-r`
-refreshes, `Mod-t` takes over a session, `Mod-Backspace` ends one, and
+refreshes, `Mod-t` resumes a past conversation, `Mod-Backspace` ends one, and
 `Mod-b` `Mod-d` show or hide the tree and the details panel. A scratch
 session, which needs no directory chosen, starts from the picker's first row
 or the Session menu.
@@ -125,7 +125,7 @@ or the Session menu.
 | `n` `$` `e` | start a session, a shell or Neovim in the selected worktree or directory |
 | `x` | close the windows showing the selected row; what they show runs on |
 | `y` | copy the path of a file or worktree, or the name of a session or shell |
-| `T` | take over an interactive session ([details](docs/spec/interactive-sessions.md)) |
+| `O` | resume a past conversation ([details](docs/spec/sessions.md#resuming-a-past-conversation)) |
 | `X` | end a session; Claude Code keeps its conversation, for `/resume` |
 | `i` | write a prompt |
 | `/` | narrow the tree to sessions by name; `Enter` keeps it, `Esc` clears it |

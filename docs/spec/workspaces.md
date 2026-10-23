@@ -1,9 +1,10 @@
 # Workspaces
 
-adroit lists every Claude Code session by the directory it runs in: the ones
-it runs ([details](sessions.md)) and the ones Claude Code reports running in
-other terminals. What holds them is what git says about the directory each
-runs in.
+adroit lists every session it runs by the directory it runs in
+([details](sessions.md)). What holds them is what git says about the directory
+each runs in. Sessions started outside adroit are not listed; their
+conversations can be resumed in adroit
+([resuming](sessions.md#resuming-a-past-conversation)).
 
 ## The tree
 
@@ -62,9 +63,9 @@ where nothing runs too, drawn dim; opening one starts a session there.
 Pressing it again goes back to the worktrees where sessions or shells run. The
 window does not keep this between runs.
 
-Sessions running in other terminals are listed beside adroit's own. A
-session that has ended is listed no more; Claude Code keeps its conversation,
-which a session started later resumes with Claude Code's `/resume`.
+A session that has ended is listed no more; its agent keeps its
+conversation, which can be resumed in a new session
+([resuming](sessions.md#resuming-a-past-conversation)).
 
 The filter at the top of the tree narrows it as it is typed into. The sessions
 waiting on you are listed again at the bottom of the tree, apart from it.
@@ -128,7 +129,9 @@ a directory of its own; a shell opened from it runs in the scratch folder.
 
 adroit removes none of these directories. Claude Code keeps each conversation
 by the directory it ran in, and the picker offers that directory among those
-Claude Code has been used in, so a session started there can `/resume` it.
+Claude Code has been used in. Its conversations are resumed from every
+directory's past conversations
+([resuming](sessions.md#resuming-a-past-conversation)).
 
 Claude Code asks whether to trust a folder before a session first works in
 it, and each scratch session works in a new one: its console shows the
