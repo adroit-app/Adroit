@@ -5,9 +5,7 @@ its own, and a file you write changes, adds to or takes away from them. The
 prompt's keys are Neovim's and are set up in Neovim; the dialog that asks
 before taking over a session always answers to `y`, `Enter`, `n` and `Escape`,
 and attachment selection and the picker have their own keys ([workspaces](workspaces.md#going-to-a-session-or-starting-one)).
-`F1` shows every binding in force wherever the keys are, as does `?` where it
-types nothing: in the tree, the details panel, a viewer and a session's live
-console.
+`F1` shows every binding in force wherever the keys are.
 
 ## In the menu bar
 
@@ -357,7 +355,6 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 "!" = "worktrees.toggle"
 "] w" = "waiting.next"
 "[ w" = "waiting.prev"
-"?" = "keys.help"
 
 [details]
 "j" = "cursor.down"
@@ -401,7 +398,6 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 "O" = "prompt.write"
 "T" = "session.take_over"
 "X" = "session.stop"
-"?" = "keys.help"
 
 [prompt]
 "Mod+i" = "prompt.images"
@@ -433,6 +429,5 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 "l" = "viewer.forward"
 "y" = "viewer.copy_path"
 "q" = "window.quit"
-"?" = "keys.help"
 
 ```

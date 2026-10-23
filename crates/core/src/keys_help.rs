@@ -218,32 +218,27 @@ mod tests {
     }
 
     #[test]
-    fn a_question_mark_opens_the_keys_help_where_it_types_nothing() {
+    fn a_question_mark_is_left_to_the_area_it_is_pressed_in() {
         let map = Keymap::defaults();
+        // A live console's reader searches backward on it.
         for contexts in [
-            &[Context::Tree, Context::Global][..],
+            &[Context::Global][..],
+            &[Context::Prompt],
+            &[Context::Tree, Context::Global],
             &[Context::Details, Context::Tree, Context::Global],
             &[Context::Console, Context::Global],
             &[Context::Viewer, Context::Global],
+            &[Context::Draft, Context::Prompt],
         ] {
-            assert!(opens(&map, contexts, "?"), "{contexts:?}");
+            assert!(!opens(&map, contexts, "?"), "{contexts:?}");
         }
     }
 
     #[test]
-    fn a_question_mark_is_typed_where_text_is() {
-        let map = Keymap::defaults();
-        // A shell, a session's dialog, and the prompt in insert mode.
-        assert!(!opens(&map, &[Context::Global], "?"));
-        assert!(!opens(&map, &[Context::Prompt], "?"));
-        assert!(!opens(&map, &[Context::Draft, Context::Prompt], "?"));
-    }
-
-    #[test]
-    fn escape_q_and_the_keys_that_open_it_close_it() {
+    fn escape_q_and_f1_close_it() {
         let map = Keymap::defaults();
         let here = [Context::Tree, Context::Global];
-        for chord in ["Escape", "q", "?", "F1"] {
+        for chord in ["Escape", "q", "F1"] {
             assert_eq!(press(&map, &here, &key(chord)), Press::Close, "{chord}");
         }
     }

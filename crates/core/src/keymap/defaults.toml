@@ -111,7 +111,6 @@
 "!" = "worktrees.toggle"
 "] w" = "waiting.next"
 "[ w" = "waiting.prev"
-"?" = "keys.help"
 
 [details]
 "j" = "cursor.down"
@@ -155,7 +154,6 @@
 "O" = "prompt.write"
 "T" = "session.take_over"
 "X" = "session.stop"
-"?" = "keys.help"
 
 [prompt]
 "Mod+i" = "prompt.images"
@@ -187,4 +185,3 @@
 "l" = "viewer.forward"
 "y" = "viewer.copy_path"
 "q" = "window.quit"
-"?" = "keys.help"
