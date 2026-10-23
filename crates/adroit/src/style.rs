@@ -139,6 +139,23 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .tab.shell { font-family: var(--mono); font-size: 12px; }
 .tabs-sep { width: 1px; height: 16px; background: #2a2f36; margin: 0 6px; }
 .tabs-where { color: var(--text-3); font-size: 11.5px; margin-right: 6px; font-family: var(--mono); }
+.tab-number { color: var(--text-3); font-family: var(--mono); font-size: 11px; font-weight: 400; }
+.tab-count { color: var(--text-3); font-family: var(--mono); font-size: 11px; font-weight: 400; }
+/* The content's windows lie where their shares put them, a little apart. */
+.content-windows { flex: 1; min-height: 0; position: relative; }
+.content-windows > .console { position: absolute; inset: 0; }
+.win { position: absolute; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.win.focused { border-color: #4a5566; }
+.win-bar { flex: none; display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 10px; border-bottom: 1px solid var(--line); color: var(--text-2); font-size: 12px; white-space: nowrap; overflow: hidden; }
+.win.focused .win-bar { color: var(--text); background: var(--raised); }
+.win-name { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.win.focused .win-name { font-weight: 500; }
+.win-bar.shell .win-name { font-family: var(--mono); }
+.win-where { color: var(--text-3); font-family: var(--mono); font-size: 11px; }
+.win-border { position: absolute; z-index: 2; }
+.win-border.row { width: 6px; margin-left: -3px; cursor: col-resize; }
+.win-border.column { height: 6px; margin-top: -3px; cursor: row-resize; }
+.app-body.dragging.rows, .app-body.dragging.rows * { cursor: row-resize !important; }
 .console { flex: 1; min-height: 0; position: relative; }
 .console-screen { position: absolute; inset: 0; padding: 10px 12px 0; overflow: hidden; }
 .console-clicks { position: absolute; top: 10px; left: 12px; right: 0; bottom: 0; }

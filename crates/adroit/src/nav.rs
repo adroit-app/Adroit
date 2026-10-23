@@ -295,21 +295,6 @@ pub fn narrowed(tree: &Tree, text: &str) -> Tree {
     out
 }
 
-/// The tab to show once `closing` is closed among `tabs`: the one before it,
-/// or else the one after it. An ephemeral draft needs a composer to receive
-/// its unsent input, so it skips terminals or gives way to the empty composer.
-pub fn tab_after(tabs: &[Tab], closing: &Tab) -> Option<Tab> {
-    let at = tabs.iter().position(|t| t == closing)?;
-    let eligible =
-        |tab: &&Tab| !matches!(closing, Tab::Draft { .. }) || !matches!(tab, Tab::Terminal(_));
-    tabs[..at]
-        .iter()
-        .rev()
-        .find(eligible)
-        .or_else(|| tabs[at + 1..].iter().find(eligible))
-        .cloned()
-}
-
 /// What the console shows once a tab of `place` has closed: its first
 /// session, or else the first of `terminals`, the terminals left in the worktree.
 pub fn tab_after_closing(tree: &Tree, place: &Place, terminals: &[u128]) -> Option<Tab> {
@@ -623,53 +608,6 @@ mod tests {
         let t = tree();
         let web = items(&narrowed(&t, "web"), &[], &HashSet::new());
         assert_eq!(web, [ws("/web"), session("c")]);
-    }
-
-    #[test]
-    fn a_closed_tab_gives_way_to_the_one_before_it_or_else_after_it() {
-        let a = Tab::Session("a".into());
-        let b = Tab::Terminal(1);
-        let c = Tab::Session("c".into());
-        let tabs = [a.clone(), b.clone(), c.clone()];
-        assert_eq!(tab_after(&tabs, &b), Some(a.clone()));
-        assert_eq!(tab_after(&tabs, &a), Some(b));
-        assert_eq!(tab_after(std::slice::from_ref(&c), &c), None);
-        assert_eq!(tab_after(&tabs, &Tab::Terminal(9)), None);
-    }
-
-    #[test]
-    fn a_closed_ephemeral_draft_uses_the_empty_composer_when_only_terminals_remain() {
-        let draft = Tab::draft("/repo");
-        for tabs in [
-            vec![draft.clone(), Tab::Terminal(1)],
-            vec![Tab::Terminal(1), draft.clone(), Tab::Terminal(2)],
-        ] {
-            assert_eq!(tab_after(&tabs, &draft), None);
-        }
-    }
-
-    #[test]
-    fn a_closed_ephemeral_draft_skips_terminals_but_other_closed_tabs_keep_their_order() {
-        let session = Tab::Session("existing".into());
-        let draft = Tab::draft("/repo");
-        let other_draft = Tab::draft("/repo");
-        let terminal = Tab::Terminal(1);
-        let tabs = [
-            session.clone(),
-            terminal.clone(),
-            draft.clone(),
-            other_draft.clone(),
-        ];
-        assert_eq!(tab_after(&tabs, &draft), Some(session.clone()));
-        assert_eq!(tab_after(&tabs, &session), Some(terminal.clone()));
-        assert_eq!(tab_after(&tabs, &terminal), Some(session));
-        let tabs = [
-            terminal,
-            draft.clone(),
-            Tab::Terminal(2),
-            other_draft.clone(),
-        ];
-        assert_eq!(tab_after(&tabs, &draft), Some(other_draft));
     }
 
     #[test]

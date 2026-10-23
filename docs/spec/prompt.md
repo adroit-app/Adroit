@@ -1,37 +1,39 @@
 # The prompt
 
-The prompt under the console is where messages to the shown session or
-draft are written, in Neovim. Ctrl+Enter sends what it holds to that tab: a
-session gets it as its next message, and a draft starts its session with it.
+The prompt under the focused window's console is where messages to the
+session or draft it shows are written, in Neovim
+([content](content.md)). Ctrl+Enter sends what it holds there: a session gets
+it as its next message, and a draft starts its session with it.
 The prompt is left empty, in Neovim's normal mode. Sent
 empty, it passes Ctrl+Enter itself to the session, as Claude Code's own
 input would take it; a draft gets nothing from an empty prompt.
 
-A shell's tab shows no prompt: its console takes the room and every key, and
-the keys that would go to the prompt stay with the shell.
+A shell's window shows no prompt: its console takes the room and every key,
+and the keys that would go to the prompt stay with the shell.
 
-## What is written stays with its tab
+## What is written stays with what it is written for
 
-What is written in the prompt belongs to the tab shown while it was written.
-Showing another tab puts it aside and brings back what was written for that
-one; nothing written for one session is sent to another by switching tabs.
-A tab with something set aside for it is marked, and so is its session's row.
-What is written outlives the window: opened again, each tab gets back what
+What is written in the prompt belongs to the session or draft the focused
+window showed while it was written. Focusing a window that shows another puts
+it aside and brings back what was written for that one; nothing written for
+one session is sent to another by moving between windows or tabs. A tab or a
+session's row with something set aside for it is marked.
+What is written outlives the window: opened again, each session gets back what
 was written for it, all but a new session's that was never started.
 What is written with nothing open becomes the first prompt of a new session
 opened next. Sent with nothing open, it starts a
 [scratch session](workspaces.md#scratch-sessions).
 
-What a session's tab kept follows the session when it goes by another id,
-as after a take-over. Hiding a session tab keeps its unsent text and attachments
-with that session. Closing an unstarted draft transfers its
-prompt to the next available prompt.
+What was kept for a session follows it when it goes by another id, as after a
+take-over. Closing a session's windows keeps its unsent text and attachments
+with that session. Closing the last window of an unstarted draft transfers its
+prompt to what the focused window shows next.
 
-Text taken from Claude Code's input goes to the tab it was taken for, even
-when another tab is shown by the time it arrives. A message that cannot be
-sent goes back to its tab.
+Text taken from Claude Code's input goes to the session it was taken for, even
+when another window is focused by the time it arrives. A message that cannot
+be sent goes back to its session.
 
-While the shown session waits on an answer, the prompt's keys and text are
+While the focused window's session waits on an answer, the prompt's keys and text are
 that answer, sent to the session; what the prompt holds stays for after.
 
 ## What it offers as it is written
@@ -72,7 +74,7 @@ saved as an attachment, separate from the words being written. Attachments
 show previews and can be selected and removed with the mouse or keyboard.
 While images are attached, the text area fits its actual screen lines, up to
 the configured maximum, without reserving the minimum text rows. Attachments
-belong to their tab, stay with a prompt set aside or restored after a
+belong to their session or draft, stay with a prompt set aside or restored after a
 failed send, and are kept past the window alongside saved prompts.
 
 Sending delivers the words and images in the receiving agent's format;

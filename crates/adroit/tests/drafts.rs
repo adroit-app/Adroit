@@ -1,8 +1,7 @@
 use adroit::prompts::Drafts;
-use adroit::tabs::{DraftOptions, Tab, drafts_in};
+use adroit::tabs::{DraftOptions, Tab};
 use adroit_model::{Agent, AgentPermissions};
-use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::collections::HashMap;
 
 #[test]
 fn changing_launch_options_keeps_the_prompt_on_the_same_draft() {
@@ -26,22 +25,4 @@ fn changing_launch_options_keeps_the_prompt_on_the_same_draft() {
         Some("Keep this other prompt".into())
     );
     assert!(choices.contains_key(&first));
-}
-
-#[test]
-fn multiple_drafts_in_one_directory_remain_reachable_after_switching_tabs() {
-    let first = Tab::draft("/repo");
-    let second = Tab::draft("/repo");
-    let elsewhere = Tab::draft("/elsewhere");
-    let opened = HashSet::from([
-        first.clone(),
-        second.clone(),
-        elsewhere,
-        Tab::Session("running".into()),
-    ]);
-    let shown = drafts_in(&opened, Path::new("/repo"));
-
-    assert_eq!(shown.len(), 2);
-    assert!(shown.contains(&&first));
-    assert!(shown.contains(&&second));
 }

@@ -23,9 +23,10 @@ The entries follow the file as it changes.
 
 ## With the mouse
 
-What the keys do to a sidebar row or a tab of the console is also offered by
+What the keys do to a sidebar row or a tab of the content is also offered by
 right-clicking it, each entry with the keys bound to it. A tab closes with its
-`×`, a workspace's or worktree's row starts a session there with its `+`, and
+`×`, a window takes the keys when clicked, a border between windows is dragged
+to resize them, a workspace's or worktree's row starts a session there with its `+`, and
 the buttons beside Workspaces filter the sidebar, list every worktree, read
 the sessions again and start a session.
 
@@ -98,9 +99,9 @@ takes the keys away, so they do nothing there.
 A key that reaches a program in the console is sent as the program asked,
 as felis sends it: with the Kitty keyboard protocol once it asks for it, as
 xterm sends it otherwise.
-A shell in the console takes every key that is not a `global` binding, and
-shows no prompt below it: a window move does not stop there, and the `prompt`
-actions do nothing. A
+A shell's or Neovim's window takes every key that is not a `global` binding,
+and shows no prompt below it: a window move does not stop there, and the
+`prompt` actions do nothing. A
 session waiting on a permission prompt or a question does too, as its answer,
 from the prompt as well as the console; the prompt is Neovim's again once it
 is answered. So does a session showing a dialog of its agent's own in place
@@ -168,23 +169,36 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 
 | Action | Does |
 | --- | --- |
-| `window.left`, `window.down`, `window.up`, `window.right` | move to the area in that direction |
-| `window.next`, `window.prev` | move to the area after or before the one the keys are in, from the sidebar down the middle to the details panel, going round at the ends |
-| `window.top`, `window.bottom` | move to the first or the last of the areas shown, the sidebar or the details panel when shown |
-| `window.back` | move back to the area the keys were in before |
-| `tab.next`, `tab.prev` | show the next or previous tab of the area the keys are in: the details panel's sheets there, elsewhere the console's tabs, which are the sessions opened in the window, the worktree's shells and a draft |
-| `tab.close` | close the current tab; agents and terminals keep running and remain reachable from the sidebar |
+| `window.left`, `window.down`, `window.up`, `window.right` | move to the window in that direction: the sidebar lies left of the content's windows and the details panel right of them, and a session's prompt below its console |
+| `window.next`, `window.prev` | move to the window after or before the one the keys are in, from the sidebar through the content's windows, each console before its prompt, to the details panel, going round at the ends |
+| `window.top`, `window.bottom` | move to the first or the last of these, the sidebar or the details panel when shown |
+| `window.back` | move back to the window the keys were in before |
+| `window.split`, `window.vsplit` | split the focused window one above the other or side by side, the new window, below or right of it, showing the same ([content](content.md)) |
+| `window.new` | split the focused window one above the other and start writing a new session in the new one, in the worktree the focused window shows |
+| `window.quit` | close the focused window, and its tab when it was the last; what it showed runs on |
+| `window.only` | close every other window of the tab |
+| `window.move_left`, `window.move_down`, `window.move_up`, `window.move_right` | move the focused window to that side of its tab, as tall or as wide as the tab |
+| `window.exchange` | exchange the focused window with the next one in its split, or the one before the last |
+| `window.rotate` | rotate the windows of the focused window's split forward, the last becoming the first |
+| `window.equalize` | give the windows of every split the same size |
+| `window.wider`, `window.narrower`, `window.taller`, `window.shorter` | make the focused window a step larger or smaller |
+| `window.maximize_width`, `window.maximize_height` | make the focused window as wide or as tall as the others allow |
+| `window.to_tab` | move the focused window to a new tab, unless it is the only one of its tab |
+| `tab.next`, `tab.prev` | show the next or previous tab of the area the keys are in: the details panel's sheets there, elsewhere the content's tabs |
+| `tab.go <n>` | show the content's tab numbered `n`, from 1 to 9, or the last when there are fewer |
+| `tab.last` | show the content's tab shown before the one shown now |
+| `tab.close` | close the content's tab shown and every window in it; agents and terminals keep running and remain reachable from the sidebar |
 | `window.close` | close the window, which ends adroit; its sessions run on |
 | `cursor.down`, `cursor.up`, `cursor.first`, `cursor.last` | move the selection in the sidebar; in the details panel, in the list it shows, or scroll what else it shows |
-| `cursor.open` | open the selected session, shell or worktree and move to its console, or to the prompt of a session not started yet; fold or unfold a workspace; in the details panel, open the selected row |
-| `cursor.show` | show the selected session, shell or worktree in the console, as `cursor.open` does, with the keys staying in the sidebar; fold or unfold a workspace; in the details panel, open the selected row |
+| `cursor.open` | open the selected session, shell or worktree in the focused window and move to its console, or to the prompt of a session not started yet; fold or unfold a workspace; in the details panel, open the selected row |
+| `cursor.show` | show the selected session, shell or worktree, as `cursor.open` does, with the keys staying in the sidebar; fold or unfold a workspace; in the details panel, open the selected row |
 | `cursor.fold` | fold the selected node; in the details panel, go back out to the list what it shows was opened from |
 | `cursor.copy` | in the details panel, copy the selected link of the overview: its address, or its file's path |
 | `cursor.reveal` | in the details panel, show the selected file of the overview in the Finder |
 | `waiting.next`, `waiting.prev` | open the next or previous session waiting on you |
 | `session.next`, `session.prev` | open the session after or before the one shown, in the sidebar's order over every session, folded away or filtered out too, going round at the ends; the keys stay in the area they are in |
 | `session.pick` | open the picker, to go to a session or choose where a new one works ([details](workspaces.md#going-to-a-session-or-starting-one)) |
-| `session.new` | start a session, with the prompt ready to write its first message: in the selected row's worktree or directory from the sidebar, in the one the console shows from elsewhere |
+| `session.new` | start a session, with the prompt ready to write its first message: in the selected row's worktree or directory from the sidebar, in the one the focused window shows from elsewhere |
 | `session.scratch` | start a scratch session, with the prompt ready: one that runs in a new directory of its own, for talking about something no project holds ([details](workspaces.md#scratch-sessions)) |
 | `session.agent_next`, `session.agent_prev` | while a session not started yet is shown, switch the agent it is to run to the next or the previous one ([details](sessions.md#agents)) |
 | `session.take_over` | take over an interactive session ([details](interactive-sessions.md)) |
@@ -206,7 +220,7 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 | `prompt.write` | give the prompt the keys, and the key pressed with them |
 | `prompt.send` | send what the prompt holds |
 | `prompt.images` | select an attached image |
-| `prompt.history_prev`, `prompt.history_next` | put the prompt sent before or after the one shown in the prompt, to change and send again: those Claude Code recalls with its Up arrow where the shown tab works. In the prompt, while Neovim shows its completions or its command line, the key is Neovim's |
+| `prompt.history_prev`, `prompt.history_next` | put the prompt sent before or after the one shown in the prompt, to change and send again: those Claude Code recalls with its Up arrow where the focused window's session works. In the prompt, while Neovim shows its completions or its command line, the key is Neovim's |
 | `console.send` | send the key pressed to the session |
 | `console.send <key>` | send the key named instead, as in `console.send Escape` |
 | `console.send_next` | send the next key as it is, whatever it is bound to |
@@ -231,8 +245,38 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 "Ctrl+q t" = "window.top"
 "Ctrl+q b" = "window.bottom"
 "Ctrl+q p" = "window.back"
+"Ctrl+q v" = "window.vsplit"
+"Ctrl+q s" = "window.split"
+"Ctrl+q n" = "window.new"
+"Ctrl+q c" = "window.quit"
+"Ctrl+q q" = "window.quit"
+"Ctrl+q o" = "window.only"
+"Ctrl+q H" = "window.move_left"
+"Ctrl+q J" = "window.move_down"
+"Ctrl+q K" = "window.move_up"
+"Ctrl+q L" = "window.move_right"
+"Ctrl+q x" = "window.exchange"
+"Ctrl+q r" = "window.rotate"
+"Ctrl+q =" = "window.equalize"
+"Ctrl+q <" = "window.narrower"
+"Ctrl+q >" = "window.wider"
+"Ctrl+q Plus" = "window.taller"
+"Ctrl+q -" = "window.shorter"
+"Ctrl+q _" = "window.maximize_height"
+"Ctrl+q |" = "window.maximize_width"
+"Ctrl+q T" = "window.to_tab"
 "Ctrl+q Tab" = "tab.next"
 "Ctrl+q Shift+Tab" = "tab.prev"
+"Ctrl+q 1" = "tab.go 1"
+"Ctrl+q 2" = "tab.go 2"
+"Ctrl+q 3" = "tab.go 3"
+"Ctrl+q 4" = "tab.go 4"
+"Ctrl+q 5" = "tab.go 5"
+"Ctrl+q 6" = "tab.go 6"
+"Ctrl+q 7" = "tab.go 7"
+"Ctrl+q 8" = "tab.go 8"
+"Ctrl+q 9" = "tab.go 9"
+"Ctrl+q g Tab" = "tab.last"
 "Mod+]" = "tab.next"
 "Mod+[" = "tab.prev"
 "Mod+w" = "tab.close"

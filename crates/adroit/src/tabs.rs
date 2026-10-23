@@ -1,11 +1,10 @@
-//! The tabs above the console: the sessions and terminals of one worktree.
+//! What a window of the content shows, and the names new sessions are given.
 
-use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use adroit_model::{Agent, AgentPermissions, DraftId};
 
-/// What a tab shows.
+/// What a window shows.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Tab {
     /// A Claude Code session, by id.
@@ -16,8 +15,8 @@ pub enum Tab {
     Draft { worktree: PathBuf, id: DraftId },
 }
 
-/// Whether the prompt is shown under the console while `tab` is: a shell
-/// takes every key in the console itself.
+/// Whether the prompt is shown under the console of a window showing `tab`, or
+/// with nothing open: a shell takes every key in the console itself.
 pub fn shows_prompt(tab: Option<&Tab>) -> bool {
     !matches!(tab, Some(Tab::Terminal(_)))
 }
@@ -53,18 +52,6 @@ impl Tab {
             id: DraftId::new(),
         }
     }
-}
-
-pub fn drafts_in<'a>(opened: &'a HashSet<Tab>, worktree: &Path) -> Vec<&'a Tab> {
-    let mut drafts: Vec<_> = opened
-        .iter()
-        .filter(|tab| matches!(tab, Tab::Draft { worktree: path, .. } if path == worktree))
-        .collect();
-    drafts.sort_by_key(|tab| match tab {
-        Tab::Draft { id, .. } => id.to_string(),
-        _ => unreachable!(),
-    });
-    drafts
 }
 
 /// Words that say little about what a session is for.

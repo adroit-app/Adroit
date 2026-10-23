@@ -55,7 +55,7 @@ pub struct Rect {
 }
 
 impl Rect {
-    const WHOLE: Rect = Rect {
+    pub const WHOLE: Rect = Rect {
         left: 0.0,
         top: 0.0,
         width: 1.0,
@@ -184,6 +184,61 @@ impl<T> Node<T> {
     }
 }
 
+/// A border between two parts of a split, which a drag moves.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Border {
+    /// The parts to follow to the split.
+    pub split: Vec<usize>,
+    /// The part the border comes after.
+    pub after: usize,
+    pub axis: Axis,
+    /// Where the split is drawn.
+    pub within: Rect,
+    /// Where the border lies, as a share of the split.
+    pub at: f64,
+}
+
+impl<T> Node<T> {
+    fn borders(&self, path: Vec<usize>, at: Rect, out: &mut Vec<Border>) {
+        let Node::Split(axis, parts) = self else {
+            return;
+        };
+        let mut start = 0.0;
+        for (i, (size, _)) in parts.iter().enumerate().take(parts.len() - 1) {
+            start += size;
+            out.push(Border {
+                split: path.clone(),
+                after: i,
+                axis: *axis,
+                within: at,
+                at: start,
+            });
+        }
+        let mut rects = Vec::new();
+        let mut start = 0.0;
+        for (size, _) in parts {
+            rects.push(match axis {
+                Axis::Row => Rect {
+                    left: at.left + start * at.width,
+                    width: size * at.width,
+                    ..at
+                },
+                Axis::Column => Rect {
+                    top: at.top + start * at.height,
+                    height: size * at.height,
+                    ..at
+                },
+            });
+            start += size;
+        }
+        for (i, ((_, n), r)) in parts.iter().zip(rects).enumerate() {
+            let mut p = path.clone();
+            p.push(i);
+            n.borders(p, r, out);
+        }
+    }
+}
+
 /// A tab of the content: its windows, and which of them has the focus.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ContentTab<T> {
@@ -215,6 +270,13 @@ impl<T: Clone + PartialEq> ContentTab<T> {
     pub fn rects(&self) -> Vec<(WindowId, Rect)> {
         let mut out = Vec::new();
         self.root.rects(Rect::WHOLE, &mut out);
+        out
+    }
+
+    /// Every border between two parts of a split, outermost first.
+    pub fn borders(&self) -> Vec<Border> {
+        let mut out = Vec::new();
+        self.root.borders(Vec::new(), Rect::WHOLE, &mut out);
         out
     }
 
@@ -1105,6 +1167,35 @@ mod tests {
         assert_eq!(sizes(&c), vec![0.05, 0.05, 0.9]);
         c.maximize(Axis::Row);
         assert_eq!(sizes(&c), vec![0.05, 0.05, 0.9]);
+    }
+
+    #[test]
+    fn every_border_between_parts_is_found_where_it_is_drawn() {
+        // (a | (b / c)) at equal shares
+        let mut c = one("a");
+        c.split(Axis::Row, "b");
+        c.split(Axis::Column, "c");
+        let borders = c.current().unwrap().borders();
+        assert_eq!(borders.len(), 2);
+        let between_a_and_the_rest = &borders[0];
+        assert_eq!(between_a_and_the_rest.split, Vec::<usize>::new());
+        assert_eq!(between_a_and_the_rest.after, 0);
+        assert_eq!(between_a_and_the_rest.axis, Axis::Row);
+        assert_eq!(between_a_and_the_rest.at, 0.5);
+        assert_eq!(between_a_and_the_rest.within, Rect::WHOLE);
+        let between_b_and_c = &borders[1];
+        assert_eq!(between_b_and_c.split, vec![1]);
+        assert_eq!(between_b_and_c.axis, Axis::Column);
+        assert_eq!(between_b_and_c.at, 0.5);
+        assert_eq!(
+            between_b_and_c.within,
+            Rect {
+                left: 0.5,
+                top: 0.0,
+                width: 0.5,
+                height: 1.0
+            }
+        );
     }
 
     #[test]

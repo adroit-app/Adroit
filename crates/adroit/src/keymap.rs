@@ -22,8 +22,38 @@ pub const DEFAULTS: &str = r#"
 "Ctrl+q t" = "window.top"
 "Ctrl+q b" = "window.bottom"
 "Ctrl+q p" = "window.back"
+"Ctrl+q v" = "window.vsplit"
+"Ctrl+q s" = "window.split"
+"Ctrl+q n" = "window.new"
+"Ctrl+q c" = "window.quit"
+"Ctrl+q q" = "window.quit"
+"Ctrl+q o" = "window.only"
+"Ctrl+q H" = "window.move_left"
+"Ctrl+q J" = "window.move_down"
+"Ctrl+q K" = "window.move_up"
+"Ctrl+q L" = "window.move_right"
+"Ctrl+q x" = "window.exchange"
+"Ctrl+q r" = "window.rotate"
+"Ctrl+q =" = "window.equalize"
+"Ctrl+q <" = "window.narrower"
+"Ctrl+q >" = "window.wider"
+"Ctrl+q Plus" = "window.taller"
+"Ctrl+q -" = "window.shorter"
+"Ctrl+q _" = "window.maximize_height"
+"Ctrl+q |" = "window.maximize_width"
+"Ctrl+q T" = "window.to_tab"
 "Ctrl+q Tab" = "tab.next"
 "Ctrl+q Shift+Tab" = "tab.prev"
+"Ctrl+q 1" = "tab.go 1"
+"Ctrl+q 2" = "tab.go 2"
+"Ctrl+q 3" = "tab.go 3"
+"Ctrl+q 4" = "tab.go 4"
+"Ctrl+q 5" = "tab.go 5"
+"Ctrl+q 6" = "tab.go 6"
+"Ctrl+q 7" = "tab.go 7"
+"Ctrl+q 8" = "tab.go 8"
+"Ctrl+q 9" = "tab.go 9"
+"Ctrl+q g Tab" = "tab.last"
 "Mod+]" = "tab.next"
 "Mod+[" = "tab.prev"
 "Mod+w" = "tab.close"
@@ -433,6 +463,8 @@ macro_rules! actions {
             $($variant,)*
             /// Send a key to the session: the one named, or the one pressed.
             ConsoleSend(Option<Chord>),
+            /// Show the content's tab of this number, counted from 1.
+            TabGo(u8),
         }
 
         impl Action {
@@ -452,6 +484,10 @@ macro_rules! actions {
                     ("none", None) => Action::None,
                     ("console.send", None) => Action::ConsoleSend(None),
                     ("console.send", Some(k)) => Action::ConsoleSend(Some(Chord::parse(k)?)),
+                    ("tab.go", Some(n)) => match n.parse::<u8>() {
+                        Ok(n @ 1..=9) => Action::TabGo(n),
+                        _ => return Err(Error(format!("{text:?} names no tab from 1 to 9"))),
+                    },
                     $(($name, None) => Action::$variant,)*
                     _ => return Err(Error(format!("{text:?} is not an action"))),
                 })
@@ -464,6 +500,7 @@ macro_rules! actions {
                     Action::None => f.write_str("none"),
                     Action::ConsoleSend(None) => f.write_str("console.send"),
                     Action::ConsoleSend(Some(c)) => write!(f, "console.send {c}"),
+                    Action::TabGo(n) => write!(f, "tab.go {n}"),
                     $(Action::$variant => f.write_str($name),)*
                 }
             }
@@ -481,8 +518,28 @@ actions! {
     WindowTop => "window.top",
     WindowBottom => "window.bottom",
     WindowBack => "window.back",
+    WindowSplit => "window.split",
+    WindowVsplit => "window.vsplit",
+    WindowNew => "window.new",
+    WindowQuit => "window.quit",
+    WindowOnly => "window.only",
+    WindowMoveLeft => "window.move_left",
+    WindowMoveDown => "window.move_down",
+    WindowMoveUp => "window.move_up",
+    WindowMoveRight => "window.move_right",
+    WindowExchange => "window.exchange",
+    WindowRotate => "window.rotate",
+    WindowEqualize => "window.equalize",
+    WindowNarrower => "window.narrower",
+    WindowWider => "window.wider",
+    WindowTaller => "window.taller",
+    WindowShorter => "window.shorter",
+    WindowMaximizeHeight => "window.maximize_height",
+    WindowMaximizeWidth => "window.maximize_width",
+    WindowToTab => "window.to_tab",
     TabNext => "tab.next",
     TabPrev => "tab.prev",
+    TabLast => "tab.last",
     CursorDown => "cursor.down",
     CursorUp => "cursor.up",
     CursorFirst => "cursor.first",
@@ -1613,6 +1670,65 @@ mod tests {
                     ctx.name()
                 );
             }
+        }
+    }
+
+    #[test]
+    fn ctrl_q_splits_closes_moves_and_resizes_the_content_s_windows_in_every_area() {
+        let map = Keymap::defaults();
+        for ctx in [
+            Context::Sidebar,
+            Context::Details,
+            Context::Console,
+            Context::Prompt,
+        ] {
+            let areas = [ctx, Context::Global];
+            for (key, action) in [
+                ("v", Action::WindowVsplit),
+                ("s", Action::WindowSplit),
+                ("n", Action::WindowNew),
+                ("c", Action::WindowQuit),
+                ("q", Action::WindowQuit),
+                ("o", Action::WindowOnly),
+                ("H", Action::WindowMoveLeft),
+                ("J", Action::WindowMoveDown),
+                ("K", Action::WindowMoveUp),
+                ("L", Action::WindowMoveRight),
+                ("x", Action::WindowExchange),
+                ("r", Action::WindowRotate),
+                ("=", Action::WindowEqualize),
+                ("<", Action::WindowNarrower),
+                (">", Action::WindowWider),
+                ("Plus", Action::WindowTaller),
+                ("-", Action::WindowShorter),
+                ("_", Action::WindowMaximizeHeight),
+                ("|", Action::WindowMaximizeWidth),
+                ("T", Action::WindowToTab),
+                ("1", Action::TabGo(1)),
+                ("9", Action::TabGo(9)),
+            ] {
+                assert_eq!(
+                    step(&map, &areas, &["Ctrl+q"], key),
+                    Step::Run(action),
+                    "{} {key}",
+                    ctx.name()
+                );
+            }
+            assert_eq!(
+                step(&map, &areas, &["Ctrl+q", "g"], "Tab"),
+                Step::Run(Action::TabLast),
+                "{}",
+                ctx.name()
+            );
+        }
+    }
+
+    #[test]
+    fn a_tab_is_gone_to_by_its_number_from_one_to_nine() {
+        assert_eq!("tab.go 3".parse::<Action>(), Ok(Action::TabGo(3)));
+        assert_eq!(Action::TabGo(3).to_string(), "tab.go 3");
+        for bad in ["tab.go", "tab.go 0", "tab.go 10", "tab.go x"] {
+            assert!(bad.parse::<Action>().is_err(), "{bad}");
         }
     }
 
