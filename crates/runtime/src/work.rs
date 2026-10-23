@@ -35,6 +35,8 @@ pub struct Host {
     work: Work,
     /// What the window shows, which the host keeps read.
     sight: watch::Sender<Sight>,
+    /// Raised each time the window asks for everything read again.
+    again: watch::Sender<u64>,
 }
 
 impl Default for Host {
@@ -48,6 +50,7 @@ impl Host {
         Self {
             work,
             sight: watch::Sender::new(Sight::default()),
+            again: watch::Sender::new(0),
         }
     }
 
@@ -58,6 +61,11 @@ impl Host {
     /// What the window shows, as it changes.
     pub fn sight(&self) -> watch::Receiver<Sight> {
         self.sight.subscribe()
+    }
+
+    /// Each time the window asks for everything read again.
+    pub fn again(&self) -> watch::Receiver<u64> {
+        self.again.subscribe()
     }
 
     /// What the host tells the window that asked `request`.
@@ -77,6 +85,10 @@ impl Host {
                 self.sight.send_replace(*sight);
                 let left = self.left();
                 self.patch(left).into_iter().collect()
+            }
+            Request::ReadAgain => {
+                self.again.send_modify(|n| *n += 1);
+                Vec::new()
             }
         }
     }
@@ -409,13 +421,17 @@ mod tests {
     }
 
     #[test]
-    fn the_watchers_are_told_what_the_window_shows() {
+    fn the_watchers_are_told_what_the_window_shows_and_when_to_read_again() {
         let mut host = Host::default();
         let sight = host.sight();
+        let again = host.again();
         host.handle(watch(Some("a"), None));
         assert_eq!(
             sight.borrow().session.as_ref().map(|s| s.id.as_str()),
             Some("a")
         );
+        assert!(!again.has_changed().unwrap());
+        assert!(host.handle(Request::ReadAgain).is_empty());
+        assert!(again.has_changed().unwrap());
     }
 }

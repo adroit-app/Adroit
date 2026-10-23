@@ -5,19 +5,7 @@ use adroit_agents::claude::subagents::{Agent, Standing, Step};
 use dioxus::prelude::*;
 
 use crate::components::{Breadcrumbs, Section, StateGlyph};
-use crate::details::shown_agent;
-use crate::icons::Icon;
-
-/// How a subagent is marked, by how it stands: the class that colours its
-/// icon as a session's in the same standing is, and the icon.
-pub fn agent_glyph(standing: Standing) -> (&'static str, Icon) {
-    match standing {
-        Standing::Running => ("state-glyph run", Icon::Loader),
-        Standing::Done => ("state-glyph done", Icon::Check),
-        Standing::Failed => ("state-glyph fail", Icon::AlertTriangle),
-        Standing::Stopped => ("state-glyph idle", Icon::PlayerStop),
-    }
-}
+use crate::details::{agent_glyph, shown_agent};
 
 /// What a subagent was started as, when a later title replaced it.
 fn started_as(agent: &Agent) -> Option<&str> {
@@ -52,7 +40,7 @@ fn shown_steps(agent: &Agent) -> Vec<&Step> {
     steps
 }
 
-const CSS: &str = include_str!("../assets/css/subagent.css");
+const CSS: &str = include_str!("../../assets/css/subagent.css");
 
 /// A subagent opened from the overview, told at `now_ms`; `on_back` goes
 /// back to the overview, as `back_keys` do.
@@ -156,26 +144,6 @@ mod tests {
 
     fn said(text: &str) -> Step {
         Step::Said(text.into())
-    }
-
-    #[test]
-    fn a_subagent_is_marked_in_the_colour_a_session_in_the_same_standing_is() {
-        assert_eq!(
-            agent_glyph(Standing::Running),
-            ("state-glyph run", Icon::Loader)
-        );
-        assert_eq!(
-            agent_glyph(Standing::Done),
-            ("state-glyph done", Icon::Check)
-        );
-        assert_eq!(
-            agent_glyph(Standing::Failed),
-            ("state-glyph fail", Icon::AlertTriangle)
-        );
-        assert_eq!(
-            agent_glyph(Standing::Stopped),
-            ("state-glyph idle", Icon::PlayerStop)
-        );
     }
 
     #[test]

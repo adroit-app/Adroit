@@ -12,6 +12,8 @@ pub enum Request {
     Snapshot,
     /// Keep read what the window now shows, in place of what it showed.
     Watch(Box<Sight>),
+    /// Read again now what the window shows, as after the window changed it.
+    ReadAgain,
 }
 
 /// What the work host tells a window.

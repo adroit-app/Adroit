@@ -83,8 +83,6 @@ pub struct Hub {
     /// The theme's palette, which a new theme replaces.
     pub palette: Signal<Palette>,
     pub refresh: Rc<Notify>,
-    /// Wakes the reader of the details panel's git sheet.
-    pub git: Rc<Notify>,
 }
 
 /// The prompt's mode as the window names it: a style class and a label.

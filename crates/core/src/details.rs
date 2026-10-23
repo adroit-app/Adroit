@@ -10,11 +10,17 @@ use adroit_model::time::ago;
 use adroit_model::usage::{Limit, Severity, Window};
 use adroit_model::{Session, State};
 
-pub use adroit_model::Note;
-
-mod system;
 use adroit_protocol::RepositoryRead;
 use adroit_vcs::{Change, Commit, DiffLine, Rev, Spot};
+
+pub use adroit_model::Note;
+
+mod panel;
+mod rows;
+mod system;
+
+pub use panel::*;
+pub use rows::*;
 pub use system::*;
 
 /// One line of what the overview says about a session.

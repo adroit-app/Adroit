@@ -53,6 +53,7 @@ mod tests {
         });
         round_trips(Request::Snapshot);
         round_trips(Request::Watch(Box::default()));
+        round_trips(Request::ReadAgain);
         round_trips(Request::Watch(Box::new(Sight {
             session: Some(Session {
                 id: "s".into(),

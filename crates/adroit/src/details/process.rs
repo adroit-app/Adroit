@@ -1,8 +1,8 @@
-//! A live process of a session, shown in the details panel.
+//! A live process of a session, opened from the overview.
 
 use dioxus::prelude::*;
 
-pub use adroit_runtime::processes::*;
+use adroit_model::Process;
 
 #[dioxus::prelude::component]
 pub fn ProcessView(

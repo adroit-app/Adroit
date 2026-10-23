@@ -104,7 +104,7 @@ mod tests {
                     ..Default::default()
                 }),
             ],
-            Request::Snapshot | Request::Watch(_) => vec![],
+            Request::Snapshot | Request::Watch(_) | Request::ReadAgain => vec![],
         })
         .send(Msg::Opened { zoom: 1.0 });
         assert_eq!(

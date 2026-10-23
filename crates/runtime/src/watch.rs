@@ -23,15 +23,20 @@ pub struct Watched {
     host: Arc<Mutex<Host>>,
     events: mpsc::UnboundedSender<Event>,
     sight: watch::Receiver<Sight>,
+    again: watch::Receiver<u64>,
 }
 
 impl Watched {
     pub fn new(host: Arc<Mutex<Host>>, events: mpsc::UnboundedSender<Event>) -> Self {
-        let sight = lock(&host).sight();
+        let (sight, again) = {
+            let host = lock(&host);
+            (host.sight(), host.again())
+        };
         Self {
             host,
             events,
             sight,
+            again,
         }
     }
 
@@ -53,7 +58,8 @@ impl Watched {
         }
     }
 
-    /// Wait `every`, or less once what `part` takes of the sight changes.
+    /// Wait `every`, or less once what `part` takes of the sight changes or
+    /// the window asks for everything read again.
     async fn wait<T: PartialEq>(&mut self, every: Duration, part: impl Fn(&Sight) -> T) {
         let was = part(&self.sight.borrow());
         let changed = async {
@@ -67,9 +73,15 @@ impl Watched {
                 }
             }
         };
+        let again = async {
+            if self.again.changed().await.is_err() {
+                std::future::pending::<()>().await;
+            }
+        };
         tokio::select! {
             _ = tokio::time::sleep(every) => {}
             _ = changed => {}
+            _ = again => {}
         }
     }
 }

@@ -186,15 +186,21 @@ pub struct Gallery {
 /// `store`, and the image `files` there are small copies of in `thumbs`,
 /// newest first.
 pub fn shots(store: &Store, session: &str, files: &[ImageFile], thumbs: &Thumbs) -> Vec<Shot> {
-    let drawn = store
-        .of(session)
-        .iter()
-        .map(|k| Shot::console(k.id, k.width, k.height, k.at_ms, Some(k.thumb.clone())));
+    let drawn = drawn(store, session);
     let files = files.iter().filter_map(|f| {
         let (_, thumb) = thumbs.get(&f.path)?;
         Some(Shot::file(&f.path, f.touch, f.at_ms, thumb.clone()))
     });
-    crate::details::newest_first(drawn.chain(files).collect())
+    crate::details::newest_first(drawn.into_iter().chain(files).collect())
+}
+
+/// What `session`'s console drew, kept in `store`, as the overview lists it.
+pub fn drawn(store: &Store, session: &str) -> Vec<Shot> {
+    store
+        .of(session)
+        .iter()
+        .map(|k| Shot::console(k.id, k.width, k.height, k.at_ms, Some(k.thumb.clone())))
+        .collect()
 }
 
 /// Bring `thumbs` up to date with `files`: a small copy is made of each

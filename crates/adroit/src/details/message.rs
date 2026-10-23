@@ -5,7 +5,7 @@ use dioxus::prelude::*;
 use crate::components::{Breadcrumbs, Section};
 use crate::details::Note;
 
-const CSS: &str = include_str!("../assets/css/message.css");
+const CSS: &str = include_str!("../../assets/css/message.css");
 
 /// A message opened from the overview, told at `now_ms`; `on_back` goes back
 /// to the overview, as `back_keys` do.
