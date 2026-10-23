@@ -1,0 +1,94 @@
+.list-rows.details-git { flex: 1; user-select: text; }
+.details-file-status { color: var(--wait); white-space: pre; flex: none; }
+.commit { display: flex; align-items: center; gap: 6px; height: 40px; padding: 0 8px 0 4px; font-size: 12.5px; border-radius: 6px; cursor: default; }
+.revision-description { padding: 8px; margin-bottom: 8px; border-bottom: 1px solid var(--line); }
+.revision-heading { display: flex; gap: 8px; align-items: baseline; margin-bottom: 6px; }
+.revision-description pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.5; }
+.commit-graph { flex: none; display: flex; }
+.commit-text { flex: 1; min-width: 120px; display: grid; grid-template-columns: auto 1fr; gap: 0 8px; }
+.graph path { fill: none; stroke-width: 2; }
+.graph .lane-0 { stroke: var(--run); fill: var(--run); }
+.graph .lane-1 { stroke: var(--coord); fill: var(--coord); }
+.graph .lane-2 { stroke: var(--done); fill: var(--done); }
+.graph .lane-3 { stroke: var(--wait); fill: var(--wait); }
+.graph circle { stroke-width: 0; }
+.graph circle.empty { fill: var(--panel); stroke-width: 2; }
+.commit.selected .graph circle.empty { fill: var(--select); }
+.graph circle.current { stroke: var(--text); stroke-width: 2; }
+.graph circle.conflict { stroke: var(--fail); stroke-width: 2; }
+.commit-hash { font-family: var(--mono); font-size: 11.5px; color: var(--run); }
+.commit-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.commit-when { grid-column: 2; color: var(--text-3); font-size: 11.5px; }
+.commit.selected { background: var(--select); }
+.app-panel.focused .commit.selected { box-shadow: inset 0 0 0 1px #3a4352; }
+.commit-mark { margin-right: 6px; padding: 0 5px; border-radius: 4px; font-size: 11px; color: var(--text-3); border: 1px solid var(--line); }
+.commit-mark.current { color: var(--run); border-color: var(--run); }
+.commit-mark.conflict { color: var(--fail); border-color: var(--fail); }
+.commit-mark.bookmark { color: var(--wait); }
+.commit-none { color: var(--text-3); font-style: italic; }
+.details-crumbs { display: flex; align-items: center; gap: 6px; padding: 2px 8px 8px; font-size: 12px; color: var(--text-2); cursor: default; white-space: nowrap; overflow: hidden; }
+.details-crumbs:hover { color: var(--text); }
+.details-crumb { overflow: hidden; text-overflow: ellipsis; }
+.details-crumb-back { display: inline-flex; margin-left: -4px; }
+.details-crumb-sep { color: var(--text-3); display: inline-flex; }
+.diff { font-family: var(--mono); font-size: 11.5px; line-height: 16px; white-space: pre; overflow-x: auto; padding: 0 8px; }
+.diff-file { color: var(--text); font-weight: 600; margin-top: 10px; }
+.diff-hunk { color: var(--coord); }
+.diff-add { color: var(--done); background: rgba(143,198,164,0.07); }
+.diff-del { color: var(--fail); background: rgba(235,163,170,0.07); }
+.diff-ctx { color: var(--text-2); }
+.git-error { color: var(--fail); font-size: 12px; padding: 8px; white-space: pre-wrap; }
+.details-block { padding: 0 16px 14px; display: flex; flex-direction: column; gap: 6px; line-height: 1.6; }
+.details-label { font-size: 12px; font-weight: 500; color: var(--text-2); }
+.details-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 12px; font-size: 12.5px; }
+.process-command { margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 11px var(--mono); user-select: text; }
+.process-kill { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 4px; color: var(--text-3); background: transparent; cursor: pointer; }
+.process-kill:hover { background: var(--line-strong); color: var(--fail); }
+.process-kill:focus-visible { outline: 2px solid var(--fail); outline-offset: 1px; }
+.details-facts-key { color: var(--text-3); }
+.details-facts-value { min-width: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.details-path { font-family: var(--mono); font-size: 11.5px; color: var(--text-3); word-break: break-all; user-select: text; }
+.details-links { gap: 2px; }
+.details-links .list-row { margin: 0 -8px; }
+.details-link .icon { flex: none; color: var(--text-2); }
+.details-link .state-glyph .icon { color: inherit; }
+.details-link-heading { gap: 4px; height: 22px; }
+.details-link-heading .icon { flex: none; color: var(--text-3); }
+.details-link-tag { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; font-size: 11px; color: var(--text-3); }
+.details-link-badge { flex: 0 1 auto; min-width: 0; max-width: 28%; margin-right: 0; line-height: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.details-more, .details-more .icon { color: var(--text-3); }
+.details-link.details-image { height: 46px; }
+.details-thumb { flex: none; width: 56px; height: 40px; object-fit: contain; border-radius: 4px; background: var(--raised); }
+.details-usage { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 10px 16px 12px; border-top: 1px solid var(--line); cursor: default; }
+.usage-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.usage-web { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px; border: 0; background: transparent; color: var(--text-3); font: inherit; font-size: 11px; cursor: pointer; }
+.usage-web:hover, .usage-web:focus-visible { color: var(--text); background: var(--raised); border-radius: 3px; }
+.usage-gauge { display: flex; flex-direction: column; gap: 3px; }
+.usage-gauge-head { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+.usage-gauge-label { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.usage-gauge-left { flex: none; color: var(--text); font-variant-numeric: tabular-nums; }
+.usage-gauge-track { height: 5px; border-radius: 3px; background: var(--raised); overflow: hidden; }
+.usage-gauge-fill { height: 100%; border-radius: 3px; background: var(--run); }
+.usage-gauge-fill.warning { background: var(--wait); }
+.usage-gauge-fill.critical { background: var(--fail); }
+.usage-gauge-fill.context { background: var(--usage-context); }
+.usage-gauge-note { font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.details-system-usage { flex: none; container: system-usage / inline-size; display: flex; flex-direction: column; gap: 10px; padding: 12px 16px; border-top: 1px solid var(--line); cursor: default; }
+.system-usage-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px 16px; }
+@container system-usage (min-width: 300px) {
+  .system-usage-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.usage-resource { --resource-color: var(--usage-cpu); min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.usage-resource.gpu { --resource-color: var(--usage-gpu); }
+.usage-resource.memory { --resource-color: var(--usage-memory); }
+.usage-resource.storage { --resource-color: var(--usage-storage); }
+.usage-resource.warning { --resource-color: var(--wait); }
+.usage-resource.critical { --resource-color: var(--fail); }
+.usage-resource-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.usage-resource-label { display: flex; align-items: center; gap: 6px; color: var(--text-2); font-size: 12px; }
+.usage-resource-label .icon { color: var(--resource-color); }
+.usage-resource-value { color: var(--text); font-size: 12px; font-variant-numeric: tabular-nums; }
+.usage-resource.warning .usage-resource-value, .usage-resource.critical .usage-resource-value { color: var(--resource-color); }
+.usage-resource-track { height: 5px; border-radius: 3px; background: var(--select); overflow: hidden; }
+.usage-resource-fill { height: 100%; border-radius: inherit; background: var(--resource-color); }
+.usage-resource-note { color: var(--text-3); font-size: 10px; line-height: 1.4; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

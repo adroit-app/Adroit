@@ -5,9 +5,7 @@ use dioxus::prelude::*;
 use crate::details::Note;
 use crate::icons::{Icon, IconView};
 
-const CSS: &str = r#"
-.message-text { white-space: pre-wrap; word-break: break-word; user-select: text; font-size: 12.5px; color: var(--text); }
-"#;
+const CSS: &str = include_str!("../assets/css/message.css");
 
 /// A message opened from the overview, told at `now_ms`; `on_back` goes back
 /// to the overview, as `back_keys` do.

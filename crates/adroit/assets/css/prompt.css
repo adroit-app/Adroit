@@ -1,0 +1,43 @@
+.prompt { position: absolute; left: 14px; right: 14px; bottom: 14px; background: var(--raised); border: 1px solid var(--line-strong);
+  border-radius: 10px; box-shadow: 0 -6px 30px rgba(0,0,0,0.45); }
+.prompt.focused { border-color: #4a5566; }
+/* Claude Code's bash mode, in its pink. */
+.prompt.shell { border-color: #c96b9f; }
+.prompt-shell { display: inline-flex; align-items: center; flex: none; height: 18px; padding: 0 7px; border-radius: 5px; font-family: var(--mono); font-weight: 500; font-size: 11px; background: rgba(240,128,190,0.14); color: #f080be; }
+.prompt-foot { display: flex; align-items: center; gap: 10px; padding: 2px 12px 6px; font-size: 11.5px; color: var(--text-3); }
+.prompt-foot-target { color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.prompt-attachments { display: flex; gap: 10px; overflow-x: auto; padding: 8px 14px 12px; }
+.prompt-attachment { position: relative; flex: 0 0 96px; height: 80px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--ground); cursor: pointer; }
+.prompt-attachment img { width: 100%; height: 100%; object-fit: contain; border-radius: 5px; }
+.prompt-attachment.selected { outline: 2px solid var(--run); outline-offset: 2px; }
+.attachment-remove { position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; display: grid; place-items: center; padding: 0; border: 1px solid var(--line-strong); border-radius: 50%; background: var(--raised); color: var(--text); font-size: 17px; line-height: 1; cursor: pointer; }
+.attachment-remove:hover, .attachment-remove:focus-visible { background: var(--select); outline: 2px solid var(--run); }
+.attachment-missing { display: grid; place-items: center; height: 100%; padding: 6px; color: var(--text-2); font-size: 11px; text-align: center; }
+.prompt-foot-target .icon { vertical-align: -2px; margin-right: 4px; }
+.prompt-foot-message { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.mode-chip { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 5px; font-family: var(--mono); font-weight: 500; font-size: 11px; }
+.mode-chip.insert { background: rgba(143,198,164,0.14); color: var(--done); }
+.mode-chip.normal { background: rgba(120,174,232,0.14); color: var(--run); }
+.mode-chip.pass { background: rgba(232,180,94,0.14); color: var(--wait); }
+.mode-chip.cmd { background: rgba(185,162,236,0.14); color: var(--coord); }
+.state-badge { display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 9px; font-size: 11.5px; font-weight: 500; background: color-mix(in srgb, currentColor 14%, transparent); }
+.state-badge.wait { color: var(--wait); }
+.state-badge.run { color: var(--run); }
+.state-badge.done { color: var(--done); }
+.state-badge.idle { color: var(--text-2); }
+.state-badge.fail { color: var(--fail); }
+.prompt-grid { position: relative; padding: 10px 14px 4px; }
+.draft-mark { color: var(--coord); font-size: 11px; flex: none; }
+.prompt.answering { border-color: var(--wait); }
+.prompt.answering .prompt-grid { opacity: 0.4; }
+.prompt-foot-answering { color: var(--wait); white-space: nowrap; }
+.prompt-scroll { position: absolute; top: 10px; bottom: 4px; right: 4px; width: 4px; border-radius: 2px; background: rgba(255,255,255,0.05); }
+.prompt-scroll-thumb { position: absolute; left: 0; right: 0; border-radius: 2px; background: #4a5566; }
+.vim-cmdline { font-family: var(--term-font); font-size: var(--term-size); font-weight: var(--term-weight); color: var(--text); padding: 2px 14px; }
+.vim-menu { position: absolute; z-index: 10; background: #21262d; border: 1px solid #3b4450;
+  border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); overflow: hidden; }
+.vim-menu-item { display: flex; gap: 10px; padding: 7px 12px; align-items: baseline; }
+.vim-menu-item.selected { background: #3a4350; box-shadow: inset 2px 0 0 var(--run); }
+.vim-menu-word { font-family: var(--mono); font-size: 12.5px; color: var(--text); }
+.vim-menu-detail { color: var(--text-3); font-size: 11.5px; margin-left: auto; }
+.vim-menu-info { color: var(--text-2); font-size: 11.5px; padding: 0 12px 8px; white-space: pre-wrap; }

@@ -1,0 +1,13 @@
+.dialog.picker-dialog { width: 640px; height: min(520px, calc(100% - 48px)); padding: 16px 12px 12px; gap: 8px; }
+.dialog.picker-dialog .dialog-title { padding: 0 8px; }
+.dialog.picker-dialog .filter-field { margin: 0 8px; }
+.dialog.picker-dialog .list-rows { flex: 1; min-height: 0; padding: 0; line-height: normal; }
+.dialog.picker-dialog .list-row { color: var(--text-2); }
+.dialog.picker-dialog .list-row.selected { color: var(--text); box-shadow: inset 0 0 0 1px #3a4352; }
+.dialog.picker-dialog .list-row-name { min-width: 0; }
+.picker-chevron { flex: none; display: inline-flex; color: var(--text-3); }
+.picker-match { color: var(--wait); font-weight: 600; }
+.picker-heading { padding: 8px 8px 2px; color: var(--text-3); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+.picker-heading:first-child { padding-top: 0; }
+.picker-place { margin-left: 10px; color: var(--text-3); font-size: 11.5px; }
+.picker-keys { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 6px 8px 0; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--text-3); }

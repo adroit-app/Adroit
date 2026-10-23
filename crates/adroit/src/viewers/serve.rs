@@ -149,23 +149,11 @@ pub const ORIGIN: &str = "dioxus://index.html/";
 /// A script put into the page the HTML viewer shows, which lets the viewer
 /// scroll and zoom the page and hears the keys pressed in it: the page runs
 /// apart from the window, and nothing else of the window reaches into it.
-pub const PAGE_SCRIPT: &str = r#"<script>(function(){
-addEventListener('message',function(e){
-  if(e.source!==parent)return;var m=e.data;if(!m||m.adroitViewer!==1)return;
-  var el=document.scrollingElement||document.documentElement;
-  if(m.zoom)document.documentElement.style.zoom=m.zoom;
-  if(m.scroll==='top')el.scrollTo(0,0);
-  else if(m.scroll==='bottom')el.scrollTo(0,el.scrollHeight);
-  else if(m.lines)el.scrollBy(0,m.lines*40);
-  else if(m.pages)el.scrollBy(0,m.pages*innerHeight/2);
-});
-addEventListener('keydown',function(e){
-  var t=e.target;
-  if(t&&(t.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)))return;
-  parent.postMessage({adroitViewerKey:1,key:e.key,code:e.code,ctrlKey:e.ctrlKey,
-    metaKey:e.metaKey,altKey:e.altKey,shiftKey:e.shiftKey},'*');
-},true);
-})();</script>"#;
+pub const PAGE_SCRIPT: &str = concat!(
+    "<script>",
+    include_str!("../../assets/js/viewer-page.js"),
+    "</script>"
+);
 
 /// `page` as the HTML viewer hands it to its frame: its relative links
 /// resolved under `base`, with [`PAGE_SCRIPT`], both first in its head.

@@ -17,12 +17,7 @@ thread_local! {
     static OPEN: RefCell<HashMap<String, Weak<DesktopService>>> = RefCell::new(HashMap::new());
 }
 
-const CSS: &str = r#"
-html, body { margin: 0; height: 100%; background: var(--ground, #0f1114); overflow: hidden; }
-#main { height: 100%; }
-.viewer { height: 100%; display: flex; align-items: center; justify-content: center; outline: none; }
-.viewer img { max-width: 100%; max-height: 100%; object-fit: contain; }
-"#;
+const CSS: &str = include_str!("../assets/css/image-window.css");
 
 /// The window's first size for an image `width` by `height` pixels, when
 /// known: as large as the image, within a size that fits most screens.
