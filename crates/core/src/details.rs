@@ -10,8 +10,8 @@ use adroit_model::time::ago;
 use adroit_model::usage::{Limit, Severity, Window};
 use adroit_model::{Session, State};
 
+use adroit_model::repository::{Change, Commit, DiffLine, Rev, Spot};
 use adroit_protocol::RepositoryRead;
-use adroit_vcs::{Change, Commit, DiffLine, Rev, Spot};
 
 pub use adroit_model::Note;
 
@@ -839,7 +839,7 @@ pub struct View {
     pub spot: Spot,
     pub worktree: PathBuf,
     pub listing: Listing,
-    pub revision: Option<adroit_vcs::Revision>,
+    pub revision: Option<adroit_model::repository::Revision>,
 }
 
 impl View {
@@ -849,9 +849,9 @@ impl View {
             spot: read.spot,
             worktree,
             listing: match read.listing {
-                Ok(adroit_vcs::Listing::Files(files)) => Listing::Files(files),
-                Ok(adroit_vcs::Listing::Log(commits)) => Listing::Log(commits),
-                Ok(adroit_vcs::Listing::Diff(lines)) => Listing::Diff(lines),
+                Ok(adroit_model::repository::Listing::Files(files)) => Listing::Files(files),
+                Ok(adroit_model::repository::Listing::Log(commits)) => Listing::Log(commits),
+                Ok(adroit_model::repository::Listing::Diff(lines)) => Listing::Diff(lines),
                 Err(e) => Listing::Error(e),
             },
             revision: read.revision,
@@ -1067,7 +1067,7 @@ impl Drill {
 mod tests {
     use super::*;
 
-    use adroit_vcs::DiffKind;
+    use adroit_model::repository::DiffKind;
 
     use adroit_model::{Session, State, Wait};
 

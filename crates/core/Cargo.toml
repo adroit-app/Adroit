@@ -10,7 +10,6 @@ publish = false
 [dependencies]
 adroit-model.workspace = true
 adroit-protocol.workspace = true
-adroit-vcs.workspace = true
 nucleo-matcher.workspace = true
 regex.workspace = true
 schemars.workspace = true

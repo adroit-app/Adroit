@@ -1,7 +1,7 @@
 //! The log: the history of the worktree shown, drawn with its graph.
 
 use adroit_core::graph;
-use adroit_vcs::Commit;
+use adroit_model::repository::Commit;
 use dioxus::prelude::*;
 
 use crate::bridge::AppCtx;

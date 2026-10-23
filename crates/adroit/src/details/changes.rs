@@ -3,7 +3,7 @@
 //! one file's diff.
 
 use adroit_core::msg::Msg;
-use adroit_vcs::DiffKind;
+use adroit_model::repository::DiffKind;
 use dioxus::prelude::*;
 
 use super::log::LogRows;

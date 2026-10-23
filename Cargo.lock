@@ -19,7 +19,6 @@ dependencies = [
  "adroit-protocol",
  "adroit-runtime",
  "adroit-term",
- "adroit-vcs",
  "dioxus",
  "image",
  "objc2",
@@ -56,7 +55,6 @@ version = "0.0.0"
 dependencies = [
  "adroit-model",
  "adroit-protocol",
- "adroit-vcs",
  "nucleo-matcher",
  "regex",
  "schemars",
