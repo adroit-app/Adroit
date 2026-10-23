@@ -95,23 +95,41 @@ mod tests {
         // (messages, zoom drawn, effects of the last message)
         let cases: Vec<(Vec<Msg>, f64, Vec<Effect>)> = vec![
             (
-                vec![Msg::Opened { zoom: 1.25 }],
+                vec![Msg::Opened {
+                    zoom: 1.25,
+                    home: Default::default(),
+                }],
                 1.25,
                 vec![Effect::Zoom(1.25)],
             ),
             (
-                vec![Msg::Opened { zoom: 1.0 }, Msg::Zoom(Step::In)],
+                vec![
+                    Msg::Opened {
+                        zoom: 1.0,
+                        home: Default::default(),
+                    },
+                    Msg::Zoom(Step::In),
+                ],
                 1.1,
                 vec![Effect::Zoom(1.1)],
             ),
             (
-                vec![Msg::Opened { zoom: 1.0 }, Msg::Zoom(Step::Out)],
+                vec![
+                    Msg::Opened {
+                        zoom: 1.0,
+                        home: Default::default(),
+                    },
+                    Msg::Zoom(Step::Out),
+                ],
                 0.9,
                 vec![Effect::Zoom(0.9)],
             ),
             (
                 vec![
-                    Msg::Opened { zoom: 1.25 },
+                    Msg::Opened {
+                        zoom: 1.25,
+                        home: Default::default(),
+                    },
                     Msg::Zoom(Step::In),
                     Msg::Zoom(Step::Reset),
                 ],
@@ -120,7 +138,10 @@ mod tests {
             ),
             (
                 vec![
-                    Msg::Opened { zoom: 1.0 },
+                    Msg::Opened {
+                        zoom: 1.0,
+                        home: Default::default(),
+                    },
                     Msg::Zoom(Step::In),
                     Msg::ZoomSetting(0.8),
                 ],
@@ -129,7 +150,10 @@ mod tests {
             ),
             (
                 vec![
-                    Msg::Opened { zoom: 1.0 },
+                    Msg::Opened {
+                        zoom: 1.0,
+                        home: Default::default(),
+                    },
                     Msg::Zoom(Step::In),
                     Msg::ZoomSetting(1.0),
                 ],

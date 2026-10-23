@@ -65,7 +65,7 @@ pub(crate) fn shows_file(shown: Option<&Tab>, terminals: &[TerminalSession], pat
 }
 
 fn short(path: &Path) -> String {
-    crate::picker::short(path, &crate::paths::home())
+    adroit_core::picker::short(path, &crate::paths::home())
 }
 
 /// What a row reaches outside the tree and the content: the sessions'

@@ -12,5 +12,5 @@ pub(crate) use bodies::*;
 pub(crate) use view::*;
 
 fn short(path: &std::path::Path) -> String {
-    crate::picker::short(path, &crate::paths::home())
+    adroit_core::picker::short(path, &crate::paths::home())
 }

@@ -5,7 +5,7 @@ use adroit_protocol::{Request, Sight};
 
 use crate::effect::Effect;
 use crate::state::ViewState;
-use crate::{content, details, tree};
+use crate::{content, details, picker, tree};
 
 type Rule = fn(&mut ViewState, &mut Vec<Effect>);
 
@@ -25,6 +25,8 @@ const RULES: &[Rule] = &[
     details_shown,
     details_refreshed,
     details_gone,
+    picker_offered,
+    picker_listed,
     watched,
 ];
 
@@ -116,8 +118,19 @@ fn details_gone(state: &mut ViewState, _: &mut Vec<Effect>) {
     details::forget_gone(&mut state.details, work);
 }
 
-/// The host keeps read what the tree and the details panel show, asked
-/// once each time it changes.
+/// What the host offered the picker is taken into its list and its tree.
+fn picker_offered(state: &mut ViewState, _: &mut Vec<Effect>) {
+    picker::take_offers(&mut state.picker, state.host.work.as_ref());
+}
+
+/// A directory opened in the picker's tree before it was listed is moved
+/// into once it is.
+fn picker_listed(state: &mut ViewState, _: &mut Vec<Effect>) {
+    picker::take_listed(&mut state.picker, state.host.work.as_ref());
+}
+
+/// The host keeps read what the tree, the details panel and the picker
+/// show, asked once each time it changes.
 fn watched(state: &mut ViewState, effects: &mut Vec<Effect>) {
     let sight = sight(state);
     if state.host.watched == sight {
@@ -131,7 +144,8 @@ fn watched(state: &mut ViewState, effects: &mut Vec<Effect>) {
 pub(crate) fn sight(state: &ViewState) -> Sight {
     Sight {
         tree: tree::sight(&state.tree),
-        past: state.resume.sight(),
+        past: state.picker.past_sight(),
+        pick: state.picker.sight(),
         ..details::sight(&state.details)
     }
 }

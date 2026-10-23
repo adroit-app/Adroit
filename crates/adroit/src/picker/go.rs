@@ -1,17 +1,14 @@
-//! The picker drawn over the window. It only draws: the window feeds the
-//! keys into [`Picker`].
+//! The picker that goes to a session or starts one.
 
-use std::path::PathBuf;
-
+use adroit_core::msg::Msg;
+use adroit_core::picker::fuzzy::Query;
+use adroit_core::picker::{self, Mark, Mode, Picker, go_rows, short, tree_rows};
 use dioxus::prelude::*;
 
+use super::QueryField;
+use crate::bridge::AppCtx;
 use crate::components::{Dialog, KeyHint, ListRow};
-use crate::filer::Row;
-use crate::fuzzy::Query;
 use crate::icons::{Icon, IconView};
-use crate::keys;
-use crate::paths::home;
-use crate::picker::{Line, Mark, Mode, Picker, short};
 
 /// `text` with what `query` marked in it drawn as matched.
 fn marked(query: &Query, text: &str) -> Element {
@@ -27,20 +24,11 @@ fn marked(query: &Query, text: &str) -> Element {
 }
 
 #[component]
-pub fn PickerView(
-    picker: Picker,
-    rows: Vec<Line>,
-    tree: Vec<Row>,
-    /// Told the row of the list chosen, by its place in `rows`.
-    onchoose: EventHandler<usize>,
-    /// Told the directory chosen in the tree.
-    onpick: EventHandler<PathBuf>,
-    /// Told what the query field holds as it is typed in.
-    onquery: EventHandler<String>,
-    /// Told the keys the query field does not type with.
-    onkey: EventHandler<adroit_term::Key>,
-) -> Element {
-    let home = home();
+pub(super) fn Go(picker: Picker) -> Element {
+    let app = use_context::<AppCtx>();
+    let home = app.picker.read().home.clone();
+    let host = app.host.read();
+    let work = host.work.as_ref();
     let keys: &[(&str, &str)] = match picker.mode {
         Mode::List => &[
             ("Ctrl+n/p", "move"),
@@ -63,28 +51,10 @@ pub fn PickerView(
             match picker.mode {
                 Mode::List => {
                     let query = Query::new(&picker.query);
+                    let rows = picker::lines(&go_rows(&picker, &home, work), &home);
                     rsx! {
                         div { class: "filter-field",
-                            input {
-                                class: "filter-field-input",
-                                value: "{picker.query}",
-                                autocomplete: "off",
-                                spellcheck: "false",
-                                "autocorrect": "off",
-                                "autocapitalize": "off",
-                                onmounted: move |e: MountedEvent| async move {
-                                    let _ = e.data().set_focus(true).await;
-                                },
-                                oninput: move |e: Event<FormData>| onquery.call(e.value()),
-                                onkeydown: move |e: Event<KeyboardData>| {
-                                    if let Some(k) = keys::of_field(&e).filter(|k| !keys::edits_text(k)) {
-                                        // Tab and the arrows would move the
-                                        // focus or the caret.
-                                        e.prevent_default();
-                                        onkey.call(k);
-                                    }
-                                },
-                            }
+                            QueryField { query: picker.query.clone() }
                         }
                         div { class: "list-rows",
                             if rows.is_empty() {
@@ -98,7 +68,7 @@ pub fn PickerView(
                                     ListRow {
                                         kind: if line.mark == Mark::Directory { "mono" } else { "" },
                                         selected: i == picker.cursor,
-                                        onclick: move |_| onchoose.call(i),
+                                        onclick: move |_| app.dispatch(Msg::PickerChoose(i)),
                                         span { class: "place-mark", IconView { icon: match line.mark { Mark::Scratch => Icon::Notes, Mark::Session => Icon::Message, Mark::Directory => Icon::Folder } } }
                                         span { class: "list-row-name",
                                             {marked(&query, &line.name)}
@@ -115,18 +85,18 @@ pub fn PickerView(
                 }
                 Mode::Tree => rsx! {
                     div { class: "list-rows",
-                        for r in tree.iter() {
+                        for r in tree_rows(&picker, work) {
                             ListRow {
                                 key: "{r.root.display()}:{r.path.display()}",
                                 kind: "mono",
-                                selected: picker.filer.cursor() == Some(r),
+                                selected: picker.filer.cursor() == Some(&r),
                                 style: "padding-left: {8 + r.depth * 16}px",
                                 onclick: {
                                     let path = r.path.clone();
-                                    move |_| onpick.call(path.clone())
+                                    move |_| app.dispatch(Msg::PickerDir(path.clone()))
                                 },
                                 span { class: "picker-chevron",
-                                    IconView { icon: if picker.filer.is_expanded(r) { Icon::ChevronDown } else { Icon::ChevronRight }, size: 12 }
+                                    IconView { icon: if picker.filer.is_expanded(&r) { Icon::ChevronDown } else { Icon::ChevronRight }, size: 12 }
                                 }
                                 span { class: "list-row-name",
                                     if r.depth == 0 {

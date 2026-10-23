@@ -2,10 +2,9 @@
 //! move, `l` opens, `h` closes or goes to the parent, `!` shows the hidden.
 //!
 //! Directories are read through a function the caller passes, so the tree
-//! is tested without a disk; [`read_dirs`] is the one that reads it.
+//! is tested without a disk and drawn from what the work host listed.
 
 use std::collections::HashSet;
-use std::fs;
 use std::path::{Path, PathBuf};
 
 /// One line of the tree. Its identity is the root it is listed under and
@@ -77,6 +76,11 @@ impl Filer {
             cursor: None,
             ..self.clone()
         }
+    }
+
+    /// Every directory open, under whichever root.
+    pub fn expanded(&self) -> impl Iterator<Item = &Path> {
+        self.expanded.iter().map(|(_, path)| path.as_path())
     }
 
     pub fn is_expanded(&self, row: &Row) -> bool {
@@ -239,19 +243,6 @@ impl Filer {
 fn is_hidden(path: &Path) -> bool {
     path.file_name()
         .is_some_and(|n| n.to_string_lossy().starts_with('.'))
-}
-
-/// The directories directly inside `path`, a link to a directory included.
-/// What cannot be read is left out.
-pub fn read_dirs(path: &Path) -> Vec<PathBuf> {
-    let Ok(entries) = fs::read_dir(path) else {
-        return Vec::new();
-    };
-    entries
-        .filter_map(Result::ok)
-        .map(|e| e.path())
-        .filter(|p| p.is_dir())
-        .collect()
 }
 
 #[cfg(test)]
@@ -497,29 +488,5 @@ mod tests {
         filer.open(&read);
         assert_eq!(filer.chosen(), Some(PathBuf::from("/h/docs")));
         assert_eq!(Filer::new(Vec::<PathBuf>::new()).chosen(), None);
-    }
-
-    #[test]
-    fn reading_a_directory_answers_its_subdirectories_and_links_to_them_only() {
-        let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path();
-        fs::create_dir(root.join("dir")).unwrap();
-        fs::create_dir(root.join(".hidden")).unwrap();
-        fs::write(root.join("file"), "").unwrap();
-        std::os::unix::fs::symlink(root.join("dir"), root.join("to-dir")).unwrap();
-        std::os::unix::fs::symlink(root.join("file"), root.join("to-file")).unwrap();
-        std::os::unix::fs::symlink(root.join("gone"), root.join("dangling")).unwrap();
-
-        let mut found = read_dirs(root);
-        found.sort();
-        assert_eq!(
-            found,
-            vec![root.join(".hidden"), root.join("dir"), root.join("to-dir")]
-        );
-    }
-
-    #[test]
-    fn a_directory_that_cannot_be_read_has_no_subdirectories() {
-        assert!(read_dirs(Path::new("/no/such/directory")).is_empty());
     }
 }

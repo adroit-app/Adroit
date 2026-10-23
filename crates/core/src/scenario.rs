@@ -106,7 +106,10 @@ mod tests {
             ],
             _ => vec![],
         })
-        .send(Msg::Opened { zoom: 1.0 });
+        .send(Msg::Opened {
+            zoom: 1.0,
+            home: Default::default(),
+        });
         assert_eq!(
             run.state().host.link,
             Link::Ready {

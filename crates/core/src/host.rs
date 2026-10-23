@@ -107,7 +107,10 @@ mod tests {
 
     #[test]
     fn opening_the_window_says_hello_in_every_version_it_speaks() {
-        let run = Scenario::new().send(Msg::Opened { zoom: 1.0 });
+        let run = Scenario::new().send(Msg::Opened {
+            zoom: 1.0,
+            home: Default::default(),
+        });
         assert!(run.last_effects().contains(&Effect::Host(Request::Hello {
             versions: adroit_protocol::SPOKEN.to_vec(),
         })));

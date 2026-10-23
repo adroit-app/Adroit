@@ -6,8 +6,9 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use adroit_model::{Session, Tree};
+use adroit_protocol::Offers;
 
-use super::filer::Filer;
+use super::filer::{Filer, Row};
 use super::fuzzy::{Query, best};
 
 /// One row of the list as drawn: the heading of the group it starts, what
@@ -155,26 +156,6 @@ pub fn candidates(
     .collect()
 }
 
-/// The folders in `roots`, each root's in name order, leaving out hidden ones
-/// and a root that cannot be read.
-pub fn folders_in(roots: &[PathBuf]) -> Vec<PathBuf> {
-    roots
-        .iter()
-        .flat_map(|root| {
-            let mut found: Vec<PathBuf> = std::fs::read_dir(root)
-                .into_iter()
-                .flatten()
-                .flatten()
-                .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
-                .filter(|e| e.path().is_dir())
-                .map(|e| e.path())
-                .collect();
-            found.sort();
-            found
-        })
-        .collect()
-}
-
 /// The best `cap` candidates for `query`, best first; with nothing typed, the
 /// first `cap` as given.
 ///
@@ -283,6 +264,13 @@ pub struct Picker {
     pub cursor: usize,
     pub mode: Mode,
     pub filer: Filer,
+    /// The directories sessions ran in when the picker opened.
+    pub running: Vec<PathBuf>,
+    /// What the host offered, as the list ranks it; none until it is listed.
+    pub offered: Option<Offers>,
+    /// The directory opened before it was listed, which the cursor moves
+    /// into once it is.
+    pub(crate) entering: Option<Row>,
 }
 
 impl Picker {
@@ -411,17 +399,6 @@ mod tests {
                 ("/l", Source::Listed)
             ]
         );
-    }
-
-    #[test]
-    fn a_root_lists_the_folders_in_it_but_hidden_ones_and_files() {
-        let root = tempfile::tempdir().unwrap();
-        for d in ["b", "a", ".git"] {
-            std::fs::create_dir(root.path().join(d)).unwrap();
-        }
-        std::fs::write(root.path().join("file"), "").unwrap();
-        let got = folders_in(&[root.path().to_path_buf(), PathBuf::from("/no/such")]);
-        assert_eq!(got, [root.path().join("a"), root.path().join("b")]);
     }
 
     #[test]

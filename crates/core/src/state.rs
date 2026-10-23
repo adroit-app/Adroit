@@ -5,7 +5,7 @@ use crate::chrome::Chrome;
 use crate::content::ContentView;
 use crate::details::Details;
 use crate::host::Host;
-use crate::picker::resume::ResumeView;
+use crate::picker::PickerView;
 use crate::tree::TreeView;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -15,7 +15,7 @@ pub struct ViewState {
     pub content: ContentView,
     pub tree: TreeView,
     pub details: Details,
-    pub resume: ResumeView,
+    pub picker: PickerView,
 }
 
 impl Default for ViewState {
@@ -26,7 +26,7 @@ impl Default for ViewState {
             content: ContentView::default(),
             tree: TreeView::default(),
             details: Details::default(),
-            resume: ResumeView::default(),
+            picker: PickerView::default(),
         };
         // A window that shows nothing asks nothing of the host, which starts
         // out reading nothing.

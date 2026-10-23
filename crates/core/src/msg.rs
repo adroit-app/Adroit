@@ -18,9 +18,11 @@ use crate::zoom;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Msg {
-    /// The window opened, with the zoom the settings name.
+    /// The window opened, with the zoom the settings name and the home
+    /// directory the paths it draws shorten to `~`.
     Opened {
         zoom: f64,
+        home: PathBuf,
     },
     /// A key asked to zoom.
     Zoom(zoom::Step),
@@ -192,16 +194,22 @@ pub enum Msg {
     /// What the panel shows changed by the window's hand; read it again now.
     DetailsReadAgain,
 
-    // The list of past conversations.
-    /// Open it on where the focused window works.
+    // The picker.
+    /// Open the picker that goes to a session or starts one.
+    PickerOpen,
+    /// Open the list of past conversations on where the focused window
+    /// works.
     ResumeOpen,
-    ResumeClose,
+    PickerClose,
     /// Its query field now holds this.
-    ResumeQuery(String),
-    /// A key its query field does not type with.
-    ResumeKey(Key),
-    /// List every directory's conversations, or the directory's again.
-    ResumeEvery,
+    PickerQuery(String),
+    /// A key its query field does not type with, or any key in its
+    /// directory tree.
+    PickerKey(Key),
     /// A row was chosen, by its place among those drawn.
-    ResumeChoose(usize),
+    PickerChoose(usize),
+    /// A directory was chosen in the directory tree.
+    PickerDir(PathBuf),
+    /// List every directory's conversations, or the directory's again.
+    PickerEvery,
 }

@@ -1,13 +1,13 @@
 //! The list of the conversations the agents kept: which directory's it
-//! lists, what is typed to narrow it, the row the cursor is on, and what
-//! choosing a row does.
+//! lists, and what choosing a row does.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use adroit_model::{Key, Past};
+use adroit_model::Past;
 use adroit_protocol::{PastSight, WorkSnapshot};
 
 use super::fuzzy::{Query, best};
+use super::{close, short};
 use crate::content::{self, Tab};
 use crate::effect::Effect;
 use crate::state::ViewState;
@@ -17,8 +17,7 @@ use crate::tree::{self, nav};
 const ROWS: usize = 200;
 
 #[derive(Debug, Clone, Default, PartialEq)]
-pub struct ResumeView {
-    pub open: bool,
+pub struct Resume {
     /// The directory the focused window worked in when the list opened.
     pub dir: Option<PathBuf>,
     /// Whether every directory's conversations are listed, rather than the
@@ -36,24 +35,33 @@ pub struct Row {
     pub session: Option<String>,
 }
 
-impl ResumeView {
-    /// Which conversations the host is asked to list while the list is open.
-    pub fn sight(&self) -> Option<PastSight> {
-        self.open.then(|| PastSight {
+impl Resume {
+    /// Which conversations the host is asked to list.
+    pub fn sight(&self) -> PastSight {
+        PastSight {
             dir: self.dir.clone().filter(|_| !self.every),
-        })
+        }
+    }
+
+    /// List every directory's conversations, or the directory's again; with
+    /// no directory, every directory's stay listed.
+    pub(crate) fn toggle_every(&mut self) {
+        if self.dir.is_some() {
+            self.every = !self.every;
+            self.cursor = 0;
+        }
     }
 }
 
-/// The conversations listed for what the list shows, those `query` answers
-/// to, best first; none while they are being read.
-pub fn rows(view: &ResumeView, work: Option<&WorkSnapshot>) -> Option<Vec<Row>> {
-    let sight = view.sight()?;
-    let pasts = work?.past.of(&sight)?;
-    let query = Query::new(&view.query);
+/// The conversations listed for what the list shows, those its query
+/// answers to, best first; none while they are being read. Each is matched
+/// by its title and the directory it ran in as drawn, `home` written as `~`.
+pub fn rows(list: &Resume, home: &Path, work: Option<&WorkSnapshot>) -> Option<Vec<Row>> {
+    let pasts = work?.past.of(&list.sight())?;
+    let query = Query::new(&list.query);
     let matched = best(
         pasts.iter().filter_map(|p| {
-            let text = format!("{} {}", p.title, p.cwd.display());
+            let text = format!("{} {}", p.title, short(&p.cwd, home));
             query.rank_named(&text, &p.title).map(|rank| (rank, p))
         }),
         ROWS,
@@ -73,10 +81,10 @@ pub fn rows(view: &ResumeView, work: Option<&WorkSnapshot>) -> Option<Vec<Row>> 
     )
 }
 
-/// Open the list on the directory the focused window works in: the one its
-/// session runs in, or else its worktree; every directory's with nothing
-/// open.
-pub(crate) fn open(state: &mut ViewState) -> Vec<Effect> {
+/// The list opened on the directory the focused window works in: the one
+/// its session runs in, or else its worktree; every directory's with
+/// nothing open.
+pub(super) fn open(state: &ViewState) -> Resume {
     let showing = state.content.showing();
     let work = state.host.work.as_ref();
     let session_dir = match &showing.tab {
@@ -84,70 +92,27 @@ pub(crate) fn open(state: &mut ViewState) -> Vec<Effect> {
         _ => None,
     };
     let dir = session_dir.or_else(|| showing.place.map(|p| p.worktree));
-    state.resume = ResumeView {
-        open: true,
+    Resume {
         every: dir.is_none(),
         dir,
-        ..ResumeView::default()
-    };
-    Vec::new()
-}
-
-pub(crate) fn close(view: &mut ResumeView) -> Vec<Effect> {
-    *view = ResumeView::default();
-    Vec::new()
-}
-
-pub(crate) fn query(view: &mut ResumeView, text: String) -> Vec<Effect> {
-    view.query = text;
-    view.cursor = 0;
-    Vec::new()
-}
-
-/// List every directory's conversations, or the directory's again; with no
-/// directory, every directory's stay listed.
-pub(crate) fn toggle_every(view: &mut ResumeView) -> Vec<Effect> {
-    if view.dir.is_some() {
-        view.every = !view.every;
-        view.cursor = 0;
+        ..Resume::default()
     }
-    Vec::new()
-}
-
-/// A key the list's query field does not type with.
-pub(crate) fn press(state: &mut ViewState, key: &Key) -> Vec<Effect> {
-    let plain = !key.ctrl && !key.alt && !key.meta;
-    let ctrl = key.ctrl && !key.alt && !key.meta;
-    let delta = match key.key.as_str() {
-        "Escape" if plain => return close(&mut state.resume),
-        "c" if ctrl => return close(&mut state.resume),
-        "a" if ctrl => return toggle_every(&mut state.resume),
-        "Enter" if plain => {
-            let at = state.resume.cursor;
-            return choose(state, at);
-        }
-        "ArrowDown" | "Tab" if plain && !key.shift => 1,
-        "Tab" if plain => -1,
-        "n" | "j" if ctrl => 1,
-        "ArrowUp" if plain => -1,
-        "p" | "k" if ctrl => -1,
-        _ => return Vec::new(),
-    };
-    let len = rows(&state.resume, state.host.work.as_ref()).map_or(0, |r| r.len());
-    state.resume.cursor = crate::picker::step(state.resume.cursor, len, delta);
-    Vec::new()
 }
 
 /// The row `at` chosen: the session that holds its conversation shown, or
 /// else the conversation resumed in a new session. The list closes either
 /// way.
-pub(crate) fn choose(state: &mut ViewState, at: usize) -> Vec<Effect> {
-    let chosen = rows(&state.resume, state.host.work.as_ref())
-        .and_then(|mut r| (at < r.len()).then(|| r.swap_remove(at)));
+pub(super) fn choose(state: &mut ViewState, at: usize) -> Vec<Effect> {
+    let view = &state.picker;
+    let chosen = match &view.open {
+        Some(super::Picking::Resume(list)) => rows(list, &view.home, state.host.work.as_ref())
+            .and_then(|mut r| (at < r.len()).then(|| r.swap_remove(at))),
+        _ => None,
+    };
     let Some(row) = chosen else {
         return Vec::new();
     };
-    close(&mut state.resume);
+    close(&mut state.picker);
     match row.session {
         Some(id) => content::show_session(state, id),
         None => vec![Effect::Resume(row.past)],
@@ -157,12 +122,32 @@ pub(crate) fn choose(state: &mut ViewState, at: usize) -> Vec<Effect> {
 #[cfg(test)]
 mod tests {
     use adroit_model::testing::worktree as wt;
-    use adroit_model::{Agent, Session, build};
+    use adroit_model::{Agent, Key, Session, build};
     use adroit_protocol::{Change, Event, Listed, PastChange, Request, Seq, TreeWork, WorkPatch};
 
     use super::*;
     use crate::msg::Msg;
     use crate::scenario::Scenario;
+
+    const HOME: &str = "/Users/me";
+
+    fn window() -> Scenario {
+        Scenario::new().send(Msg::Opened {
+            zoom: 1.0,
+            home: HOME.into(),
+        })
+    }
+
+    /// The rows the list draws; none while they are read.
+    fn drawn(run: &Scenario) -> Option<Vec<Row>> {
+        let view = &run.state().picker;
+        match &view.open {
+            Some(super::super::Picking::Resume(list)) => {
+                rows(list, &view.home, run.state().host.work.as_ref())
+            }
+            _ => None,
+        }
+    }
 
     fn session(id: &str, cwd: &str, conversation: &str) -> Session {
         Session {
@@ -237,14 +222,14 @@ mod tests {
     }
 
     fn key(name: &str, ctrl: bool) -> Msg {
-        Msg::ResumeKey(Key {
+        Msg::PickerKey(Key {
             ctrl,
             ..Key::new(name)
         })
     }
 
     fn titles(run: &Scenario) -> Vec<String> {
-        rows(&run.state().resume, run.state().host.work.as_ref())
+        drawn(run)
             .unwrap_or_default()
             .into_iter()
             .map(|r| r.past.title)
@@ -253,7 +238,7 @@ mod tests {
 
     /// A window showing the session `a`, which runs in `/r/src`.
     fn showing_a() -> Scenario {
-        Scenario::new()
+        window()
             .event(listing(vec![session("a", "/r/src", "conv-a")]))
             .send(Msg::ShowSession("a".into()))
     }
@@ -266,7 +251,7 @@ mod tests {
 
     #[test]
     fn with_nothing_open_every_directory_s_conversations_are_listed() {
-        let run = Scenario::new().send(Msg::ResumeOpen);
+        let run = window().send(Msg::ResumeOpen);
         assert_eq!(watched(&run), every());
         // There is no directory's to go back to.
         let run = run.send(key("a", true));
@@ -283,10 +268,10 @@ mod tests {
 
     #[test]
     fn closing_the_list_stops_the_host_listing() {
-        for close in [key("Escape", false), key("c", true), Msg::ResumeClose] {
+        for close in [key("Escape", false), key("c", true), Msg::PickerClose] {
             let run = showing_a().send(Msg::ResumeOpen).send(close.clone());
             assert_eq!(watched(&run), Some(None), "{close:?}");
-            assert!(!run.state().resume.open);
+            assert!(run.state().picker.open.is_none());
         }
     }
 
@@ -295,10 +280,7 @@ mod tests {
         let run = showing_a()
             .send(Msg::ResumeOpen)
             .event(pasts(None, vec![past(Agent::Claude, "x", "/q", "other")]));
-        assert_eq!(
-            rows(&run.state().resume, run.state().host.work.as_ref()),
-            None
-        );
+        assert_eq!(drawn(&run), None);
     }
 
     #[test]
@@ -320,7 +302,23 @@ mod tests {
             let run = showing_a()
                 .send(Msg::ResumeOpen)
                 .event(pasts(Some("/r/src"), listed.clone()))
-                .send(Msg::ResumeQuery(typed.into()));
+                .send(Msg::PickerQuery(typed.into()));
+            assert_eq!(titles(&run), want, "{typed}");
+        }
+    }
+
+    #[test]
+    fn a_directory_is_matched_as_drawn_with_home_as_a_tilde() {
+        let listed = vec![
+            past(Agent::Claude, "1", "/Users/me/w", "one"),
+            past(Agent::Claude, "2", "/srv/w", "two"),
+        ];
+        let cases = [("~/w", vec!["one"]), ("Users", vec![])];
+        for (typed, want) in cases {
+            let run = showing_a()
+                .send(Msg::ResumeOpen)
+                .event(pasts(Some("/r/src"), listed.clone()))
+                .send(Msg::PickerQuery(typed.into()));
             assert_eq!(titles(&run), want, "{typed}");
         }
     }
@@ -337,12 +335,12 @@ mod tests {
             .send(key("ArrowDown", false))
             .send(key("Enter", false));
         assert!(run.last_effects().contains(&Effect::Resume(chosen)));
-        assert!(!run.state().resume.open);
+        assert!(run.state().picker.open.is_none());
     }
 
     #[test]
     fn choosing_a_conversation_a_session_here_holds_shows_that_session() {
-        let run = Scenario::new()
+        let run = window()
             .event(listing(vec![
                 session("a", "/r/src", "conv-a"),
                 session("b", "/r/src", "conv-b"),
@@ -353,9 +351,9 @@ mod tests {
                 Some("/r/src"),
                 vec![past(Agent::Claude, "conv-b", "/r/src", "the other")],
             ));
-        let got = rows(&run.state().resume, run.state().host.work.as_ref()).unwrap();
+        let got = drawn(&run).unwrap();
         assert_eq!(got[0].session.as_deref(), Some("b"));
-        let run = run.send(Msg::ResumeChoose(0));
+        let run = run.send(Msg::PickerChoose(0));
         assert!(
             !run.last_effects()
                 .iter()
@@ -373,7 +371,7 @@ mod tests {
             Some("/r/src"),
             vec![past(Agent::Codex, "conv-a", "/r/src", "codex")],
         ));
-        let got = rows(&run.state().resume, run.state().host.work.as_ref()).unwrap();
+        let got = drawn(&run).unwrap();
         assert_eq!(got[0].session, None);
     }
 
@@ -387,11 +385,11 @@ mod tests {
             ],
         ));
         let up = run.send(key("p", true));
-        assert_eq!(up.state().resume.cursor, 1);
+        assert_eq!(up.state().picker.open.as_ref().unwrap().cursor(), 1);
         let round = up.send(key("n", true));
-        assert_eq!(round.state().resume.cursor, 0);
-        let nothing = round.send(Msg::ResumeChoose(5));
+        assert_eq!(round.state().picker.open.as_ref().unwrap().cursor(), 0);
+        let nothing = round.send(Msg::PickerChoose(5));
         assert!(nothing.last_effects().is_empty());
-        assert!(nothing.state().resume.open);
+        assert!(nothing.state().picker.open.is_some());
     }
 }

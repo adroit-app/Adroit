@@ -10,7 +10,7 @@ use adroit_core::details::{Details, Scroll};
 use adroit_core::effect::Effect;
 use adroit_core::host::Host as HostView;
 use adroit_core::msg::Msg;
-use adroit_core::picker::resume::ResumeView;
+use adroit_core::picker::PickerView;
 use adroit_core::state::ViewState;
 use adroit_core::tree::TreeView;
 use adroit_core::update::step;
@@ -19,7 +19,7 @@ use dioxus::prelude::*;
 
 use crate::layout::{Kept as _, Layout};
 use crate::nav::Place;
-use crate::paths::{instance_state, scratch_dir};
+use crate::paths::{home, instance_state, scratch_dir};
 use crate::settings;
 
 /// What runs an effect handed to `App`.
@@ -39,7 +39,7 @@ pub(crate) struct AppCtx {
     pub(crate) content: Signal<ContentView>,
     pub(crate) tree: Signal<TreeView>,
     pub(crate) details: Signal<Details>,
-    pub(crate) resume: Signal<ResumeView>,
+    pub(crate) picker: Signal<PickerView>,
     /// What runs the effects whose state `App` still holds.
     handed: CopyValue<Option<Handed>>,
 }
@@ -59,6 +59,7 @@ pub(crate) fn use_app() -> AppCtx {
             &mut view,
             Msg::Opened {
                 zoom: settings::current().zoom,
+                home: home(),
             },
         ));
         let kept = std::fs::read_to_string(shown_path())
@@ -77,7 +78,7 @@ pub(crate) fn use_app() -> AppCtx {
             content: Signal::new(view.content.clone()),
             tree: Signal::new(view.tree.clone()),
             details: Signal::new(view.details.clone()),
-            resume: Signal::new(view.resume.clone()),
+            picker: Signal::new(view.picker.clone()),
             handed: CopyValue::new(None),
             view: CopyValue::new(view),
             link: CopyValue::new(link),
@@ -112,7 +113,7 @@ impl AppCtx {
         set_changed(self.content, &view.content);
         set_changed(self.tree, &view.tree);
         set_changed(self.details, &view.details);
-        set_changed(self.resume, &view.resume);
+        set_changed(self.picker, &view.picker);
     }
 
     /// Start keeping read, in the background, what the window shows and
@@ -310,7 +311,10 @@ mod tests {
                 events,
                 drawn: Vec::new(),
             };
-            window.dispatch(Msg::Opened { zoom });
+            window.dispatch(Msg::Opened {
+                zoom,
+                home: Default::default(),
+            });
             window
         }
 

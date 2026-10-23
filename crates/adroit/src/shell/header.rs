@@ -39,7 +39,7 @@ pub(crate) fn Header(ontoggle: EventHandler<Side>) -> Element {
                         span { class: "header-crumbs-item", IconView { icon: if *scratch { Icon::Notes } else { Icon::Folder }, size: 14 } "{name}" }
                         span { class: "header-crumbs-sep", IconView { icon: Icon::ChevronRight, size: 12 } }
                     }
-                    span { class: "header-crumbs-item header-crumbs-path", IconView { icon: Icon::GitBranch, size: 14 } "{crate::picker::short(&c.worktree, &crate::paths::home())}" }
+                    span { class: "header-crumbs-item header-crumbs-path", IconView { icon: Icon::GitBranch, size: 14 } "{adroit_core::picker::short(&c.worktree, &crate::paths::home())}" }
                     span { class: "header-crumbs-sep", IconView { icon: Icon::ChevronRight, size: 12 } }
                     span { "{c.target}" }
                 }

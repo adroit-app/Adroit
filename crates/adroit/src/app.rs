@@ -6,11 +6,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use adroit_agents::claude::{commands, places};
+use adroit_agents::claude::commands;
 use adroit_model::Session;
 use adroit_nvim::{Embedded, Event as NvimEvent, notation};
 use adroit_term::{Key, Palette, Pane, Screen, Size, Spawn};
-use adroit_vcs::{Repo, ghq};
+use adroit_vcs::Repo;
 use dioxus::prelude::*;
 use tokio::sync::{Notify, mpsc, oneshot};
 
@@ -29,7 +29,6 @@ use crate::content::{
 use crate::daemon;
 use crate::details::{self, Entry, Sheet, Shot, Source};
 use crate::editor;
-use crate::filer::{Filer, read_dirs};
 use crate::icons::{Icon, IconView};
 use crate::image_window;
 use crate::keymap::{Chord, Context, Keymap, MENU_KEYS, Step};
@@ -42,14 +41,12 @@ use crate::menu_bar;
 use crate::nav::{self, Item};
 use crate::pasted;
 use crate::paths::{home, instance_state, keys_path, scratch_dir};
-use crate::picker::{self, Candidate, Choice, Mode, Picker};
-use crate::picker_view::PickerView;
+use crate::picker::Picker;
 use crate::pictures::{self, Gallery};
 use crate::programs;
 use crate::prompt_tab::{PromptTab, TabGoes};
 use crate::prompts::{self, Op, Prompts};
 use crate::rename::{Place as RenamePlace, Rename};
-use crate::resume_view::ResumeView;
 use crate::scratch::{self, Moment};
 use crate::sessions;
 use crate::settings;
@@ -75,9 +72,6 @@ fn shows_usage(tab: Option<&Tab>, agent: adroit_model::Agent) -> bool {
     matches!(tab, Some(Tab::Session(_) | Tab::Draft { .. }))
         && agents::adapter(agent).capabilities().usage_limits
 }
-
-/// The most directories the picker lists at once.
-const PICKS: usize = 40;
 
 /// The palette of the theme the settings name, or adroit's own when it
 /// cannot be read.
@@ -365,7 +359,7 @@ fn now_ms() -> u64 {
 }
 
 fn short(path: &Path) -> String {
-    picker::short(path, &home())
+    adroit_core::picker::short(path, &home())
 }
 
 /// Whether every key but the window's own goes to the program in the
@@ -651,41 +645,6 @@ fn App() -> Element {
     let active = use_memo(move || app.content.read().active().cloned());
     let focus = use_memo(move || app.content.read().focus);
     let place = use_memo(move || app.content.read().place.clone());
-    // The picker going to a session or starting one, while it is open, and
-    // the directories it offers.
-    let mut picking = use_signal(|| None::<Picker>);
-    let mut offers = use_signal(Vec::<Candidate>::new);
-    // What the open picker draws, worked out again only when the picker or
-    // its offers change: the window redraws on every frame of the console,
-    // and the tree reads the disk.
-    // Moving the cursor changes neither what was typed nor what the tree has
-    // open, so neither the ranking nor the disk is gone over again for it.
-    let picked_query = use_memo(move || picking.read().as_ref().map(|p| p.query.clone()));
-    let picked_layout = use_memo(move || {
-        picking
-            .read()
-            .as_ref()
-            .filter(|p| p.mode == Mode::Tree)
-            .map(|p| p.filer.layout())
-    });
-    // The sessions are offered as they stand now, their states kept current.
-    let picked_rows = use_memo(move || {
-        picked_query
-            .read()
-            .as_ref()
-            .map(|q| {
-                let sessions = picker::sessions(&tree.read());
-                picker::choices(&sessions, &offers.read(), q, &home(), PICKS)
-            })
-            .unwrap_or_default()
-    });
-    let picked_tree = use_memo(move || {
-        picked_layout
-            .read()
-            .as_ref()
-            .map(|f| f.rows(read_dirs))
-            .unwrap_or_default()
-    });
     let mut window_focused = use_signal(|| dioxus::desktop::window().is_focused());
     let mut completions = use_signal(Completions::default);
     use_effect(move || {
@@ -1377,16 +1336,6 @@ fn App() -> Element {
         );
     });
 
-    // So is the picker's, and the list of past conversations'.
-    use_effect(move || {
-        let _ = picking();
-        let _ = app.resume.read().cursor;
-        document::eval(
-            "requestAnimationFrame(() => document.querySelectorAll('.dialog.picker-dialog .list-row.selected')
-               .forEach((r) => r.scrollIntoView({ block: 'nearest' })));",
-        );
-    });
-
     // And the tab the console shows, along the one line of tabs.
     use_effect(move || {
         let _ = active();
@@ -1830,96 +1779,6 @@ fn App() -> Element {
                     Err(e) => app.status(Some(format!("cannot resume {name}: {e}"))),
                 }
             });
-        }
-    };
-
-    // Open the picker on the sessions and the directories they run in; those
-    // Claude Code was used in, and ghq's repositories and roots, follow once
-    // they are read.
-    let mut open_picker = move || {
-        let running: Vec<PathBuf> = tree
-            .peek()
-            .worktrees()
-            .filter(|w| !w.sessions.is_empty())
-            .map(|w| w.worktree.path.clone())
-            .collect();
-        offers.set(picker::candidates(&running, &[], &[], &[]));
-        // The home folder starts open: nearly every pick in the tree begins
-        // inside it.
-        let mut filer = Filer::new([home()]);
-        filer.open(read_dirs);
-        picking.set(Some(Picker::new(filer)));
-        spawn(async move {
-            // Claude Code's state file can run to megabytes, and every
-            // directory it names is looked at: not on the window's thread.
-            let home = home();
-            let asked = settings::current().picker;
-            let listed_roots = asked.root_paths(&home);
-            let (recent, (ghq, ghq_roots), listed) = tokio::join!(
-                tokio::task::spawn_blocking(move || places::recent(&home)),
-                async {
-                    if asked.ghq {
-                        tokio::join!(ghq::list(), ghq::roots())
-                    } else {
-                        (Vec::new(), Vec::new())
-                    }
-                },
-                tokio::task::spawn_blocking({
-                    let roots = listed_roots.clone();
-                    move || picker::folders_in(&roots)
-                }),
-            );
-            let roots: Vec<PathBuf> = ghq_roots.into_iter().chain(listed_roots).collect();
-            // Closed while they were read, the picker wants them no more.
-            if picking.peek().is_none() {
-                return;
-            }
-            let recent = recent.unwrap_or_default();
-            let next = picker::candidates(&running, &recent, &ghq, &listed.unwrap_or_default());
-            // The rows rank anew with more to rank: the cursor stays on the
-            // row it was on, not on whatever comes to sit at its place.
-            let (query, on) = {
-                let open = picking.peek();
-                let Some(p) = open.as_ref() else { return };
-                let on = picked_rows.peek().get(p.cursor).cloned();
-                (p.query.clone(), on)
-            };
-            let cursor = on.and_then(|on| {
-                let sessions = picker::sessions(&tree.peek());
-                picker::choices(&sessions, &next, &query, &crate::paths::home(), PICKS)
-                    .iter()
-                    .position(|c| *c == on)
-            });
-            offers.set(next);
-            // The tree may already be open and moved through: its roots are
-            // added to, so what was opened stays open.
-            if let Some(p) = picking.write().as_mut() {
-                p.filer.add_roots(roots);
-                p.cursor = cursor.unwrap_or(0);
-            }
-        });
-    };
-
-    // A directory chosen in the picker: a new session's draft there.
-    let mut choose = move |dir: PathBuf| {
-        picking.set(None);
-        app.dispatch(Msg::Draft {
-            worktree: dir,
-            write: true,
-        });
-    };
-
-    // A row of the picker's list chosen, by its place among those drawn.
-    let mut choose_row = move |at: usize| {
-        let chosen = picked_rows.peek().get(at).cloned();
-        match chosen {
-            Some(Choice::Scratch) => choose(scratch_dir()),
-            Some(Choice::Directory(c)) => choose(c.path),
-            Some(Choice::Session(s)) => {
-                picking.set(None);
-                app.dispatch(Msg::ShowSession(s.id));
-            }
-            None => {}
         }
     };
 
@@ -2494,8 +2353,7 @@ fn App() -> Element {
     // Where text typed or pasted now goes. A dialog open types in its own
     // field, or takes no text.
     let text_goes = move || {
-        if picking.peek().is_some()
-            || app.resume.peek().open
+        if app.picker.peek().open.is_some()
             || renaming.peek().is_some()
             || confirm.peek().is_some()
             || keys_help.peek().is_some()
@@ -2951,9 +2809,9 @@ fn App() -> Element {
                         app.dispatch(Msg::Focus(Area::Console));
                     }
                 }
-                Action::SessionPick => open_picker(),
+                Action::SessionPick => app.dispatch(Msg::PickerOpen),
                 Action::SessionScratch => {
-                    picking.set(None);
+                    app.dispatch(Msg::PickerClose);
                     app.dispatch(Msg::Window(action));
                 }
                 Action::SessionNext
@@ -3097,8 +2955,7 @@ fn App() -> Element {
             {
                 return;
             }
-            if picking.peek().is_some()
-                || app.resume.peek().open
+            if app.picker.peek().open.is_some()
                 || renaming.peek().is_some()
                 || confirm.peek().is_some()
             {
@@ -3114,76 +2971,11 @@ fn App() -> Element {
         }
     });
 
-    // The picker's keys: those its query field does not type with, and every
-    // key in its file tree.
-    let picker_key = {
-        let mut choose = choose;
-        let mut choose_row = choose_row;
-        move |key: Key| {
-            let plain = !key.ctrl && !key.alt && !key.meta;
-            let ctrl = key.ctrl && !key.alt && !key.meta;
-            let k = key.key.as_str();
-            if (plain && k == "Escape") || (ctrl && k == "c") {
-                picking.set(None);
-                return;
-            }
-            if ctrl && k == "f" {
-                if let Some(p) = picking.write().as_mut() {
-                    p.toggle_mode();
-                }
-                return;
-            }
-            let mode = picking.peek().as_ref().map(|p| p.mode);
-            if mode == Some(Mode::List) {
-                // Read before the picker is borrowed to change it: a memo
-                // out of date reads the picker to work itself out again.
-                let rows = picked_rows.peek().len();
-                let delta = match k {
-                    "ArrowDown" | "Tab" if !key.shift => Some(1),
-                    "Tab" => Some(-1),
-                    "n" | "j" if ctrl => Some(1),
-                    "ArrowUp" => Some(-1),
-                    "p" | "k" if ctrl => Some(-1),
-                    _ => None,
-                };
-                let mut open = picking.write();
-                let Some(p) = open.as_mut() else { return };
-                if let Some(d) = delta {
-                    p.cursor = picker::step(p.cursor, rows, d);
-                } else if k == "Enter" {
-                    let at = p.cursor;
-                    drop(open);
-                    choose_row(at);
-                }
-                return;
-            }
-            let rows = picked_tree.peek().clone();
-            let mut open = picking.write();
-            let Some(p) = open.as_mut() else { return };
-            match k {
-                "j" | "ArrowDown" if plain || key.shift => p.filer.down(&rows),
-                "k" | "ArrowUp" if plain || key.shift => p.filer.up(&rows),
-                "l" | "ArrowRight" if plain => p.filer.open(read_dirs),
-                "h" | "ArrowLeft" if plain => p.filer.close(&rows),
-                "!" => p.filer.toggle_hidden(),
-                "Enter" if plain => {
-                    let dir = p.filer.chosen();
-                    drop(open);
-                    if let Some(dir) = dir {
-                        choose(dir);
-                    }
-                }
-                _ => {}
-            }
-        }
-    };
-
     let handle_key = {
         let active_pane = active_pane.clone();
         let enter_reading = enter_reading.clone();
         let mut leave_reading = leave_reading.clone();
         let mut perform = perform.clone();
-        let mut picker_key = picker_key;
         let stop = stop.clone();
         let restart_daemon = restart_daemon.clone();
         move |key: Key| {
@@ -3212,12 +3004,9 @@ fn App() -> Element {
             }
             // The picker holds the keys while it is open, and so does the list
             // of past conversations.
-            if picking.peek().is_some() {
-                picker_key(key);
-                return;
-            }
-            if app.resume.peek().open {
-                app.dispatch(Msg::ResumeKey(key));
+            let picking = app.picker.peek().open.is_some();
+            if picking {
+                app.dispatch(Msg::PickerKey(key));
                 return;
             }
             // Renaming, the keys are its field's; none act behind it.
@@ -3628,7 +3417,7 @@ fn App() -> Element {
     };
     let takes_text = match area {
         // A dialog's text is typed in its own field.
-        _ if picking.read().is_some() || app.resume.read().open || renaming().is_some() => false,
+        _ if app.picker.read().open.is_some() || renaming().is_some() => false,
         _ if confirm().is_some() => false,
         _ if keys_help().is_some() => false,
         Area::Console => passing || answering || !session_shown,
@@ -3639,7 +3428,7 @@ fn App() -> Element {
     };
     let (footer_mode, footer_class) = match area {
         // The picker holds every key while it is open, the console's too.
-        _ if picking.read().is_some() || app.resume.read().open => ("PICK".to_string(), "normal"),
+        _ if app.picker.read().open.is_some() => ("PICK".to_string(), "normal"),
         Area::Console if passing => ("DIRECT".to_string(), "pass"),
         Area::Console if answering || matches!(active_tab, Some(Tab::Terminal(_))) => {
             ("PASS".to_string(), "pass")
@@ -3754,7 +3543,7 @@ fn App() -> Element {
                         agent: current_agent,
                         options: app.content.read().drafts.next.clone().unwrap_or_default(),
                         keymap: km.clone(),
-                        onpick: move |_| open_picker(),
+                        onpick: move |_| app.dispatch(Msg::PickerOpen),
                         onagent: move |a| choose_agent(None, a),
                         onoptions: move |options| app.dispatch(Msg::DraftOptions { tab: None, options }),
                     }
@@ -3877,7 +3666,7 @@ fn App() -> Element {
                             run(Action::WorktreesToggle);
                         }
                     },
-                    onpick: move |_| open_picker(),
+                    onpick: move |_| app.dispatch(Msg::PickerOpen),
                 }
                 if layout().show_sidebar {
                     Splitter { side: Side::Sidebar }
@@ -3997,33 +3786,7 @@ fn App() -> Element {
                     }
                 }
             }
-            if let Some(p) = picking() {
-                {
-                    let rows = picker::lines(&picked_rows(), &home());
-                    let tree_rows = picked_tree();
-                    rsx! {
-                        div {
-                            onclick: move |_| picking.set(None),
-                            PickerView {
-                                picker: p,
-                                rows,
-                                tree: tree_rows,
-                                onchoose: move |at: usize| choose_row(at),
-                                onpick: move |dir: PathBuf| choose(dir),
-                                onquery: move |q: String| {
-                                    if let Some(p) = picking.write().as_mut() {
-                                        p.set_query(&q);
-                                    }
-                                },
-                                onkey: {
-                                    let mut key = picker_key;
-                                    move |k: Key| key(k)
-                                },
-                            }
-                        }
-                    }
-                }
-            }
+            Picker {}
             if let Some((x, y, target)) = menu() {
                 {
                     let session = match &target {
@@ -4094,7 +3857,6 @@ fn App() -> Element {
                 }
             }
             KeysHelp { keymap: km.clone() }
-            ResumeView {}
             if let Some(ask) = confirm() {
                 {
                     let stop = stop.clone();

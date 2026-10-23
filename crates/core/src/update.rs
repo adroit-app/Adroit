@@ -5,10 +5,9 @@ use adroit_protocol::Request;
 use crate::chrome::{panels, status_line};
 use crate::effect::Effect;
 use crate::msg::Msg;
-use crate::picker::resume;
 use crate::settle::settle;
 use crate::state::ViewState;
-use crate::{chrome, content, details, host, tree};
+use crate::{chrome, content, details, host, picker, tree};
 
 /// `msg` applied to `state`, and the state settled after it.
 pub fn step(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
@@ -20,7 +19,8 @@ pub fn step(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
 /// `msg` applied to the slices it concerns.
 pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
     match msg {
-        Msg::Opened { zoom } => {
+        Msg::Opened { zoom, home } => {
+            state.picker.home = home;
             let mut effects = chrome::open(&mut state.chrome, zoom);
             effects.push(host::hello());
             effects
@@ -109,11 +109,13 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         Msg::DetailsBack => details::back(&mut state.details),
         Msg::DetailsReadAgain => vec![Effect::Host(Request::ReadAgain)],
 
-        Msg::ResumeOpen => resume::open(state),
-        Msg::ResumeClose => resume::close(&mut state.resume),
-        Msg::ResumeQuery(text) => resume::query(&mut state.resume, text),
-        Msg::ResumeKey(key) => resume::press(state, &key),
-        Msg::ResumeEvery => resume::toggle_every(&mut state.resume),
-        Msg::ResumeChoose(at) => resume::choose(state, at),
+        Msg::PickerOpen => picker::open(state),
+        Msg::ResumeOpen => picker::open_resume(state),
+        Msg::PickerClose => picker::close(&mut state.picker),
+        Msg::PickerQuery(text) => picker::query(&mut state.picker, text),
+        Msg::PickerKey(key) => picker::press(state, &key),
+        Msg::PickerChoose(at) => picker::choose(state, at),
+        Msg::PickerDir(dir) => picker::start_in(state, dir),
+        Msg::PickerEvery => picker::every(&mut state.picker),
     }
 }
