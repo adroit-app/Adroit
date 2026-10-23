@@ -17,6 +17,7 @@ use adroit_core::state::ViewState;
 use adroit_core::tree::TreeView;
 use adroit_core::update::step;
 use adroit_runtime::work::{Host, HostLink, Loopback};
+use dioxus::core::{Runtime, current_scope_id};
 use dioxus::prelude::*;
 
 use crate::layout::{Kept as _, Layout};
@@ -50,6 +51,9 @@ pub(crate) struct AppCtx {
     handed: CopyValue<Option<Handed>>,
     /// What runs an action where the keys are now, which `App` still does.
     performer: CopyValue<Option<Performer>>,
+    /// The component that opened the view state, whose tasks live as long
+    /// as the window.
+    scope: ScopeId,
 }
 
 /// The window's view state, opened once for the component that calls it,
@@ -90,6 +94,7 @@ pub(crate) fn use_app() -> AppCtx {
             overlays: Signal::new(view.overlays.clone()),
             handed: CopyValue::new(None),
             performer: CopyValue::new(None),
+            scope: current_scope_id(),
             view: CopyValue::new(view),
             link: CopyValue::new(link),
             loopback: CopyValue::new(loopback),
@@ -113,7 +118,7 @@ impl AppCtx {
         let mut view = self.view;
         let effects = step(&mut view.write(), msg);
         self.publish();
-        self.run(effects);
+        as_from(self.scope, || self.run(effects));
     }
 
     fn publish(&self) {
@@ -306,6 +311,13 @@ fn set_changed<T: Clone + PartialEq + 'static>(mut signal: Signal<T>, now: &T) {
     }
 }
 
+/// `run` called as from the component at `scope`, so the tasks it spawns
+/// live as long as that component: the handler that asked may belong to an
+/// overlay its own message closes.
+fn as_from<O>(scope: ScopeId, run: impl FnOnce() -> O) -> O {
+    Runtime::current().in_scope(scope, run)
+}
+
 /// `effects` carried out in order: requests sent to the host through
 /// `link`, the rest done by the window through `local`.
 fn run(effects: Vec<Effect>, link: &dyn HostLink, mut local: impl FnMut(Effect)) {
@@ -365,6 +377,60 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// A task an overlay's handler starts through the window, as a picker
+    /// does when Enter resumes a conversation and closes it.
+    #[tokio::test]
+    async fn work_started_from_an_overlay_outlives_the_overlay() {
+        use std::cell::Cell;
+
+        #[derive(Clone)]
+        struct Asked {
+            window: ScopeId,
+            done: Rc<Cell<bool>>,
+        }
+
+        #[component]
+        fn Overlay(onmount: EventHandler<()>) -> Element {
+            let asked = use_context::<Asked>();
+            use_hook(move || {
+                as_from(asked.window, || {
+                    let done = asked.done.clone();
+                    spawn(async move {
+                        tokio::task::yield_now().await;
+                        done.set(true);
+                    });
+                });
+                onmount.call(());
+            });
+            rsx! { div {} }
+        }
+
+        #[component]
+        fn Frame() -> Element {
+            let done = use_context::<Rc<Cell<bool>>>();
+            use_context_provider(|| Asked {
+                window: current_scope_id(),
+                done,
+            });
+            let mut open = use_signal(|| true);
+            rsx! {
+                if open() {
+                    Overlay { onmount: move |_| open.set(false) }
+                }
+            }
+        }
+
+        let done = Rc::new(Cell::new(false));
+        let mut dom = VirtualDom::new(Frame).with_root_context(done.clone());
+        dom.rebuild_in_place();
+        for _ in 0..4 {
+            let _ = tokio::time::timeout(std::time::Duration::from_millis(50), dom.wait_for_work())
+                .await;
+            dom.render_immediate(&mut dioxus::core::NoOpMutations);
+        }
+        assert!(done.get());
     }
 
     #[test]
