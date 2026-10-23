@@ -6946,6 +6946,7 @@ fn App() -> Element {
                     }
                     div { class: "content-windows",
                         onresize: move |e: Event<ResizeData>| {
+                            e.stop_propagation();
                             if let Ok(sz) = e.data().get_content_box_size() {
                                 windows_box.set((sz.width, sz.height));
                             }
