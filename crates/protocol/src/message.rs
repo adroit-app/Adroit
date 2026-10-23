@@ -38,6 +38,9 @@ pub enum Request {
         #[serde(with = "crate::wire::wide")]
         id: u128,
     },
+    /// Ask again for the commands `/` offers where the window has in sight,
+    /// if those held are old, as a `/` typed asks.
+    CommandsWanted,
     /// Read the prompts `agent` kept as sent in `project`, for the request
     /// numbered `asked`.
     History {

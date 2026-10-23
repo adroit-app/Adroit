@@ -109,6 +109,7 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         Msg::DetailsSelect(at) => details::select(&mut state.details, state.host.work.as_ref(), at),
         Msg::DetailsBack => details::back(&mut state.details),
         Msg::DetailsReadAgain => vec![Effect::Host(Request::ReadAgain)],
+        Msg::CommandsWanted => vec![Effect::Host(Request::CommandsWanted)],
 
         Msg::PickerOpen => picker::open(state),
         Msg::ResumeOpen => picker::open_resume(state),

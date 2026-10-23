@@ -548,3 +548,76 @@ fn the_prompt_s_neovim_is_offered_the_sessions_and_the_middle_s_files_each_time_
         .send(Msg::PromptRuns(true));
     assert_eq!(offers(&again).len(), 2);
 }
+
+fn commands(seq: u64, dir: &str, names: &[&str]) -> Event {
+    use adroit_protocol::CommandsRead;
+    Event::Patch(WorkPatch {
+        seq: Seq(seq),
+        changes: vec![Change::Prompt(PromptChange::Commands {
+            read: CommandsRead {
+                agent: Agent::Claude,
+                dir: dir.into(),
+                commands: names
+                    .iter()
+                    .map(|n| adroit_model::Command {
+                        name: (*n).into(),
+                        description: String::new(),
+                        argument_hint: String::new(),
+                    })
+                    .collect(),
+            },
+        })],
+    })
+}
+
+fn commands_offered(run: &Scenario) -> Vec<Vec<String>> {
+    run.effects()
+        .iter()
+        .filter_map(|e| match e {
+            Effect::PromptCommands(list) => Some(list.iter().map(|c| c.name.clone()).collect()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn the_host_is_asked_for_the_commands_of_the_agent_and_directory_shown() {
+    use adroit_protocol::CommandsSight;
+    let run = Scenario::new()
+        .event(listing())
+        .send(Msg::ShowSession("a".into()));
+    assert_eq!(
+        run.state().host.watched.commands,
+        Some(CommandsSight {
+            agent: Agent::Claude,
+            dir: "/r/a".into(),
+        })
+    );
+    let run = run.send(Msg::CommandsWanted);
+    assert_eq!(run.last_effects(), [Effect::Host(Request::CommandsWanted)]);
+}
+
+#[test]
+fn the_prompt_is_offered_the_commands_read_for_what_is_shown_once_each() {
+    let run = Scenario::new()
+        .event(listing())
+        .send(Msg::ShowSession("a".into()))
+        .send(Msg::PromptRuns(true))
+        .event(commands(2, "/elsewhere", &["stale"]))
+        .event(commands(3, "/r/a", &["compact"]))
+        .event(commands(4, "/r/a", &["compact"]))
+        .event(commands(5, "/r/a", &["compact", "review"]));
+    assert_eq!(
+        commands_offered(&run),
+        [
+            vec!["compact".to_string()],
+            vec!["compact".into(), "review".into()]
+        ]
+    );
+    // Neovim started again is offered them again.
+    let run = run.send(Msg::PromptRuns(false)).send(Msg::PromptRuns(true));
+    assert_eq!(
+        commands_offered(&run)[2..],
+        [vec!["compact".to_string(), "review".into()]]
+    );
+}

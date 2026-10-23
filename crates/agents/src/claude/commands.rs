@@ -11,15 +11,7 @@ use serde_json::Value;
 use super::control;
 use crate::Started;
 
-/// A command `/` offers.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Command {
-    /// Without the leading `/`; a Codex skill keeps its `$` invocation prefix.
-    pub name: String,
-    pub description: String,
-    /// What follows the name, as Claude Code hints it; empty when nothing does.
-    pub argument_hint: String,
-}
+pub use adroit_model::Command;
 
 /// What one line Claude Code printed says about the commands asked for.
 #[derive(Debug, Clone, PartialEq, Eq)]

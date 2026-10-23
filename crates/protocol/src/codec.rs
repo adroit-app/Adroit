@@ -36,11 +36,12 @@ mod tests {
     };
 
     use crate::{
-        AgentFacts, AgentsWork, Change, ConfigChange, ConfigFile, ConfigWork, ConversationRead,
-        DetailsChange, DetailsWork, Event, FileText, HistoryRead, Listed, Offers, PastChange,
-        PastSight, PastWork, PickChange, PickSight, PickWork, PlaceChange, PlaceRead, PlaceWork,
-        PromptChange, PromptWork, RepositoryRead, RepositorySight, Request, Seq, SessionRead,
-        Sight, SystemUsage, TreeChange, TreeSight, Version, WorkPatch, WorkSnapshot,
+        AgentFacts, AgentsWork, Change, CommandsRead, CommandsSight, ConfigChange, ConfigFile,
+        ConfigWork, ConversationRead, DetailsChange, DetailsWork, Event, FileText, HistoryRead,
+        Listed, Offers, PastChange, PastSight, PastWork, PickChange, PickSight, PickWork,
+        PlaceChange, PlaceRead, PlaceWork, PromptChange, PromptWork, RepositoryRead,
+        RepositorySight, Request, Seq, SessionRead, Sight, SystemUsage, TreeChange, TreeSight,
+        Version, WorkPatch, WorkSnapshot,
     };
 
     fn round_trips<T>(message: T)
@@ -82,6 +83,10 @@ mod tests {
                 listed: BTreeSet::from(["/home".into()]),
             }),
             place: Some("/w".into()),
+            commands: Some(CommandsSight {
+                agent: adroit_model::Agent::Codex,
+                dir: "/w".into(),
+            }),
         })));
         round_trips(Request::Relist);
         round_trips(Request::Typed {
@@ -101,6 +106,7 @@ mod tests {
             agent: adroit_model::Agent::Claude,
             project: "/w".into(),
         });
+        round_trips(Request::CommandsWanted);
     }
 
     #[test]
@@ -166,6 +172,15 @@ mod tests {
             },
             prompt: PromptWork {
                 history: Some(HistoryRead::default()),
+                commands: Some(CommandsRead {
+                    agent: adroit_model::Agent::Claude,
+                    dir: "/w".into(),
+                    commands: vec![adroit_model::Command {
+                        name: "compact".into(),
+                        description: "Clear history but keep a summary".into(),
+                        argument_hint: String::new(),
+                    }],
+                }),
             },
             config: ConfigWork {
                 settings: Some(ConfigFile::default()),
@@ -315,6 +330,13 @@ mod tests {
                         asked: 1,
                         project: "/w".into(),
                         sent: vec!["fix".into()],
+                    },
+                }),
+                Change::Prompt(PromptChange::Commands {
+                    read: CommandsRead {
+                        agent: adroit_model::Agent::Codex,
+                        dir: "/w".into(),
+                        commands: Vec::new(),
                     },
                 }),
             ],

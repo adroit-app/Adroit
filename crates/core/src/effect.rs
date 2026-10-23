@@ -143,6 +143,8 @@ pub enum Effect {
     /// Walk a path after `@` in the prompt from this worktree, or from
     /// nowhere.
     PromptRoot(Option<PathBuf>),
+    /// Offer these after `/` in the prompt.
+    PromptCommands(Vec<adroit_model::Command>),
     /// A prompt went: stepping through those sent starts again from the
     /// newest.
     PromptSent,

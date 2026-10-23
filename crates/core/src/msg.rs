@@ -280,6 +280,9 @@ pub enum Msg {
         back: bool,
         agent: Agent,
     },
+    /// A `/` was typed in the prompt: the commands it offers are asked for
+    /// again if they are old.
+    CommandsWanted,
     /// Neovim's mode, as the class the footer draws it with and its word.
     PromptMode(&'static str, &'static str),
     /// What is written is a shell line for the session, or no longer.

@@ -28,6 +28,7 @@ const RULES: &[Rule] = &[
     prompt_recalled,
     prompt_images,
     prompt_offered,
+    prompt_commands,
     tree_failing,
     tree_rows,
     tree_kept,
@@ -143,6 +144,12 @@ fn prompt_offered(state: &mut ViewState, effects: &mut Vec<Effect>) {
     effects.extend(prompt::offer(state));
 }
 
+/// The prompt's Neovim is offered after `/` the commands the host read for
+/// what is shown.
+fn prompt_commands(state: &mut ViewState, effects: &mut Vec<Effect>) {
+    effects.extend(prompt::offer_commands(state));
+}
+
 /// The status line says why the sessions cannot be listed, while they
 /// cannot.
 fn tree_failing(state: &mut ViewState, effects: &mut Vec<Effect>) {
@@ -253,6 +260,7 @@ pub(crate) fn sight(state: &ViewState) -> Sight {
         past: state.picker.past_sight(),
         pick: state.picker.sight(),
         place: state.content.place.as_ref().map(|p| p.worktree.clone()),
+        commands: prompt::commands_sight(state),
         ..details::sight(&state.details)
     }
 }

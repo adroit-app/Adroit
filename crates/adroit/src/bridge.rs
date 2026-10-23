@@ -234,6 +234,7 @@ impl AppCtx {
             | Effect::EndShell(_)
             | Effect::FilterFocus(_)
             | Effect::PromptOffer(_)
+            | Effect::PromptCommands(_)
             | Effect::PromptRoot(_)
             | Effect::StartTerminal(_)
             | Effect::PromptClose(_)

@@ -3,9 +3,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use adroit_agents::claude::commands;
 use adroit_model::Session;
 use adroit_nvim::notation;
 use adroit_term::{Key, Palette, Pane, Screen, Size, Spawn};
@@ -475,7 +474,6 @@ fn App() -> Element {
     // The content as the view state holds it, each part read alone.
     let active = use_memo(move || app.content.read().active().cloned());
     let focus = use_memo(move || app.content.read().focus);
-    let place = use_memo(move || app.content.read().place.clone());
     // The finished sessions the user has seen, as the tree holds them.
     let completions = use_memo(move || app.tree.read().completions.clone());
     let mut frame = use_signal(|| 0u64);
@@ -627,61 +625,8 @@ fn App() -> Element {
         }
     });
 
-    // What `/` offers: the agent's commands where the shown tab's session
-    // runs, asked for when such a tab is shown or a `/` is typed and the list
-    // there is missing or old; the old list is offered meanwhile.
-    let mut command_cache = use_signal(HashMap::<adroit_model::Agent, commands::Cache>::new);
-    let commands_here = use_memo(move || {
-        let t = tree.read();
-        let tab = active.read();
-        let agent = app.agent_of(tab.as_ref());
-        agents::adapter(agent)
-            .capabilities()
-            .command_probe
-            .then(|| complete::commands_dir(&t, tab.as_ref(), place.read().as_ref()))
-            .flatten()
-            .map(|dir| (agent, dir))
-    });
-    let mut revalidate = move |(agent, dir): (adroit_model::Agent, PathBuf)| {
-        if !command_cache
-            .write()
-            .entry(agent)
-            .or_default()
-            .want(&dir, Instant::now())
-        {
-            return;
-        }
-        spawn(async move {
-            let got = agents::adapter(agent)
-                .commands(crate::programs::agents(), dir.clone())
-                .await;
-            command_cache
-                .write()
-                .entry(agent)
-                .or_default()
-                .settle(&dir, Instant::now(), got);
-        });
-    };
-    use_effect(move || {
-        if let Some(dir) = commands_here() {
-            revalidate(dir);
-        }
-    });
-    let offered_commands = use_memo(move || match commands_here() {
-        Some((agent, dir)) => {
-            let mut list = agents::adapter(agent).builtin_commands();
-            if let Some(cache) = command_cache.read().get(&agent) {
-                list.extend_from_slice(cache.get(&dir));
-            }
-            complete::commands(&list)
-        }
-        None => Vec::new(),
-    });
-    let commands_wanted = use_callback(move |()| {
-        if let Some(dir) = commands_here.peek().clone() {
-            revalidate(dir);
-        }
-    });
+    // A `/` typed asks for what it offers again, if that is old.
+    let commands_wanted = use_callback(move |()| app.dispatch(Msg::CommandsWanted));
     let prompt_neovim =
         use_prompt_neovim(app, has_images, cell_width, prompt_width, commands_wanted);
     let PromptNeovim {
@@ -692,13 +637,6 @@ fn App() -> Element {
         ..
     } = prompt_neovim;
     let prompts = use_hook(|| prompts::keeper(nvim, app));
-    use_effect(move || {
-        let Some(nv) = nvim() else { return };
-        let list = offered_commands();
-        spawn(async move {
-            let _ = nv.set_commands(&list).await;
-        });
-    });
 
     // The images the shown session's console drew, which the details panel
     // lists.
@@ -1589,6 +1527,14 @@ fn App() -> Element {
                         let list = complete::offered(&offers);
                         spawn(async move {
                             let _ = nv.set_candidates(&list).await;
+                        });
+                    }
+                }
+                CoreEffect::PromptCommands(list) => {
+                    if let Some(nv) = nvim.peek().clone() {
+                        let list = complete::commands(&list);
+                        spawn(async move {
+                            let _ = nv.set_commands(&list).await;
                         });
                     }
                 }

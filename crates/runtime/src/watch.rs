@@ -12,6 +12,7 @@ use tokio::sync::{mpsc, watch};
 
 use crate::work::{HistoryAsk, Host, Seen};
 
+mod commands;
 mod config;
 mod context;
 mod conversation;
@@ -37,18 +38,20 @@ pub struct Watched {
     seen: watch::Receiver<Seen>,
     again: watch::Receiver<u64>,
     relist: watch::Receiver<u64>,
+    commands: watch::Receiver<u64>,
     inputs: watch::Receiver<BTreeMap<u128, u64>>,
     history: watch::Receiver<Option<HistoryAsk>>,
 }
 
 impl Watched {
     pub fn new(host: Arc<Mutex<Host>>, events: mpsc::UnboundedSender<Event>) -> Self {
-        let (seen, again, relist, inputs, history) = {
+        let (seen, again, relist, commands, inputs, history) = {
             let host = lock(&host);
             (
                 host.seen(),
                 host.again(),
                 host.relist(),
+                host.commands_wanted(),
                 host.inputs(),
                 host.history(),
             )
@@ -59,6 +62,7 @@ impl Watched {
             seen,
             again,
             relist,
+            commands,
             inputs,
             history,
         }
@@ -158,6 +162,33 @@ impl Watched {
     }
 }
 
+impl Watched {
+    /// Wait until what `part` takes of the sight changes, or the window asks
+    /// for the commands `/` offers again.
+    async fn wait_commands<T: PartialEq>(&mut self, part: impl Fn(&Seen) -> T) {
+        let was = part(&self.seen.borrow());
+        let changed = async {
+            loop {
+                if self.seen.changed().await.is_err() {
+                    std::future::pending::<()>().await;
+                }
+                if part(&self.seen.borrow_and_update()) != was {
+                    return;
+                }
+            }
+        };
+        let wanted = async {
+            if self.commands.changed().await.is_err() {
+                std::future::pending::<()>().await;
+            }
+        };
+        tokio::select! {
+            _ = changed => {}
+            _ = wanted => {}
+        }
+    }
+}
+
 fn lock(host: &Mutex<Host>) -> MutexGuard<'_, Host> {
     host.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
@@ -174,6 +205,7 @@ pub fn start(watched: Watched) {
     tokio::spawn(marks::watch(watched.clone()));
     tokio::spawn(past::watch(watched.clone()));
     tokio::spawn(offers::watch(watched.clone()));
+    tokio::spawn(commands::watch(watched.clone()));
     tokio::spawn(place::watch(watched.clone()));
     tokio::spawn(history::watch(watched.clone()));
     tokio::spawn(entries::watch(watched.clone()));

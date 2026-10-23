@@ -117,6 +117,8 @@ pub struct Host {
     again: watch::Sender<u64>,
     /// Raised each time the window asks for the sessions listed again.
     relist: watch::Sender<u64>,
+    /// Raised each time the window asks for the commands `/` offers again.
+    commands: watch::Sender<u64>,
     /// When the user last typed into each session the window shows, by its
     /// terminal.
     inputs: watch::Sender<BTreeMap<u128, u64>>,
@@ -137,6 +139,7 @@ impl Host {
             seen: watch::Sender::new(Seen::default()),
             again: watch::Sender::new(0),
             relist: watch::Sender::new(0),
+            commands: watch::Sender::new(0),
             inputs: watch::Sender::new(BTreeMap::new()),
             history: watch::Sender::new(None),
         }
@@ -159,6 +162,11 @@ impl Host {
     /// Each time the window asks for the sessions listed again.
     pub fn relist(&self) -> watch::Receiver<u64> {
         self.relist.subscribe()
+    }
+
+    /// Each time the window asks for the commands `/` offers again.
+    pub fn commands_wanted(&self) -> watch::Receiver<u64> {
+        self.commands.subscribe()
     }
 
     /// When the user last typed into each session, as the window last said.
@@ -199,6 +207,10 @@ impl Host {
             }
             Request::Relist => {
                 self.relist.send_modify(|n| *n += 1);
+                Vec::new()
+            }
+            Request::CommandsWanted => {
+                self.commands.send_modify(|n| *n += 1);
                 Vec::new()
             }
             Request::Typed { inputs } => {
@@ -384,6 +396,9 @@ fn in_sight(change: &Change, sight: &Sight) -> bool {
         Change::Place(PlaceChange::Read { read }) => sight.place.as_ref() == Some(&read.worktree),
         Change::Place(PlaceChange::Left) => true,
         Change::Prompt(PromptChange::History { .. }) => true,
+        Change::Prompt(PromptChange::Commands { read }) => {
+            sight.commands.as_ref().is_some_and(|s| read.is_for(s))
+        }
         Change::Config(_) => true,
     }
 }
@@ -485,6 +500,32 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn the_commands_read_reach_the_window_only_for_what_it_has_in_sight() {
+        use adroit_protocol::{CommandsRead, CommandsSight};
+        let mut host = Host::default();
+        let sight = Sight {
+            commands: Some(CommandsSight {
+                agent: Agent::Claude,
+                dir: "/w".into(),
+            }),
+            ..Default::default()
+        };
+        host.handle(Request::Watch(Box::new(sight)));
+        let read = |dir: &str| PromptChange::Commands {
+            read: CommandsRead {
+                agent: Agent::Claude,
+                dir: dir.into(),
+                commands: Vec::new(),
+            },
+        };
+        assert!(host.record([read("/elsewhere")]).is_none());
+        assert!(host.record([read("/w")]).is_some());
+        let wanted = host.commands_wanted();
+        assert!(host.handle(Request::CommandsWanted).is_empty());
+        assert!(wanted.has_changed().unwrap());
+    }
 
     #[test]
     fn the_host_tells_every_agent_s_program_and_usage_as_its_adapter_does() {

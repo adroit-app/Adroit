@@ -12,10 +12,10 @@ mod tests;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-use adroit_model::{Agent, Key};
-use adroit_protocol::Request;
+use adroit_model::{Agent, Command, Key};
+use adroit_protocol::{CommandsSight, Request};
 
-use crate::complete::{Offer, candidates};
+use crate::complete::{Offer, candidates, commands_dir};
 use crate::console::{self, route::Typed};
 use crate::content::{Area, Tab};
 use crate::effect::Effect;
@@ -53,6 +53,9 @@ pub struct PromptView {
     /// What the running Neovim was last offered after `@`, and the
     /// worktree it walks paths from; nothing while none runs.
     offered: Option<(Vec<Offer>, Option<PathBuf>)>,
+    /// What the running Neovim was last offered after `/`; nothing while
+    /// none runs.
+    commands: Option<Vec<Command>>,
 }
 
 impl Default for PromptView {
@@ -69,6 +72,7 @@ impl Default for PromptView {
             recall: None,
             asked: 0,
             offered: None,
+            commands: None,
         }
     }
 }
@@ -253,4 +257,42 @@ pub(crate) fn offer(state: &mut ViewState) -> Vec<Effect> {
     }
     state.prompt.offered = Some((offers, root));
     effects
+}
+
+/// The agent and the directory whose commands `/` offers: those of what the
+/// focused window shows, or of the worktree in the middle with nothing open.
+/// None for a shell or a viewer.
+pub(crate) fn commands_sight(state: &ViewState) -> Option<CommandsSight> {
+    let tab = state.content.active();
+    let tree = tree::listed(state.host.work.as_ref());
+    let dir = commands_dir(tree, tab, state.content.place.as_ref())?;
+    let agent = crate::content::agent_of(state, tab);
+    Some(CommandsSight { agent, dir })
+}
+
+/// The prompt's Neovim is offered after `/` what the host read for what is
+/// shown, each time it changes; what was offered stays until the host has
+/// read for something newly shown.
+pub(crate) fn offer_commands(state: &mut ViewState) -> Vec<Effect> {
+    if !state.console.prompt_runs {
+        state.prompt.commands = None;
+        return Vec::new();
+    }
+    let now = match commands_sight(state) {
+        None => Some(Vec::new()),
+        Some(sight) => state
+            .host
+            .work
+            .as_ref()
+            .and_then(|w| w.prompt.commands.as_ref())
+            .filter(|read| read.is_for(&sight))
+            .map(|read| read.commands.clone()),
+    };
+    match now {
+        Some(now) if state.prompt.commands.as_ref() != Some(&now) => {
+            state.prompt.commands = Some(now.clone());
+            vec![Effect::PromptCommands(now)]
+        }
+        _ => Vec::new(),
+    }
 }
