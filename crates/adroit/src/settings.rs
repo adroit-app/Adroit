@@ -9,7 +9,7 @@ use tokio::sync::broadcast;
 
 pub use crate::agents::CodexOptions;
 use crate::paths::config_dir;
-pub use crate::programs::{Launch, SessionOptions, ShellLaunch};
+pub use adroit_model::config::{Launch, SessionOptions, ShellLaunch};
 
 /// Which Option keys count as Alt, sending Meta, in a console; the others type
 /// what macOS makes of the key with Option, as `Option-2` typing `™`.
@@ -253,6 +253,21 @@ fn expand(path: &str, home: &std::path::Path) -> PathBuf {
 const RETIRED: &[&str] = &["naming_model", "projects_dir"];
 
 impl Settings {
+    /// How `agent` is started.
+    pub fn launch(&self, agent: adroit_model::Agent) -> &Launch {
+        match agent {
+            adroit_model::Agent::Claude => &self.claude,
+            adroit_model::Agent::Codex => &self.codex,
+        }
+    }
+
+    pub fn launch_mut(&mut self, agent: adroit_model::Agent) -> &mut Launch {
+        match agent {
+            adroit_model::Agent::Claude => &mut self.claude,
+            adroit_model::Agent::Codex => &mut self.codex,
+        }
+    }
+
     /// The settings made sensible: rows of at least one and the most no fewer
     /// than the fewest, a zoom among the levels' range.
     pub fn sane(mut self) -> Self {
@@ -436,6 +451,15 @@ pub fn set(next: Settings) -> Result<(), String> {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn each_agent_s_launch_is_the_one_written_under_its_name() {
+        let mut s = Settings::parse("[codex]\ncommand = [\"/opt/codex\"]\n").unwrap();
+        assert_eq!(s.launch(adroit_model::Agent::Codex).command, ["/opt/codex"]);
+        assert_eq!(s.launch(adroit_model::Agent::Claude), &Launch::default());
+        s.launch_mut(adroit_model::Agent::Claude).via_shell = true;
+        assert!(s.claude.via_shell);
+    }
 
     #[test]
     fn missing_settings_default_but_invalid_or_unreadable_settings_report_the_path() {

@@ -7,9 +7,9 @@ pub use delivery::{DeliveryFailure, DeliveryFuture};
 
 pub use codex::CodexOptions;
 
-use crate::programs::Launch;
 use crate::settings::Settings;
 use adroit_model::Agent;
+use adroit_model::config::Launch;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -90,7 +90,24 @@ pub trait AgentAdapter: Sync {
     }
     fn label(&self) -> &'static str;
     fn program(&self) -> String;
-    fn launch<'a>(&self, settings: &'a Settings) -> &'a Launch;
+    /// What starts the agent with `args` as `launch` says, `shell` being the
+    /// shell it may be started through: the program, its arguments, and `env`
+    /// with the agent's own variables and then the launch's.
+    fn launch(
+        &self,
+        launch: &Launch,
+        shell: &str,
+        args: Vec<String>,
+        env: Vec<(String, String)>,
+    ) -> adroit_claude::Started {
+        let (program, args) = launch.command_line(&self.program(), &args, shell);
+        let env = env
+            .into_iter()
+            .chain(self.environment())
+            .chain(launch.env.clone())
+            .collect();
+        (program, args, env)
+    }
     fn capabilities(&self) -> Capabilities;
     fn usage_url(&self) -> Option<&'static str> {
         None
@@ -232,16 +249,8 @@ pub fn launch_with_settings(
     args: Vec<String>,
     env: Vec<(String, String)>,
 ) -> adroit_claude::Started {
-    let a = adapter(agent);
-    let launch = a.launch(settings);
     let shell = settings.shell.program(&crate::programs::login_shell());
-    let (program, args) = launch.command_line(&a.program(), &args, &shell);
-    let env = env
-        .into_iter()
-        .chain(a.environment())
-        .chain(launch.env.clone())
-        .collect();
-    (program, args, env)
+    adapter(agent).launch(settings.launch(agent), &shell, args, env)
 }
 
 #[cfg(test)]
@@ -272,6 +281,34 @@ mod tests {
             ["--image", "/tmp/my shot.png", "--image", "/tmp/two.png"]
         );
         assert_eq!(claude.image_prompt("", &[]), "");
+    }
+
+    #[test]
+    fn each_agent_starts_as_its_own_launch_says_its_variables_under_the_launch_s() {
+        let settings = Settings {
+            codex: Launch {
+                command: vec!["/opt/codex".into()],
+                env: [("CODEX_HOME".to_string(), "/c".to_string())].into(),
+                ..Launch::default()
+            },
+            ..Settings::default()
+        };
+        let (program, args, env) =
+            launch_with_settings(&settings, Agent::Codex, vec!["exec".into()], Vec::new());
+        assert_eq!(
+            (program.as_str(), args),
+            ("/opt/codex", vec!["exec".to_string()])
+        );
+        assert_eq!(env, [("CODEX_HOME".to_string(), "/c".to_string())]);
+        let (program, _, env) = adapter(Agent::Claude).launch(
+            settings.launch(Agent::Claude),
+            "/bin/zsh",
+            Vec::new(),
+            vec![("A".into(), "1".into())],
+        );
+        assert_eq!(program, adroit_claude::claude_program());
+        assert_eq!(env.first(), Some(&("A".to_string(), "1".to_string())));
+        assert_eq!(env.len(), 1 + adroit_claude::ENV.len());
     }
 
     #[test]

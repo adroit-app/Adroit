@@ -221,7 +221,11 @@ fn configured(
             settings.codex_sessions.sandbox_mode = "read-only".into();
         }
         (AgentPermissions::ReadOnly, Agent::Claude) => {
-            settings.sessions.read_only = Some(adroit_claude::ReadOnly::for_dir(&request.cwd));
+            settings.sessions.read_only = Some(
+                adroit_claude::ReadOnly::for_dir(&request.cwd)
+                    .protected()
+                    .to_vec(),
+            );
         }
         (AgentPermissions::Custom(profile), agent) => match (profile.as_ref(), agent) {
             (

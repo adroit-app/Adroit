@@ -1,4 +1,5 @@
 use super::*;
+use adroit_model::config::SessionOptions;
 
 pub struct Claude;
 
@@ -76,9 +77,6 @@ impl AgentAdapter for Claude {
     }
     fn program(&self) -> String {
         adroit_claude::claude_program()
-    }
-    fn launch<'a>(&self, settings: &'a Settings) -> &'a Launch {
-        &settings.claude
     }
     fn capabilities(&self) -> Capabilities {
         Capabilities {
@@ -165,7 +163,7 @@ impl AgentAdapter for Claude {
     fn resume_args(&self, settings: &Settings, conversation: &str) -> Option<Vec<String>> {
         Some(adroit_claude::resume_args(
             conversation,
-            &settings.sessions.options(),
+            &options(&settings.sessions),
         ))
     }
     fn conversation(&self) -> String {
@@ -178,7 +176,7 @@ impl AgentAdapter for Claude {
         conversation: &str,
         prompt: &str,
     ) -> Vec<String> {
-        let options = settings.sessions.options();
+        let options = options(&settings.sessions);
         adroit_claude::start_args(name, conversation, &options, prompt)
     }
     fn integration_args(&self, program: &Path) -> Vec<String> {
@@ -210,5 +208,24 @@ impl ConversationReader for ClaudeConversation {
     fn read(&mut self) -> adroit_claude::links::Links {
         self.0.read(&|p: &Path| p.is_file());
         self.0.links()
+    }
+}
+
+/// Claude Code's options for a session as `sessions` says, each word trimmed
+/// and empty tools dropped.
+fn options(sessions: &SessionOptions) -> adroit_claude::Options {
+    adroit_claude::Options {
+        model: sessions.model.trim().to_string(),
+        permission_mode: sessions.permission_mode.trim().to_string(),
+        disallowed_tools: sessions
+            .disallowed_tools
+            .iter()
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty())
+            .collect(),
+        read_only: sessions
+            .read_only
+            .as_ref()
+            .map(adroit_claude::ReadOnly::protecting),
     }
 }

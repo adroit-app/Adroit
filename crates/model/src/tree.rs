@@ -497,7 +497,7 @@ mod tests {
         );
         // One opened since in the nested worktree, one in a directory no
         // worktree listed holds yet; the first is gone.
-        let again = t.with_terminals(&[shell(2, &format!("{x}/src")), shell(3, "/web")]);
+        let again = t.with_terminals(&[shell(2, format!("{x}/src")), shell(3, "/web")]);
         let ws = &again.workspaces[0];
         assert!(ws.worktrees[0].terminals.is_empty());
         assert_eq!(shell_ids(&ws.worktrees[1]), [2]);

@@ -138,9 +138,6 @@ impl AgentAdapter for Codex {
     fn program(&self) -> String {
         "codex".into()
     }
-    fn launch<'a>(&self, settings: &'a Settings) -> &'a Launch {
-        &settings.codex
-    }
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             command_probe: true,

@@ -5,6 +5,9 @@ use std::cell::RefCell;
 use std::path::Path;
 use std::rc::{Rc, Weak};
 
+use adroit_model::config::{
+    Launch, SessionOptions, format_command, format_env, parse_command, parse_env,
+};
 use adroit_model::paths::tilde;
 use dioxus::desktop::{
     Config as Desktop, DesktopService, LogicalSize, WindowBuilder, WindowCloseBehaviour, window,
@@ -14,9 +17,6 @@ use dioxus::prelude::*;
 use crate::icons::{Icon, IconView};
 use crate::keys_pane::KeysPane;
 use crate::paths::{home, keys_path};
-use crate::programs::{
-    Launch, SessionOptions, format_command, format_env, parse_command, parse_env,
-};
 use crate::settings::{self, OptionAsAlt, Settings};
 use crate::style::SETTINGS_CSS;
 use crate::zoom::LEVELS;
@@ -748,11 +748,8 @@ fn AgentsPane(agent: adroit_model::Agent, now: Settings, change: Callback<Change
                 title: "Launch",
                 hint: "The program and its arguments; empty for the agent's own command.",
                 placeholder: adapter.program(),
-                launch: adapter.launch(&now).clone(),
-                set: move |launch: Launch| change(Box::new(move |s: &mut Settings| match agent {
-                    Agent::Claude => s.claude = launch,
-                    Agent::Codex => s.codex = launch,
-                })),
+                launch: now.launch(agent).clone(),
+                set: move |launch: Launch| change(Box::new(move |s: &mut Settings| *s.launch_mut(agent) = launch)),
             }
         } else {
             match agent {
