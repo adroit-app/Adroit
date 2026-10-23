@@ -20,7 +20,7 @@ pub(crate) fn Header(ontoggle: EventHandler<Side>) -> Element {
         let host = app.host.read();
         let work = host.work.as_ref();
         (
-            tree::crumbs(&view, work),
+            tree::crumbs(&app.content.read().showing(), work),
             view.waiting.len(),
             tree::working(work),
         )

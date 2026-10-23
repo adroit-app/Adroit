@@ -1,5 +1,5 @@
 use std::cell::{Cell, RefCell};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -15,7 +15,6 @@ use dioxus::prelude::*;
 use tokio::sync::{Notify, mpsc, oneshot};
 
 use crate::actions::Action;
-use crate::alerts;
 use crate::bridge::{AppCtx, use_app};
 use crate::bundled_font::{faces, use_bundled_font};
 use crate::complete::{self, candidates};
@@ -25,8 +24,8 @@ use crate::console::{Composer, ConsoleScreen, Hub, Panes, ReaderScreen, mode_of}
 use crate::console_keys::direct_key;
 use crate::console_read;
 use crate::content::{
-    self, Area, Axis, Border, Content, Dir, Opening, Shown, Spot, Tab, WindowId, corner, cycled,
-    draft as draft_agent, fresh_name, label_from, moved, named, settled, shows_prompt,
+    self, Area, Axis, Opening, Tab, TerminalAsk, WindowId, draft as draft_agent, file_name,
+    fresh_name, label_from, named, shows_prompt, thing_name,
 };
 use crate::daemon;
 use crate::details::{self, Entry, Sheet, Shot, Source};
@@ -42,7 +41,7 @@ use crate::keys_help_view;
 use crate::layout::Side;
 use crate::menu::{self, Target};
 use crate::menu_bar;
-use crate::nav::{self, Item, Place};
+use crate::nav::{self, Item};
 use crate::pasted;
 use crate::paths::{home, instance_state, keys_path, scratch_dir};
 use crate::picker::{self, Candidate, Choice, Mode, Picker};
@@ -373,11 +372,6 @@ fn now_ms() -> u64 {
         .map_or(0, |d| d.as_millis() as u64)
 }
 
-/// Where the tab shown is kept for the next run of the window.
-fn shown_path() -> PathBuf {
-    instance_state().join("shown")
-}
-
 fn short(path: &Path) -> String {
     picker::short(path, &home())
 }
@@ -426,26 +420,6 @@ fn starts_reading(area: Area, session: bool, passing: bool, reading: bool) -> bo
 /// Command or with `Mod`.
 fn app_key(key: &Key) -> bool {
     key.meta || Chord::held_mod(key)
-}
-
-/// A border between windows being dragged: where the pointer was pressed,
-/// along the border's axis, and how long the split it divides is drawn.
-#[derive(Clone)]
-struct WindowDrag {
-    border: Border,
-    from: f64,
-    px: f64,
-}
-
-/// A shell or a Neovim to start: where, on which file, in which window, and
-/// whether the keys move to it.
-#[derive(Debug, Clone, PartialEq)]
-struct TerminalAsk {
-    place: Place,
-    runs: TerminalProgram,
-    file: Option<PathBuf>,
-    opening: Opening,
-    focus: bool,
 }
 
 /// What a window's strip says of what it shows.
@@ -559,139 +533,11 @@ fn start_writing(nvim: Signal<Option<Arc<Embedded>>>) {
     }
 }
 
-/// The content's tabs and windows, and what its focused window shows: every
-/// change to the content goes through here, so the two never disagree.
-#[derive(Clone, Copy)]
-struct Middle {
-    content: Signal<Content<Tab>>,
-    active: Signal<Option<Tab>>,
-}
-
-impl Middle {
-    fn edit(mut self, f: impl FnOnce(&mut Content<Tab>)) {
-        let now = {
-            let mut c = self.content.write();
-            f(&mut c);
-            c.focused().cloned()
-        };
-        if *self.active.peek() != now {
-            self.active.set(now);
-        }
-    }
-
-    /// Show `thing` where the user is, as [`Content::open`] does.
-    fn open(self, thing: Tab) {
-        self.edit(|c| c.open(thing));
-    }
-
-    /// Close every window showing what `gone` says is gone, and show `after`
-    /// once nothing is left open; whether the focused window now shows
-    /// something else.
-    fn close_showing(self, gone: impl Fn(&Tab) -> bool, after: Option<Tab>) -> bool {
-        let was = self.active.peek().clone();
-        self.edit(|c| {
-            c.close_showing(gone);
-            if c.is_empty()
-                && let Some(next) = after
-            {
-                c.open(next);
-            }
-        });
-        *self.active.peek() != was
-    }
-
-    /// Close windows by `f`. The prompt's text for a draft no window shows
-    /// any longer goes to what the focused window shows next, or to nothing
-    /// open when that has no prompt.
-    fn closing(self, prompts: Prompts, f: impl FnOnce(&mut Content<Tab>)) {
-        let was = self.active.peek().clone();
-        self.edit(f);
-        if let Some(draft @ Tab::Draft { .. }) = was
-            && !self.content.peek().shows_anywhere(&draft)
-        {
-            // A shell has no prompt to take it; it waits with nothing open.
-            let to = self.active.peek().clone().filter(|t| shows_prompt(Some(t)));
-            let _ = prompts.send(Op::Close(to));
-        }
-    }
-}
-
-/// How much of its split a window grows or shrinks by a key.
-const RESIZE_STEP: f64 = 0.05;
-
-/// Where the keys are, in `area`: in the console or the prompt of the
-/// content's focused window, or in a side panel.
-fn spot_of(area: Area, content: &Content<Tab>) -> Spot {
-    match area {
-        Area::Console | Area::Prompt => Spot {
-            area,
-            window: content.focused_window(),
-        },
-        Area::Sidebar => Spot::SIDEBAR,
-        Area::Details => Spot::DETAILS,
-    }
-}
-
-/// The worktree the details describe and the header names: the one in the
-/// middle, while a window shows something there.
-fn described(place: Option<Place>, shown: Option<&Tab>) -> Option<Place> {
-    place.filter(|_| shown.is_some())
-}
-
-/// The last part of `path`, as a file is called.
-fn file_name(path: &Path) -> String {
-    path.file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| short(path))
-}
-
-/// What `thing` is called in a tab and on its windows.
-fn thing_name(tree: &Tree, terminals: &[TerminalSession], thing: &Tab) -> String {
-    match thing {
-        Tab::Session(id) => nav::find(tree, id)
-            .map(|(_, s)| s.name.clone())
-            .unwrap_or_else(|| id.clone()),
-        Tab::Terminal(id) => terminals
-            .iter()
-            .find(|s| s.id == *id)
-            .map(|s| s.name.clone())
-            .unwrap_or_default(),
-        Tab::Draft { .. } => "new session".into(),
-        Tab::Viewer(path) => file_name(path),
-    }
-}
-
 /// Close a shell's windows, and show another thing of its worktree if no
 /// window is left.
-fn close_shell(
-    id: u128,
-    panes: &Panes,
-    app: AppCtx,
-    middle: Middle,
-    place: Signal<Option<Place>>,
-    prompts: Prompts,
-) {
+fn close_shell(id: u128, panes: &Panes, app: AppCtx) {
     panes.borrow_mut().remove(&Tab::Terminal(id));
-    app.dispatch(Msg::TerminalClosed(id));
-    let shell = Tab::Terminal(id);
-    if !middle.content.peek().shows_anywhere(&shell) {
-        return;
-    }
-    // The host's list holds the shell until it is told it closed.
-    let next = place.peek().as_ref().and_then(|p| {
-        let host = app.host.peek();
-        let work = host.work.as_ref();
-        let left: Vec<u128> = tree_view::terminals(work)
-            .iter()
-            .filter(|s| s.id != id && s.cwd == p.worktree)
-            .map(|s| s.id)
-            .collect();
-        nav::tab_after_closing(tree_view::listed(work), p, &left)
-    });
-    // The prompt's text goes with the focus, as when a draft's tab closes.
-    if middle.close_showing(|t| *t == shell, next) {
-        let _ = prompts.send(Op::Close(middle.active.peek().clone()));
-    }
+    app.dispatch(Msg::ShellClosed(id));
 }
 
 /// End a shell, as closing its tab does.
@@ -759,6 +605,7 @@ fn kept_id(tab: &Tab) -> Option<u128> {
 /// The pane a tab shows, attaching to its session when there is none yet:
 /// `None` until the attach lands, when the tab is woken and `attached` told.
 fn ensure_pane(
+    app: AppCtx,
     hub: &Hub,
     tab: &Tab,
     size: Size,
@@ -773,6 +620,7 @@ fn ensure_pane(
     if !hub.attaching.borrow_mut().insert(tab.clone()) {
         return None;
     }
+    tell_live(app, hub);
     let hub = hub.clone();
     let tab = tab.clone();
     spawn(async move {
@@ -789,6 +637,7 @@ fn ensure_pane(
             attached();
             let _ = hub.wake.send(tab);
         }
+        tell_live(app, &hub);
     });
     None
 }
@@ -796,6 +645,7 @@ fn ensure_pane(
 /// Start a session as `spawn` says, with the pane of the tab `tab_of` its id
 /// names, so that its program starts in the theme's colours.
 async fn start(
+    app: AppCtx,
     hub: &Hub,
     spawn: Spawn,
     size: Size,
@@ -840,20 +690,37 @@ async fn start(
     }
     let id = pane.id();
     hub.panes.borrow_mut().insert(tab_of(id), Arc::new(pane));
+    tell_live(app, hub);
     Ok(id)
 }
 
-/// Whether the session `id` is still shown live here, or being attached to:
-/// one started a moment ago may not be listed yet.
-fn alive_here(panes: &Panes, attaching: &RefCell<HashSet<Tab>>, id: &str) -> bool {
-    let tab = Tab::Session(id.to_string());
-    attaching.borrow().contains(&tab) || panes.borrow().get(&tab).is_some_and(|p| !p.exited())
+/// The sessions shown live here, or being attached to.
+fn live_sessions(hub: &Hub) -> BTreeSet<String> {
+    let panes = hub.panes.borrow();
+    let attaching = hub.attaching.borrow();
+    panes
+        .iter()
+        .filter(|(_, p)| !p.exited())
+        .map(|(t, _)| t)
+        .chain(attaching.iter())
+        .filter_map(|t| match t {
+            Tab::Session(id) => Some(id.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Tell the view state which sessions are shown live here: one started a
+/// moment ago may not be listed yet, and is not taken for ended.
+fn tell_live(app: AppCtx, hub: &Hub) {
+    let live = live_sessions(hub);
+    app.dispatch(Msg::PanesLive(live));
 }
 
 /// The pane a tab shows, waiting a while for its attach when there is none.
-async fn pane_for(hub: &Hub, tab: &Tab, size: Size) -> Option<Arc<Pane>> {
+async fn pane_for(app: AppCtx, hub: &Hub, tab: &Tab, size: Size) -> Option<Arc<Pane>> {
     for _ in 0..ATTACH_WAIT_STEPS {
-        if let Some(p) = ensure_pane(hub, tab, size, || {}) {
+        if let Some(p) = ensure_pane(app, hub, tab, size, || {}) {
             return Some(p);
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -889,8 +756,10 @@ fn App() -> Element {
     });
     // The latest action for a viewer, with the window whose viewer it is for.
     let mut viewer_command = use_signal(|| None::<(WindowId, viewers::Command)>);
-    let mut terminal_ask = use_signal(|| None::<TerminalAsk>);
-    let mut focus = use_signal(|| Area::Sidebar);
+    // The content as the view state holds it, each part read alone.
+    let active = use_memo(move || app.content.read().active().cloned());
+    let focus = use_memo(move || app.content.read().focus);
+    let place = use_memo(move || app.content.read().place.clone());
     // The picker going to a session or starting one, while it is open, and
     // the directories it offers.
     let mut picking = use_signal(|| None::<Picker>);
@@ -926,25 +795,6 @@ fn App() -> Element {
             .map(|f| f.rows(read_dirs))
             .unwrap_or_default()
     });
-    // What the content's focused window shows, which most of the window
-    // follows; changed only through `middle`.
-    let active = use_signal(|| None::<Tab>);
-    let content = use_signal(Content::<Tab>::default);
-    let middle = Middle { content, active };
-    // The session last shown in each workspace, by its root, which
-    // `workspace.next` goes back to. Kept only while the window is open.
-    let mut last_shown = use_signal(HashMap::<PathBuf, String>::new);
-    use_effect(move || {
-        let Some(Tab::Session(id)) = active() else {
-            return;
-        };
-        let Some(root) = tree.read().find(&id).map(|(ws, _, _)| ws.root.clone()) else {
-            return;
-        };
-        if last_shown.peek().get(&root) != Some(&id) {
-            last_shown.write().insert(root, id);
-        }
-    });
     let mut window_focused = use_signal(|| dioxus::desktop::window().is_focused());
     let mut completions = use_signal(Completions::default);
     use_effect(move || {
@@ -958,12 +808,6 @@ fn App() -> Element {
             completions.set(next);
         }
     });
-    // The agent chosen for a session not started yet, by its draft; the
-    // default for new sessions otherwise.
-    let mut draft_options = use_signal(HashMap::<Tab, content::DraftOptions>::new);
-    let mut next_options = use_signal(|| None::<content::DraftOptions>);
-    let mut last_agent = use_signal(|| None::<adroit_model::Agent>);
-    let mut place = use_signal(|| None::<Place>);
     let mut frame = use_signal(|| 0u64);
     let mut prompt_frame = use_signal(|| 0u64);
     let mut prompt_mode = use_signal(|| ("normal", "…"));
@@ -1007,24 +851,11 @@ fn App() -> Element {
     // The side panels' widths and whether they are shown, as the chrome
     // holds them.
     let layout = use_memo(move || app.chrome.read().panels.layout);
-    // A border between windows being dragged.
-    let mut win_drag = use_signal(|| None::<WindowDrag>);
     // How large the content's windows are drawn, all of them and each that
     // is not focused, whose program is sized to it.
     let mut windows_box = use_signal(|| (0.0f64, 0.0f64));
     let mut win_boxes = use_signal(HashMap::<WindowId, (f64, f64)>::new);
-    // Hiding the panel the keys are in gives them to the console.
-    let mut toggle_panel = move |side: Side| {
-        app.dispatch(Msg::PanelToggle(side));
-        let next = app.chrome.peek().panels.layout;
-        let hidden = match side {
-            Side::Sidebar => !next.show_sidebar && *focus.peek() == Area::Sidebar,
-            Side::Details => !next.show_details && *focus.peek() == Area::Details,
-        };
-        if hidden {
-            focus.set(Area::Console);
-        }
-    };
+    let toggle_panel = move |side: Side| app.dispatch(Msg::PanelToggle(side));
     // The tabs with something written for them kept aside.
     let drafted = use_signal(HashSet::<Tab>::new);
     let shown_images = use_signal(Vec::<PathBuf>::new);
@@ -1056,7 +887,7 @@ fn App() -> Element {
     // Whether the next key goes to the session as it is.
     let mut send_next = use_signal(|| false);
     // The images the consoles drew.
-    let mut gallery = use_signal(Gallery::default);
+    let gallery = use_signal(Gallery::default);
     // The interactive session the dialog asks to take over.
     let mut confirm = use_signal(|| None::<Ask>);
     let keys_help = use_memo(move || app.chrome.read().keys_help.clone());
@@ -1080,27 +911,6 @@ fn App() -> Element {
     // The sessions whose input may hold text since it was last taken: keys
     // went to them as they are, or they were just attached.
     let mut stale = use_signal(HashSet::<Tab>::new);
-    // The sessions being taken over: stopped, and not yet resumed here.
-    let mut moving = use_signal(HashSet::<String>::new);
-    // Whether the tab kept from the last run had its chance to come back;
-    // until then, the empty window is not kept over it.
-    let mut restored = use_signal(|| false);
-    use_effect(move || {
-        let shown = active.read().clone();
-        if !restored() {
-            return;
-        }
-        match shown {
-            Some(tab) => {
-                if let Some(name) = content::kept_name(&tab) {
-                    let _ = std::fs::write(shown_path(), name);
-                }
-            }
-            None => {
-                let _ = std::fs::remove_file(shown_path());
-            }
-        }
-    });
     // Keys meant for one area do not carry over to another: a sequence begun
     // in the sidebar would otherwise complete as a console binding after a
     // click there.
@@ -1144,11 +954,13 @@ fn App() -> Element {
                     }
                     let gone = watched.borrow().get(tab).is_some_and(|p| p.exited());
                     if let (Tab::Terminal(id), true) = (tab, gone) {
-                        close_shell(*id, &watched, app, middle, place, prompts);
+                        close_shell(*id, &watched, app);
                     }
                 }
-                let on_screen = content
+                let on_screen = app
+                    .content
                     .peek()
+                    .windows
                     .current()
                     .is_some_and(|t| t.windows().iter().any(|w| woke.contains(&w.shows)));
                 if on_screen {
@@ -1171,11 +983,12 @@ fn App() -> Element {
 
     // The daemon and the work host started, which lists the sessions from
     // then on; the user's key bindings read again whenever their file
-    // changes, and the host told when the user last typed into each session.
-    let mut beat = use_signal(|| 0u64);
+    // changes, the host told when the user last typed into each session, and
+    // the view state which sessions are live here, as their panes exit.
     use_hook({
         let panes = hub.panes.clone();
         let daemon = hub.daemon.clone();
+        let hub = hub.clone();
         move || {
             spawn(async move {
                 let compiled = tokio::task::spawn_blocking(|| {
@@ -1207,6 +1020,7 @@ fn App() -> Element {
                 // What the keys file last failed with, to take back once it reads.
                 let mut keys_err = None;
                 let mut typed = BTreeMap::new();
+                let mut told_live = None;
                 loop {
                     // The user's key bindings, read again whenever the file changes.
                     let keys_text = std::fs::read_to_string(keys_path()).ok();
@@ -1235,164 +1049,36 @@ fn App() -> Element {
                         typed = inputs.clone();
                         app.dispatch(Msg::Typed(inputs));
                     }
-                    *beat.write() += 1;
+                    let live = live_sessions(&hub);
+                    if told_live.as_ref() != Some(&live) {
+                        told_live = Some(live.clone());
+                        app.dispatch(Msg::PanesLive(live));
+                    }
                     tokio::time::sleep(Duration::from_secs(2)).await;
                 }
             });
         }
     });
 
-    // What a list of the sessions means for what the window shows: looked at
-    // each time the host lists them anew, and every two seconds besides, as
-    // a session ending or being taken over changes what it means.
-    let restore = use_hook(|| {
-        Rc::new(RefCell::new(
-            std::fs::read_to_string(shown_path())
-                .ok()
-                .and_then(|name| content::from_kept(&name)),
-        ))
-    });
-    // The tree as last looked at, against which the next list is.
-    let looked_at = use_hook(|| Rc::new(RefCell::new(Tree::default())));
-    use_effect({
-        let panes = hub.panes.clone();
-        let attaching = hub.attaching.clone();
-        move || {
-            let _ = beat();
-            let Some(now) = listed() else {
-                return;
-            };
-            let (sessions, kept_shells, next) = (&now.sessions, &now.terminals, &now.tree);
-            let was = looked_at.replace(next.clone());
-            // A session started a moment ago, and shown, is placed among its
-            // worktree's tabs once listed: below the worktree's top, it is
-            // shown there.
-            if let Some(Tab::Session(id)) = active.peek().clone()
-                && place.peek().is_some()
-                && let Some((p, _)) = nav::find(next, &id)
-                && place.peek().as_ref() != Some(&p)
-                && nav::find(&was, &id).is_none()
-            {
-                place.set(Some(p));
-            }
-            // The windows each follow their session, which may be taken over
-            // from the sidebar while another window is focused.
-            let _ = prompts.send(Op::Follow(sessions.clone()));
-            let followed: Vec<(Tab, Tab)> = content
-                .peek()
-                .shown()
-                .into_iter()
-                .filter_map(|t| match t {
-                    Tab::Session(old) => nav::successor(sessions, old)
-                        .map(|new| (t.clone(), Tab::Session(new.to_string()))),
-                    _ => None,
-                })
-                .collect();
-            if !followed.is_empty() {
-                middle.edit(|c| {
-                    for (old, new) in followed {
-                        c.replace(&old, new);
-                    }
-                });
-            }
-            // A session gone from the list, not merely gone by another id,
-            // gives its windows up as a closed shell does. One being taken
-            // over is only between ids.
-            let ended: Vec<String> = content
-                .peek()
-                .shown()
-                .into_iter()
-                .filter_map(|t| match t {
-                    Tab::Session(id)
-                        if nav::is_gone(sessions, id)
-                            && !moving.peek().contains(id)
-                            && !alive_here(&panes, &attaching, id) =>
-                    {
-                        Some(id.clone())
-                    }
-                    _ => None,
-                })
-                .collect();
-            for id in &ended {
-                let after = place.peek().as_ref().and_then(|p| {
-                    let left: Vec<u128> = kept_shells
-                        .iter()
-                        .filter(|s| s.cwd == p.worktree)
-                        .map(|s| s.id)
-                        .collect();
-                    nav::tab_after_closing(next, p, &left)
-                });
-                // Said, or the window would vanish unexplained.
-                if let Some((_, s)) = nav::find(&was, id) {
-                    app.notice(format!("{} ended", s.name));
-                }
-                let gone = Tab::Session(id.clone());
-                middle.close_showing(|t| *t == gone, after);
-            }
-            // So does what is waiting to be taken from a session's input.
-            let kept = nav::followed(sessions, &stale.peek());
-            if *stale.peek() != kept {
-                stale.set(kept);
-            }
-            let asked = pull.peek().clone();
-            if let Some(Tab::Session(old)) = asked
-                && let Some(new) = nav::successor(sessions, &old)
-            {
-                pull.set(Some(Tab::Session(new.to_string())));
-            }
-            // A session no longer listed has nothing to show; its pane is
-            // closed.
-            panes.borrow_mut().retain(|tab, _| match tab {
-                Tab::Session(id) => sessions.iter().any(|s| &s.id == id),
-                Tab::Terminal(id) => kept_shells.iter().any(|s| s.id == *id),
-                Tab::Draft { .. } | Tab::Viewer(_) => true,
-            });
-            // Nor are the images its console drew kept.
-            let gone = gallery
-                .peek()
-                .store
-                .sessions()
-                .any(|id| !sessions.iter().any(|s| s.id == id));
-            if gone {
-                gallery
-                    .write()
-                    .store
-                    .retain(|id| sessions.iter().any(|s| s.id == id));
-            }
-            // The tab shown when the window last closed comes back once what
-            // it shows is listed, unless another was opened meanwhile.
-            let kept = restore.borrow_mut().take();
-            if let Some(kept) = kept
-                && active.peek().is_none()
-            {
-                let at = match &kept {
-                    Tab::Session(id) => nav::find(next, id).map(|(p, _)| p),
-                    Tab::Terminal(id) => kept_shells.iter().find(|s| s.id == *id).map(|s| Place {
-                        worktree: s.cwd.clone(),
-                    }),
-                    Tab::Draft { .. } | Tab::Viewer(_) => None,
-                };
-                if let Some(p) = at {
-                    if let Tab::Session(id) = &kept {
-                        app.dispatch(Msg::TreeSelect(Some(Item::Session(id.clone()))));
-                    }
-                    place.set(Some(p));
-                    middle.open(kept);
-                }
-            }
-            // Told only of what changed since the window first read the
-            // sessions, and only while it is not in front.
-            if *restored.peek()
-                && settings::current().notify_waiting
-                && !dioxus::desktop::window().is_focused()
-            {
-                for (name, why) in alerts::newly_waiting(&was, next) {
-                    spawn(alerts::notify_waiting(&name, &why));
-                }
-            }
-            if !*restored.peek() {
-                restored.set(true);
-            }
+    // What a list of the sessions means for the prompt and the console: the
+    // prompt's texts and what waits to be taken from a session's input
+    // follow each session to the id it goes by now. The windows follow in
+    // the view state.
+    use_effect(move || {
+        let Some(now) = listed() else {
+            return;
+        };
+        let sessions = &now.sessions;
+        let _ = prompts.send(Op::Follow(sessions.clone()));
+        let kept = nav::followed(sessions, &stale.peek());
+        if *stale.peek() != kept {
+            stale.set(kept);
+        }
+        let asked = pull.peek().clone();
+        if let Some(Tab::Session(old)) = asked
+            && let Some(new) = nav::successor(sessions, &old)
+        {
+            pull.set(Some(Tab::Session(new.to_string())));
         }
     });
 
@@ -1409,7 +1095,7 @@ fn App() -> Element {
             };
             // A listing that took longer than the next one is for a worktree
             // no longer on screen.
-            if *place.peek() == p {
+            if app.place() == p {
                 files.set(listed);
             }
         });
@@ -1441,8 +1127,12 @@ fn App() -> Element {
         let agent = draft_agent::for_tab(
             &t,
             tab.as_ref(),
-            &draft_options.read(),
-            last_agent.read().unwrap_or(font.read().agent),
+            &app.content.read().drafts.options,
+            app.content
+                .read()
+                .drafts
+                .last_agent
+                .unwrap_or(font.read().agent),
         );
         agents::adapter(agent)
             .capabilities()
@@ -1494,13 +1184,6 @@ fn App() -> Element {
         });
     });
 
-    // What the content's focused window shows, which the tree and the
-    // details panel follow.
-    use_effect(move || {
-        let tab = active.read().clone();
-        let place = place.read().clone();
-        app.dispatch(Msg::Showing(Box::new(tree_view::Showing { tab, place })));
-    });
     // What else the details panel reads by, as the window shows it.
     use_effect(move || {
         let t = tree.read();
@@ -1509,8 +1192,12 @@ fn App() -> Element {
         let agent = draft_agent::for_tab(
             &t,
             tab.as_ref(),
-            &draft_options.read(),
-            last_agent.read().unwrap_or(settings.agent),
+            &app.content.read().drafts.options,
+            app.content
+                .read()
+                .drafts
+                .last_agent
+                .unwrap_or(settings.agent),
         );
         let drawn = match &tab {
             Some(Tab::Session(id)) if nav::find(&t, id).is_some() => {
@@ -1730,24 +1417,31 @@ fn App() -> Element {
     use_effect({
         let hub = hub.clone();
         move || {
-            let c = content.read();
-            let boxes = win_boxes.read();
+            // Taken out of the view state first: attaching tells it which
+            // sessions are live.
+            let windows: Vec<(WindowId, Tab)> = {
+                let view = app.content.read();
+                let Some(tab) = view.windows.current() else {
+                    return;
+                };
+                let focused = view.active();
+                let mut sized = HashSet::new();
+                tab.windows()
+                    .into_iter()
+                    .filter(|w| {
+                        Some(&w.shows) != focused
+                            && !matches!(w.shows, Tab::Draft { .. })
+                            && sized.insert(w.shows.clone())
+                    })
+                    .map(|w| (w.id, w.shows.clone()))
+                    .collect()
+            };
+            let boxes = win_boxes.read().clone();
             let cw = cell_width();
             let ch = cell_height_now();
             let _ = (font(), tree.read(), attached());
-            let Some(tab) = c.current() else {
-                return;
-            };
-            let focused = c.focused();
-            let mut sized = HashSet::new();
-            for w in tab.windows() {
-                if Some(&w.shows) == focused
-                    || matches!(w.shows, Tab::Draft { .. })
-                    || !sized.insert(w.shows.clone())
-                {
-                    continue;
-                }
-                let Some(&(width, height)) = boxes.get(&w.id).filter(|(w, _)| *w > 0.0) else {
+            for (id, shows) in windows {
+                let Some(&(width, height)) = boxes.get(&id).filter(|(w, _)| *w > 0.0) else {
                     continue;
                 };
                 let size = Size {
@@ -1758,8 +1452,8 @@ fn App() -> Element {
                         (console_room(height, None) / ch).floor().max(4.0) as u16,
                     )
                 };
-                let me = w.shows.clone();
-                let pane = ensure_pane(&hub, &w.shows, size, move || {
+                let me = shows.clone();
+                let pane = ensure_pane(app, &hub, &shows, size, move || {
                     *attached.write() += 1;
                     if matches!(me, Tab::Session(_)) {
                         stale.write().insert(me);
@@ -1782,7 +1476,7 @@ fn App() -> Element {
             // and one attached is sized to the console as it is by then.
             let _ = (tree.read(), attached());
             let me = tab.clone();
-            let pane = ensure_pane(&hub, &tab, size, move || {
+            let pane = ensure_pane(app, &hub, &tab, size, move || {
                 *attached.write() += 1;
                 if matches!(me, Tab::Session(_)) {
                     stale.write().insert(me);
@@ -1842,57 +1536,23 @@ fn App() -> Element {
     // Keep sessions visible while a prompt is in flight, even across tab switches.
     let mut sending = use_signal(|| false);
 
-    // The worktree in the middle is the one the focused window's thing is in,
-    // however the focus came to it.
-    use_effect(move || {
-        let Some(now) = active.read().clone() else {
-            return;
-        };
-        let at = tree_view::place_of_tab(&tree.peek(), &terminals.peek(), &now);
-        if at.is_some() && *place.peek() != at {
-            place.set(at);
-        }
-    });
     // The prompt shows what the focused window shows.
     use_effect(move || {
         let now = active.read().clone();
         let _ = prompts.send(Op::Show(now));
     });
-    // A draft no window shows any longer is given up, with what was chosen
-    // for it.
-    use_effect(move || {
-        let c = content.read();
-        let shown = c.shown();
-        if draft_options.peek().keys().any(|t| !shown.contains(&t)) {
-            draft_options.write().retain(|t, _| shown.contains(&t));
-        }
-    });
 
-    let mut draft_at = move |worktree: PathBuf| {
-        let draft = Tab::draft(worktree);
-        draft_options.write().insert(
-            draft.clone(),
-            content::DraftOptions::for_new_draft(&mut next_options.write()),
-        );
-        draft
-    };
-    // A shell or a Neovim asked for starts here, so what asks for one
-    // need not hold the hub.
-    use_effect({
+    // A shell or a Neovim asked for starts here, where the hub is.
+    let start_terminal = {
         let hub = hub.clone();
-        move || {
-            let ask = terminal_ask.read().clone();
-            let Some(TerminalAsk {
+        move |ask: TerminalAsk| {
+            let TerminalAsk {
                 place: p,
                 runs,
                 file,
                 opening,
                 focus: take_keys,
-            }) = ask
-            else {
-                return;
-            };
-            terminal_ask.set(None);
+            } = ask;
             let names: Vec<String> = terminals
                 .peek()
                 .iter()
@@ -1923,73 +1583,46 @@ fn App() -> Element {
             resolved.spawn.rows = size.rows;
             let hub = hub.clone();
             spawn(async move {
-                match start(&hub, resolved.spawn, size, Tab::Terminal, None).await {
+                match start(app, &hub, resolved.spawn, size, Tab::Terminal, None).await {
                     Ok(id) => {
                         resolved.terminal.id = id;
                         app.dispatch(Msg::TerminalOpened(resolved.terminal));
-                        place.set(Some(p));
-                        middle.edit(|c| c.open_in(Tab::Terminal(id), opening));
+                        app.dispatch(Msg::Show {
+                            thing: Tab::Terminal(id),
+                            place: Some(p),
+                            how: Some(opening),
+                        });
                         if take_keys {
-                            focus.set(Area::Console);
+                            app.dispatch(Msg::Focus(Area::Console));
                         }
                     }
                     Err(e) => app.status(Some(format!("cannot start {base}: {e}"))),
                 }
             });
         }
-    });
+    };
     // Open a row where `how` says, or as anything else opens a thing when it
-    // says nothing. Only the keys that open in place fold a row, and on a
-    // folded one they unfold it first.
-    let mut open = move |item: Item, how: Option<Opening>| {
+    // says nothing; `take_keys` gives the keys to what opened.
+    let open = move |item: Item, how: Option<Opening>, take_keys: bool| {
         // Typing stops going to the filter once a row is taken; what it
         // narrowed to stays.
         if app.tree.peek().filtering {
             focus_filter(false);
         }
-        app.dispatch(Msg::TreeSelect(Some(item.clone())));
-        let in_place = matches!(how, None | Some(Opening::Existing | Opening::Here));
-        if in_place && nav::unfolds(&item, &app.tree.peek().narrowed, &app.tree.peek().folds) {
-            app.dispatch(Msg::TreeFold {
-                row: item.clone(),
-                open: true,
-            });
-            return;
-        }
-        let show = move |thing: Tab| match how {
-            Some(how) => middle.edit(|c| c.open_in(thing, how)),
-            None => middle.open(thing),
-        };
-        let opens = nav::opens(&item, &app.tree.peek().narrowed, &terminals.peek());
-        match opens {
-            nav::Opens::Fold if in_place => app.dispatch(Msg::TreeFoldToggle(item.clone())),
-            nav::Opens::Fold => {}
-            nav::Opens::Shows(thing, p) => {
-                if p.is_some() {
-                    place.set(p);
-                }
-                show(thing);
-            }
-            nav::Opens::Edit(worktree, file) => terminal_ask.set(Some(TerminalAsk {
-                place: Place { worktree },
-                runs: TerminalProgram::Neovim,
-                file: Some(file),
-                opening: how.unwrap_or(Opening::Here),
-                focus: false,
-            })),
-            nav::Opens::Draft(worktree) => {
-                show(draft_at(worktree.clone()));
-                place.set(Some(Place { worktree }));
-            }
-        }
+        app.dispatch(Msg::OpenRow {
+            item,
+            how,
+            take_keys,
+        });
     };
 
     // The content's tabs, each named after what its focused window shows.
     let tabs = use_memo(move || {
         let t = tree.read();
         let terms = terminals.read();
-        let c = content.read();
-        c.tabs()
+        let view = app.content.read();
+        view.windows
+            .tabs()
             .iter()
             .map(|tab| {
                 let shows = tab.focused().shows.clone();
@@ -2001,7 +1634,7 @@ fn App() -> Element {
                         )
                     }),
                     Tab::Draft { .. } => {
-                        let reader = draft_options.read().get(&shows).is_some_and(|o| {
+                        let reader = view.drafts.options.get(&shows).is_some_and(|o| {
                             o.permissions == adroit_model::AgentPermissions::ReadOnly
                         });
                         (None, session_mark(reader))
@@ -2014,45 +1647,11 @@ fn App() -> Element {
             .collect::<Vec<_>>()
     });
 
-    // Show a thing where the user is, as the content opens it, and select
-    // its row.
-    let show_tab = move |tab: Tab| {
-        if let Some(p) = place.peek().as_ref()
-            && let Some(row) = {
-                let rows = app.tree.peek().rows.clone();
-                nav::row_of(&rows, &tree.peek(), Some(&tab), p)
-            }
-        {
-            app.dispatch(Msg::TreeSelect(Some(row)));
-        }
-        middle.open(tab);
-    };
-
-    // Show a session wherever it runs, as opening its row does, but leave the
-    // keys where they are.
-    let mut show_session = move |id: String| {
-        let Some((p, _)) = nav::find(&tree.peek(), &id) else {
-            return;
-        };
-        place.set(Some(p));
-        show_tab(Tab::Session(id));
-    };
-    use_hook(|| {
-        app.hand_over(move |effect| match effect {
-            CoreEffect::ShowSession(id) => {
-                let mut show = show_session;
-                show(id)
-            }
-            CoreEffect::ShowShot { shot, session } => show_shot(&shot, &session, &gallery.peek()),
-            _ => {}
-        })
-    });
-
     let submit = {
         let hub = hub.clone();
         move || {
             let hub = hub.clone();
-            if *sending.peek() || !shows_prompt(active.peek().as_ref()) {
+            if *sending.peek() || !shows_prompt(app.active().as_ref()) {
                 return;
             }
             sending.set(true);
@@ -2073,7 +1672,7 @@ fn App() -> Element {
                     .and_then(|(tab, text, _)| passes_enter(Some(&(tab.clone(), text.clone()))))
                 {
                     let size = *console_size.peek();
-                    if let Some(p) = pane_for(&hub, &Tab::Session(id), size).await {
+                    if let Some(p) = pane_for(app, &hub, &Tab::Session(id), size).await {
                         p.key(&Key::new("Enter").ctrl());
                     }
                 }
@@ -2091,13 +1690,11 @@ fn App() -> Element {
                 // a draft there would.
                 let tab = match shown {
                     None => {
-                        let p = Place {
+                        app.dispatch(Msg::Draft {
                             worktree: scratch_dir(),
-                        };
-                        let draft = draft_at(p.worktree.clone());
-                        place.set(Some(p));
-                        middle.open(draft.clone());
-                        draft
+                            write: false,
+                        });
+                        app.active().unwrap_or_else(|| Tab::draft(scratch_dir()))
                     }
                     Some(shown) => shown,
                 };
@@ -2108,8 +1705,12 @@ fn App() -> Element {
                 let agent = draft_agent::for_tab(
                     &t,
                     Some(&tab),
-                    &draft_options.peek(),
-                    last_agent.peek().unwrap_or(launch_settings.agent),
+                    &app.content.peek().drafts.options,
+                    app.content
+                        .peek()
+                        .drafts
+                        .last_agent
+                        .unwrap_or(launch_settings.agent),
                 );
                 let waiting =
                     |id: &str| nav::find(&t, id).is_some_and(|(_, s)| s.state.takes_every_key());
@@ -2119,7 +1720,7 @@ fn App() -> Element {
                     Tab::Session(id) if waiting(&id) => {
                         // The keys go where the answer is given; what was written
                         // waits in the prompt for after.
-                        focus.set(Area::Console);
+                        app.dispatch(Msg::Focus(Area::Console));
                         app.notice(
                             "Answer the session above first; your message waits here".into(),
                         );
@@ -2138,7 +1739,7 @@ fn App() -> Element {
                         );
                         false
                     }
-                    tab @ Tab::Session(_) => match pane_for(&hub, &tab, size).await {
+                    tab @ Tab::Session(_) => match pane_for(app, &hub, &tab, size).await {
                         Some(p) => {
                             // Claude Code turns on bracketed paste once it is
                             // ready for input.
@@ -2209,8 +1810,11 @@ fn App() -> Element {
                         let label = given.unwrap_or_else(|| label_from(&text));
                         let taken: Vec<&str> = t.sessions().map(|(_, s)| s.name.as_str()).collect();
                         let name = fresh_name(&label, &taken);
-                        let options = draft_options
+                        let options = app
+                            .content
                             .peek()
+                            .drafts
+                            .options
                             .get(&Tab::Draft {
                                 worktree: worktree.clone(),
                                 id,
@@ -2252,6 +1856,7 @@ fn App() -> Element {
                                             spawn.cols = size.cols;
                                             spawn.rows = size.rows;
                                             start(
+                                                app,
                                                 &hub,
                                                 spawn,
                                                 size,
@@ -2269,10 +1874,12 @@ fn App() -> Element {
                         match started {
                             Ok(id) => {
                                 let id = sessions::hex(id);
-                                draft_options.write().remove(&draft);
                                 app.dispatch(Msg::Relist);
                                 app.dispatch(Msg::TreeSelect(Some(Item::Session(id.clone()))));
-                                middle.edit(|c| c.replace(&draft, Tab::Session(id)));
+                                app.dispatch(Msg::Replace {
+                                    from: draft,
+                                    to: Tab::Session(id),
+                                });
                                 true
                             }
                             Err(e) => {
@@ -2294,23 +1901,20 @@ fn App() -> Element {
         }
     };
 
-    let mut choose_agent = move |tab: Option<Tab>, agent| {
-        draft_agent::choose(
-            &mut draft_options.write(),
-            tab,
-            agent,
-            &mut last_agent.write(),
-        );
-    };
+    let choose_agent = move |tab: Option<Tab>, agent| app.dispatch(Msg::DraftAgent { tab, agent });
 
     // A session started already keeps its own agent.
-    let mut switch_agent = move |forward: bool| match active.peek().clone() {
+    let switch_agent = move |forward: bool| match app.active() {
         tab if draft_agent::can_choose(tab.as_ref()) => {
             let now = draft_agent::for_tab(
                 &tree.peek(),
                 tab.as_ref(),
-                &draft_options.peek(),
-                last_agent.peek().unwrap_or(settings::current().agent),
+                &app.content.peek().drafts.options,
+                app.content
+                    .peek()
+                    .drafts
+                    .last_agent
+                    .unwrap_or(settings::current().agent),
             );
             choose_agent(tab, if forward { now.next() } else { now.prev() });
         }
@@ -2347,7 +1951,10 @@ fn App() -> Element {
                     app.status(Some("This agent cannot be taken over".into()));
                     return;
                 };
-                moving.write().insert(now.id.clone());
+                app.dispatch(Msg::TakingOver {
+                    id: now.id.clone(),
+                    on: true,
+                });
                 let stopped = match now.pid {
                     Some(pid) => {
                         adroit_agents::claude::stop(pid, adroit_agents::claude::STOP_GRACE).await
@@ -2355,7 +1962,10 @@ fn App() -> Element {
                     None => Ok(()),
                 };
                 if let Err(e) = stopped {
-                    moving.write().remove(&now.id);
+                    app.dispatch(Msg::TakingOver {
+                        id: now.id.clone(),
+                        on: false,
+                    });
                     app.status(Some(format!("cannot take over {}: {e}", asked.name)));
                     return;
                 }
@@ -2407,6 +2017,7 @@ fn App() -> Element {
                     rows: size.rows,
                 };
                 match start(
+                    app,
                     &hub,
                     spawn,
                     size,
@@ -2419,7 +2030,10 @@ fn App() -> Element {
                         app.status(None);
                         let id = sessions::hex(id);
                         let was = Tab::Session(now.id.clone());
-                        middle.edit(|c| c.replace(&was, Tab::Session(id.clone())));
+                        app.dispatch(Msg::Replace {
+                            from: was,
+                            to: Tab::Session(id.clone()),
+                        });
                         if matches!(app.tree.peek().selected.as_ref(), Some(Item::Session(s) | Item::Waiting(s)) if *s == now.id)
                         {
                             app.dispatch(Msg::TreeSelect(Some(Item::Session(id))));
@@ -2427,7 +2041,10 @@ fn App() -> Element {
                     }
                     Err(e) => app.status(Some(format!("cannot resume {}: {e}", asked.name))),
                 }
-                moving.write().remove(&now.id);
+                app.dispatch(Msg::TakingOver {
+                    id: now.id.clone(),
+                    on: false,
+                });
                 app.dispatch(Msg::Relist);
             });
         }
@@ -2503,12 +2120,10 @@ fn App() -> Element {
     // A directory chosen in the picker: a new session's draft there.
     let mut choose = move |dir: PathBuf| {
         picking.set(None);
-        place.set(Some(Place {
-            worktree: dir.clone(),
-        }));
-        middle.open(draft_at(dir));
-        focus.set(Area::Prompt);
-        start_writing(nvim);
+        app.dispatch(Msg::Draft {
+            worktree: dir,
+            write: true,
+        });
     };
 
     // A row of the picker's list chosen, by its place among those drawn.
@@ -2519,7 +2134,7 @@ fn App() -> Element {
             Some(Choice::Directory(c)) => choose(c.path),
             Some(Choice::Session(s)) => {
                 picking.set(None);
-                show_session(s.id);
+                app.dispatch(Msg::ShowSession(s.id));
             }
             None => {}
         }
@@ -2649,7 +2264,7 @@ fn App() -> Element {
         let t = tree.peek();
         let chosen = match &app.tree.peek().selected {
             Some(Item::Session(id) | Item::Waiting(id)) if selection => Some(id.clone()),
-            _ => match &*active.peek() {
+            _ => match &app.active() {
                 Some(Tab::Session(id)) => Some(id.clone()),
                 _ => None,
             },
@@ -2702,7 +2317,7 @@ fn App() -> Element {
                 let tab = Tab::Session(r.id.clone());
                 let size = *console_size.peek();
                 if let Some(command) = agents::adapter(agent).rename_command(&name)
-                    && let Some(p) = pane_for(&hub, &tab, size).await
+                    && let Some(p) = pane_for(app, &hub, &tab, size).await
                 {
                     p.paste(&command);
                     tokio::time::sleep(Duration::from_millis(40)).await;
@@ -2752,7 +2367,7 @@ fn App() -> Element {
         let t = tree.peek();
         let chosen = match &app.tree.peek().selected {
             Some(Item::Session(id) | Item::Waiting(id)) if selection => Some(id.clone()),
-            _ => match &*active.peek() {
+            _ => match &app.active() {
                 Some(Tab::Session(id)) => Some(id.clone()),
                 _ => None,
             },
@@ -2770,7 +2385,7 @@ fn App() -> Element {
     let active_pane = {
         let hub = hub.clone();
         move || -> Option<Arc<Pane>> {
-            let tab = active.peek().clone()?;
+            let tab = app.active()?;
             hub.panes.borrow().get(&tab).cloned()
         }
     };
@@ -2967,9 +2582,9 @@ fn App() -> Element {
     };
 
     // Whether the console shows a session, which takes only its control keys.
-    let shows_session = move || matches!(&*active.peek(), Some(Tab::Session(_)));
+    let shows_session = move || matches!(&app.active(), Some(Tab::Session(_)));
     // Whether that session waits on a choice, which every key answers.
-    let waits = move || match &*active.peek() {
+    let waits = move || match &app.active() {
         Some(Tab::Session(id)) => {
             *dialog.peek()
                 || nav::find(&tree.peek(), id).is_some_and(|(_, s)| s.state.takes_every_key())
@@ -2987,8 +2602,12 @@ fn App() -> Element {
                     let agent = draft_agent::for_tab(
                         &tree.read(),
                         Some(tab),
-                        &draft_options.read(),
-                        last_agent.read().unwrap_or(font.read().agent),
+                        &app.content.read().drafts.options,
+                        app.content
+                            .read()
+                            .drafts
+                            .last_agent
+                            .unwrap_or(font.read().agent),
                     );
                     active_pane()
                         .is_some_and(|p| agents::adapter(agent).dialog_open(&p.screen().text()))
@@ -3007,7 +2626,7 @@ fn App() -> Element {
     let request_pull = {
         let active_pane = active_pane.clone();
         move || {
-            let Some(tab) = active.peek().clone() else {
+            let Some(tab) = app.active() else {
                 return;
             };
             let Tab::Session(id) = &tab else { return };
@@ -3070,33 +2689,51 @@ fn App() -> Element {
             }
         }
     });
-    // A shell shown takes the keys from a prompt that goes away with it.
-    use_effect(move || {
-        let prompt = shows_prompt(active.read().as_ref());
-        let area = *focus.peek();
-        let to = settled(area, prompt);
-        if to != area {
-            focus.set(to);
-        }
-    });
-    let mut last_spot = use_signal(|| Spot::SIDEBAR);
-    // Where the keys were before where they are now.
-    let mut came_from = use_signal(|| None::<Spot>);
-    use_effect({
-        let mut request_pull = request_pull.clone();
-        let mut leave_reading = leave_reading.clone();
+    // What the view state asks of the panes, the prompt and the console,
+    // which live here.
+    use_hook({
+        let panes = hub.panes.clone();
+        let request_pull = request_pull.clone();
+        let leave_reading = leave_reading.clone();
+        let start_terminal = start_terminal.clone();
         move || {
-            let area = focus();
-            let spot = spot_of(area, &content.read());
-            let before = *last_spot.peek();
-            if before != spot {
-                last_spot.set(spot);
-                came_from.set(Some(before));
-                if area == Area::Prompt && before.area != Area::Prompt {
-                    leave_reading();
-                    request_pull();
+            app.hand_over(move |effect| match effect {
+                CoreEffect::ShowShot { shot, session } => {
+                    show_shot(&shot, &session, &gallery.peek())
                 }
-            }
+                CoreEffect::StartTerminal(ask) => start_terminal(ask),
+                CoreEffect::PromptClose(to) => {
+                    let _ = prompts.send(Op::Close(to));
+                }
+                CoreEffect::StartWriting => start_writing(nvim),
+                CoreEffect::PromptEntered => {
+                    let (mut leave, mut pull) = (leave_reading.clone(), request_pull.clone());
+                    leave();
+                    pull();
+                }
+                // A session no longer listed has nothing to show; its pane is
+                // closed, and the images its console drew are not kept.
+                CoreEffect::KeepPanes {
+                    sessions,
+                    terminals,
+                } => {
+                    panes.borrow_mut().retain(|tab, _| match tab {
+                        Tab::Session(id) => sessions.contains(id),
+                        Tab::Terminal(id) => terminals.contains(id),
+                        Tab::Draft { .. } | Tab::Viewer(_) => true,
+                    });
+                    let gone = gallery
+                        .peek()
+                        .store
+                        .sessions()
+                        .any(|id| !sessions.contains(id));
+                    if gone {
+                        let mut gallery = gallery;
+                        gallery.write().store.retain(|id| sessions.contains(id));
+                    }
+                }
+                _ => {}
+            })
         }
     });
 
@@ -3110,7 +2747,7 @@ fn App() -> Element {
         {
             return Typed::Nowhere;
         }
-        typed_into(*focus.peek(), shows_session(), *direct.peek(), waits())
+        typed_into(app.focus(), shows_session(), *direct.peek(), waits())
     };
 
     let type_text = {
@@ -3119,7 +2756,7 @@ fn App() -> Element {
             keys::trace(|| format!("text {text:?} pasted={pasted}"));
             match text_goes() {
                 Typed::Prompt => {
-                    focus.set(Area::Prompt);
+                    app.dispatch(Msg::Focus(Area::Prompt));
                     if let Some(nv) = nvim.peek().clone() {
                         spawn(async move {
                             if pasted {
@@ -3148,7 +2785,7 @@ fn App() -> Element {
     // terminal hands on an image paste: Claude Code then reads the image off
     // the clipboard itself.
     let paste_image = {
-        let mut type_text = type_text.clone();
+        let type_text = type_text.clone();
         move |mime: String, data: String| match text_goes() {
             Typed::Prompt => {
                 let dir = pasted::dir();
@@ -3175,14 +2812,14 @@ fn App() -> Element {
         let mut submit = submit.clone();
         let hub = hub.clone();
         move |action: Action, key: Option<Key>| {
-            let area = *focus.peek();
+            let area = app.focus();
             let pane = active_pane().filter(|_| matches!(area, Area::Console | Area::Prompt));
             let write = |p: &Pane, k: &Key| {
                 p.key(k);
             };
             // A key sent as it is may type into Claude Code's input.
             let mut typed = || {
-                if let Some(tab @ Tab::Session(_)) = active.peek().clone() {
+                if let Some(tab @ Tab::Session(_)) = app.active() {
                     stale.write().insert(tab);
                 }
             };
@@ -3210,42 +2847,12 @@ fn App() -> Element {
                     *frame.write() += 1;
                 }
             };
-            let shown = {
-                let l = *layout.peek();
-                Shown {
-                    sidebar: l.show_sidebar,
-                    details: l.show_details,
-                }
-            };
-            let here = spot_of(area, &content.peek());
-            let mut go = |to: Spot| {
-                let hidden = (to.area == Area::Sidebar && !shown.sidebar)
-                    || (to.area == Area::Details && !shown.details);
-                if hidden {
-                    return;
-                }
-                let focused = content.peek().focused_window();
-                if let Some(w) = to.window
-                    && focused != Some(w)
-                {
-                    middle.edit(|c| {
-                        c.focus(w);
-                    });
-                }
-                focus.set(settled(to.area, shows_prompt(active.peek().as_ref())));
-            };
-            let prompts_of = |t: Option<&Tab>| shows_prompt(t);
-            // Each spot is found before `go` is told it, which changes the content.
-            let mut window = |d: Dir| {
-                let to = moved(here, d, &content.peek(), prompts_of, shown);
-                go(to);
-            };
-            let thing = active.peek().clone();
+            let thing = app.active();
             // The focused window's viewer takes the viewer's actions.
             if area == Area::Console
                 && let Some(Tab::Viewer(_)) = &thing
                 && let Some(v) = viewers::ViewerAction::of(&action)
-                && let Some(w) = content.peek().focused_window()
+                && let Some(w) = app.content.peek().windows.focused_window()
             {
                 let seq = viewer_command.peek().as_ref().map_or(1, |(_, c)| c.seq + 1);
                 viewer_command.set(Some((w, viewers::Command { seq, action: v })));
@@ -3274,86 +2881,39 @@ fn App() -> Element {
                 | Action::ViewerBack
                 | Action::ViewerForward
                 | Action::ViewerCopyPath => {}
-                Action::WindowLeft => window(Dir::Left),
-                Action::WindowDown => window(Dir::Down),
-                Action::WindowUp => window(Dir::Up),
-                Action::WindowRight => window(Dir::Right),
-                Action::WindowNext => {
-                    let to = cycled(here, true, &content.peek(), prompts_of, shown);
-                    go(to);
-                }
-                Action::WindowPrev => {
-                    let to = cycled(here, false, &content.peek(), prompts_of, shown);
-                    go(to);
-                }
-                Action::WindowTop => {
-                    let to = corner(true, &content.peek(), prompts_of, shown);
-                    go(to);
-                }
-                Action::WindowBottom => {
-                    let to = corner(false, &content.peek(), prompts_of, shown);
-                    go(to);
-                }
-                Action::WindowBack => {
-                    let back = *came_from.peek();
-                    if let Some(to) = back {
-                        let gone = {
-                            let c = content.peek();
-                            to.window.is_some_and(|w| c.shows(w).is_none())
-                        };
-                        if !gone {
-                            go(to);
-                        }
-                    }
-                }
-                Action::WindowSplit | Action::WindowVsplit => {
-                    let axis = if action == Action::WindowVsplit {
-                        Axis::Row
-                    } else {
-                        Axis::Column
-                    };
-                    if let Some(t) = thing {
-                        middle.edit(|c| c.split(axis, t));
-                    }
-                }
-                Action::WindowNew => {
-                    let dir = place
-                        .peek()
-                        .as_ref()
-                        .map_or_else(scratch_dir, |p| p.worktree.clone());
-                    let draft = draft_at(dir);
-                    middle.edit(|c| c.split(Axis::Column, draft));
-                    focus.set(Area::Prompt);
-                    start_writing(nvim);
-                }
-                Action::WindowQuit => middle.closing(prompts, Content::close_window),
-                Action::WindowOnly => middle.closing(prompts, Content::only),
-                Action::WindowMoveLeft => middle.edit(|c| c.move_to_edge(Dir::Left)),
-                Action::WindowMoveDown => middle.edit(|c| c.move_to_edge(Dir::Down)),
-                Action::WindowMoveUp => middle.edit(|c| c.move_to_edge(Dir::Up)),
-                Action::WindowMoveRight => middle.edit(|c| c.move_to_edge(Dir::Right)),
-                Action::WindowExchange => middle.edit(Content::exchange),
-                Action::WindowRotate => middle.edit(Content::rotate),
-                Action::WindowEqualize => middle.edit(Content::equalize),
-                Action::WindowWider => middle.edit(|c| c.resize(Axis::Row, RESIZE_STEP)),
-                Action::WindowNarrower => middle.edit(|c| c.resize(Axis::Row, -RESIZE_STEP)),
-                Action::WindowTaller => middle.edit(|c| c.resize(Axis::Column, RESIZE_STEP)),
-                Action::WindowShorter => middle.edit(|c| c.resize(Axis::Column, -RESIZE_STEP)),
-                Action::WindowMaximizeWidth => middle.edit(|c| c.maximize(Axis::Row)),
-                Action::WindowMaximizeHeight => middle.edit(|c| c.maximize(Axis::Column)),
-                Action::WindowToTab => middle.edit(Content::to_new_tab),
-                Action::TabGo(n) => middle.edit(|c| c.go_to_tab(usize::from(n) - 1)),
-                Action::TabLast => middle.edit(Content::go_to_last_tab),
-                // The tabs of the area the keys are in: the details panel's
-                // sheets there, the console's tabs elsewhere.
-                Action::TabNext | Action::TabPrev => {
-                    let delta = if action == Action::TabNext { 1 } else { -1 };
-                    if area == Area::Details {
-                        app.dispatch(Msg::DetailsSheetStep(delta));
-                    } else {
-                        middle.edit(|c| c.cycle_tab(delta));
-                    }
-                }
+                Action::WindowLeft
+                | Action::WindowDown
+                | Action::WindowUp
+                | Action::WindowRight
+                | Action::WindowNext
+                | Action::WindowPrev
+                | Action::WindowTop
+                | Action::WindowBottom
+                | Action::WindowBack
+                | Action::WindowSplit
+                | Action::WindowVsplit
+                | Action::WindowNew
+                | Action::WindowQuit
+                | Action::WindowOnly
+                | Action::WindowMoveLeft
+                | Action::WindowMoveDown
+                | Action::WindowMoveUp
+                | Action::WindowMoveRight
+                | Action::WindowExchange
+                | Action::WindowRotate
+                | Action::WindowEqualize
+                | Action::WindowWider
+                | Action::WindowNarrower
+                | Action::WindowTaller
+                | Action::WindowShorter
+                | Action::WindowMaximizeWidth
+                | Action::WindowMaximizeHeight
+                | Action::WindowToTab
+                | Action::TabGo(_)
+                | Action::TabLast
+                | Action::TabNext
+                | Action::TabPrev
+                | Action::TabClose => app.dispatch(Msg::Window(action)),
                 // The key pressed is Neovim's while it shows its completions
                 // or its command line, as Tab is there, and while the prompt
                 // has no agent to send it to.
@@ -3393,9 +2953,9 @@ fn App() -> Element {
                 | Action::HistoryPrev
                 | Action::HistoryNext
                     if !shows_prompt(thing.as_ref()) => {}
-                Action::PromptFocus => focus.set(Area::Prompt),
+                Action::PromptFocus => app.dispatch(Msg::Focus(Area::Prompt)),
                 Action::PromptWrite => {
-                    focus.set(Area::Prompt);
+                    app.dispatch(Msg::Focus(Area::Prompt));
                     // The same key starts writing there, as in Vim.
                     if !nvim_insert
                         && let Some(n) = key.as_ref().and_then(notation)
@@ -3416,7 +2976,7 @@ fn App() -> Element {
                         let s = nv.state();
                         s.popup().is_some() || s.mode().starts_with("cmdline")
                     };
-                    let tab = active.peek().clone();
+                    let tab = app.active();
                     let hands_back = ANSWERS.load(Ordering::Relaxed)
                         && matches!(&tab, Some(Tab::Session(id))
                             if nav::find(&tree.peek(), id).is_some_and(|(_, s)| s.adroit_editor));
@@ -3459,7 +3019,7 @@ fn App() -> Element {
                 }
                 Action::PromptImages => {
                     if matches!(text_goes(), Typed::Prompt) {
-                        focus.set(Area::Prompt);
+                        app.dispatch(Msg::Focus(Area::Prompt));
                         selected_image.set(shown_images.peek().first().cloned());
                     }
                 }
@@ -3479,7 +3039,7 @@ fn App() -> Element {
                         });
                         return;
                     }
-                    let tab = active.peek().clone();
+                    let tab = app.active();
                     let project = match &tab {
                         Some(Tab::Session(id)) => {
                             nav::find(&tree.peek(), id).map(|(_, s)| PathBuf::from(&s.cwd))
@@ -3490,8 +3050,12 @@ fn App() -> Element {
                     let agent = draft_agent::for_tab(
                         &tree.peek(),
                         tab.as_ref(),
-                        &draft_options.peek(),
-                        last_agent.peek().unwrap_or(settings::current().agent),
+                        &app.content.peek().drafts.options,
+                        app.content
+                            .peek()
+                            .drafts
+                            .last_agent
+                            .unwrap_or(settings::current().agent),
                     );
                     let back = action == Action::HistoryPrev;
                     spawn(async move {
@@ -3505,7 +3069,7 @@ fn App() -> Element {
                         };
                         let _ = prompts.send(Op::Recall(tab, back, sent));
                     });
-                    focus.set(Area::Prompt);
+                    app.dispatch(Msg::Focus(Area::Prompt));
                     start_writing(nvim);
                 }
                 Action::SessionAgentNext => switch_agent(true),
@@ -3515,7 +3079,7 @@ fn App() -> Element {
                 Action::SessionRename => {
                     let chosen = match &cur {
                         Some(Item::Session(id) | Item::Waiting(id)) if on_list => Some(id.clone()),
-                        _ => match &*active.peek() {
+                        _ => match &app.active() {
                             Some(Tab::Session(id)) => Some(id.clone()),
                             _ => None,
                         },
@@ -3593,46 +3157,16 @@ fn App() -> Element {
                             Action::CursorTab => Opening::Tab,
                             _ => Opening::Here,
                         };
-                        let toggles = {
-                            let view = app.tree.peek();
-                            nav::unfolds(&item, &view.narrowed, &view.folds)
-                                || matches!(
-                                    nav::opens(&item, &view.narrowed, &terminals.peek()),
-                                    nav::Opens::Fold
-                                )
-                        };
-                        open(item, Some(how));
-                        // A Neovim still starting takes the keys once it has.
-                        if terminal_ask.peek().is_some()
-                            && let Some(ask) = terminal_ask.write().as_mut()
-                        {
-                            ask.focus = true;
-                        }
-                        match &*active.peek() {
-                            _ if toggles => {}
-                            Some(Tab::Draft { .. }) => {
-                                focus.set(Area::Prompt);
-                                start_writing(nvim);
-                            }
-                            Some(_) => focus.set(Area::Console),
-                            None => {}
-                        }
+                        open(item, Some(how), true);
                     }
                 }
                 Action::CursorShow => {
                     if let Some(item) = cur {
-                        open(item, Some(Opening::Here));
+                        open(item, Some(Opening::Here), false);
                     }
                 }
                 Action::CursorFold => app.dispatch(Msg::TreeKey(tree_view::Key::Fold)),
-                Action::CursorClose => {
-                    if let Some(item) = &cur {
-                        let things = nav::stands_for(item, &terminals.peek());
-                        if !things.is_empty() {
-                            middle.closing(prompts, |c| c.close_showing(|t| things.contains(t)));
-                        }
-                    }
-                }
+                Action::CursorClose => app.dispatch(Msg::Window(action)),
                 Action::CursorCopy => {
                     let copied = cur.as_ref().and_then(|item| {
                         nav::copied(item, &app.tree.peek().narrowed, &terminals.peek())
@@ -3657,86 +3191,38 @@ fn App() -> Element {
                     let forward = action == Action::WaitingNext;
                     let next = nav::next_waiting(&app.tree.peek().waiting, current, forward);
                     if let Some(id) = next {
-                        open(Item::Waiting(id), None);
+                        open(Item::Waiting(id), None, false);
                         // It waits on an answer, given in the console.
-                        focus.set(Area::Console);
-                    }
-                }
-                Action::SessionNext | Action::SessionPrev => {
-                    let next = nav::next_session(
-                        &tree.peek(),
-                        active.peek().as_ref(),
-                        place.peek().as_ref(),
-                        action == Action::SessionNext,
-                    );
-                    if let Some(id) = next {
-                        show_session(id);
-                    }
-                }
-                Action::WorkspaceNext | Action::WorkspacePrev => {
-                    let next = nav::next_workspace(
-                        &tree.peek(),
-                        active.peek().as_ref(),
-                        place.peek().as_ref(),
-                        &last_shown.peek(),
-                        action == Action::WorkspaceNext,
-                    );
-                    if let Some(id) = next {
-                        show_session(id);
+                        app.dispatch(Msg::Focus(Area::Console));
                     }
                 }
                 Action::SessionPick => open_picker(),
-                Action::SessionScratch => choose(scratch_dir()),
-                Action::SessionNew => {
-                    let p = cur
-                        .as_ref()
-                        .filter(|_| on_list)
-                        .and_then(|c| nav::place_of(&tree.peek(), c))
-                        .or_else(|| place.peek().clone());
-                    if let Some(p) = p {
-                        middle.open(draft_at(p.worktree.clone()));
-                        place.set(Some(p));
-                        focus.set(Area::Prompt);
-                        start_writing(nvim);
-                    }
+                Action::SessionScratch => {
+                    picking.set(None);
+                    app.dispatch(Msg::Window(action));
                 }
-                Action::ShellOpen | Action::NeovimOpen => {
-                    let runs = if action == Action::NeovimOpen {
-                        TerminalProgram::Neovim
-                    } else {
-                        TerminalProgram::Shell
-                    };
-                    let p = cur
-                        .as_ref()
-                        .filter(|_| on_list)
-                        .and_then(|c| nav::place_of(&tree.peek(), c))
-                        .or_else(|| place.peek().clone());
-                    if let Some(p) = p {
-                        terminal_ask.set(Some(TerminalAsk {
-                            place: p,
-                            runs,
-                            file: None,
-                            opening: Opening::Here,
-                            focus: true,
-                        }));
-                    }
-                }
+                Action::SessionNext
+                | Action::SessionPrev
+                | Action::WorkspaceNext
+                | Action::WorkspacePrev
+                | Action::SessionNew
+                | Action::ShellOpen
+                | Action::NeovimOpen => app.dispatch(Msg::Window(action)),
                 // On a shell's row, that shell closes, whichever tab is shown.
                 Action::TerminalStop
                     if let Some(Item::Terminal(id)) = cur.as_ref().filter(|_| on_list) =>
                 {
                     app.dispatch(Msg::TreeSelect(nav::row_above(&list, &Item::Terminal(*id))));
                     end_shell(&hub, *id);
-                    close_shell(*id, &hub.panes, app, middle, place, prompts);
+                    close_shell(*id, &hub.panes, app);
                 }
                 Action::TerminalStop => {
-                    let current_tab = active.peek().clone();
+                    let current_tab = app.active();
                     if let Some(Tab::Terminal(id)) = current_tab {
                         end_shell(&hub, id);
-                        close_shell(id, &hub.panes, app, middle, place, prompts);
+                        close_shell(id, &hub.panes, app);
                     }
                 }
-                Action::TabClose => middle.closing(prompts, Content::close_tab),
                 Action::Refresh => app.dispatch(Msg::Relist),
                 Action::DetailsOverview | Action::DetailsChanges | Action::DetailsLog => {
                     let s = match action {
@@ -3757,7 +3243,7 @@ fn App() -> Element {
                 Action::ZoomOut => app.dispatch(Msg::Zoom(zoom::Step::Out)),
                 Action::ZoomReset => app.dispatch(Msg::Zoom(zoom::Step::Reset)),
                 Action::Filter => {
-                    focus.set(Area::Sidebar);
+                    app.dispatch(Msg::Focus(Area::Sidebar));
                     app.dispatch(Msg::TreeFilter(String::new()));
                     focus_filter(true);
                 }
@@ -3774,17 +3260,15 @@ fn App() -> Element {
             match target {
                 Target::Row(item) => {
                     app.dispatch(Msg::TreeSelect(Some(item)));
-                    focus.set(Area::Sidebar);
+                    app.dispatch(Msg::Focus(Area::Sidebar));
                 }
                 Target::Tab(tab) => {
-                    middle.edit(|c| {
-                        c.reveal(&tab);
-                    });
-                    focus.set(Area::Console);
+                    app.dispatch(Msg::TabReveal(tab));
+                    app.dispatch(Msg::Focus(Area::Console));
                 }
                 Target::Link { at, .. } => {
                     app.dispatch(Msg::DetailsSelect(at));
-                    focus.set(Area::Details);
+                    app.dispatch(Msg::Focus(Area::Details));
                 }
             }
             perform(action, None);
@@ -3997,7 +3481,7 @@ fn App() -> Element {
                 }
                 return;
             }
-            let area = *focus.peek();
+            let area = app.focus();
             if area == Area::Prompt && matches!(text_goes(), Typed::Prompt) {
                 let images = shown_images.peek();
                 let chosen = selected_image.peek().clone();
@@ -4018,7 +3502,7 @@ fn App() -> Element {
             };
             // A key sent as it is may type into Claude Code's input.
             let mut typed = || {
-                if let Some(tab @ Tab::Session(_)) = active.peek().clone() {
+                if let Some(tab @ Tab::Session(_)) = app.active() {
                     stale.write().insert(tab);
                 }
             };
@@ -4124,14 +3608,14 @@ fn App() -> Element {
                 _ if passing || windowing => &[Context::Global],
                 Area::Sidebar => &[Context::Tree, Context::Global],
                 Area::Details => &[Context::Details, Context::Tree, Context::Global],
-                Area::Console if matches!(&*active.peek(), Some(Tab::Viewer(_))) => {
+                Area::Console if matches!(&app.active(), Some(Tab::Viewer(_))) => {
                     &[Context::Viewer, Context::Global]
                 }
                 Area::Console => &[Context::Console, Context::Global],
                 Area::Prompt if nvim_insert => &[Context::Prompt],
                 Area::Prompt => &[Context::Prompt, Context::Global],
             };
-            let contexts: Vec<_> = draft_agent::can_choose(active.peek().as_ref())
+            let contexts: Vec<_> = draft_agent::can_choose(app.active().as_ref())
                 .then_some(Context::Draft)
                 .into_iter()
                 .chain(contexts.iter().copied())
@@ -4207,8 +3691,8 @@ fn App() -> Element {
     // characters come as text.
     use_hook({
         let mut handle_key = handle_key.clone();
-        let mut type_text = type_text.clone();
-        let mut paste_image = paste_image.clone();
+        let type_text = type_text.clone();
+        let paste_image = paste_image.clone();
         let page_focused = page_focused.clone();
         move || {
             spawn(async move {
@@ -4322,7 +3806,7 @@ fn App() -> Element {
         Vec::new()
     };
     let t = tree.read().clone();
-    let current = described(place(), active.read().as_ref());
+    let current = app.content.read().described().cloned();
     let workspace = current
         .as_ref()
         .and_then(|p| t.workspace_of(&p.worktree))
@@ -4336,8 +3820,12 @@ fn App() -> Element {
     let current_agent = draft_agent::for_tab(
         &t,
         active_tab.as_ref(),
-        &draft_options.read(),
-        last_agent.read().unwrap_or(font.read().agent),
+        &app.content.read().drafts.options,
+        app.content
+            .read()
+            .drafts
+            .last_agent
+            .unwrap_or(font.read().agent),
     );
     let live_input_ms = active_tab.as_ref().and_then(|tab| {
         hub.panes
@@ -4495,8 +3983,8 @@ fn App() -> Element {
                                 current: current_agent,
                                 keys: k_agent.clone(),
                                 onchoose: move |a| {
-                                    choose_agent(active.peek().clone(), a);
-                                    focus.set(Area::Prompt);
+                                    choose_agent(app.active(), a);
+                                    app.dispatch(Msg::Focus(Area::Prompt));
                                     let writing = nvim
                                         .peek()
                                         .as_ref()
@@ -4507,10 +3995,10 @@ fn App() -> Element {
                                 },
                             }
                             DraftLaunchOptions {
-                                options: draft_options.read().get(tab).cloned().unwrap_or_default(),
+                                options: app.content.read().drafts.options.get(tab).cloned().unwrap_or_default(),
                                 onchange: {
                                     let tab = tab.clone();
-                                    move |options| { draft_options.write().insert(tab.clone(), options); }
+                                    move |options| app.dispatch(Msg::DraftOptions { tab: Some(tab.clone()), options })
                                 },
                             }
                         }
@@ -4570,8 +4058,8 @@ fn App() -> Element {
                                 onchoose: move |a| choose_agent(None, a),
                             }
                             DraftLaunchOptions {
-                                options: next_options.read().clone().unwrap_or_default(),
-                                onchange: move |options| next_options.set(Some(options)),
+                                options: app.content.read().drafts.next.clone().unwrap_or_default(),
+                                onchange: move |options| app.dispatch(Msg::DraftOptions { tab: None, options }),
                             }
                         }
                         div { class: "console-legend",
@@ -4623,7 +4111,7 @@ fn App() -> Element {
                     prompt_width,
                     onpick: move |_| {
                         selected_image.set(None);
-                        focus.set(Area::Prompt);
+                        app.dispatch(Msg::Focus(Area::Prompt));
                         // A click on the prompt is to write there; the
                         // first key typed would otherwise run as a command.
                         let writing = nvim
@@ -4642,7 +4130,7 @@ fn App() -> Element {
                     images: shown_images(),
                     image_keys: km.keys_for(Context::Prompt, &Action::PromptImages),
                     selected_image: selected_image(),
-                    onselectimage: move |path| { focus.set(Area::Prompt); selected_image.set(Some(path)); },
+                    onselectimage: move |path| { app.dispatch(Msg::Focus(Area::Prompt)); selected_image.set(Some(path)); },
                     onremoveimage: move |path| { let _ = prompts.send(Op::RemoveImage(path)); },
                 }
             }
@@ -4651,7 +4139,7 @@ fn App() -> Element {
     // The shown tab's windows, each where its share of the content puts it,
     // the focused one with the console and the prompt, and the borders
     // between them, which a drag moves.
-    let content_now = content.read().clone();
+    let content_now = app.content.read().windows.clone();
     let focused_window = content_now.focused_window();
     let mut focused_body = Some(focused_body);
     let windows_el: Vec<Element> = match content_now.current() {
@@ -4674,7 +4162,7 @@ fn App() -> Element {
                             window: id,
                             path: path.clone(),
                             commands: viewer_command,
-                            on_close: move |_| middle.closing(prompts, Content::close_window),
+                            on_close: move |_| app.dispatch(Msg::Window(Action::WindowQuit)),
                         }
                     }
                 } else if focused {
@@ -4724,13 +4212,7 @@ fn App() -> Element {
                         key: "{id}",
                         class: if focused { "win focused" } else { "win" },
                         style: "{style}",
-                        onmousedown: move |_| {
-                            if content.peek().focused_window() != Some(id) {
-                                middle.edit(|c| {
-                                    c.focus(id);
-                                });
-                            }
-                        },
+                        onmousedown: move |_| app.dispatch(Msg::WindowFocus(id)),
                         WindowStrip { strip }
                         {body}
                     }
@@ -4777,9 +4259,7 @@ fn App() -> Element {
                                 Axis::Row => (at.x, b.within.width * w),
                                 Axis::Column => (at.y, b.within.height * h),
                             };
-                            if px > 0.0 {
-                                win_drag.set(Some(WindowDrag { border: b.clone(), from, px }));
-                            }
+                            app.dispatch(Msg::WindowDragStart { border: b.clone(), from, px });
                         },
                     }
                 });
@@ -4795,7 +4275,7 @@ fn App() -> Element {
             settings_window::SettingsLoadError {}
             Header { ontoggle: toggle_panel }
             div {
-                class: match (app.chrome.read().panels.drag.is_some(), win_drag.read().as_ref().map(|d| d.border.axis)) {
+                class: match (app.chrome.read().panels.drag.is_some(), app.content.read().drag.as_ref().map(|d| d.border.axis)) {
                     (_, Some(Axis::Column)) => "app-body dragging rows",
                     (true, _) | (_, Some(Axis::Row)) => "app-body dragging",
                     _ => "app-body",
@@ -4806,38 +4286,36 @@ fn App() -> Element {
                     }
                 },
                 onmousemove: move |e: Event<MouseData>| {
-                    if let Some(d) = win_drag.peek().clone() {
+                    let dragging = app.content.peek().drag.as_ref().map(|d| d.border.axis);
+                    if let Some(axis) = dragging {
                         let at = e.client_coordinates();
-                        let pos = if d.border.axis == Axis::Row { at.x } else { at.y };
-                        let to = d.border.at + (pos - d.from) / d.px;
-                        middle.edit(|c| c.drag(&d.border.split, d.border.after, to));
+                        let pos = if axis == Axis::Row { at.x } else { at.y };
+                        app.dispatch(Msg::WindowDragMove(pos));
                     }
                     shell::panels::pointer_moved(app, e.client_coordinates().x);
                 },
                 onmouseup: move |_| {
-                    if win_drag.peek().is_some() {
-                        win_drag.set(None);
+                    if app.content.peek().drag.is_some() {
+                        app.dispatch(Msg::WindowDragEnd);
                     }
                     shell::panels::pointer_released(app);
                 },
                 onmouseleave: move |_| {
-                    if win_drag.peek().is_some() {
-                        win_drag.set(None);
+                    if app.content.peek().drag.is_some() {
+                        app.dispatch(Msg::WindowDragEnd);
                     }
                     shell::panels::pointer_released(app);
                 },
                 TreePanel {
                     focused: area == Area::Sidebar,
                     context: RowContext {
-                        content: content.into(),
                         completions: completions.into(),
                         drafted: drafted.into(),
                         renaming,
                     },
                     on: RowEvents {
                         onopen: EventHandler::new(move |item| {
-                            let mut open = open;
-                            open(item, Some(Opening::Existing));
+                            open(item, Some(Opening::Existing), false);
                         }),
                         onmenu: EventHandler::new(move |(x, y, target)| menu.set(Some((x, y, target)))),
                         onstart: {
@@ -4855,7 +4333,7 @@ fn App() -> Element {
                     },
                     field: filter_field,
                     waiting_keys: (k_waiting_prev.clone(), k_waiting_next.clone()),
-                    ontaken: move |_| focus.set(Area::Sidebar),
+                    ontaken: move |_| app.dispatch(Msg::Focus(Area::Sidebar)),
                     onfilter: focus_filter,
                     onworktrees: {
                         let run = run_button.clone();
@@ -4870,7 +4348,7 @@ fn App() -> Element {
                     Splitter { side: Side::Sidebar }
                 }
                 div { class: if matches!(area, Area::Console | Area::Prompt) { "app-panel center-panel focused" } else { "app-panel center-panel" },
-                    onmousedown: move |_| focus.set(Area::Console),
+                    onmousedown: move |_| app.dispatch(Msg::Focus(Area::Console)),
                     div { class: "tabs",
                         // The worktree by name only: the header above holds its
                         // whole path, and here it would crowd the tabs out.
@@ -4902,7 +4380,7 @@ fn App() -> Element {
                                     span {
                                         key: "{at}",
                                         class: "{class}",
-                                        onclick: move |_| middle.edit(|c| c.go_to_tab(at)),
+                                        onclick: move |_| app.dispatch(Msg::TabShow(at)),
                                         oncontextmenu: move |e: Event<MouseData>| {
                                             e.prevent_default();
                                             let at = e.client_coordinates();
@@ -4933,7 +4411,7 @@ fn App() -> Element {
                                                 let mut run = run_menu.clone();
                                                 move |e: Event<MouseData>| {
                                                     e.stop_propagation();
-                                                    middle.edit(|c| c.go_to_tab(at));
+                                                    app.dispatch(Msg::TabShow(at));
                                                     run(closing.clone(), Action::TabClose);
                                                 }
                                             },
@@ -4960,7 +4438,7 @@ fn App() -> Element {
                 div { class: if area == Area::Details { "app-panel details focused" } else { "app-panel details" },
                     hidden: !layout().show_details,
                     style: "width:{app.chrome.read().panels.drawn().1}px",
-                    onmousedown: move |_| focus.set(Area::Details),
+                    onmousedown: move |_| app.dispatch(Msg::Focus(Area::Details)),
                     details::DetailsPanel {
                         worktree: current.as_ref().map(|p| p.worktree.clone()),
                         workspace_root: workspace.as_ref().map(|(_, root, _)| root.clone()),
@@ -5256,16 +4734,6 @@ fn DraftLaunchOptions(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_details_describe_the_focused_window_s_worktree_and_nothing_while_nothing_is_open() {
-        let here = Some(Place {
-            worktree: "/w".into(),
-        });
-        let shown = Tab::Session("s".into());
-        assert_eq!(described(here.clone(), Some(&shown)), here);
-        assert_eq!(described(here, None), None);
-    }
 
     #[test]
     fn a_daemon_this_window_cannot_work_with_is_named_beside_this_window_s_build() {

@@ -5,6 +5,7 @@
 use std::rc::Rc;
 
 use adroit_core::chrome::Chrome;
+use adroit_core::content::{Area, ContentView, Tab, kept_name};
 use adroit_core::details::{Details, Scroll};
 use adroit_core::effect::Effect;
 use adroit_core::host::Host as HostView;
@@ -16,6 +17,8 @@ use adroit_runtime::work::{Host, HostLink, Loopback};
 use dioxus::prelude::*;
 
 use crate::layout::{Kept as _, Layout};
+use crate::nav::Place;
+use crate::paths::{instance_state, scratch_dir};
 use crate::settings;
 
 /// What runs an effect handed to `App`.
@@ -32,6 +35,7 @@ pub(crate) struct AppCtx {
     loopback: CopyValue<Rc<Loopback>>,
     pub(crate) chrome: Signal<Chrome>,
     pub(crate) host: Signal<HostView>,
+    pub(crate) content: Signal<ContentView>,
     pub(crate) tree: Signal<TreeView>,
     pub(crate) details: Signal<Details>,
     /// What runs the effects whose state `App` still holds.
@@ -46,16 +50,29 @@ pub(crate) fn use_app() -> AppCtx {
         let loopback = Rc::new(link);
         let link: Rc<dyn HostLink> = loopback.clone();
         let mut view = ViewState::default();
-        let mut effects = step(
+        // The layout kept comes first: hiding a panel gives its keys away,
+        // and a panel kept hidden was not hidden now.
+        let mut effects = step(&mut view, Msg::PanelsKept(Layout::load()));
+        effects.extend(step(
             &mut view,
             Msg::Opened {
                 zoom: settings::current().zoom,
             },
-        );
-        effects.extend(step(&mut view, Msg::PanelsKept(Layout::load())));
+        ));
+        let kept = std::fs::read_to_string(shown_path())
+            .ok()
+            .and_then(|name| adroit_core::content::from_kept(&name));
+        effects.extend(step(
+            &mut view,
+            Msg::ContentOpened {
+                kept,
+                scratch: scratch_dir(),
+            },
+        ));
         let app = AppCtx {
             chrome: Signal::new(view.chrome.clone()),
             host: Signal::new(view.host.clone()),
+            content: Signal::new(view.content.clone()),
             tree: Signal::new(view.tree.clone()),
             details: Signal::new(view.details.clone()),
             handed: CopyValue::new(None),
@@ -89,6 +106,7 @@ impl AppCtx {
         let view = self.view.read();
         set_changed(self.chrome, &view.chrome);
         set_changed(self.host, &view.host);
+        set_changed(self.content, &view.content);
         set_changed(self.tree, &view.tree);
         set_changed(self.details, &view.details);
     }
@@ -100,8 +118,8 @@ impl AppCtx {
         self.loopback.read().watch();
     }
 
-    /// Hand the effects whose state still lives in `App` to `run`: showing
-    /// a session or an image.
+    /// Hand the effects whose state still lives in `App` to `run`: the
+    /// panes, the prompt and the console, terminals started and images shown.
     pub(crate) fn hand_over(&self, run: impl Fn(Effect) + 'static) {
         let mut handed = self.handed;
         handed.set(Some(Rc::new(run)));
@@ -134,7 +152,31 @@ impl AppCtx {
                 ));
             }
             Effect::Notice(text) => self.notice(text),
-            effect @ (Effect::ShowSession(_) | Effect::ShowShot { .. }) => self.hand(effect),
+            Effect::ShowSession(id) => self.dispatch(Msg::ShowSession(id)),
+            Effect::KeepShown(shown) => match shown {
+                Some(tab) => {
+                    if let Some(name) = kept_name(&tab) {
+                        let _ = std::fs::write(shown_path(), name);
+                    }
+                }
+                None => {
+                    let _ = std::fs::remove_file(shown_path());
+                }
+            },
+            // Told only while the window is not in front.
+            Effect::NotifyWaiting(waiting) => {
+                if settings::current().notify_waiting && !dioxus::desktop::window().is_focused() {
+                    for (name, why) in waiting {
+                        spawn(crate::alerts::notify_waiting(&name, &why));
+                    }
+                }
+            }
+            effect @ (Effect::ShowShot { .. }
+            | Effect::StartTerminal(_)
+            | Effect::PromptClose(_)
+            | Effect::StartWriting
+            | Effect::PromptEntered
+            | Effect::KeepPanes { .. }) => self.hand(effect),
             Effect::KeepLayout(layout) => layout.save(),
             Effect::LapseNotice {
                 notice,
@@ -168,6 +210,28 @@ pub(crate) fn open<const N: usize>(args: [String; N]) {
     spawn(async move {
         let _ = cmd.status().await;
     });
+}
+
+/// Where the tab shown is kept for the next run of the window.
+fn shown_path() -> std::path::PathBuf {
+    instance_state().join("shown")
+}
+
+impl AppCtx {
+    /// What the content's focused window shows now.
+    pub(crate) fn active(&self) -> Option<Tab> {
+        self.content.peek().active().cloned()
+    }
+
+    /// The area that has the keys now.
+    pub(crate) fn focus(&self) -> Area {
+        self.content.peek().focus
+    }
+
+    /// The worktree in the middle now.
+    pub(crate) fn place(&self) -> Option<Place> {
+        self.content.peek().place.clone()
+    }
 }
 
 impl AppCtx {

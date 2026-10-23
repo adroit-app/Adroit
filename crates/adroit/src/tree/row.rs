@@ -4,7 +4,6 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use adroit_core::content::Content;
 use adroit_core::menu::Target;
 use adroit_core::tree;
 use adroit_model::{InboxItem, TerminalSession, Tree};
@@ -69,11 +68,10 @@ fn short(path: &Path) -> String {
     crate::picker::short(path, &crate::paths::home())
 }
 
-/// What a row reaches outside the tree: what the window shows, the
-/// sessions' states, the drafts written for them, and the name being given.
+/// What a row reaches outside the tree and the content: the sessions'
+/// states, the drafts written for them, and the name being given.
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) struct RowContext {
-    pub(crate) content: ReadSignal<Content<Tab>>,
     pub(crate) completions: ReadSignal<Completions>,
     pub(crate) drafted: ReadSignal<HashSet<Tab>>,
     pub(crate) renaming: Signal<Option<Rename>>,
@@ -101,7 +99,8 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
     let t = tree::listed(work);
     let terminals = tree::terminals(work);
     let marks = work.map(|w| &w.tree.marks);
-    let content_now = context.content.read();
+    let content = app.content.read();
+    let content_now = &content.windows;
     let shows = content_now.focused().cloned();
     let it = item;
     let is_sel = view.selected.as_ref() == Some(&it);
@@ -355,7 +354,7 @@ pub(crate) fn WaitingRow(waiting: InboxItem, on: RowEvents) -> Element {
     let app = use_context::<AppCtx>();
     let item = Item::Waiting(waiting.session.id.clone());
     let is_sel = app.tree.read().selected.as_ref() == Some(&item);
-    let shown = app.tree.read().showing.tab == Some(Tab::Session(waiting.session.id.clone()));
+    let shown = app.content.read().active() == Some(&Tab::Session(waiting.session.id.clone()));
     let badge = {
         let host = app.host.read();
         row_badge(tree::listed(host.work.as_ref()), &item)

@@ -13,17 +13,9 @@ use adroit_model::{InboxItem, State, TerminalSession, Tree, inbox};
 use adroit_protocol::{Request, Seq, TreeSight, TreeWork, WorkSnapshot};
 
 use crate::chrome::status_line::{self, StatusLine};
-use crate::content::Tab;
+use crate::content::{Showing, Tab};
 use crate::effect::Effect;
 use nav::{Folds, Heading, Item, Place};
-
-/// What the content's focused window shows, and the worktree it is in, as
-/// the window tells it.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct Showing {
-    pub tab: Option<Tab>,
-    pub place: Option<Place>,
-}
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TreeView {
@@ -36,7 +28,6 @@ pub struct TreeView {
     /// Whether every worktree git knows of is listed, those where nothing
     /// runs too.
     pub every_worktree: bool,
-    pub showing: Showing,
     /// The tree narrowed to what the filter holds.
     pub narrowed: Tree,
     /// The sessions waiting on the user, of the whole tree.
@@ -98,11 +89,6 @@ pub fn listed(work: Option<&WorkSnapshot>) -> &Tree {
 /// The terminals as last listed.
 pub fn terminals(work: Option<&WorkSnapshot>) -> &[TerminalSession] {
     facts(work).terminals()
-}
-
-pub(crate) fn showing(view: &mut TreeView, showing: Showing) -> Vec<Effect> {
-    view.showing = showing;
-    Vec::new()
 }
 
 pub(crate) fn select(view: &mut TreeView, row: Option<Item>) -> Vec<Effect> {
@@ -223,19 +209,19 @@ pub(crate) fn follow_successor(view: &mut TreeView, work: Option<&WorkSnapshot>)
 /// session stops waiting, gives way to another rather than to nothing.
 /// Only rows built anew are looked at: a row selected ahead of being
 /// listed, as a session just started is, stays selected until it is.
-pub(crate) fn keep_selection(view: &mut TreeView, work: Option<&WorkSnapshot>) {
+pub(crate) fn keep_selection(view: &mut TreeView, showing: &Showing, work: Option<&WorkSnapshot>) {
     if view.kept_among == view.built {
         return;
     }
     view.kept_among = view.built;
-    let Some(place) = view.showing.place.clone() else {
+    let Some(place) = showing.place.clone() else {
         return;
     };
     let row = nav::row_kept(
         &view.rows,
         listed(work),
         view.selected.as_ref(),
-        view.showing.tab.as_ref(),
+        showing.tab.as_ref(),
         &place,
     );
     if row.is_some() {
@@ -245,8 +231,8 @@ pub(crate) fn keep_selection(view: &mut TreeView, work: Option<&WorkSnapshot>) {
 
 /// The selection follows the focused window to what it now shows, however
 /// it came to show it, unless the selection was moved elsewhere by hand.
-pub(crate) fn follow_switch(view: &mut TreeView, work: Option<&WorkSnapshot>) {
-    let now = view.showing.tab.clone();
+pub(crate) fn follow_switch(view: &mut TreeView, showing: &Showing, work: Option<&WorkSnapshot>) {
+    let now = showing.tab.clone();
     if now == view.followed {
         return;
     }
@@ -256,7 +242,7 @@ pub(crate) fn follow_switch(view: &mut TreeView, work: Option<&WorkSnapshot>) {
     };
     let tree = listed(work);
     // The worktree the window is in follows what it shows.
-    let place = place_of_tab(tree, terminals(work), &now).or_else(|| view.showing.place.clone());
+    let place = place_of_tab(tree, terminals(work), &now).or_else(|| showing.place.clone());
     let Some(place) = place else {
         return;
     };
@@ -318,9 +304,9 @@ pub fn place_of_tab(tree: &Tree, terminals: &[TerminalSession], tab: &Tab) -> Op
 }
 
 /// Where the focused window is, while it shows something.
-pub fn crumbs(view: &TreeView, work: Option<&WorkSnapshot>) -> Option<Crumbs> {
-    let tab = view.showing.tab.as_ref()?;
-    let place = view.showing.place.as_ref()?;
+pub fn crumbs(showing: &Showing, work: Option<&WorkSnapshot>) -> Option<Crumbs> {
+    let tab = showing.tab.as_ref()?;
+    let place = showing.place.as_ref()?;
     let tree = listed(work);
     let workspace = tree
         .workspace_of(&place.worktree)
@@ -413,15 +399,14 @@ mod tests {
         })
     }
 
-    fn shows(tab: Option<Tab>, worktree: Option<&str>) -> Msg {
-        Msg::Showing(Box::new(Showing {
-            tab,
-            place: worktree.map(|w| Place { worktree: w.into() }),
-        }))
-    }
-
     fn shows_session(id: &str, worktree: &str) -> Msg {
-        shows(Some(Tab::Session(id.into())), Some(worktree))
+        Msg::Show {
+            thing: Tab::Session(id.into()),
+            place: Some(Place {
+                worktree: worktree.into(),
+            }),
+            how: None,
+        }
     }
 
     fn rows(run: &Scenario) -> Vec<Item> {
@@ -679,7 +664,10 @@ mod tests {
         let run = Scenario::new()
             .event(listing(vec![session("a", "/r")]))
             .send(shows_session("a", "/r"));
-        let got = crumbs(&run.state().tree, run.state().host.work.as_ref());
+        let got = crumbs(
+            &run.state().content.showing(),
+            run.state().host.work.as_ref(),
+        );
         assert_eq!(
             got,
             Some(Crumbs {
@@ -688,9 +676,12 @@ mod tests {
                 target: "a".into(),
             })
         );
-        let nothing = run.send(shows(None, Some("/r")));
+        let nothing = run.send(Msg::Window(crate::actions::Action::TabClose));
         assert_eq!(
-            crumbs(&nothing.state().tree, nothing.state().host.work.as_ref()),
+            crumbs(
+                &nothing.state().content.showing(),
+                nothing.state().host.work.as_ref()
+            ),
             None
         );
     }

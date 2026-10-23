@@ -2,6 +2,7 @@
 //! only by `update`.
 
 use crate::chrome::Chrome;
+use crate::content::ContentView;
 use crate::details::Details;
 use crate::host::Host;
 use crate::tree::TreeView;
@@ -10,6 +11,7 @@ use crate::tree::TreeView;
 pub struct ViewState {
     pub chrome: Chrome,
     pub host: Host,
+    pub content: ContentView,
     pub tree: TreeView,
     pub details: Details,
 }
@@ -19,6 +21,7 @@ impl Default for ViewState {
         let mut state = Self {
             chrome: Chrome::default(),
             host: Host::default(),
+            content: ContentView::default(),
             tree: TreeView::default(),
             details: Details::default(),
         };

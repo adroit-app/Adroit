@@ -15,10 +15,10 @@ use super::{
     gauges, newest_first, overview_shown, related, with_agents, with_images, with_notes,
     with_processes,
 };
+use crate::content::Showing;
 use crate::content::Tab;
 use crate::effect::Effect;
 use crate::settings::DetailsSettings;
-use crate::tree::Showing;
 
 /// What the window shows that the details panel reads by.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -678,11 +678,17 @@ mod tests {
         }
     }
 
+    /// The focused window showing the session `id`, or nothing once it closes,
+    /// the middle left at the worktree it was in.
     fn shown(id: Option<&str>, worktree: Option<&str>) -> Msg {
-        Msg::Showing(Box::new(Showing {
-            tab: id.map(|id| Tab::Session(id.into())),
-            place: worktree.map(|w| Place { worktree: w.into() }),
-        }))
+        match id {
+            Some(id) => Msg::Show {
+                thing: Tab::Session(id.into()),
+                place: worktree.map(|w| Place { worktree: w.into() }),
+                how: None,
+            },
+            None => Msg::Window(crate::actions::Action::TabClose),
+        }
     }
 
     fn told(told: Told) -> Msg {
@@ -790,7 +796,11 @@ mod tests {
         };
         let opened = Scenario::new()
             .event(snapshot(DetailsWork::default()))
-            .send_all([shown(None, Some("/w")), Msg::DetailsSheet(Sheet::Log)])
+            .send_all([
+                shown(Some("a"), Some("/w")),
+                shown(None, Some("/w")),
+                Msg::DetailsSheet(Sheet::Log),
+            ])
             .event(patch(
                 2,
                 vec![DetailsChange::Repository {
@@ -1076,7 +1086,11 @@ mod tests {
         };
         let opened = Scenario::new()
             .event(snapshot(DetailsWork::default()))
-            .send_all([shown(None, Some("/w")), Msg::DetailsSheet(Sheet::Changes)])
+            .send_all([
+                shown(Some("a"), Some("/w")),
+                shown(None, Some("/w")),
+                Msg::DetailsSheet(Sheet::Changes),
+            ])
             .event(patch(
                 2,
                 vec![DetailsChange::Repository {

@@ -7,7 +7,7 @@ use crate::effect::Effect;
 use crate::msg::Msg;
 use crate::settle::settle;
 use crate::state::ViewState;
-use crate::{chrome, details, host, tree};
+use crate::{chrome, content, details, host, tree};
 
 /// `msg` applied to `state`, and the state settled after it.
 pub fn step(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
@@ -53,7 +53,42 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         Msg::TerminalOpened(terminal) => vec![Effect::Host(Request::TerminalOpened { terminal })],
         Msg::TerminalClosed(id) => vec![Effect::Host(Request::TerminalClosed { id })],
 
-        Msg::Showing(showing) => tree::showing(&mut state.tree, *showing),
+        Msg::ContentOpened { kept, scratch } => content::opened(&mut state.content, kept, scratch),
+        Msg::Focus(area) => content::focus(&mut state.content, area),
+        Msg::Show { thing, place, how } => content::show(&mut state.content, thing, place, how),
+        Msg::ShowSession(id) => content::show_session(state, id),
+        Msg::Draft { worktree, write } => content::draft(&mut state.content, worktree, write),
+        Msg::OpenRow {
+            item,
+            how,
+            take_keys,
+        } => content::open_row(state, item, how, take_keys),
+        Msg::Window(action) => content::act(state, action),
+        Msg::WindowFocus(id) => content::focus_window(state, id),
+        Msg::TabShow(at) => content::show_tab(state, at),
+        Msg::TabReveal(tab) => content::reveal(state, &tab),
+        Msg::Replace { from, to } => content::replace(&mut state.content, &from, to),
+        Msg::ShellClosed(id) => {
+            let mut effects = vec![Effect::Host(Request::TerminalClosed { id })];
+            effects.extend(content::shell_closed(
+                &mut state.content,
+                state.host.work.as_ref(),
+                id,
+            ));
+            effects
+        }
+        Msg::WindowDragStart { border, from, px } => {
+            content::drag_start(&mut state.content, border, from, px)
+        }
+        Msg::WindowDragMove(pos) => content::drag_move(&mut state.content, pos),
+        Msg::WindowDragEnd => content::drag_end(&mut state.content),
+        Msg::DraftAgent { tab, agent } => content::choose_agent(&mut state.content, tab, agent),
+        Msg::DraftOptions { tab, options } => {
+            content::choose_options(&mut state.content, tab, options)
+        }
+        Msg::PanesLive(live) => content::tell_live(&mut state.content, live),
+        Msg::TakingOver { id, on } => content::tell_moving(&mut state.content, id, on),
+
         Msg::TreeSelect(row) => tree::select(&mut state.tree, row),
         Msg::TreeKey(key) => tree::press(&mut state.tree, key),
         Msg::TreeFold { row, open } => tree::fold(&mut state.tree, &row, open),

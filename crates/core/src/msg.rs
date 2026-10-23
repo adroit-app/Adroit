@@ -1,16 +1,19 @@
 //! What can happen to the window: what the user does, what the window is
 //! told, and what the work host says.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 
-use adroit_model::TerminalSession;
+use adroit_model::{Agent, TerminalSession};
 use adroit_protocol::Event;
 
+use crate::actions::Action;
+use crate::content::{Area, Border, DraftOptions, Opening, Tab, WindowId};
 use crate::details::{self, Sheet};
 use crate::keymap::Context;
 use crate::layout::{Layout, Side};
-use crate::tree::nav::Item;
-use crate::tree::{self, Showing};
+use crate::tree;
+use crate::tree::nav::{Item, Place};
 use crate::zoom;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -81,9 +84,82 @@ pub enum Msg {
     /// The window ended the terminal by this id.
     TerminalClosed(u128),
 
+    // The content.
+    /// The window opened, with the tab it showed when it last closed and
+    /// where a session started with nothing open runs.
+    ContentOpened {
+        kept: Option<Tab>,
+        scratch: PathBuf,
+    },
+    /// The keys go to this area.
+    Focus(Area),
+    /// Show `thing` where the user is, or as `how` says, in the worktree
+    /// `place` when one is given.
+    Show {
+        thing: Tab,
+        place: Option<Place>,
+        how: Option<Opening>,
+    },
+    /// Show the session by this id wherever it runs, and select its row.
+    ShowSession(String),
+    /// Show a new session's draft in this worktree; `write` gives the keys
+    /// to the prompt to write its first prompt.
+    Draft {
+        worktree: PathBuf,
+        write: bool,
+    },
+    /// Open what a row stands for, where `how` says; `take_keys` gives the
+    /// keys to what opened.
+    OpenRow {
+        item: Item,
+        how: Option<Opening>,
+        take_keys: bool,
+    },
+    /// A key or a menu asked the content to do this.
+    Window(Action),
+    /// A window was clicked.
+    WindowFocus(WindowId),
+    /// A tab was clicked, by its place counted from 0.
+    TabShow(usize),
+    /// A menu was opened on the tab of a window showing this.
+    TabReveal(Tab),
+    /// `from` shows as `to` from now on, as a draft does once it starts.
+    Replace {
+        from: Tab,
+        to: Tab,
+    },
+    /// The shell by this id closed.
+    ShellClosed(u128),
+    /// The pointer took a border between windows at `from` along its axis,
+    /// the split it divides drawn `px` long.
+    WindowDragStart {
+        border: Border,
+        from: f64,
+        px: f64,
+    },
+    /// The pointer moved to `pos` along the border's axis.
+    WindowDragMove(f64),
+    /// The pointer let go, or left the window.
+    WindowDragEnd,
+    /// The agent chosen for this draft, or for the next one.
+    DraftAgent {
+        tab: Option<Tab>,
+        agent: Agent,
+    },
+    /// The options chosen for this draft, or for the next one.
+    DraftOptions {
+        tab: Option<Tab>,
+        options: DraftOptions,
+    },
+    /// The sessions shown live here, or being attached to.
+    PanesLive(BTreeSet<String>),
+    /// The session by this id is being taken over, or no longer.
+    TakingOver {
+        id: String,
+        on: bool,
+    },
+
     // The tree.
-    /// What the content's focused window shows, and where.
-    Showing(Box<Showing>),
     /// Select this row, or none.
     TreeSelect(Option<Item>),
     /// A key was pressed on the tree.

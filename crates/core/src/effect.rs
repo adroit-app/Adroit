@@ -4,8 +4,10 @@ use std::time::Duration;
 
 use adroit_protocol::Request;
 
-use crate::details::{Scroll, Shot};
+use std::collections::BTreeSet;
 
+use crate::content::{Tab, TerminalAsk};
+use crate::details::{Scroll, Shot};
 use crate::layout::Layout;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -42,4 +44,27 @@ pub enum Effect {
         text: String,
         after: Duration,
     },
+
+    // The content.
+    /// Start a shell or a Neovim as asked.
+    StartTerminal(TerminalAsk),
+    /// The prompt's text for a draft no window shows any longer goes to
+    /// what the focused window shows now, or to nothing open.
+    PromptClose(Option<Tab>),
+    /// Start writing in the prompt, whatever mode it was left in.
+    StartWriting,
+    /// The keys came into the prompt from elsewhere: the console stops being
+    /// read, and the session there is asked for what was typed into it.
+    PromptEntered,
+    /// Keep this tab as the one shown for the next run, or none.
+    KeepShown(Option<Tab>),
+    /// Keep the panes and the images drawn only of these sessions and
+    /// terminals.
+    KeepPanes {
+        sessions: BTreeSet<String>,
+        terminals: BTreeSet<u128>,
+    },
+    /// Tell the user, outside the window, that these sessions started
+    /// waiting, each by its name and what it waits for.
+    NotifyWaiting(Vec<(String, String)>),
 }
