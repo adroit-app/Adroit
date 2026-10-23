@@ -213,6 +213,9 @@ impl Store {
         if let Some(parent) = current.parent {
             let body = match readiness {
                 Readiness::Starting => None,
+                // The starter hears of readiness only to know a hold-up it
+                // was told of has cleared; a clean start needs nothing of it.
+                Readiness::Ready if current.readiness == Readiness::Starting => None,
                 Readiness::Ready => Some(format!("{} is ready.", current.name)),
                 Readiness::Waiting => Some(format!(
                     "{} waits on a dialog in its console for the user to answer.",
@@ -733,6 +736,17 @@ mod tests {
         assert_eq!(heard.len(), 2);
         assert!(heard[0].contains("waits on a dialog"), "{heard:?}");
         assert!(heard[1].contains("is ready"), "{heard:?}");
+    }
+
+    #[test]
+    fn a_starter_hears_nothing_of_a_session_that_became_ready_without_a_hold_up() {
+        let (_dir, mut store) = store();
+        let lead = register(&mut store, None, "lead");
+        let child = register(&mut store, Some(lead), "child");
+
+        assert!(store.set_readiness(child, Readiness::Ready).unwrap());
+
+        assert!(bodies(&mut store, lead).is_empty());
     }
 
     #[test]

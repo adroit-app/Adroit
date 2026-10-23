@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use adroit_term::{Daemon, Key, Palette, Pane, Size, Spawn, tags};
+use adroit_term::{Daemon, Input, Key, Palette, Pane, Size, Spawn, tags};
 
 /// A daemon on a socket of its own, served until the test ends.
 async fn daemon() -> (Daemon, tempfile::TempDir) {
@@ -186,6 +186,65 @@ async fn keys_pressed_without_a_window_reach_the_program() {
     until(&pane, |t| t[0].starts_with("ready")).await;
     d.press(id, b"\r").await.unwrap();
     until(&pane, |t| t.iter().any(|l| l.contains(" 0d"))).await;
+}
+
+#[tokio::test]
+async fn input_without_a_window_reaches_the_program_in_order() {
+    let (d, _dir) = daemon().await;
+    let id = d
+        .spawn(sh(
+            r"stty raw -echo; printf '\033[?2004hready'; head -c 16 | od -An -c | tr -d ' \n'; sleep 5",
+        ))
+        .await
+        .unwrap();
+    let pane = attach(&d, id).await;
+    until(&pane, |t| t[0].starts_with("ready")).await;
+    d.input(
+        id,
+        &[
+            Input::Text("ab".into()),
+            Input::Paste("x".into()),
+            Input::Key(Key::new("Tab")),
+        ],
+    )
+    .await
+    .unwrap();
+    until(&pane, |t| {
+        t.iter().any(|l| l.contains("ab033[200~x033[201~\\t"))
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn a_key_sent_without_a_window_is_encoded_as_the_program_s_keyboard_mode_asks() {
+    let (d, _dir) = daemon().await;
+    // Kitty's keyboard protocol, asked to tell Escape apart.
+    let id = d
+        .spawn(sh(
+            r"stty raw -echo; printf '\033[>1uready'; head -c 5 | od -An -c | tr -d ' \n'; sleep 5",
+        ))
+        .await
+        .unwrap();
+    let pane = attach(&d, id).await;
+    until(&pane, |t| t[0].starts_with("ready")).await;
+    d.input(id, &[Input::Key(Key::new("Escape"))])
+        .await
+        .unwrap();
+    until(&pane, |t| t.iter().any(|l| l.contains("033[27u"))).await;
+}
+
+#[tokio::test]
+async fn a_key_that_never_reaches_a_program_is_refused_without_sending_anything() {
+    let (d, _dir) = daemon().await;
+    let id = d.spawn(sh("sleep 5")).await.unwrap();
+    assert!(
+        d.input(
+            id,
+            &[Input::Text("a".into()), Input::Key(Key::new("c").meta())]
+        )
+        .await
+        .is_err()
+    );
 }
 
 #[tokio::test]

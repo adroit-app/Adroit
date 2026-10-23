@@ -2,6 +2,16 @@ use felis_protocol::messages::{
     FKey, Key as FelisKey, KeyEvent, KeyEventKind, KeyLocation, KeyMods, NamedKey,
 };
 
+/// What is sent to a session's program without a window.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Input {
+    /// Text as if it were typed, byte for byte.
+    Text(String),
+    /// Text pasted, bracketed when the program asks for it.
+    Paste(String),
+    Key(Key),
+}
+
 /// A key press as the webview reports it: `key` is the DOM `KeyboardEvent.key`.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Key {

@@ -16,6 +16,7 @@ const CWD: &str = "adroit.cwd";
 const STARTED: &str = "adroit.started";
 /// The file a Neovim was started on.
 const FILE: &str = "adroit.file";
+const COMMAND: &str = "adroit.command";
 const LAST_INPUT: &str = "adroit.last-input";
 const PERMISSIONS: &str = "adroit.permissions";
 /// The conversation a session holds. The tag keeps its original spelling
@@ -110,9 +111,14 @@ pub fn read(session: &adroit_term::Session) -> Option<Kept> {
             program: match tags::value(t, "adroit.program")?.as_str() {
                 "shell" => TerminalProgram::Shell,
                 "neovim" => TerminalProgram::Neovim,
+                "command" => TerminalProgram::Command,
                 _ => return None,
             },
             file: tags::value(t, FILE).map(PathBuf::from),
+            command: match tags::value(t, COMMAND) {
+                Some(raw) => serde_json::from_str(&raw).ok()?,
+                None => Vec::new(),
+            },
         })),
         _ => None,
     }
@@ -218,27 +224,31 @@ pub fn editor_tags(env: &[(String, String)]) -> Vec<String> {
     }
 }
 
-/// The tags a shell adroit starts carries, saying what it `runs`.
-pub fn terminal_tags(
-    name: &str,
-    cwd: &std::path::Path,
-    program: TerminalProgram,
-    resource_id: adroit_model::TerminalResourceId,
-    file: Option<&std::path::Path>,
-) -> Vec<String> {
+/// The tags a terminal adroit starts carries, saying what it runs.
+pub fn terminal_tags(terminal: &TerminalSession) -> Vec<String> {
     let mut out = tags::tagged(KIND, "terminal");
-    out.extend(tags::tagged(NAME, name));
-    out.extend(tags::tagged(CWD, &cwd.to_string_lossy()));
-    out.extend(tags::tagged("adroit.resource", &resource_id.to_string()));
+    out.extend(tags::tagged(NAME, &terminal.name));
+    out.extend(tags::tagged(CWD, &terminal.cwd.to_string_lossy()));
+    out.extend(tags::tagged(
+        "adroit.resource",
+        &terminal.resource_id.to_string(),
+    ));
     out.extend(tags::tagged(
         "adroit.program",
-        match program {
+        match terminal.program {
             TerminalProgram::Shell => "shell",
             TerminalProgram::Neovim => "neovim",
+            TerminalProgram::Command => "command",
         },
     ));
-    if let Some(file) = file {
+    if let Some(file) = &terminal.file {
         out.extend(tags::tagged(FILE, &file.to_string_lossy()));
+    }
+    if !terminal.command.is_empty() {
+        out.extend(tags::tagged(
+            COMMAND,
+            &serde_json::to_string(&terminal.command).expect("serializable command"),
+        ));
     }
     out
 }
@@ -484,30 +494,59 @@ mod tests {
 
     #[test]
     fn a_terminal_keeps_its_resource_id_and_program() {
-        for program in [TerminalProgram::Shell, TerminalProgram::Neovim] {
-            let resource_id = adroit_model::TerminalResourceId::new();
-            let s = kept(
-                9,
-                terminal_tags(
-                    "tool",
-                    std::path::Path::new("/api"),
-                    program,
-                    resource_id,
-                    None,
-                ),
-            );
-            assert_eq!(
-                read(&s),
-                Some(Kept::Terminal(TerminalSession {
-                    id: 9,
-                    resource_id,
-                    name: "tool".into(),
-                    cwd: "/api".into(),
-                    program,
-                    file: None,
-                }))
+        for (program, command) in [
+            (TerminalProgram::Shell, vec![]),
+            (TerminalProgram::Neovim, vec![]),
+            (
+                TerminalProgram::Command,
+                vec!["claude".into(), "--model".into(), "it's opus".into()],
+            ),
+        ] {
+            let terminal = TerminalSession {
+                id: 9,
+                resource_id: adroit_model::TerminalResourceId::new(),
+                name: "tool".into(),
+                cwd: "/api".into(),
+                program,
+                file: None,
+                command,
+            };
+            let s = kept(9, terminal_tags(&terminal));
+            assert_eq!(read(&s), Some(Kept::Terminal(terminal)));
+        }
+    }
+
+    #[test]
+    fn a_command_runs_through_the_shell_with_what_a_shell_terminal_gets() {
+        use crate::execution::{TerminalStartRequest, resolve_terminal};
+        let mut settings = crate::settings::Settings::default();
+        settings.shell.env.insert("FROM_SHELL".into(), "1".into());
+        let launch = resolve_terminal(
+            &settings,
+            TerminalStartRequest {
+                name: "claude".into(),
+                cwd: "/api".into(),
+                program: TerminalProgram::Command,
+                command: vec!["claude".into(), "--debug".into()],
+                ..Default::default()
+            },
+            "/bin/zsh",
+        );
+        assert_eq!(launch.spawn.program, "/bin/zsh");
+        assert_eq!(
+            launch.spawn.args[launch.spawn.args.len() - 2..],
+            ["claude".to_string(), "--debug".to_string()]
+        );
+        for var in [("SHELL", "/bin/zsh"), ("FROM_SHELL", "1")] {
+            assert!(
+                launch
+                    .spawn
+                    .env
+                    .contains(&(var.0.to_string(), var.1.to_string())),
+                "{var:?}"
             );
         }
+        assert_eq!(launch.terminal.command, ["claude", "--debug"]);
     }
 
     #[test]
@@ -546,13 +585,11 @@ mod tests {
         assert_eq!(read(&kept(1, vec!["other=1".into()])), None);
         let mut s = kept(
             9,
-            terminal_tags(
-                "shell 1",
-                std::path::Path::new("/api"),
-                TerminalProgram::Shell,
-                adroit_model::TerminalResourceId::new(),
-                None,
-            ),
+            terminal_tags(&TerminalSession {
+                name: "shell 1".into(),
+                cwd: "/api".into(),
+                ..TerminalSession::default()
+            }),
         );
         s.exited = true;
         assert_eq!(read(&s), None);
