@@ -21,6 +21,7 @@ if (window.adroitDebugKeys) {
 // whatever else is held, or a key an entry shows, written as the bindings
 // write it. Shift is in a letter's case and in a character such as `}`, but
 // not in a digit, which is read from its key.
+const editsWithCommand = ['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'];
 const held = (e, name, fromCode) => {
   const keys = window.adroitHeld || [];
   if (keys.includes(name.toLowerCase())) return true;
@@ -75,7 +76,10 @@ const onKey = (e, astray) => {
     const code = /^(Key[A-Z]|Digit[0-9])$/.exec(e.code);
     let name = code ? e.code.slice(-1) : e.key;
     if (code && !e.shiftKey) name = name.toLowerCase();
-    if (held(e, name, !!code)) return;
+    // While the text area takes text, WebKit spends Command with a key that
+    // edits, as Command-Backspace deleting to the line's start, on the text
+    // area before the menu sees it: the window runs the binding instead.
+    if (held(e, name, !!code) && (t.readOnly || !editsWithCommand.includes(name))) return;
     e.preventDefault();
     dioxus.send({ kind: 'key', key: name, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey, meta: true });
     return;

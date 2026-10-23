@@ -459,3 +459,29 @@ fn text_or_a_menu_bar_entry_breaks_off_a_sequence_begun() {
     let menu = begun().send(Msg::SequenceDropped);
     assert!(menu.state().console.pending.is_empty());
 }
+
+#[test]
+fn a_command_key_runs_the_window_s_binding_while_a_dialog_takes_every_key() {
+    let stop = || Key::new("Backspace").meta();
+    let inserting = Probe {
+        pane: true,
+        inserting: true,
+        ..Default::default()
+    };
+    let cases = [
+        ("console", Area::Console, with_pane()),
+        ("prompt", Area::Prompt, with_pane()),
+        ("inserting", Area::Prompt, inserting),
+    ];
+    for (why, area, probe) in cases {
+        let run = window()
+            .send(Msg::Dialog(true))
+            .send(Msg::Focus(area))
+            .send(press(stop(), probe));
+        assert_eq!(
+            run.last_effects(),
+            [Effect::PerformKey(Action::SessionStop, stop())],
+            "{why}"
+        );
+    }
+}
