@@ -90,14 +90,17 @@ pressed with `Ctrl` held too. `Ctrl-q` works everywhere, the prompt's insert
 mode included, and `Ctrl-w` is left to the program: Neovim's windows, the
 shell's word.
 
-From anywhere, the prompt included: `Cmd-]` `Cmd-[` (or `Ctrl-q Tab` `Ctrl-q Shift-Tab`)
-show the next or previous tab of the panel the keys are in, the console's
-tabs or the details panel's overview, changes and log, which `Cmd-1` to
-`Cmd-3` also show one by one; `Cmd-o` chooses where a new session
-works, `Cmd-n` starts one where the console is (`Cmd-Option-n` a scratch session that needs no directory chosen),
-`Cmd-s` opens a shell there, `Cmd-f` filters the sidebar, `Cmd-e` lists every
-worktree, `Cmd-r` refreshes, `Cmd-t` takes over a session and
-`Cmd-Backspace` ends one.
+From anywhere, the prompt included, `Mod`, which is `Cmd` on macOS and
+`Ctrl-Shift` elsewhere, runs the window's own commands: `Mod-]` `Mod-[` (or
+`Ctrl-q Tab` `Ctrl-q Shift-Tab`) show the next or previous tab of the panel
+the keys are in, the console's tabs or the details panel's overview, changes
+and log, which `Mod-1` to `Mod-3` also show one by one; `Mod-p` chooses where
+a new session works, `Mod-n` starts one where the console is, `Mod-s` opens a
+shell there and `Mod-e` Neovim, `Mod-f` filters the sidebar, `Mod-r`
+refreshes, `Mod-t` takes over a session, `Mod-Backspace` ends one, and
+`Mod-b` `Mod-d` show or hide the sidebar and the details panel. A scratch
+session, which needs no directory chosen, starts from the picker's first row
+or the Session menu.
 
 | In the sidebar | |
 | --- | --- |

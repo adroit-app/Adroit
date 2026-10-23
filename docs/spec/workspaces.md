@@ -43,7 +43,7 @@ which a session started later resumes with Claude Code's `/resume`.
 
 ## Going to a session or starting one
 
-`Cmd+p`, `w`, `+` beside Workspaces, or the Session menu opens the
+`Mod+p`, `w`, `+` beside Workspaces, or the Session menu opens the
 **picker**. Its first row starts a [scratch session](#scratch-sessions). It
 lists every session next, each with where it runs and how it stands, and then
 the directories to start a new session in:
@@ -76,13 +76,13 @@ chooses the directory under the cursor. `Ctrl+f` goes back to the list and
 `Escape` closes the picker.
 
 `n` on a row starts a session in that row's worktree or directory without the
-picker. `Cmd+}` and `Cmd+{` open the next and
+picker. `Ctrl+q N` and `Ctrl+q P` open the next and
 the previous session without asking.
 
 ## Scratch sessions
 
 A **scratch session** is for talking to Claude about something no project
-holds, with no directory to choose. `Cmd+Alt+n`, the picker's first row or New
+holds, with no directory to choose. The picker's first row or New
 Scratch Session in the Session menu opens one, with the prompt ready as for a
 new session, and so does a prompt sent with nothing open
 ([prompt](prompt.md)). The first prompt sent starts it in

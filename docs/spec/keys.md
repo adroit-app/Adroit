@@ -127,17 +127,22 @@ first or last line scrolls the program instead, and the reader follows; `gg` scr
 for the live console, or moving to the prompt, returns the session to its
 latest output.
 In the prompt, `Ctrl+c` sends `Escape` to the agent, and `global` bindings
-apply only outside Neovim's insert mode, but for Command keys and the
-prefix.
+apply only outside Neovim's insert mode, but for `Mod` and Command keys and
+the prefix.
 
 ### Keys
 
 A key is written as its modifiers, then its name, joined by `+`: `Ctrl+q`,
-`Shift+Tab`, `Ctrl+Alt+x`, `Cmd+p`. The modifiers are `Cmd`, `Ctrl`, `Alt`
-and `Shift`. Command with `c`, `v`, `x`, `a`, `z`, `q`, `h` and `m` stays
-with the menu: editing, quitting, hiding and minimizing.
-A Command key reaches the `global` bindings wherever the keys are, the
-prompt's insert mode and a console passing its keys on included.
+`Shift+Tab`, `Ctrl+Alt+x`, `Mod+p`. The modifiers are `Mod`, `Cmd`, `Ctrl`,
+`Alt` and `Shift`. `Mod` is Command on macOS and Ctrl with Shift elsewhere,
+so one binding serves every platform; the window writes it as the keys it is
+there. Off macOS, a character other than a letter keeps the Shift `Mod`
+holds: `Mod+]` is `Ctrl+Shift+]`. Command or `Mod` with `c`, `v`, `x`, `a`,
+`z`, `q`, `h` and `m` stays with the menu: editing, quitting, hiding and
+minimizing.
+A key held with `Mod` or Command reaches the `global` bindings wherever the
+keys are, the prompt's insert mode and a console passing its keys on
+included.
 A key is a single character, `Space`, `Plus`, `F1` to `F12`, or one of
 `Enter`, `Escape`, `Tab`, `Backspace`, `Delete`, `Insert`, `Home`, `End`,
 `PageUp`, `PageDown`, `ArrowUp`, `ArrowDown`, `ArrowLeft` and `ArrowRight`. A
@@ -225,37 +230,33 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 "Ctrl+q p" = "window.back"
 "Ctrl+q Tab" = "tab.next"
 "Ctrl+q Shift+Tab" = "tab.prev"
-"Cmd+]" = "tab.next"
-"Cmd+[" = "tab.prev"
-"Cmd+w" = "tab.close"
+"Mod+]" = "tab.next"
+"Mod+[" = "tab.prev"
+"Mod+w" = "tab.close"
 "Cmd+W" = "window.close"
-"Cmd+1" = "details.overview"
-"Cmd+2" = "details.changes"
-"Cmd+3" = "details.log"
+"Mod+1" = "details.overview"
+"Mod+2" = "details.changes"
+"Mod+3" = "details.log"
 "Ctrl+q ]" = "waiting.next"
 "Ctrl+q [" = "waiting.prev"
 "Ctrl+q N" = "session.next"
 "Ctrl+q P" = "session.prev"
-"Cmd+}" = "session.next"
-"Cmd+{" = "session.prev"
-"Cmd+p" = "session.pick"
+"Mod+p" = "session.pick"
 "Ctrl+q ." = "console.send Ctrl+q"
-"Cmd+n" = "session.new"
-"Cmd+Alt+n" = "session.scratch"
-"Cmd+s" = "shell.open"
-"Cmd+Alt+e" = "neovim.open"
-"Cmd+t" = "session.take_over"
-"Cmd+Backspace" = "session.stop"
-"Cmd+f" = "filter"
-"Cmd+e" = "worktrees.toggle"
-"Cmd+r" = "refresh"
-"Cmd+," = "settings.open"
-"Cmd+=" = "zoom.in"
-"Cmd+Plus" = "zoom.in"
-"Cmd+-" = "zoom.out"
-"Cmd+0" = "zoom.reset"
-"Cmd+b" = "sidebar.toggle"
-"Cmd+Alt+b" = "details.toggle"
+"Mod+n" = "session.new"
+"Mod+s" = "shell.open"
+"Mod+e" = "neovim.open"
+"Mod+t" = "session.take_over"
+"Mod+Backspace" = "session.stop"
+"Mod+f" = "filter"
+"Mod+r" = "refresh"
+"Mod+," = "settings.open"
+"Mod+=" = "zoom.in"
+"Mod+Plus" = "zoom.in"
+"Mod+-" = "zoom.out"
+"Mod+0" = "zoom.reset"
+"Mod+b" = "sidebar.toggle"
+"Mod+d" = "details.toggle"
 
 [draft]
 "Tab" = "session.agent_next"
@@ -334,7 +335,7 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 "X" = "session.stop"
 
 [prompt]
-"Ctrl+Shift+a" = "prompt.images"
+"Mod+i" = "prompt.images"
 "Ctrl+c" = "console.send Escape"
 "Ctrl+Enter" = "prompt.send"
 "Ctrl+p" = "prompt.history_prev"

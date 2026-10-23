@@ -24,37 +24,33 @@ pub const DEFAULTS: &str = r#"
 "Ctrl+q p" = "window.back"
 "Ctrl+q Tab" = "tab.next"
 "Ctrl+q Shift+Tab" = "tab.prev"
-"Cmd+]" = "tab.next"
-"Cmd+[" = "tab.prev"
-"Cmd+w" = "tab.close"
+"Mod+]" = "tab.next"
+"Mod+[" = "tab.prev"
+"Mod+w" = "tab.close"
 "Cmd+W" = "window.close"
-"Cmd+1" = "details.overview"
-"Cmd+2" = "details.changes"
-"Cmd+3" = "details.log"
+"Mod+1" = "details.overview"
+"Mod+2" = "details.changes"
+"Mod+3" = "details.log"
 "Ctrl+q ]" = "waiting.next"
 "Ctrl+q [" = "waiting.prev"
 "Ctrl+q N" = "session.next"
 "Ctrl+q P" = "session.prev"
-"Cmd+}" = "session.next"
-"Cmd+{" = "session.prev"
-"Cmd+p" = "session.pick"
+"Mod+p" = "session.pick"
 "Ctrl+q ." = "console.send Ctrl+q"
-"Cmd+n" = "session.new"
-"Cmd+Alt+n" = "session.scratch"
-"Cmd+s" = "shell.open"
-"Cmd+Alt+e" = "neovim.open"
-"Cmd+t" = "session.take_over"
-"Cmd+Backspace" = "session.stop"
-"Cmd+f" = "filter"
-"Cmd+e" = "worktrees.toggle"
-"Cmd+r" = "refresh"
-"Cmd+," = "settings.open"
-"Cmd+=" = "zoom.in"
-"Cmd+Plus" = "zoom.in"
-"Cmd+-" = "zoom.out"
-"Cmd+0" = "zoom.reset"
-"Cmd+b" = "sidebar.toggle"
-"Cmd+Alt+b" = "details.toggle"
+"Mod+n" = "session.new"
+"Mod+s" = "shell.open"
+"Mod+e" = "neovim.open"
+"Mod+t" = "session.take_over"
+"Mod+Backspace" = "session.stop"
+"Mod+f" = "filter"
+"Mod+r" = "refresh"
+"Mod+," = "settings.open"
+"Mod+=" = "zoom.in"
+"Mod+Plus" = "zoom.in"
+"Mod+-" = "zoom.out"
+"Mod+0" = "zoom.reset"
+"Mod+b" = "sidebar.toggle"
+"Mod+d" = "details.toggle"
 
 [draft]
 "Tab" = "session.agent_next"
@@ -133,7 +129,7 @@ pub const DEFAULTS: &str = r#"
 "X" = "session.stop"
 
 [prompt]
-"Ctrl+Shift+a" = "prompt.images"
+"Mod+i" = "prompt.images"
 "Ctrl+c" = "console.send Escape"
 "Ctrl+Enter" = "prompt.send"
 "Ctrl+p" = "prompt.history_prev"
@@ -178,6 +174,10 @@ fn menu_key(key: &str) -> bool {
     MENU_KEYS.contains(&key.to_lowercase().as_str())
 }
 
+/// Whether `Mod` is Command, as on macOS, rather than Ctrl with Shift, which
+/// terminal applications elsewhere take for themselves.
+const MOD_IS_CMD: bool = cfg!(target_os = "macos");
+
 /// One key with the modifiers held for it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Chord {
@@ -190,6 +190,12 @@ pub struct Chord {
 
 impl Chord {
     pub fn parse(text: &str) -> Result<Self, Error> {
+        Self::parse_on(text, MOD_IS_CMD)
+    }
+
+    /// `text` read with `Mod` as Command, or as Ctrl with Shift unless
+    /// `mod_is_cmd`.
+    fn parse_on(text: &str, mod_is_cmd: bool) -> Result<Self, Error> {
         let bad = || Error(format!("{text:?} is not a key"));
         let (mods, name) = match text.rsplit_once('+') {
             Some((mods, name)) => (mods, name),
@@ -202,8 +208,18 @@ impl Chord {
             shift: false,
             meta: false,
         };
+        let mut held_mod = false;
         for m in mods.split('+').filter(|_| !mods.is_empty()) {
             match m {
+                "Mod" if mod_is_cmd => {
+                    held_mod = true;
+                    c.meta = true;
+                }
+                "Mod" => {
+                    held_mod = true;
+                    c.ctrl = true;
+                    c.shift = true;
+                }
                 "Ctrl" => c.ctrl = true,
                 "Alt" => c.alt = true,
                 "Shift" => c.shift = true,
@@ -226,18 +242,18 @@ impl Chord {
         };
         // A character carries its own case; Shift with a letter is its
         // capital.
-        if c.printable() {
-            if c.shift {
-                // Shift with another character types a third one, written as
-                // itself: Shift and 1 is !.
-                if !c.key.chars().all(char::is_alphabetic) {
-                    return Err(bad());
-                }
+        if c.printable() && c.shift {
+            if c.key.chars().all(char::is_alphabetic) {
                 c.key = c.key.to_uppercase();
+                c.shift = false;
+            } else if !c.ctrl {
+                // Shift with another character types a third one, written as
+                // itself: Shift and 1 is !. Held with Ctrl as well, as `Mod`
+                // is off macOS, Shift stays for the key to need.
+                return Err(bad());
             }
-            c.shift = false;
         }
-        if c.meta && menu_key(&c.key) {
+        if (c.meta || held_mod) && menu_key(&c.key) {
             return Err(Error(format!("{text:?} stays with the menu")));
         }
         Ok(c)
@@ -277,6 +293,19 @@ impl Chord {
         Chord::parse(&text).ok().map(|c| c.to_string())
     }
 
+    /// Whether `key` is held with `Mod`.
+    pub fn held_mod(key: &Key) -> bool {
+        Self::held_mod_on(key, MOD_IS_CMD)
+    }
+
+    fn held_mod_on(key: &Key, mod_is_cmd: bool) -> bool {
+        if mod_is_cmd {
+            key.meta
+        } else {
+            key.ctrl && key.shift
+        }
+    }
+
     fn printable(&self) -> bool {
         self.key.chars().count() == 1 && self.key != " "
     }
@@ -286,7 +315,7 @@ impl Chord {
             && key.ctrl == self.ctrl
             && key.alt == self.alt
             && key.meta == self.meta
-            && (self.printable() || key.shift == self.shift)
+            && ((self.printable() && !self.shift) || key.shift == self.shift)
     }
 
     /// The key this chord stands for, as the window would report it.
@@ -608,7 +637,8 @@ impl Keymap {
         // to the global bindings too.
         let first = &pressed[0];
         let last = &pressed[pressed.len() - 1];
-        let global = ((first.meta || last.meta || self.prefix(first))
+        let app = |k: &Key| k.meta || Chord::held_mod(k);
+        let global = ((app(first) || app(last) || self.prefix(first))
             && !contexts.contains(&Context::Global))
         .then_some(Context::Global);
         for ctx in contexts.iter().chain(global.as_ref()) {
@@ -824,37 +854,87 @@ mod tests {
     }
 
     #[test]
-    fn the_window_s_own_command_keys_are_global_bindings() {
+    fn the_window_s_own_mod_keys_are_global_bindings() {
         let map = Keymap::defaults();
-        let run = |key: Key| map.resolve(&[Context::Sidebar], &[], &key);
+        for (key, action) in [
+            ("Mod+]", Action::TabNext),
+            ("Mod+[", Action::TabPrev),
+            ("Mod+w", Action::TabClose),
+            ("Mod+p", Action::SessionPick),
+            ("Mod+n", Action::SessionNew),
+            ("Mod+s", Action::ShellOpen),
+            ("Mod+e", Action::NeovimOpen),
+            ("Mod+t", Action::SessionTakeOver),
+            ("Mod+Backspace", Action::SessionStop),
+            ("Mod+f", Action::Filter),
+            ("Mod+r", Action::Refresh),
+            ("Mod+,", Action::SettingsOpen),
+            ("Mod+=", Action::ZoomIn),
+            ("Mod+Plus", Action::ZoomIn),
+            ("Mod+-", Action::ZoomOut),
+            ("Mod+0", Action::ZoomReset),
+            ("Mod+b", Action::SidebarToggle),
+            ("Mod+d", Action::DetailsToggle),
+        ] {
+            assert_eq!(
+                step(&map, &[Context::Sidebar], &[], key),
+                Step::Run(action),
+                "{key}"
+            );
+        }
         assert_eq!(
-            run(Key::new("e").meta().alt()),
-            Step::Run(Action::NeovimOpen)
-        );
-        assert_eq!(run(Key::new(",").meta()), Step::Run(Action::SettingsOpen));
-        assert_eq!(run(Key::new("=").meta()), Step::Run(Action::ZoomIn));
-        assert_eq!(run(Key::new("+").meta().shift()), Step::Run(Action::ZoomIn));
-        assert_eq!(run(Key::new("-").meta()), Step::Run(Action::ZoomOut));
-        assert_eq!(run(Key::new("0").meta()), Step::Run(Action::ZoomReset));
-        assert_eq!(run(Key::new("b").meta()), Step::Run(Action::SidebarToggle));
-        assert_eq!(
-            run(Key::new("b").meta().alt()),
-            Step::Run(Action::DetailsToggle)
-        );
-        assert_eq!(run(Key::new("w").meta()), Step::Run(Action::TabClose));
-        assert_eq!(
-            run(Key::new("W").meta().shift()),
+            step(&map, &[Context::Sidebar], &[], "Cmd+W"),
             Step::Run(Action::WindowClose)
         );
     }
 
     #[test]
-    fn a_command_key_resolves_among_the_global_bindings_wherever_the_keys_are() {
+    fn a_mod_key_resolves_among_the_global_bindings_wherever_the_keys_are() {
         let map = Keymap::defaults();
-        let key = Key::new("s").meta();
+        // In the prompt's insert mode the window reads the prompt's alone.
         assert_eq!(
-            map.resolve(&[Context::Prompt], &[], &key),
+            step(&map, &[Context::Prompt], &[], "Mod+s"),
             Step::Run(Action::ShellOpen)
+        );
+    }
+
+    #[test]
+    fn mod_is_command_on_macos_and_ctrl_with_shift_elsewhere() {
+        let mac = |t: &str| Chord::parse_on(t, true);
+        let other = |t: &str| Chord::parse_on(t, false);
+        assert_eq!(mac("Mod+p"), mac("Cmd+p"));
+        assert_eq!(other("Mod+p").unwrap().key(), Key::new("P").ctrl().shift());
+        assert_eq!(other("Mod+p"), other("Ctrl+P"));
+        // Another character is typed with Shift held, which it then needs.
+        let bracket = other("Mod+]").unwrap();
+        assert!(bracket.matches(&Key::new("]").ctrl().shift()));
+        assert!(!bracket.matches(&Key::new("]").ctrl()));
+        assert_eq!(bracket.to_string(), "Ctrl+Shift+]");
+        assert_eq!(other("Ctrl+Shift+]"), Ok(bracket));
+        assert!(Chord::held_mod_on(&Key::new("p").meta(), true));
+        assert!(!Chord::held_mod_on(&Key::new("p").meta(), false));
+        assert!(Chord::held_mod_on(&Key::new("P").ctrl().shift(), false));
+        assert!(!Chord::held_mod_on(&Key::new("p").ctrl(), false));
+        // The menu's keys stay with it, whichever keys Mod is.
+        assert!(mac("Mod+c").is_err());
+        assert!(other("Mod+c").is_err());
+    }
+
+    #[test]
+    fn the_keys_the_menu_alone_offers_now_have_no_default() {
+        let map = Keymap::defaults();
+        for areas in [&[Context::Sidebar, Context::Global][..], &[Context::Global]] {
+            for key in ["Cmd+Alt+n", "Cmd+}", "Cmd+{", "Cmd+Alt+e", "Cmd+Alt+b"] {
+                assert_eq!(step(&map, areas, &[], key), Step::Nothing, "{key}");
+            }
+        }
+        for action in [Action::SessionScratch, Action::WorktreesToggle] {
+            assert_eq!(map.keys_for(Context::Global, &action), None, "{action}");
+        }
+        // The sidebar keeps its own key for every worktree.
+        assert_eq!(
+            map.keys_for(Context::Sidebar, &Action::WorktreesToggle),
+            Some("!".into())
         );
     }
 
@@ -1007,9 +1087,9 @@ mod tests {
             Context::Console,
             Context::Prompt,
         ] {
-            let resolve = |k: Key| map.resolve(&[ctx, Context::Global], &[], &k);
-            assert_eq!(resolve(Key::new("]").meta()), Step::Run(Action::TabNext));
-            assert_eq!(resolve(Key::new("[").meta()), Step::Run(Action::TabPrev));
+            let areas = [ctx, Context::Global];
+            assert_eq!(step(&map, &areas, &[], "Mod+]"), Step::Run(Action::TabNext));
+            assert_eq!(step(&map, &areas, &[], "Mod+["), Step::Run(Action::TabPrev));
         }
     }
 
@@ -1023,13 +1103,8 @@ mod tests {
             Context::Prompt,
         ] {
             let areas = [ctx, Context::Global];
-            // Command with Shift and a bracket arrives as the brace it types.
-            let resolve = |k: Key| map.resolve(&areas, &[], &k);
-            let brace = |b: &str| Key::new(b).meta().shift();
-            assert_eq!(resolve(brace("}")), Step::Run(Action::SessionNext));
-            assert_eq!(resolve(brace("{")), Step::Run(Action::SessionPrev));
             assert_eq!(
-                resolve(Key::new("p").meta()),
+                step(&map, &areas, &[], "Mod+p"),
                 Step::Run(Action::SessionPick)
             );
             assert_eq!(
@@ -1041,28 +1116,11 @@ mod tests {
                 Step::Run(Action::SessionPrev)
             );
         }
+        // Command with Shift and a bracket arrives as the brace it types.
         assert_eq!(
             Chord::pressed("}", false, false, true, true),
             Some("Cmd+}".into())
         );
-    }
-
-    #[test]
-    fn a_scratch_session_is_started_by_command_option_n_from_every_area() {
-        let map = Keymap::defaults();
-        for ctx in [
-            Context::Sidebar,
-            Context::Details,
-            Context::Console,
-            Context::Prompt,
-        ] {
-            assert_eq!(
-                map.resolve(&[ctx, Context::Global], &[], &Key::new("n").meta().alt()),
-                Step::Run(Action::SessionScratch),
-                "{}",
-                ctx.name()
-            );
-        }
         // Option changes the letter typed; the window reports the key's own.
         assert_eq!(
             Chord::pressed("n", false, true, false, true),
@@ -1078,7 +1136,7 @@ mod tests {
             ("2", Action::DetailsChanges),
             ("3", Action::DetailsLog),
         ] {
-            let key = Key::new(digit).meta();
+            let key = press(&format!("Mod+{digit}"));
             for ctx in [Context::Sidebar, Context::Console, Context::Prompt] {
                 assert_eq!(
                     map.resolve(&[ctx], &[], &key),
@@ -1251,7 +1309,7 @@ mod tests {
     #[test]
     fn prompt_attachments_have_a_named_selection_action() {
         assert_eq!(
-            step(&Keymap::defaults(), &[Context::Prompt], &[], "Ctrl+Shift+a"),
+            step(&Keymap::defaults(), &[Context::Prompt], &[], "Mod+i"),
             Step::Run(Action::PromptImages)
         );
     }

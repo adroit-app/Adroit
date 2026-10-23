@@ -138,5 +138,5 @@ open a link, an image or a subagent; on a heading, `Enter` or `l` folds or unfol
 group, the keys that go back fold the group of what is selected, and `y`
 copies the selected row. In a subagent opened, the keys that go back go back
 to the overview. In a diff, a subagent opened or an overview without links,
-`j`, `k`, `gg` and `G` scroll, and in every sheet `Ctrl+d` and `Ctrl+u` scroll by half a page. `Cmd+1`,
-`Cmd+2` and `Cmd+3` show the sheets ([keys](keys.md)).
+`j`, `k`, `gg` and `G` scroll, and in every sheet `Ctrl+d` and `Ctrl+u` scroll by half a page. `Mod+1`,
+`Mod+2` and `Mod+3` show the sheets ([keys](keys.md)).

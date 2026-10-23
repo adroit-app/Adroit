@@ -440,23 +440,30 @@ mod tests {
         assert_eq!(action_of("7"), None);
     }
 
+    /// What the menu shows for `text` where the tests run: `Mod` is
+    /// Command on macOS, and the menu shows only Command keys.
+    fn written(text: &str) -> Option<String> {
+        let chord = Chord::parse(text).unwrap();
+        chord.key().meta.then(|| chord.to_string())
+    }
+
     #[test]
-    fn an_entry_shows_the_command_key_bound_to_its_action_everywhere() {
+    fn an_entry_shows_the_mod_key_bound_to_its_action_everywhere() {
         let map = Keymap::defaults();
-        assert_eq!(shown(&map, Action::SessionNew), Some("Cmd+n".into()));
-        assert_eq!(shown(&map, Action::SessionPick), Some("Cmd+p".into()));
-        assert_eq!(
-            shown(&map, Action::SessionScratch),
-            Some("Cmd+Alt+n".into())
-        );
-        assert_eq!(shown(&map, Action::DetailsToggle), Some("Cmd+Alt+b".into()));
-        assert_eq!(
-            shown(&map, Action::SessionStop),
-            Some("Cmd+Backspace".into())
-        );
-        assert_eq!(shown(&map, Action::TabClose), Some("Cmd+w".into()));
-        assert_eq!(shown(&map, Action::NeovimOpen), Some("Cmd+Alt+e".into()));
+        assert_eq!(shown(&map, Action::SessionNew), written("Mod+n"));
+        assert_eq!(shown(&map, Action::SessionPick), written("Mod+p"));
+        assert_eq!(shown(&map, Action::DetailsToggle), written("Mod+d"));
+        assert_eq!(shown(&map, Action::SessionStop), written("Mod+Backspace"));
+        assert_eq!(shown(&map, Action::TabClose), written("Mod+w"));
+        assert_eq!(shown(&map, Action::NeovimOpen), written("Mod+e"));
         assert_eq!(shown(&map, Action::WindowClose), Some("Cmd+W".into()));
+    }
+
+    #[test]
+    fn an_entry_whose_action_has_no_default_key_shows_none() {
+        let map = Keymap::defaults();
+        assert_eq!(shown(&map, Action::SessionScratch), None);
+        assert_eq!(shown(&map, Action::WorktreesToggle), None);
     }
 
     #[test]
@@ -496,11 +503,11 @@ mod tests {
 
     #[test]
     fn a_key_the_menu_cannot_draw_as_it_is_typed_shows_no_shortcut() {
-        let map = Keymap::defaults();
         // A brace is typed with Shift; the menu would show the bracket.
+        let map = Keymap::with_user("[global]\n\"Cmd+}\" = \"session.next\"\n").unwrap();
         assert_eq!(shown(&map, Action::SessionNext), None);
-        // `Cmd+Plus` is passed over for `Cmd+=`.
-        assert_eq!(shown(&map, Action::ZoomIn), Some("Cmd+=".into()));
+        // `Mod+Plus` is passed over for `Mod+=`.
+        assert_eq!(shown(&Keymap::defaults(), Action::ZoomIn), written("Mod+="));
     }
 
     #[test]
@@ -550,7 +557,12 @@ mod tests {
         for letter in MENU_KEYS {
             assert!(held.contains(&letter.to_string()), "{letter}");
         }
-        for chord in ["Cmd+n", "Cmd+p", "Cmd+,", "Cmd+Ctrl+f", "Cmd+w", "Cmd+W"] {
+        for chord in ["Mod+n", "Mod+p", "Mod+,", "Mod+w"] {
+            if let Some(shown) = written(chord) {
+                assert!(held.contains(&shown), "{chord}");
+            }
+        }
+        for chord in ["Cmd+Ctrl+f", "Cmd+W"] {
             assert!(held.contains(&chord.to_string()), "{chord}");
         }
         // The window takes what the menu does not show.
@@ -560,8 +572,13 @@ mod tests {
 
     #[test]
     fn a_held_key_is_written_as_the_window_reports_it() {
-        let held = left_to_menu(&Keymap::defaults());
-        for (key, shift, alt) in [("n", false, false), ("b", false, true), ("n", false, true)] {
+        let held = left_to_menu(
+            &Keymap::with_user(
+                "[global]\n\"Cmd+k\" = \"session.scratch\"\n\"Cmd+Alt+j\" = \"worktrees.toggle\"\n\"Cmd+J\" = \"session.next\"\n",
+            )
+            .unwrap(),
+        );
+        for (key, shift, alt) in [("k", false, false), ("j", false, true), ("J", true, false)] {
             let pressed = Chord::pressed(key, false, alt, shift, true).unwrap();
             assert!(held.contains(&pressed), "{pressed}");
         }

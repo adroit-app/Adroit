@@ -1068,6 +1068,12 @@ fn starts_reading(area: Area, session: bool, passing: bool, reading: bool) -> bo
     area == Area::Console && session && !passing && !reading
 }
 
+/// Whether `key` is one of the window's own wherever the keys are: held with
+/// Command or with `Mod`.
+fn app_key(key: &Key) -> bool {
+    key.meta || Chord::held_mod(key)
+}
+
 /// What the mode chip's word means, `dialog` while the session in the console
 /// shows a dialog of Claude Code's own.
 fn mode_tip(mode: &str, dialog: bool) -> &'static str {
@@ -4925,7 +4931,7 @@ fn App() -> Element {
             }
             // Passing every key on holds the keyboard, Ctrl-q included, until
             // Escape.
-            if *direct.peek() && !key.meta {
+            if *direct.peek() && !app_key(&key) {
                 if let Some(p) = &pane {
                     match direct_key(&key) {
                         Some(k) => {
@@ -4938,7 +4944,7 @@ fn App() -> Element {
                 }
                 direct.set(false);
             }
-            if *send_next.peek() && !key.meta {
+            if *send_next.peek() && !app_key(&key) {
                 send_next.set(false);
                 if let Some(p) = &pane {
                     write(p, &key);
@@ -4957,7 +4963,7 @@ fn App() -> Element {
                 && let Some(r) = reader.peek().clone()
             {
                 windowing = !pending.peek().is_empty()
-                    || key.meta
+                    || app_key(&key)
                     || keymap.peek().resolve(&[Context::Global], &[], &key) != Step::Nothing;
                 if !windowing {
                     let normal = r.state().mode() == "normal";
