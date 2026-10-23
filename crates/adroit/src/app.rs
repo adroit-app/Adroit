@@ -641,16 +641,7 @@ fn App() -> Element {
     let commands_here = use_memo(move || {
         let t = tree.read();
         let tab = active.read();
-        let agent = draft_agent::for_tab(
-            &t,
-            tab.as_ref(),
-            &app.content.read().drafts.options,
-            app.content
-                .read()
-                .drafts
-                .last_agent
-                .unwrap_or(settings.read().agent),
-        );
+        let agent = app.agent_of(tab.as_ref());
         agents::adapter(agent)
             .capabilities()
             .command_probe
@@ -720,17 +711,7 @@ fn App() -> Element {
     use_effect(move || {
         let t = tree.read();
         let tab = active.read().clone();
-        let settings = settings.read();
-        let agent = draft_agent::for_tab(
-            &t,
-            tab.as_ref(),
-            &app.content.read().drafts.options,
-            app.content
-                .read()
-                .drafts
-                .last_agent
-                .unwrap_or(settings.agent),
-        );
+        let agent = app.agent_of(tab.as_ref());
         let drawn = match &tab {
             Some(Tab::Session(id)) if nav::find(&t, id).is_some() => {
                 pictures::drawn(&gallery.read().store, id)
@@ -1072,16 +1053,7 @@ fn App() -> Element {
                     }
                     Some(shown) => shown,
                 };
-                let agent = draft_agent::for_tab(
-                    &tree.peek(),
-                    Some(&tab),
-                    &app.content.peek().drafts.options,
-                    app.content
-                        .peek()
-                        .drafts
-                        .last_agent
-                        .unwrap_or(settings.peek().agent),
-                );
+                let agent = app.agent_of(Some(&tab));
                 let taken = adroit_core::prompt::send::Taken {
                     shell_bang: agents::adapter(agent).capabilities().shell_bang,
                     shell_line: adroit_agents::claude::shell_line(&text).is_some(),
@@ -1247,16 +1219,7 @@ fn App() -> Element {
     // A session started already keeps its own agent.
     let switch_agent = move |forward: bool| match app.active() {
         tab if draft_agent::can_choose(tab.as_ref()) => {
-            let now = draft_agent::for_tab(
-                &tree.peek(),
-                tab.as_ref(),
-                &app.content.peek().drafts.options,
-                app.content
-                    .peek()
-                    .drafts
-                    .last_agent
-                    .unwrap_or(settings.peek().agent),
-            );
+            let now = app.agent_of(tab.as_ref());
             choose_agent(tab, if forward { now.next() } else { now.prev() });
         }
         _ => app.notice("Only a session not started yet can change its agent".into()),
@@ -1427,12 +1390,7 @@ fn App() -> Element {
             let (Some(name), Some(id)) = (r.name(), sessions::id_of(&r.id)) else {
                 return;
             };
-            let agent = draft_agent::for_tab(
-                &tree.peek(),
-                Some(&Tab::Session(r.id.clone())),
-                &HashMap::new(),
-                settings.peek().agent,
-            );
+            let agent = app.agent_of(Some(&Tab::Session(r.id.clone())));
             let hub = hub.clone();
             spawn(async move {
                 let held = hub
@@ -1527,16 +1485,7 @@ fn App() -> Element {
             let _ = frame();
             let shows = match &*active.read() {
                 Some(tab @ Tab::Session(_)) => {
-                    let agent = draft_agent::for_tab(
-                        &tree.read(),
-                        Some(tab),
-                        &app.content.read().drafts.options,
-                        app.content
-                            .read()
-                            .drafts
-                            .last_agent
-                            .unwrap_or(settings.read().agent),
-                    );
+                    let agent = app.agent_of(Some(tab));
                     active_pane()
                         .is_some_and(|p| agents::adapter(agent).dialog_open(&p.screen().text()))
                 }
@@ -1942,16 +1891,7 @@ fn App() -> Element {
                         return;
                     }
                     let tab = app.active();
-                    let agent = draft_agent::for_tab(
-                        &tree.peek(),
-                        tab.as_ref(),
-                        &app.content.peek().drafts.options,
-                        app.content
-                            .peek()
-                            .drafts
-                            .last_agent
-                            .unwrap_or(settings.peek().agent),
-                    );
+                    let agent = app.agent_of(tab.as_ref());
                     let back = action == Action::HistoryPrev;
                     app.dispatch(Msg::Recall { back, agent });
                     app.dispatch(Msg::Focus(Area::Prompt));
@@ -2391,16 +2331,7 @@ fn App() -> Element {
         t.workspace_of(&p.worktree).is_some_and(|w| !w.git) && !jj
     });
     let active_tab = active();
-    let current_agent = draft_agent::for_tab(
-        &t,
-        active_tab.as_ref(),
-        &app.content.read().drafts.options,
-        app.content
-            .read()
-            .drafts
-            .last_agent
-            .unwrap_or(settings.read().agent),
-    );
+    let current_agent = app.agent_of(active_tab.as_ref());
     let live_input_ms = active_tab.as_ref().and_then(|tab| {
         hub.panes
             .borrow()

@@ -724,3 +724,36 @@ fn a_session_that_starts_waiting_is_not_told_of_when_the_settings_say_so() {
             .any(|e| matches!(e, Effect::NotifyWaiting(_)))
     );
 }
+
+#[test]
+fn a_prompt_goes_to_the_session_s_agent_or_the_draft_s_or_the_last_chosen_or_the_settings() {
+    use adroit_model::Agent;
+    let mut codex = session("c", "/r");
+    codex.agent = Agent::Codex;
+    let draft = |dir: &str| Tab::Draft {
+        worktree: dir.into(),
+        id: Default::default(),
+    };
+    let run = Scenario::new()
+        .event(crate::config::testing::configured("agent = \"codex\"\n"))
+        .send(opened(None))
+        .event(listing(vec![codex], Vec::new()));
+    let state = run.state();
+    assert_eq!(
+        agent_of(state, Some(&Tab::Session("c".into()))),
+        Agent::Codex
+    );
+    assert_eq!(agent_of(state, Some(&draft("/r"))), Agent::Codex);
+    assert_eq!(agent_of(state, None), Agent::Codex);
+    let run = run.send(Msg::DraftAgent {
+        tab: Some(draft("/r")),
+        agent: Agent::Claude,
+    });
+    let state = run.state();
+    assert_eq!(agent_of(state, Some(&draft("/r"))), Agent::Claude);
+    assert_eq!(agent_of(state, Some(&draft("/other"))), Agent::Claude);
+    assert_eq!(
+        agent_of(state, Some(&Tab::Session("c".into()))),
+        Agent::Codex
+    );
+}

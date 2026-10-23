@@ -330,6 +330,15 @@ impl AppCtx {
     pub(crate) fn focus(&self) -> Area {
         self.content.peek().focus
     }
+
+    /// The agent the prompt of `tab` goes to, read so a component or an
+    /// effect follows it.
+    pub(crate) fn agent_of(&self, tab: Option<&Tab>) -> adroit_model::Agent {
+        let host = self.host.read();
+        let tree = adroit_core::tree::listed(host.work.as_ref());
+        let default = self.config.read().settings.agent;
+        self.content.read().drafts.agent_of(tree, tab, default)
+    }
 }
 
 impl AppCtx {

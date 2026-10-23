@@ -105,6 +105,25 @@ pub struct Drafts {
     pub last_agent: Option<Agent>,
 }
 
+impl Drafts {
+    /// The agent the prompt written for `tab` goes to: a session's own, the
+    /// one chosen for a draft, or else the one last chosen for a draft, or
+    /// `default`.
+    pub fn agent_of(&self, tree: &Tree, tab: Option<&Tab>, default: Agent) -> Agent {
+        draft::for_tab(tree, tab, &self.options, self.last_agent.unwrap_or(default))
+    }
+}
+
+/// The agent the prompt of `tab` goes to, the settings' agent being the
+/// default.
+pub fn agent_of(state: &crate::state::ViewState, tab: Option<&Tab>) -> Agent {
+    let tree = crate::tree::listed(state.host.work.as_ref());
+    state
+        .content
+        .drafts
+        .agent_of(tree, tab, state.config.settings.agent)
+}
+
 /// A border between windows being dragged: where the pointer was pressed,
 /// along the border's axis, and how long the split it divides is drawn.
 #[derive(Debug, Clone, PartialEq)]

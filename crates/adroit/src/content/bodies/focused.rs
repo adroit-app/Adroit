@@ -11,7 +11,6 @@ use super::{DraftForm, NothingOpen, Starting};
 use crate::actions::Action;
 use crate::bridge::AppCtx;
 use crate::console::{Composer, ConsoleScreen, Consoles, Hub, ReaderScreen};
-use crate::content::draft as draft_agent;
 use crate::keymap::Context;
 use crate::nav;
 use crate::prompts::Op;
@@ -47,15 +46,10 @@ pub(crate) fn FocusedBody() -> Element {
     let host = app.host.read();
     let work = host.work.as_ref();
     let tree = tree_view::listed(work);
-    let current_agent = draft_agent::for_tab(
-        tree,
-        active_tab.as_ref(),
-        &content.drafts.options,
+    let current_agent =
         content
             .drafts
-            .last_agent
-            .unwrap_or(app.config.read().settings.agent),
-    );
+            .agent_of(tree, active_tab.as_ref(), app.config.read().settings.agent);
     let pane = active_tab
         .as_ref()
         .and_then(|tab| hub.panes.borrow().get(tab).cloned());
