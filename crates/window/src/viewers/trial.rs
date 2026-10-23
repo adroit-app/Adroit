@@ -11,7 +11,6 @@ use dioxus::prelude::*;
 
 use super::view::{Command, Viewer};
 use crate::keymap::{Chord, Context, Keymap, Step};
-use crate::settings;
 use adroit_core::viewers::ViewerAction;
 
 /// What a key comes to after the keys pressed before it.
@@ -81,10 +80,9 @@ fn TrialWindow() -> Element {
     let path: PathBuf = use_context();
     let mut command = use_signal(|| None::<Command>);
     let mut pending = use_signal(Vec::<String>::new);
+    // Tried without a work host, in adroit's own colours.
     let root_style = use_hook(|| {
-        let theme = settings::current().theme;
-        let palette =
-            crate::themes::palette(&theme, &crate::settings::themes_dir()).unwrap_or_default();
+        let palette = adroit_term::Palette::default();
         format!(
             ":root{{{}}}",
             crate::themes::css(&crate::themes::window(&palette))

@@ -25,6 +25,9 @@ pub enum Ask {
     KeepImage { mime: String, data: String },
     /// Make the settings those `text` writes in `settings.toml`'s format.
     SaveSettings { text: String },
+    /// Make `text` the key bindings over the defaults, as `keys.toml` holds
+    /// them.
+    SaveKeys { text: String },
 }
 
 /// A session to start.

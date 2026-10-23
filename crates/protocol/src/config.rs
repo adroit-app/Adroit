@@ -55,6 +55,12 @@ pub struct Configured {
     /// Where scratch sessions run.
     pub scratch: PathBuf,
     pub theme: ThemeRead,
+    /// The themes there are to choose from, by name.
+    pub themes: Vec<String>,
+    /// Where the user's own themes go.
+    pub themes_dir: PathBuf,
+    /// The shell a shell runs when the settings name none.
+    pub login_shell: String,
 }
 
 /// What the host read of the configuration; none of a file until it is
@@ -140,6 +146,7 @@ mod tests {
                     name: name.into(),
                     colours: Colours::Own,
                 },
+                ..Default::default()
             },
         };
         assert!(work.apply(made("Adroit")));

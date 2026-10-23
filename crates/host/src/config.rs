@@ -51,9 +51,13 @@ pub fn configured(settings: &Settings, last: Option<&Configured>) -> Configured 
             colours: crate::themes::colours(&settings.theme, &crate::settings::themes_dir()),
         },
     };
+    let themes_dir = crate::settings::themes_dir();
     Configured {
         scratch: crate::settings::scratch_folder(settings, &crate::paths::home()),
         theme,
+        themes: crate::themes::names(&themes_dir),
+        themes_dir,
+        login_shell: crate::programs::login_shell(),
     }
 }
 
@@ -92,6 +96,7 @@ mod tests {
                     text: "as read before".into(),
                 },
             },
+            ..Default::default()
         };
         let mine = Settings {
             theme: "Mine".into(),

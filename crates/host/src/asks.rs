@@ -45,6 +45,7 @@ async fn answer(watched: &Watched, judged: &watch::Sender<Judged>, ask: Ask) -> 
         }
         Ask::KeepImage { mime, data } => keep_image(&mime, &data),
         Ask::SaveSettings { text } => save_settings(text),
+        Ask::SaveKeys { text } => save_keys(&text),
     };
     answered.unwrap_or_else(|text| Answer::Failed { text })
 }
@@ -173,5 +174,25 @@ fn save_settings(text: String) -> Result<Answer, String> {
         text: FileText::Read { text },
     })?;
     settings::set(next)?;
+    Ok(Answer::Done)
+}
+
+/// What a keys file made without a binding in it starts with.
+const KEYS_STARTER: &str = "# Key bindings over the defaults, area by area.\n";
+
+/// Make `text` the key bindings, read again at once.
+fn save_keys(text: &str) -> Result<Answer, String> {
+    let path = crate::paths::keys_path();
+    let failed = |e: std::io::Error| format!("cannot write {}: {e}", path.display());
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(failed)?;
+    }
+    let text = if text.trim().is_empty() && !path.exists() {
+        KEYS_STARTER
+    } else {
+        text
+    };
+    std::fs::write(&path, text).map_err(failed)?;
+    let _ = settings::CHANGED.send(());
     Ok(Answer::Done)
 }

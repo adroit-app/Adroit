@@ -155,6 +155,7 @@ impl AppCtx {
         let view = self.view.read();
         set_changed(self.chrome, &view.chrome);
         set_changed(self.config, &view.config);
+        crate::feed::publish(&view.config);
         set_changed(self.host, &view.host);
         set_changed(self.content, &view.content);
         set_changed(self.tree, &view.tree);
@@ -170,6 +171,12 @@ impl AppCtx {
     pub(crate) fn tell_host(&self, request: Request) {
         let link = self.link.read().clone();
         link.send(request);
+    }
+
+    /// Bring the Settings window forward, opening it when it is not open.
+    pub(crate) fn open_settings(&self) {
+        let link = (**self.link.read()).clone();
+        crate::settings_window::open(self.agents(), link);
     }
 
     /// Ask the host `ask`, and what came of it.
@@ -248,7 +255,7 @@ impl AppCtx {
                     }
                 }
             }
-            Effect::OpenSettings => crate::settings_window::open(self.agents()),
+            Effect::OpenSettings => self.open_settings(),
             Effect::CloseWindow => dioxus::desktop::window().close(),
             effect @ (Effect::ShowShot { .. }
             | Effect::Viewer { .. }

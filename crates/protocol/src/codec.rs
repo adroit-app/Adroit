@@ -239,6 +239,9 @@ mod tests {
                             text: "background = #010203\n".into(),
                         },
                     },
+                    themes: vec!["Mine".into(), "Nord".into()],
+                    themes_dir: "/c/themes".into(),
+                    login_shell: "/bin/zsh".into(),
                 }),
             },
             console: ConsoleWork {

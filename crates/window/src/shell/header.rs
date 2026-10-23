@@ -7,7 +7,6 @@ use dioxus::prelude::*;
 use crate::bridge::AppCtx;
 use crate::icons::{Icon, IconView};
 use crate::layout::Side;
-use crate::settings_window;
 
 /// A click on a panel's switch goes to `ontoggle`, which also moves the keys
 /// out of a panel it hides.
@@ -60,7 +59,7 @@ pub(crate) fn Header(ontoggle: EventHandler<Side>) -> Element {
             span {
                 class: "pane-toggle",
                 title: "Settings (⌘,)",
-                onclick: move |_| settings_window::open(app.agents()),
+                onclick: move |_| app.open_settings(),
                 IconView { icon: Icon::Settings, size: 16 }
             }
         }

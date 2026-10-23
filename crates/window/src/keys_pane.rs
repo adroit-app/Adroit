@@ -6,10 +6,14 @@ use std::time::Duration;
 
 use dioxus::prelude::*;
 
+use adroit_core::config::Config;
+use adroit_protocol::{Answer, Ask, FileText};
+
 use crate::actions::Action;
+use crate::feed::use_config;
 use crate::keymap::{Chord, Context, Keymap};
 use crate::keys_edit;
-use crate::paths::keys_path;
+use crate::link::Link;
 use crate::view::Keys;
 
 /// How long recording keys waits for another before it ends.
@@ -17,21 +21,12 @@ const RECORD_WAIT: Duration = Duration::from_secs(2);
 
 const STARTER: &str = "# Key bindings over the defaults, area by area.\n";
 
-fn read_file() -> String {
-    std::fs::read_to_string(keys_path()).unwrap_or_default()
-}
-
-fn write_file(text: &str) -> Result<(), String> {
-    let path = keys_path();
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+/// What the keys file held when the work host last read it.
+fn read_file(config: &Config) -> String {
+    match config.files().keys.as_ref().map(|f| &f.text) {
+        Some(FileText::Read { text }) => text.clone(),
+        _ => String::new(),
     }
-    let text = if text.trim().is_empty() && !path.exists() {
-        STARTER.to_string()
-    } else {
-        text.to_string()
-    };
-    std::fs::write(path, text).map_err(|e| e.to_string())
 }
 
 /// Which binding is open for editing: its area, and its keys unless it is
@@ -44,30 +39,34 @@ struct Open {
 
 #[component]
 pub fn KeysPane() -> Element {
-    let mut text = use_signal(read_file);
+    let config = use_config();
+    let link = use_context::<Link>();
+    let link = use_hook(move || CopyValue::new(link));
+    let mut text = use_signal(|| read_file(&config.peek()));
     let mut filter = use_signal(String::new);
     let mut open = use_signal(|| None::<Open>);
     let mut failed = use_signal(|| None::<String>);
     let mut confirm_reset = use_signal(|| false);
     // The file changed by hand shows here as well, unless a binding is open.
-    use_future(move || async move {
-        loop {
-            tokio::time::sleep(Duration::from_secs(1)).await;
-            let now = read_file();
-            if open.peek().is_none() && *text.peek() != now {
-                text.set(now);
-            }
+    use_effect(move || {
+        let now = read_file(&config.read());
+        if open.peek().is_none() && *text.peek() != now {
+            text.set(now);
         }
     });
     let mut apply = move |next: Result<String, keys_edit::Error>| match next {
-        Ok(t) => match write_file(&t) {
-            Ok(()) => {
-                text.set(t);
-                failed.set(None);
-                open.set(None);
-            }
-            Err(e) => failed.set(Some(format!("cannot write {}: {e}", keys_path().display()))),
-        },
+        Ok(t) => {
+            text.set(t.clone());
+            open.set(None);
+            let saved = link.read().ask(Ask::SaveKeys { text: t });
+            spawn(async move {
+                failed.set(match saved.await {
+                    Answer::Done => None,
+                    Answer::Failed { text } => Some(text),
+                    answer => Some(format!("the work host answered {answer:?}")),
+                });
+            });
+        }
         Err(e) => failed.set(Some(e.to_string())),
     };
     let map = Keymap::with_user(&text());
@@ -77,7 +76,13 @@ pub fn KeysPane() -> Element {
     let shows = move |keys: &str, action: &str| {
         f.is_empty() || keys.to_lowercase().contains(&f) || action.contains(&f)
     };
-    let path = keys_path();
+    let path = config
+        .read()
+        .files()
+        .keys
+        .as_ref()
+        .map(|f| f.path.clone())
+        .unwrap_or_default();
     rsx! {
         div { class: "keys-bar",
             input {

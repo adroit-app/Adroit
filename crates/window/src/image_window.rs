@@ -10,8 +10,6 @@ use dioxus::desktop::{
 };
 use dioxus::prelude::*;
 
-use crate::settings;
-
 thread_local! {
     /// The windows open, by the key of the image each shows.
     static OPEN: RefCell<HashMap<String, Weak<DesktopService>>> = RefCell::new(HashMap::new());
@@ -104,25 +102,9 @@ fn ImageWindow(key_: String, title: String, src: Arc<str>) -> Element {
             });
         }
     });
-    let mut now = use_signal(settings::current);
-    use_hook(move || {
-        spawn(async move {
-            let mut changed = settings::CHANGED.subscribe();
-            while changed.recv().await.is_ok() {
-                now.set(settings::current());
-            }
-        });
-    });
+    let config = crate::feed::use_config();
     // The window in the theme's colours, as the main one is.
-    let root_style = {
-        let theme = now.read().theme.clone();
-        let palette =
-            crate::themes::palette(&theme, &crate::settings::themes_dir()).unwrap_or_default();
-        format!(
-            ":root{{{}}}",
-            crate::themes::css(&crate::themes::window(&palette))
-        )
-    };
+    let root_style = crate::feed::root_style(&config.read());
     rsx! {
         style { "{root_style}" }
         div {

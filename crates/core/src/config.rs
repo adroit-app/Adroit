@@ -25,6 +25,14 @@ pub struct Config {
     taken: ConfigWork,
 }
 
+impl Config {
+    /// The files as they were last taken in, and what the host made of
+    /// them.
+    pub fn files(&self) -> &ConfigWork {
+        &self.taken
+    }
+}
+
 /// The files the host read, taken in once each time one changes: the
 /// settings replace those in force, and the key bindings the chrome's. A
 /// file that cannot be had leaves what is in force and says why, the key
@@ -298,6 +306,7 @@ mod tests {
                         name: theme.into(),
                         colours,
                     },
+                    ..Default::default()
                 },
             },
         )

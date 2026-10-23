@@ -9,7 +9,7 @@ use adroit_model::config::{
     Launch, SessionOptions, format_command, format_env, parse_command, parse_env,
 };
 use adroit_model::paths::tilde;
-use adroit_protocol::AgentsWork;
+use adroit_protocol::{AgentsWork, Answer, Ask};
 use dioxus::desktop::{
     Config as Desktop, DesktopService, LogicalSize, WindowBuilder, WindowCloseBehaviour, window,
 };
@@ -18,11 +18,13 @@ use dioxus::prelude::*;
 use crate::components::{
     NumberField, Select, SettingGroup, SettingRow, TextArea, TextField, Toggle,
 };
+use crate::feed::{root_style, use_config};
 use crate::fonts;
 use crate::icons::{Icon, IconView};
 use crate::keys_pane::KeysPane;
-use crate::paths::{home, keys_path};
-use crate::settings::{self, OptionAsAlt, Settings};
+use crate::link::Link;
+use crate::paths::home;
+use crate::settings::{OptionAsAlt, Settings};
 use crate::style::SETTINGS_CSS;
 use crate::zoom::LEVELS;
 
@@ -30,8 +32,9 @@ thread_local! {
     static OPEN: RefCell<Weak<DesktopService>> = const { RefCell::new(Weak::new()) };
 }
 
-/// Bring the Settings window forward, opening it when it is not open.
-pub fn open(agents: AgentsWork) {
+/// Bring the Settings window forward, opening it when it is not open; what
+/// it saves is asked of the work host through `link`.
+pub(crate) fn open(agents: AgentsWork, link: Link) {
     if let Some(w) = OPEN.with(|o| o.borrow().upgrade()) {
         w.window.set_visible(true);
         w.window.set_focus();
@@ -50,7 +53,8 @@ pub fn open(agents: AgentsWork) {
                 .with_min_inner_size(LogicalSize::new(640.0, 420.0)),
         );
     let _ = window().new_window(
-        VirtualDom::new_with_props(SettingsWindow, SettingsWindowProps { agents }),
+        VirtualDom::new_with_props(SettingsWindow, SettingsWindowProps { agents })
+            .with_root_context(link),
         cfg,
     );
 }
@@ -140,17 +144,9 @@ const KEYS_STARTER: &str =
 /// Why the settings cannot be had, while they cannot, as the file reads now.
 #[component]
 fn SettingsFileError() -> Element {
-    let mut failure = use_signal(settings::load_error);
-    use_hook(move || {
-        spawn(async move {
-            let mut changed = settings::CHANGED.subscribe();
-            while changed.recv().await.is_ok() {
-                failure.set(settings::load_error());
-            }
-        });
-    });
+    let config = use_config();
     rsx! {
-        SettingsLoadError { error: failure() }
+        SettingsLoadError { error: config.read().settings_error.clone() }
     }
 }
 
@@ -176,34 +172,35 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
         let me = window();
         OPEN.with(|o| *o.borrow_mut() = Rc::downgrade(&me));
     });
+    let config = use_config();
+    let link = use_context::<Link>();
     let mut pane = use_signal(|| Pane::General);
-    let mut agent = use_signal(|| settings::current().agent);
-    let mut now = use_signal(settings::current);
+    let mut agent = use_signal(|| config.peek().settings.agent);
+    let mut now = use_signal(|| config.peek().settings.clone());
     let mut failed = use_signal(|| None::<String>);
     // Changes made elsewhere, such as in the file, show here as well.
-    use_hook(move || {
-        spawn(async move {
-            let mut changed = settings::CHANGED.subscribe();
-            while changed.recv().await.is_ok() {
-                now.set(settings::current());
-            }
-        });
-    });
+    use_effect(move || now.set(config.read().settings.clone()));
     let change = move |f: Change| {
         let mut next = now.peek().clone();
         f(&mut next);
-        failed.set(settings::set(next).err());
+        // Shown at once; the host sends the settings as it kept them.
+        now.set(next.clone());
+        let saved = toml::to_string_pretty(&next)
+            .map(|text| link.ask(Ask::SaveSettings { text }))
+            .map_err(|e| e.to_string());
+        spawn(async move {
+            failed.set(match saved {
+                Ok(saved) => match saved.await {
+                    Answer::Done => None,
+                    Answer::Failed { text } => Some(text),
+                    answer => Some(format!("the work host answered {answer:?}")),
+                },
+                Err(e) => Some(e),
+            });
+        });
     };
     // The window in the theme's colours, as the main one is.
-    let root_style = {
-        let theme = now.read().theme.clone();
-        let palette =
-            crate::themes::palette(&theme, &crate::settings::themes_dir()).unwrap_or_default();
-        format!(
-            ":root{{{}}}",
-            crate::themes::css(&crate::themes::window(&palette))
-        )
-    };
+    let root_style = root_style(&config.read());
     rsx! {
         style { "{root_style}" }
         div { class: "settings",
@@ -261,10 +258,18 @@ type Change = Box<dyn FnOnce(&mut Settings)>;
 
 #[component]
 fn General(now: Settings, change: Callback<Change>) -> Element {
-    let files = [
-        ("Settings", crate::settings::path(), ""),
-        ("Key bindings", keys_path(), KEYS_STARTER),
-    ];
+    let config = use_config();
+    let files = {
+        let files = config.read();
+        let files = files.files();
+        let path = |file: Option<&adroit_protocol::ConfigFile>| {
+            file.map(|f| f.path.clone()).unwrap_or_default()
+        };
+        [
+            ("Settings", path(files.settings.as_ref()), ""),
+            ("Key bindings", path(files.keys.as_ref()), KEYS_STARTER),
+        ]
+    };
     rsx! {
         SettingGroup {
             SettingRow { label: "Zoom", hint: "How large the window draws everything when it opens; ⌘0 comes back to it.",
@@ -424,8 +429,12 @@ const WEIGHTS: [(u16, &str); 9] = [
 
 #[component]
 fn ConsolePane(now: Settings, change: Callback<Change>) -> Element {
-    let themes_dir = crate::settings::themes_dir();
-    let themes = crate::themes::names(&themes_dir);
+    let config = use_config();
+    let (themes, themes_dir) = {
+        let config = config.read();
+        let made = config.files().configured.clone().unwrap_or_default();
+        (made.themes, made.themes_dir)
+    };
     let known = themes.contains(&now.theme);
     let installed = use_resource(|| async {
         tokio::task::spawn_blocking(adroit_host::fonts::installed)
@@ -557,7 +566,14 @@ fn PromptPane(now: Settings, change: Callback<Change>) -> Element {
 
 #[component]
 fn ProgramsPane(now: Settings, change: Callback<Change>) -> Element {
-    let login = crate::programs::login_shell();
+    let config = use_config();
+    let login = config
+        .read()
+        .files()
+        .configured
+        .as_ref()
+        .map(|c| c.login_shell.clone())
+        .unwrap_or_default();
     rsx! {
         SettingGroup { title: "Shell",
             SettingRow { label: "Command", hint: "The shell a shell tab runs, with its arguments; empty for your login shell, started as a login shell.",

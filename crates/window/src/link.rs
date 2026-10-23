@@ -39,10 +39,11 @@ pub(crate) struct To {
 /// The asks sent and not yet answered, by their numbers.
 type Waiting = Arc<Mutex<HashMap<u64, oneshot::Sender<Answer>>>>;
 
-/// The window's end of the link.
+/// The window's end of the link, shared by the windows it opens beside it.
+#[derive(Clone)]
 pub(crate) struct Link {
     requests: mpsc::UnboundedSender<Request>,
-    asked: AtomicU64,
+    asked: Arc<AtomicU64>,
     waiting: Waiting,
 }
 
@@ -84,7 +85,7 @@ impl Link {
         }
         let link = Link {
             requests,
-            asked: AtomicU64::new(0),
+            asked: Arc::default(),
             waiting,
         };
         (link, events, first)
