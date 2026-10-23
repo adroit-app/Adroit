@@ -191,9 +191,9 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 | `tab.close` | close the content's tab shown and every window in it; agents and terminals keep running and remain reachable from the tree |
 | `window.close` | close the window, which ends adroit; its sessions run on |
 | `cursor.down`, `cursor.up`, `cursor.first`, `cursor.last` | move the selection in the tree; in the details panel, in the list it shows, or scroll what else it shows |
-| `cursor.open` | open the selected session, shell or worktree in the focused window and move to its console, or to the prompt of a session not started yet; fold or unfold a workspace or a heading; in the details panel, open the selected row |
-| `cursor.show` | show the selected session, shell or worktree, as `cursor.open` does, with the keys staying in the tree; fold or unfold a workspace or a heading; in the details panel, open the selected row |
-| `cursor.fold` | fold the selected node; in the details panel, go back out to the list what it shows was opened from |
+| `cursor.open` | open the selected session, shell or worktree in the focused window and move to its console, or to the prompt of a session not started yet; fold or unfold a workspace, a heading or a directory; in the details panel, open the selected row |
+| `cursor.show` | show the selected session, shell or worktree, as `cursor.open` does, with the keys staying in the tree; fold or unfold a workspace, a heading or a directory; in the details panel, open the selected row |
+| `cursor.fold` | fold the selected node, or on a row that is not unfolded go up to the row it sits under; in the details panel, go back out to the list what it shows was opened from |
 | `cursor.copy` | in the details panel, copy the selected link of the overview: its address, or its file's path |
 | `cursor.reveal` | in the details panel, show the selected file of the overview in the Finder |
 | `waiting.next`, `waiting.prev` | open the next or previous session waiting on you |

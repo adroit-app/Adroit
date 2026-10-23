@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use adroit_model::{InboxItem, Session, State, TerminalProgram, Tree, WorktreeNode};
 
+use crate::files::Entry;
 use crate::tabs::Tab;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -20,21 +21,34 @@ pub enum Item {
     Session(String),
     /// A shell or a Neovim adroit runs, by the daemon's id.
     Terminal(u128),
+    /// A file or a directory of a worktree, under its Files heading.
+    File {
+        worktree: PathBuf,
+        path: PathBuf,
+        dir: bool,
+    },
 }
 
 /// What a worktree's heading holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Heading {
+    Files,
     Sessions,
     Shells,
     Editors,
 }
 
 impl Heading {
-    pub const ALL: [Heading; 3] = [Heading::Sessions, Heading::Shells, Heading::Editors];
+    pub const ALL: [Heading; 4] = [
+        Heading::Files,
+        Heading::Sessions,
+        Heading::Shells,
+        Heading::Editors,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
+            Heading::Files => "Files",
             Heading::Sessions => "Sessions",
             Heading::Shells => "Shells",
             Heading::Editors => "Editors",
@@ -49,8 +63,19 @@ impl Item {
             Item::Workspace(root) => Some(format!("ws:{}", root.display())),
             Item::Worktree(path) => Some(format!("wt:{}", path.display())),
             Item::Heading(path, heading) => Some(format!("{heading:?}:{}", path.display())),
+            Item::File {
+                worktree,
+                path,
+                dir: true,
+            } => Some(format!("dir:{}:{}", worktree.display(), path.display())),
             _ => None,
         }
+    }
+
+    /// Whether the node shows the rows under it before it is unfolded: a
+    /// worktree's files are read only once asked for.
+    fn starts_open(&self) -> bool {
+        !matches!(self, Item::Heading(_, Heading::Files) | Item::File { .. })
     }
 }
 
@@ -63,14 +88,15 @@ impl Folds {
     /// Whether `item` shows the rows under it. A row that does not fold has
     /// none to show.
     pub fn is_open(&self, item: &Item) -> bool {
-        item.fold_key().is_some_and(|k| !self.0.contains(&k))
+        item.fold_key()
+            .is_some_and(|k| item.starts_open() != self.0.contains(&k))
     }
 
     pub fn set(&mut self, item: &Item, open: bool) {
         let Some(key) = item.fold_key() else {
             return;
         };
-        if open {
+        if open == item.starts_open() {
             self.0.remove(&key);
         } else {
             self.0.insert(key);
@@ -84,8 +110,14 @@ impl Folds {
 }
 
 /// Every item the tree shows, top to bottom, the sessions waiting on the
-/// user last. Children of a folded node are left out.
-pub fn items(tree: &Tree, inbox: &[InboxItem], folds: &Folds) -> Vec<Item> {
+/// user last. Children of a folded node are left out, and `read` lists a
+/// directory's entries once it is open.
+pub fn items(
+    tree: &Tree,
+    inbox: &[InboxItem],
+    folds: &Folds,
+    read: &dyn Fn(&Path) -> Vec<Entry>,
+) -> Vec<Item> {
     let mut out = Vec::new();
     for ws in &tree.workspaces {
         let wi = Item::Workspace(ws.root.clone());
@@ -96,7 +128,7 @@ pub fn items(tree: &Tree, inbox: &[InboxItem], folds: &Folds) -> Vec<Item> {
         }
         if ws.flat() {
             for w in &ws.worktrees {
-                out.extend(headed(tree, w, folds));
+                out.extend(headed(tree, w, folds, read));
             }
             continue;
         }
@@ -105,7 +137,7 @@ pub fn items(tree: &Tree, inbox: &[InboxItem], folds: &Folds) -> Vec<Item> {
             let t_open = folds.is_open(&ti);
             out.push(ti);
             if t_open {
-                out.extend(headed(tree, w, folds));
+                out.extend(headed(tree, w, folds, read));
             }
         }
     }
@@ -114,22 +146,57 @@ pub fn items(tree: &Tree, inbox: &[InboxItem], folds: &Folds) -> Vec<Item> {
 }
 
 /// A worktree's headings, each followed by its rows while it is open.
-fn headed(tree: &Tree, w: &WorktreeNode, folds: &Folds) -> Vec<Item> {
+fn headed(
+    tree: &Tree,
+    w: &WorktreeNode,
+    folds: &Folds,
+    read: &dyn Fn(&Path) -> Vec<Entry>,
+) -> Vec<Item> {
     let mut out = Vec::new();
     for heading in Heading::ALL {
         let hi = Item::Heading(w.worktree.path.clone(), heading);
         let open = folds.is_open(&hi);
         out.push(hi);
-        if open {
-            out.extend(under(tree, w, heading));
+        if !open {
+            continue;
+        }
+        match heading {
+            Heading::Files => {
+                let root = &w.worktree.path;
+                files_in(root, root, folds, read, &mut out);
+            }
+            _ => out.extend(under(tree, w, heading)),
         }
     }
     out
 }
 
-/// The rows under a worktree's heading. Sessions are each followed by the
-/// sessions they started, wherever those run; a session whose starter is
-/// listed is listed under it instead.
+/// The entries of `dir` in `worktree`, each open directory followed by its
+/// own.
+fn files_in(
+    worktree: &Path,
+    dir: &Path,
+    folds: &Folds,
+    read: &dyn Fn(&Path) -> Vec<Entry>,
+    out: &mut Vec<Item>,
+) {
+    for entry in read(dir) {
+        let item = Item::File {
+            worktree: worktree.to_path_buf(),
+            path: entry.path.clone(),
+            dir: entry.dir,
+        };
+        let open = folds.is_open(&item);
+        out.push(item);
+        if open {
+            files_in(worktree, &entry.path, folds, read, out);
+        }
+    }
+}
+
+/// What runs in a worktree, under one of its headings; Files holds no such
+/// rows. Sessions are each followed by the sessions they started, wherever
+/// those run; a session whose starter is listed is listed under it instead.
 pub fn under(tree: &Tree, w: &WorktreeNode, heading: Heading) -> Vec<Item> {
     let runs = |program| {
         w.terminals
@@ -148,6 +215,7 @@ pub fn under(tree: &Tree, w: &WorktreeNode, heading: Heading) -> Vec<Item> {
         }
         Heading::Shells => runs(TerminalProgram::Shell).collect(),
         Heading::Editors => runs(TerminalProgram::Neovim).collect(),
+        Heading::Files => Vec::new(),
     }
 }
 
@@ -176,6 +244,12 @@ pub fn depth(tree: &Tree, item: &Item) -> usize {
         Item::Terminal(id) => tree
             .terminal(*id)
             .map_or(0, |(_, w, _)| heading_at(&w.worktree.path) + 1),
+        Item::File { worktree, path, .. } => {
+            let below = path
+                .strip_prefix(worktree)
+                .map_or(1, |p| p.components().count());
+            heading_at(worktree) + below
+        }
     }
 }
 
@@ -193,6 +267,21 @@ pub fn started_by<'a>(tree: &'a Tree, session: &Session) -> impl Iterator<Item =
     tree.sessions()
         .map(|(_, s)| s)
         .filter(move |s| own.is_some() && s.parent == own)
+}
+
+/// The row `item` sits under in `list`: the nearest above it one level up.
+/// The sessions waiting on the user sit under none.
+pub fn parent(list: &[Item], tree: &Tree, item: &Item) -> Option<Item> {
+    let at = list.iter().position(|i| i == item)?;
+    let level = depth(tree, item);
+    if level == 0 {
+        return None;
+    }
+    list[..at]
+        .iter()
+        .rev()
+        .find(|i| !matches!(i, Item::Waiting(_)) && depth(tree, i) < level)
+        .cloned()
 }
 
 /// The row above `item` in `list`, which stands where it stood once it is
@@ -482,9 +571,11 @@ pub fn place_of(tree: &Tree, item: &Item) -> Option<Place> {
         Item::Terminal(id) => tree.terminal(*id).map(|(_, _, s)| Place {
             worktree: s.cwd.clone(),
         }),
-        Item::Worktree(path) | Item::Heading(path, _) => Some(Place {
-            worktree: path.clone(),
-        }),
+        Item::Worktree(path) | Item::Heading(path, _) | Item::File { worktree: path, .. } => {
+            Some(Place {
+                worktree: path.clone(),
+            })
+        }
         // Not the root itself: a bare repository, a submodule or a separate
         // git directory is named by its git directory.
         Item::Workspace(root) => {
@@ -585,10 +676,14 @@ mod tests {
         Item::Heading(path.into(), Heading::Editors)
     }
 
-    /// A worktree's headings with the rows under each.
+    fn files_of(path: &str) -> Item {
+        Item::Heading(path.into(), Heading::Files)
+    }
+
+    /// A worktree's headings with the rows under each, its files folded.
     fn group(path: &str, sessions: &[Item], shells: &[Item], editors: &[Item]) -> Vec<Item> {
         [
-            &[sessions_of(path)][..],
+            &[files_of(path), sessions_of(path)][..],
             sessions,
             &[shells_of(path)],
             shells,
@@ -596,6 +691,87 @@ mod tests {
             editors,
         ]
         .concat()
+    }
+
+    /// The rows of `tree` with no file anywhere.
+    fn rows(tree: &Tree, inbox: &[InboxItem], folds: &Folds) -> Vec<Item> {
+        items(tree, inbox, folds, &|_| Vec::new())
+    }
+
+    fn file(worktree: &str, path: &str, dir: bool) -> Item {
+        Item::File {
+            worktree: worktree.into(),
+            path: path.into(),
+            dir,
+        }
+    }
+
+    /// A worktree at `/web` holding `src/` with `main.rs` in it, and
+    /// `README.md`.
+    fn read_web(dir: &Path) -> Vec<Entry> {
+        let entry = |path: &str, dir: bool| Entry {
+            path: path.into(),
+            dir,
+        };
+        match dir.to_str() {
+            Some("/web") => vec![entry("/web/src", true), entry("/web/README.md", false)],
+            Some("/web/src") => vec![entry("/web/src/main.rs", false)],
+            _ => Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_worktree_s_files_are_listed_once_its_files_heading_is_unfolded() {
+        let t = tree();
+        let folded = items(&t, &[], &Folds::default(), &read_web);
+        assert!(!folded.iter().any(|i| matches!(i, Item::File { .. })));
+        let mut folds = Folds::default();
+        folds.toggle(&files_of("/web"));
+        let open = items(&t, &[], &folds, &read_web);
+        let at = open.iter().position(|i| *i == files_of("/web")).unwrap();
+        assert_eq!(
+            open[at + 1..at + 3],
+            [
+                file("/web", "/web/src", true),
+                file("/web", "/web/README.md", false)
+            ]
+        );
+        assert_eq!(open[at + 3], sessions_of("/web"));
+    }
+
+    #[test]
+    fn an_unfolded_directory_lists_its_entries_beneath_it_one_level_deeper() {
+        let t = tree();
+        let mut folds = Folds::default();
+        folds.toggle(&files_of("/web"));
+        folds.toggle(&file("/web", "/web/src", true));
+        let open = items(&t, &[], &folds, &read_web);
+        let at = open
+            .iter()
+            .position(|i| *i == file("/web", "/web/src", true))
+            .unwrap();
+        assert_eq!(open[at + 1], file("/web", "/web/src/main.rs", false));
+        assert_eq!(depth(&t, &files_of("/web")), 1);
+        assert_eq!(depth(&t, &file("/web", "/web/src", true)), 2);
+        assert_eq!(depth(&t, &file("/web", "/web/src/main.rs", false)), 3);
+    }
+
+    #[test]
+    fn a_row_s_parent_is_the_nearest_row_above_it_one_level_up() {
+        let t = tree();
+        let mut folds = Folds::default();
+        folds.toggle(&files_of("/web"));
+        folds.toggle(&file("/web", "/web/src", true));
+        let list = items(&t, &[], &folds, &read_web);
+        let main = file("/web", "/web/src/main.rs", false);
+        assert_eq!(
+            parent(&list, &t, &main),
+            Some(file("/web", "/web/src", true))
+        );
+        let readme = file("/web", "/web/README.md", false);
+        assert_eq!(parent(&list, &t, &readme), Some(files_of("/web")));
+        assert_eq!(parent(&list, &t, &files_of("/web")), Some(ws("/web")));
+        assert_eq!(parent(&list, &t, &ws("/web")), None);
     }
 
     fn closed(rows: &[Item]) -> Folds {
@@ -615,7 +791,7 @@ mod tests {
     #[test]
     fn each_workspace_lists_its_worktrees_headings_and_rows_then_the_inbox_comes_last() {
         let t = tree();
-        let got = items(&t, &inbox(&t), &Folds::default());
+        let got = rows(&t, &inbox(&t), &Folds::default());
         let expected = [
             vec![ws("/api"), worktree("/api")],
             group("/api", &[session("a"), session("b")], &[], &[]),
@@ -661,7 +837,7 @@ mod tests {
     fn a_started_session_is_listed_under_its_starter_wherever_it_runs() {
         let t = delegating_tree(true);
         assert_eq!(
-            items(&t, &[], &Folds::default()),
+            rows(&t, &[], &Folds::default()),
             [
                 vec![ws("/api"), worktree("/api")],
                 group(
@@ -685,7 +861,7 @@ mod tests {
     fn a_started_session_whose_starter_has_ended_is_listed_where_it_runs() {
         let t = delegating_tree(false);
         assert_eq!(
-            items(&t, &[], &Folds::default()),
+            rows(&t, &[], &Folds::default()),
             [
                 vec![ws("/api"), worktree(OAUTH)],
                 group(OAUTH, &[session("o")], &[], &[]),
@@ -716,7 +892,7 @@ mod tests {
     #[test]
     fn the_selection_moves_to_the_new_tab_s_row_only_from_the_old_one_s() {
         let t = tree();
-        let list = items(&t, &inbox(&t), &Folds::default());
+        let list = rows(&t, &inbox(&t), &Folds::default());
         let shell = Tab::Terminal(1);
         let a = Tab::Session("a".into());
         let row_a = Some(session("a"));
@@ -739,7 +915,7 @@ mod tests {
     #[test]
     fn a_selected_row_that_leaves_gives_way_to_the_same_session_s_or_the_shown_tab_s() {
         let t = tree();
-        let list = items(&t, &inbox(&t), &Folds::default());
+        let list = rows(&t, &inbox(&t), &Folds::default());
         let shown = Tab::Session("a".into());
         let kept = |row: Item| row_kept(&list, &t, Some(&row), Some(&shown), &at("/api"));
         // "a" no longer waits: its inbox row leaves for its own.
@@ -753,7 +929,7 @@ mod tests {
     #[test]
     fn a_filter_keeps_the_sessions_whose_names_match_and_the_rows_above_them() {
         let t = tree();
-        let list = items(&narrowed(&t, "O"), &[], &Folds::default());
+        let list = rows(&narrowed(&t, "O"), &[], &Folds::default());
         // The worktree oauth is named with an o, and keeps all it holds.
         assert_eq!(
             list,
@@ -769,13 +945,13 @@ mod tests {
     fn an_empty_filter_keeps_everything_and_one_matching_nothing_keeps_nothing() {
         let t = tree();
         assert_eq!(narrowed(&t, ""), t);
-        assert_eq!(items(&narrowed(&t, "nothing"), &[], &Folds::default()), []);
+        assert_eq!(rows(&narrowed(&t, "nothing"), &[], &Folds::default()), []);
     }
 
     #[test]
     fn a_filter_naming_a_workspace_keeps_all_beneath_it() {
         let t = tree();
-        let web = items(&narrowed(&t, "web"), &[], &Folds::default());
+        let web = rows(&narrowed(&t, "web"), &[], &Folds::default());
         assert_eq!(
             web,
             [vec![ws("/web")], group("/web", &[session("c")], &[], &[])].concat()
@@ -799,7 +975,7 @@ mod tests {
     #[test]
     fn a_session_tab_selects_the_session_s_row() {
         let t = tree();
-        let list = items(&t, &inbox(&t), &Folds::default());
+        let list = rows(&t, &inbox(&t), &Folds::default());
         assert_eq!(
             row_of(&list, &t, Some(&Tab::Session("b".into())), &at("/api")),
             Some(session("b"))
@@ -809,7 +985,7 @@ mod tests {
     #[test]
     fn a_tab_without_a_session_selects_its_worktree() {
         let t = tree();
-        let list = items(&t, &[], &Folds::default());
+        let list = rows(&t, &[], &Folds::default());
         assert_eq!(row_of(&list, &t, None, &at("/api")), Some(worktree("/api")));
     }
 
@@ -817,7 +993,7 @@ mod tests {
     fn a_session_folded_away_selects_the_nearest_row_still_shown() {
         let t = tree();
         for row in [sessions_of("/api"), worktree("/api"), ws("/api")] {
-            let list = items(&t, &[], &closed(std::slice::from_ref(&row)));
+            let list = rows(&t, &[], &closed(std::slice::from_ref(&row)));
             assert_eq!(
                 row_of(&list, &t, Some(&Tab::Session("a".into())), &at("/api")),
                 Some(row)
@@ -829,7 +1005,7 @@ mod tests {
     fn a_session_of_a_flat_workspace_folded_away_selects_the_workspace() {
         let t = tree();
         let collapsed = closed(&[ws("/tmp")]);
-        let list = items(&t, &[], &collapsed);
+        let list = rows(&t, &[], &collapsed);
         assert_eq!(
             row_of(&list, &t, Some(&Tab::Session("z".into())), &at("/tmp")),
             Some(ws("/tmp"))
@@ -840,7 +1016,7 @@ mod tests {
     fn a_collapsed_node_hides_its_children() {
         let t = tree();
         let collapsed = closed(&[worktree("/api")]);
-        let got = items(&t, &[], &collapsed);
+        let got = rows(&t, &[], &collapsed);
         assert!(got.contains(&worktree("/api")));
         assert!(!got.contains(&session("a")));
         assert!(got.contains(&session("o")));
@@ -1004,7 +1180,7 @@ mod tests {
 
     #[test]
     fn each_shell_has_a_row_after_the_sessions_of_its_worktree() {
-        let got = items(&shelled(), &[], &Folds::default());
+        let got = rows(&shelled(), &[], &Folds::default());
         assert_eq!(
             got,
             [
@@ -1030,7 +1206,7 @@ mod tests {
         let t = shelled();
         let folded = |row: Item| {
             let collapsed = closed(&[row]);
-            items(&t, &[], &collapsed)
+            rows(&t, &[], &collapsed)
         };
         let list = folded(worktree(DEV));
         assert!(list.contains(&worktree(DEV)) && !list.contains(&shell(2)));
@@ -1040,13 +1216,13 @@ mod tests {
     #[test]
     fn a_filter_keeps_the_shells_whose_names_match_as_it_keeps_sessions() {
         let t = shelled();
-        let list = items(&narrowed(&t, "LOG"), &[], &Folds::default());
+        let list = rows(&narrowed(&t, "LOG"), &[], &Folds::default());
         assert_eq!(
             list,
             [vec![ws("/notes")], group("/notes", &[], &[shell(5)], &[])].concat()
         );
         // A worktree named by the filter keeps every shell in it.
-        let dev = items(&narrowed(&t, "dev"), &[], &Folds::default());
+        let dev = rows(&narrowed(&t, "dev"), &[], &Folds::default());
         assert_eq!(
             dev,
             [
@@ -1055,7 +1231,7 @@ mod tests {
             ]
             .concat()
         );
-        let named = items(&narrowed(&t, "shell-2"), &[], &Folds::default());
+        let named = rows(&narrowed(&t, "shell-2"), &[], &Folds::default());
         assert_eq!(
             named,
             [
@@ -1070,10 +1246,10 @@ mod tests {
     fn a_shell_tab_selects_the_shell_s_row_or_the_nearest_one_shown() {
         let t = shelled();
         let tab = Tab::Terminal(2);
-        let list = items(&t, &[], &Folds::default());
+        let list = rows(&t, &[], &Folds::default());
         assert_eq!(row_of(&list, &t, Some(&tab), &at(DEV)), Some(shell(2)));
         let collapsed = closed(&[worktree(DEV)]);
-        let folded = items(&t, &[], &collapsed);
+        let folded = rows(&t, &[], &collapsed);
         assert_eq!(
             row_of(&folded, &t, Some(&tab), &at(DEV)),
             Some(worktree(DEV))
@@ -1083,7 +1259,7 @@ mod tests {
     #[test]
     fn the_selection_moves_between_a_session_s_row_and_a_shell_s_with_the_tab() {
         let t = shelled();
-        let list = items(&t, &[], &Folds::default());
+        let list = rows(&t, &[], &Folds::default());
         let a = Tab::Session("a".into());
         let one = Tab::Terminal(1);
         let switch = |selected: Item, before: &Tab, now: &Tab| {
@@ -1099,7 +1275,7 @@ mod tests {
     #[test]
     fn a_selected_shell_that_ends_gives_way_to_the_shown_tab_s_row() {
         let t = shelled();
-        let list = items(&t, &[], &Folds::default());
+        let list = rows(&t, &[], &Folds::default());
         let shown = Tab::Session("a".into());
         let kept = row_kept(&list, &t, Some(&shell(9)), Some(&shown), &at("/api"));
         assert_eq!(kept, Some(session("a")));
@@ -1122,13 +1298,13 @@ mod tests {
         let w = w.unwrap();
         assert_eq!(under(&t, w, Heading::Shells), [shell(2)]);
         assert_eq!(under(&t, w, Heading::Editors), [shell(6)]);
-        let list = items(&t, &[], &Folds::default());
+        let list = rows(&t, &[], &Folds::default());
         assert_eq!(row_above(&list, &shell(6)), Some(editors_of(DEV)));
     }
 
     #[test]
     fn folding_a_heading_hides_its_rows_and_leaves_the_other_headings() {
-        let list = items(&shelled(), &[], &closed(&[shells_of(DEV)]));
+        let list = rows(&shelled(), &[], &closed(&[shells_of(DEV)]));
         assert!(list.contains(&shells_of(DEV)) && list.contains(&editors_of(DEV)));
         assert!(!list.contains(&shell(2)));
     }
@@ -1166,7 +1342,7 @@ mod tests {
 
     #[test]
     fn a_closed_row_gives_way_to_the_one_above_it() {
-        let list = items(&shelled(), &[], &Folds::default());
+        let list = rows(&shelled(), &[], &Folds::default());
         assert_eq!(row_above(&list, &shell(3)), Some(shell(2)));
         assert_eq!(row_above(&list, &shell(2)), Some(shells_of(DEV)));
         assert_eq!(row_above(&list, &ws("/api")), None);

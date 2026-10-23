@@ -435,9 +435,53 @@ pub async fn files(path: &Path) -> Result<Vec<String>, Error> {
         .collect())
 }
 
+/// The paths in a worktree git ignores, relative to it; a directory ignored
+/// whole is named once, with a trailing `/`.
+pub async fn ignored(path: &Path) -> Result<Vec<String>, Error> {
+    let dir = git_dir(path)?;
+    let out = run(
+        "git",
+        &[
+            "-c",
+            UNQUOTED,
+            "-C",
+            dir,
+            "ls-files",
+            "-z",
+            "--others",
+            "--ignored",
+            "--exclude-standard",
+            "--directory",
+        ],
+        None,
+    )
+    .await?;
+    Ok(out
+        .split('\0')
+        .filter(|f| !f.is_empty())
+        .take(FILES)
+        .map(str::to_string)
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn ignored_paths_name_a_directory_ignored_whole_once() {
+        let dir = std::env::temp_dir().join(format!("adroit-git-ignored-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("target/debug")).unwrap();
+        git(&dir, &["init", "-q"]);
+        std::fs::write(dir.join(".gitignore"), "target/\n*.log\n").unwrap();
+        std::fs::write(dir.join("target/debug/a"), "x").unwrap();
+        std::fs::write(dir.join("run.log"), "x").unwrap();
+        std::fs::write(dir.join("kept.rs"), "x").unwrap();
+        let mut got = ignored(&dir).await.unwrap();
+        got.sort();
+        assert_eq!(got, ["run.log", "target/"]);
+    }
 
     #[tokio::test]
     async fn revision_details_keep_the_whole_message_and_read_the_selected_commit() {

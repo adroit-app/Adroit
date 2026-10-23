@@ -51,13 +51,19 @@ pub fn entries(target: &Target, session: Option<&Session>) -> Vec<(Action, &'sta
                 .chain([(Action::TerminalStop, "Stop terminal")])
                 .collect()
         }
+        Target::Row(Item::File { dir: false, .. }) => {
+            [(Action::CursorOpen, "Open"), (Action::CursorShow, "Show")]
+                .into_iter()
+                .chain(here)
+                .collect()
+        }
         Target::Row(Item::Worktree(_)) => {
             [(Action::CursorOpen, "Open"), (Action::CursorShow, "Show")]
                 .into_iter()
                 .chain(here)
                 .collect()
         }
-        Target::Row(Item::Workspace(_) | Item::Heading(..)) => {
+        Target::Row(Item::Workspace(_) | Item::Heading(..) | Item::File { dir: true, .. }) => {
             [(Action::CursorOpen, "Fold or unfold")]
                 .into_iter()
                 .chain(here)

@@ -32,7 +32,9 @@ use crate::details::{
     overview_shown, related, shown_agent, shown_link, shown_shot, with_agents, with_images,
 };
 use crate::editor;
+use crate::file_icons;
 use crate::filer::{Filer, read_dirs};
+use crate::files;
 use crate::focus::{Area, Dir, Shown, Spot, corner, cycled, moved, settled};
 use crate::graph;
 use crate::icons::{Icon, IconView};
@@ -1206,6 +1208,10 @@ fn row_tip(item: &Item) -> &'static str {
             "A terminal adroit runs. Enter shows it; closing its tab leaves it running"
         }
         Item::Heading(..) => "What runs in the worktree, of one kind. Enter folds it",
+        Item::File { dir: true, .. } => {
+            "A directory of the worktree. Enter or l unfolds it, h folds it"
+        }
+        Item::File { .. } => "A file of the worktree",
     }
 }
 
@@ -3032,7 +3038,47 @@ fn App() -> Element {
     let mut sending = use_signal(|| false);
     let shown_tree = use_memo(move || nav::narrowed(&tree.read(), &filter.read()));
     let shown_ib = use_memo(move || inbox(&shown_tree.read()));
-    let items = use_memo(move || nav::items(&shown_tree.read(), &shown_ib.read(), &folds.read()));
+    // What jj or git says of the files of each worktree whose files are
+    // listed, read again now and then; reading it lists the files again too,
+    // so files made or removed meanwhile show.
+    let mut file_marks = use_signal(HashMap::<PathBuf, files::Marks>::new);
+    let items = use_memo(move || {
+        let _ = file_marks.read();
+        nav::items(
+            &shown_tree.read(),
+            &shown_ib.read(),
+            &folds.read(),
+            &files::read,
+        )
+    });
+    use_future(move || async move {
+        loop {
+            let open: Vec<PathBuf> = items
+                .peek()
+                .iter()
+                .filter_map(|i| match i {
+                    Item::Heading(path, nav::Heading::Files) if folds.peek().is_open(i) => {
+                        Some(path.clone())
+                    }
+                    _ => None,
+                })
+                .collect();
+            let mut read = HashMap::new();
+            for root in open {
+                let changes = adroit_claude::git::changes(&root).await.unwrap_or_default();
+                let ignored = adroit_claude::git::ignored(&root).await.unwrap_or_default();
+                let jj = adroit_claude::jj::is_jj(&root);
+                read.insert(
+                    root.clone(),
+                    files::Marks::new(&root, &changes, &ignored, jj),
+                );
+            }
+            if *file_marks.peek() != read {
+                file_marks.set(read);
+            }
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+    });
 
     // A selected row that leaves the sidebar, as an inbox row does once its
     // session stops waiting, gives way to another rather than to nothing.
@@ -3116,7 +3162,10 @@ fn App() -> Element {
         }
         selected.set(Some(item.clone()));
         match &item {
-            Item::Workspace(_) | Item::Heading(..) => folds.write().toggle(&item),
+            Item::Workspace(_) | Item::Heading(..) | Item::File { dir: true, .. } => {
+                folds.write().toggle(&item)
+            }
+            Item::File { dir: false, .. } => {}
             Item::Waiting(id) | Item::Session(id) => {
                 if let Some(p) = nav::place_of(&tree.peek(), &item) {
                     place.set(Some(p));
@@ -4803,7 +4852,10 @@ fn App() -> Element {
                 Action::CursorLast => selected.set(list.last().cloned()),
                 Action::CursorOpen => {
                     if let Some(item) = cur {
-                        let toggles = matches!(item, Item::Workspace(_) | Item::Heading(..));
+                        let toggles = matches!(
+                            item,
+                            Item::Workspace(_) | Item::Heading(..) | Item::File { .. }
+                        );
                         open(item);
                         match &*active.peek() {
                             _ if toggles => {}
@@ -4822,8 +4874,14 @@ fn App() -> Element {
                     }
                 }
                 Action::CursorFold => {
+                    // An open node folds; any other row goes to the one it
+                    // sits under, as fern's `h` does.
                     if let Some(item) = &cur {
-                        folds.write().set(item, false);
+                        if folds.peek().is_open(item) {
+                            folds.write().set(item, false);
+                        } else if let Some(up) = nav::parent(&list, &shown_tree.peek(), item) {
+                            selected.set(Some(up));
+                        }
                     }
                 }
                 // Only the overview's links are copied or revealed.
@@ -6392,6 +6450,19 @@ fn App() -> Element {
                                         let name = t.terminal(*id).map(|(_, _, s)| s.name.clone()).unwrap_or_default();
                                         ("list-row", name, String::new(), None)
                                     }
+                                    Item::File { worktree, path, dir } => {
+                                        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                                        let marks = file_marks.read();
+                                        // Hidden or ignored files stand back, as fern draws them.
+                                        let back = files::is_hidden(path) || marks.get(worktree).is_some_and(|m| m.ignores(path));
+                                        let class = match (*dir, back) {
+                                            (true, true) => "list-row file dir back",
+                                            (true, false) => "list-row file dir",
+                                            (false, true) => "list-row file back",
+                                            (false, false) => "list-row file",
+                                        };
+                                        (class, if *dir { format!("{name}/") } else { name }, String::new(), None)
+                                    }
                                     Item::Waiting(_) => ("list-row", String::new(), String::new(), None),
                                 };
                                 // The rows are of the narrowed tree, where a
@@ -6408,6 +6479,20 @@ fn App() -> Element {
                                 .collect::<Vec<_>>()
                                 .join(" ");
                                 let row_title = row_tip(&it).to_owned();
+                                let (file_glyph, file_mark) = match &it {
+                                    Item::File { worktree, path, dir } => {
+                                        let kind = if *dir {
+                                            file_icons::Kind::Directory { open: folds.read().is_open(&it) }
+                                        } else {
+                                            file_icons::Kind::File
+                                        };
+                                        let icon = file_icons::find(path, kind);
+                                        let colour = icon.colour.map(|c| format!("color:{}", c.css())).unwrap_or_default();
+                                        let mark = file_marks.read().get(worktree).and_then(|m| m.of(path, *dir));
+                                        (Some((icon.glyph, colour)), mark)
+                                    }
+                                    _ => (None, None),
+                                };
                                 let terminal = match &it {
                                     Item::Terminal(id) => Some(runs_of(&terminals.read(), *id)),
                                     _ => None,
@@ -6458,6 +6543,9 @@ fn App() -> Element {
                                         if let Some(icon) = place_icon {
                                             span { class: "place-mark", IconView { icon } }
                                         }
+                                        if let Some((glyph, colour)) = &file_glyph {
+                                            span { class: "nf", style: "{colour}", "aria-hidden": "true", "{glyph}" }
+                                        }
                                         if let Some(runs) = terminal { Terminal { runs } }
                                         span { class: "list-row-name",
                                             if let Item::Session(id) = &here_row {
@@ -6475,6 +6563,9 @@ fn App() -> Element {
                                         span { class: "list-row-meta", "{meta}" }
                                         if !chips.is_empty() {
                                             span { class: "tab-where", title: "The tabs showing it", "{chips}" }
+                                        }
+                                        if let Some(mark) = file_mark {
+                                            span { class: if mark == 'A' { "file-status added" } else { "file-status" }, "{mark}" }
                                         }
                                         if let Some(label) = badge {
                                             span { class: "agent-badge", title: "Session agent", "{label}" }
