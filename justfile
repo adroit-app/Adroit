@@ -46,3 +46,13 @@ build-macos:
 install-macos: build-macos
     rm -rf /Applications/Adroit.app
     cp -R target/macos/Adroit.app /Applications/
+
+# Make the identity the macOS app is signed with, "Adroit Release", into a new folder to keep.
+[macos]
+macos-make-identity folder:
+    assets/macos/make-identity.sh {{folder}}
+
+# Import the identity in a folder `macos-make-identity` made into the login keychain, so `build-macos` signs with it.
+[macos]
+macos-import-identity folder:
+    assets/macos/import-identity.sh {{folder}}
