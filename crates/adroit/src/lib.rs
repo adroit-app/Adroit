@@ -29,6 +29,8 @@ mod image_window;
 pub use adroit_core::keymap;
 mod keys;
 use adroit_core::keys_edit;
+use adroit_core::keys_help;
+mod keys_help_view;
 mod keys_pane;
 pub use adroit_core::menu;
 use adroit_runtime::layout;

@@ -30,6 +30,7 @@ pub const CSS: &str = concat!(
     include_str!("../assets/css/controls.css"),
     include_str!("../assets/css/launch.css"),
     include_str!("../assets/css/picker.css"),
+    include_str!("../assets/css/keys-help.css"),
 );
 
 /// The Settings window's stylesheet, on the main window's colours.

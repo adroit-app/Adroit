@@ -1,15 +1,14 @@
-//! Tells a debug build which source it was made from, for its window title
-//! and for telling its daemon apart from another build's.
+//! Tells the build which source it was made from, for the daemon's build
+//! stamp and a debug build's window title.
 
 fn main() {
     describe();
 }
 
 fn describe() {
-    // A release is named by its version; only a build being tried needs this.
-    if std::env::var("PROFILE").as_deref() != Ok("debug") {
-        return;
-    }
+    // Release builds are described too: one installed from a checkout keeps
+    // the version of the last release, which cannot tell it from the daemon
+    // an earlier install left running.
     let described = std::process::Command::new("git")
         .args(["describe", "--tags", "--always", "--dirty"])
         .output()
