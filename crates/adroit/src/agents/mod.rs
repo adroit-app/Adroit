@@ -541,6 +541,20 @@ mod tests {
     }
 
     #[test]
+    fn a_named_claude_session_is_ready_while_it_works_and_awaits_a_picker_opened_above() {
+        use adroit_model::StartupReadiness::*;
+        let claude = adapter(Agent::Claude);
+        assert_eq!(
+            claude.startup_readiness(&claude_screen("working-named")),
+            Some(Ready)
+        );
+        assert_eq!(
+            claude.startup_readiness(&claude_screen("model-while-working-named")),
+            Some(AwaitingInput)
+        );
+    }
+
+    #[test]
     fn claude_is_ready_once_the_development_channels_warning_is_confirmed() {
         let claude = adapter(Agent::Claude);
         assert_eq!(

@@ -8,9 +8,7 @@ impl AgentAdapter for Claude {
         let rules = screen
             .iter()
             .enumerate()
-            .filter(|(_, line)| {
-                line.trim().chars().count() >= 20 && line.trim().chars().all(|ch| ch == '─')
-            })
+            .filter(|(_, line)| adroit_claude::dialog::rule(line))
             .map(|(i, _)| i)
             .collect::<Vec<_>>();
         let prompt = rules
