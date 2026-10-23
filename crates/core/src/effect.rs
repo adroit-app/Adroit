@@ -2,18 +2,17 @@
 
 use std::time::Duration;
 
-use adroit_protocol::Request;
+use adroit_protocol::{Request, Typing};
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use adroit_model::{Key, Process, Session};
+use adroit_model::Key;
 
 use crate::actions::Action;
 use crate::content::{Tab, TerminalAsk, WindowId};
 use crate::details::{Scroll, Shot};
 use crate::layout::Layout;
-use crate::overlay::rename::Rename;
 use crate::prompt::send::{Start, Taken};
 use crate::viewers::ViewerAction;
 
@@ -175,6 +174,9 @@ pub enum Effect {
         no_images: bool,
         tab: Option<Tab>,
     },
+    /// Type this into the program of the session `tab` shows, attaching to
+    /// it if need be.
+    TypeInto { tab: Tab, typing: Vec<Typing> },
     /// End the shell by this id and close its windows.
     EndShell(u128),
     /// Open the Settings window.
@@ -185,12 +187,6 @@ pub enum Effect {
     // The overlays.
     /// Run `action` where the keys are now.
     Perform(Action),
-    /// End this session.
-    Stop(Session),
-    /// Kill `process`, which runs in `session`.
-    KillProcess { session: Session, process: Process },
     /// Replace the sessions' daemon with one of this build.
     RestartDaemon,
-    /// Name a session anew.
-    Rename(Rename),
 }

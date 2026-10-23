@@ -119,6 +119,12 @@ fn a_key_closes_a_menu_left_open_and_does_nothing_else() {
     assert!(run.last_effects().is_empty());
 }
 
+fn stop_a() -> Effect {
+    Effect::Host(Request::Stop {
+        session: Box::new(session("a")),
+    })
+}
+
 #[test]
 fn a_question_is_answered_by_its_keys_and_holds_every_other() {
     let stop = Ask::Stop(session("a"));
@@ -130,20 +136,15 @@ fn a_question_is_answered_by_its_keys_and_holds_every_other() {
     let kill = Ask::KillProcess(session("a"), process.clone());
     // (asked, key, what answering asks done, whether it is still asked)
     let cases = [
-        (stop.clone(), "y", Some(Effect::Stop(session("a"))), false),
-        (
-            stop.clone(),
-            "Enter",
-            Some(Effect::Stop(session("a"))),
-            false,
-        ),
+        (stop.clone(), "y", Some(stop_a()), false),
+        (stop.clone(), "Enter", Some(stop_a()), false),
         (
             kill,
             "y",
-            Some(Effect::KillProcess {
-                session: session("a"),
+            Some(Effect::Host(Request::Kill {
+                session: Box::new(session("a")),
                 process,
-            }),
+            })),
             false,
         ),
         (Ask::RestartDaemon, "y", Some(Effect::RestartDaemon), false),
@@ -230,10 +231,14 @@ fn a_name_typed_and_kept_renames_the_session() {
         .send(typed("a", RenamePlace::Tab, "new"))
         .send(ended("a", RenamePlace::Tab, true));
     assert_eq!(run.state().overlays.rename, None);
-    let Some(Effect::Rename(r)) = run.last_effects().first() else {
+    let Some(Effect::Host(Request::Rename { id, name, was, .. })) = run.last_effects().first()
+    else {
         panic!("{:?}", run.last_effects());
     };
-    assert_eq!((r.id.as_str(), r.name()), ("a", Some("new".into())));
+    assert_eq!(
+        (id.as_str(), name.as_str(), was.as_str()),
+        ("a", "new", "a-name")
+    );
 }
 
 #[test]
@@ -269,7 +274,7 @@ fn a_name_given_up_unchanged_or_for_another_field_renames_nothing() {
         assert!(
             !run.last_effects()
                 .iter()
-                .any(|e| matches!(e, Effect::Rename(_))),
+                .any(|e| matches!(e, Effect::Host(Request::Rename { .. }))),
             "{text:?} {end:?}"
         );
         assert_eq!(

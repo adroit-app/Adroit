@@ -2,10 +2,10 @@ use std::collections::BTreeMap;
 
 use std::path::PathBuf;
 
-use adroit_model::{Agent, TerminalSession};
+use adroit_model::{Agent, Process, Session, TerminalSession};
 use serde::{Deserialize, Serialize};
 
-use crate::{Sight, Version, WorkPatch, WorkSnapshot};
+use crate::{Sight, Typing, Version, WorkPatch, WorkSnapshot};
 
 /// What the window asks of the work host.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -37,6 +37,21 @@ pub enum Request {
     TerminalClosed {
         #[serde(with = "crate::wire::wide")]
         id: u128,
+    },
+    /// End `session`; its agent keeps its conversation.
+    Stop { session: Box<Session> },
+    /// Kill `process`, which runs in `session`.
+    Kill {
+        session: Box<Session>,
+        process: Process,
+    },
+    /// Name the session `id`, called `was` until now, `name`, and tell its
+    /// `agent` so too.
+    Rename {
+        id: String,
+        name: String,
+        was: String,
+        agent: Agent,
     },
     /// Ask again for the commands `/` offers where the window has in sight,
     /// if those held are old, as a `/` typed asks.
@@ -70,4 +85,22 @@ pub enum Event {
     Snapshot(Box<WorkSnapshot>),
     /// A change to the work, in the order the host made it.
     Patch(WorkPatch),
+    /// How a request the host carried out went, for the user.
+    Told(Told),
+    /// Type this into the session `session`'s program, which the window
+    /// holds a pane of.
+    Type {
+        session: String,
+        typing: Vec<Typing>,
+    },
+}
+
+/// What the host says of a request it carried out.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Told {
+    /// Said for a while.
+    Notice { text: String },
+    /// Said until something else is.
+    Failure { text: String },
 }

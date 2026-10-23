@@ -93,6 +93,22 @@ impl Watched {
         lock(&self.host)
     }
 
+    /// Tell the window `event`, which is not a change of the work.
+    pub(crate) fn tell(&self, event: Event) {
+        // A window that stopped listening has closed; nothing is owed it.
+        let _ = self.events.send(event);
+    }
+
+    /// List the sessions again now.
+    pub(crate) fn relist(&self) {
+        self.host().ask_relist();
+    }
+
+    /// Read again now what the window shows.
+    pub(crate) fn read_again(&self) {
+        self.host().ask_again();
+    }
+
     /// Tell the window what changed of what was read.
     fn record<C: Into<Change>>(&self, changes: impl IntoIterator<Item = C>) {
         let event = self.host().record(changes);
@@ -201,6 +217,9 @@ pub fn start_config(watched: Watched) {
 
 /// Every watcher, run in the background for as long as the process lives.
 pub fn start(watched: Watched) {
+    if let Some(jobs) = watched.host().take_jobs() {
+        tokio::spawn(crate::jobs::run(watched.clone(), jobs));
+    }
     tokio::spawn(sessions::watch(watched.clone()));
     tokio::spawn(marks::watch(watched.clone()));
     tokio::spawn(past::watch(watched.clone()));

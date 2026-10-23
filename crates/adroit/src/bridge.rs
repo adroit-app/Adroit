@@ -260,10 +260,8 @@ impl AppCtx {
             | Effect::PromptRestore { .. }
             | Effect::PromptShow(_)
             | Effect::Resume(_)
-            | Effect::Stop(_)
-            | Effect::KillProcess { .. }
             | Effect::RestartDaemon
-            | Effect::Rename(_)) => self.hand(effect),
+            | Effect::TypeInto { .. }) => self.hand(effect),
             Effect::Perform(action) => self.perform(action, None),
             Effect::PerformKey(action, key) => self.perform(action, Some(key)),
             Effect::AskInputAfter(after) => {

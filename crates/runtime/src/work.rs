@@ -124,6 +124,10 @@ pub struct Host {
     inputs: watch::Sender<BTreeMap<u128, u64>>,
     /// The history the window last asked for.
     history: watch::Sender<Option<HistoryAsk>>,
+    /// What the window asked carried out in the background, and where it
+    /// waits until the host's watchers start.
+    jobs: mpsc::UnboundedSender<Request>,
+    queued: Option<mpsc::UnboundedReceiver<Request>>,
 }
 
 impl Default for Host {
@@ -134,6 +138,7 @@ impl Default for Host {
 
 impl Host {
     pub fn new(work: Work) -> Self {
+        let (jobs, queued) = mpsc::unbounded_channel();
         Self {
             work,
             seen: watch::Sender::new(Seen::default()),
@@ -142,6 +147,8 @@ impl Host {
             commands: watch::Sender::new(0),
             inputs: watch::Sender::new(BTreeMap::new()),
             history: watch::Sender::new(None),
+            jobs,
+            queued: Some(queued),
         }
     }
 
@@ -179,6 +186,22 @@ impl Host {
         self.history.subscribe()
     }
 
+    /// The requests to carry out in the background, taken once by what
+    /// carries them out.
+    pub(crate) fn take_jobs(&mut self) -> Option<mpsc::UnboundedReceiver<Request>> {
+        self.queued.take()
+    }
+
+    /// List the sessions again now, as after one was ended or renamed.
+    pub(crate) fn ask_relist(&self) {
+        self.relist.send_modify(|n| *n += 1);
+    }
+
+    /// Read again now what the window shows, as after a process was killed.
+    pub(crate) fn ask_again(&self) {
+        self.again.send_modify(|n| *n += 1);
+    }
+
     /// What the host tells the window that asked `request`.
     pub fn handle(&mut self, request: Request) -> Vec<Event> {
         match request {
@@ -202,11 +225,17 @@ impl Host {
                 self.patch(left).into_iter().collect()
             }
             Request::ReadAgain => {
-                self.again.send_modify(|n| *n += 1);
+                self.ask_again();
                 Vec::new()
             }
             Request::Relist => {
-                self.relist.send_modify(|n| *n += 1);
+                self.ask_relist();
+                Vec::new()
+            }
+            job @ (Request::Stop { .. } | Request::Kill { .. } | Request::Rename { .. }) => {
+                // Carried out by the host's watchers; the window that
+                // asked has gone when nothing takes it.
+                let _ = self.jobs.send(job);
                 Vec::new()
             }
             Request::CommandsWanted => {
@@ -510,6 +539,26 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn what_takes_a_while_is_queued_for_the_background_and_answers_nothing_at_once() {
+        let mut host = Host::default();
+        let mut jobs = host.take_jobs().expect("taken once");
+        assert!(host.take_jobs().is_none());
+        let stop = Request::Stop {
+            session: Box::new(Session::default()),
+        };
+        let rename = Request::Rename {
+            id: "0a".into(),
+            name: "fixer".into(),
+            was: "fix".into(),
+            agent: Agent::Claude,
+        };
+        assert!(host.handle(stop.clone()).is_empty());
+        assert!(host.handle(rename.clone()).is_empty());
+        assert_eq!(jobs.try_recv().ok(), Some(stop));
+        assert_eq!(jobs.try_recv().ok(), Some(rename));
+    }
 
     #[test]
     fn the_commands_read_reach_the_window_only_for_what_it_has_in_sight() {

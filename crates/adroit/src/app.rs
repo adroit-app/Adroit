@@ -37,7 +37,6 @@ use crate::pictures::{self, Gallery};
 use crate::programs;
 use crate::prompt_tab::{PromptTab, TabGoes};
 use crate::prompts::{self, Op, Prompts};
-use crate::rename::Rename;
 use crate::scratch::{self, Moment};
 use crate::sessions;
 use crate::settings;
@@ -1209,50 +1208,6 @@ fn App() -> Element {
     use_drop(settings_window::close);
     use_drop(image_window::close_all);
 
-    // End a session adroit runs; Claude Code keeps its conversation.
-    let stop = {
-        let hub = hub.clone();
-        move |asked: Session| {
-            let hub = hub.clone();
-            spawn(async move {
-                let Some(id) = sessions::id_of(&asked.id) else {
-                    return;
-                };
-                match hub.daemon.end(id).await {
-                    Ok(()) => {
-                        app.notice(format!("ended {}", asked.name));
-                        if let Some(record) = asked.delegation {
-                            let root = crate::delegation::app::root();
-                            if let Err(error) = crate::delegation::app::ended(&root, record).await {
-                                app.status(Some(format!(
-                                    "ended {}, but cannot record its exit: {error}",
-                                    asked.name
-                                )));
-                            }
-                        }
-                    }
-                    Err(e) => app.status(Some(format!("cannot end {}: {e}", asked.name))),
-                }
-                app.dispatch(Msg::Relist);
-            });
-        }
-    };
-
-    let kill_process = move |session: Session, process: crate::processes::Process| {
-        spawn(async move {
-            let pid = process.pid;
-            let result =
-                tokio::task::spawn_blocking(move || crate::processes::kill(&session, &process))
-                    .await;
-            match result {
-                Ok(Ok(())) => app.notice(format!("Killed process {pid}")),
-                Ok(Err(e)) => app.notice(e),
-                Err(e) => app.notice(format!("Cannot kill process: {e}")),
-            }
-            app.dispatch(Msg::DetailsReadAgain);
-        });
-    };
-
     // Replace the daemon with one of this build, ending every session it holds.
     let restart_daemon = {
         let hub = hub.clone();
@@ -1275,39 +1230,16 @@ fn App() -> Element {
         }
     };
 
-    // Name a session anew: in its tags, which the sidebar shows, and to
-    // Claude Code with its `/rename`, so its own interface says the same.
-    let send_rename = {
+    // Type what the host asks into a session's pane, attaching to it if
+    // need be.
+    let type_into_tab = {
         let hub = hub.clone();
-        move |r: Rename| {
-            let (Some(name), Some(id)) = (r.name(), sessions::id_of(&r.id)) else {
-                return;
-            };
-            let agent = app.agent_of(Some(&Tab::Session(r.id.clone())));
+        move |tab: Tab, typing: Vec<Typing>| {
             let hub = hub.clone();
             spawn(async move {
-                let held = hub
-                    .daemon
-                    .sessions()
-                    .await
-                    .ok()
-                    .and_then(|all| all.into_iter().find(|s| s.id == id))
-                    .map(|s| adroit_term::tags::holding(&s.tags, sessions::NAME))
-                    .unwrap_or_default();
-                let named = adroit_term::tags::tagged(sessions::NAME, &name);
-                if let Err(e) = hub.daemon.tag(id, named, held).await {
-                    app.status(Some(format!("cannot rename {}: {e}", r.was)));
-                    return;
-                }
-                app.dispatch(Msg::Relist);
-                let tab = Tab::Session(r.id.clone());
                 let size = *console_size.peek();
-                if let Some(command) = agents::adapter(agent).rename_command(&name)
-                    && let Some(p) = pane_for(app, &hub, &tab, size).await
-                {
-                    p.paste(&command);
-                    tokio::time::sleep(Duration::from_millis(40)).await;
-                    p.key(&Key::new("Enter"));
+                if let Some(p) = pane_for(app, &hub, &tab, size).await {
+                    type_into(&p, &typing).await;
                 }
             });
         }
@@ -1416,16 +1348,13 @@ fn App() -> Element {
         let active_pane = active_pane.clone();
         let start_terminal = start_terminal.clone();
         let resume = resume.clone();
-        let stop = stop.clone();
         let restart_daemon = restart_daemon.clone();
-        let send_rename = send_rename.clone();
+        let type_into_tab = type_into_tab.clone();
         move || {
             app.hand_over(move |effect| match effect {
                 CoreEffect::Resume(past) => resume(past),
-                CoreEffect::Stop(session) => stop(session),
-                CoreEffect::KillProcess { session, process } => kill_process(session, process),
                 CoreEffect::RestartDaemon => restart_daemon(),
-                CoreEffect::Rename(r) => send_rename(r),
+                CoreEffect::TypeInto { tab, typing } => type_into_tab(tab, typing),
                 CoreEffect::ShowShot { shot, session } => {
                     show_shot(&shot, &session, &gallery.peek())
                 }

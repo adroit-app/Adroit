@@ -3,6 +3,7 @@
 //! name being typed, and the banner about the sessions' daemon.
 
 use adroit_model::Key;
+use adroit_protocol::Request;
 
 use crate::actions::Action;
 use crate::chrome::{self, Chrome, status_line};
@@ -185,8 +186,13 @@ pub(crate) fn answer(state: &mut ViewState, yes: bool) -> Vec<Effect> {
         return Vec::new();
     }
     vec![match ask {
-        Ask::Stop(session) => Effect::Stop(session),
-        Ask::KillProcess(session, process) => Effect::KillProcess { session, process },
+        Ask::Stop(session) => Effect::Host(Request::Stop {
+            session: Box::new(session),
+        }),
+        Ask::KillProcess(session, process) => Effect::Host(Request::Kill {
+            session: Box::new(session),
+            process,
+        }),
         Ask::RestartDaemon => Effect::RestartDaemon,
     }]
 }
@@ -235,7 +241,18 @@ pub(crate) fn end_rename(
     commit: bool,
 ) -> Vec<Effect> {
     match Rename::take(&mut state.overlays.rename, id, place) {
-        Some(r) if commit && r.name().is_some() => vec![Effect::Rename(r)],
+        Some(r) if commit => match r.name() {
+            Some(name) => {
+                let agent = crate::content::agent_of(state, Some(&Tab::Session(r.id.clone())));
+                vec![Effect::Host(Request::Rename {
+                    id: r.id,
+                    name,
+                    was: r.was,
+                    agent,
+                })]
+            }
+            None => Vec::new(),
+        },
         _ => Vec::new(),
     }
 }

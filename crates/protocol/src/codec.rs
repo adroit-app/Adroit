@@ -40,8 +40,8 @@ mod tests {
         ConfigFile, ConfigWork, ConversationRead, DetailsChange, DetailsWork, Event, FileText,
         HistoryRead, Listed, Offers, PastChange, PastSight, PastWork, PickChange, PickSight,
         PickWork, PlaceChange, PlaceRead, PlaceWork, PromptChange, PromptWork, RepositoryRead,
-        RepositorySight, Request, Seq, SessionRead, Sight, SystemUsage, TreeChange, TreeSight,
-        Typing, Version, WorkPatch, WorkSnapshot,
+        RepositorySight, Request, Seq, SessionRead, Sight, SystemUsage, Told, TreeChange,
+        TreeSight, Typing, Version, WorkPatch, WorkSnapshot,
     };
 
     fn round_trips<T>(message: T)
@@ -107,6 +107,27 @@ mod tests {
             project: "/w".into(),
         });
         round_trips(Request::CommandsWanted);
+        let session = Box::new(adroit_model::Session {
+            id: "0a".into(),
+            name: "fix".into(),
+            ..Default::default()
+        });
+        round_trips(Request::Stop {
+            session: session.clone(),
+        });
+        round_trips(Request::Kill {
+            session,
+            process: adroit_model::Process {
+                pid: 7,
+                ..Default::default()
+            },
+        });
+        round_trips(Request::Rename {
+            id: "0a".into(),
+            name: "fixer".into(),
+            was: "fix".into(),
+            agent: adroit_model::Agent::Claude,
+        });
         round_trips(Request::Compose {
             asked: 4,
             agent: adroit_model::Agent::Codex,
@@ -122,6 +143,18 @@ mod tests {
         });
         round_trips(Event::Refused {
             versions: vec![Version(3)],
+        });
+        round_trips(Event::Told(Told::Notice {
+            text: "ended fix".into(),
+        }));
+        round_trips(Event::Told(Told::Failure {
+            text: "cannot end fix".into(),
+        }));
+        round_trips(Event::Type {
+            session: "0a".into(),
+            typing: vec![Typing::Paste {
+                text: "/rename fixer".into(),
+            }],
         });
         round_trips(Event::Snapshot(Box::new(WorkSnapshot {
             seq: Seq(7),

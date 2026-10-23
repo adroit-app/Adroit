@@ -1,9 +1,12 @@
 //! What the window knows of the work host: whether they speak, and the work
 //! as the host last described it.
 
-use adroit_protocol::{Event, Request, SPOKEN, Sight, Version, WorkPatch, WorkSnapshot};
+use adroit_protocol::{Event, Request, SPOKEN, Sight, Told, Version, WorkPatch, WorkSnapshot};
 
+use crate::chrome::status_line;
+use crate::content::Tab;
 use crate::effect::Effect;
+use crate::state::ViewState;
 
 /// How the window stands with the work host.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -53,8 +56,26 @@ pub(crate) fn receive(host: &mut Host, event: Event) -> Vec<Effect> {
             host.resyncing = false;
         }
         Event::Patch(patch) => return patched(host, patch),
+        // Told the window as a whole, not its link.
+        Event::Told(_) | Event::Type { .. } => {}
     }
     Vec::new()
+}
+
+/// The host told the window `event`: how a request it carried out went,
+/// said in the status line, and what to type into a session, typed into its
+/// pane; anything else changes the work as [`receive`] says.
+pub(crate) fn told(state: &mut ViewState, event: Event) -> Vec<Effect> {
+    let status = &mut state.chrome.status;
+    match event {
+        Event::Told(Told::Notice { text }) => status_line::notice(status, text),
+        Event::Told(Told::Failure { text }) => status_line::set(status, Some(text)),
+        Event::Type { session, typing } => vec![Effect::TypeInto {
+            tab: Tab::Session(session),
+            typing,
+        }],
+        event => receive(&mut state.host, event),
+    }
 }
 
 /// A patch is applied only on top of the one before it. One the window
@@ -183,5 +204,41 @@ mod tests {
         let run = Scenario::new().events([patch(1), patch(5)]);
         assert_eq!(run.state().host.work, None);
         assert!(run.effects().is_empty());
+    }
+
+    #[test]
+    fn what_the_host_says_of_a_request_is_said_in_the_status_line_and_typing_goes_to_the_pane() {
+        use adroit_protocol::{Told, Typing};
+
+        use crate::content::Tab;
+
+        let said = |told: Told| {
+            Scenario::new()
+                .event(Event::Told(told))
+                .state()
+                .chrome
+                .status
+                .line
+                .clone()
+        };
+        let notice = said(Told::Notice {
+            text: "ended fix".into(),
+        });
+        assert_eq!(notice.as_deref(), Some("ended fix"));
+        let failure = said(Told::Failure {
+            text: "cannot end fix".into(),
+        });
+        assert_eq!(failure.as_deref(), Some("cannot end fix"));
+        let typing = vec![Typing::Paste {
+            text: "/rename fixer".into(),
+        }];
+        let run = Scenario::new().event(Event::Type {
+            session: "0a".into(),
+            typing: typing.clone(),
+        });
+        assert!(run.last_effects().contains(&Effect::TypeInto {
+            tab: Tab::Session("0a".into()),
+            typing,
+        }));
     }
 }

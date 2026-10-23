@@ -47,7 +47,7 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         Msg::KeysHelpOpen(here) => chrome::open_keys_help(&mut state.chrome, here),
         Msg::KeysHelpClose => chrome::close_keys_help(&mut state.chrome),
 
-        Msg::Host(event) => host::receive(&mut state.host, event),
+        Msg::Host(event) => host::told(state, event),
 
         Msg::Relist => vec![Effect::Host(Request::Relist)],
         Msg::Typed(inputs) => vec![Effect::Host(Request::Typed { inputs })],
