@@ -4,11 +4,13 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
-use adroit_model::{Session, TerminalSession};
+use std::path::PathBuf;
+
+use adroit_model::{Agent, Session, TerminalSession};
 use adroit_protocol::{
     Change, DetailsChange, DetailsWork, Event, PastChange, PastWork, PickChange, PickWork,
-    PlaceChange, PlaceWork, Request, SPOKEN, Seq, Sight, TreeChange, TreeWork, WorkPatch,
-    WorkSnapshot, agree,
+    PlaceChange, PlaceWork, PromptChange, PromptWork, Request, SPOKEN, Seq, Sight, TreeChange,
+    TreeWork, WorkPatch, WorkSnapshot, agree,
 };
 use tokio::sync::{mpsc, watch};
 
@@ -21,6 +23,7 @@ pub struct Work {
     past: PastWork,
     pick: PickWork,
     place: PlaceWork,
+    prompt: PromptWork,
 }
 
 impl Work {
@@ -33,6 +36,7 @@ impl Work {
             past: self.past.clone(),
             pick: self.pick.clone(),
             place: self.place.clone(),
+            prompt: self.prompt.clone(),
         }
     }
 
@@ -52,8 +56,17 @@ impl Work {
             Change::Past(change) => self.past.apply(change),
             Change::Pick(change) => self.pick.apply(change),
             Change::Place(change) => self.place.apply(change),
+            Change::Prompt(change) => self.prompt.apply(change),
         }
     }
+}
+
+/// A window's request for the prompts an agent kept as sent in a project.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HistoryAsk {
+    pub asked: u64,
+    pub agent: Agent,
+    pub project: PathBuf,
 }
 
 /// What a window shows, with the session it shows as the host lists it.
@@ -75,6 +88,8 @@ pub struct Host {
     /// When the user last typed into each session the window shows, by its
     /// terminal.
     inputs: watch::Sender<BTreeMap<u128, u64>>,
+    /// The history the window last asked for.
+    history: watch::Sender<Option<HistoryAsk>>,
 }
 
 impl Default for Host {
@@ -91,6 +106,7 @@ impl Host {
             again: watch::Sender::new(0),
             relist: watch::Sender::new(0),
             inputs: watch::Sender::new(BTreeMap::new()),
+            history: watch::Sender::new(None),
         }
     }
 
@@ -116,6 +132,11 @@ impl Host {
     /// When the user last typed into each session, as the window last said.
     pub fn inputs(&self) -> watch::Receiver<BTreeMap<u128, u64>> {
         self.inputs.subscribe()
+    }
+
+    /// The history the window asks for, each time it asks.
+    pub fn history(&self) -> watch::Receiver<Option<HistoryAsk>> {
+        self.history.subscribe()
     }
 
     /// What the host tells the window that asked `request`.
@@ -167,6 +188,18 @@ impl Host {
             Request::TerminalClosed { id } => self.terminals(|terminals| {
                 terminals.retain(|t| t.id != id);
             }),
+            Request::History {
+                asked,
+                agent,
+                project,
+            } => {
+                self.history.send_replace(Some(HistoryAsk {
+                    asked,
+                    agent,
+                    project,
+                }));
+                Vec::new()
+            }
         }
     }
 
@@ -318,6 +351,7 @@ fn in_sight(change: &Change, sight: &Sight) -> bool {
         Change::Pick(PickChange::Left) => true,
         Change::Place(PlaceChange::Read { read }) => sight.place.as_ref() == Some(&read.worktree),
         Change::Place(PlaceChange::Left) => true,
+        Change::Prompt(PromptChange::History { .. }) => true,
     }
 }
 
@@ -543,7 +577,11 @@ mod tests {
                 .into_iter()
                 .filter_map(|c| match c {
                     Change::Details(c) => Some(c),
-                    Change::Tree(_) | Change::Past(_) | Change::Pick(_) | Change::Place(_) => None,
+                    Change::Tree(_)
+                    | Change::Past(_)
+                    | Change::Pick(_)
+                    | Change::Place(_)
+                    | Change::Prompt(_) => None,
                 })
                 .collect(),
             _ => Vec::new(),
@@ -686,7 +724,11 @@ mod tests {
             })
             .filter_map(|c| match c {
                 Change::Tree(c) => Some(c),
-                Change::Details(_) | Change::Past(_) | Change::Pick(_) | Change::Place(_) => None,
+                Change::Details(_)
+                | Change::Past(_)
+                | Change::Pick(_)
+                | Change::Place(_)
+                | Change::Prompt(_) => None,
             })
             .collect()
     }
@@ -891,6 +933,31 @@ mod tests {
             vec![Change::Pick(PickChange::Left)]
         );
         assert_eq!(host.work().snapshot().pick.offers, None);
+    }
+
+    #[test]
+    fn a_history_asked_for_is_read_and_reaches_the_window_whatever_it_shows() {
+        let mut host = Host::default();
+        let mut asked = host.history();
+        let ask = Request::History {
+            asked: 1,
+            agent: Agent::Claude,
+            project: "/w".into(),
+        };
+        assert!(host.handle(ask).is_empty());
+        assert!(asked.has_changed().unwrap());
+        assert_eq!(asked.borrow_and_update().as_ref().map(|a| a.asked), Some(1));
+        let read = PromptChange::History {
+            read: adroit_protocol::HistoryRead {
+                asked: 1,
+                project: "/w".into(),
+                sent: vec!["fix".into()],
+            },
+        };
+        assert_eq!(
+            patched(host.record([read.clone()])),
+            vec![Change::Prompt(read)]
+        );
     }
 
     #[test]

@@ -36,10 +36,10 @@ mod tests {
     };
 
     use crate::{
-        Change, ConversationRead, DetailsChange, DetailsWork, Event, Listed, Offers, PastChange,
-        PastSight, PastWork, PickChange, PickSight, PickWork, PlaceChange, PlaceRead, PlaceWork,
-        RepositoryRead, RepositorySight, Request, Seq, SessionRead, Sight, SystemUsage, TreeChange,
-        TreeSight, Version, WorkPatch, WorkSnapshot,
+        Change, ConversationRead, DetailsChange, DetailsWork, Event, HistoryRead, Listed, Offers,
+        PastChange, PastSight, PastWork, PickChange, PickSight, PickWork, PlaceChange, PlaceRead,
+        PlaceWork, PromptChange, PromptWork, RepositoryRead, RepositorySight, Request, Seq,
+        SessionRead, Sight, SystemUsage, TreeChange, TreeSight, Version, WorkPatch, WorkSnapshot,
     };
 
     fn round_trips<T>(message: T)
@@ -95,6 +95,11 @@ mod tests {
             },
         });
         round_trips(Request::TerminalClosed { id: u128::MAX });
+        round_trips(Request::History {
+            asked: 3,
+            agent: adroit_model::Agent::Claude,
+            project: "/w".into(),
+        });
     }
 
     #[test]
@@ -112,6 +117,7 @@ mod tests {
             past: Default::default(),
             pick: Default::default(),
             place: Default::default(),
+            prompt: Default::default(),
         })));
         round_trips(Event::Snapshot(Box::new(WorkSnapshot {
             seq: Seq(7),
@@ -146,6 +152,9 @@ mod tests {
             },
             place: PlaceWork {
                 read: Some(PlaceRead::default()),
+            },
+            prompt: PromptWork {
+                history: Some(HistoryRead::default()),
             },
         })));
         round_trips(Event::Patch(WorkPatch {
@@ -267,6 +276,13 @@ mod tests {
                     },
                 }),
                 Change::Place(PlaceChange::Left),
+                Change::Prompt(PromptChange::History {
+                    read: HistoryRead {
+                        asked: 1,
+                        project: "/w".into(),
+                        sent: vec!["fix".into()],
+                    },
+                }),
             ],
         }));
     }

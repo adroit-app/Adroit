@@ -2092,6 +2092,9 @@ fn App() -> Element {
                     }
                 }
                 CoreEffect::AskInput(tab) => ask_input(tab),
+                CoreEffect::PromptRecall { tab, back, sent } => {
+                    let _ = prompts.send(Op::Recall(tab, back, sent));
+                }
                 // A session no longer listed has nothing to show; its pane is
                 // closed, and the images its console drew are not kept.
                 CoreEffect::KeepPanes {
@@ -2338,13 +2341,6 @@ fn App() -> Element {
                         return;
                     }
                     let tab = app.active();
-                    let project = match &tab {
-                        Some(Tab::Session(id)) => {
-                            nav::find(&tree.peek(), id).map(|(_, s)| PathBuf::from(&s.cwd))
-                        }
-                        Some(Tab::Draft { worktree, .. }) => Some(PathBuf::from(worktree)),
-                        _ => None,
-                    };
                     let agent = draft_agent::for_tab(
                         &tree.peek(),
                         tab.as_ref(),
@@ -2356,17 +2352,7 @@ fn App() -> Element {
                             .unwrap_or(settings::current().agent),
                     );
                     let back = action == Action::HistoryPrev;
-                    spawn(async move {
-                        let sent = match project {
-                            Some(dir) => tokio::task::spawn_blocking(move || {
-                                agents::adapter(agent).history(&dir)
-                            })
-                            .await
-                            .unwrap_or_default(),
-                            None => Vec::new(),
-                        };
-                        let _ = prompts.send(Op::Recall(tab, back, sent));
-                    });
+                    app.dispatch(Msg::Recall { back, agent });
                     app.dispatch(Msg::Focus(Area::Prompt));
                     start_writing(nvim);
                 }

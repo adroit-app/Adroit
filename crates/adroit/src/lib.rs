@@ -32,7 +32,7 @@ mod keys_pane;
 use adroit_runtime::layout;
 pub mod menu_bar;
 mod picker;
-use adroit_core::prompt_tab;
+use adroit_core::prompt::tab as prompt_tab;
 pub use adroit_core::tree::nav;
 use adroit_runtime::pasted;
 use adroit_runtime::paths;

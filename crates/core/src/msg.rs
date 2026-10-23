@@ -266,6 +266,14 @@ pub enum Msg {
     /// The session's input was taken, or the request declined.
     InputTaken,
 
+    // The prompt.
+    /// Step back through the prompts `agent` kept as sent where the shown
+    /// tab's are, or forth.
+    Recall {
+        back: bool,
+        agent: Agent,
+    },
+
     // The overlays.
     /// A key while something drawn over the window holds the keys.
     HeldKey(Key),

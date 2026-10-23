@@ -8,6 +8,7 @@ use crate::details::Details;
 use crate::host::Host;
 use crate::overlay::Overlays;
 use crate::picker::PickerView;
+use crate::prompt::PromptView;
 use crate::tree::TreeView;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -20,6 +21,7 @@ pub struct ViewState {
     pub picker: PickerView,
     pub overlays: Overlays,
     pub console: ConsoleView,
+    pub prompt: PromptView,
 }
 
 impl Default for ViewState {
@@ -33,6 +35,7 @@ impl Default for ViewState {
             picker: PickerView::default(),
             overlays: Overlays::default(),
             console: ConsoleView::default(),
+            prompt: PromptView::default(),
         };
         // A window that shows nothing asks nothing of the host, which starts
         // out reading nothing.

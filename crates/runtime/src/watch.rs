@@ -10,11 +10,12 @@ use std::time::Duration;
 use adroit_protocol::{Change, Event, Sight};
 use tokio::sync::{mpsc, watch};
 
-use crate::work::{Host, Seen};
+use crate::work::{HistoryAsk, Host, Seen};
 
 mod context;
 mod conversation;
 mod entries;
+mod history;
 mod marks;
 mod offers;
 mod past;
@@ -36,13 +37,20 @@ pub struct Watched {
     again: watch::Receiver<u64>,
     relist: watch::Receiver<u64>,
     inputs: watch::Receiver<BTreeMap<u128, u64>>,
+    history: watch::Receiver<Option<HistoryAsk>>,
 }
 
 impl Watched {
     pub fn new(host: Arc<Mutex<Host>>, events: mpsc::UnboundedSender<Event>) -> Self {
-        let (seen, again, relist, inputs) = {
+        let (seen, again, relist, inputs, history) = {
             let host = lock(&host);
-            (host.seen(), host.again(), host.relist(), host.inputs())
+            (
+                host.seen(),
+                host.again(),
+                host.relist(),
+                host.inputs(),
+                host.history(),
+            )
         };
         Self {
             host,
@@ -51,6 +59,7 @@ impl Watched {
             again,
             relist,
             inputs,
+            history,
         }
     }
 
@@ -67,6 +76,12 @@ impl Watched {
     /// When the user last typed into each session, by its terminal.
     fn inputs(&self) -> BTreeMap<u128, u64> {
         self.inputs.borrow().clone()
+    }
+
+    /// The next history the window asks for; none once the host is gone.
+    async fn asked_history(&mut self) -> Option<HistoryAsk> {
+        self.history.changed().await.ok()?;
+        self.history.borrow_and_update().clone()
     }
 
     fn host(&self) -> MutexGuard<'_, Host> {
@@ -153,6 +168,7 @@ pub fn start(watched: Watched) {
     tokio::spawn(past::watch(watched.clone()));
     tokio::spawn(offers::watch(watched.clone()));
     tokio::spawn(place::watch(watched.clone()));
+    tokio::spawn(history::watch(watched.clone()));
     tokio::spawn(entries::watch(watched.clone()));
     tokio::spawn(repository::watch(watched.clone()));
     tokio::spawn(conversation::watch(watched.clone()));

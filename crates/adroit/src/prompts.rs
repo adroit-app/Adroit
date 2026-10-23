@@ -16,8 +16,8 @@ use tokio::sync::oneshot;
 use crate::content::Tab;
 use crate::paths::instance_state;
 
-use adroit_core::prompts::History;
-pub use adroit_core::prompts::*;
+use adroit_core::prompt::drafts::History;
+pub use adroit_core::prompt::drafts::*;
 
 pub type Taken = (Option<Tab>, String, Vec<PathBuf>);
 

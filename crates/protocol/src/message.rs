@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 
-use adroit_model::TerminalSession;
+use std::path::PathBuf;
+
+use adroit_model::{Agent, TerminalSession};
 use serde::{Deserialize, Serialize};
 
 use crate::{Sight, Version, WorkPatch, WorkSnapshot};
@@ -35,6 +37,13 @@ pub enum Request {
     TerminalClosed {
         #[serde(with = "crate::wire::wide")]
         id: u128,
+    },
+    /// Read the prompts `agent` kept as sent in `project`, for the request
+    /// numbered `asked`.
+    History {
+        asked: u64,
+        agent: Agent,
+        project: PathBuf,
     },
 }
 

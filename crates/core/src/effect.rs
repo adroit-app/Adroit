@@ -109,6 +109,15 @@ pub enum Effect {
     /// that the request numbered `pull` lapsed.
     LapsePull { pull: u64, after: Duration },
 
+    // The prompt.
+    /// Put the prompt sent one before, or one after when not `back`, among
+    /// those `sent`, oldest first, in the prompt, if it still shows `tab`.
+    PromptRecall {
+        tab: Option<Tab>,
+        back: bool,
+        sent: Vec<String>,
+    },
+
     // The overlays.
     /// Run `action` where the keys are now.
     Perform(Action),

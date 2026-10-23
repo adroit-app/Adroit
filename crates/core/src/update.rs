@@ -8,7 +8,7 @@ use crate::msg::Msg;
 use crate::overlay::{self, Menu};
 use crate::settle::settle;
 use crate::state::ViewState;
-use crate::{chrome, console, content, details, host, picker, tree};
+use crate::{chrome, console, content, details, host, picker, prompt, tree};
 
 /// `msg` applied to `state`, and the state settled after it.
 pub fn step(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
@@ -136,6 +136,8 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         | Msg::InputAsked(_)
         | Msg::PullLapsed(_)
         | Msg::InputTaken) => console::update(state, msg),
+
+        Msg::Recall { back, agent } => prompt::recall(state, back, agent),
 
         Msg::HeldKey(key) => overlay::press(state, key),
         Msg::MenuOpen { x, y, target } => overlay::open_menu(state, Menu { x, y, target }),

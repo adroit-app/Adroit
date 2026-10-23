@@ -5,7 +5,7 @@ use adroit_protocol::{Request, Sight};
 
 use crate::effect::Effect;
 use crate::state::ViewState;
-use crate::{console, content, details, overlay, picker, tree};
+use crate::{console, content, details, overlay, picker, prompt, tree};
 
 type Rule = fn(&mut ViewState, &mut Vec<Effect>);
 
@@ -22,6 +22,7 @@ const RULES: &[Rule] = &[
     console_listed,
     console_live,
     console_freed,
+    prompt_recalled,
     tree_failing,
     tree_rows,
     tree_kept,
@@ -99,6 +100,12 @@ fn console_live(state: &mut ViewState, _: &mut Vec<Effect>) {
 /// once the keys stop going there.
 fn console_freed(state: &mut ViewState, effects: &mut Vec<Effect>) {
     effects.extend(console::ask_when_freed(state));
+}
+
+/// The history the host read for a step through the prompts sent puts the
+/// prompt it steps to in the prompt.
+fn prompt_recalled(state: &mut ViewState, effects: &mut Vec<Effect>) {
+    effects.extend(prompt::recalled(state));
 }
 
 /// The status line says why the sessions cannot be listed, while they
