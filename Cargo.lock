@@ -109,6 +109,7 @@ dependencies = [
  "adroit-core",
  "adroit-model",
  "adroit-nvim",
+ "adroit-protocol",
  "adroit-term",
  "adroit-vcs",
  "base64 0.23.1",

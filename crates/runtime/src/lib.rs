@@ -29,6 +29,7 @@ pub mod system_usage;
 pub mod terminals;
 pub mod themes;
 pub mod window_socket;
+pub mod work;
 
 use adroit_core::{icons, nav, tabs};
 
