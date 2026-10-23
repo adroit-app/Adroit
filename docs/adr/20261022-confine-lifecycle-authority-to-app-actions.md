@@ -1,6 +1,6 @@
 # Confine lifecycle authority to app actions
 
-Status: Accepted; supersedes 20261022-use-window-action-for-independent-authorization.md
+Status: Superseded by 20261023-give-every-session-the-same-means-to-delegate.md
 
 ## Context
 

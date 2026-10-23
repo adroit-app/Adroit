@@ -1,6 +1,6 @@
 # Find the sessions a session worked with by their names in its transcript
 
-Status: Accepted
+Status: Superseded by 20261023-carry-messages-between-any-two-sessions-through-adroit.md
 
 ## Context
 

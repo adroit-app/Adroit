@@ -15,14 +15,16 @@ first word.
 
 A workspace holds every session Adroit runs in it, together with external
 sessions its agent can report. When the workspace is a git repository, its worktrees divide it:
-each session sits under the worktree it runs in. A session hands the work
-itself to Claude Code's own agents, which do it in worktrees of their own when
-they need to.
+each session sits under the worktree it runs in. A session hands work on
+when it judges the work calls for it: to its agent's own subagents, or to
+sessions of its own, which usually work in worktrees of their own and which
+you read and steer like any other. You only ask; whether and how the work is
+divided is the session's to decide.
 
 You see every workspace's sessions in one window, the ones waiting on you
-first. You read each session in the agent's real terminal interface, you write to it
-in your own Neovim, and you move around the whole window the way you move
-around Vim.
+first, a session started by another listed under it. You read each session
+in the agent's real terminal interface, you write to it in your own Neovim,
+and you move around the whole window the way you move around Vim.
 
 ## Who it is for
 
@@ -46,18 +48,21 @@ rather than like operating a dashboard.
 - **Sessions outlive the window.** Every session runs in a terminal daemon,
   not in the window, so closing adroit leaves them running and opening it again
   finds them as they were.
-- **adroit keeps no records of its own about sessions.** Which sessions exist,
-  where they run and how they stand come from the daemon that runs them and
-  from what their programs report; repositories and worktrees come from git.
-  adroit draws them and gives you the controls.
+- **adroit keeps no records of its own about sessions but who started whom
+  and what they told each other.** Which sessions exist, where they run and
+  how they stand come from the daemon that runs them and from what their
+  programs report; repositories and worktrees come from git. adroit draws them
+  and gives you the controls.
 - **Borrow before building.** Terminals and their persistence come from felis;
-  conversations, delegation to agents and messaging between sessions come from
-  Claude Code. adroit adds the place and the hands-on feel.
+  conversations and the agents inside them come from Claude Code and Codex.
+  adroit adds the place, the hands-on feel, and the means for sessions to
+  start and reach one another.
 
 ## What it does not do
 
 - It does not rebuild Claude Code's interface or replace it with a chat view.
-- It does not orchestrate on its own. Planning and delegation are Claude's work;
-  adroit shows where the work stands and gives you the controls.
+- It does not orchestrate on its own. Planning and delegation are the
+  sessions' work; adroit keeps no plan, task or verdict, shows where the work
+  stands and gives you the controls.
 - It is not an editor or an IDE. Files, logs and diffs are there to be read;
   real editing happens in your usual editor.

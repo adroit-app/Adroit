@@ -1,6 +1,6 @@
 # End Worker sessions after their final report
 
-Status: Accepted
+Status: Superseded by 20261023-end-a-started-session-once-it-reports.md
 
 ## Context
 

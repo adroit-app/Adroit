@@ -1,6 +1,7 @@
 # Find sessions by the directory they run in, keeping no project file
 
-Status: Accepted
+Status: Accepted; superseded for sessions started by sessions by
+20261023-show-a-started-session-under-the-session-that-started-it.md
 
 ## Context
 

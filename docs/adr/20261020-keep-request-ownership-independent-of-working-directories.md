@@ -1,6 +1,6 @@
 # Keep request ownership independent of working directories
 
-Status: Accepted
+Status: Superseded by 20261023-give-every-session-the-same-means-to-delegate.md
 
 ## Context
 

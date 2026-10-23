@@ -1,6 +1,6 @@
 # Let a session start sessions through the adroit command
 
-Status: Superseded for managed Leader starts by 20261022-confine-lifecycle-authority-to-app-actions.md
+Status: Superseded by 20261023-carry-messages-between-any-two-sessions-through-adroit.md
 
 ## Context
 

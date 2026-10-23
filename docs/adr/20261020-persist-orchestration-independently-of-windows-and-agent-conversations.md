@@ -1,7 +1,6 @@
 # Persist orchestration independently of windows and agent conversations
 
-Status: Accepted; the separate receipt requirement is superseded by
-[20261021-treat-native-transport-acceptance-as-message-receipt.md](20261021-treat-native-transport-acceptance-as-message-receipt.md).
+Status: Superseded by 20261023-carry-messages-between-any-two-sessions-through-adroit.md
 
 ## Context
 

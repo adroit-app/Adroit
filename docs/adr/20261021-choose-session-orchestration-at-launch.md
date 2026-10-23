@@ -1,6 +1,6 @@
 # Choose session orchestration at launch
 
-Status: Accepted
+Status: Superseded by 20261023-give-every-session-the-same-means-to-delegate.md
 
 ## Decision
 

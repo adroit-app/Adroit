@@ -1,6 +1,6 @@
 # Let the user have Adroit confirm the warning about its own channel
 
-Status: Accepted
+Status: Superseded by 20261023-have-adroit-confirm-the-warning-about-its-own-channel-unless-turned-off.md
 
 ## Context
 
