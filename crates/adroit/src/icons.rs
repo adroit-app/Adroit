@@ -159,7 +159,7 @@ impl Icon {
             A::SessionRename => Icon::Pencil,
             A::SessionTakeOver => Icon::TransferIn,
             A::SessionStop => Icon::PlayerStop,
-            A::SidebarToggle => Icon::LayoutSidebar,
+            A::TreeToggle => Icon::LayoutSidebar,
             A::DetailsToggle => Icon::LayoutSidebarRight,
             A::DetailsOverview => Icon::InfoCircle,
             A::DetailsChanges => Icon::FileDiff,

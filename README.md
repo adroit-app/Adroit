@@ -83,7 +83,7 @@ Codex's commands and menus directly; `Esc` returns to Adroit. See
 
 ### Keys
 
-The window has a sidebar, the console with the prompt below it, and a details
+The window has a tree, the console with the prompt below it, and a details
 panel. `Ctrl-q` followed by `h` `j` `k` `l` moves between them, as `Ctrl-w`
 does in Vim, and `w` `W` `p` `t` `b` move as Vim's do; the second key may be
 pressed with `Ctrl` held too. `Ctrl-q` works everywhere, the prompt's insert
@@ -96,26 +96,26 @@ From anywhere, the prompt included, `Mod`, which is `Cmd` on macOS and
 the keys are in, the console's tabs or the details panel's overview, changes
 and log, which `Mod-1` to `Mod-3` also show one by one; `Mod-p` chooses where
 a new session works, `Mod-n` starts one where the console is, `Mod-s` opens a
-shell there and `Mod-e` Neovim, `Mod-f` filters the sidebar, `Mod-r`
+shell there and `Mod-e` Neovim, `Mod-f` filters the tree, `Mod-r`
 refreshes, `Mod-t` takes over a session, `Mod-Backspace` ends one, and
-`Mod-b` `Mod-d` show or hide the sidebar and the details panel. A scratch
+`Mod-b` `Mod-d` show or hide the tree and the details panel. A scratch
 session, which needs no directory chosen, starts from the picker's first row
 or the Session menu.
 
-| In the sidebar | |
+| In the tree | |
 | --- | --- |
 | `j` `k`, `gg` `G` | move |
 | `Enter` `l` `o` | open a session or worktree; fold a workspace |
-| `L` `Shift-Enter` `Ctrl-Enter` | show a session or worktree in the console, with the keys staying in the sidebar |
+| `L` `Shift-Enter` `Ctrl-Enter` | show a session or worktree in the console, with the keys staying in the tree |
 | `h` | fold |
 | `]w` `[w` | the next or previous session waiting on you, with the console ready to answer it; `Ctrl-q ]` `Ctrl-q [` from anywhere |
 | `w` | choose where a new session works |
 | `n` | start a session in the selected worktree or directory |
-| `s` `x` | open a shell in the worktree; close the current tab, ending a shell or putting a session back to the sidebar only |
+| `s` `x` | open a shell in the worktree; close the current tab, ending a shell or putting a session back to the tree only |
 | `t` | take over an interactive session ([details](docs/spec/interactive-sessions.md)) |
 | `X` | end a session; Claude Code keeps its conversation, for `/resume` |
 | `i` | write a prompt |
-| `/` | narrow the sidebar to sessions by name; `Enter` keeps it, `Esc` clears it |
+| `/` | narrow the tree to sessions by name; `Enter` keeps it, `Esc` clears it |
 | `!` | list every worktree, those without sessions too, or only those with sessions |
 | `r` | refresh |
 

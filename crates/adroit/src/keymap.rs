@@ -79,14 +79,14 @@ pub const DEFAULTS: &str = r#"
 "Mod+Plus" = "zoom.in"
 "Mod+-" = "zoom.out"
 "Mod+0" = "zoom.reset"
-"Mod+b" = "sidebar.toggle"
+"Mod+b" = "tree.toggle"
 "Mod+d" = "details.toggle"
 
 [draft]
 "Ctrl+g a" = "session.agent_next"
 "Ctrl+g A" = "session.agent_prev"
 
-[sidebar]
+[tree]
 "j" = "cursor.down"
 "ArrowDown" = "cursor.down"
 "k" = "cursor.up"
@@ -409,7 +409,7 @@ fn show_sequence(chords: &[Chord]) -> String {
 pub enum Context {
     /// Every area, after its own bindings.
     Global,
-    Sidebar,
+    Tree,
     Details,
     /// The console while it shows a session.
     Console,
@@ -421,7 +421,7 @@ pub enum Context {
 impl Context {
     pub const ALL: [Context; 6] = [
         Context::Global,
-        Context::Sidebar,
+        Context::Tree,
         Context::Details,
         Context::Console,
         Context::Prompt,
@@ -431,13 +431,24 @@ impl Context {
     pub fn name(self) -> &'static str {
         match self {
             Context::Global => "global",
-            Context::Sidebar => "sidebar",
+            Context::Tree => "tree",
             Context::Details => "details",
             Context::Console => "console",
             Context::Prompt => "prompt",
             Context::Draft => "draft",
         }
     }
+}
+
+/// Names earlier versions gave an area or an action, read as the names they
+/// go by now.
+const RENAMED: &[(&str, &str)] = &[("sidebar", "tree"), ("sidebar.toggle", "tree.toggle")];
+
+fn renamed(name: &str) -> &str {
+    RENAMED
+        .iter()
+        .find(|(old, _)| *old == name)
+        .map_or(name, |(_, now)| now)
 }
 
 /// Actions earlier versions had: a binding to one is dropped as it is read,
@@ -591,7 +602,7 @@ actions! {
     ZoomIn => "zoom.in",
     ZoomOut => "zoom.out",
     ZoomReset => "zoom.reset",
-    SidebarToggle => "sidebar.toggle",
+    TreeToggle => "tree.toggle",
     DetailsToggle => "details.toggle",
 }
 
@@ -635,7 +646,7 @@ impl Keymap {
         for (area, entries) in table {
             let ctx = Context::ALL
                 .into_iter()
-                .find(|c| c.name() == area)
+                .find(|c| c.name() == renamed(&area))
                 .ok_or_else(|| Error(format!("{area:?} is not an area of the window")))?;
             let entries = entries
                 .as_table()
@@ -648,7 +659,7 @@ impl Keymap {
                 if RETIRED.contains(&name) {
                     continue;
                 }
-                let action: Action = name.parse()?;
+                let action: Action = renamed(name).parse()?;
                 self.bindings.retain(|(c, s, _)| !(*c == ctx && *s == seq));
                 self.bindings.push((ctx, seq, action));
             }
@@ -837,13 +848,12 @@ mod tests {
 
     #[test]
     fn the_bindings_are_listed_by_area_with_the_user_s_in_place_of_the_defaults() {
-        let map =
-            Keymap::with_user("[sidebar]\n\"j\" = \"none\"\n\"J\" = \"cursor.down\"\n").unwrap();
+        let map = Keymap::with_user("[tree]\n\"j\" = \"none\"\n\"J\" = \"cursor.down\"\n").unwrap();
         let listed = map.listed();
-        assert!(listed.contains(&("sidebar", "J".into(), "cursor.down".into())));
-        assert!(!listed.iter().any(|(a, k, _)| *a == "sidebar" && k == "j"));
+        assert!(listed.contains(&("tree", "J".into(), "cursor.down".into())));
+        assert!(!listed.iter().any(|(a, k, _)| *a == "tree" && k == "j"));
         let areas: Vec<&str> = listed.iter().map(|(a, _, _)| *a).collect();
-        let first_sidebar = areas.iter().position(|a| *a == "sidebar").unwrap();
+        let first_sidebar = areas.iter().position(|a| *a == "tree").unwrap();
         assert!(areas[..first_sidebar].iter().all(|a| *a == "global"));
     }
 
@@ -881,21 +891,21 @@ mod tests {
         let map = Keymap::defaults();
         // `j` is cursor.down in the sidebar.
         assert_eq!(
-            map.clashes(Context::Sidebar, "j", None),
+            map.clashes(Context::Tree, "j", None),
             vec!["j is cursor.down".to_string()]
         );
         // Editing that binding itself is no clash.
-        assert!(map.clashes(Context::Sidebar, "j", Some("j")).is_empty());
+        assert!(map.clashes(Context::Tree, "j", Some("j")).is_empty());
         // `g` alone would cut `g g` and `g t` short.
-        let g = map.clashes(Context::Sidebar, "g", None);
+        let g = map.clashes(Context::Tree, "g", None);
         assert!(g.iter().any(|c| c == "g g is cursor.first"), "{g:?}");
         // Over a global binding, the area's wins there.
-        let w = map.clashes(Context::Sidebar, "Ctrl+q h", None);
+        let w = map.clashes(Context::Tree, "Ctrl+q h", None);
         assert_eq!(
             w,
-            vec!["Ctrl+q h is window.left everywhere; this one wins in sidebar".to_string()]
+            vec!["Ctrl+q h is window.left everywhere; this one wins in tree".to_string()]
         );
-        assert!(map.clashes(Context::Sidebar, "Ctrl+w", None).is_empty());
+        assert!(map.clashes(Context::Tree, "Ctrl+w", None).is_empty());
     }
 
     #[test]
@@ -934,17 +944,17 @@ mod tests {
             ("Mod+Plus", Action::ZoomIn),
             ("Mod+-", Action::ZoomOut),
             ("Mod+0", Action::ZoomReset),
-            ("Mod+b", Action::SidebarToggle),
+            ("Mod+b", Action::TreeToggle),
             ("Mod+d", Action::DetailsToggle),
         ] {
             assert_eq!(
-                step(&map, &[Context::Sidebar], &[], key),
+                step(&map, &[Context::Tree], &[], key),
                 Step::Run(action),
                 "{key}"
             );
         }
         assert_eq!(
-            step(&map, &[Context::Sidebar], &[], "Cmd+W"),
+            step(&map, &[Context::Tree], &[], "Cmd+W"),
             Step::Run(Action::WindowClose)
         );
     }
@@ -984,7 +994,7 @@ mod tests {
     #[test]
     fn the_keys_the_menu_alone_offers_now_have_no_default() {
         let map = Keymap::defaults();
-        for areas in [&[Context::Sidebar, Context::Global][..], &[Context::Global]] {
+        for areas in [&[Context::Tree, Context::Global][..], &[Context::Global]] {
             for key in ["Cmd+Alt+n", "Cmd+}", "Cmd+{", "Cmd+Alt+e", "Cmd+Alt+b"] {
                 assert_eq!(step(&map, areas, &[], key), Step::Nothing, "{key}");
             }
@@ -994,7 +1004,7 @@ mod tests {
         }
         // The sidebar keeps its own key for every worktree.
         assert_eq!(
-            map.keys_for(Context::Sidebar, &Action::WorktreesToggle),
+            map.keys_for(Context::Tree, &Action::WorktreesToggle),
             Some("!".into())
         );
     }
@@ -1077,7 +1087,7 @@ mod tests {
     fn a_bound_key_runs_its_action() {
         let map = Keymap::defaults();
         assert_eq!(
-            step(&map, &[Context::Sidebar], &[], "j"),
+            step(&map, &[Context::Tree], &[], "j"),
             Step::Run(Action::CursorDown)
         );
     }
@@ -1085,27 +1095,27 @@ mod tests {
     #[test]
     fn the_start_of_a_sequence_waits_for_the_rest() {
         let map = Keymap::defaults();
-        assert_eq!(step(&map, &[Context::Sidebar], &[], "g"), Step::Wait);
+        assert_eq!(step(&map, &[Context::Tree], &[], "g"), Step::Wait);
         assert_eq!(
-            step(&map, &[Context::Sidebar], &["g"], "g"),
+            step(&map, &[Context::Tree], &["g"], "g"),
             Step::Run(Action::CursorFirst)
         );
-        assert_eq!(step(&map, &[Context::Sidebar], &["g"], "z"), Step::Nothing);
+        assert_eq!(step(&map, &[Context::Tree], &["g"], "z"), Step::Nothing);
     }
 
     #[test]
     fn a_key_bound_nowhere_in_the_areas_does_nothing() {
         let map = Keymap::defaults();
-        assert_eq!(step(&map, &[Context::Sidebar], &[], "y"), Step::Nothing);
+        assert_eq!(step(&map, &[Context::Tree], &[], "y"), Step::Nothing);
     }
 
     #[test]
     fn an_earlier_area_wins_over_a_later_one() {
         let map = Keymap::with_user("[details]\n\"n\" = \"refresh\"\n").unwrap();
-        let both = [Context::Details, Context::Sidebar];
+        let both = [Context::Details, Context::Tree];
         assert_eq!(step(&map, &both, &[], "n"), Step::Run(Action::Refresh));
         assert_eq!(
-            step(&map, &[Context::Sidebar], &[], "n"),
+            step(&map, &[Context::Tree], &[], "n"),
             Step::Run(Action::SessionNew)
         );
         // A key the details panel leaves alone falls through to the sidebar's.
@@ -1115,7 +1125,7 @@ mod tests {
     #[test]
     fn the_details_panel_moves_opens_and_goes_back_with_the_cursor_and_scrolls_by_half() {
         let map = Keymap::defaults();
-        let areas = [Context::Details, Context::Sidebar];
+        let areas = [Context::Details, Context::Tree];
         for (key, action) in [
             ("j", Action::CursorDown),
             ("ArrowDown", Action::CursorDown),
@@ -1143,7 +1153,7 @@ mod tests {
     fn the_tabs_are_switched_by_the_same_keys_in_every_area() {
         let map = Keymap::defaults();
         for ctx in [
-            Context::Sidebar,
+            Context::Tree,
             Context::Details,
             Context::Console,
             Context::Prompt,
@@ -1158,7 +1168,7 @@ mod tests {
     fn any_session_is_a_key_away_from_every_area() {
         let map = Keymap::defaults();
         for ctx in [
-            Context::Sidebar,
+            Context::Tree,
             Context::Details,
             Context::Console,
             Context::Prompt,
@@ -1198,7 +1208,7 @@ mod tests {
             ("3", Action::DetailsLog),
         ] {
             let key = press(&format!("Mod+{digit}"));
-            for ctx in [Context::Sidebar, Context::Console, Context::Prompt] {
+            for ctx in [Context::Tree, Context::Console, Context::Prompt] {
                 assert_eq!(
                     map.resolve(&[ctx], &[], &key),
                     Step::Run(action.clone()),
@@ -1231,7 +1241,7 @@ mod tests {
     #[test]
     fn window_motions_reach_every_area() {
         let map = Keymap::defaults();
-        for ctx in [Context::Sidebar, Context::Details, Context::Console] {
+        for ctx in [Context::Tree, Context::Details, Context::Console] {
             assert_eq!(
                 step(&map, &[ctx, Context::Global], &["Ctrl+q"], "l"),
                 Step::Run(Action::WindowRight)
@@ -1241,26 +1251,26 @@ mod tests {
 
     #[test]
     fn the_user_s_binding_replaces_the_default_for_the_same_keys() {
-        let map = Keymap::with_user("[sidebar]\n\"j\" = \"cursor.up\"\n").unwrap();
+        let map = Keymap::with_user("[tree]\n\"j\" = \"cursor.up\"\n").unwrap();
         assert_eq!(
-            step(&map, &[Context::Sidebar], &[], "j"),
+            step(&map, &[Context::Tree], &[], "j"),
             Step::Run(Action::CursorUp)
         );
         assert_eq!(
-            step(&map, &[Context::Sidebar], &[], "k"),
+            step(&map, &[Context::Tree], &[], "k"),
             Step::Run(Action::CursorUp)
         );
     }
 
     #[test]
     fn the_user_can_add_keys_to_an_action() {
-        let map = Keymap::with_user("[sidebar]\n\"Ctrl+n\" = \"cursor.down\"\n").unwrap();
+        let map = Keymap::with_user("[tree]\n\"Ctrl+n\" = \"cursor.down\"\n").unwrap();
         assert_eq!(
-            step(&map, &[Context::Sidebar], &[], "Ctrl+n"),
+            step(&map, &[Context::Tree], &[], "Ctrl+n"),
             Step::Run(Action::CursorDown)
         );
         assert_eq!(
-            step(&map, &[Context::Sidebar], &[], "j"),
+            step(&map, &[Context::Tree], &[], "j"),
             Step::Run(Action::CursorDown)
         );
     }
@@ -1277,14 +1287,34 @@ mod tests {
     #[test]
     fn a_binding_to_an_action_earlier_versions_had_is_read_and_dropped() {
         let map = Keymap::with_user(
-            "[sidebar]\n\"P\" = \"project.new\"\n\"c\" = \"coordinator.open\"\n\"J\" = \"cursor.down\"\n",
+            "[tree]\n\"P\" = \"project.new\"\n\"c\" = \"coordinator.open\"\n\"J\" = \"cursor.down\"\n",
         )
         .unwrap();
         assert_eq!(
-            step(&map, &[Context::Sidebar], &[], "J"),
+            step(&map, &[Context::Tree], &[], "J"),
             Step::Run(Action::CursorDown)
         );
-        assert_eq!(step(&map, &[Context::Sidebar], &[], "P"), Step::Nothing);
+        assert_eq!(step(&map, &[Context::Tree], &[], "P"), Step::Nothing);
+    }
+
+    #[test]
+    fn the_tree_s_bindings_are_read_from_the_area_earlier_versions_called_sidebar() {
+        let map = Keymap::with_user("[sidebar]\n\"J\" = \"cursor.down\"\n").unwrap();
+        assert_eq!(
+            step(&map, &[Context::Tree], &[], "J"),
+            Step::Run(Action::CursorDown)
+        );
+        assert!(map.listed().iter().all(|(area, _, _)| *area != "sidebar"));
+    }
+
+    #[test]
+    fn a_binding_to_the_sidebar_toggle_earlier_versions_had_toggles_the_tree() {
+        let map = Keymap::with_user("[global]\n\"Mod+y\" = \"sidebar.toggle\"\n").unwrap();
+        assert_eq!(
+            step(&map, &[Context::Global], &[], "Mod+y"),
+            Step::Run(Action::TreeToggle)
+        );
+        assert!(!Action::NAMES.contains(&"sidebar.toggle"));
     }
 
     #[test]
@@ -1299,7 +1329,7 @@ mod tests {
     fn w_in_the_sidebar_opens_the_one_picker_and_cmd_o_is_free() {
         let map = Keymap::defaults();
         assert_eq!(
-            step(&map, &[Context::Sidebar, Context::Global], &[], "w"),
+            step(&map, &[Context::Tree, Context::Global], &[], "w"),
             Step::Run(Action::SessionPick)
         );
         let o = Key::new("o").meta();
@@ -1310,9 +1340,9 @@ mod tests {
     fn an_unknown_area_key_or_action_in_the_user_s_file_is_reported() {
         for bad in [
             "[side]\n\"j\" = \"cursor.down\"\n",
-            "[sidebar]\n\"Hyper+j\" = \"cursor.down\"\n",
-            "[sidebar]\n\"j\" = \"cursor.sideways\"\n",
-            "[sidebar]\n\"j\" = 1\n",
+            "[tree]\n\"Hyper+j\" = \"cursor.down\"\n",
+            "[tree]\n\"j\" = \"cursor.sideways\"\n",
+            "[tree]\n\"j\" = 1\n",
         ] {
             assert!(Keymap::with_user(bad).is_err(), "{bad}");
         }
@@ -1322,17 +1352,17 @@ mod tests {
     fn the_keys_of_an_action_read_as_written_for_the_window_to_show() {
         let map = Keymap::defaults();
         assert_eq!(
-            map.keys_for(Context::Sidebar, &Action::WaitingNext),
+            map.keys_for(Context::Tree, &Action::WaitingNext),
             Some("] w".into())
         );
         assert_eq!(
-            map.keys_for(Context::Sidebar, &Action::SessionTakeOver),
+            map.keys_for(Context::Tree, &Action::SessionTakeOver),
             Some("t".into())
         );
-        let map = Keymap::with_user("[sidebar]\n\"t\" = \"none\"\n\"T\" = \"session.take_over\"\n")
-            .unwrap();
+        let map =
+            Keymap::with_user("[tree]\n\"t\" = \"none\"\n\"T\" = \"session.take_over\"\n").unwrap();
         assert_eq!(
-            map.keys_for(Context::Sidebar, &Action::SessionTakeOver),
+            map.keys_for(Context::Tree, &Action::SessionTakeOver),
             Some("T".into())
         );
     }
@@ -1340,7 +1370,7 @@ mod tests {
     #[test]
     fn an_action_s_keys_are_found_only_in_the_areas_they_work_in() {
         let map = Keymap::defaults();
-        let sidebar = [Context::Sidebar, Context::Global];
+        let sidebar = [Context::Tree, Context::Global];
         let console = [Context::Console, Context::Global];
         assert_eq!(
             map.keys_in(&sidebar, &Action::WaitingNext),
@@ -1392,7 +1422,7 @@ mod tests {
 
     #[test]
     fn a_slash_in_the_sidebar_starts_a_filter() {
-        let sidebar = [Context::Sidebar, Context::Global];
+        let sidebar = [Context::Tree, Context::Global];
         assert_eq!(
             step(&Keymap::defaults(), &sidebar, &[], "/"),
             Step::Run(Action::Filter)
@@ -1402,7 +1432,7 @@ mod tests {
     #[test]
     fn in_the_sidebar_capital_l_and_enter_with_shift_or_ctrl_show_the_row_and_keep_the_keys() {
         let map = Keymap::defaults();
-        let sidebar = [Context::Sidebar, Context::Global];
+        let sidebar = [Context::Tree, Context::Global];
         for k in ["L", "Shift+Enter", "Ctrl+Enter"] {
             assert_eq!(
                 step(&map, &sidebar, &[], k),
@@ -1428,7 +1458,7 @@ mod tests {
     #[test]
     fn x_closes_the_tab_and_capital_x_stops_a_session() {
         let map = Keymap::defaults();
-        let sidebar = [Context::Sidebar, Context::Global];
+        let sidebar = [Context::Tree, Context::Global];
         let console = [Context::Console, Context::Global];
         assert_eq!(step(&map, &sidebar, &[], "x"), Step::Run(Action::TabClose));
         assert_eq!(
@@ -1465,7 +1495,7 @@ mod tests {
         for k in ["i", "a"] {
             let got = step(
                 &Keymap::defaults(),
-                &[Context::Sidebar, Context::Global],
+                &[Context::Tree, Context::Global],
                 &[],
                 k,
             );
@@ -1475,7 +1505,7 @@ mod tests {
 
     #[test]
     fn ctrl_g_a_switches_the_draft_agent_forward_and_ctrl_g_capital_a_back() {
-        for area in [Context::Prompt, Context::Console, Context::Sidebar] {
+        for area in [Context::Prompt, Context::Console, Context::Tree] {
             let draft = [Context::Draft, area, Context::Global];
             assert_eq!(
                 step(&Keymap::defaults(), &draft, &["Ctrl+g"], "a"),
@@ -1635,7 +1665,7 @@ mod tests {
     fn window_and_tab_commands_begin_with_ctrl_q_in_every_area() {
         let map = Keymap::defaults();
         for ctx in [
-            Context::Sidebar,
+            Context::Tree,
             Context::Details,
             Context::Console,
             Context::Prompt,
@@ -1677,7 +1707,7 @@ mod tests {
     fn ctrl_q_splits_closes_moves_and_resizes_the_content_s_windows_in_every_area() {
         let map = Keymap::defaults();
         for ctx in [
-            Context::Sidebar,
+            Context::Tree,
             Context::Details,
             Context::Console,
             Context::Prompt,
@@ -1766,7 +1796,7 @@ mod tests {
             Step::Run(Action::ConsoleSend(Some(Chord::parse("Ctrl+q").unwrap())))
         );
         for areas in [
-            &[Context::Sidebar, Context::Global][..],
+            &[Context::Tree, Context::Global][..],
             &[Context::Console, Context::Global],
             &[Context::Prompt, Context::Global],
             &[Context::Prompt],

@@ -6,7 +6,7 @@ account's login shell unless configured otherwise; Neovim uses the user's
 normal configuration. Embedded Neovim for prompts and console reading is a
 window component, not a terminal session.
 
-Closing a terminal's windows hides it and leaves its program running. Its sidebar
+Closing a terminal's windows hides it and leaves its program running. Its tree
 row opens it again. Stop Terminal (`terminal.stop`) explicitly ends the
 selected or shown terminal. Quitting the program also ends it. Closing the
 window leaves terminals running.

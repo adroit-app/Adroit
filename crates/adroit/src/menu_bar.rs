@@ -107,7 +107,7 @@ pub fn sections() -> Vec<Section> {
         Section {
             title: "View",
             entries: vec![
-                Run(Action::SidebarToggle, "Toggle Sidebar"),
+                Run(Action::TreeToggle, "Toggle Tree"),
                 Run(Action::DetailsToggle, "Toggle Details"),
                 Separator,
                 Run(Action::DetailsOverview, "Overview"),
@@ -520,10 +520,9 @@ mod tests {
 
     #[test]
     fn a_command_key_that_means_something_else_in_an_area_shows_no_shortcut() {
-        let only_there = Keymap::with_user(
-            "[global]\n\"Cmd+r\" = \"none\"\n[sidebar]\n\"Cmd+j\" = \"refresh\"\n",
-        )
-        .unwrap();
+        let only_there =
+            Keymap::with_user("[global]\n\"Cmd+r\" = \"none\"\n[tree]\n\"Cmd+j\" = \"refresh\"\n")
+                .unwrap();
         assert_eq!(shown(&only_there, Action::Refresh), None);
         let overridden = Keymap::with_user("[console]\n\"Cmd+r\" = \"console.send\"\n").unwrap();
         assert_eq!(shown(&overridden, Action::Refresh), None);

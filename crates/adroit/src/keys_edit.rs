@@ -120,11 +120,11 @@ pub fn removed(text: &str) -> Vec<(&'static str, String)> {
 mod tests {
     use super::*;
 
-    const FILE: &str = "# my keys\n\n[sidebar]\n# down twice\n\"J\" = \"cursor.down\"\n";
+    const FILE: &str = "# my keys\n\n[tree]\n# down twice\n\"J\" = \"cursor.down\"\n";
 
     #[test]
     fn a_binding_is_added_and_the_file_s_comments_stay() {
-        let out = bind(FILE, "sidebar", "K", "cursor.up").unwrap();
+        let out = bind(FILE, "tree", "K", "cursor.up").unwrap();
         assert!(out.starts_with("# my keys\n"), "{out}");
         assert!(
             out.contains("# down twice\n\"J\" = \"cursor.down\""),
@@ -142,21 +142,21 @@ mod tests {
 
     #[test]
     fn taking_away_a_default_binds_it_to_none_and_a_user_s_own_leaves_the_file() {
-        let out = unbind(FILE, "sidebar", "j").unwrap();
+        let out = unbind(FILE, "tree", "j").unwrap();
         assert!(out.contains("j = \"none\""), "{out}");
-        assert_eq!(removed(&out), vec![("sidebar", "j".to_string())]);
-        let out = unbind(FILE, "sidebar", "J").unwrap();
+        assert_eq!(removed(&out), vec![("tree", "j".to_string())]);
+        let out = unbind(FILE, "tree", "J").unwrap();
         assert!(!out.contains("\"J\""), "{out}");
         assert!(out.starts_with("# my keys\n"), "{out}");
     }
 
     #[test]
     fn a_reset_brings_the_default_back() {
-        let changed = bind(FILE, "sidebar", "j", "tab.close").unwrap();
-        let out = reset(&changed, "sidebar", "j").unwrap();
+        let changed = bind(FILE, "tree", "j", "tab.close").unwrap();
+        let out = reset(&changed, "tree", "j").unwrap();
         let map = Keymap::with_user(&out).unwrap();
         assert_eq!(
-            map.keys_for(Context::Sidebar, &"cursor.down".parse().unwrap()),
+            map.keys_for(Context::Tree, &"cursor.down".parse().unwrap()),
             Some("j".into())
         );
         let all = reset_all(&changed).unwrap();
@@ -167,21 +167,21 @@ mod tests {
     #[test]
     fn keys_the_file_spells_another_way_are_found_by_the_spelling_shown() {
         let file =
-            "[sidebar]\n# bottom\n\"Shift+g\" = \"cursor.down\"\n\"Alt+Ctrl+x\" = \"tab.close\"\n";
-        let out = reset(file, "sidebar", "G").unwrap();
+            "[tree]\n# bottom\n\"Shift+g\" = \"cursor.down\"\n\"Alt+Ctrl+x\" = \"tab.close\"\n";
+        let out = reset(file, "tree", "G").unwrap();
         assert!(!out.contains("Shift+g"), "{out}");
-        let out = bind(file, "sidebar", "Ctrl+Alt+x", "cursor.up").unwrap();
+        let out = bind(file, "tree", "Ctrl+Alt+x", "cursor.up").unwrap();
         assert!(out.contains("# bottom\n"), "{out}");
         assert!(out.contains("\"Alt+Ctrl+x\" = \"cursor.up\""), "{out}");
         assert!(!out.contains("\"Ctrl+Alt+x\""), "{out}");
-        let out = unbind(file, "sidebar", "Ctrl+Alt+x").unwrap();
+        let out = unbind(file, "tree", "Ctrl+Alt+x").unwrap();
         assert!(!out.contains("Alt+Ctrl+x"), "{out}");
     }
 
     #[test]
     fn the_defaults_are_known_by_area_and_keys() {
-        assert_eq!(default_of("sidebar", "j"), Some("cursor.down".into()));
-        assert_eq!(default_of("sidebar", "J"), None);
-        assert_eq!(default_of("sidebar", "Shift+g"), Some("cursor.last".into()));
+        assert_eq!(default_of("tree", "j"), Some("cursor.down".into()));
+        assert_eq!(default_of("tree", "J"), None);
+        assert_eq!(default_of("tree", "Shift+g"), Some("cursor.last".into()));
     }
 }

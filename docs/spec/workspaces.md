@@ -33,7 +33,7 @@ windows hides it; Stop Terminal
 explicitly ends its program ([terminals](terminals.md)). Going from session to
 session, the waiting sessions and the picker pass shells over.
 
-`!` in the sidebar shows every worktree git knows of each workspace, those
+`!` in the tree shows every worktree git knows of each workspace, those
 where nothing runs too, drawn dim; opening one starts a session there.
 Pressing it again goes back to the worktrees where sessions or shells run. The
 window does not keep this between runs.
@@ -63,7 +63,7 @@ while what is typed matches its words. `Ctrl+n` and `Ctrl+p` (or the arrow
 keys, `Tab` and `Shift+Tab`) move, `Enter` chooses, and `Escape` closes the
 picker.
 
-Choosing a session opens it as its row in the sidebar would, leaving the keys
+Choosing a session opens it as its row in the tree would, leaving the keys
 where they were. Choosing a directory opens a new session there: the first
 prompt sent starts it, named from its first words or from a first line
 `name: <label>`. A prompt with no words in ASCII letters, one written in
@@ -92,7 +92,7 @@ named by the local date and time, in the scratch folder: the one the settings
 name, or `$XDG_DATA_HOME/adroit/scratch` (`~/.local/share/adroit/scratch`
 when `$XDG_DATA_HOME` is unset). One never sent makes no directory.
 
-The sidebar lists everything that runs in the scratch folder as one
+The tree lists everything that runs in the scratch folder as one
 workspace, Scratch, after every other, its sessions and shells straight under
 it. Starting a session from it starts another scratch session in
 a directory of its own; a shell opened from it runs in the scratch folder.

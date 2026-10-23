@@ -3,7 +3,7 @@
 The details panel tells about what the content's focused window shows, and the
 worktree it is in, on the sheets Overview, Changes and Log
 ([content](content.md)). It follows the focus from window to window and from
-tab to tab, not the sidebar's selection; with nothing open, it has nothing to
+tab to tab, not the tree's selection; with nothing open, it has nothing to
 describe.
 
 ## Sheets

@@ -36,7 +36,7 @@ fn write_file(text: &str) -> Result<(), String> {
 fn area_hint(ctx: Context) -> &'static str {
     match ctx {
         Context::Global => "Everywhere, after the area's own bindings.",
-        Context::Sidebar => "The list of workspaces and sessions.",
+        Context::Tree => "The tree of workspaces, their files and what runs in them.",
         Context::Details => "The panel on the right.",
         Context::Console => "The console while it shows a session.",
         Context::Prompt => "The prompt, before Neovim takes the key.",
@@ -47,7 +47,7 @@ fn area_hint(ctx: Context) -> &'static str {
 fn area_title(ctx: Context) -> &'static str {
     match ctx {
         Context::Global => "Global",
-        Context::Sidebar => "Sidebar",
+        Context::Tree => "Tree",
         Context::Details => "Details",
         Context::Console => "Console",
         Context::Prompt => "Prompt",

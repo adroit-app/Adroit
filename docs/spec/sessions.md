@@ -40,7 +40,7 @@ prompt are not available. Codex menus, approvals and questions take keys
 directly while they are open. Use Codex's own interface for its commands and
 menus:
 `Ctrl-g i` passes keys through until `Esc`. Renaming in Adroit changes the
-Codex session's sidebar name only. A message with a leading `!` is pasted into
+Codex session's name in the tree only. A message with a leading `!` is pasted into
 Codex as it was written, so what Codex does with it is up to Codex.
 
 ## Instances
@@ -117,7 +117,7 @@ again. A window in the background does not acknowledge completions.
 
 ## Renaming a session
 
-Double-clicking a session's name in the sidebar or its tab edits that name
+Double-clicking a session's name in the tree or its tab edits that name
 in place. The rename action from the keyboard or menu opens the same editor.
 Enter or leaving the field accepts the name; Escape cancels. An empty or
 unchanged name leaves the session's name as it was.

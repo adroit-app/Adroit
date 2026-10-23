@@ -23,11 +23,11 @@ The entries follow the file as it changes.
 
 ## With the mouse
 
-What the keys do to a sidebar row or a tab of the content is also offered by
+What the keys do to a row of the tree or a tab of the content is also offered by
 right-clicking it, each entry with the keys bound to it. A tab closes with its
 `×`, a window takes the keys when clicked, a border between windows is dragged
 to resize them, a workspace's or worktree's row starts a session there with its `+`, and
-the buttons beside Workspaces filter the sidebar, list every worktree, read
+the buttons beside Workspaces filter the tree, list every worktree, read
 the sessions again and start a session.
 
 A click on the console, live or read, reaches a program that reads the mouse,
@@ -54,7 +54,9 @@ where each key goes.
 
 A missing file keeps adroit's own bindings. A binding to `coordinator.open`,
 `project.new`, `project.edit`, `workspace.pick`, `details.files` or
-`details.diff`, actions earlier versions had, is read and dropped. The window
+`details.diff`, actions earlier versions had, is read and dropped. The area
+earlier versions called `sidebar` is read as `tree`, and `sidebar.toggle` as
+`tree.toggle`. The window
 reads the file again when it changes; a mistake in it is reported at the bottom
 of the window, and the bindings in force stay as they were.
 
@@ -71,7 +73,7 @@ there until it is fixed.
 ## Format
 
 ```toml
-[sidebar]
+[tree]
 "Ctrl+n" = "cursor.down"
 "Ctrl+p" = "cursor.up"
 "t" = "none"
@@ -90,7 +92,7 @@ takes the keys away, so they do nothing there.
 | Area | Holds the keys for |
 | --- | --- |
 | `global` | every area, after the area's own |
-| `sidebar` | the sidebar, and the details panel after its own |
+| `tree` | the tree, and the details panel after its own |
 | `details` | the details panel |
 | `console` | the console while it shows a session |
 | `prompt` | the prompt, before Neovim |
@@ -169,9 +171,9 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 
 | Action | Does |
 | --- | --- |
-| `window.left`, `window.down`, `window.up`, `window.right` | move to the window in that direction: the sidebar lies left of the content's windows and the details panel right of them, and a session's prompt below its console |
-| `window.next`, `window.prev` | move to the window after or before the one the keys are in, from the sidebar through the content's windows, each console before its prompt, to the details panel, going round at the ends |
-| `window.top`, `window.bottom` | move to the first or the last of these, the sidebar or the details panel when shown |
+| `window.left`, `window.down`, `window.up`, `window.right` | move to the window in that direction: the tree lies left of the content's windows and the details panel right of them, and a session's prompt below its console |
+| `window.next`, `window.prev` | move to the window after or before the one the keys are in, from the tree through the content's windows, each console before its prompt, to the details panel, going round at the ends |
+| `window.top`, `window.bottom` | move to the first or the last of these, the tree or the details panel when shown |
 | `window.back` | move back to the window the keys were in before |
 | `window.split`, `window.vsplit` | split the focused window one above the other or side by side, the new window, below or right of it, showing the same ([content](content.md)) |
 | `window.new` | split the focused window one above the other and start writing a new session in the new one, in the worktree the focused window shows |
@@ -187,33 +189,33 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 | `tab.next`, `tab.prev` | show the next or previous tab of the area the keys are in: the details panel's sheets there, elsewhere the content's tabs |
 | `tab.go <n>` | show the content's tab numbered `n`, from 1 to 9, or the last when there are fewer |
 | `tab.last` | show the content's tab shown before the one shown now |
-| `tab.close` | close the content's tab shown and every window in it; agents and terminals keep running and remain reachable from the sidebar |
+| `tab.close` | close the content's tab shown and every window in it; agents and terminals keep running and remain reachable from the tree |
 | `window.close` | close the window, which ends adroit; its sessions run on |
-| `cursor.down`, `cursor.up`, `cursor.first`, `cursor.last` | move the selection in the sidebar; in the details panel, in the list it shows, or scroll what else it shows |
+| `cursor.down`, `cursor.up`, `cursor.first`, `cursor.last` | move the selection in the tree; in the details panel, in the list it shows, or scroll what else it shows |
 | `cursor.open` | open the selected session, shell or worktree in the focused window and move to its console, or to the prompt of a session not started yet; fold or unfold a workspace; in the details panel, open the selected row |
-| `cursor.show` | show the selected session, shell or worktree, as `cursor.open` does, with the keys staying in the sidebar; fold or unfold a workspace; in the details panel, open the selected row |
+| `cursor.show` | show the selected session, shell or worktree, as `cursor.open` does, with the keys staying in the tree; fold or unfold a workspace; in the details panel, open the selected row |
 | `cursor.fold` | fold the selected node; in the details panel, go back out to the list what it shows was opened from |
 | `cursor.copy` | in the details panel, copy the selected link of the overview: its address, or its file's path |
 | `cursor.reveal` | in the details panel, show the selected file of the overview in the Finder |
 | `waiting.next`, `waiting.prev` | open the next or previous session waiting on you |
-| `session.next`, `session.prev` | open the session after or before the one shown, in the sidebar's order over every session, folded away or filtered out too, going round at the ends; the keys stay in the area they are in |
+| `session.next`, `session.prev` | open the session after or before the one shown, in the tree's order over every session, folded away or filtered out too, going round at the ends; the keys stay in the area they are in |
 | `session.pick` | open the picker, to go to a session or choose where a new one works ([details](workspaces.md#going-to-a-session-or-starting-one)) |
-| `session.new` | start a session, with the prompt ready to write its first message: in the selected row's worktree or directory from the sidebar, in the one the focused window shows from elsewhere |
+| `session.new` | start a session, with the prompt ready to write its first message: in the selected row's worktree or directory from the tree, in the one the focused window shows from elsewhere |
 | `session.scratch` | start a scratch session, with the prompt ready: one that runs in a new directory of its own, for talking about something no project holds ([details](workspaces.md#scratch-sessions)) |
 | `session.agent_next`, `session.agent_prev` | while a session not started yet is shown, switch the agent it is to run to the next or the previous one ([details](sessions.md#agents)) |
 | `session.take_over` | take over an interactive session ([details](interactive-sessions.md)) |
 | `session.stop` | end a session adroit runs after asking; Claude Code keeps its conversation, for `/resume` in a session started later |
-| `session.rename` | edit the name of a session adroit runs in place; the sidebar shows it, and the session is sent Claude Code's `/rename` so its own interface says it too |
+| `session.rename` | edit the name of a session adroit runs in place; the tree shows it, and the session is sent Claude Code's `/rename` so its own interface says it too |
 | `shell.open` | open a shell in the worktree |
-| `terminal.stop` | end the terminal selected in the sidebar, or else the one shown |
+| `terminal.stop` | end the terminal selected in the tree, or else the one shown |
 | `neovim.open` | open Neovim, with your own configuration, in the worktree as `shell.open` opens a shell ([shells](terminals.md)) |
 | `scroll.down`, `scroll.up`, `scroll.half_down`, `scroll.half_up`, `scroll.top`, `scroll.bottom` | scroll the details panel; bound in the console, scroll it: Claude Code and other programs that read the mouse are sent the wheel, others are scrolled back through what scrolled off |
 | `refresh` | read the sessions, and what git says of where they run, again now |
-| `sidebar.toggle`, `details.toggle` | show or hide the sidebar, the details panel |
+| `tree.toggle`, `details.toggle` | show or hide the tree, the details panel |
 | `settings.open` | open the Settings window |
 | `daemon.restart` | restart the sessions' daemon after asking, ending every session it holds ([details](sessions.md#the-daemon)) |
 | `zoom.in`, `zoom.out`, `zoom.reset` | draw the window larger or smaller a step, or at the zoom the settings give |
-| `filter` | narrow the sidebar to the sessions, shells, workspaces and worktrees whose names hold what is typed next; `Enter` keeps it, `Escape` clears it |
+| `filter` | narrow the tree to the sessions, shells, workspaces and worktrees whose names hold what is typed next; `Enter` keeps it, `Escape` clears it |
 | `details.overview`, `details.changes`, `details.log` | show that sheet of the details panel ([details](details.md)), and the panel when it is hidden |
 | `worktrees.toggle` | list every worktree git knows, those without sessions too, or only those with sessions again |
 | `prompt.focus` | give the prompt the keys |
@@ -302,14 +304,14 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 "Mod+Plus" = "zoom.in"
 "Mod+-" = "zoom.out"
 "Mod+0" = "zoom.reset"
-"Mod+b" = "sidebar.toggle"
+"Mod+b" = "tree.toggle"
 "Mod+d" = "details.toggle"
 
 [draft]
 "Ctrl+g a" = "session.agent_next"
 "Ctrl+g A" = "session.agent_prev"
 
-[sidebar]
+[tree]
 "j" = "cursor.down"
 "ArrowDown" = "cursor.down"
 "k" = "cursor.up"

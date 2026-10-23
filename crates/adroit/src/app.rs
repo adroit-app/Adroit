@@ -1082,12 +1082,12 @@ fn mode_tip(mode: &str, dialog: bool) -> &'static str {
         "PASS" if dialog => {
             "The session shows a dialog: every key goes to it, but Ctrl+q sequences, until it closes"
         }
-        "TREE" => "The sidebar has the keys: j and k move, Enter opens. Ctrl+q l goes right",
+        "TREE" => "The tree has the keys: j and k move, Enter opens. Ctrl+q l goes right",
         "DETAILS" => {
             "The details panel has the keys: j and k move or scroll, Enter opens, h goes back, Cmd+] and Cmd+[ change the sheet"
         }
         "CONSOLE" => {
-            "The console has the keys: Vim's moves read it, i writes a prompt below, Ctrl+q h goes back to the sidebar"
+            "The console has the keys: Vim's moves read it, i writes a prompt below, Ctrl+q h goes back to the tree"
         }
         "READ" | "VISUAL" => {
             "Vim's keys move, search, select and yank in the console; q, Esc or G goes back to it live, i writes a prompt"
@@ -4975,7 +4975,7 @@ fn App() -> Element {
                 Action::SettingsOpen => settings_window::open(),
                 Action::DaemonRestart => confirm.set(Some(Ask::RestartDaemon)),
                 Action::WindowClose => dioxus::desktop::window().close(),
-                Action::SidebarToggle => toggle_panel(Side::Sidebar),
+                Action::TreeToggle => toggle_panel(Side::Sidebar),
                 Action::DetailsToggle => toggle_panel(Side::Details),
                 Action::ZoomIn | Action::ZoomOut | Action::ZoomReset => {
                     let next = match action {
@@ -5360,8 +5360,8 @@ fn App() -> Element {
             let passing = pane.is_some() && passes(area, session, waits());
             let contexts: &[Context] = match area {
                 _ if passing || windowing => &[Context::Global],
-                Area::Sidebar => &[Context::Sidebar, Context::Global],
-                Area::Details => &[Context::Details, Context::Sidebar, Context::Global],
+                Area::Sidebar => &[Context::Tree, Context::Global],
+                Area::Details => &[Context::Details, Context::Tree, Context::Global],
                 Area::Console => &[Context::Console, Context::Global],
                 Area::Prompt if nvim_insert => &[Context::Prompt],
                 Area::Prompt => &[Context::Prompt, Context::Global],
@@ -5857,28 +5857,28 @@ fn App() -> Element {
             Action::WindowRight,
         ],
     );
-    let k_waiting_prev = km.keys_for(Context::Sidebar, &Action::WaitingPrev);
-    let k_waiting_next = km.keys_for(Context::Sidebar, &Action::WaitingNext);
+    let k_waiting_prev = km.keys_for(Context::Tree, &Action::WaitingPrev);
+    let k_waiting_next = km.keys_for(Context::Tree, &Action::WaitingNext);
     // The footer names the keys that work where the keys are now.
     let here: &[Context] = match area {
-        Area::Sidebar => &[Context::Sidebar, Context::Global],
-        Area::Details => &[Context::Details, Context::Sidebar, Context::Global],
+        Area::Sidebar => &[Context::Tree, Context::Global],
+        Area::Details => &[Context::Details, Context::Tree, Context::Global],
         Area::Console => &[Context::Console, Context::Global],
         Area::Prompt => &[Context::Prompt, Context::Global],
     };
     let k_waiting_next_here = km.keys_in(here, &Action::WaitingNext);
-    let k_down = km.keys_for(Context::Sidebar, &Action::CursorDown);
-    let k_up = km.keys_for(Context::Sidebar, &Action::CursorUp);
-    let k_open = km.keys_for(Context::Sidebar, &Action::CursorOpen);
+    let k_down = km.keys_for(Context::Tree, &Action::CursorDown);
+    let k_up = km.keys_for(Context::Tree, &Action::CursorUp);
+    let k_open = km.keys_for(Context::Tree, &Action::CursorOpen);
     let k_back = km
-        .keys_in(&[Context::Details, Context::Sidebar], &Action::CursorFold)
+        .keys_in(&[Context::Details, Context::Tree], &Action::CursorFold)
         .unwrap_or_default();
-    let k_new = km.keys_for(Context::Sidebar, &Action::SessionNew);
-    let k_shell = km.keys_for(Context::Sidebar, &Action::ShellOpen);
+    let k_new = km.keys_for(Context::Tree, &Action::SessionNew);
+    let k_shell = km.keys_for(Context::Tree, &Action::ShellOpen);
     // The empty window's button is pressed from wherever the focus is.
     let k_pick = km
         .keys_for(Context::Global, &Action::SessionPick)
-        .or_else(|| km.keys_for(Context::Sidebar, &Action::SessionPick));
+        .or_else(|| km.keys_for(Context::Tree, &Action::SessionPick));
     let k_sidebar = km.keys_for(Context::Global, &Action::WindowLeft);
     let k_take_over = km.keys_for(Context::Console, &Action::SessionTakeOver);
     let k_send = km.keys_for(Context::Prompt, &Action::PromptSend);
@@ -6003,7 +6003,7 @@ fn App() -> Element {
                         }
                         div { class: "console-legend",
                             div { class: "console-legend-head",
-                                "In the sidebar"
+                                "In the tree"
                                 if let Some(k) = k_sidebar.clone() { span { class: "console-legend-reach", Keys { keys: k } " goes there" } }
                             }
                             if k_down.is_some() || k_up.is_some() {
@@ -6207,7 +6207,7 @@ fn App() -> Element {
             div { class: "header",
                 span {
                     class: if layout().show_sidebar { "pane-toggle on" } else { "pane-toggle" },
-                    title: "Show or hide the sidebar (⌘B)",
+                    title: "Show or hide the tree (⌘B)",
                     onclick: move |_| toggle_panel(Side::Sidebar),
                     IconView { icon: Icon::LayoutSidebar, size: 16 }
                 }
@@ -6561,7 +6561,7 @@ fn App() -> Element {
                 if layout().show_sidebar {
                     div {
                         class: "panel-splitter",
-                        title: "Drag to resize the sidebar; double-click for its width as designed",
+                        title: "Drag to resize the tree; double-click for its width as designed",
                         onmousedown: move |e: Event<MouseData>| {
                             e.stop_propagation();
                             e.prevent_default();
@@ -7131,9 +7131,9 @@ fn App() -> Element {
                     };
                     // The keys that work wherever the keys are come first.
                     let contexts: &[Context] = match target {
-                        Target::Row(_) => &[Context::Global, Context::Sidebar],
-                        Target::Tab(_) => &[Context::Global, Context::Console, Context::Sidebar],
-                        Target::Link { .. } => &[Context::Details, Context::Sidebar, Context::Global],
+                        Target::Row(_) => &[Context::Global, Context::Tree],
+                        Target::Tab(_) => &[Context::Global, Context::Console, Context::Tree],
+                        Target::Link { .. } => &[Context::Details, Context::Tree, Context::Global],
                     };
                     // Each entry with whether a separator goes above it.
                     let entries: Vec<(Action, &str, Option<String>, bool)> = menu::groups(&target, session.as_ref())

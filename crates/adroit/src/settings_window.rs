@@ -129,7 +129,8 @@ pub(crate) fn open_with(how: &str, path: &Path, starter: &str) {
     });
 }
 
-const KEYS_STARTER: &str = "# Key bindings over the defaults, area by area, as in\n# [sidebar]\n# \"J\" = \"cursor.down\"\n";
+const KEYS_STARTER: &str =
+    "# Key bindings over the defaults, area by area, as in\n# [tree]\n# \"J\" = \"cursor.down\"\n";
 
 #[component]
 pub fn SettingsLoadError() -> Element {

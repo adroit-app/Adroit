@@ -31,7 +31,7 @@ window commands' prefix and `Mod` keys.
 
 ## Opening
 
-Opening something, from the sidebar, the picker, the next waiting session or
+Opening something, from the tree, the picker, the next waiting session or
 anywhere else, moves the focus to the window of the shown tab that already
 shows it. When none does, it is shown in the focused window, in place of what
 that window showed, or in a new tab when nothing is open.
@@ -39,7 +39,7 @@ that window showed, or in a new tab when nothing is open.
 ## Closing
 
 Closing a window or a tab only hides what it shows: sessions, shells and
-Neovim run on, and the sidebar still reaches them. A session not started yet
+Neovim run on, and the tree still reaches them. A session not started yet
 that no window shows any longer is given up.
 
 A shell that exits or a session that ends closes every window that shows it.
