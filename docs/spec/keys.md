@@ -193,7 +193,7 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 | `window.close` | close the window, which ends adroit; its sessions run on |
 | `cursor.down`, `cursor.up`, `cursor.first`, `cursor.last` | move the selection in the tree; in the details panel, in the list it shows, or scroll what else it shows |
 | `cursor.go` | go to a window showing the selected session, shell, worktree or file, in any tab, or else open it as `cursor.open` does; in the details panel, open the selected row |
-| `cursor.open` | open the selected session, shell, worktree or file in the focused window, in place of what it shows, and move to it, or to the prompt of a session not started yet; fold or unfold a workspace, a heading or a directory; in the details panel, open the selected row |
+| `cursor.open` | open the selected session, shell, worktree or file in the focused window, in place of what it shows, and move to it, or to the prompt of a session not started yet; on a folded row, a worktree or a session holding others too, unfold it instead; fold or unfold a workspace, a heading or a directory; in the details panel, open the selected row |
 | `cursor.split`, `cursor.vsplit` | open the selected session, shell, worktree or file as `cursor.open` does, in a new window split off the focused one, below it or beside it |
 | `cursor.tab` | open the selected session, shell, worktree or file as `cursor.open` does, in a new tab after the one shown |
 | `cursor.show` | open the selected session, shell, worktree or file in the focused window as `cursor.open` does, with the keys staying in the tree; fold or unfold a workspace, a heading or a directory; in the details panel, open the selected row |

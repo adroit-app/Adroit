@@ -1247,9 +1247,11 @@ fn row_tip(item: &Item) -> &'static str {
             "A workspace: a git repository or a directory sessions run in. Enter folds it; n starts a session there"
         }
         Item::Worktree(_) => {
-            "A worktree: a checkout of the repository, on a branch of its own. Enter or n starts a session in it, s a shell"
+            "A worktree: a checkout of the repository, on a branch of its own. Enter or l unfolds it while folded, else opens its session; n starts a session in it, s a shell"
         }
-        Item::Session(_) | Item::Waiting(_) => "A session. Enter opens it",
+        Item::Session(_) | Item::Waiting(_) => {
+            "A session. Enter opens it, or unfolds the sessions it started while they are folded"
+        }
         Item::Terminal(_) => {
             "A terminal adroit runs. Enter shows it; closing its tab leaves it running"
         }
@@ -3294,7 +3296,8 @@ fn App() -> Element {
         }
     });
     // Open a row where `how` says, or as anything else opens a thing when it
-    // says nothing. Only the keys that open in place fold a row.
+    // says nothing. Only the keys that open in place fold a row, and on a
+    // folded one they unfold it first.
     let mut open = move |item: Item, how: Option<Opening>| {
         // Typing stops going to the filter once a row is taken; what it
         // narrowed to stays.
@@ -3303,6 +3306,10 @@ fn App() -> Element {
         }
         selected.set(Some(item.clone()));
         let in_place = matches!(how, None | Some(Opening::Existing | Opening::Here));
+        if in_place && nav::unfolds(&item, &shown_tree.peek(), &folds.peek()) {
+            folds.write().set(&item, true);
+            return;
+        }
         let show = move |thing: Tab| match how {
             Some(how) => middle.edit(|c| c.open_in(thing, how)),
             None => middle.open(thing),
@@ -5028,10 +5035,11 @@ fn App() -> Element {
                             Action::CursorTab => Opening::Tab,
                             _ => Opening::Here,
                         };
-                        let toggles = matches!(
-                            nav::opens(&item, &shown_tree.peek(), &terminals.peek()),
-                            nav::Opens::Fold
-                        );
+                        let toggles = nav::unfolds(&item, &shown_tree.peek(), &folds.peek())
+                            || matches!(
+                                nav::opens(&item, &shown_tree.peek(), &terminals.peek()),
+                                nav::Opens::Fold
+                            );
                         open(item, Some(how));
                         // A Neovim still starting takes the keys once it has.
                         if terminal_ask.peek().is_some()
@@ -5059,7 +5067,7 @@ fn App() -> Element {
                     // An open node folds; any other row goes to the one it
                     // sits under, as fern's `h` does.
                     if let Some(item) = &cur {
-                        if folds.peek().is_open(item) {
+                        if folds.peek().is_open(item) && nav::holds(item, &shown_tree.peek()) {
                             folds.write().set(item, false);
                         } else if let Some(up) = nav::parent(&list, &shown_tree.peek(), item) {
                             selected.set(Some(up));
