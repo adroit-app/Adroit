@@ -1,5 +1,5 @@
-use adroit::prompts::Drafts;
-use adroit::tabs::{DraftOptions, Tab};
+use adroit_core::prompts::Drafts;
+use adroit_core::tabs::{DraftOptions, Tab};
 use adroit_model::{Agent, AgentPermissions};
 use std::collections::HashMap;
 

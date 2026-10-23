@@ -1,7 +1,7 @@
-use adroit::execution::TerminalStartRequest;
-use adroit::settings::Settings;
-use adroit::terminals;
 use adroit_model::TerminalResourceId;
+use adroit_runtime::execution::TerminalStartRequest;
+use adroit_runtime::settings::Settings;
+use adroit_runtime::terminals;
 use adroit_term::Daemon;
 use std::os::unix::fs::PermissionsExt;
 use std::time::Duration;

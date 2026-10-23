@@ -1,4 +1,5 @@
-//! Tells a debug build which source it was made from, for its window title.
+//! Tells a debug build which source it was made from, for its window title
+//! and for telling its daemon apart from another build's.
 
 fn main() {
     describe();

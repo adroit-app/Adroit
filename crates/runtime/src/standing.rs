@@ -4,9 +4,13 @@ use std::path::{Path, PathBuf};
 
 use adroit_term::Daemon;
 
+/// Which source a debug build was made from, as `git describe` tells it;
+/// none for a release, which its version names.
+pub const DESCRIBED: Option<&str> = option_env!("ADROIT_DESCRIBE");
+
 /// The build of adroit this is, to tell a daemon of another from.
 pub fn build() -> String {
-    build_of(env!("CARGO_PKG_VERSION"), option_env!("ADROIT_DESCRIBE"))
+    build_of(env!("CARGO_PKG_VERSION"), DESCRIBED)
 }
 
 fn build_of(version: &str, described: Option<&str>) -> String {

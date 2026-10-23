@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use adroit::{execution::deliver, settings::Settings};
 use adroit_model::Agent;
+use adroit_runtime::{execution::deliver, settings::Settings};
 
 #[tokio::test]
 async fn codex_delivery_targets_a_uuid_and_passes_the_envelope_as_one_argument() {

@@ -29,16 +29,17 @@ fn script(title: &str, subtitle: &str, body: &str) -> String {
     )
 }
 
-/// Show a notification that the session `name` waits, for `why`.
-pub fn notify_waiting(name: &str, why: &str) {
+/// Show a notification that the session `name` waits, for `why`, once the
+/// future it gives is run.
+pub fn notify_waiting(name: &str, why: &str) -> impl std::future::Future<Output = ()> + use<> {
     let mut cmd = tokio::process::Command::new("osascript");
     cmd.args(["-e", &script("Adroit", name, why)])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
-    dioxus::prelude::spawn(async move {
+    async move {
         let _ = cmd.status().await;
-    });
+    }
 }
 
 #[cfg(test)]
