@@ -147,6 +147,28 @@ fn passing_every_key_sends_them_as_they_are_until_escape() {
 }
 
 #[test]
+fn text_pasted_into_the_session_is_asked_for_once_the_keys_leave_it() {
+    let run = window().send_all([
+        Msg::PromptRuns(true),
+        Msg::EditorAnswers,
+        Msg::ConsolePassEveryKey,
+        Msg::Text {
+            text: "pasted words".into(),
+            pasted: true,
+        },
+    ]);
+    assert_eq!(
+        run.last_effects(),
+        [Effect::PaneText {
+            text: "pasted words".into(),
+            pasted: true
+        }]
+    );
+    let run = run.send(key("Escape")).send(Msg::AskInput);
+    assert_eq!(run.last_effects(), [Effect::AskInput(tab("a"))]);
+}
+
+#[test]
 fn passing_every_key_stops_without_a_program_to_pass_them_to() {
     let run = window().send_all([
         Msg::ConsolePassEveryKey,
@@ -464,4 +486,30 @@ fn a_dialog_is_open_while_the_host_saw_one_on_the_screen_of_the_session_shown() 
     assert!(!run.state().console.dialog);
     let run = run.event(dialog(4, "b", true));
     assert!(run.state().console.dialog);
+}
+
+#[test]
+fn a_command_key_runs_the_window_s_binding_while_a_dialog_takes_every_key() {
+    let stop = || Key::new("Backspace").meta();
+    let inserting = Probe {
+        pane: true,
+        inserting: true,
+        ..Default::default()
+    };
+    let cases = [
+        ("console", Area::Console, with_pane()),
+        ("prompt", Area::Prompt, with_pane()),
+        ("inserting", Area::Prompt, inserting),
+    ];
+    for (why, area, probe) in cases {
+        let run = window()
+            .event(dialog(2, "a", true))
+            .send(Msg::Focus(area))
+            .send(press(stop(), probe));
+        assert_eq!(
+            run.last_effects(),
+            [Effect::PerformKey(Action::SessionStop, stop())],
+            "{why}"
+        );
+    }
 }

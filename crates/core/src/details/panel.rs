@@ -229,7 +229,9 @@ pub(crate) fn press(details: &mut Details, work: Option<&WorkSnapshot>, key: Key
         // A row opened from the overview shows no list: the keys scroll,
         // and those that fold go back to the overview.
         (_, Some(Listing::Links(_)))
-            if details.drill.agent().is_some() || details.drill.process().is_some() =>
+            if details.drill.agent().is_some()
+                || details.drill.message().is_some()
+                || details.drill.process().is_some() =>
         {
             match key {
                 Key::Fold => {
@@ -1188,6 +1190,39 @@ mod tests {
             }],
         ));
         assert_eq!(gone.state().details.drill.agent(), None);
+    }
+
+    #[test]
+    fn the_keys_that_go_back_leave_a_message_opened_for_the_overview() {
+        let note = Note {
+            id: "n1".into(),
+            outgoing: false,
+            other: "leader".into(),
+            kind: "message".into(),
+            body: "Look around".into(),
+            sent_ms: 0,
+        };
+        let opened = Scenario::new()
+            .event(snapshot(read(
+                "a",
+                SessionRead {
+                    links: Some(Links::default()),
+                    notes: Some(vec![note]),
+                    ..Default::default()
+                },
+            )))
+            .send(shown(Some("a"), None))
+            .send_all([Msg::DetailsKey(Key::Down), Msg::DetailsKey(Key::Open)]);
+        assert_eq!(opened.state().details.drill.message(), Some("n1"));
+        let scrolled = opened.send(Msg::DetailsKey(Key::Down));
+        assert_eq!(local(&scrolled), [Effect::ScrollDetails(Scroll::Down)]);
+        let back = scrolled.send(Msg::DetailsKey(Key::Fold));
+        assert_eq!(back.state().details.drill.message(), None);
+        let Some(ref l @ Listing::Links(ref entries)) = overview_of(&back) else {
+            panic!("the overview is shown");
+        };
+        let at = back.state().details.drill.selected(l).unwrap();
+        assert!(matches!(&entries[at], Entry::Message(n) if n.id == "n1"));
     }
 
     #[test]
