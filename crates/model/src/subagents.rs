@@ -1,7 +1,9 @@
 //! The subagents a session runs: how each stands and the steps it took.
 
+use serde::{Deserialize, Serialize};
+
 /// How a subagent stands.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Standing {
     Running,
     /// It finished its work.
@@ -12,7 +14,7 @@ pub enum Standing {
 }
 
 /// A step a subagent took.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Step {
     /// A tool it called, and what the call was about.
     Tool { name: String, about: String },
@@ -21,7 +23,7 @@ pub enum Step {
 }
 
 /// A subagent a session started through Claude Code's `Agent` tool.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Agent {
     /// The id of the tool call that started it, which tells it apart.
     pub call: String,

@@ -1,32 +1,7 @@
 //! What the details panel reads of a worktree: the files a change touches,
 //! one file's diff in it, or the history.
 
-use crate::{Change, Commit, DiffLine, Error, Repo, Revision, git, jj};
-
-/// Where changes are read from.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Rev {
-    /// What is being worked on: git's worktree, or jj's `@`.
-    WorkingCopy,
-    /// A commit, or a jj change, by its [`Commit::id`].
-    Commit(String),
-}
-
-/// What a level of a sheet shows.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Spot {
-    Files(Rev),
-    Diff(Rev, Change),
-    Log,
-}
-
-/// What was read for a spot.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Listing {
-    Files(Vec<Change>),
-    Log(Vec<Commit>),
-    Diff(Vec<DiffLine>),
-}
+use crate::{Error, Listing, Repo, Rev, Revision, Spot, git, jj};
 
 /// How much is read for a spot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

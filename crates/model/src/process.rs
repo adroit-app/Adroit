@@ -2,8 +2,10 @@
 
 use std::path::PathBuf;
 
+use serde::{Deserialize, Serialize};
+
 /// A live process of a session's, or one under it.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Process {
     pub key: String,
     pub pid: u32,

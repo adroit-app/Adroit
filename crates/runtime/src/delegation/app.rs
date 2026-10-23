@@ -193,7 +193,7 @@ pub fn notes(
                 } else {
                     name(message.sender)
                 },
-                kind: message.kind.key(),
+                kind: message.kind.key().into(),
                 body: message.body.clone(),
                 sent_ms: message.sent_ms,
             }

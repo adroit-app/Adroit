@@ -1,6 +1,8 @@
 //! Provider-reported facts about one conversation.
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Tokens {
     /// All input tokens, including cache reads and writes.
     pub input: u64,
@@ -15,7 +17,7 @@ impl Tokens {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConversationStats {
     pub tokens: Option<Tokens>,
     pub model: Option<String>,

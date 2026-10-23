@@ -1,7 +1,9 @@
 //! How much of the account's usage limits is used.
 
+use serde::{Deserialize, Serialize};
+
 /// The span a limit counts usage over.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Window {
     /// The current session, the few hours since usage began.
     Session,
@@ -15,7 +17,7 @@ pub enum Window {
 }
 
 /// How near Claude Code says a limit is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Severity {
     Normal,
     Warning,
@@ -23,7 +25,7 @@ pub enum Severity {
 }
 
 /// One limit and how much of it is used.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Limit {
     pub window: Window,
     /// Used, from 0 to 100; above 100 once the limit is passed.

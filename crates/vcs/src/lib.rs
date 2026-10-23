@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 
 use tokio::process::Command;
 
-mod change;
 mod discover;
 pub mod ghq;
 pub mod git;
@@ -14,10 +13,16 @@ mod marks;
 mod view;
 pub mod worktree;
 
-pub use change::*;
+pub use adroit_model::repository::*;
 pub use discover::*;
 pub use marks::*;
 pub use view::*;
+
+/// The most diff lines read; the rest is cut.
+pub const DIFF_LINES: usize = 2000;
+
+/// The most diff bytes read, for a diff of few but very long lines.
+pub const DIFF_BYTES: usize = 1 << 20;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

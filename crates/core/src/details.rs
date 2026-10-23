@@ -6,8 +6,11 @@ use std::sync::Arc;
 
 use adroit_model::links::{Kind as LinkKind, Link, Peer, Touch};
 use adroit_model::subagents::{Agent, Standing};
+use adroit_model::time::ago;
 use adroit_model::usage::{Limit, Severity, Window};
 use adroit_model::{Session, State};
+
+pub use adroit_model::Note;
 use adroit_vcs::{Change, Commit, DiffLine, Rev, Spot};
 
 /// One line of what the overview says about a session.
@@ -118,20 +121,6 @@ fn tokens(n: u64) -> String {
 
 fn plural(n: u64, one: &str, many: &str) -> String {
     format!("{n} {}", if n == 1 { one } else { many })
-}
-
-/// `ms` milliseconds back, in the largest whole unit.
-fn ago(ms: u64) -> String {
-    let min = ms / 60_000;
-    match min {
-        0 => "just now".into(),
-        1..60 => format!("{min} min ago"),
-        60..1440 => format!("{} h ago", min / 60),
-        _ => match min / 1440 {
-            1 => "1 day ago".into(),
-            d => format!("{d} days ago"),
-        },
-    }
 }
 
 /// A usage limit as the foot of the overview draws it.
@@ -682,39 +671,6 @@ pub fn overview_shown(
         }
     }
     out
-}
-
-/// A message the session shown sent or received through Adroit, as the
-/// overview lists it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Note {
-    pub id: String,
-    /// Whether the session shown sent it.
-    pub outgoing: bool,
-    /// The session on the other end, by name; Adroit for its own notices.
-    pub other: String,
-    /// `message`, `report` or `notice`.
-    pub kind: &'static str,
-    pub body: String,
-    pub sent_ms: u64,
-}
-
-impl Note {
-    /// Its first line, to list it by.
-    pub fn summary(&self) -> &str {
-        self.body.lines().next().unwrap_or_default()
-    }
-
-    /// Who it went between and what it is, `now_ms` telling how long ago.
-    pub fn tag(&self, now_ms: u64) -> String {
-        let way = if self.outgoing { "to" } else { "from" };
-        format!(
-            "{} · {way} {} · {}",
-            self.kind,
-            self.other,
-            ago(now_ms.saturating_sub(self.sent_ms))
-        )
-    }
 }
 
 /// The overview's `entries` with `notes`, newest first, under their heading
@@ -1308,14 +1264,6 @@ mod tests {
         };
         let got = overview_facts(&s, &adroit_model::ConversationStats::default(), None, 0);
         assert_eq!(labels(&got), ["State"]);
-    }
-
-    #[test]
-    fn how_long_ago_reads_in_the_largest_whole_unit() {
-        assert_eq!(ago(30_000), "just now");
-        assert_eq!(ago(90_000), "1 min ago");
-        assert_eq!(ago(3 * 3_600_000 + 1), "3 h ago");
-        assert_eq!(ago(2 * 86_400_000), "2 days ago");
     }
 
     fn limit(window: Window, percent: f64, resets_ms: Option<u64>) -> Limit {

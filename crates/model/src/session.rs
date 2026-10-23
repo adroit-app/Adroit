@@ -6,7 +6,18 @@ use crate::{AgentPermissions, SessionId};
 
 /// The program that owns a session's conversation.
 #[derive(
-    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema,
+    Debug,
+    Clone,
+    Copy,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    schemars::JsonSchema,
 )]
 #[serde(rename_all = "lowercase")]
 pub enum Agent {
@@ -47,7 +58,7 @@ impl Agent {
 
 /// An agent session: one adroit runs, or one running in another
 /// terminal that Claude Code lists.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Session {
     /// Adroit's record of the session, for one Adroit started.
     pub delegation: Option<SessionId>,
@@ -97,7 +108,7 @@ impl Session {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Kind {
     /// Runs in another terminal, where adroit cannot show it.
     Interactive,
@@ -106,7 +117,7 @@ pub enum Kind {
     Own,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum State {
     Waiting(Wait),
     /// Started by adroit and not yet reported on: Claude Code runs no hooks
@@ -156,7 +167,7 @@ impl State {
 }
 
 /// What a waiting session is waiting for.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Wait {
     Permission,
     Input,

@@ -1,8 +1,11 @@
 //! What a repository says, whichever version control reads it: the files a
-//! change touches, the changes of a history, and the lines of a diff.
+//! change touches, the changes of a history, the lines of a diff, and which
+//! of them the details panel asks for.
+
+use serde::{Deserialize, Serialize};
 
 /// A file a change touches.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Change {
     /// How it changed: git's two letters for the worktree, index then
     /// worktree (`M `, ` M`, `??`, …), and one for a commit (`M`, `A`, `D`,
@@ -33,7 +36,7 @@ impl Change {
 }
 
 /// A commit, or a jj change.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Commit {
     /// What names it: a commit hash, or a change ID, which a rewrite keeps.
     pub id: String,
@@ -55,14 +58,14 @@ pub struct Commit {
 }
 
 /// The identity and full description of a single revision.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Revision {
     pub id: String,
     pub short: String,
     pub description: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DiffKind {
     File,
     Hunk,
@@ -71,17 +74,36 @@ pub enum DiffKind {
     Context,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DiffLine {
     pub kind: DiffKind,
     pub text: String,
 }
 
-/// The most diff lines read; the rest is cut.
-pub const DIFF_LINES: usize = 2000;
+/// Where changes are read from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Rev {
+    /// What is being worked on: git's worktree, or jj's `@`.
+    WorkingCopy,
+    /// A commit, or a jj change, by its [`Commit::id`].
+    Commit(String),
+}
 
-/// The most diff bytes read, for a diff of few but very long lines.
-pub const DIFF_BYTES: usize = 1 << 20;
+/// What a level of a sheet shows.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Spot {
+    Files(Rev),
+    Diff(Rev, Change),
+    Log,
+}
+
+/// What was read for a spot.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Listing {
+    Files(Vec<Change>),
+    Log(Vec<Commit>),
+    Diff(Vec<DiffLine>),
+}
 
 #[cfg(test)]
 mod tests {

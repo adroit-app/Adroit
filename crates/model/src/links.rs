@@ -3,6 +3,8 @@
 
 use std::path::Path;
 
+use serde::{Deserialize, Serialize};
+
 use crate::subagents::Agent;
 
 /// The most links each group keeps: the newest. The window shows fewer, as
@@ -10,7 +12,7 @@ use crate::subagents::Agent;
 pub const KEPT: usize = 1000;
 
 /// How a session came across a file.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum Touch {
     /// Named in a reply.
     Mentioned,
@@ -21,7 +23,7 @@ pub enum Touch {
 }
 
 /// What a link points at.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Kind {
     /// A claude.ai artifact.
     Artifact,
@@ -31,7 +33,7 @@ pub enum Kind {
 }
 
 /// Something a session brought up.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Link {
     pub kind: Kind,
     /// The address, or the file's absolute path.
@@ -43,7 +45,7 @@ pub struct Link {
 }
 
 /// Another session a session exchanged messages with through Claude Code.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Peer {
     /// The name Claude Code addresses it by.
     pub name: String,
@@ -54,7 +56,7 @@ pub struct Peer {
 }
 
 /// An image file a session came across.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ImageFile {
     /// The file's absolute path.
     pub path: String,
@@ -80,7 +82,7 @@ pub fn is_image(path: &str) -> bool {
 
 /// What a session brought up, each group newest first, and the subagents
 /// it runs.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Links {
     pub artifacts: Vec<Link>,
     pub urls: Vec<Link>,
