@@ -1,7 +1,16 @@
-//! The window's chrome: how far it is zoomed.
+//! The window's chrome: its title, how far it is zoomed, how its side panels
+//! are laid out, what its status line says, and whether the keys help is
+//! shown.
+
+pub mod panels;
+pub mod status_line;
 
 use crate::effect::Effect;
+use crate::keymap::Context;
 use crate::zoom::{self, Step};
+
+pub use panels::Panels;
+pub use status_line::StatusLine;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Chrome {
@@ -9,6 +18,10 @@ pub struct Chrome {
     pub zoom: f64,
     /// The zoom the settings name, which a reset returns to.
     setting: f64,
+    pub panels: Panels,
+    pub status: StatusLine,
+    /// The keys help, with the areas the keys were in when it was opened.
+    pub keys_help: Option<Vec<Context>>,
 }
 
 impl Default for Chrome {
@@ -16,7 +29,19 @@ impl Default for Chrome {
         Self {
             zoom: 1.0,
             setting: 1.0,
+            panels: Panels::default(),
+            status: StatusLine::default(),
+            keys_help: None,
         }
+    }
+}
+
+/// The window's title: with what `git describe` said of the source, which
+/// only a debug build is told.
+pub fn title(described: Option<&str>) -> String {
+    match described {
+        Some(d) => format!("Adroit ({d})"),
+        None => "Adroit".into(),
     }
 }
 
@@ -45,9 +70,22 @@ pub(crate) fn setting(chrome: &mut Chrome, setting: f64) -> Vec<Effect> {
     open(chrome, setting)
 }
 
+/// The keys help shown for the keys of `here`, nearest first.
+pub(crate) fn open_keys_help(chrome: &mut Chrome, here: Vec<Context>) -> Vec<Effect> {
+    chrome.keys_help = Some(here);
+    Vec::new()
+}
+
+pub(crate) fn close_keys_help(chrome: &mut Chrome) -> Vec<Effect> {
+    chrome.keys_help = None;
+    Vec::new()
+}
+
 #[cfg(test)]
 mod tests {
+    use super::title;
     use crate::effect::Effect;
+    use crate::keymap::Context;
     use crate::msg::Msg;
     use crate::scenario::Scenario;
     use crate::zoom::Step;
@@ -110,5 +148,20 @@ mod tests {
                 .collect();
             assert_eq!(last, effects, "{msgs:?}");
         }
+    }
+
+    #[test]
+    fn a_build_that_knows_its_source_names_it_in_the_title() {
+        assert_eq!(title(Some("6b5486a-dirty")), "Adroit (6b5486a-dirty)");
+        assert_eq!(title(None), "Adroit");
+    }
+
+    #[test]
+    fn the_keys_help_opens_for_where_the_keys_are_and_closes() {
+        let here = vec![Context::Tree, Context::Global];
+        let run = Scenario::new().send(Msg::KeysHelpOpen(here.clone()));
+        assert_eq!(run.state().chrome.keys_help, Some(here));
+        let run = run.send(Msg::KeysHelpClose);
+        assert_eq!(run.state().chrome.keys_help, None);
     }
 }

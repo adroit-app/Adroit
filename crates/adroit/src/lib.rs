@@ -54,7 +54,7 @@ pub use adroit_runtime::scratch;
 use adroit_runtime::sessions;
 pub use adroit_runtime::settings;
 mod settings_window;
-pub use adroit_core::status;
+mod shell;
 use adroit_runtime::standing;
 mod style;
 mod subagent_view;

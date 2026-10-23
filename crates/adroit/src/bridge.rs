@@ -13,6 +13,7 @@ use adroit_core::update::step;
 use adroit_runtime::work::{Host, HostLink, Loopback};
 use dioxus::prelude::*;
 
+use crate::layout::{Kept as _, Layout};
 use crate::settings;
 
 /// What components read of the view state and how they change it. A slice's
@@ -33,18 +34,20 @@ pub(crate) fn use_app() -> AppCtx {
         let (link, mut events) = Loopback::new(Host::default());
         let link: Rc<dyn HostLink> = Rc::new(link);
         let mut view = ViewState::default();
-        let effects = step(
+        let mut effects = step(
             &mut view,
             Msg::Opened {
                 zoom: settings::current().zoom,
             },
         );
+        effects.extend(step(&mut view, Msg::PanelsKept(Layout::load())));
         let app = AppCtx {
             chrome: Signal::new(view.chrome.clone()),
             host: Signal::new(view.host.clone()),
             view: CopyValue::new(view),
             link: CopyValue::new(link),
         };
+        provide_context(app);
         app.run(effects);
         spawn(async move {
             while let Some(event) = events.recv().await {
@@ -78,8 +81,43 @@ impl AppCtx {
             Effect::Zoom(level) => {
                 let _ = dioxus::desktop::window().webview.zoom(level);
             }
+            Effect::KeepLayout(layout) => layout.save(),
+            Effect::LapseNotice {
+                notice,
+                text,
+                after,
+            } => {
+                let app = *self;
+                spawn(async move {
+                    tokio::time::sleep(after).await;
+                    app.dispatch(Msg::NoticeLapsed { notice, text });
+                });
+            }
             Effect::Host(_) => unreachable!("requests go to the host link"),
         });
+    }
+}
+
+impl AppCtx {
+    /// Show `line` in the status line until something replaces it, or
+    /// clear it.
+    pub(crate) fn status(&self, line: Option<String>) {
+        self.dispatch(Msg::Status(line));
+    }
+
+    /// Show `text` in the status line for a while.
+    pub(crate) fn notice(&self, text: String) {
+        self.dispatch(Msg::Notice(text));
+    }
+
+    /// Show the error `text` while it lasts, or, with `None`, take back the
+    /// one this source showed before; a message shown since stays.
+    pub(crate) fn while_failing(&self, last: &mut Option<String>, text: Option<String>) {
+        self.dispatch(Msg::Failing {
+            last: last.clone(),
+            now: text.clone(),
+        });
+        *last = text;
     }
 }
 

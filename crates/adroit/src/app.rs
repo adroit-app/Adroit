@@ -20,7 +20,7 @@ use tokio::sync::{Notify, mpsc, oneshot};
 
 use crate::actions::Action;
 use crate::alerts;
-use crate::bridge::use_app;
+use crate::bridge::{AppCtx, use_app};
 use crate::bundled_font::{faces, use_bundled_font};
 use crate::complete::{self, candidates};
 use crate::completion::Completions;
@@ -45,8 +45,8 @@ use crate::image_window;
 use crate::keymap::{Chord, Context, Keymap, MENU_KEYS, Step};
 use crate::keys;
 use crate::keys_help::{self, Press};
-use crate::keys_help_view::{self, KeysHelpView};
-use crate::layout::{self, Kept as _, Layout, Side};
+use crate::keys_help_view;
+use crate::layout::Side;
 use crate::menu::{self, Target};
 use crate::menu_bar;
 use crate::nav::{self, Item, Place};
@@ -63,8 +63,14 @@ use crate::scratch::{self, Moment};
 use crate::sessions::{self, Kept};
 use crate::settings;
 use crate::settings_window;
+use crate::shell::{
+    self,
+    header::{Crumbs, Header},
+    overlays::KeysHelp,
+    panels::Splitter,
+    status_bar::StatusBar,
+};
 use crate::standing::{self, Standing};
-use crate::status;
 use crate::style::{CSS, CellHeight, DEFAULT_CELL_HEIGHT};
 use crate::subagent_view::{SubagentView, agent_glyph};
 use crate::tabs::{self, Tab, fresh_name, label_from, named, shows_prompt};
@@ -90,15 +96,6 @@ fn initial_palette() -> Palette {
     themes::palette(&settings::current().theme, &crate::settings::themes_dir()).unwrap_or_default()
 }
 
-/// The window's title: with what `git describe` said of the source, which
-/// only a debug build is told.
-fn title(described: Option<&str>) -> String {
-    match described {
-        Some(d) => format!("Adroit ({d})"),
-        None => "Adroit".into(),
-    }
-}
-
 /// Open the window.
 pub fn launch() {
     use dioxus::desktop::{Config as Desktop, LogicalSize, WindowBuilder};
@@ -106,7 +103,7 @@ pub fn launch() {
     let cfg = Desktop::new()
         .with_window(
             WindowBuilder::new()
-                .with_title(title(
+                .with_title(adroit_core::chrome::title(
                     crate::standing::DESCRIBED.filter(|_| cfg!(debug_assertions)),
                 ))
                 .with_inner_size(LogicalSize::new(1440.0, 900.0)),
@@ -613,47 +610,6 @@ const NVIM_SETTLE: Duration = Duration::from_secs(2);
 /// arriving after it is taken for the user's own and opens their editor.
 const PULL_WAIT: Duration = Duration::from_secs(10);
 
-/// How long a notice stays in the status line. Errors and work under way stay
-/// until something replaces them.
-const NOTICE_FOR: Duration = Duration::from_secs(5);
-
-/// The status line, and how many notices it has shown.
-#[derive(Clone, Copy)]
-struct Status {
-    line: Signal<Option<String>>,
-    notices: Signal<u64>,
-}
-
-impl Status {
-    /// Show the error `text` while it lasts, or, with `None`, take back the
-    /// one this source showed before; a message shown since stays.
-    fn while_failing(mut self, last: &mut Option<String>, text: Option<String>) {
-        let next = status::after_read(
-            self.line.peek().as_deref(),
-            last.as_deref(),
-            text.as_deref(),
-        );
-        if let Some(line) = next {
-            self.line.set(line);
-        }
-        *last = text;
-    }
-
-    /// Show `text` for a while: what just happened, or a hint for what was
-    /// just tried, which would read as the state of things if it stayed.
-    fn notice(mut self, text: String) {
-        self.line.set(Some(text.clone()));
-        let this = *self.notices.peek() + 1;
-        self.notices.set(this);
-        spawn(async move {
-            tokio::time::sleep(NOTICE_FOR).await;
-            if *self.notices.peek() == this && self.line.peek().as_deref() == Some(text.as_str()) {
-                self.line.set(None);
-            }
-        });
-    }
-}
-
 /// The console screen's top padding.
 const SCREEN_TOP: f64 = 10.0;
 
@@ -846,35 +802,6 @@ fn starts_reading(area: Area, session: bool, passing: bool, reading: bool) -> bo
 /// Command or with `Mod`.
 fn app_key(key: &Key) -> bool {
     key.meta || Chord::held_mod(key)
-}
-
-/// What the mode chip's word means, `dialog` while the session in the console
-/// shows a dialog of Claude Code's own.
-fn mode_tip(mode: &str, dialog: bool) -> &'static str {
-    match mode {
-        "PASS" if dialog => {
-            "The session shows a dialog: every key goes to it, but Ctrl+q sequences, until it closes"
-        }
-        "TREE" => "The tree has the keys: j and k move, Enter opens. Ctrl+q l goes right",
-        "DETAILS" => {
-            "The details panel has the keys: j and k move or scroll, Enter opens, h goes back, Cmd+] and Cmd+[ change the sheet"
-        }
-        "CONSOLE" => {
-            "The console has the keys: Vim's moves read it, i writes a prompt below, Ctrl+q h goes back to the tree"
-        }
-        "VIEWER" => {
-            "The viewer has the keys: j and k scroll, + and - zoom, q closes it. Ctrl+q h goes back to the tree"
-        }
-        "READ" | "VISUAL" => {
-            "Vim's keys move, search, select and yank in the console; q, Esc or G goes back to it live, i writes a prompt"
-        }
-        "PASS" => "Every key goes to the console's program, but Ctrl+q sequences",
-        "DIRECT" => "Every key goes to the session until Esc",
-        "PICK" => "Choosing where a session works: type to narrow, Enter chooses, Esc closes",
-        "INSERT" => "Writing a prompt: Ctrl+Enter sends it, Esc stops writing",
-        "NORMAL" => "The prompt takes Vim commands: i writes again, Ctrl+q k goes up",
-        _ => "The prompt is Neovim; this is its mode",
-    }
 }
 
 fn row_badge(tree: &Tree, item: &Item) -> Option<&'static str> {
@@ -1235,9 +1162,8 @@ async fn take_input(
     path: &Path,
     pull: &mut Signal<Option<Tab>>,
     prompts: Prompts,
-    notify: Status,
+    app: AppCtx,
 ) -> Response {
-    let mut status = notify.line;
     let Some(tab) = pull.peek().clone() else {
         return Response::Declined;
     };
@@ -1258,11 +1184,11 @@ async fn take_input(
         return Response::Taken(0);
     }
     if let Err(e) = std::fs::write(path, "") {
-        status.set(Some(format!("cannot clear the session's input: {e}")));
+        app.status(Some(format!("cannot clear the session's input: {e}")));
         return Response::Taken(0);
     }
     let n = lines.len();
-    notify.notice(moved_notice(n));
+    app.notice(moved_notice(n));
     Response::Taken(n)
 }
 
@@ -1653,6 +1579,8 @@ fn App() -> Element {
     // the last.
     let mut read_rows = use_signal(|| (0usize, 0usize));
     let app = use_app();
+    // The zoom alone, which the console is measured again for.
+    let zoomed = use_memo(move || app.chrome.read().zoom);
     // The settings the console's font is drawn by, and the height of a line
     // measured in it.
     let mut font = use_signal(settings::current);
@@ -1660,23 +1588,19 @@ fn App() -> Element {
     use_context_provider(|| CellHeight(cell_height_now));
     // The theme's palette, which a new theme replaces.
     let palette = use_signal(initial_palette);
-    // The side panels' widths and whether they are shown, kept across runs.
-    let mut layout = use_signal(Layout::load);
-    // A side panel's edge being dragged: which, and where the pointer and
-    // the width were when it was taken.
-    let mut dragging = use_signal(|| None::<(Side, f64, f64)>);
+    // The side panels' widths and whether they are shown, as the chrome
+    // holds them.
+    let layout = use_memo(move || app.chrome.read().panels.layout);
     // A border between windows being dragged.
     let mut win_drag = use_signal(|| None::<WindowDrag>);
     // How large the content's windows are drawn, all of them and each that
     // is not focused, whose program is sized to it.
     let mut windows_box = use_signal(|| (0.0f64, 0.0f64));
     let mut win_boxes = use_signal(HashMap::<WindowId, (f64, f64)>::new);
-    let mut body_width = use_signal(|| 1200.0_f64);
     // Hiding the panel the keys are in gives them to the console.
     let mut toggle_panel = move |side: Side| {
-        let next = layout.peek().toggled(side);
-        layout.set(next);
-        next.save();
+        app.dispatch(Msg::PanelToggle(side));
+        let next = app.chrome.peek().panels.layout;
         let hidden = match side {
             Side::Sidebar => !next.show_sidebar && *focus.peek() == Area::Sidebar,
             Side::Details => !next.show_details && *focus.peek() == Area::Details,
@@ -1710,12 +1634,6 @@ fn App() -> Element {
             }
         }
     });
-    let mut status = use_signal(|| None::<String>);
-    let notices = use_signal(|| 0u64);
-    let notify = Status {
-        line: status,
-        notices,
-    };
     // The keys pressed so far of a binding not complete yet.
     let mut pending = use_signal(Vec::<Key>::new);
     let mut keymap = use_signal(Keymap::defaults);
@@ -1743,8 +1661,7 @@ fn App() -> Element {
     let mut opened_groups = use_signal(HashSet::<Group>::new);
     // The interactive session the dialog asks to take over.
     let mut confirm = use_signal(|| None::<Ask>);
-    // The keys help, with the areas the keys were in when it was opened.
-    let mut keys_help = use_signal(|| None::<Vec<Context>>);
+    let keys_help = use_memo(move || app.chrome.read().keys_help.clone());
     // How the daemon stands against this build, and whether the banner
     // offering to restart an old one was put away.
     let mut daemon_standing = use_signal(|| Standing::Absent);
@@ -1870,13 +1787,13 @@ fn App() -> Element {
                 })
                 .await;
                 if let Ok(Err(e)) = compiled {
-                    status.set(Some(format!(
+                    app.status(Some(format!(
                         "cannot install the terminal's description: {e}"
                     )));
                 }
                 // The daemon may not run yet: started as adroit's own.
                 if let Err(e) = daemon.start(&adroit_program(), &daemon::serve_args()).await {
-                    status.set(Some(format!("cannot start the sessions' daemon: {e}")));
+                    app.status(Some(format!("cannot start the sessions' daemon: {e}")));
                 }
                 daemon_standing.set(standing::settled(&daemon).await);
                 // What git said of each directory a session runs in, and of
@@ -1904,7 +1821,7 @@ fn App() -> Element {
                             }
                             Err(e) => Some(format!("{}: {e}", short(&keys_path()))),
                         };
-                        notify.while_failing(&mut keys_err, failed);
+                        app.while_failing(&mut keys_err, failed);
                         keys_read = Some(keys_text);
                     }
                     let inputs = panes
@@ -1915,7 +1832,7 @@ fn App() -> Element {
                         .collect();
                     match read_sessions(&daemon, &inputs).await {
                         Ok((sessions, kept_shells)) => {
-                            notify.while_failing(&mut list_err, None);
+                            app.while_failing(&mut list_err, None);
                             if *terminals.peek() != kept_shells {
                                 terminals.set(kept_shells.clone());
                             }
@@ -2051,7 +1968,7 @@ fn App() -> Element {
                                 });
                                 // Said, or the window would vanish unexplained.
                                 if let Some((_, s)) = nav::find(&tree.peek(), id) {
-                                    notify.notice(format!("{} ended", s.name));
+                                    app.notice(format!("{} ended", s.name));
                                 }
                                 let gone = Tab::Session(id.clone());
                                 middle.close_showing(|t| *t == gone, after);
@@ -2136,7 +2053,7 @@ fn App() -> Element {
                                 tree.set(next);
                             }
                         }
-                        Err(e) => notify.while_failing(&mut list_err, Some(e.to_string())),
+                        Err(e) => app.while_failing(&mut list_err, Some(e.to_string())),
                     }
                     tokio::select! {
                         _ = tokio::time::sleep(Duration::from_secs(2)) => {}
@@ -2598,7 +2515,7 @@ fn App() -> Element {
                         match editor::install(&adroit_program(), &socket) {
                             Ok(_) => ANSWERS.store(true, Ordering::Relaxed),
                             Err(e) => {
-                                status.set(Some(format!("cannot write the editor script: {e}")))
+                                app.status(Some(format!("cannot write the editor script: {e}")))
                             }
                         }
                         serve(listener)
@@ -2610,13 +2527,13 @@ fn App() -> Element {
                             dioxus::desktop::window().close();
                             return;
                         }
-                        status.set(Some(format!("cannot answer window requests: {e}")));
+                        app.status(Some(format!("cannot answer window requests: {e}")));
                         return;
                     }
                 };
                 while let Some((request, reply)) = asked.recv().await {
                     if let Request::Editor { path } = &request {
-                        let _ = reply.send(take_input(path, &mut pull, prompts, notify).await);
+                        let _ = reply.send(take_input(path, &mut pull, prompts, app).await);
                         continue;
                     }
                     if request == Request::Show {
@@ -2638,7 +2555,7 @@ fn App() -> Element {
     // console has.
     use_effect(move || {
         let _ = font();
-        let _ = app.chrome.read().zoom;
+        let _ = zoomed();
         spawn(async move {
             // A zoom is laid out after the frame it was asked in.
             tokio::time::sleep(Duration::from_millis(50)).await;
@@ -2678,7 +2595,7 @@ fn App() -> Element {
                 let embedded = match started {
                     Ok(e) => Arc::new(e),
                     Err(e) => {
-                        status.set(Some(format!("cannot start Neovim: {e}")));
+                        app.status(Some(format!("cannot start Neovim: {e}")));
                         return;
                     }
                 };
@@ -2730,12 +2647,12 @@ fn App() -> Element {
                 nvim.set(None);
                 // One that quits as it starts would be started forever.
                 if born.elapsed() < NVIM_SETTLE {
-                    status.set(Some(
+                    app.status(Some(
                         "Neovim quit as it started; restart adroit to try again".into(),
                     ));
                     return;
                 }
-                notify.notice("Neovim quit; the prompt starts afresh".into());
+                app.notice("Neovim quit; the prompt starts afresh".into());
             }
         });
     });
@@ -3081,7 +2998,7 @@ fn App() -> Element {
                             focus.set(Area::Console);
                         }
                     }
-                    Err(e) => status.set(Some(format!("cannot start {base}: {e}"))),
+                    Err(e) => app.status(Some(format!("cannot start {base}: {e}"))),
                 }
             });
         }
@@ -3251,7 +3168,7 @@ fn App() -> Element {
                         // The keys go where the answer is given; what was written
                         // waits in the prompt for after.
                         focus.set(Area::Console);
-                        notify.notice(
+                        app.notice(
                             "Answer the session above first; your message waits here".into(),
                         );
                         false
@@ -3260,11 +3177,11 @@ fn App() -> Element {
                         && agents::adapter(agent).capabilities().shell_bang
                         && adroit_agents::claude::shell_line(&text).is_some() =>
                     {
-                        notify.notice("Images cannot be sent with a shell command".into());
+                        app.notice("Images cannot be sent with a shell command".into());
                         false
                     }
                     _ if images.iter().any(|path| !path.is_file()) => {
-                        notify.notice(
+                        app.notice(
                             "An attached image is unavailable; remove it or paste it again".into(),
                         );
                         false
@@ -3280,7 +3197,7 @@ fn App() -> Element {
                                 tokio::time::sleep(Duration::from_millis(50)).await;
                             }
                             if p.exited() {
-                                status.set(Some(
+                                app.status(Some(
                                     "The session ended before it took the prompt".into(),
                                 ));
                                 false
@@ -3311,7 +3228,7 @@ fn App() -> Element {
                             }
                         }
                         None => {
-                            status.set(Some("This session cannot be reached from here".into()));
+                            app.status(Some("This session cannot be reached from here".into()));
                             false
                         }
                     },
@@ -3321,7 +3238,7 @@ fn App() -> Element {
                             && named(&text).1.trim().is_empty()
                             && images.is_empty() =>
                     {
-                        notify.notice("Write what the session is to do below its name".into());
+                        app.notice("Write what the session is to do below its name".into());
                         false
                     }
                     // Given as the first prompt, a shell line is not known to
@@ -3330,7 +3247,7 @@ fn App() -> Element {
                         if agents::adapter(agent).capabilities().shell_bang
                             && adroit_agents::claude::shell_line(&text).is_some() =>
                     {
-                        notify.notice(
+                        app.notice(
                             "A shell line runs in a session: start it with a message first".into(),
                         );
                         false
@@ -3407,7 +3324,7 @@ fn App() -> Element {
                                 true
                             }
                             Err(e) => {
-                                status.set(Some(e));
+                                app.status(Some(e));
                                 false
                             }
                         }
@@ -3445,7 +3362,7 @@ fn App() -> Element {
             );
             choose_agent(tab, if forward { now.next() } else { now.prev() });
         }
-        _ => notify.notice("Only a session not started yet can change its agent".into()),
+        _ => app.notice("Only a session not started yet can change its agent".into()),
     };
 
     // Stop a session in its terminal and resume it here.
@@ -3454,7 +3371,7 @@ fn App() -> Element {
         move |asked: Session| {
             let hub = hub.clone();
             spawn(async move {
-                status.set(Some(format!("taking over {}…", asked.name)));
+                app.status(Some(format!("taking over {}…", asked.name)));
                 // The session may have moved on while the dialog was open.
                 let adapter = agents::adapter(asked.agent);
                 let now = match adapter.list_sessions(crate::programs::agents()).await {
@@ -3462,12 +3379,12 @@ fn App() -> Element {
                         .into_iter()
                         .find(|s| s.session_id == asked.session_id && s.pid == asked.pid),
                     Err(e) => {
-                        status.set(Some(e.to_string()));
+                        app.status(Some(e.to_string()));
                         return;
                     }
                 };
                 let Some(now) = now.filter(Session::can_take_over) else {
-                    status.set(Some(format!(
+                    app.status(Some(format!(
                         "{} changed in its terminal; nothing was stopped",
                         asked.name
                     )));
@@ -3475,7 +3392,7 @@ fn App() -> Element {
                 };
                 let Some(resume) = adapter.resume_args(&crate::programs::agents(), &now.session_id)
                 else {
-                    status.set(Some("This agent cannot be taken over".into()));
+                    app.status(Some("This agent cannot be taken over".into()));
                     return;
                 };
                 moving.write().insert(now.id.clone());
@@ -3487,7 +3404,7 @@ fn App() -> Element {
                 };
                 if let Err(e) = stopped {
                     moving.write().remove(&now.id);
-                    status.set(Some(format!("cannot take over {}: {e}", asked.name)));
+                    app.status(Some(format!("cannot take over {}: {e}", asked.name)));
                     return;
                 }
                 let size = *console_size.peek();
@@ -3547,7 +3464,7 @@ fn App() -> Element {
                 .await
                 {
                     Ok(id) => {
-                        status.set(None);
+                        app.status(None);
                         let id = sessions::hex(id);
                         let was = Tab::Session(now.id.clone());
                         middle.edit(|c| c.replace(&was, Tab::Session(id.clone())));
@@ -3556,7 +3473,7 @@ fn App() -> Element {
                             selected.set(Some(Item::Session(id)));
                         }
                     }
-                    Err(e) => status.set(Some(format!("cannot resume {}: {e}", asked.name))),
+                    Err(e) => app.status(Some(format!("cannot resume {}: {e}", asked.name))),
                 }
                 moving.write().remove(&now.id);
                 hub.refresh.notify_one();
@@ -3683,7 +3600,7 @@ fn App() -> Element {
                                 let mut palette = hub.palette;
                                 palette.set(p);
                             }
-                            Err(e) => status.set(Some(e)),
+                            Err(e) => app.status(Some(e)),
                         }
                     }
                     let rows = crate::console::prompt_rows(
@@ -3719,18 +3636,18 @@ fn App() -> Element {
                 };
                 match hub.daemon.end(id).await {
                     Ok(()) => {
-                        notify.notice(format!("ended {}", asked.name));
+                        app.notice(format!("ended {}", asked.name));
                         if let Some(record) = asked.delegation {
                             let root = crate::delegation::app::root();
                             if let Err(error) = crate::delegation::app::ended(&root, record).await {
-                                status.set(Some(format!(
+                                app.status(Some(format!(
                                     "ended {}, but cannot record its exit: {error}",
                                     asked.name
                                 )));
                             }
                         }
                     }
-                    Err(e) => status.set(Some(format!("cannot end {}: {e}", asked.name))),
+                    Err(e) => app.status(Some(format!("cannot end {}: {e}", asked.name))),
                 }
                 hub.refresh.notify_one();
             });
@@ -3747,9 +3664,9 @@ fn App() -> Element {
                     tokio::task::spawn_blocking(move || crate::processes::kill(&session, &process))
                         .await;
                 match result {
-                    Ok(Ok(())) => notify.notice(format!("Killed process {pid}")),
-                    Ok(Err(e)) => notify.notice(e),
-                    Err(e) => notify.notice(format!("Cannot kill process: {e}")),
+                    Ok(Ok(())) => app.notice(format!("Killed process {pid}")),
+                    Ok(Err(e)) => app.notice(e),
+                    Err(e) => app.notice(format!("Cannot kill process: {e}")),
                 }
                 wake.notify_one();
             });
@@ -3762,14 +3679,14 @@ fn App() -> Element {
         move || {
             let hub = hub.clone();
             spawn(async move {
-                notify.notice("Restarting the sessions' daemon".into());
+                app.notice("Restarting the sessions' daemon".into());
                 match hub
                     .daemon
                     .restart(&adroit_program(), &daemon::serve_args())
                     .await
                 {
-                    Ok(()) => notify.notice("Restarted the sessions' daemon".into()),
-                    Err(e) => status.set(Some(format!("cannot restart the sessions' daemon: {e}"))),
+                    Ok(()) => app.notice("Restarted the sessions' daemon".into()),
+                    Err(e) => app.status(Some(format!("cannot restart the sessions' daemon: {e}"))),
                 }
                 daemon_standing.set(standing::settled(&hub.daemon).await);
                 daemon_banner_closed.set(false);
@@ -3793,11 +3710,11 @@ fn App() -> Element {
             return;
         };
         if s.kind != Kind::Interactive {
-            notify.notice(format!("{} already runs here", s.name));
+            app.notice(format!("{} already runs here", s.name));
         } else if s.can_take_over() {
             confirm.set(Some(Ask::TakeOver(s.clone())));
         } else {
-            notify.notice(format!(
+            app.notice(format!(
                 "{} is in the middle of a turn; take it over once it is idle",
                 s.name
             ));
@@ -3830,7 +3747,7 @@ fn App() -> Element {
                     .unwrap_or_default();
                 let named = adroit_term::tags::tagged(sessions::NAME, &name);
                 if let Err(e) = hub.daemon.tag(id, named, held).await {
-                    status.set(Some(format!("cannot rename {}: {e}", r.was)));
+                    app.status(Some(format!("cannot rename {}: {e}", r.was)));
                     return;
                 }
                 hub.refresh.notify_one();
@@ -3851,10 +3768,10 @@ fn App() -> Element {
         let found = nav::find(&tree.peek(), &id).map(|(_, s)| s.clone());
         match found {
             Some(s) if s.state.takes_every_key() => {
-                notify.notice(format!("Answer {} first, then rename it", s.name))
+                app.notice(format!("Answer {} first, then rename it", s.name))
             }
             Some(s) if s.kind == Kind::Own => renaming.set(Some(Rename::of(&s, place))),
-            Some(s) => notify.notice(format!(
+            Some(s) => app.notice(format!(
                 "{} takes no message from here to rename it",
                 s.name
             )),
@@ -3896,7 +3813,7 @@ fn App() -> Element {
             return;
         };
         if s.kind == Kind::Interactive {
-            notify.notice(format!("{} runs in a terminal; end it there", s.name));
+            app.notice(format!("{} runs in a terminal; end it there", s.name));
         } else {
             confirm.set(Some(Ask::Stop(s.clone())));
         }
@@ -3944,9 +3861,9 @@ fn App() -> Element {
                         NvimEvent::Redraw => *reader_frame.write() += 1,
                         NvimEvent::Scrolled { top, left } => reader_view.set((top, left)),
                         NvimEvent::Yank { text, lines } => match copy_to_clipboard(&text) {
-                            Ok(()) if lines == 1 => notify.notice("Copied a line".into()),
-                            Ok(()) => notify.notice(format!("Copied {lines} lines")),
-                            Err(e) => notify.notice(format!("cannot copy: {e}")),
+                            Ok(()) if lines == 1 => app.notice("Copied a line".into()),
+                            Ok(()) => app.notice(format!("Copied {lines} lines")),
+                            Err(e) => app.notice(format!("cannot copy: {e}")),
                         },
                         _ => {}
                     }
@@ -4293,7 +4210,7 @@ fn App() -> Element {
                     Ok(path) => {
                         let _ = prompts.send(Op::Attach(path));
                     }
-                    Err(e) => notify.notice(e.to_string()),
+                    Err(e) => app.notice(e.to_string()),
                 }
             }
             Typed::Program => type_text(String::new(), true),
@@ -4424,7 +4341,7 @@ fn App() -> Element {
                         Area::Console => vec![Context::Console, Context::Global],
                         Area::Prompt => vec![Context::Prompt, Context::Global],
                     };
-                    keys_help.set(Some(here));
+                    app.dispatch(Msg::KeysHelpOpen(here));
                 }
                 Action::ViewerZoomIn
                 | Action::ViewerZoomOut
@@ -4786,7 +4703,7 @@ fn App() -> Element {
                                 }
                                 (None, Some(how), Some(Entry::Link(link))) => {
                                     if let Some(told) = use_link(link, how) {
-                                        notify.notice(told);
+                                        app.notice(told);
                                     }
                                 }
                                 (None, Some(how), Some(Entry::Image(shot))) => {
@@ -4798,13 +4715,13 @@ fn App() -> Element {
                                     if let Some(told) =
                                         use_shot(shot, how, &session, &gallery.peek())
                                     {
-                                        notify.notice(told);
+                                        app.notice(told);
                                     }
                                 }
                                 (None, Some(how), Some(Entry::Session(r))) => {
                                     match use_related(r, how) {
                                         Went::Show(id) => show_session(id),
-                                        Went::Told(told) => notify.notice(told),
+                                        Went::Told(told) => app.notice(told),
                                         Went::Nowhere => {}
                                     }
                                 }
@@ -4816,7 +4733,7 @@ fn App() -> Element {
                                         d.open(l);
                                     }
                                     Use::Copy => {
-                                        notify.notice(match copy_to_clipboard(&p.command) {
+                                        app.notice(match copy_to_clipboard(&p.command) {
                                             Ok(()) => "Copied the process command".into(),
                                             Err(e) => format!("cannot copy: {e}"),
                                         });
@@ -4827,7 +4744,7 @@ fn App() -> Element {
                                     Use::Open => {
                                         d.open(l);
                                     }
-                                    Use::Copy => notify.notice(match copy_to_clipboard(&n.body) {
+                                    Use::Copy => app.notice(match copy_to_clipboard(&n.body) {
                                         Ok(()) => "Copied the message".into(),
                                         Err(e) => format!("cannot copy: {e}"),
                                     }),
@@ -4837,14 +4754,12 @@ fn App() -> Element {
                                     Use::Open => {
                                         d.open(l);
                                     }
-                                    Use::Copy => {
-                                        notify.notice(match copy_to_clipboard(&a.prompt) {
-                                            Ok(()) => {
-                                                format!("Copied the prompt of {}", a.description)
-                                            }
-                                            Err(e) => format!("cannot copy: {e}"),
-                                        })
-                                    }
+                                    Use::Copy => app.notice(match copy_to_clipboard(&a.prompt) {
+                                        Ok(()) => {
+                                            format!("Copied the prompt of {}", a.description)
+                                        }
+                                        Err(e) => format!("cannot copy: {e}"),
+                                    }),
                                     Use::Reveal => {}
                                 },
                                 (None, Some(_), _) => {}
@@ -4950,7 +4865,7 @@ fn App() -> Element {
                         Some(nav::Copied::Name(n)) => (n, "name"),
                         None => return,
                     };
-                    notify.notice(match copy_to_clipboard(&text) {
+                    app.notice(match copy_to_clipboard(&text) {
                         Ok(()) => format!("Copied the {what} {text}"),
                         Err(e) => format!("cannot copy: {e}"),
                     });
@@ -5054,18 +4969,13 @@ fn App() -> Element {
                     if drill.peek().sheet() != s {
                         drill.set(Drill::new(s));
                     }
-                    let l = *layout.peek();
-                    if !l.show_details {
-                        let next = l.toggled(Side::Details);
-                        layout.set(next);
-                        next.save();
-                    }
+                    app.dispatch(Msg::PanelShow(Side::Details));
                 }
                 Action::WorktreesToggle => {
                     let all = !*all_worktrees.peek();
                     all_worktrees.set(all);
                     hub.refresh.notify_one();
-                    notify.notice(
+                    app.notice(
                         if all {
                             "Every worktree is listed, those without sessions too"
                         } else {
@@ -5208,7 +5118,7 @@ fn App() -> Element {
             if action != Action::SettingsOpen {
                 desktop.window.set_focus();
             }
-            keys_help.set(None);
+            app.dispatch(Msg::KeysHelpClose);
             menu.set(None);
             pending.set(Vec::new());
             perform(action, None);
@@ -5307,7 +5217,7 @@ fn App() -> Element {
             let shown = keys_help.peek().clone();
             if let Some(here) = shown {
                 match keys_help::press(&keymap.peek(), &here, &key) {
-                    Press::Close => keys_help.set(None),
+                    Press::Close => app.dispatch(Msg::KeysHelpClose),
                     Press::Scroll(lines) => keys_help_view::scroll(lines),
                     Press::Nothing => {}
                 }
@@ -5538,7 +5448,7 @@ fn App() -> Element {
                 }
             };
             if action == Action::KeysHelp {
-                keys_help.set(Some(contexts));
+                app.dispatch(Msg::KeysHelpOpen(contexts));
                 return;
             }
             perform(action, Some(key));
@@ -5879,7 +5789,7 @@ fn App() -> Element {
         match entries.get(at) {
             Some(Entry::Link(link)) => {
                 if let Some(told) = use_link(link, Use::Open) {
-                    notify.notice(told);
+                    app.notice(told);
                 }
             }
             Some(Entry::Image(shot)) => {
@@ -5889,12 +5799,12 @@ fn App() -> Element {
                     .map(|(id, _)| id.clone())
                     .unwrap_or_default();
                 if let Some(told) = use_shot(shot, Use::Open, &session, &gallery.peek()) {
-                    notify.notice(told);
+                    app.notice(told);
                 }
             }
             Some(Entry::Session(r)) => match use_related(r, Use::Open) {
                 Went::Show(id) => show_session(id),
-                Went::Told(told) => notify.notice(told),
+                Went::Told(told) => app.notice(told),
                 Went::Nowhere => {}
             },
             Some(Entry::Agent(_) | Entry::Message(_) | Entry::Process(_)) => {
@@ -6342,53 +6252,25 @@ fn App() -> Element {
         div { class: "app",
             textarea { id: "adroit-keys", autofocus: true, readonly: !takes_text }
             settings_window::SettingsLoadError {}
-            div { class: "header",
-                span {
-                    class: if layout().show_sidebar { "pane-toggle on" } else { "pane-toggle" },
-                    title: "Show or hide the tree (⌘B)",
-                    onclick: move |_| toggle_panel(Side::Sidebar),
-                    IconView { icon: Icon::LayoutSidebar, size: 16 }
-                }
-                div { class: "header-crumbs",
-                    if let Some(p) = &current {
-                        if let Some((name, _, scratch)) = &workspace {
-                            span { class: "header-crumbs-item", IconView { icon: if *scratch { Icon::Notes } else { Icon::Folder }, size: 14 } "{name}" }
-                            span { class: "header-crumbs-sep", IconView { icon: Icon::ChevronRight, size: 12 } }
-                        }
-                        span { class: "header-crumbs-item header-crumbs-path", IconView { icon: Icon::GitBranch, size: 14 } "{short(&p.worktree)}" }
-                        span { class: "header-crumbs-sep", IconView { icon: Icon::ChevronRight, size: 12 } }
-                        span { "{target}" }
-                    }
-                }
-                div { class: "flex-spacer" }
-                if waiting > 0 {
-                    span { class: "header-chip wait", span { class: "state-glyph wait", IconView { icon: Icon::Bell, size: 12 } } "{waiting} waiting" }
-                }
-                if working > 0 {
-                    span { class: "header-chip", span { class: "state-glyph run", IconView { icon: Icon::Loader, size: 12 } } "{working} working" }
-                }
-                span {
-                    class: if layout().show_details { "pane-toggle on" } else { "pane-toggle" },
-                    title: "Show or hide the details panel (⌥⌘B)",
-                    onclick: move |_| toggle_panel(Side::Details),
-                    IconView { icon: Icon::LayoutSidebarRight, size: 16 }
-                }
-                span {
-                    class: "pane-toggle",
-                    title: "Settings (⌘,)",
-                    onclick: move |_| settings_window::open(),
-                    IconView { icon: Icon::Settings, size: 16 }
-                }
+            Header {
+                crumbs: current.as_ref().map(|p| Crumbs {
+                    workspace: workspace.as_ref().map(|(name, _, scratch)| (name.clone(), *scratch)),
+                    worktree: short(&p.worktree),
+                    target: target.clone(),
+                }),
+                waiting,
+                working,
+                ontoggle: toggle_panel,
             }
             div {
-                class: match (dragging().is_some(), win_drag.read().as_ref().map(|d| d.border.axis)) {
+                class: match (app.chrome.read().panels.drag.is_some(), win_drag.read().as_ref().map(|d| d.border.axis)) {
                     (_, Some(Axis::Column)) => "app-body dragging rows",
                     (true, _) | (_, Some(Axis::Row)) => "app-body dragging",
                     _ => "app-body",
                 },
                 onresize: move |e: Event<ResizeData>| {
                     if let Ok(sz) = e.data().get_border_box_size() {
-                        body_width.set(sz.width);
+                        app.dispatch(Msg::BodyResized(sz.width));
                     }
                 },
                 onmousemove: move |e: Event<MouseData>| {
@@ -6398,34 +6280,23 @@ fn App() -> Element {
                         let to = d.border.at + (pos - d.from) / d.px;
                         middle.edit(|c| c.drag(&d.border.split, d.border.after, to));
                     }
-                    if let Some((side, from, width)) = *dragging.peek() {
-                        let x = e.client_coordinates().x;
-                        let moved = if side == Side::Sidebar { x - from } else { from - x };
-                        let next = layout.peek().dragged(side, width + moved, *body_width.peek());
-                        layout.set(next);
-                    }
+                    shell::panels::pointer_moved(app, e.client_coordinates().x);
                 },
                 onmouseup: move |_| {
                     if win_drag.peek().is_some() {
                         win_drag.set(None);
                     }
-                    if dragging.peek().is_some() {
-                        dragging.set(None);
-                        layout.peek().save();
-                    }
+                    shell::panels::pointer_released(app);
                 },
                 onmouseleave: move |_| {
                     if win_drag.peek().is_some() {
                         win_drag.set(None);
                     }
-                    if dragging.peek().is_some() {
-                        dragging.set(None);
-                        layout.peek().save();
-                    }
+                    shell::panels::pointer_released(app);
                 },
                 div { class: if area == Area::Sidebar { "app-panel sidebar focused" } else { "app-panel sidebar" },
                     hidden: !layout().show_sidebar,
-                    style: "width:{layout().drawn(body_width()).0}px",
+                    style: "width:{app.chrome.read().panels.drawn().0}px",
                     onmousedown: move |_| focus.set(Area::Sidebar),
                     div { class: "sidebar-bar",
                         div {
@@ -6744,20 +6615,7 @@ fn App() -> Element {
                     }
                 }
                 if layout().show_sidebar {
-                    div {
-                        class: "panel-splitter",
-                        title: "Drag to resize the tree; double-click for its width as designed",
-                        onmousedown: move |e: Event<MouseData>| {
-                            e.stop_propagation();
-                            e.prevent_default();
-                            dragging.set(Some((Side::Sidebar, e.client_coordinates().x, layout.peek().drawn(*body_width.peek()).0)));
-                        },
-                        ondoubleclick: move |_| {
-                            let next = Layout { sidebar: layout::SIDE, ..*layout.peek() };
-                            layout.set(next);
-                            next.save();
-                        },
-                    }
+                    Splitter { side: Side::Sidebar }
                 }
                 div { class: if matches!(area, Area::Console | Area::Prompt) { "app-panel center-panel focused" } else { "app-panel center-panel" },
                     onmousedown: move |_| focus.set(Area::Console),
@@ -6845,24 +6703,11 @@ fn App() -> Element {
                     }
                 }
                 if layout().show_details {
-                    div {
-                        class: "panel-splitter",
-                        title: "Drag to resize the details panel; double-click for its width as designed",
-                        onmousedown: move |e: Event<MouseData>| {
-                            e.stop_propagation();
-                            e.prevent_default();
-                            dragging.set(Some((Side::Details, e.client_coordinates().x, layout.peek().drawn(*body_width.peek()).1)));
-                        },
-                        ondoubleclick: move |_| {
-                            let next = Layout { details: layout::SIDE, ..*layout.peek() };
-                            layout.set(next);
-                            next.save();
-                        },
-                    }
+                    Splitter { side: Side::Details }
                 }
                 div { class: if area == Area::Details { "app-panel details focused" } else { "app-panel details" },
                     hidden: !layout().show_details,
-                    style: "width:{layout().drawn(body_width()).1}px",
+                    style: "width:{app.chrome.read().panels.drawn().1}px",
                     onmousedown: move |_| focus.set(Area::Details),
                     div { class: "panel-tabs",
                         for s in Sheet::ALL {
@@ -7225,12 +7070,7 @@ fn App() -> Element {
                     }
                 }
             }
-            div { class: "footer",
-                span { class: "mode-chip {footer_class}", title: "{mode_tip(&footer_mode, in_dialog)}", "{footer_mode}" }
-                if let Some(msg) = status() {
-                    span { class: "footer-status", title: "{msg}", "{msg}" }
-                }
-                span { class: "flex-spacer" }
+            StatusBar { mode: footer_mode, class: footer_class, dialog: in_dialog,
                 if let Some(k) = k_moves.clone() {
                     span { class: "kbd-list", Keys { keys: k } " move" }
                 }
@@ -7377,12 +7217,7 @@ fn App() -> Element {
                     }
                 }
             }
-            if let Some(here) = keys_help() {
-                KeysHelpView {
-                    groups: keys_help::groups(&km, &here),
-                    onclose: move |_| keys_help.set(None),
-                }
-            }
+            KeysHelp { keymap: km.clone() }
             if let Some(ask) = confirm() {
                 {
                     let take_over = take_over.clone();
@@ -7500,6 +7335,7 @@ fn DraftLaunchOptions(
 mod tests {
     use super::*;
     use crate::details::overview;
+    use crate::shell::status_bar::mode_tip;
 
     #[test]
     fn a_file_is_shown_by_its_viewer_or_by_the_neovim_started_on_it() {
@@ -8054,12 +7890,6 @@ mod tests {
     }
 
     #[test]
-    fn a_build_that_knows_its_source_names_it_in_the_title() {
-        assert_eq!(title(Some("6b5486a-dirty")), "Adroit (6b5486a-dirty)");
-        assert_eq!(title(None), "Adroit");
-    }
-
-    #[test]
     fn an_unbound_key_in_a_session_s_console_starts_reading_unless_it_is_read_already() {
         // (area, a session shown, its keys passed on, reading) -> reading starts
         let table = [
@@ -8132,12 +7962,6 @@ mod tests {
         assert_eq!(with_card, 600.0 - 120.0 - CONSOLE_GAP);
         assert_eq!(without, 600.0 - SCREEN_TOP);
         assert!(without > with_card + 120.0);
-    }
-
-    #[test]
-    fn passing_keys_to_a_dialog_of_claude_code_s_says_so_in_the_mode_tip() {
-        assert!(mode_tip("PASS", true).contains("dialog"));
-        assert!(!mode_tip("PASS", false).contains("dialog"));
     }
 
     #[test]
