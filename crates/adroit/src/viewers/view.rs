@@ -169,7 +169,8 @@ fn ViewerOf(
         })
     });
     let mut state = use_signal(|| ViewerState::new(kind).expect("a kind with a viewer"));
-    let last = use_hook(|| Rc::new(Cell::new(0u64)));
+    // A command sent before the viewer opened is not for it.
+    let last = use_hook(|| Rc::new(Cell::new(command.peek().map_or(0, |c| c.seq))));
 
     use_asset_handler(&prefix, {
         let scope = scope.clone();

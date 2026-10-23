@@ -1,103 +1,55 @@
 //! What a viewer holds between keys: zoom, page and playback.
 
-use std::fmt;
-use std::str::FromStr;
-
 use super::kind::FileKind;
+use crate::keymap::Action;
 
-macro_rules! actions {
-    ($($variant:ident => $name:literal,)*) => {
-        /// What a key does in a viewer.
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-        pub enum ViewerAction {
-            $($variant,)*
-        }
-
-        impl ViewerAction {
-            /// Every action's name, as the keys file names them.
-            pub const NAMES: &[&str] = &[$($name,)*];
-
-            /// The action's name, as the keys file names it.
-            pub fn name(self) -> &'static str {
-                match self {
-                    $(ViewerAction::$variant => $name,)*
-                }
-            }
-        }
-
-        impl FromStr for ViewerAction {
-            type Err = UnknownAction;
-
-            fn from_str(text: &str) -> Result<Self, UnknownAction> {
-                match text {
-                    $($name => Ok(ViewerAction::$variant),)*
-                    _ => Err(UnknownAction(text.to_string())),
-                }
-            }
-        }
-    };
+/// What a key does in a viewer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ViewerAction {
+    ScrollDown,
+    ScrollUp,
+    ScrollHalfDown,
+    ScrollHalfUp,
+    ScrollTop,
+    ScrollBottom,
+    ZoomIn,
+    ZoomOut,
+    ZoomFit,
+    PageNext,
+    PagePrev,
+    PlayToggle,
+    SeekBack,
+    SeekForward,
+    CopyPath,
+    Close,
 }
 
-actions! {
-    ScrollDown => "scroll.down",
-    ScrollUp => "scroll.up",
-    ScrollHalfDown => "scroll.half_down",
-    ScrollHalfUp => "scroll.half_up",
-    ScrollTop => "scroll.top",
-    ScrollBottom => "scroll.bottom",
-    ZoomIn => "viewer.zoom_in",
-    ZoomOut => "viewer.zoom_out",
-    ZoomFit => "viewer.zoom_fit",
-    PageNext => "viewer.page_next",
-    PagePrev => "viewer.page_prev",
-    PlayToggle => "viewer.play",
-    SeekBack => "viewer.back",
-    SeekForward => "viewer.forward",
-    CopyPath => "viewer.copy_path",
-    Close => "window.close",
-}
-
-impl fmt::Display for ViewerAction {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.name())
+impl ViewerAction {
+    /// What `action`, bound in the keys file, does in a viewer; `None` for
+    /// an action that is not a viewer's.
+    pub fn of(action: &Action) -> Option<ViewerAction> {
+        use ViewerAction as V;
+        Some(match action {
+            Action::ScrollDown => V::ScrollDown,
+            Action::ScrollUp => V::ScrollUp,
+            Action::ScrollHalfDown => V::ScrollHalfDown,
+            Action::ScrollHalfUp => V::ScrollHalfUp,
+            Action::ScrollTop => V::ScrollTop,
+            Action::ScrollBottom => V::ScrollBottom,
+            Action::ViewerZoomIn => V::ZoomIn,
+            Action::ViewerZoomOut => V::ZoomOut,
+            Action::ViewerZoomFit => V::ZoomFit,
+            Action::ViewerPageNext => V::PageNext,
+            Action::ViewerPagePrev => V::PagePrev,
+            Action::ViewerPlay => V::PlayToggle,
+            Action::ViewerBack => V::SeekBack,
+            Action::ViewerForward => V::SeekForward,
+            Action::ViewerCopyPath => V::CopyPath,
+            Action::WindowQuit => V::Close,
+            _ => return None,
+        })
     }
 }
-
-/// A name no viewer action has.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UnknownAction(pub String);
-
-impl fmt::Display for UnknownAction {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?} is not a viewer action", self.0)
-    }
-}
-
-impl std::error::Error for UnknownAction {}
-
-/// The keys a viewer answers to unless the user binds others, as the keys
-/// file writes them.
-pub const DEFAULT_BINDINGS: &[(&str, &str)] = &[
-    ("j", "scroll.down"),
-    ("ArrowDown", "scroll.down"),
-    ("k", "scroll.up"),
-    ("ArrowUp", "scroll.up"),
-    ("Ctrl+d", "scroll.half_down"),
-    ("Ctrl+u", "scroll.half_up"),
-    ("g g", "scroll.top"),
-    ("G", "scroll.bottom"),
-    ("+", "viewer.zoom_in"),
-    ("=", "viewer.zoom_in"),
-    ("-", "viewer.zoom_out"),
-    ("0", "viewer.zoom_fit"),
-    ("J", "viewer.page_next"),
-    ("K", "viewer.page_prev"),
-    ("Space", "viewer.play"),
-    ("h", "viewer.back"),
-    ("l", "viewer.forward"),
-    ("y", "viewer.copy_path"),
-    ("q", "window.close"),
-];
 
 /// How large a picture is drawn, as steps from fitting the window.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -319,6 +271,23 @@ impl ViewerState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::keymap::{Action, Context, Keymap};
+
+    #[test]
+    fn every_key_the_viewer_area_binds_runs_a_viewer_action() {
+        let map = Keymap::defaults();
+        let bound: Vec<(&str, String, String)> = map
+            .listed()
+            .into_iter()
+            .filter(|(area, _, _)| *area == Context::Viewer.name())
+            .collect();
+        assert!(!bound.is_empty());
+        for (_, keys, name) in bound {
+            let action: Action = name.parse().unwrap();
+            assert!(ViewerAction::of(&action).is_some(), "{keys} = {name}");
+        }
+        assert_eq!(ViewerAction::of(&Action::Refresh), None);
+    }
 
     fn pdf(page: usize, pages: usize) -> ViewerState {
         ViewerState::Pdf(PdfState {
@@ -334,22 +303,6 @@ mod tests {
             position,
             duration,
         })
-    }
-
-    #[test]
-    fn every_action_is_found_again_by_its_name() {
-        for name in ViewerAction::NAMES {
-            let action: ViewerAction = name.parse().unwrap();
-            assert_eq!(action.name(), *name);
-        }
-        assert!("viewer.nothing".parse::<ViewerAction>().is_err());
-    }
-
-    #[test]
-    fn every_default_binding_names_a_viewer_action() {
-        for (keys, name) in DEFAULT_BINDINGS {
-            assert!(name.parse::<ViewerAction>().is_ok(), "{keys} = {name}");
-        }
     }
 
     #[test]
@@ -427,7 +380,11 @@ mod tests {
         ] {
             let mut s = ViewerState::new(kind).unwrap();
             for (action, scroll) in cases {
-                assert_eq!(s.apply(action), Effect::Scroll(scroll), "{kind:?} {action}");
+                assert_eq!(
+                    s.apply(action),
+                    Effect::Scroll(scroll),
+                    "{kind:?} {action:?}"
+                );
             }
         }
     }

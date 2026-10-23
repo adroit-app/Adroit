@@ -96,6 +96,7 @@ takes the keys away, so they do nothing there.
 | `console` | the console while it shows a session |
 | `prompt` | the prompt, before Neovim |
 | `draft` | before the area's bindings while a new session is shown, including the prompt in insert mode |
+| `viewer` | a viewer in the focused window |
 
 A key that reaches a program in the console is sent as the program asked,
 as felis sends it: with the Kitty keyboard protocol once it asks for it, as
@@ -191,8 +192,8 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 | `tab.close` | close the content's tab shown and every window in it; agents and terminals keep running and remain reachable from the tree |
 | `window.close` | close the window, which ends adroit; its sessions run on |
 | `cursor.down`, `cursor.up`, `cursor.first`, `cursor.last` | move the selection in the tree; in the details panel, in the list it shows, or scroll what else it shows |
-| `cursor.open` | open the selected session, shell or worktree in the focused window and move to its console, or to the prompt of a session not started yet; fold or unfold a workspace, a heading or a directory; in the details panel, open the selected row |
-| `cursor.show` | show the selected session, shell or worktree, as `cursor.open` does, with the keys staying in the tree; fold or unfold a workspace, a heading or a directory; in the details panel, open the selected row |
+| `cursor.open` | open the selected session, shell, worktree or file in the focused window and move to it, or to the prompt of a session not started yet; fold or unfold a workspace, a heading or a directory; in the details panel, open the selected row |
+| `cursor.show` | show the selected session, shell, worktree or file, as `cursor.open` does, with the keys staying in the tree; fold or unfold a workspace, a heading or a directory; in the details panel, open the selected row |
 | `cursor.fold` | fold the selected node, or on a row that is not unfolded go up to the row it sits under; in the details panel, go back out to the list what it shows was opened from |
 | `cursor.copy` | in the details panel, copy the selected link of the overview: its address, or its file's path |
 | `cursor.reveal` | in the details panel, show the selected file of the overview in the Finder |
@@ -208,7 +209,11 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 | `shell.open` | open a shell in the worktree |
 | `terminal.stop` | end the terminal selected in the tree, or else the one shown |
 | `neovim.open` | open Neovim, with your own configuration, in the worktree as `shell.open` opens a shell ([shells](terminals.md)) |
-| `scroll.down`, `scroll.up`, `scroll.half_down`, `scroll.half_up`, `scroll.top`, `scroll.bottom` | scroll the details panel; bound in the console, scroll it: Claude Code and other programs that read the mouse are sent the wheel, others are scrolled back through what scrolled off |
+| `scroll.down`, `scroll.up`, `scroll.half_down`, `scroll.half_up`, `scroll.top`, `scroll.bottom` | scroll the details panel; bound in the console, scroll it: Claude Code and other programs that read the mouse are sent the wheel, others are scrolled back through what scrolled off; bound in a viewer, scroll what it shows |
+| `viewer.zoom_in`, `viewer.zoom_out`, `viewer.zoom_fit` | in a viewer, draw an image, a PDF or an HTML page larger, smaller, or fitting the window ([viewers](viewers.md)) |
+| `viewer.page_next`, `viewer.page_prev` | in a viewer, show a PDF's next or previous page |
+| `viewer.play`, `viewer.back`, `viewer.forward` | in a viewer, play or pause a movie, or seek it back or forward |
+| `viewer.copy_path` | in a viewer, copy the path of the file it shows |
 | `refresh` | read the sessions, and what git says of where they run, again now |
 | `tree.toggle`, `details.toggle` | show or hide the tree, the details panel |
 | `settings.open` | open the Settings window |
@@ -391,4 +396,26 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 "Ctrl+Enter" = "prompt.send"
 "Ctrl+p" = "prompt.history_prev"
 "Ctrl+n" = "prompt.history_next"
+
+[viewer]
+"j" = "scroll.down"
+"ArrowDown" = "scroll.down"
+"k" = "scroll.up"
+"ArrowUp" = "scroll.up"
+"Ctrl+d" = "scroll.half_down"
+"Ctrl+u" = "scroll.half_up"
+"g g" = "scroll.top"
+"G" = "scroll.bottom"
+"Plus" = "viewer.zoom_in"
+"=" = "viewer.zoom_in"
+"-" = "viewer.zoom_out"
+"0" = "viewer.zoom_fit"
+"J" = "viewer.page_next"
+"K" = "viewer.page_prev"
+"Space" = "viewer.play"
+"h" = "viewer.back"
+"l" = "viewer.forward"
+"y" = "viewer.copy_path"
+"q" = "window.quit"
+
 ```

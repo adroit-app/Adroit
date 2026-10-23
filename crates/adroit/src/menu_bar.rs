@@ -410,6 +410,15 @@ mod tests {
         "prompt.write",
         "prompt.history_prev",
         "prompt.history_next",
+        "viewer.zoom_in",
+        "viewer.zoom_out",
+        "viewer.zoom_fit",
+        "viewer.page_next",
+        "viewer.page_prev",
+        "viewer.play",
+        "viewer.back",
+        "viewer.forward",
+        "viewer.copy_path",
     ];
 
     fn offered() -> Vec<Action> {

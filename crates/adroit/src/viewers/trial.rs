@@ -1,15 +1,17 @@
 //! A window holding one viewer alone, to try a viewer outside the layout.
 //!
-//! Keys here are resolved against the viewers' default bindings only: the
-//! user's keys file and the keymap's other areas are the main window's.
+//! Keys here are resolved against the `viewer` area's default bindings
+//! only: the user's keys file and the keymap's other areas are the main
+//! window's.
 
 use std::path::PathBuf;
 
 use dioxus::desktop::{Config as Desktop, LogicalSize, WindowBuilder, WindowCloseBehaviour};
 use dioxus::prelude::*;
 
-use super::state::{DEFAULT_BINDINGS, ViewerAction};
+use super::state::ViewerAction;
 use super::view::{Command, Viewer};
+use crate::keymap::{Chord, Context, Keymap, Step};
 use crate::settings::{self, Settings};
 
 /// What a key comes to after the keys pressed before it.
@@ -24,23 +26,15 @@ pub enum Resolved {
 /// The binding `pending` keys and then `pressed` make, as the keys file
 /// writes keys (`Ctrl+d`, `g g`).
 pub fn resolve(pending: &[String], pressed: &str) -> Resolved {
-    let typed: Vec<&str> = pending
-        .iter()
-        .map(String::as_str)
-        .chain([pressed])
-        .collect();
-    let mut waits = false;
-    for (keys, name) in DEFAULT_BINDINGS {
-        let keys: Vec<&str> = keys.split(' ').collect();
-        if keys == typed {
-            return name.parse().map_or(Resolved::Nothing, Resolved::Run);
-        }
-        waits |= keys.starts_with(&typed);
-    }
-    if waits {
-        Resolved::Wait
-    } else {
-        Resolved::Nothing
+    let key = |k: &str| Chord::parse(k).ok().map(|c| c.key());
+    let before: Option<Vec<_>> = pending.iter().map(|k| key(k)).collect();
+    let (Some(before), Some(now)) = (before, key(pressed)) else {
+        return Resolved::Nothing;
+    };
+    match Keymap::defaults().resolve(&[Context::Viewer], &before, &now) {
+        Step::Run(action) => ViewerAction::of(&action).map_or(Resolved::Nothing, Resolved::Run),
+        Step::Wait => Resolved::Wait,
+        Step::Nothing => Resolved::Nothing,
     }
 }
 
@@ -48,6 +42,7 @@ pub fn resolve(pending: &[String], pressed: &str) -> Resolved {
 fn pressed(e: &KeyboardEvent) -> Option<String> {
     let key = match e.key() {
         Key::Character(c) if c == " " => "Space".to_string(),
+        Key::Character(c) if c == "+" => "Plus".to_string(),
         Key::Character(c) => c,
         Key::Shift | Key::Control | Key::Alt | Key::Meta => return None,
         k => k.to_string(),

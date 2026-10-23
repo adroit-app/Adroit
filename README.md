@@ -93,7 +93,7 @@ shell's word.
 From anywhere, the prompt included, `Mod`, which is `Cmd` on macOS and
 `Ctrl-Shift` elsewhere, runs the window's own commands: `Mod-]` `Mod-[` (or
 `Ctrl-q Tab` `Ctrl-q Shift-Tab`) show the next or previous tab of the panel
-the keys are in, the console's tabs or the details panel's overview, changes
+the keys are in, the content's tabs or the details panel's overview, changes
 and log, which `Mod-1` to `Mod-3` also show one by one; `Mod-p` chooses where
 a new session works, `Mod-n` starts one where the console is, `Mod-s` opens a
 shell there and `Mod-e` Neovim, `Mod-f` filters the tree, `Mod-r`
@@ -105,9 +105,9 @@ or the Session menu.
 | In the tree | |
 | --- | --- |
 | `j` `k`, `gg` `G` | move |
-| `Enter` `l` `o` | open a session or worktree; fold a workspace |
-| `L` `Shift-Enter` `Ctrl-Enter` | show a session or worktree in the console, with the keys staying in the tree |
-| `h` | fold |
+| `Enter` `l` `o` | open a session, worktree or file, a file in Neovim or in a viewer by its kind; fold or unfold a workspace, a heading or a directory |
+| `L` `Shift-Enter` `Ctrl-Enter` | show a session, worktree or file in the focused window, with the keys staying in the tree |
+| `h` | fold, or go up to the row above |
 | `]w` `[w` | the next or previous session waiting on you, with the console ready to answer it; `Ctrl-q ]` `Ctrl-q [` from anywhere |
 | `w` | choose where a new session works |
 | `n` | start a session in the selected worktree or directory |

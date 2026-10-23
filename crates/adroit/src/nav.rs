@@ -498,13 +498,21 @@ pub fn tab_after_closing(tree: &Tree, place: &Place, terminals: &[u128]) -> Opti
         .or_else(|| terminals.first().map(|&id| Tab::Terminal(id)))
 }
 
-/// The row in `list` for what a tab shows: the session's or the shell's own
-/// row, or else the nearest row above it still shown, its worktree or
-/// workspace. `None` when none is listed.
+/// The row in `list` for what a tab shows: the session's, the shell's or the
+/// viewed file's own row, or else the nearest row above it still shown, its
+/// heading, worktree or workspace. `None` when none is listed.
 pub fn row_of(list: &[Item], tree: &Tree, shown: Option<&Tab>, place: &Place) -> Option<Item> {
     let mut rows: Vec<Item> = match shown {
         Some(Tab::Session(id)) => vec![Item::Session(id.clone())],
         Some(Tab::Terminal(id)) => vec![Item::Terminal(*id)],
+        Some(Tab::Viewer(path)) => vec![
+            Item::File {
+                worktree: place.worktree.clone(),
+                path: path.clone(),
+                dir: false,
+            },
+            Item::Heading(place.worktree.clone(), Heading::Files),
+        ],
         _ => Vec::new(),
     };
     rows.extend(heading_of(tree, shown));
@@ -979,6 +987,24 @@ mod tests {
         assert_eq!(
             row_of(&list, &t, Some(&Tab::Session("b".into())), &at("/api")),
             Some(session("b"))
+        );
+    }
+
+    #[test]
+    fn a_viewer_selects_its_file_s_row_or_while_folded_away_the_files_heading() {
+        let t = tree();
+        let viewer = Tab::Viewer("/web/README.md".into());
+        let folded = items(&t, &[], &Folds::default(), &read_web);
+        assert_eq!(
+            row_of(&folded, &t, Some(&viewer), &at("/web")),
+            Some(files_of("/web"))
+        );
+        let mut folds = Folds::default();
+        folds.toggle(&files_of("/web"));
+        let open = items(&t, &[], &folds, &read_web);
+        assert_eq!(
+            row_of(&open, &t, Some(&viewer), &at("/web")),
+            Some(file("/web", "/web/README.md", false))
         );
     }
 

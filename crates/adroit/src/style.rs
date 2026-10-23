@@ -157,6 +157,7 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .content-windows > .console { position: absolute; inset: 0; }
 .win { position: absolute; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .win.focused { border-color: #4a5566; }
+.win-viewer { flex: 1; min-height: 0; display: flex; }
 .win-bar { flex: none; display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 10px; border-bottom: 1px solid var(--line); color: var(--text-2); font-size: 12px; white-space: nowrap; overflow: hidden; }
 .win.focused .win-bar { color: var(--text); background: var(--raised); }
 .win-name { overflow: hidden; text-overflow: ellipsis; min-width: 0; }

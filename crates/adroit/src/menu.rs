@@ -79,6 +79,7 @@ pub fn entries(target: &Target, session: Option<&Session>) -> Vec<(Action, &'sta
             (Action::TerminalStop, "Stop terminal"),
         ],
         Target::Tab(Tab::Draft { .. }) => Vec::new(),
+        Target::Tab(Tab::Viewer(_)) => vec![(Action::TabClose, "Close tab")],
         Target::Link { file, .. } => [(Action::CursorOpen, "Open"), (Action::CursorCopy, "Copy")]
             .into_iter()
             .chain(file.then_some((Action::CursorReveal, "Reveal in Finder")))

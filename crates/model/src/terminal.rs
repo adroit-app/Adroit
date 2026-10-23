@@ -14,6 +14,9 @@ pub struct TerminalSession {
     pub name: String,
     pub cwd: PathBuf,
     pub program: TerminalProgram,
+    /// The file Neovim was started on, if it was.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]

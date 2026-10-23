@@ -14,6 +14,8 @@ pub const NAME: &str = "adroit.name";
 /// (felis-terminal/felis#7).
 const CWD: &str = "adroit.cwd";
 const STARTED: &str = "adroit.started";
+/// The file a Neovim was started on.
+const FILE: &str = "adroit.file";
 const LAST_INPUT: &str = "adroit.last-input";
 const PERMISSIONS: &str = "adroit.permissions";
 /// The conversation a session holds. The tag keeps its original spelling
@@ -110,6 +112,7 @@ pub fn read(session: &adroit_term::Session) -> Option<Kept> {
                 "neovim" => TerminalProgram::Neovim,
                 _ => return None,
             },
+            file: tags::value(t, FILE).map(PathBuf::from),
         })),
         _ => None,
     }
@@ -221,6 +224,7 @@ pub fn terminal_tags(
     cwd: &std::path::Path,
     program: TerminalProgram,
     resource_id: adroit_model::TerminalResourceId,
+    file: Option<&std::path::Path>,
 ) -> Vec<String> {
     let mut out = tags::tagged(KIND, "terminal");
     out.extend(tags::tagged(NAME, name));
@@ -233,6 +237,9 @@ pub fn terminal_tags(
             TerminalProgram::Neovim => "neovim",
         },
     ));
+    if let Some(file) = file {
+        out.extend(tags::tagged(FILE, &file.to_string_lossy()));
+    }
     out
 }
 
@@ -481,7 +488,13 @@ mod tests {
             let resource_id = adroit_model::TerminalResourceId::new();
             let s = kept(
                 9,
-                terminal_tags("tool", std::path::Path::new("/api"), program, resource_id),
+                terminal_tags(
+                    "tool",
+                    std::path::Path::new("/api"),
+                    program,
+                    resource_id,
+                    None,
+                ),
             );
             assert_eq!(
                 read(&s),
@@ -491,9 +504,41 @@ mod tests {
                     name: "tool".into(),
                     cwd: "/api".into(),
                     program,
+                    file: None,
                 }))
             );
         }
+    }
+
+    #[test]
+    fn neovim_started_on_a_file_is_handed_the_file_and_keeps_it() {
+        use crate::execution::{TerminalStartRequest, resolve_terminal};
+        let launch = resolve_terminal(
+            &crate::settings::Settings::default(),
+            TerminalStartRequest {
+                name: "main.rs".into(),
+                cwd: "/api".into(),
+                program: TerminalProgram::Neovim,
+                file: Some("/api/src/main.rs".into()),
+                ..Default::default()
+            },
+            "/bin/sh",
+        );
+        assert_eq!(
+            launch.spawn.args.last().map(String::as_str),
+            Some("/api/src/main.rs")
+        );
+        let Some(Kept::Terminal(read)) = read(&kept(9, launch.spawn.tags)) else {
+            panic!("a terminal")
+        };
+        assert_eq!(read.file, Some("/api/src/main.rs".into()));
+        assert_eq!(
+            read,
+            TerminalSession {
+                id: 9,
+                ..launch.terminal
+            }
+        );
     }
 
     #[test]
@@ -506,6 +551,7 @@ mod tests {
                 std::path::Path::new("/api"),
                 TerminalProgram::Shell,
                 adroit_model::TerminalResourceId::new(),
+                None,
             ),
         );
         s.exited = true;

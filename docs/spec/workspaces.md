@@ -34,6 +34,8 @@ dim; the version control's own `.git` and `.jj` are not listed. A file jj or
 git sees changed is marked at the end of its row with the letter git gives it,
 an added one in a jj workspace with `A`, and a directory holding one with a
 dot. The marks and the listing follow the disk within seconds.
+Opening a file shows it in a viewer or in Neovim, by its kind
+([viewers](viewers.md)), and its row shows the tabs it is shown in.
 
 A row of a session, a shell or a Neovim shows the numbers of the content's tabs
 it is shown in, and the row of what the focused window shows stands out.

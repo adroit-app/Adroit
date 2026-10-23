@@ -4,6 +4,13 @@ A file that means nothing as text is shown by a viewer of its kind, drawn by
 the window itself: images, movies, HTML pages and PDFs. Every other file,
 including one of a kind adroit does not know, opens in Neovim.
 
+Opening a file from the tree ([workspaces](workspaces.md#the-tree)) shows it
+in the focused window, as opening any row does ([content](content.md)): in its
+viewer, or in a Neovim started on it in its worktree, listed under Editors. A
+file already open in a Neovim started on it opens that Neovim again. A viewer
+runs in the window and ends with the windows showing it; it keeps its zoom,
+page and playback while the focus moves between windows.
+
 ## Kinds
 
 A file's kind is decided by its extension alone, whatever its case. The
@@ -34,10 +41,11 @@ window it is drawn in, nor adroit.
 
 ## Keys
 
-A viewer's keys are actions bound in the keys file like any other
-([format](keys.md)): scrolling (`scroll.*`), zooming (`viewer.zoom_in`,
+A viewer's keys are actions bound in the keys file like any other, in its
+`viewer` area ([format](keys.md)): scrolling (`scroll.*`), zooming (`viewer.zoom_in`,
 `viewer.zoom_out`, `viewer.zoom_fit`), turning pages (`viewer.page_next`,
 `viewer.page_prev`), playing (`viewer.play`, `viewer.back`, `viewer.forward`),
-copying the path (`viewer.copy_path`) and closing (`window.close`). Keys
+copying the path (`viewer.copy_path`) and closing its window
+(`window.quit`). They reach the viewer of the focused window alone. Keys
 pressed while an HTML page has the focus reach the viewer as well, except
 those typed into the page's own fields.

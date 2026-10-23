@@ -2,7 +2,8 @@
 
 The middle of the window is the content. It holds tabs, each tab is split into
 windows, and each window shows one thing: a session, a session not started
-yet, or a shell or Neovim adroit runs ([terminals](terminals.md)).
+yet, a shell or Neovim adroit runs ([terminals](terminals.md)), or a file in
+the viewer of its kind ([viewers](viewers.md)).
 
 ## Tabs
 
@@ -23,11 +24,13 @@ The same thing may stand in any number of windows and tabs. A program shown in
 several windows runs at one size, the focused window's when it is one of them.
 
 Each window has a strip on top that tells what it shows: its state, its name,
-its agent, and the worktree it is in. The focused window is marked as the
+its agent, and the worktree it is in; a file's window shows the file's icon
+and name. The focused window is marked as the
 prompt is when it has the keys. A session's window shows the agent's
 interface; the focused one shows the prompt below it as well
 ([prompt](prompt.md)). A shell's or Neovim's window takes every key but the
 window commands' prefix and `Mod` keys.
+A viewer's window has no prompt and takes the `viewer` area's keys.
 
 ## Opening
 
@@ -35,11 +38,14 @@ Opening something, from the tree, the picker, the next waiting session or
 anywhere else, moves the focus to the window of the shown tab that already
 shows it. When none does, it is shown in the focused window, in place of what
 that window showed, or in a new tab when nothing is open.
+A file opened from the tree opens by its kind, in a viewer or in Neovim
+([viewers](viewers.md)).
 
 ## Closing
 
 Closing a window or a tab only hides what it shows: sessions, shells and
-Neovim run on, and the tree still reaches them. A session not started yet
+Neovim run on, and the tree still reaches them. A viewer ends with the last
+window showing it. A session not started yet
 that no window shows any longer is given up.
 
 A shell that exits or a session that ends closes every window that shows it.

@@ -47,6 +47,8 @@ pub struct TerminalStartRequest {
     pub cwd: PathBuf,
     pub program: TerminalProgram,
     pub env: Vec<(String, String)>,
+    /// The file to start Neovim on; a shell is started on none.
+    pub file: Option<PathBuf>,
 }
 
 pub struct ResolvedTerminalLaunch {
@@ -70,7 +72,12 @@ pub fn resolve_terminal(
             (program, args, env)
         }
         TerminalProgram::Neovim => {
-            let (program, args) = settings.neovim.command_line("nvim", &[], &shell);
+            let file: Vec<String> = request
+                .file
+                .iter()
+                .map(|f| f.to_string_lossy().into_owned())
+                .collect();
+            let (program, args) = settings.neovim.command_line("nvim", &file, &shell);
             (
                 program,
                 args,
@@ -78,8 +85,17 @@ pub fn resolve_terminal(
             )
         }
     };
+    let file = request
+        .file
+        .filter(|_| request.program == TerminalProgram::Neovim);
     let resource_id = TerminalResourceId::new();
-    let tags = sessions::terminal_tags(&request.name, &request.cwd, request.program, resource_id);
+    let tags = sessions::terminal_tags(
+        &request.name,
+        &request.cwd,
+        request.program,
+        resource_id,
+        file.as_deref(),
+    );
     ResolvedTerminalLaunch {
         terminal: TerminalSession {
             resource_id,
@@ -87,6 +103,7 @@ pub fn resolve_terminal(
             name: request.name,
             cwd: request.cwd.clone(),
             program: request.program,
+            file,
         },
         spawn: Spawn {
             program,

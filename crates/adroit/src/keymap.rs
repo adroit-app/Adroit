@@ -167,6 +167,27 @@ pub const DEFAULTS: &str = r#"
 "Ctrl+Enter" = "prompt.send"
 "Ctrl+p" = "prompt.history_prev"
 "Ctrl+n" = "prompt.history_next"
+
+[viewer]
+"j" = "scroll.down"
+"ArrowDown" = "scroll.down"
+"k" = "scroll.up"
+"ArrowUp" = "scroll.up"
+"Ctrl+d" = "scroll.half_down"
+"Ctrl+u" = "scroll.half_up"
+"g g" = "scroll.top"
+"G" = "scroll.bottom"
+"Plus" = "viewer.zoom_in"
+"=" = "viewer.zoom_in"
+"-" = "viewer.zoom_out"
+"0" = "viewer.zoom_fit"
+"J" = "viewer.page_next"
+"K" = "viewer.page_prev"
+"Space" = "viewer.play"
+"h" = "viewer.back"
+"l" = "viewer.forward"
+"y" = "viewer.copy_path"
+"q" = "window.quit"
 "#;
 
 /// A mistake in a file of bindings.
@@ -416,16 +437,19 @@ pub enum Context {
     Prompt,
     /// Before the area's bindings while a new session is shown.
     Draft,
+    /// A viewer in the focused window.
+    Viewer,
 }
 
 impl Context {
-    pub const ALL: [Context; 6] = [
+    pub const ALL: [Context; 7] = [
         Context::Global,
         Context::Tree,
         Context::Details,
         Context::Console,
         Context::Prompt,
         Context::Draft,
+        Context::Viewer,
     ];
 
     pub fn name(self) -> &'static str {
@@ -436,6 +460,7 @@ impl Context {
             Context::Console => "console",
             Context::Prompt => "prompt",
             Context::Draft => "draft",
+            Context::Viewer => "viewer",
         }
     }
 }
@@ -604,6 +629,15 @@ actions! {
     ZoomReset => "zoom.reset",
     TreeToggle => "tree.toggle",
     DetailsToggle => "details.toggle",
+    ViewerZoomIn => "viewer.zoom_in",
+    ViewerZoomOut => "viewer.zoom_out",
+    ViewerZoomFit => "viewer.zoom_fit",
+    ViewerPageNext => "viewer.page_next",
+    ViewerPagePrev => "viewer.page_prev",
+    ViewerPlay => "viewer.play",
+    ViewerBack => "viewer.back",
+    ViewerForward => "viewer.forward",
+    ViewerCopyPath => "viewer.copy_path",
 }
 
 /// What a key comes to.
@@ -1295,6 +1329,34 @@ mod tests {
             Step::Run(Action::CursorDown)
         );
         assert_eq!(step(&map, &[Context::Tree], &[], "P"), Step::Nothing);
+    }
+
+    #[test]
+    fn a_viewer_scrolls_zooms_turns_pages_plays_and_closes_by_its_own_keys() {
+        let map = Keymap::defaults();
+        let viewer = [Context::Viewer, Context::Global];
+        for (keys, action) in [
+            ("j", Action::ScrollDown),
+            ("Ctrl+u", Action::ScrollHalfUp),
+            ("G", Action::ScrollBottom),
+            ("Plus", Action::ViewerZoomIn),
+            ("=", Action::ViewerZoomIn),
+            ("-", Action::ViewerZoomOut),
+            ("0", Action::ViewerZoomFit),
+            ("J", Action::ViewerPageNext),
+            ("K", Action::ViewerPagePrev),
+            ("Space", Action::ViewerPlay),
+            ("h", Action::ViewerBack),
+            ("l", Action::ViewerForward),
+            ("y", Action::ViewerCopyPath),
+            ("q", Action::WindowQuit),
+        ] {
+            assert_eq!(step(&map, &viewer, &[], keys), Step::Run(action), "{keys}");
+        }
+        assert_eq!(
+            step(&map, &viewer, &["g"], "g"),
+            Step::Run(Action::ScrollTop)
+        );
     }
 
     #[test]

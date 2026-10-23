@@ -29,12 +29,12 @@ pub fn candidates(tree: &Tree, place: Option<&Place>, files: &[String]) -> Vec<C
 
 /// The directory whose commands `/` offers while `tab` is shown, or the
 /// open worktree with no tab: where its session runs, or would start. A shell
-/// takes no commands.
+/// or a viewer takes no commands.
 pub fn commands_dir(tree: &Tree, tab: Option<&Tab>, place: Option<&Place>) -> Option<PathBuf> {
     match tab {
         Some(Tab::Session(id)) => nav::find(tree, id).map(|(_, s)| s.cwd.clone()),
         Some(Tab::Draft { worktree, .. }) => Some(worktree.clone()),
-        Some(Tab::Terminal(_)) => None,
+        Some(Tab::Terminal(_) | Tab::Viewer(_)) => None,
         None => place.map(|p| p.worktree.clone()),
     }
 }

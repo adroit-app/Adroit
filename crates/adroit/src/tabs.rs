@@ -13,12 +13,15 @@ pub enum Tab {
     Terminal(u128),
     /// A session not started yet: the next prompt sent from here starts it.
     Draft { worktree: PathBuf, id: DraftId },
+    /// A file shown in the viewer of its kind.
+    Viewer(PathBuf),
 }
 
 /// Whether the prompt is shown under the console of a window showing `tab`, or
-/// with nothing open: a shell takes every key in the console itself.
+/// with nothing open: a shell takes every key in the console itself, and a
+/// viewer has no console.
 pub fn shows_prompt(tab: Option<&Tab>) -> bool {
-    !matches!(tab, Some(Tab::Terminal(_)))
+    !matches!(tab, Some(Tab::Terminal(_) | Tab::Viewer(_)))
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -152,12 +155,13 @@ pub fn fresh_name(label: &str, taken: &[&str]) -> String {
 }
 
 /// How a tab is kept for the next run of the window. A draft holds nothing
-/// to come back to, so it is not kept.
+/// to come back to, and a viewer opens again from the tree in a moment, so
+/// neither is kept.
 pub fn kept_name(tab: &Tab) -> Option<String> {
     match tab {
         Tab::Session(id) => Some(format!("session:{id}")),
         Tab::Terminal(id) => Some(format!("terminal:{id:x}")),
-        Tab::Draft { .. } => None,
+        Tab::Draft { .. } | Tab::Viewer(_) => None,
     }
 }
 
@@ -198,6 +202,7 @@ mod tests {
             id: Default::default(),
         };
         assert!(!shows_prompt(Some(&Tab::Terminal(1))));
+        assert!(!shows_prompt(Some(&Tab::Viewer("/a.png".into()))));
         assert!(shows_prompt(Some(&Tab::Session("a".into()))));
         assert!(shows_prompt(Some(&draft)));
         assert!(shows_prompt(None));

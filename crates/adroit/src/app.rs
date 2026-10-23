@@ -64,6 +64,7 @@ use crate::subagent_view::{SubagentView, agent_glyph};
 use crate::tabs::{self, Tab, fresh_name, label_from, named, shows_prompt};
 use crate::themes;
 use crate::view::Keys;
+use crate::viewers;
 use crate::window_socket::{Request, Response, ask, bind, serve, socket_path};
 use crate::zoom;
 
@@ -1091,6 +1092,9 @@ fn mode_tip(mode: &str, dialog: bool) -> &'static str {
         "CONSOLE" => {
             "The console has the keys: Vim's moves read it, i writes a prompt below, Ctrl+q h goes back to the tree"
         }
+        "VIEWER" => {
+            "The viewer has the keys: j and k scroll, + and - zoom, q closes it. Ctrl+q h goes back to the tree"
+        }
         "READ" | "VISUAL" => {
             "Vim's keys move, search, select and yank in the console; q, Esc or G goes back to it live, i writes a prompt"
         }
@@ -1121,6 +1125,16 @@ struct WindowDrag {
     px: f64,
 }
 
+/// A shell or a Neovim to start: where, on which file, and whether the keys
+/// move to it.
+#[derive(Debug, Clone, PartialEq)]
+struct TerminalAsk {
+    place: Place,
+    runs: TerminalProgram,
+    file: Option<PathBuf>,
+    focus: bool,
+}
+
 /// What a window's strip says of what it shows.
 #[derive(Debug, Clone, PartialEq)]
 struct Strip {
@@ -1135,6 +1149,8 @@ enum StripMark {
     State(State),
     Terminal(TerminalProgram),
     Draft,
+    /// A file's glyph, and the style that colours it.
+    File(&'static str, String),
 }
 
 fn window_strip(
@@ -1155,12 +1171,36 @@ fn window_strip(
         ),
         Tab::Terminal(id) => StripMark::Terminal(runs_of(terminals, *id)),
         Tab::Draft { .. } => StripMark::Draft,
+        Tab::Viewer(path) => {
+            let icon = file_icons::find(path, file_icons::Kind::File);
+            let colour = icon
+                .colour
+                .map(|c| format!("color:{}", c.css()))
+                .unwrap_or_default();
+            StripMark::File(icon.glyph, colour)
+        }
     };
     Strip {
         mark,
         name: thing_name(tree, terminals, shows),
         agent: session.map(|s| agents::adapter(s.agent).label()),
         worktree: place_of_thing(tree, terminals, shows).map(|p| p.worktree),
+    }
+}
+
+/// A window's viewer, handed the actions sent to this window alone.
+#[component]
+fn ViewerWindow(
+    window: WindowId,
+    path: PathBuf,
+    commands: ReadSignal<Option<(WindowId, viewers::Command)>>,
+    on_close: EventHandler<()>,
+) -> Element {
+    let command = use_memo(move || commands().filter(|(w, _)| *w == window).map(|(_, c)| c));
+    rsx! {
+        div { class: "win-viewer",
+            viewers::Viewer { path, command, on_close }
+        }
     }
 }
 
@@ -1172,12 +1212,14 @@ fn WindowStrip(strip: Strip) -> Element {
         StripMark::State(state) => glyph(state),
         StripMark::Terminal(_) => ("", Icon::Terminal2, ""),
         StripMark::Draft => ("place-mark", Icon::MessagePlus, "new session"),
+        StripMark::File(..) => ("", Icon::File, ""),
     };
     let shell = matches!(strip.mark, StripMark::Terminal(_));
     rsx! {
         div { class: if shell { "win-bar shell" } else { "win-bar" },
             match strip.mark {
                 StripMark::Terminal(runs) => rsx! { Terminal { runs } },
+                StripMark::File(glyph, colour) => rsx! { span { class: "nf", style: "{colour}", "aria-hidden": "true", "{glyph}" } },
                 _ => rsx! { span { class: "{g}", title: "{tip}", IconView { icon, size: 13 } } },
             }
             span { class: "win-name", "{strip.name}" }
@@ -1328,6 +1370,32 @@ fn place_of_thing(tree: &Tree, terminals: &[TerminalSession], thing: &Tab) -> Op
         Tab::Draft { worktree, .. } => Some(Place {
             worktree: worktree.clone(),
         }),
+        Tab::Viewer(path) => {
+            adroit_model::innermost(tree.worktrees().map(|w| &w.worktree.path), path).map(|w| {
+                Place {
+                    worktree: w.clone(),
+                }
+            })
+        }
+    }
+}
+
+/// The last part of `path`, as a file is called.
+fn file_name(path: &Path) -> String {
+    path.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| short(path))
+}
+
+/// Whether `shown` shows the file at `path`: in its viewer, or in the Neovim
+/// started on it.
+fn shows_file(shown: Option<&Tab>, terminals: &[TerminalSession], path: &Path) -> bool {
+    match shown {
+        Some(Tab::Viewer(p)) => p == path,
+        Some(Tab::Terminal(id)) => terminals
+            .iter()
+            .any(|t| t.id == *id && t.file.as_deref() == Some(path)),
+        _ => false,
     }
 }
 
@@ -1343,6 +1411,7 @@ fn thing_name(tree: &Tree, terminals: &[TerminalSession], thing: &Tab) -> String
             .map(|s| s.name.clone())
             .unwrap_or_default(),
         Tab::Draft { .. } => "new session".into(),
+        Tab::Viewer(path) => file_name(path),
     }
 }
 
@@ -1437,7 +1506,7 @@ fn kept_id(tab: &Tab) -> Option<u128> {
     match tab {
         Tab::Session(id) => sessions::id_of(id),
         Tab::Terminal(id) => Some(*id),
-        Tab::Draft { .. } => None,
+        Tab::Draft { .. } | Tab::Viewer(_) => None,
     }
 }
 
@@ -1694,6 +1763,9 @@ fn App() -> Element {
     let mut tree = use_signal(Tree::default);
     let mut selected = use_signal(|| None::<Item>);
     let mut folds = use_signal(nav::Folds::default);
+    // The latest action for a viewer, with the window whose viewer it is for.
+    let mut viewer_command = use_signal(|| None::<(WindowId, viewers::Command)>);
+    let mut terminal_ask = use_signal(|| None::<TerminalAsk>);
     let mut focus = use_signal(|| Area::Sidebar);
     // Whether every worktree git knows is listed, those without sessions too.
     let mut all_worktrees = use_signal(|| false);
@@ -2214,7 +2286,7 @@ fn App() -> Element {
                             panes.borrow_mut().retain(|tab, _| match tab {
                                 Tab::Session(id) => sessions.iter().any(|s| &s.id == id),
                                 Tab::Terminal(id) => terminals.peek().iter().any(|s| s.id == *id),
-                                Tab::Draft { .. } => true,
+                                Tab::Draft { .. } | Tab::Viewer(_) => true,
                             });
                             // Nor are the images its console drew kept.
                             let gone = gallery
@@ -2243,7 +2315,7 @@ fn App() -> Element {
                                             }
                                         })
                                     }
-                                    Tab::Draft { .. } => None,
+                                    Tab::Draft { .. } | Tab::Viewer(_) => None,
                                 };
                                 if let Some(p) = at {
                                     if let Tab::Session(id) = &kept {
@@ -3154,6 +3226,67 @@ fn App() -> Element {
         );
         draft
     };
+    // A shell or a Neovim asked for starts here, so what asks for one
+    // need not hold the hub.
+    use_effect({
+        let hub = hub.clone();
+        move || {
+            let ask = terminal_ask.read().clone();
+            let Some(TerminalAsk {
+                place: p,
+                runs,
+                file,
+                focus: take_keys,
+            }) = ask
+            else {
+                return;
+            };
+            terminal_ask.set(None);
+            let names: Vec<String> = terminals
+                .peek()
+                .iter()
+                .filter(|s| s.cwd == p.worktree)
+                .map(|s| s.name.clone())
+                .collect();
+            let taken: Vec<&str> = names.iter().map(String::as_str).collect();
+            let base = match (&file, runs) {
+                (Some(f), _) => file_name(f),
+                (None, TerminalProgram::Shell) => "shell".into(),
+                (None, TerminalProgram::Neovim) => "nvim".into(),
+            };
+            let name = fresh_name(&base, &taken);
+            let size = *console_size.peek();
+            let mut resolved = crate::execution::resolve_terminal(
+                &settings::current(),
+                crate::execution::TerminalStartRequest {
+                    name,
+                    cwd: p.worktree.clone(),
+                    program: runs,
+                    // Not `agent_env`: a shell or Neovim keeps the user's own editor.
+                    env: daemon::terminal_env(),
+                    file,
+                },
+                &programs::login_shell(),
+            );
+            resolved.spawn.cols = size.cols;
+            resolved.spawn.rows = size.rows;
+            let hub = hub.clone();
+            spawn(async move {
+                match start(&hub, resolved.spawn, size, Tab::Terminal, None).await {
+                    Ok(id) => {
+                        resolved.terminal.id = id;
+                        terminals.write().push(resolved.terminal);
+                        place.set(Some(p));
+                        middle.open(Tab::Terminal(id));
+                        if take_keys {
+                            focus.set(Area::Console);
+                        }
+                    }
+                    Err(e) => status.set(Some(format!("cannot start {base}: {e}"))),
+                }
+            });
+        }
+    });
     let mut open = move |item: Item| {
         // Typing stops going to the filter once a row is taken; what it
         // narrowed to stays.
@@ -3165,7 +3298,36 @@ fn App() -> Element {
             Item::Workspace(_) | Item::Heading(..) | Item::File { dir: true, .. } => {
                 folds.write().toggle(&item)
             }
-            Item::File { dir: false, .. } => {}
+            // A file opens by its kind: in a viewer, or else in Neovim, the
+            // one already started on it if there is one.
+            Item::File {
+                worktree,
+                path,
+                dir: false,
+            } => {
+                let p = Place {
+                    worktree: worktree.clone(),
+                };
+                let editing = terminals
+                    .peek()
+                    .iter()
+                    .find(|t| t.file.as_ref() == Some(path))
+                    .map(|t| t.id);
+                if viewers::FileKind::of(path).has_viewer() {
+                    place.set(Some(p));
+                    middle.open(Tab::Viewer(path.clone()));
+                } else if let Some(id) = editing {
+                    place.set(Some(p));
+                    middle.open(Tab::Terminal(id));
+                } else {
+                    terminal_ask.set(Some(TerminalAsk {
+                        place: p,
+                        runs: TerminalProgram::Neovim,
+                        file: Some(path.clone()),
+                        focus: false,
+                    }));
+                }
+            }
             Item::Waiting(id) | Item::Session(id) => {
                 if let Some(p) = nav::place_of(&tree.peek(), &item) {
                     place.set(Some(p));
@@ -3213,7 +3375,7 @@ fn App() -> Element {
                         });
                         (None, session_mark(reader))
                     }
-                    Tab::Terminal(_) => (None, None),
+                    Tab::Terminal(_) | Tab::Viewer(_) => (None, None),
                 };
                 let name = thing_name(&t, &terms, &shows);
                 (shows, name, state, mark, tab.windows().len())
@@ -3378,7 +3540,7 @@ fn App() -> Element {
                             false
                         }
                     },
-                    Tab::Terminal(_) => false,
+                    Tab::Terminal(_) | Tab::Viewer(_) => false,
                     Tab::Draft { .. }
                         if named(&text).0.is_some()
                             && named(&text).1.trim().is_empty()
@@ -4460,8 +4622,27 @@ fn App() -> Element {
                 go(to);
             };
             let thing = active.peek().clone();
+            // The focused window's viewer takes the viewer's actions.
+            if area == Area::Console
+                && let Some(Tab::Viewer(_)) = &thing
+                && let Some(v) = viewers::ViewerAction::of(&action)
+                && let Some(w) = content.peek().focused_window()
+            {
+                let seq = viewer_command.peek().as_ref().map_or(1, |(_, c)| c.seq + 1);
+                viewer_command.set(Some((w, viewers::Command { seq, action: v })));
+                return;
+            }
             match action {
                 Action::None => {}
+                Action::ViewerZoomIn
+                | Action::ViewerZoomOut
+                | Action::ViewerZoomFit
+                | Action::ViewerPageNext
+                | Action::ViewerPagePrev
+                | Action::ViewerPlay
+                | Action::ViewerBack
+                | Action::ViewerForward
+                | Action::ViewerCopyPath => {}
                 Action::WindowLeft => window(Dir::Left),
                 Action::WindowDown => window(Dir::Down),
                 Action::WindowUp => window(Dir::Up),
@@ -4854,9 +5035,15 @@ fn App() -> Element {
                     if let Some(item) = cur {
                         let toggles = matches!(
                             item,
-                            Item::Workspace(_) | Item::Heading(..) | Item::File { .. }
+                            Item::Workspace(_) | Item::Heading(..) | Item::File { dir: true, .. }
                         );
                         open(item);
+                        // A Neovim still starting takes the keys once it has.
+                        if terminal_ask.peek().is_some()
+                            && let Some(ask) = terminal_ask.write().as_mut()
+                        {
+                            ask.focus = true;
+                        }
                         match &*active.peek() {
                             _ if toggles => {}
                             Some(Tab::Draft { .. }) => {
@@ -4936,45 +5123,12 @@ fn App() -> Element {
                         .and_then(|c| nav::place_of(&tree.peek(), c))
                         .or_else(|| place.peek().clone());
                     if let Some(p) = p {
-                        let names: Vec<String> = terminals
-                            .peek()
-                            .iter()
-                            .filter(|s| s.cwd == p.worktree)
-                            .map(|s| s.name.clone())
-                            .collect();
-                        let taken: Vec<&str> = names.iter().map(String::as_str).collect();
-                        let base = match runs {
-                            TerminalProgram::Shell => "shell",
-                            TerminalProgram::Neovim => "nvim",
-                        };
-                        let name = fresh_name(base, &taken);
-                        let size = *console_size.peek();
-                        let mut resolved = crate::execution::resolve_terminal(
-                            &settings::current(),
-                            crate::execution::TerminalStartRequest {
-                                name,
-                                cwd: p.worktree.clone(),
-                                program: runs,
-                                // Not `agent_env`: a shell or Neovim keeps the user's own editor.
-                                env: daemon::terminal_env(),
-                            },
-                            &programs::login_shell(),
-                        );
-                        resolved.spawn.cols = size.cols;
-                        resolved.spawn.rows = size.rows;
-                        let hub = hub.clone();
-                        spawn(async move {
-                            match start(&hub, resolved.spawn, size, Tab::Terminal, None).await {
-                                Ok(id) => {
-                                    resolved.terminal.id = id;
-                                    terminals.write().push(resolved.terminal);
-                                    place.set(Some(p));
-                                    middle.open(Tab::Terminal(id));
-                                    focus.set(Area::Console);
-                                }
-                                Err(e) => status.set(Some(format!("cannot start {base}: {e}"))),
-                            }
-                        });
+                        terminal_ask.set(Some(TerminalAsk {
+                            place: p,
+                            runs,
+                            file: None,
+                            focus: true,
+                        }));
                     }
                 }
                 // On a shell's row, that shell closes, whichever tab is shown.
@@ -5413,6 +5567,9 @@ fn App() -> Element {
                 _ if passing || windowing => &[Context::Global],
                 Area::Sidebar => &[Context::Tree, Context::Global],
                 Area::Details => &[Context::Details, Context::Tree, Context::Global],
+                Area::Console if matches!(&*active.peek(), Some(Tab::Viewer(_))) => {
+                    &[Context::Viewer, Context::Global]
+                }
                 Area::Console => &[Context::Console, Context::Global],
                 Area::Prompt if nvim_insert => &[Context::Prompt],
                 Area::Prompt => &[Context::Prompt, Context::Global],
@@ -5671,6 +5828,7 @@ fn App() -> Element {
             .map(|s| s.name.clone())
             .unwrap_or_default(),
         Some(Tab::Draft { .. }) => "new session".into(),
+        Some(Tab::Viewer(path)) => file_name(path),
         None => "new scratch session".into(),
     };
     let prompt_shown = shows_prompt(active_tab.as_ref());
@@ -5887,6 +6045,9 @@ fn App() -> Element {
                 "READ"
             };
             (word.to_string(), "normal")
+        }
+        Area::Console if matches!(active_tab, Some(Tab::Viewer(_))) => {
+            ("VIEWER".to_string(), "normal")
         }
         Area::Console => ("CONSOLE".to_string(), "normal"),
         Area::Prompt if answering => ("PASS".to_string(), "pass"),
@@ -6139,7 +6300,19 @@ fn App() -> Element {
                 };
                 let focused = Some(id) == focused_window;
                 let strip = window_strip(&t, &terms, &completions.read(), &shows);
-                let body = if focused {
+                // A viewer is drawn the same focused or not, so it keeps its
+                // zoom, page and playback as the focus moves.
+                let body = if let Tab::Viewer(path) = &shows {
+                    rsx! {
+                        ViewerWindow {
+                            key: "{id}",
+                            window: id,
+                            path: path.clone(),
+                            commands: viewer_command,
+                            on_close: move |_| middle.closing(prompts, Content::close_window),
+                        }
+                    }
+                } else if focused {
                     focused_body.take().unwrap_or_else(|| rsx! {})
                 } else {
                     let has = hub.panes.borrow().contains_key(&shows);
@@ -6472,6 +6645,16 @@ fn App() -> Element {
                                 let chips = match &it {
                                     Item::Session(id) => content_now.tabs_showing(&Tab::Session(id.clone())),
                                     Item::Terminal(id) => content_now.tabs_showing(&Tab::Terminal(*id)),
+                                    // A file stands in its viewer's tabs and its Neovim's.
+                                    Item::File { path, dir: false, .. } => {
+                                        let mut at = content_now.tabs_showing(&Tab::Viewer(path.clone()));
+                                        for t in terminals.read().iter().filter(|t| t.file.as_ref() == Some(path)) {
+                                            at.extend(content_now.tabs_showing(&Tab::Terminal(t.id)));
+                                        }
+                                        at.sort_unstable();
+                                        at.dedup();
+                                        at
+                                    }
                                     _ => Vec::new(),
                                 }
                                 .iter()
@@ -6511,6 +6694,7 @@ fn App() -> Element {
                                 let class = match &it {
                                     Item::Session(id) if shown_id.as_deref() == Some(id.as_str()) => format!("{class} shown"),
                                     Item::Terminal(id) if active_tab == Some(Tab::Terminal(*id)) => format!("{class} shown"),
+                                    Item::File { path, dir: false, .. } if shows_file(active_tab.as_ref(), &terminals.read(), path) => format!("{class} shown"),
                                     _ => class,
                                 };
                                 let target = Target::Row(it.clone());
@@ -7397,6 +7581,26 @@ fn DraftLaunchOptions(
 mod tests {
     use super::*;
     use crate::details::overview;
+
+    #[test]
+    fn a_file_is_shown_by_its_viewer_or_by_the_neovim_started_on_it() {
+        let nvim = TerminalSession {
+            id: 7,
+            program: TerminalProgram::Neovim,
+            file: Some("/w/a.rs".into()),
+            ..Default::default()
+        };
+        let terminals = [nvim];
+        let path = Path::new("/w/a.rs");
+        assert!(shows_file(Some(&Tab::Terminal(7)), &terminals, path));
+        assert!(!shows_file(Some(&Tab::Terminal(8)), &terminals, path));
+        assert!(shows_file(
+            Some(&Tab::Viewer("/w/b.png".into())),
+            &terminals,
+            Path::new("/w/b.png")
+        ));
+        assert!(!shows_file(None, &terminals, path));
+    }
 
     #[test]
     fn the_details_describe_the_focused_window_s_worktree_and_nothing_while_nothing_is_open() {
