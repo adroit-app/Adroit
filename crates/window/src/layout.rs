@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 pub use adroit_core::layout::*;
 
-use crate::paths::state_dir;
+use adroit_model::paths::state_dir;
 
 /// A layout kept in the state folder from one run to the next.
 pub trait Kept: Sized {

@@ -1,5 +1,5 @@
 fn main() {
-    use adroit_host::cli::{Command, USAGE, command, hand_to_open_window, settle_instance};
+    use adroit_host::cli::{Command, USAGE, command, settle_instance};
     let args: Vec<String> = std::env::args().skip(1).collect();
     let asked = command(&args);
     let given = match &asked {
@@ -30,12 +30,12 @@ fn main() {
         Some(Command::Session(rest)) => std::process::exit(adroit_host::session_cli(&rest)),
         Some(Command::Mcp(rest)) => std::process::exit(adroit_host::delegation::bridge::cli(&rest)),
         Some(Command::Terminal(rest)) => std::process::exit(adroit_host::terminal_cli(&rest)),
-        Some(Command::Editor(rest)) => std::process::exit(adroit_host::editor::cli(&rest)),
+        Some(Command::Editor(rest)) => std::process::exit(adroit_window::editor::cli(&rest)),
         Some(Command::Daemon(asked)) => std::process::exit(adroit_host::daemon_cli(asked)),
         Some(Command::Host(asked)) => std::process::exit(adroit_host::host_cli(asked)),
         Some(Command::Window(_)) => {}
     }
-    if hand_to_open_window() {
+    if adroit_window::hand_to_open_window() {
         return;
     }
     // Opened from the Finder, there is no terminal and no PATH of the user's
@@ -53,5 +53,8 @@ fn main() {
         // SAFETY: no other thread exists yet.
         unsafe { std::env::remove_var(k) };
     }
-    adroit_window::launch();
+    adroit_window::launch(adroit_window::Build {
+        build: adroit_host::standing::build(),
+        described: adroit_host::standing::DESCRIBED,
+    });
 }

@@ -1085,6 +1085,33 @@ mod tests {
     }
 
     #[test]
+    fn the_console_s_images_and_the_files_run_newest_first_together() {
+        let file = |path: &str, at_ms: Option<u64>| adroit_model::links::ImageFile {
+            path: path.into(),
+            touch: Touch::Read,
+            at_ms,
+        };
+        let thumb: Arc<str> = "data:image/png;base64,AA==".into();
+        // A file gone has no small copy, and is not listed.
+        let read_now = SessionRead {
+            links: Some(Links {
+                images: vec![file("/w/a.png", Some(9)), file("/w/b.png", None)],
+                ..Default::default()
+            }),
+            thumbs: BTreeMap::from([("/w/a.png".to_string(), Some(thumb))]),
+            ..Default::default()
+        };
+        let got = shots(
+            &[Shot::console(1, 2, 2, 5, None)],
+            read_now.links.as_ref().unwrap(),
+            Some(&read_now),
+        );
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0].at_ms, Some(9));
+        assert_eq!(got[1].at_ms, Some(5));
+    }
+
+    #[test]
     fn the_overview_lists_links_only_for_the_session_they_were_read_for() {
         let links = Links {
             urls: vec![link(LinkKind::Url, "https://a.dev")],

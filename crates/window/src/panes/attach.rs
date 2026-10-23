@@ -12,8 +12,8 @@ use dioxus::prelude::*;
 use crate::bridge::AppCtx;
 use crate::console::{Hub, Panes};
 use crate::content::Tab;
-use crate::sessions;
 use crate::shell::Ui;
+use adroit_model::daemon as sessions;
 
 /// How long, in 50 ms steps, a prompt waits for a session pane that has just
 /// attached.

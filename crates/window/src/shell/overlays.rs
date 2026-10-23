@@ -15,7 +15,6 @@ use crate::keymap::Context;
 use crate::keys_help;
 use crate::keys_help_view::KeysHelpView;
 use crate::nav::{self, Item};
-use crate::standing;
 use adroit_core::content::Tab;
 use adroit_protocol::TerminalHostStanding;
 
@@ -187,7 +186,7 @@ pub(crate) fn old_daemon_note(standing: &TerminalHostStanding) -> Option<String>
     match standing {
         TerminalHostStanding::Old { build: Some(said) } => Some(format!(
             "It runs adroit {said}, and this window adroit {}.",
-            standing::build()
+            crate::build::build()
         )),
         TerminalHostStanding::Old { build: None } => {
             Some("It runs a build of adroit too old to say which.".into())
@@ -224,7 +223,7 @@ mod tests {
         })
         .unwrap();
         assert!(note.contains("0.1.0 (v0.1.0-3-gabc)"), "{note}");
-        assert!(note.contains(&standing::build()), "{note}");
+        assert!(note.contains(&crate::build::build()), "{note}");
     }
 
     #[test]

@@ -61,7 +61,6 @@ dependencies = [
  "adroit-vcs",
  "base64 0.23.1",
  "core-foundation",
- "fontdb",
  "image",
  "libc",
  "resvg",
@@ -74,7 +73,6 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "toml 1.1.8+spec-1.1.0",
- "ttf-parser",
  "wuff",
 ]
 
@@ -125,6 +123,7 @@ dependencies = [
  "felis-protocol",
  "felis-transport",
  "felis-vt",
+ "image",
  "libc",
  "png 0.18.1",
  "serde_json",
@@ -148,13 +147,15 @@ name = "adroit-window"
 version = "0.0.0"
 dependencies = [
  "adroit-core",
- "adroit-host",
  "adroit-model",
  "adroit-nvim",
  "adroit-protocol",
  "adroit-term",
+ "base64 0.23.1",
  "dioxus",
+ "fontdb",
  "image",
+ "libc",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",

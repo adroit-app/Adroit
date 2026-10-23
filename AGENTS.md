@@ -35,17 +35,17 @@ Run `just ci` before reporting a change as done. CI runs the same recipe.
 | Path | What lives there |
 | --- | --- |
 | `crates/adroit/` | the `adroit` application binary: which of the window, the hosts and the commands to run |
-| `crates/window/` | the window: its Dioxus UI, menu bar and Settings window |
+| `crates/window/` | the window: its Dioxus UI, menu bar and Settings window, which reaches the work only through the work host's socket |
 | `crates/window/assets/` | the windows' stylesheets and page scripts, taken in with `include_str!` |
 | `crates/agents/` | each agent's adapter: how Claude Code and Codex are started, asked and read back |
 | `crates/agents/plugin/` | the Claude Code plugin every session adroit starts loads |
 | `crates/core/` | the window's state and the rules it changes by, with no UI and no programs run |
 | `crates/core/icons/` | the Tabler icons the window draws, with their licence |
 | `crates/protocol/` | what the window and the work host say to each other: requests, events, the work they describe, the versions they speak |
-| `crates/host/` | what the window runs: the daemon, sessions, shells, editor, socket, delegation and what is kept on disk |
+| `crates/host/` | the work host, `adroit host`: the work, the sessions and shells it starts in the terminal host, delegation, its socket, and the commands that ask it |
 | `crates/host/themes/` | the console themes adroit comes with |
 | `crates/host/terminfo/` | the terminfo entry the console's programs are given |
-| `crates/host/tests/` | tests that start the daemon, sessions and shells |
+| `crates/host/tests/` | tests that start the terminal host, sessions and shells |
 | `assets/logo/` | the logo as flattened SVG, and `build.py` that regenerates it |
 | `assets/macos/` | the macOS app's Info.plist and the script that assembles the app |
 | `assets/file-icons/` | vim-nerdfont's and vim-glyph-palette's icon tables at a pinned revision, their licences, and `update.sh` that copies them again |

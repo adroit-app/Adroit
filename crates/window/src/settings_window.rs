@@ -437,7 +437,7 @@ fn ConsolePane(now: Settings, change: Callback<Change>) -> Element {
     };
     let known = themes.contains(&now.theme);
     let installed = use_resource(|| async {
-        tokio::task::spawn_blocking(adroit_host::fonts::installed)
+        tokio::task::spawn_blocking(crate::installed_fonts::installed)
             .await
             .ok()
     });

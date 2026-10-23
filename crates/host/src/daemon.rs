@@ -7,15 +7,13 @@ use adroit_term::Daemon;
 
 use crate::awake::{self, Assertion, Keeper};
 use crate::cli::DaemonCommand;
-use crate::paths::{instance_state, state_dir};
+use crate::paths::state_dir;
 use crate::standing::{build, say_when_listening};
 use crate::work_host::{self, adroit_program};
 
-/// `$ADROIT_DAEMON`, or `adroit/felis/daemon.sock` under the state directory.
+/// Where the terminal host of the instance listens.
 pub fn socket() -> PathBuf {
-    std::env::var_os("ADROIT_DAEMON")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| instance_state().join("felis").join("daemon.sock"))
+    crate::paths::terminal_host_socket()
 }
 
 /// The daemon the window talks to.

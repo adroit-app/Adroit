@@ -24,13 +24,14 @@ use crate::style::CSS;
 use crate::{image_window, menu_bar, settings_window, themes};
 
 /// Open the window.
-pub fn launch() {
+pub fn launch(build: crate::Build) {
+    crate::build::settle(build);
     use dioxus::desktop::{Config as Desktop, LogicalSize, WindowBuilder};
     let cfg = Desktop::new()
         .with_window(
             WindowBuilder::new()
                 .with_title(adroit_core::chrome::title(
-                    crate::standing::DESCRIBED.filter(|_| cfg!(debug_assertions)),
+                    crate::build::described().filter(|_| cfg!(debug_assertions)),
                 ))
                 .with_inner_size(LogicalSize::new(1440.0, 900.0)),
         )

@@ -12,15 +12,16 @@ adroit-core.workspace = true
 adroit-model.workspace = true
 adroit-nvim.workspace = true
 adroit-protocol = { workspace = true, features = ["client"] }
-adroit-host.workspace = true
 adroit-term.workspace = true
 dioxus = { version = "0.7.10", features = ["desktop"] }
+fontdb = "0.24.0"
 image.workspace = true
 resvg.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
 tokio.workspace = true
+ttf-parser = "0.25.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2.workspace = true
@@ -30,6 +31,7 @@ objc2-pdf-kit.workspace = true
 
 [dev-dependencies]
 adroit-model = { workspace = true, features = ["testing"] }
+base64.workspace = true
+libc.workspace = true
 tempfile.workspace = true
-ttf-parser = "0.25.1"
 wuff = "0.2.9"

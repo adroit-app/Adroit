@@ -27,11 +27,13 @@ pub enum Response {
     Error(String),
 }
 
-/// `$ADROIT_SOCKET`, or `adroit.sock` in the instance's folder `dir`.
-pub fn socket_path(dir: &Path) -> PathBuf {
-    std::env::var_os("ADROIT_SOCKET")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| dir.join("adroit.sock"))
+pub use adroit_model::paths::window_socket as socket_path;
+
+/// Ask the window of this instance, if one is open, to come to the front;
+/// whether it did, leaving this process nothing to open.
+pub fn hand_to_open_window() -> bool {
+    let socket = socket_path(&adroit_model::paths::instance_state());
+    matches!(ask(&socket, &Request::Show), Ok(Response::Shown))
 }
 
 /// Send one request to the window and read its answer.

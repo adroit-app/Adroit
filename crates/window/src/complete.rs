@@ -1,6 +1,6 @@
 //! What `@` and `/` in the prompt offer.
 
-use adroit_agents::claude::commands::Command;
+use adroit_model::Command;
 use adroit_nvim::Candidate;
 
 pub use adroit_core::complete::*;
@@ -95,7 +95,11 @@ mod tests {
 
     #[tokio::test]
     async fn codex_slash_commands_reach_the_embedded_prompt() {
-        let list = adroit_agents::adapter(adroit_model::Agent::Codex).builtin_commands();
+        let list = [command(
+            "model",
+            "choose what model and reasoning effort to use",
+            "",
+        )];
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let editor = adroit_nvim::Embedded::spawn(
             "nvim",

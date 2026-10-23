@@ -16,7 +16,6 @@ adroit-protocol = { workspace = true, features = ["client"] }
 adroit-term.workspace = true
 adroit-vcs.workspace = true
 base64.workspace = true
-fontdb = "0.24.0"
 image.workspace = true
 libc.workspace = true
 resvg.workspace = true
@@ -26,7 +25,6 @@ serde.workspace = true
 serde_json.workspace = true
 sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
 toml.workspace = true
-ttf-parser = "0.25.1"
 thiserror.workspace = true
 tokio.workspace = true
 

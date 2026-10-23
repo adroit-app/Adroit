@@ -1,7 +1,6 @@
 //! What the `adroit` command was asked to do.
 
-use crate::paths::{DEFAULT_INSTANCE, INSTANCE_ENV, instance_state, is_instance};
-use crate::window_socket::{Request, Response, ask, socket_path};
+use crate::paths::{DEFAULT_INSTANCE, INSTANCE_ENV, is_instance};
 
 /// What `adroit` does, by its arguments.
 #[derive(Debug, PartialEq, Eq)]
@@ -90,13 +89,6 @@ pub fn settle_instance(given: Option<String>) -> Result<(), String> {
     // SAFETY: called before any other thread exists.
     unsafe { std::env::set_var(INSTANCE_ENV, name) };
     Ok(())
-}
-
-/// Ask the window of this instance, if one is open, to come to the front;
-/// whether it did, leaving this process nothing to open.
-pub fn hand_to_open_window() -> bool {
-    let socket = socket_path(&instance_state());
-    matches!(ask(&socket, &Request::Show), Ok(Response::Shown))
 }
 
 #[cfg(test)]

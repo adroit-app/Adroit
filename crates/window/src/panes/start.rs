@@ -18,8 +18,8 @@ use super::tell_live;
 use crate::bridge::AppCtx;
 use crate::console::Hub;
 use crate::nav::Item;
-use crate::sessions;
 use crate::shell::Ui;
+use adroit_model::daemon as sessions;
 
 /// This program, as a session should call it to reach the window.
 pub(crate) fn adroit_program() -> PathBuf {
@@ -109,7 +109,7 @@ impl Ui {
         let taken: Vec<&str> = names.iter().map(String::as_str).collect();
         let base = match (&file, runs) {
             (Some(f), _) => file_name(f),
-            (None, runs) => crate::terminals::base_name(runs, &[]),
+            (None, runs) => adroit_model::base_name(runs, &[]),
         };
         let name = fresh_name(&base, &taken);
         let size = *self.local.console_size.peek();

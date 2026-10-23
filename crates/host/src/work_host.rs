@@ -10,15 +10,12 @@ use adroit_protocol::client::{Connection, ask_stop, hello};
 use adroit_protocol::{Answer, Ask, Event, Hello, Request, SPOKEN, WorkHost, agree, judge};
 
 use crate::cli::HostCommand;
-use crate::paths::instance_state;
 use crate::serve::Served;
 use crate::standing::build;
 
 /// `$ADROIT_HOST`, or `host/host.sock` under the instance's state folder.
 pub fn socket() -> PathBuf {
-    std::env::var_os("ADROIT_HOST")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| instance_state().join("host").join("host.sock"))
+    crate::paths::work_host_socket()
 }
 
 /// The arguments that have adroit serve the work host at its socket.

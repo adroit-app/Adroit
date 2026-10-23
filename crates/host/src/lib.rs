@@ -1,25 +1,21 @@
-//! What the window runs: the daemon and the sessions and shells it keeps,
-//! the editor and the window's socket, delegation between sessions, and what
-//! is kept on disk from one run to the next.
+//! The work host: the work it holds and serves over its socket, the
+//! terminal host it starts and the sessions and shells it starts there,
+//! delegation between sessions, the commands that ask it, and what is kept
+//! on disk from one run to the next.
 
-pub mod alerts;
 mod asks;
 pub mod awake;
 pub mod cli;
-pub mod complete;
 pub mod compose;
 pub mod config;
-pub mod console_read;
 pub mod daemon;
 pub mod delegation;
 pub mod details;
 pub mod editor;
 pub mod env;
 pub mod execution;
-pub mod fonts;
 mod held;
 mod jobs;
-pub mod layout;
 pub mod pasted;
 pub mod paths;
 pub mod pictures;
@@ -36,7 +32,6 @@ mod terminal_host;
 pub mod terminals;
 pub mod themes;
 pub mod watch;
-pub mod window_socket;
 pub mod work;
 pub mod work_host;
 
@@ -46,7 +41,3 @@ pub use daemon::cli as daemon_cli;
 pub use start::cli as session_cli;
 pub use terminals::cli as terminal_cli;
 pub use work_host::cli as host_cli;
-
-#[cfg(test)]
-#[path = "../tests/support/daemon.rs"]
-mod native_test_daemon;

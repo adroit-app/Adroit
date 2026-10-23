@@ -16,7 +16,6 @@ use super::{close_shell, keep_drawn};
 use crate::bridge::AppCtx;
 use crate::console::{Hub, Panes};
 use crate::content::Tab;
-use crate::daemon;
 use crate::shell::Local;
 
 /// The palette of `colours`, as the host read them.
@@ -44,7 +43,7 @@ pub(crate) fn use_hub(app: AppCtx, local: Local) -> Hub {
         let panes: Panes = Rc::new(RefCell::new(HashMap::new()));
         spawn(redraw_woken(app, local, panes.clone(), woken));
         Hub {
-            daemon: daemon::daemon(),
+            daemon: adroit_term::Daemon::new(adroit_model::paths::terminal_host_socket()),
             panes,
             attaching: Rc::new(RefCell::new(HashSet::new())),
             wake,

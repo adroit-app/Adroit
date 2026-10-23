@@ -2,9 +2,11 @@
 //! details panel for the session shown, and shown in a window of their own.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use adroit_core::msg::Msg;
 use adroit_model::time::now_ms;
+use adroit_protocol::{Answer, Ask};
 use dioxus::prelude::*;
 
 use crate::content::Tab;
@@ -92,12 +94,15 @@ impl Ui {
             }
             Source::File { path, .. } => {
                 let (key, path) = (shot.key.clone(), PathBuf::from(path));
+                let asked = self.app.ask(Ask::Picture {
+                    path: path.clone(),
+                    whole: true,
+                });
                 spawn(async move {
-                    let read = path.clone();
-                    let shown = tokio::task::spawn_blocking(move || pictures::file_shown(&read))
-                        .await
-                        .ok()
-                        .flatten();
+                    let shown = match asked.await {
+                        Answer::Picture { url } => url.map(Arc::from),
+                        _ => None,
+                    };
                     match shown {
                         Some(src) => {
                             let title = path.file_name().map_or_else(

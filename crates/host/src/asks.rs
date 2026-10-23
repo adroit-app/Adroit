@@ -46,6 +46,7 @@ async fn answer(watched: &Watched, judged: &watch::Sender<Judged>, ask: Ask) -> 
         Ask::KeepImage { mime, data } => keep_image(&mime, &data),
         Ask::SaveSettings { text } => save_settings(text),
         Ask::SaveKeys { text } => save_keys(&text),
+        Ask::Picture { path, whole } => Ok(picture(path, whole).await),
         Ask::Run { args, cwd, input } => Ok(run(&args, &cwd, input).await),
     };
     answered.unwrap_or_else(|text| Answer::Failed { text })
@@ -195,6 +196,23 @@ fn save_settings(text: String) -> Result<Answer, String> {
     })?;
     settings::set(next)?;
     Ok(Answer::Done)
+}
+
+/// The image file at `path`, whole or as its small copy.
+async fn picture(path: std::path::PathBuf, whole: bool) -> Answer {
+    let url = tokio::task::spawn_blocking(move || {
+        if whole {
+            crate::pictures::file_shown(&path)
+        } else {
+            crate::pictures::file_thumb(&path)
+        }
+    })
+    .await
+    .ok()
+    .flatten();
+    Answer::Picture {
+        url: url.map(|u| u.to_string()),
+    }
 }
 
 /// What a keys file made without a binding in it starts with.

@@ -31,3 +31,15 @@ pub enum TerminalProgram {
     /// Any program, started through the shell.
     Command,
 }
+
+/// The name a terminal is given unless one is asked for.
+pub fn base_name(program: TerminalProgram, command: &[String]) -> String {
+    match program {
+        TerminalProgram::Shell => "shell".into(),
+        TerminalProgram::Neovim => "nvim".into(),
+        TerminalProgram::Command => command
+            .first()
+            .and_then(|p| std::path::Path::new(p).file_name())
+            .map_or_else(|| "command".into(), |n| n.to_string_lossy().into_owned()),
+    }
+}

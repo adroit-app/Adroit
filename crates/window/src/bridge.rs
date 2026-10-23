@@ -362,10 +362,10 @@ pub(crate) fn open<const N: usize>(args: [String; N]) {
 /// it.
 fn work_host() -> To {
     To {
-        socket: adroit_host::work_host::socket(),
+        socket: adroit_model::paths::work_host_socket(),
         program: crate::panes::adroit_program(),
-        args: adroit_host::work_host::serve_args(),
-        build: adroit_host::standing::build(),
+        args: vec!["host".into()],
+        build: crate::build::build(),
     }
 }
 

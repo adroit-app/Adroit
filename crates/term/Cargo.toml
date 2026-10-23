@@ -17,6 +17,7 @@ felis-client-core.workspace = true
 felis-daemon.workspace = true
 base64.workspace = true
 png.workspace = true
+image.workspace = true
 libc.workspace = true
 tokio.workspace = true
 thiserror.workspace = true

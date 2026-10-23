@@ -28,6 +28,9 @@ pub enum Ask {
     /// Make `text` the key bindings over the defaults, as `keys.toml` holds
     /// them.
     SaveKeys { text: String },
+    /// The image file at `path` as a `data:` URL: whole, or as the small copy
+    /// a list draws.
+    Picture { path: PathBuf, whole: bool },
     /// Run the command `adroit <args>` as run in `cwd`, with `input` on its
     /// standard input.
     Run {
@@ -101,6 +104,10 @@ pub enum Answer {
     /// The image was kept here.
     Kept {
         path: PathBuf,
+    },
+    /// The image asked for, or none when it cannot be read or shown.
+    Picture {
+        url: Option<String>,
     },
     /// What the command wrote, and its exit status.
     Ran {

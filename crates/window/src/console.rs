@@ -8,6 +8,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use adroit_nvim::{Embedded, UiState};
+use adroit_protocol::{Answer, Ask};
 use adroit_term::{Daemon, Palette, Pane};
 use dioxus::html::geometry::WheelDelta;
 use dioxus::prelude::*;
@@ -337,15 +338,31 @@ pub fn Composer(
     onselectimage: EventHandler<std::path::PathBuf>,
     onremoveimage: EventHandler<std::path::PathBuf>,
 ) -> Element {
-    let previews = use_memo(use_reactive((&images,), |(images,)| {
-        images
-            .into_iter()
-            .map(|path| {
-                let thumb = crate::pictures::file_thumb(&path);
-                (path, thumb)
-            })
-            .collect::<Vec<_>>()
+    let app = use_context::<crate::bridge::AppCtx>();
+    // The small copies the work host made, by path; none yet for one asked.
+    let mut thumbs = use_signal(HashMap::<std::path::PathBuf, Option<Arc<str>>>::new);
+    use_effect(use_reactive((&images,), move |(images,)| {
+        for path in images {
+            if thumbs.peek().contains_key(&path) {
+                continue;
+            }
+            let asked = app.ask(Ask::Picture {
+                path: path.clone(),
+                whole: false,
+            });
+            spawn(async move {
+                let url = match asked.await {
+                    Answer::Picture { url } => url.map(Arc::from),
+                    _ => None,
+                };
+                thumbs.write().insert(path, url);
+            });
+        }
     }));
+    let previews: Vec<_> = images
+        .iter()
+        .map(|path| (path.clone(), thumbs.read().get(path).cloned()))
+        .collect();
     let ch = use_cell_height();
     let thumb = scroll_thumb(view.0, rows, view.1);
     let _ = prompt_frame();
@@ -433,7 +450,7 @@ pub fn Composer(
                     class: "prompt-attachments",
                     role: "group",
                     aria_label: "Attached images",
-                    for (path, preview) in previews().iter() {
+                    for (path, preview) in previews.iter() {
                         div {
                             key: "{path.display()}",
                             class: if selected_image.as_ref() == Some(path) { "prompt-attachment selected" } else { "prompt-attachment" },
@@ -443,10 +460,14 @@ pub fn Composer(
                                 e.prevent_default();
                                 onselectimage.call(path.clone());
                             } },
-                            if let Some(preview) = preview {
-                                img { src: "{preview}", alt: "Attached image: {path.file_name().unwrap_or_default().to_string_lossy()}" }
-                            } else {
-                                span { class: "attachment-missing", "Image unavailable" }
+                            match preview {
+                                Some(Some(preview)) => rsx! {
+                                    img { src: "{preview}", alt: "Attached image: {path.file_name().unwrap_or_default().to_string_lossy()}" }
+                                },
+                                Some(None) => rsx! {
+                                    span { class: "attachment-missing", "Image unavailable" }
+                                },
+                                None => rsx! {},
                             }
                             button {
                                 class: "attachment-remove",

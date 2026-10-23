@@ -5,6 +5,7 @@ mod daemon;
 mod input;
 mod palette;
 mod pane;
+pub mod picture;
 mod screen;
 pub mod tags;
 
