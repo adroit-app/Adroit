@@ -5,9 +5,10 @@ use adroit_protocol::Request;
 use crate::chrome::{panels, status_line};
 use crate::effect::Effect;
 use crate::msg::Msg;
+use crate::picker::resume;
 use crate::settle::settle;
 use crate::state::ViewState;
-use crate::{chrome, content, details, host, resume, tree};
+use crate::{chrome, content, details, host, tree};
 
 /// `msg` applied to `state`, and the state settled after it.
 pub fn step(state: &mut ViewState, msg: Msg) -> Vec<Effect> {

@@ -2,7 +2,7 @@
 //! window's view state holds the list, and its keys go there.
 
 use adroit_core::msg::Msg;
-use adroit_core::resume::rows;
+use adroit_core::picker::resume::rows;
 use adroit_model::Agent;
 use adroit_model::time::{ago, now_ms};
 use dioxus::prelude::*;

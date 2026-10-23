@@ -10,7 +10,7 @@ use adroit_core::details::{Details, Scroll};
 use adroit_core::effect::Effect;
 use adroit_core::host::Host as HostView;
 use adroit_core::msg::Msg;
-use adroit_core::resume::ResumeView;
+use adroit_core::picker::resume::ResumeView;
 use adroit_core::state::ViewState;
 use adroit_core::tree::TreeView;
 use adroit_core::update::step;

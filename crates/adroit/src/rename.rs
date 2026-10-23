@@ -2,7 +2,7 @@
 
 use dioxus::prelude::*;
 
-pub use adroit_core::rename::*;
+pub use adroit_core::overlay::rename::*;
 
 #[component]
 pub fn SessionName(

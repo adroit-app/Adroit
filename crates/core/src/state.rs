@@ -5,7 +5,7 @@ use crate::chrome::Chrome;
 use crate::content::ContentView;
 use crate::details::Details;
 use crate::host::Host;
-use crate::resume::ResumeView;
+use crate::picker::resume::ResumeView;
 use crate::tree::TreeView;
 
 #[derive(Debug, Clone, PartialEq)]

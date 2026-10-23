@@ -7,9 +7,9 @@ use std::path::PathBuf;
 use adroit_model::{Key, Past};
 use adroit_protocol::{PastSight, WorkSnapshot};
 
+use super::fuzzy::{Query, best};
 use crate::content::{self, Tab};
 use crate::effect::Effect;
-use crate::fuzzy::{Query, best};
 use crate::state::ViewState;
 use crate::tree::{self, nav};
 

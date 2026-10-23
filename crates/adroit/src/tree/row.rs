@@ -4,7 +4,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use adroit_core::menu::Target;
+use adroit_core::overlay::context_menu::Target;
 use adroit_core::tree;
 use adroit_model::{InboxItem, TerminalSession, Tree};
 use dioxus::prelude::*;
