@@ -126,7 +126,8 @@ pub fn text_goes(state: &ViewState) -> Typed {
     )
 }
 
-/// A key goes to the session shown as it is: it may type into its input.
+/// A key or text goes to the session shown as it is: it may type into its
+/// input.
 fn typed(state: &mut ViewState) {
     if let Some(tab @ Tab::Session(_)) = state.content.active() {
         state.console.stale.insert(tab.clone());
@@ -281,7 +282,10 @@ pub(crate) fn text(state: &mut ViewState, text: String, pasted: bool) -> Vec<Eff
             effects.push(Effect::PromptText { text, pasted });
             effects
         }
-        Typed::Program => vec![Effect::PaneText { text, pasted }],
+        Typed::Program => {
+            typed(state);
+            vec![Effect::PaneText { text, pasted }]
+        }
         Typed::Nowhere => Vec::new(),
     }
 }
