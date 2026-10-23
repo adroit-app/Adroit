@@ -3,10 +3,12 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::Change;
+use serde::{Deserialize, Serialize};
+
+use super::Change;
 
 /// What jj or git says of the files of one worktree.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Marks {
     changed: HashMap<PathBuf, char>,
     ignored: HashSet<PathBuf>,

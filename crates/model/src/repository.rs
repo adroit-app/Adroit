@@ -1,7 +1,10 @@
 //! What a repository says, whichever version control reads it: the files a
-//! change touches, the changes of a history, the lines of a diff, and which
-//! of them the details panel asks for.
+//! change touches, the changes of a history, the lines of a diff, which of
+//! them the details panel asks for, and the marks the tree gives files.
 
+mod marks;
+
+pub use marks::*;
 use serde::{Deserialize, Serialize};
 
 /// A file a change touches.

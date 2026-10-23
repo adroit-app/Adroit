@@ -4,6 +4,7 @@
 
 pub mod config;
 pub mod daemon;
+pub mod files;
 mod inbox;
 mod key;
 mod launch;

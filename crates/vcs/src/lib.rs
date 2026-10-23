@@ -9,13 +9,11 @@ mod discover;
 pub mod ghq;
 pub mod git;
 pub mod jj;
-mod marks;
 mod view;
 pub mod worktree;
 
 pub use adroit_model::repository::*;
 pub use discover::*;
-pub use marks::*;
 pub use view::*;
 
 /// The most diff lines read; the rest is cut.

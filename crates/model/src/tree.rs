@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
+
 use crate::{Session, TerminalSession};
 
 /// A git worktree as found on disk.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Worktree {
     pub path: PathBuf,
     /// The main checkout of the repository the worktree belongs to.
@@ -31,13 +33,13 @@ impl Worktree {
 
 /// The workspaces sessions and terminals run in, each with its worktrees, and
 /// what runs in each.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Tree {
     pub workspaces: Vec<WorkspaceNode>,
 }
 
 /// A git repository, or a directory outside git, and what runs in it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceNode {
     pub root: PathBuf,
     pub name: String,
@@ -47,7 +49,7 @@ pub struct WorkspaceNode {
     pub worktrees: Vec<WorktreeNode>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorktreeNode {
     pub worktree: Worktree,
     pub sessions: Vec<Session>,
