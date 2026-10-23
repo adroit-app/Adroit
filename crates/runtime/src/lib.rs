@@ -6,6 +6,7 @@ pub mod alerts;
 pub mod awake;
 pub mod cli;
 pub mod complete;
+pub mod compose;
 pub mod config;
 pub mod console_read;
 pub mod daemon;

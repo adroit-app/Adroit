@@ -41,6 +41,14 @@ pub enum Request {
     /// Ask again for the commands `/` offers where the window has in sight,
     /// if those held are old, as a `/` typed asks.
     CommandsWanted,
+    /// Compose how `text`, with `images` attached, is typed into a session of
+    /// `agent`, for the request numbered `asked`.
+    Compose {
+        asked: u64,
+        agent: Agent,
+        text: String,
+        images: Vec<PathBuf>,
+    },
     /// Read the prompts `agent` kept as sent in `project`, for the request
     /// numbered `asked`.
     History {

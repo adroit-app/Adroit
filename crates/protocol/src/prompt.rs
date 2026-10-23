@@ -1,6 +1,7 @@
 //! What the prompt asks of the work host: the prompts sent before in a
 //! project, read afresh each time the user steps back through them, and the
-//! commands `/` offers where the prompt's session runs.
+//! commands `/` offers where the prompt's session runs, and how a prompt is
+//! typed into the session it goes to.
 
 use std::path::PathBuf;
 
@@ -39,6 +40,33 @@ impl CommandsRead {
     }
 }
 
+/// One step of typing into a session's program.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum Typing {
+    /// Type this, as keys are typed.
+    Text { text: String },
+    /// Paste this.
+    Paste { text: String },
+    /// Press the key by this name.
+    Key { name: String },
+    /// Leave the program this long, in milliseconds, before the next step.
+    Pause { ms: u64 },
+}
+
+/// How a prompt is typed into a session of the agent it goes to, composed
+/// for the request numbered `asked`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Composed {
+    pub asked: u64,
+    /// The agent runs the prompt as a shell command.
+    pub shell: bool,
+    /// An image attached to it is no longer there.
+    pub image_missing: bool,
+    /// The steps that type it, Enter last.
+    pub typing: Vec<Typing>,
+}
+
 /// What the host read for the prompt.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct PromptWork {
@@ -46,6 +74,8 @@ pub struct PromptWork {
     pub history: Option<HistoryRead>,
     /// The commands last read for `/`; none until some are.
     pub commands: Option<CommandsRead>,
+    /// The prompt last composed; none until one is asked for.
+    pub composed: Option<Composed>,
 }
 
 /// One change to what the host read for the prompt.
@@ -54,6 +84,7 @@ pub struct PromptWork {
 pub enum PromptChange {
     History { read: HistoryRead },
     Commands { read: CommandsRead },
+    Composed { composed: Composed },
 }
 
 impl PromptWork {
@@ -72,6 +103,13 @@ impl PromptWork {
                     return false;
                 }
                 self.commands = Some(read);
+                true
+            }
+            PromptChange::Composed { composed } => {
+                if self.composed.as_ref() == Some(&composed) {
+                    return false;
+                }
+                self.composed = Some(composed);
                 true
             }
         }

@@ -26,6 +26,7 @@ const RULES: &[Rule] = &[
     console_live,
     console_freed,
     prompt_recalled,
+    prompt_composed,
     prompt_images,
     prompt_offered,
     prompt_commands,
@@ -132,6 +133,11 @@ fn console_freed(state: &mut ViewState, effects: &mut Vec<Effect>) {
 /// prompt it steps to in the prompt.
 fn prompt_recalled(state: &mut ViewState, effects: &mut Vec<Effect>) {
     effects.extend(prompt::recalled(state));
+}
+
+/// A prompt the host composed goes where it was written for, or is put back.
+fn prompt_composed(state: &mut ViewState, effects: &mut Vec<Effect>) {
+    effects.extend(prompt::send::composed(state));
 }
 
 /// Images attached or taken away leave none selected.

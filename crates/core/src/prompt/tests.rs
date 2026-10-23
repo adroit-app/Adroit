@@ -301,6 +301,7 @@ mod sending {
     use super::*;
     use crate::content::Area;
     use crate::prompt::send::Taken;
+    use adroit_protocol::{Composed, Typing};
 
     fn listed(state: State) -> Event {
         let sessions = vec![Session {
@@ -333,13 +334,46 @@ mod sending {
             tab: Some(tab),
             text: text.into(),
             agent: Agent::Claude,
-            shell_bang: true,
             ..Default::default()
         }
     }
 
+    /// The steps the host composes in these tests.
+    fn typed() -> Vec<Typing> {
+        vec![Typing::Key {
+            name: "Enter".into(),
+        }]
+    }
+
+    /// A host that composes each prompt as a shell line or not, with an
+    /// image missing or not.
+    fn composing(shell: bool, image_missing: bool) -> Scenario {
+        let mut seq = 1;
+        Scenario::answering(move |request| match request {
+            Request::Compose { asked, .. } => {
+                seq += 1;
+                vec![Event::Patch(WorkPatch {
+                    seq: Seq(seq),
+                    changes: vec![Change::Prompt(PromptChange::Composed {
+                        composed: Composed {
+                            asked: *asked,
+                            shell,
+                            image_missing,
+                            typing: typed(),
+                        },
+                    })],
+                })]
+            }
+            _ => Vec::new(),
+        })
+    }
+
     fn sending(state: State, tab: Tab) -> Scenario {
-        Scenario::new()
+        sending_with(state, tab, false, false)
+    }
+
+    fn sending_with(state: State, tab: Tab, shell: bool, image_missing: bool) -> Scenario {
+        composing(shell, image_missing)
             .event(listed(state))
             .send(Msg::Show {
                 thing: tab,
@@ -356,6 +390,22 @@ mod sending {
                 Effect::LapseNotice { text, .. } => Some(text.clone()),
                 _ => None,
             })
+            .collect()
+    }
+
+    /// What the last message asked of the host and the window to send.
+    fn sends(run: &Scenario) -> Vec<Effect> {
+        run.last_effects()
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e,
+                    Effect::Host(Request::Compose { .. })
+                        | Effect::SendPrompt(_)
+                        | Effect::StartDraft(_)
+                )
+            })
+            .cloned()
             .collect()
     }
 
@@ -385,46 +435,49 @@ mod sending {
             images: vec!["/a.png".into()],
             ..t
         };
-        // (session's state, taken, the notice)
+        // (session's state, taken, the host composes a shell line, an image
+        // missing, the notice)
         let cases = [
             (
                 State::Waiting(Wait::Permission),
                 written(session.clone(), "go"),
+                false,
+                false,
                 "Answer the session above first; your message waits here",
             ),
             (
                 State::Idle,
-                Taken {
-                    shell_line: true,
-                    ..image(written(session.clone(), "!ls"))
-                },
+                image(written(session.clone(), "!ls")),
+                true,
+                false,
                 "Images cannot be sent with a shell command",
             ),
             (
                 State::Idle,
-                Taken {
-                    image_missing: true,
-                    ..image(written(session.clone(), "see"))
-                },
+                image(written(session.clone(), "see")),
+                false,
+                true,
                 "An attached image is unavailable; remove it or paste it again",
             ),
             (
                 State::Idle,
                 written(draft.clone(), "name: fixer\n"),
+                false,
+                false,
                 "Write what the session is to do below its name",
             ),
             (
                 State::Idle,
-                Taken {
-                    shell_line: true,
-                    ..written(draft.clone(), "!ls")
-                },
+                written(draft.clone(), "!ls"),
+                true,
+                false,
                 "A shell line runs in a session: start it with a message first",
             ),
         ];
-        for (state, taken, notice) in cases {
+        for (state, taken, shell, missing, notice) in cases {
             let tab = taken.tab.clone().unwrap();
-            let run = sending(state, tab).send(Msg::PromptTaken(Box::new(taken.clone())));
+            let run = sending_with(state, tab, shell, missing)
+                .send(Msg::PromptTaken(Box::new(taken.clone())));
             assert_eq!(notices(&run), [notice.to_string()], "{taken:?}");
             assert!(restored(&run), "{taken:?}");
             assert_eq!(run.state().prompt.sending, None);
@@ -439,9 +492,21 @@ mod sending {
         let session = Tab::Session("a".into());
         let taken = written(session.clone(), "fix it");
         let run = sending(State::Idle, session).send(Msg::PromptTaken(Box::new(taken.clone())));
+        let composed = Taken {
+            typing: typed(),
+            ..taken.clone()
+        };
         assert_eq!(
-            run.last_effects(),
-            [Effect::SendPrompt(Box::new(taken.clone()))]
+            sends(&run),
+            [
+                Effect::Host(Request::Compose {
+                    asked: 1,
+                    agent: Agent::Claude,
+                    text: "fix it".into(),
+                    images: Vec::new(),
+                }),
+                Effect::SendPrompt(Box::new(composed)),
+            ]
         );
         assert_eq!(
             run.send(Msg::PromptWent(true)).last_effects(),
@@ -471,7 +536,12 @@ mod sending {
         for (text, name, prompt) in cases {
             let run = sending(State::Idle, draft.clone())
                 .send(Msg::PromptTaken(Box::new(written(draft.clone(), text))));
-            let [Effect::StartDraft(start)] = run.last_effects() else {
+            let sends = sends(&run);
+            let [
+                Effect::Host(Request::Compose { .. }),
+                Effect::StartDraft(start),
+            ] = sends.as_slice()
+            else {
                 panic!("{text:?}: {:?}", run.last_effects());
             };
             assert_eq!(start.draft, draft, "{text:?}");

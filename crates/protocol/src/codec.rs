@@ -36,12 +36,12 @@ mod tests {
     };
 
     use crate::{
-        AgentFacts, AgentsWork, Change, CommandsRead, CommandsSight, ConfigChange, ConfigFile,
-        ConfigWork, ConversationRead, DetailsChange, DetailsWork, Event, FileText, HistoryRead,
-        Listed, Offers, PastChange, PastSight, PastWork, PickChange, PickSight, PickWork,
-        PlaceChange, PlaceRead, PlaceWork, PromptChange, PromptWork, RepositoryRead,
+        AgentFacts, AgentsWork, Change, CommandsRead, CommandsSight, Composed, ConfigChange,
+        ConfigFile, ConfigWork, ConversationRead, DetailsChange, DetailsWork, Event, FileText,
+        HistoryRead, Listed, Offers, PastChange, PastSight, PastWork, PickChange, PickSight,
+        PickWork, PlaceChange, PlaceRead, PlaceWork, PromptChange, PromptWork, RepositoryRead,
         RepositorySight, Request, Seq, SessionRead, Sight, SystemUsage, TreeChange, TreeSight,
-        Version, WorkPatch, WorkSnapshot,
+        Typing, Version, WorkPatch, WorkSnapshot,
     };
 
     fn round_trips<T>(message: T)
@@ -107,6 +107,12 @@ mod tests {
             project: "/w".into(),
         });
         round_trips(Request::CommandsWanted);
+        round_trips(Request::Compose {
+            asked: 4,
+            agent: adroit_model::Agent::Codex,
+            text: "look".into(),
+            images: vec!["/p/shot.png".into()],
+        });
     }
 
     #[test]
@@ -181,6 +187,7 @@ mod tests {
                         argument_hint: String::new(),
                     }],
                 }),
+                composed: Some(Composed::default()),
             },
             config: ConfigWork {
                 settings: Some(ConfigFile::default()),
@@ -337,6 +344,21 @@ mod tests {
                         agent: adroit_model::Agent::Codex,
                         dir: "/w".into(),
                         commands: Vec::new(),
+                    },
+                }),
+                Change::Prompt(PromptChange::Composed {
+                    composed: Composed {
+                        asked: 4,
+                        shell: true,
+                        image_missing: false,
+                        typing: vec![
+                            Typing::Text { text: "!".into() },
+                            Typing::Pause { ms: 40 },
+                            Typing::Paste { text: "ls".into() },
+                            Typing::Key {
+                                name: "Enter".into(),
+                            },
+                        ],
                     },
                 }),
             ],

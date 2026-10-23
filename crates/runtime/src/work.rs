@@ -213,6 +213,16 @@ impl Host {
                 self.commands.send_modify(|n| *n += 1);
                 Vec::new()
             }
+            Request::Compose {
+                asked,
+                agent,
+                text,
+                images,
+            } => {
+                let composed = crate::compose::compose(asked, agent, &text, &images);
+                let composed = PromptChange::Composed { composed };
+                self.patch(vec![composed.into()]).into_iter().collect()
+            }
             Request::Typed { inputs } => {
                 self.inputs.send_if_modified(|was| {
                     let changed = *was != inputs;
@@ -395,7 +405,7 @@ fn in_sight(change: &Change, sight: &Sight) -> bool {
         Change::Pick(PickChange::Left) => true,
         Change::Place(PlaceChange::Read { read }) => sight.place.as_ref() == Some(&read.worktree),
         Change::Place(PlaceChange::Left) => true,
-        Change::Prompt(PromptChange::History { .. }) => true,
+        Change::Prompt(PromptChange::History { .. } | PromptChange::Composed { .. }) => true,
         Change::Prompt(PromptChange::Commands { read }) => {
             sight.commands.as_ref().is_some_and(|s| read.is_for(s))
         }

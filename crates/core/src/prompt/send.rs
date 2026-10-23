@@ -1,10 +1,11 @@
-//! Sending what is written: taken from the prompt, refused with a word to the
-//! user when it cannot go where it was written for, and put back when it
-//! could not be sent.
+//! Sending what is written: taken from the prompt, composed by the host for
+//! the agent it goes to, refused with a word to the user when it cannot go
+//! where it was written for, and put back when it could not be sent.
 
 use std::path::PathBuf;
 
 use adroit_model::Agent;
+use adroit_protocol::{Request, Typing};
 
 use crate::chrome::status_line;
 use crate::content::{Area, DraftOptions, Tab, fresh_name, label_from, named, shows_prompt};
@@ -19,11 +20,15 @@ use crate::update::step;
 pub(crate) enum Sending {
     /// Taken from the prompt, which has not answered yet.
     Taking,
+    /// Taken, and asked of the host how it is typed, by the request
+    /// numbered `asked`.
+    Composing { asked: u64, taken: Taken },
     /// Handed to the window to send, and put back should it fail.
-    Sending(Taken),
+    Handed(Taken),
 }
 
-/// What was taken from the prompt, as the window found it.
+/// What was taken from the prompt, as the window found it and the host
+/// composed it.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Taken {
     /// The tab it was written for.
@@ -32,12 +37,12 @@ pub struct Taken {
     pub images: Vec<PathBuf>,
     /// The agent it goes to.
     pub agent: Agent,
-    /// That agent runs a line starting with `!` as a shell command.
-    pub shell_bang: bool,
-    /// The text is such a line.
-    pub shell_line: bool,
-    /// An image attached is no longer there.
+    /// The agent runs it as a shell command, as the host says.
+    pub shell: bool,
+    /// An image attached is no longer there, as the host says.
     pub image_missing: bool,
+    /// How it is typed into its session, as the host composed it.
+    pub typing: Vec<Typing>,
 }
 
 /// Send what is written, unless a prompt is on its way already or the
@@ -56,35 +61,81 @@ pub(crate) fn nothing_taken(state: &mut ViewState) -> Vec<Effect> {
     Vec::new()
 }
 
-/// What was taken goes where it was written for: a session's input, or a
-/// new session from its draft. What cannot go is put back, with a word to
-/// the user why.
+/// What was taken goes where it was written for once the host has composed
+/// it. One for a session waiting on an answer is put back at once, with a
+/// word to the user why: the Enter that ends a prompt would pick the choice
+/// in front, usually Yes. The prompt waits for it to be answered, and the
+/// keys go where the answer is given.
 pub(crate) fn taken(state: &mut ViewState, taken: Taken) -> Vec<Effect> {
-    let waiting = |state: &ViewState, id: &str| {
-        nav::find(tree::listed(state.host.work.as_ref()), id)
-            .is_some_and(|(_, s)| s.state.takes_every_key())
+    let waits = match &taken.tab {
+        Some(Tab::Session(id)) => nav::find(tree::listed(state.host.work.as_ref()), id)
+            .is_some_and(|(_, s)| s.state.takes_every_key()),
+        _ => false,
     };
-    let refuse = |state: &mut ViewState, notice: &str, taken: Taken| {
-        state.prompt.sending = None;
-        let mut effects = status_line::notice(&mut state.chrome.status, notice.into());
-        effects.push(restore(taken));
-        effects
+    if waits {
+        let mut effects = step(state, Msg::Focus(Area::Console));
+        effects.extend(refuse(
+            state,
+            "Answer the session above first; your message waits here",
+            taken,
+        ));
+        return effects;
+    }
+    state.prompt.asked += 1;
+    let asked = state.prompt.asked;
+    let request = Request::Compose {
+        asked,
+        agent: taken.agent,
+        text: taken.text.clone(),
+        images: taken.images.clone(),
     };
+    state.prompt.sending = Some(Sending::Composing { asked, taken });
+    vec![Effect::Host(request)]
+}
+
+/// The host composed the prompt on its way: it goes where it was written
+/// for, a session's input or a new session from its draft. What cannot go
+/// is put back, with a word to the user why.
+pub(crate) fn composed(state: &mut ViewState) -> Vec<Effect> {
+    let Some(Sending::Composing { asked, .. }) = &state.prompt.sending else {
+        return Vec::new();
+    };
+    let Some(composed) = state
+        .host
+        .work
+        .as_ref()
+        .and_then(|w| w.prompt.composed.as_ref())
+        .filter(|c| c.asked == *asked)
+        .cloned()
+    else {
+        return Vec::new();
+    };
+    let Some(Sending::Composing { taken, .. }) = state.prompt.sending.take() else {
+        return Vec::new();
+    };
+    go(
+        state,
+        Taken {
+            shell: composed.shell,
+            image_missing: composed.image_missing,
+            typing: composed.typing,
+            ..taken
+        },
+    )
+}
+
+/// `notice` said, and `taken` put back.
+fn refuse(state: &mut ViewState, notice: &str, taken: Taken) -> Vec<Effect> {
+    state.prompt.sending = None;
+    let mut effects = status_line::notice(&mut state.chrome.status, notice.into());
+    effects.push(restore(taken));
+    effects
+}
+
+fn go(state: &mut ViewState, taken: Taken) -> Vec<Effect> {
     let has_images = !taken.images.is_empty();
     match taken.tab.clone() {
-        // The Enter that ends a prompt would pick the choice in front,
-        // usually Yes; the prompt waits for it to be answered, and the keys
-        // go where the answer is given.
-        Some(Tab::Session(id)) if waiting(state, &id) => {
-            let mut effects = step(state, Msg::Focus(Area::Console));
-            effects.extend(refuse(
-                state,
-                "Answer the session above first; your message waits here",
-                taken,
-            ));
-            effects
-        }
-        _ if has_images && taken.shell_bang && taken.shell_line => {
+        _ if has_images && taken.shell => {
             refuse(state, "Images cannot be sent with a shell command", taken)
         }
         _ if taken.image_missing => refuse(
@@ -93,7 +144,7 @@ pub(crate) fn taken(state: &mut ViewState, taken: Taken) -> Vec<Effect> {
             taken,
         ),
         Some(Tab::Session(_)) => {
-            state.prompt.sending = Some(Sending::Sending(taken.clone()));
+            state.prompt.sending = Some(Sending::Handed(taken.clone()));
             vec![Effect::SendPrompt(Box::new(taken))]
         }
         Some(Tab::Draft { .. })
@@ -109,7 +160,7 @@ pub(crate) fn taken(state: &mut ViewState, taken: Taken) -> Vec<Effect> {
         }
         // Given as the first prompt, a shell line is not known to run as a
         // command; it could reach the model as a message.
-        Some(Tab::Draft { .. }) if taken.shell_bang && taken.shell_line => refuse(
+        Some(Tab::Draft { .. }) if taken.shell => refuse(
             state,
             "A shell line runs in a session: start it with a message first",
             taken,
@@ -127,7 +178,7 @@ pub(crate) fn taken(state: &mut ViewState, taken: Taken) -> Vec<Effect> {
                 .get(&draft)
                 .cloned()
                 .unwrap_or_default();
-            state.prompt.sending = Some(Sending::Sending(taken.clone()));
+            state.prompt.sending = Some(Sending::Handed(taken.clone()));
             vec![Effect::StartDraft(Box::new(Start {
                 draft,
                 name,
@@ -158,7 +209,7 @@ pub struct Start {
 /// The prompt handed to the window went, or did not: one that did not is
 /// put back where it was written for.
 pub(crate) fn sent(state: &mut ViewState, ok: bool) -> Vec<Effect> {
-    let Some(Sending::Sending(taken)) = state.prompt.sending.take() else {
+    let Some(Sending::Handed(taken)) = state.prompt.sending.take() else {
         return Vec::new();
     };
     if ok {

@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use adroit_model::Session;
 use adroit_nvim::notation;
+use adroit_protocol::Typing;
 use adroit_term::{Key, Palette, Pane, Screen, Size, Spawn};
 use dioxus::prelude::*;
 use tokio::sync::{mpsc, oneshot};
@@ -120,6 +121,20 @@ async fn repainted(pane: &Pane, before: &Screen) {
     let until = tokio::time::Instant::now() + TAB_APPLIED_WAIT;
     while tokio::time::Instant::now() < until && pane.screen() == *before {
         tokio::time::sleep(Duration::from_millis(16)).await;
+    }
+}
+
+/// Type `typing` into `pane`, step by step.
+async fn type_into(pane: &Pane, typing: &[Typing]) {
+    for step in typing {
+        match step {
+            Typing::Text { text } => pane.type_text(text),
+            Typing::Paste { text } => pane.paste(text),
+            Typing::Key { name } => {
+                pane.key(&Key::new(name));
+            }
+            Typing::Pause { ms } => tokio::time::sleep(Duration::from_millis(*ms)).await,
+        }
     }
 }
 
@@ -968,13 +983,11 @@ fn App() -> Element {
                 };
                 let agent = app.agent_of(Some(&tab));
                 let taken = adroit_core::prompt::send::Taken {
-                    shell_bang: agents::adapter(agent).capabilities().shell_bang,
-                    shell_line: adroit_agents::claude::shell_line(&text).is_some(),
-                    image_missing: images.iter().any(|path| !path.is_file()),
                     tab: Some(tab),
                     text,
                     images,
                     agent,
+                    ..Default::default()
                 };
                 app.dispatch(Msg::PromptTaken(Box::new(taken)));
             });
@@ -993,7 +1006,6 @@ fn App() -> Element {
                     app.dispatch(Msg::PromptWent(false));
                     return;
                 };
-                let (text, images, agent) = (&taken.text, &taken.images, taken.agent);
                 let sent = match pane_for(app, &hub, &tab, size).await {
                     Some(p) => {
                         // Claude Code turns on bracketed paste once it is
@@ -1008,28 +1020,7 @@ fn App() -> Element {
                             app.status(Some("The session ended before it took the prompt".into()));
                             false
                         } else {
-                            match adroit_agents::claude::shell_line(text)
-                                .filter(|_| taken.shell_bang)
-                            {
-                                Some(command) => {
-                                    p.type_text("!");
-                                    tokio::time::sleep(Duration::from_millis(40)).await;
-                                    p.paste(command);
-                                }
-                                None => {
-                                    let adapter = agents::adapter(agent);
-                                    for image in adapter.image_pastes(images) {
-                                        p.paste(&image);
-                                        tokio::time::sleep(Duration::from_millis(80)).await;
-                                    }
-                                    let message = adapter.image_prompt(text, images);
-                                    if !message.is_empty() {
-                                        p.paste(&message);
-                                    }
-                                }
-                            }
-                            tokio::time::sleep(Duration::from_millis(40)).await;
-                            p.key(&Key::new("Enter"));
+                            type_into(&p, &taken.typing).await;
                             true
                         }
                     }
