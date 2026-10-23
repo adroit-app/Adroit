@@ -169,6 +169,20 @@ fn text_pasted_into_the_session_is_asked_for_once_the_keys_leave_it() {
 }
 
 #[test]
+fn passing_every_key_stops_when_the_session_they_went_to_ends() {
+    let run = window()
+        .send_all([Msg::ConsolePassEveryKey, key("x")])
+        .event(relisted(2, vec![session("b")]));
+    assert_ne!(run.state().content.active(), Some(&tab("a")));
+    assert_eq!(run.state().content.focus, Area::Console);
+    assert!(!run.state().console.direct);
+    let shown_next = window()
+        .send(Msg::ConsolePassEveryKey)
+        .send(Msg::ShowSession("b".into()));
+    assert!(!shown_next.state().console.direct);
+}
+
+#[test]
 fn passing_every_key_stops_without_a_program_to_pass_them_to() {
     let run = window().send_all([
         Msg::ConsolePassEveryKey,
@@ -401,6 +415,58 @@ fn a_session_that_stops_taking_every_key_is_asked_for_its_input_a_moment_later()
         run.last_effects()
             .contains(&Effect::AskInputAfter(PULL_AFTER_FREE))
     );
+}
+
+#[test]
+fn keys_and_text_that_answer_a_waiting_session_leave_its_input_alone() {
+    let waiting = Session {
+        state: State::Waiting(Wait::Permission),
+        ..session("a")
+    };
+    let answering = |area| {
+        window()
+            .send_all([Msg::PromptRuns(true), Msg::EditorAnswers])
+            .event(relisted(2, vec![waiting.clone(), session("b")]))
+            .send(Msg::Focus(area))
+    };
+    for area in [Area::Console, Area::Prompt] {
+        let run = answering(area).send(key("Enter"));
+        assert_eq!(run.last_effects(), [Effect::PaneKey(Key::new("Enter"))]);
+        let run = run.send(Msg::Text {
+            text: "1".into(),
+            pasted: false,
+        });
+        assert!(matches!(run.last_effects(), [Effect::PaneText { .. }]));
+        assert!(run.state().console.stale.is_empty(), "{area:?}");
+        // Answered, the session goes back to work with nothing to take back.
+        let run = run
+            .event(relisted(3, vec![session("a"), session("b")]))
+            .send(Msg::AskInput);
+        assert!(run.last_effects().is_empty(), "{area:?}");
+    }
+}
+
+#[test]
+fn a_working_session_is_asked_for_its_input_only_once_it_stops_working() {
+    let working = Session {
+        state: State::Working,
+        ..session("a")
+    };
+    let run = asking().event(relisted(2, vec![working, session("b")]));
+    assert!(
+        !run.last_effects()
+            .contains(&Effect::AskInputAfter(PULL_AFTER_FREE))
+    );
+    let entered = run.send(Msg::Focus(Area::Prompt));
+    assert_eq!(entered.last_effects(), [Effect::ConsoleLive]);
+    assert!(entered.state().console.stale.contains(&tab("a")));
+    let idle = entered.event(relisted(3, vec![session("a"), session("b")]));
+    assert!(
+        idle.last_effects()
+            .contains(&Effect::AskInputAfter(PULL_AFTER_FREE))
+    );
+    let asked = idle.send(Msg::AskInput);
+    assert_eq!(asked.last_effects(), [Effect::AskInput(tab("a"))]);
 }
 
 #[test]
