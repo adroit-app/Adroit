@@ -84,7 +84,7 @@ impl AgentAdapter for Claude {
             usage_limits: true,
             transcript: true,
             shell_bang: true,
-            screen_state: false,
+            screen_state: true,
         }
     }
     fn usage_url(&self) -> Option<&'static str> {
@@ -209,6 +209,9 @@ impl AgentAdapter for Claude {
     }
     fn dialog_open(&self, screen: &[String]) -> bool {
         super::dialog::dialog_open(screen)
+    }
+    fn screen_state(&self, screen: &[String]) -> Option<adroit_model::State> {
+        super::dialog::screen_state(screen)
     }
     fn rename_command(&self, name: &str) -> Option<String> {
         Some(format!("/rename {name}"))
