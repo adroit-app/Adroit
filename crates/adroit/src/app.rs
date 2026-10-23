@@ -8,18 +8,17 @@ use std::time::{Duration, Instant};
 
 use adroit_agents::claude::commands;
 use adroit_model::Session;
-use adroit_nvim::{Embedded, Event as NvimEvent, notation};
+use adroit_nvim::notation;
 use adroit_term::{Key, Palette, Pane, Screen, Size, Spawn};
 use dioxus::prelude::*;
-use tokio::sync::{Notify, mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot};
 
 use crate::actions::Action;
 use crate::bridge::{AppCtx, use_app};
 use crate::bundled_font::{faces, use_bundled_font};
 use crate::complete::{self, candidates};
 use crate::completion::Completions;
-use crate::console::{Consoles, Hub, Panes, mode_of};
-use crate::console_read;
+use crate::console::{Consoles, Hub, Panes, PromptNeovim, Reader, use_prompt_neovim, use_reader};
 use crate::content::{
     Area, Axis, ContentPanel, Opening, Tab, TerminalAsk, WindowId, draft as draft_agent, file_name,
     fresh_name, label_from, shows_prompt,
@@ -99,11 +98,6 @@ pub fn launch() {
 /// Whether this window answers on the socket, and so takes Claude Code's
 /// input through its external editor.
 static ANSWERS: AtomicBool = AtomicBool::new(false);
-
-/// The least time between showing the console's reader what the console
-/// holds and showing it again, while the console keeps changing: each
-/// showing hands Neovim the whole console.
-const READER_GAP: Duration = Duration::from_millis(30);
 
 /// The program that puts its input on the system clipboard.
 fn clipboard_command() -> std::process::Command {
@@ -218,10 +212,6 @@ fn keep_drawn(mut gallery: Signal<Gallery>, session: String, drawn: Vec<adroit_t
     });
 }
 
-/// How long the prompt's Neovim has to live to be started again once it
-/// quits.
-const NVIM_SETTLE: Duration = Duration::from_secs(2);
-
 /// The console screen's top padding.
 const SCREEN_TOP: f64 = 10.0;
 
@@ -264,10 +254,6 @@ const INPUT: &str = include_str!("../assets/js/input.js");
 
 /// The width and height of one cell, measured with the console's own font.
 const MEASURE: &str = include_str!("../assets/js/measure.js");
-
-fn nvim_program() -> String {
-    std::env::var("ADROIT_NVIM").unwrap_or_else(|_| "nvim".into())
-}
 
 /// This program, as a session should call it to reach the window.
 fn adroit_program() -> PathBuf {
@@ -522,30 +508,13 @@ fn App() -> Element {
         }
     });
     let mut frame = use_signal(|| 0u64);
-    let mut prompt_frame = use_signal(|| 0u64);
     // Moves when a pane is started, for what the console says around it.
     let mut attached = use_signal(|| 0u64);
-    let mut prompt_rows = use_signal(|| settings::current().prompt_min_rows);
-    // The lines Neovim asks for, which the settings bound.
-    let mut prompt_height = use_signal(|| 1usize);
-    // The line the prompt shows from, and how many it has.
-    let mut prompt_view = use_signal(|| (0usize, 0usize));
-    let mut prompt_cols = use_signal(|| 80u16);
     let mut cell_width = use_signal(|| 7.8f64);
     let mut console_size = use_signal(|| Size::new(100, 30));
     let mut console_box = use_signal(|| (0.0f64, 0.0f64));
     let composer_height = use_signal(|| 0.0f64);
     let prompt_width = use_signal(|| 0.0f64);
-    let mut nvim = use_signal(|| None::<Arc<Embedded>>);
-    // The console read in a Neovim of its own, for Vim's moves, search,
-    // selection and yank, while the console says it is read.
-    let mut reader = use_signal(|| None::<Arc<Embedded>>);
-    let mut reader_frame = use_signal(|| 0u64);
-    // The line and column the reader shows from, which images follow.
-    let mut reader_view = use_signal(|| (0usize, 0usize));
-    // How many lines the reader holds, and how many of them are the screen,
-    // the last.
-    let mut read_rows = use_signal(|| (0usize, 0usize));
     // The zoom alone, which the console is measured again for.
     let zoomed = use_memo(move || app.chrome.read().zoom);
     // The settings the console's font is drawn by, and the height of a line
@@ -565,26 +534,6 @@ fn App() -> Element {
     // The tabs with something written for them kept aside.
     let drafted = use_memo(move || app.prompt.read().drafted.clone());
     let has_images = use_memo(move || !app.prompt.read().images.is_empty());
-    let prompts = use_hook(|| prompts::keeper(nvim, app));
-    use_effect(move || {
-        let has_images = has_images();
-        let s = settings::current();
-        let rows = crate::console::prompt_rows(
-            *prompt_height.peek(),
-            has_images,
-            s.prompt_min_rows,
-            s.prompt_max_rows,
-        );
-        if rows != *prompt_rows.peek() {
-            prompt_rows.set(rows);
-            if let Some(nv) = nvim.peek().clone() {
-                let cols = *prompt_cols.peek();
-                spawn(async move {
-                    let _ = nv.resize(cols, rows as u16).await;
-                });
-            }
-        }
-    });
     // The key bindings in force, as the chrome holds them.
     let keymap = use_memo(move || app.chrome.read().keymap.clone());
     // The images the consoles drew.
@@ -740,21 +689,6 @@ fn App() -> Element {
         }
     });
     let offered = use_memo(move || candidates(&tree.read(), place.read().as_ref(), &files.read()));
-    use_effect(move || {
-        let Some(nv) = nvim() else { return };
-        let list = offered();
-        spawn(async move {
-            let _ = nv.set_candidates(&list).await;
-        });
-    });
-    // A path after `@` is walked from the open worktree.
-    use_effect(move || {
-        let Some(nv) = nvim() else { return };
-        let root = place.read().as_ref().map(|p| p.worktree.clone());
-        spawn(async move {
-            let _ = nv.set_root(root.as_deref()).await;
-        });
-    });
 
     // What `/` offers: the agent's commands where the shown tab's session
     // runs, asked for when such a tab is shown or a `/` is typed and the list
@@ -814,6 +748,36 @@ fn App() -> Element {
             complete::commands(&list)
         }
         None => Vec::new(),
+    });
+    let commands_wanted = use_callback(move |()| {
+        if let Some(dir) = commands_here.peek().clone() {
+            revalidate(dir);
+        }
+    });
+    let prompt_neovim =
+        use_prompt_neovim(app, has_images, cell_width, prompt_width, commands_wanted);
+    let PromptNeovim {
+        nvim,
+        prompt_frame,
+        prompt_view,
+        prompt_rows,
+        ..
+    } = prompt_neovim;
+    let prompts = use_hook(|| prompts::keeper(nvim, app));
+    use_effect(move || {
+        let Some(nv) = nvim() else { return };
+        let list = offered();
+        spawn(async move {
+            let _ = nv.set_candidates(&list).await;
+        });
+    });
+    // A path after `@` is walked from the open worktree.
+    use_effect(move || {
+        let Some(nv) = nvim() else { return };
+        let root = place.read().as_ref().map(|p| p.worktree.clone());
+        spawn(async move {
+            let _ = nv.set_root(root.as_deref()).await;
+        });
     });
     use_effect(move || {
         let Some(nv) = nvim() else { return };
@@ -936,81 +900,6 @@ fn App() -> Element {
             }
         });
     });
-    // The prompt editor, started again when it quits, as `:q` makes it.
-    use_hook(move || {
-        spawn(async move {
-            loop {
-                let (tx, mut rx) = mpsc::unbounded_channel();
-                let started = Embedded::spawn(&nvim_program(), &[], 80, 1, move |ev| {
-                    let _ = tx.send(ev);
-                })
-                .await;
-                let embedded = match started {
-                    Ok(e) => Arc::new(e),
-                    Err(e) => {
-                        app.status(Some(format!("cannot start Neovim: {e}")));
-                        return;
-                    }
-                };
-                let born = Instant::now();
-                nvim.set(Some(embedded.clone()));
-                app.dispatch(Msg::PromptRuns(true));
-                let rows = *prompt_rows.peek() as u16;
-                let cols = *prompt_cols.peek();
-                let _ = embedded.resize(cols, rows).await;
-                while let Some(ev) = rx.recv().await {
-                    match ev {
-                        NvimEvent::Redraw => {
-                            *prompt_frame.write() += 1;
-                            let m = mode_of(&embedded.state());
-                            if app.prompt.peek().mode != m {
-                                app.dispatch(Msg::PromptMode(m.0, m.1));
-                            }
-                        }
-                        // Only the console's reader tells of yanks and of
-                        // where it is scrolled to.
-                        NvimEvent::Yank { .. } | NvimEvent::Scrolled { .. } => {}
-                        NvimEvent::Shell(on) => app.dispatch(Msg::PromptShell(on)),
-                        NvimEvent::CommandsWanted => {
-                            if let Some(dir) = commands_here.peek().clone() {
-                                revalidate(dir);
-                            }
-                        }
-                        NvimEvent::View { top, lines } => {
-                            if *prompt_view.peek() != (top, lines) {
-                                prompt_view.set((top, lines));
-                            }
-                        }
-                        NvimEvent::Height(h) => {
-                            prompt_height.set(h);
-                            let s = settings::current();
-                            let rows = crate::console::prompt_rows(
-                                h,
-                                *has_images.peek(),
-                                s.prompt_min_rows,
-                                s.prompt_max_rows,
-                            );
-                            if rows != *prompt_rows.peek() {
-                                prompt_rows.set(rows);
-                                let cols = *prompt_cols.peek();
-                                let _ = embedded.resize(cols, rows as u16).await;
-                            }
-                        }
-                    }
-                }
-                nvim.set(None);
-                app.dispatch(Msg::PromptRuns(false));
-                // One that quits as it starts would be started forever.
-                if born.elapsed() < NVIM_SETTLE {
-                    app.status(Some(
-                        "Neovim quit as it started; restart adroit to try again".into(),
-                    ));
-                    return;
-                }
-                app.notice("Neovim quit; the prompt starts afresh".into());
-            }
-        });
-    });
 
     // The console's terminal fills what the prompt card leaves of the console,
     // in cells of the measured width; all of it when no card is shown.
@@ -1033,26 +922,6 @@ fn App() -> Element {
         };
         if *console_size.peek() != next {
             console_size.set(next);
-        }
-    });
-
-    // The prompt's grid is as wide as its box allows.
-    use_effect(move || {
-        let width = prompt_width();
-        let cw = cell_width();
-        let nv = nvim();
-        if width <= 0.0 {
-            return;
-        }
-        let cols = ((width - 28.0) / cw).floor().max(10.0) as u16;
-        if cols != *prompt_cols.peek() {
-            prompt_cols.set(cols);
-        }
-        if let Some(nv) = nv {
-            let rows = *prompt_rows.peek() as u16;
-            spawn(async move {
-                let _ = nv.resize(cols, rows).await;
-            });
         }
     });
 
@@ -1568,20 +1437,8 @@ fn App() -> Element {
                             Err(e) => app.status(Some(e)),
                         }
                     }
-                    let rows = crate::console::prompt_rows(
-                        *prompt_height.peek(),
-                        *has_images.peek(),
-                        s.prompt_min_rows,
-                        s.prompt_max_rows,
-                    );
-                    if rows != *prompt_rows.peek() {
-                        prompt_rows.set(rows);
-                        let embedded = nvim.peek().clone();
-                        if let Some(e) = embedded {
-                            let cols = *prompt_cols.peek();
-                            let _ = e.resize(cols, rows as u16).await;
-                        }
-                    }
+                    let images = *has_images.peek();
+                    prompt_neovim.refit(images).await;
                     was = s;
                 }
             });
@@ -1707,94 +1564,16 @@ fn App() -> Element {
         }
     };
 
-    // Told when the console changes while it is read.
-    let console_changed = use_hook(|| Rc::new(Notify::new()));
-    use_effect({
-        let console_changed = console_changed.clone();
-        move || {
-            let _ = frame();
-            if app.console.read().reading {
-                console_changed.notify_one();
-            }
-        }
-    });
-
-    // The console's reader: started once, sized as the console, shown what
-    // the console holds again as it changes while it is read.
-    use_hook({
-        let active_pane = active_pane.clone();
-        let hub = hub.clone();
-        let console_changed = console_changed.clone();
-        move || {
-            spawn(async move {
-                let (tx, mut rx) = mpsc::unbounded_channel();
-                let size = *console_size.peek();
-                let started =
-                    Embedded::spawn_reader(&nvim_program(), &[], size.cols, size.rows, move |ev| {
-                        let _ = tx.send(ev);
-                    })
-                    .await;
-                let Ok(r) = started else { return };
-                reader.set(Some(Arc::new(r)));
-                while let Some(ev) = rx.recv().await {
-                    match ev {
-                        NvimEvent::Redraw => *reader_frame.write() += 1,
-                        NvimEvent::Scrolled { top, left } => reader_view.set((top, left)),
-                        NvimEvent::Yank { text, lines } => match copy_to_clipboard(&text) {
-                            Ok(()) if lines == 1 => app.notice("Copied a line".into()),
-                            Ok(()) => app.notice(format!("Copied {lines} lines")),
-                            Err(e) => app.notice(format!("cannot copy: {e}")),
-                        },
-                        _ => {}
-                    }
-                }
-            });
-            spawn(async move {
-                let mut shown = None::<u64>;
-                loop {
-                    console_changed.notified().await;
-                    if !app.console.peek().reading {
-                        shown = None;
-                        continue;
-                    }
-                    let f = *frame.peek();
-                    if shown == Some(f) {
-                        continue;
-                    }
-                    shown = Some(f);
-                    let (Some(p), Some(r)) = (active_pane(), reader.peek().clone()) else {
-                        continue;
-                    };
-                    let palette = hub.palette.peek().clone();
-                    let cols = console_size.peek().cols;
-                    let Ok(mut all) = p.everything(&hub.daemon, cols).await else {
-                        continue;
-                    };
-                    // The cursor is where the screen, at the end, has it.
-                    let screen = p.screen();
-                    let above = all.rows.saturating_sub(screen.rows);
-                    all.cursor = screen.cursor.map(|c| adroit_term::Cursor {
-                        row: c.row + above,
-                        ..c
-                    });
-                    read_rows.set((all.rows, screen.rows));
-                    let (lines, marks, cur) = console_read::reading(&all, palette.foreground);
-                    let _ = r
-                        .show(&lines, &marks, cur, false, &all.background.hex())
-                        .await;
-                    tokio::time::sleep(READER_GAP).await;
-                }
-            });
-        }
-    });
-    use_effect(move || {
-        let size = console_size();
-        if let Some(r) = reader.peek().clone() {
-            spawn(async move {
-                let _ = r.resize(size.cols, size.rows).await;
-            });
-        }
-    });
+    // The console read in a Neovim of its own, for Vim's moves, search,
+    // selection and yank, while the console says it is read.
+    let reading = use_reader(app, &hub, frame, console_size);
+    let Reader {
+        reader,
+        reader_frame,
+        reader_view,
+        read_rows,
+        ..
+    } = reading.clone();
     // A session left scrolled back would show its jump-to-bottom line live,
     // moving with its layout.
     let console_live = {
@@ -1805,87 +1584,13 @@ fn App() -> Element {
             }
         }
     };
-    // Start reading the console, the cursor where the console's is, and give
-    // the reader `keys`, the ones that started it.
-    let enter_reading = {
-        let active_pane = active_pane.clone();
-        let hub = hub.clone();
-        move |keys: Vec<String>| {
-            let (Some(p), Some(r)) = (active_pane(), reader.peek().clone()) else {
-                return;
-            };
-            let hub = hub.clone();
-            spawn(async move {
-                let palette = hub.palette.peek().clone();
-                let cols = console_size.peek().cols;
-                let Ok(mut all) = p.everything(&hub.daemon, cols).await else {
-                    return;
-                };
-                let screen = p.screen();
-                let above = all.rows.saturating_sub(screen.rows);
-                all.cursor = screen.cursor.map(|c| adroit_term::Cursor {
-                    row: c.row + above,
-                    ..c
-                });
-                read_rows.set((all.rows, screen.rows));
-                let (lines, marks, cur) = console_read::reading(&all, palette.foreground);
-                let _ = r.input("<C-\\><C-N>").await;
-                if r.show(&lines, &marks, cur, true, &all.background.hex())
-                    .await
-                    .is_ok()
-                {
-                    app.dispatch(Msg::ReadingStarted);
-                    let _ = r.input(&keys.concat()).await;
-                }
-            });
-        }
-    };
-
-    // The wheel over the console's reader: it scrolls the reader, and past
-    // the first or last line it holds, a program that scrolls what it shows
-    // itself, which the reader then follows.
     let scroll_reader = use_callback({
-        let active_pane = active_pane.clone();
-        move |lines: i32| {
-            let Some(r) = reader.peek().clone() else {
-                return;
-            };
-            let top = reader_view.peek().0;
-            if let Some(p) = active_pane().filter(|p| p.takes_mouse()) {
-                let page = r.state().screen().rows;
-                let held = read_rows.peek().0;
-                let past = (lines > 0 && top == 0) || (lines < 0 && top + page >= held);
-                if past {
-                    p.wheel(lines, 0, 0);
-                    *frame.write() += 1;
-                    return;
-                }
-            }
-            let keys = if lines > 0 {
-                format!("{lines}<C-y>")
-            } else {
-                format!("{}<C-e>", -lines)
-            };
-            spawn(async move {
-                let _ = r.input(&keys).await;
-            });
-        }
+        let reading = reading.clone();
+        move |lines: i32| reading.scroll(lines)
     });
-
-    // A click on the reader goes to the cell of the program's screen under
-    // it; the screen is the last of the lines the reader holds.
     let click_reader = use_callback({
-        let active_pane = active_pane.clone();
-        move |(col, row): (usize, usize)| {
-            let Some(p) = active_pane() else {
-                return;
-            };
-            let (top, left) = *reader_view.peek();
-            let (held, screen) = *read_rows.peek();
-            if let Some(row) = (top + row).checked_sub(held.saturating_sub(screen)) {
-                p.click(left + col, row);
-            }
-        }
+        let reading = reading.clone();
+        move |at: (usize, usize)| reading.click(at)
     });
     let consoles = Consoles {
         frame,
@@ -1959,7 +1664,7 @@ fn App() -> Element {
         let send_prompt = send_prompt.clone();
         let start_draft = start_draft.clone();
         let console_live = console_live.clone();
-        let enter_reading = enter_reading.clone();
+        let reading = reading.clone();
         let active_pane = active_pane.clone();
         let start_terminal = start_terminal.clone();
         let resume = resume.clone();
@@ -2017,8 +1722,7 @@ fn App() -> Element {
                     }
                 }
                 CoreEffect::ReadConsole(keys) => {
-                    let enter = enter_reading.clone();
-                    enter(keys.iter().filter_map(notation).collect());
+                    reading.enter(keys.iter().filter_map(notation).collect());
                 }
                 CoreEffect::ConsoleLive => console_live(),
                 CoreEffect::PromptKey(key) => {

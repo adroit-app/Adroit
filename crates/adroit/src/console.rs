@@ -19,6 +19,17 @@ use crate::icons::{Icon, IconView};
 use crate::style::use_cell_height;
 use crate::view::ScreenView;
 
+mod prompt;
+mod reader;
+
+pub(crate) use prompt::*;
+pub(crate) use reader::*;
+
+/// The Neovim the prompt and the reader run.
+pub(crate) fn nvim_program() -> String {
+    std::env::var("ADROIT_NVIM").unwrap_or_else(|_| "nvim".into())
+}
+
 /// How many completions the menu shows at a time.
 const MENU_ITEMS: usize = 10;
 
