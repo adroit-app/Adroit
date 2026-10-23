@@ -14,7 +14,13 @@ pub fn agents() -> adroit_agents::AgentSettings {
 
 /// What `settings` say of how agents start.
 pub fn agents_of(settings: &crate::settings::Settings) -> adroit_agents::AgentSettings {
-    settings.agents(&login_shell())
+    adroit_agents::AgentSettings {
+        shell: settings.shell.program(&login_shell()),
+        claude: settings.claude.clone(),
+        codex: settings.codex.clone(),
+        sessions: settings.sessions.clone(),
+        codex_sessions: settings.codex_sessions.clone(),
+    }
 }
 
 /// What starts `agent` with `args`, as the settings say now: its launch

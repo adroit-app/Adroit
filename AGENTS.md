@@ -38,6 +38,8 @@ Run `just ci` before reporting a change as done. CI runs the same recipe.
 | `crates/adroit/assets/` | the windows' stylesheets and page scripts, taken in with `include_str!` |
 | `crates/agents/` | each agent's adapter: how Claude Code and Codex are started, asked and read back |
 | `crates/agents/plugin/` | the Claude Code plugin every session adroit starts loads |
+| `crates/core/` | the window's state and the rules it changes by, with no UI and no programs run |
+| `crates/core/icons/` | the Tabler icons the window draws, with their licence |
 | `assets/logo/` | the logo as flattened SVG, and `build.py` that regenerates it |
 | `assets/macos/` | the macOS app's Info.plist and the script that assembles the app |
 | `assets/file-icons/` | vim-nerdfont's and vim-glyph-palette's icon tables at a pinned revision, their licences, and `update.sh` that copies them again |
@@ -71,6 +73,7 @@ Scoped Commits:
 | --- | --- |
 | `adroit` | `crates/adroit/` |
 | `agents` | `crates/agents/` |
+| `core` | `crates/core/` |
 | `nvim` | `crates/nvim/` |
 | `model` | `crates/model/` |
 | `term` | `crates/term/` |

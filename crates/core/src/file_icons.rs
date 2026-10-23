@@ -10,7 +10,7 @@ use std::sync::LazyLock;
 
 use regex::RegexSet;
 
-use crate::themes;
+use crate::palette as themes;
 
 include!(concat!(env!("OUT_DIR"), "/file_icons.rs"));
 

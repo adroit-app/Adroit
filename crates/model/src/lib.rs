@@ -7,6 +7,7 @@ pub mod daemon;
 mod inbox;
 mod key;
 mod launch;
+pub mod links;
 mod metrics;
 mod models;
 pub mod paths;

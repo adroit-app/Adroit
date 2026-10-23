@@ -326,7 +326,7 @@ pub fn label(action: &Action) -> &'static str {
 /// The icon an entry running `action` shows.
 pub fn icon(action: &Action) -> Option<MenuIcon> {
     let icon = action.icon()?;
-    MenuIcon::from_rgba(icon.rgba(ICON_PX)?, ICON_PX, ICON_PX).ok()
+    MenuIcon::from_rgba(crate::icons::rgba(icon, ICON_PX)?, ICON_PX, ICON_PX).ok()
 }
 
 /// Mark every entry's icon a template image, which macOS draws in the menu's

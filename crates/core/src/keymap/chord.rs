@@ -3,7 +3,7 @@
 
 use std::fmt;
 
-use adroit_term::Key;
+use adroit_model::Key;
 
 use super::Error;
 

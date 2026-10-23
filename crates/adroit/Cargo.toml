@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 adroit-agents.workspace = true
+adroit-core.workspace = true
 adroit-model.workspace = true
 adroit-nvim.workspace = true
 adroit-term.workspace = true
@@ -16,8 +17,6 @@ base64.workspace = true
 dioxus = { version = "0.7.10", features = ["desktop"] }
 image.workspace = true
 libc.workspace = true
-nucleo-matcher.workspace = true
-regex.workspace = true
 resvg.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
@@ -35,9 +34,6 @@ objc2.workspace = true
 objc2-app-kit.workspace = true
 objc2-foundation.workspace = true
 objc2-pdf-kit.workspace = true
-
-[build-dependencies]
-serde_json.workspace = true
 
 [dev-dependencies]
 adroit-model = { workspace = true, features = ["testing"] }

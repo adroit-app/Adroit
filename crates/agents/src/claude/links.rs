@@ -107,9 +107,7 @@ impl Links {
     }
 }
 
-/// The most links each group keeps: the newest. The window shows fewer, as
-/// its settings say.
-pub const KEPT: usize = 1000;
+pub use adroit_model::links::KEPT;
 
 /// The most of a tool's result or input read for addresses: past it lies
 /// output too long to be worth reading for them.

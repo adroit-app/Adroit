@@ -1,13 +1,12 @@
 //! What `@` and `/` in the prompt offer.
 
-use std::path::PathBuf;
-
 use adroit_agents::claude::commands::Command;
 use adroit_model::Tree;
 use adroit_nvim::Candidate;
 
-use crate::nav::{self, Place};
-use crate::tabs::Tab;
+pub use adroit_core::complete::*;
+
+use crate::nav::Place;
 
 /// The sessions to talk to, those of the open workspace first, then the files
 /// of the open worktree.
@@ -25,18 +24,6 @@ pub fn candidates(tree: &Tree, place: Option<&Place>, files: &[String]) -> Vec<C
         .map(|s| Candidate::new(s.name.clone(), "session"))
         .chain(files.iter().map(|f| Candidate::new(f.clone(), "file")))
         .collect()
-}
-
-/// The directory whose commands `/` offers while `tab` is shown, or the
-/// open worktree with no tab: where its session runs, or would start. A shell
-/// or a viewer takes no commands.
-pub fn commands_dir(tree: &Tree, tab: Option<&Tab>, place: Option<&Place>) -> Option<PathBuf> {
-    match tab {
-        Some(Tab::Session(id)) => nav::find(tree, id).map(|(_, s)| s.cwd.clone()),
-        Some(Tab::Draft { worktree, .. }) => Some(worktree.clone()),
-        Some(Tab::Terminal(_) | Tab::Viewer(_)) => None,
-        None => place.map(|p| p.worktree.clone()),
-    }
 }
 
 /// The most characters of a command's description shown beside it.
@@ -159,54 +146,6 @@ mod tests {
         assert_eq!(got[0].info, "/review [pr]");
         let got = commands(&[command("ja", &"x".repeat(80), "[pr]")]);
         assert_eq!(got[0].info, format!("/ja [pr] — {}", "x".repeat(80)));
-    }
-
-    fn tree_with(name: &str, cwd: &str) -> Tree {
-        testing::tree().session(session(name).cwd(cwd)).build()
-    }
-
-    #[test]
-    fn a_session_s_commands_are_those_of_where_it_runs() {
-        let tree = tree_with("fix", "/api/.claude/worktrees/x");
-        let tab = Tab::Session("fix".into());
-        assert_eq!(
-            commands_dir(&tree, Some(&tab), None),
-            Some(PathBuf::from("/api/.claude/worktrees/x"))
-        );
-    }
-
-    #[test]
-    fn a_draft_s_commands_are_those_of_its_worktree() {
-        let tab = Tab::Draft {
-            worktree: "/api".into(),
-            id: Default::default(),
-        };
-        assert_eq!(
-            commands_dir(&Tree::default(), Some(&tab), None),
-            Some(PathBuf::from("/api"))
-        );
-    }
-
-    #[test]
-    fn with_nothing_shown_the_commands_are_those_of_the_open_worktree() {
-        let place = Place {
-            worktree: "/api".into(),
-        };
-        assert_eq!(
-            commands_dir(&Tree::default(), None, Some(&place)),
-            Some(PathBuf::from("/api"))
-        );
-    }
-
-    #[test]
-    fn a_shell_takes_no_commands() {
-        let place = Place {
-            worktree: "/api".into(),
-        };
-        assert_eq!(
-            commands_dir(&Tree::default(), Some(&Tab::Terminal(1)), Some(&place)),
-            None
-        );
     }
 
     #[tokio::test]

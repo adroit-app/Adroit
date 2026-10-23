@@ -52,7 +52,7 @@ pub async fn start(
     settings: &Settings,
     request: TerminalStartRequest,
 ) -> Result<TerminalSession, String> {
-    let palette = crate::themes::palette(&settings.theme, &Settings::themes_dir())?;
+    let palette = crate::themes::palette(&settings.theme, &crate::settings::themes_dir())?;
     let mut resolved = resolve_terminal(settings, request, &crate::programs::login_shell());
     resolved.spawn.cols = 120;
     resolved.spawn.rows = 40;

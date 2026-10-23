@@ -10,10 +10,10 @@ use dioxus::desktop::use_asset_handler;
 use dioxus::desktop::wry::http::{Response, StatusCode, header};
 use dioxus::prelude::*;
 
-use super::kind::FileKind;
 use super::pdf;
 use super::serve::{self, Scope};
-use super::state::{Effect, Media, Scroll, ViewerAction, ViewerState};
+use adroit_core::viewers::FileKind;
+use adroit_core::viewers::{Effect, Media, Scroll, ViewerAction, ViewerState};
 
 /// The viewers' look, put in the page with each viewer.
 pub const CSS: &str = include_str!("../../assets/css/viewer.css");

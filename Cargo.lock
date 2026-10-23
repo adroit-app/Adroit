@@ -13,6 +13,7 @@ name = "adroit"
 version = "0.0.0"
 dependencies = [
  "adroit-agents",
+ "adroit-core",
  "adroit-model",
  "adroit-nvim",
  "adroit-term",
@@ -22,12 +23,10 @@ dependencies = [
  "dioxus",
  "image",
  "libc",
- "nucleo-matcher",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
  "objc2-pdf-kit",
- "regex",
  "resvg",
  "rusqlite",
  "schemars",
@@ -53,6 +52,20 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "adroit-core"
+version = "0.0.0"
+dependencies = [
+ "adroit-model",
+ "nucleo-matcher",
+ "regex",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml 1.1.8+spec-1.1.0",
 ]
 
 [[package]]

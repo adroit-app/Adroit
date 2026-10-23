@@ -5,8 +5,7 @@ use std::path::Path;
 
 use adroit_term::{Palette, Rgb};
 
-/// The theme of adroit's own palette.
-pub const DEFAULT: &str = "Adroit";
+pub use adroit_core::palette::{ANSI, DEFAULT};
 
 /// The themes adroit comes with, by name.
 const PRESETS: &[(&str, &str)] = &[
@@ -69,26 +68,6 @@ pub fn palette(name: &str, dir: &Path) -> Result<Palette, String> {
         .map(|(_, text)| Palette::from_ghostty(text))
         .unwrap_or_else(|| Err(format!("no theme named {name:?}")))
 }
-
-/// The stylesheet variable of each of the theme's ANSI colours, by number.
-pub const ANSI: [&str; 16] = [
-    "--ansi-0",
-    "--ansi-1",
-    "--ansi-2",
-    "--ansi-3",
-    "--ansi-4",
-    "--ansi-5",
-    "--ansi-6",
-    "--ansi-7",
-    "--ansi-8",
-    "--ansi-9",
-    "--ansi-10",
-    "--ansi-11",
-    "--ansi-12",
-    "--ansi-13",
-    "--ansi-14",
-    "--ansi-15",
-];
 
 /// The window's colours in a theme: the stylesheet's variables, by name,
 /// and whether the theme is a dark one.

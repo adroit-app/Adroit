@@ -182,7 +182,8 @@ fn SettingsWindow() -> Element {
     // The window in the theme's colours, as the main one is.
     let root_style = {
         let theme = now.read().theme.clone();
-        let palette = crate::themes::palette(&theme, &Settings::themes_dir()).unwrap_or_default();
+        let palette =
+            crate::themes::palette(&theme, &crate::settings::themes_dir()).unwrap_or_default();
         format!(
             ":root{{{}}}",
             crate::themes::css(&crate::themes::window(&palette))
@@ -239,7 +240,7 @@ type Change = Box<dyn FnOnce(&mut Settings)>;
 #[component]
 fn General(now: Settings, change: Callback<Change>) -> Element {
     let files = [
-        ("Settings", settings::Settings::path(), ""),
+        ("Settings", crate::settings::path(), ""),
         ("Key bindings", keys_path(), KEYS_STARTER),
     ];
     rsx! {
@@ -401,7 +402,7 @@ const WEIGHTS: [(u16, &str); 9] = [
 
 #[component]
 fn ConsolePane(now: Settings, change: Callback<Change>) -> Element {
-    let themes_dir = Settings::themes_dir();
+    let themes_dir = crate::settings::themes_dir();
     let themes = crate::themes::names(&themes_dir);
     let known = themes.contains(&now.theme);
     rsx! {

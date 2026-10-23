@@ -9,10 +9,10 @@ use std::path::PathBuf;
 use dioxus::desktop::{Config as Desktop, LogicalSize, WindowBuilder, WindowCloseBehaviour};
 use dioxus::prelude::*;
 
-use super::state::ViewerAction;
 use super::view::{Command, Viewer};
 use crate::keymap::{Chord, Context, Keymap, Step};
-use crate::settings::{self, Settings};
+use crate::settings;
+use adroit_core::viewers::ViewerAction;
 
 /// What a key comes to after the keys pressed before it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,7 +83,8 @@ fn TrialWindow() -> Element {
     let mut pending = use_signal(Vec::<String>::new);
     let root_style = use_hook(|| {
         let theme = settings::current().theme;
-        let palette = crate::themes::palette(&theme, &Settings::themes_dir()).unwrap_or_default();
+        let palette =
+            crate::themes::palette(&theme, &crate::settings::themes_dir()).unwrap_or_default();
         format!(
             ":root{{{}}}",
             crate::themes::css(&crate::themes::window(&palette))

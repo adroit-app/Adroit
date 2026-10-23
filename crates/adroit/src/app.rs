@@ -42,7 +42,7 @@ use crate::icons::{Icon, IconView};
 use crate::image_window;
 use crate::keymap::{Chord, Context, Keymap, MENU_KEYS, Step};
 use crate::keys;
-use crate::layout::{self, Layout, Side};
+use crate::layout::{self, Kept as _, Layout, Side};
 use crate::menu::{self, Target};
 use crate::menu_bar;
 use crate::nav::{self, Item, Place};
@@ -81,11 +81,7 @@ const PICKS: usize = 40;
 /// The palette of the theme the settings name, or adroit's own when it
 /// cannot be read.
 fn initial_palette() -> Palette {
-    themes::palette(
-        &settings::current().theme,
-        &settings::Settings::themes_dir(),
-    )
-    .unwrap_or_default()
+    themes::palette(&settings::current().theme, &crate::settings::themes_dir()).unwrap_or_default()
 }
 
 /// The window's title: with what `git describe` said of the source, which
@@ -3637,7 +3633,7 @@ fn App() -> Element {
                     // A new theme reaches every console open, what is drawn and
                     // what a program asking for its colours is told.
                     if s.theme != was.theme {
-                        match themes::palette(&s.theme, &settings::Settings::themes_dir()) {
+                        match themes::palette(&s.theme, &crate::settings::themes_dir()) {
                             Ok(p) => {
                                 for pane in hub.panes.borrow().values() {
                                     pane.set_palette(&p);

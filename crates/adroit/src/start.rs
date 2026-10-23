@@ -10,7 +10,6 @@ use adroit_term::Daemon;
 
 use crate::scratch::{self, Moment};
 use crate::sessions::{self, Kept};
-use crate::settings::Settings;
 use crate::tabs::{fresh_name, label_from, label_of};
 
 const USAGE: &str = "usage: adroit session start [--dir <path>] [--worktree [--base <rev>]] [--name <name>] [--permissions <default|read_only> | --permissions-file <path>] [--agent <claude|codex>] [--model <model>] [-- <prompt>]";
@@ -135,7 +134,7 @@ async fn start(
     let mut spawn = resolved.spawn;
     spawn.cols = COLS;
     spawn.rows = ROWS;
-    let palette = crate::themes::palette(&settings.theme, &Settings::themes_dir())?;
+    let palette = crate::themes::palette(&settings.theme, &crate::settings::themes_dir())?;
     let attach = recorded.clone();
     let started =
         crate::execution::spawn_headless_prepared(daemon, spawn, &palette, move |id| async move {

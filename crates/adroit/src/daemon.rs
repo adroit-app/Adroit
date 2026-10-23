@@ -7,7 +7,6 @@ use adroit_term::Daemon;
 use crate::awake::{self, Assertion, Keeper};
 use crate::cli::DaemonCommand;
 use crate::paths::{instance_state, state_dir};
-use crate::settings::Settings;
 use crate::standing::{build, stamp_when_listening};
 
 /// `$ADROIT_DAEMON`, or `adroit/felis/daemon.sock` under the state directory.
@@ -146,14 +145,14 @@ fn serve(rt: &tokio::runtime::Runtime) -> adroit_term::Result<()> {
     let mut keeper = Keeper::new(|| Assertion::take(awake::NAME));
     // The setting is read from its file each time, as the window that
     // changes it is another process, which may not be open.
-    let running = move |n| keeper.keep(awake::wanted(n, Settings::load().keep_awake));
+    let running = move |n| keeper.keep(awake::wanted(n, crate::settings::load().keep_awake));
     rt.block_on(async {
         tokio::spawn(async { stamp_when_listening(&daemon(), &build()).await });
         let _delegation = match crate::delegation::service::Service::start(
             &crate::delegation::app::root(),
             daemon(),
             adroit_program(),
-            Settings::try_load,
+            crate::settings::try_load,
         )
         .await
         {

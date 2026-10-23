@@ -6,7 +6,7 @@ use std::path::{Component, Path, PathBuf};
 
 use dioxus::desktop::wry::http::{Response, StatusCode, header};
 
-use super::kind::media_type;
+use adroit_core::viewers::media_type;
 
 /// What one viewer may read.
 #[derive(Debug, Clone, PartialEq, Eq)]

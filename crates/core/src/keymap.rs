@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use adroit_term::Key;
+use adroit_model::Key;
 
 use crate::actions::Action;
 
@@ -11,7 +11,7 @@ mod chord;
 pub use chord::*;
 
 /// The bindings adroit ships, in the format of the user's file.
-pub const DEFAULTS: &str = include_str!("defaults.toml");
+pub const DEFAULTS: &str = include_str!("keymap/defaults.toml");
 
 /// A mistake in a file of bindings.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1248,7 +1248,7 @@ mod tests {
 
     #[test]
     fn the_specification_lists_the_bindings_adroit_ships() {
-        let spec = include_str!("../../../../docs/spec/keys.md");
+        let spec = include_str!("../../../docs/spec/keys.md");
         assert!(spec.contains(DEFAULTS.trim()));
     }
 

@@ -25,7 +25,7 @@ pub fn data_dir() -> PathBuf {
 /// Where scratch sessions run, each in a directory of its own, as the
 /// settings say.
 pub fn scratch_dir() -> PathBuf {
-    crate::settings::current().scratch_folder(&home())
+    crate::settings::scratch_folder(&crate::settings::current(), &home())
 }
 
 /// adroit's configuration folder: `$XDG_CONFIG_HOME/adroit`, or

@@ -10,7 +10,7 @@ use dioxus::desktop::{
 };
 use dioxus::prelude::*;
 
-use crate::settings::{self, Settings};
+use crate::settings;
 
 thread_local! {
     /// The windows open, by the key of the image each shows.
@@ -116,7 +116,8 @@ fn ImageWindow(key_: String, title: String, src: Arc<str>) -> Element {
     // The window in the theme's colours, as the main one is.
     let root_style = {
         let theme = now.read().theme.clone();
-        let palette = crate::themes::palette(&theme, &Settings::themes_dir()).unwrap_or_default();
+        let palette =
+            crate::themes::palette(&theme, &crate::settings::themes_dir()).unwrap_or_default();
         format!(
             ":root{{{}}}",
             crate::themes::css(&crate::themes::window(&palette))
