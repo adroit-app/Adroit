@@ -4,8 +4,9 @@
 use adroit_claude::subagents::{Agent, Standing, Step};
 use dioxus::prelude::*;
 
+use crate::components::{Breadcrumbs, Section, StateGlyph};
 use crate::details::shown_agent;
-use crate::icons::{Icon, IconView};
+use crate::icons::Icon;
 
 /// How a subagent is marked, by how it stands: the class that colours its
 /// icon as a session's in the same standing is, and the icon.
@@ -73,17 +74,16 @@ pub fn SubagentView(
     };
     rsx! {
         style { {CSS} }
-        div { class: "details-crumbs",
+        Breadcrumbs {
             title: "Back to the overview ({back_keys})",
-            onclick: move |_| on_back.call(()),
-            span { class: "details-crumb-back", IconView { icon: Icon::ChevronLeft } }
-            span { class: "details-crumb", "{label}" }
+            crumbs: vec![label],
+            onback: move |_| on_back.call(()),
         }
         div { class: "details-block",
             span { class: "details-label",
                 {
-                    let (tone, icon) = agent_glyph(agent.standing);
-                    rsx! { span { class: "{tone}", IconView { icon, size: 12 } } }
+                    let (class, icon) = agent_glyph(agent.standing);
+                    rsx! { StateGlyph { class, icon, size: 12 } }
                 }
                 " {tag}"
                 if let Some(kind) = &agent.kind {
@@ -92,24 +92,20 @@ pub fn SubagentView(
             }
         }
         if let Some(description) = started {
-            div { class: "details-block",
-                span { class: "details-label", "Started as" }
+            Section { label: "Started as",
                 div { class: "subagent-text", "{description}" }
             }
         }
-        div { class: "details-block",
-            span { class: "details-label", "Prompt" }
+        Section { label: "Prompt",
             div { class: "subagent-text", "{agent.prompt}" }
         }
         if let Some(text) = report {
-            div { class: "details-block",
-                span { class: "details-label", "Report" }
+            Section { label: "Report",
                 div { class: "subagent-text", "{text}" }
             }
         }
         if !steps.is_empty() {
-            div { class: "details-block",
-                span { class: "details-label", "{doing}" }
+            Section { label: "{doing}",
                 div { class: "subagent-steps",
                     for (i , step) in steps.iter().enumerate() {
                         match step {

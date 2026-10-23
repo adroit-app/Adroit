@@ -10,6 +10,9 @@ use dioxus::desktop::{
 };
 use dioxus::prelude::*;
 
+use crate::components::{
+    NumberField, Select, SettingGroup, SettingRow, TextArea, TextField, Toggle,
+};
 use crate::icons::{Icon, IconView};
 use crate::keys_pane::KeysPane;
 use crate::paths::{home, keys_path};
@@ -236,23 +239,6 @@ fn SettingsWindow() -> Element {
 
 type Change = Box<dyn FnOnce(&mut Settings)>;
 
-/// One setting: what it is called and says on the left, its control on the
-/// right.
-#[component]
-fn Row(label: String, hint: String, children: Element) -> Element {
-    rsx! {
-        div { class: "settings-row",
-            div { class: "settings-row-label",
-                div { "{label}" }
-                if !hint.is_empty() {
-                    div { class: "settings-hint", "{hint}" }
-                }
-            }
-            div { class: "settings-row-control", {children} }
-        }
-    }
-}
-
 #[component]
 fn General(now: Settings, change: Callback<Change>) -> Element {
     let files = [
@@ -260,8 +246,8 @@ fn General(now: Settings, change: Callback<Change>) -> Element {
         ("Key bindings", keys_path(), KEYS_STARTER),
     ];
     rsx! {
-        section { class: "settings-group",
-            Row { label: "Zoom", hint: "How large the window draws everything when it opens; ⌘0 comes back to it.",
+        SettingGroup {
+            SettingRow { label: "Zoom", hint: "How large the window draws everything when it opens; ⌘0 comes back to it.",
                 select {
                     onchange: move |e| {
                         if let Ok(z) = e.value().parse::<f64>() {
@@ -273,30 +259,21 @@ fn General(now: Settings, change: Callback<Change>) -> Element {
                     }
                 }
             }
-            Row { label: "Keep the Mac awake", hint: "While a session or a shell runs, even with the window closed; the display still sleeps.",
-                input {
-                    r#type: "checkbox",
+            SettingRow { label: "Keep the Mac awake", hint: "While a session or a shell runs, even with the window closed; the display still sleeps.",
+                Toggle {
                     checked: now.keep_awake,
-                    onchange: move |e| {
-                        let on = e.checked();
-                        change(Box::new(move |s: &mut Settings| s.keep_awake = on));
-                    },
+                    onchange: move |on| change(Box::new(move |s: &mut Settings| s.keep_awake = on)),
                 }
             }
-            Row { label: "Notify when a session waits", hint: "A notification when a session starts waiting on you while the window is not in front.",
-                input {
-                    r#type: "checkbox",
+            SettingRow { label: "Notify when a session waits", hint: "A notification when a session starts waiting on you while the window is not in front.",
+                Toggle {
                     checked: now.notify_waiting,
-                    onchange: move |e| {
-                        let on = e.checked();
-                        change(Box::new(move |s: &mut Settings| s.notify_waiting = on));
-                    },
+                    onchange: move |on| change(Box::new(move |s: &mut Settings| s.notify_waiting = on)),
                 }
             }
         }
-        section { class: "settings-group",
-            h2 { "Default agent" }
-            Row { label: "Agent", hint: "The agent a new session starts with; each can be switched before its first prompt. Sessions already running keep their agent.",
+        SettingGroup { title: "Default agent",
+            SettingRow { label: "Agent", hint: "The agent a new session starts with; each can be switched before its first prompt. Sessions already running keep their agent.",
                 select {
                     onchange: move |e| {
                         if let Some(agent) = adroit_model::Agent::parse(&e.value()) {
@@ -309,128 +286,102 @@ fn General(now: Settings, change: Callback<Change>) -> Element {
                 }
             }
         }
-        section { class: "settings-group",
-            h2 { "Starting sessions" }
-            Row { label: "Scratch folder", hint: "Where scratch sessions run, each in a folder of its own; empty for adroit's own.",
-                input {
+        SettingGroup { title: "Starting sessions",
+            SettingRow { label: "Scratch folder", hint: "Where scratch sessions run, each in a folder of its own; empty for adroit's own.",
+                TextField {
                     class: "settings-command",
-                    r#type: "text",
                     value: "{now.scratch_dir}",
                     placeholder: "~/.local/share/adroit/scratch",
-                    onchange: move |e| {
-                        let dir = e.value().trim().to_string();
+                    onchange: move |value: String| {
+                        let dir = value.trim().to_string();
                         change(Box::new(move |s: &mut Settings| s.scratch_dir = dir));
                     },
                 }
             }
-            Row { label: "Offer ghq's repositories", hint: "The picker lists the repositories ghq keeps, and its file tree ghq's roots.",
-                input {
-                    r#type: "checkbox",
+            SettingRow { label: "Offer ghq's repositories", hint: "The picker lists the repositories ghq keeps, and its file tree ghq's roots.",
+                Toggle {
                     checked: now.picker.ghq,
-                    onchange: move |e| {
-                        let on = e.checked();
-                        change(Box::new(move |s: &mut Settings| s.picker.ghq = on));
-                    },
+                    onchange: move |on| change(Box::new(move |s: &mut Settings| s.picker.ghq = on)),
                 }
             }
-            Row { label: "Folders to offer", hint: "One a line: the picker lists the folders in each, and its file tree each one.",
-                textarea {
-                    class: "settings-env",
+            SettingRow { label: "Folders to offer", hint: "One a line: the picker lists the folders in each, and its file tree each one.",
+                TextArea {
                     value: "{now.picker.roots.join(\"\\n\")}",
                     placeholder: "~/src",
-                    onchange: move |e| {
-                        let roots = e.value().lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect();
+                    onchange: move |value: String| {
+                        let roots = value.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect();
                         change(Box::new(move |s: &mut Settings| s.picker.roots = roots));
                     },
                 }
             }
         }
-        section { class: "settings-group",
-            h2 { "System usage" }
-            Row { label: "CPU", hint: "Whole-machine CPU utilization.",
-                input {
-                    r#type: "checkbox",
+        SettingGroup { title: "System usage",
+            SettingRow { label: "CPU", hint: "Whole-machine CPU utilization.",
+                Toggle {
                     checked: now.usage.cpu,
-                    onchange: move |e| {
-                        let on = e.checked();
-                        change(Box::new(move |s: &mut Settings| s.usage.cpu = on));
-                    },
+                    onchange: move |on| change(Box::new(move |s: &mut Settings| s.usage.cpu = on)),
                 }
             }
-            Row { label: "GPU", hint: "GPU utilization, when the system reports it.",
-                input {
-                    r#type: "checkbox",
+            SettingRow { label: "GPU", hint: "GPU utilization, when the system reports it.",
+                Toggle {
                     checked: now.usage.gpu,
-                    onchange: move |e| {
-                        let on = e.checked();
-                        change(Box::new(move |s: &mut Settings| s.usage.gpu = on));
-                    },
+                    onchange: move |on| change(Box::new(move |s: &mut Settings| s.usage.gpu = on)),
                 }
             }
-            Row { label: "Memory", hint: "Used physical memory as a percentage of total memory.",
-                input {
-                    r#type: "checkbox",
+            SettingRow { label: "Memory", hint: "Used physical memory as a percentage of total memory.",
+                Toggle {
                     checked: now.usage.memory,
-                    onchange: move |e| {
-                        let on = e.checked();
-                        change(Box::new(move |s: &mut Settings| s.usage.memory = on));
-                    },
+                    onchange: move |on| change(Box::new(move |s: &mut Settings| s.usage.memory = on)),
                 }
             }
-            Row { label: "Storage", hint: "Used capacity on the startup volume.",
-                input {
-                    r#type: "checkbox",
+            SettingRow { label: "Storage", hint: "Used capacity on the startup volume.",
+                Toggle {
                     checked: now.usage.storage,
-                    onchange: move |e| {
-                        let on = e.checked();
-                        change(Box::new(move |s: &mut Settings| s.usage.storage = on));
-                    },
+                    onchange: move |on| change(Box::new(move |s: &mut Settings| s.usage.storage = on)),
                 }
             }
         }
-        section { class: "settings-group",
-            h2 { "Details panel" }
-            Row { label: "Changes in Log", hint: "How many changes the Log sheet lists.",
-                input {
-                    r#type: "number", min: "1", max: "1000",
+        SettingGroup { title: "Details panel",
+            SettingRow { label: "Changes in Log", hint: "How many changes the Log sheet lists.",
+                NumberField {
+                    min: "1", max: "1000",
                     value: "{now.details.log_commits}",
-                    onchange: move |e| if let Ok(n) = e.value().parse::<usize>() {
+                    onchange: move |value: String| if let Ok(n) = value.parse::<usize>() {
                         change(Box::new(move |s: &mut Settings| s.details.log_commits = n));
                     },
                 }
             }
-            Row { label: "Lines of a diff", hint: "How much of a diff is shown before it is cut.",
-                input {
-                    r#type: "number", min: "1", max: "100000",
+            SettingRow { label: "Lines of a diff", hint: "How much of a diff is shown before it is cut.",
+                NumberField {
+                    min: "1", max: "100000",
                     value: "{now.details.diff_lines}",
-                    onchange: move |e| if let Ok(n) = e.value().parse::<usize>() {
+                    onchange: move |value: String| if let Ok(n) = value.parse::<usize>() {
                         change(Box::new(move |s: &mut Settings| s.details.diff_lines = n));
                     },
                 }
             }
-            Row { label: "Links shown", hint: "How many links of each kind the overview shows before a row that shows them all.",
-                input {
-                    r#type: "number", min: "1", max: "1000",
+            SettingRow { label: "Links shown", hint: "How many links of each kind the overview shows before a row that shows them all.",
+                NumberField {
+                    min: "1", max: "1000",
                     value: "{now.details.links_shown}",
-                    onchange: move |e| if let Ok(n) = e.value().parse::<usize>() {
+                    onchange: move |value: String| if let Ok(n) = value.parse::<usize>() {
                         change(Box::new(move |s: &mut Settings| s.details.links_shown = n));
                     },
                 }
             }
-            Row { label: "Links kept", hint: "How many links of each kind the overview shows, the newest.",
-                input {
-                    r#type: "number", min: "1", max: "1000",
+            SettingRow { label: "Links kept", hint: "How many links of each kind the overview shows, the newest.",
+                NumberField {
+                    min: "1", max: "1000",
                     value: "{now.details.links_kept}",
-                    onchange: move |e| if let Ok(n) = e.value().parse::<usize>() {
+                    onchange: move |value: String| if let Ok(n) = value.parse::<usize>() {
                         change(Box::new(move |s: &mut Settings| s.details.links_kept = n));
                     },
                 }
             }
         }
-        section { class: "settings-group",
-            h2 { "Files" }
+        SettingGroup { title: "Files",
             for (name, path, starter) in files {
-                Row { key: "{name}", label: name, hint: short(&path),
+                SettingRow { key: "{name}", label: name, hint: short(&path),
                     button { onclick: move |_| open_with("-R", &path, starter), "Show in Finder" }
                 }
             }
@@ -457,8 +408,8 @@ fn ConsolePane(now: Settings, change: Callback<Change>) -> Element {
     let themes = crate::themes::names(&themes_dir);
     let known = themes.contains(&now.theme);
     rsx! {
-        section { class: "settings-group",
-            Row { label: "Theme", hint: "The console's colours. A theme of your own goes in the themes folder, a file in Ghostty's theme format named as the theme.",
+        SettingGroup {
+            SettingRow { label: "Theme", hint: "The console's colours. A theme of your own goes in the themes folder, a file in Ghostty's theme format named as the theme.",
                 select {
                     onchange: move |e| {
                         let theme = e.value();
@@ -472,7 +423,7 @@ fn ConsolePane(now: Settings, change: Callback<Change>) -> Element {
                     }
                 }
             }
-            Row { label: "Themes folder", hint: short(&themes_dir),
+            SettingRow { label: "Themes folder", hint: short(&themes_dir),
                 button {
                     onclick: move |_| {
                         let _ = std::fs::create_dir_all(&themes_dir);
@@ -485,32 +436,27 @@ fn ConsolePane(now: Settings, change: Callback<Change>) -> Element {
                     "Open"
                 }
             }
-            Row { label: "Font", hint: "The family the console and the prompt are drawn in, as the system names it; empty for the built-in ones.",
-                input {
-                    r#type: "text",
+            SettingRow { label: "Font", hint: "The family the console and the prompt are drawn in, as the system names it; empty for the built-in ones.",
+                TextField {
                     value: "{now.font_family}",
                     placeholder: "SF Mono",
-                    onchange: move |e| {
-                        let family = e.value();
-                        change(Box::new(move |s: &mut Settings| s.font_family = family));
-                    },
+                    onchange: move |family: String| change(Box::new(move |s: &mut Settings| s.font_family = family)),
                 }
             }
-            Row { label: "Size", hint: "In points; a line is as tall as the size needs.",
-                input {
-                    r#type: "number",
+            SettingRow { label: "Size", hint: "In points; a line is as tall as the size needs.",
+                NumberField {
                     min: "8",
                     max: "32",
                     step: "0.5",
                     value: "{now.font_size}",
-                    onchange: move |e| {
-                        if let Ok(n) = e.value().parse::<f64>() {
+                    onchange: move |value: String| {
+                        if let Ok(n) = value.parse::<f64>() {
                             change(Box::new(move |s: &mut Settings| s.font_size = n));
                         }
                     },
                 }
             }
-            Row { label: "Option as Alt", hint: "Which Option keys send Alt (Meta) to what runs in the console; the others type what macOS makes of the key.",
+            SettingRow { label: "Option as Alt", hint: "Which Option keys send Alt (Meta) to what runs in the console; the others type what macOS makes of the key.",
                 select {
                     onchange: move |e| {
                         let as_alt = match e.value().as_str() {
@@ -526,17 +472,13 @@ fn ConsolePane(now: Settings, change: Callback<Change>) -> Element {
                     }
                 }
             }
-            Row { label: "Blinking cursor", hint: "The console's cursor blinks when the program lets it.",
-                input {
-                    r#type: "checkbox",
+            SettingRow { label: "Blinking cursor", hint: "The console's cursor blinks when the program lets it.",
+                Toggle {
                     checked: now.console.cursor_blink,
-                    onchange: move |e| {
-                        let on = e.checked();
-                        change(Box::new(move |s: &mut Settings| s.console.cursor_blink = on));
-                    },
+                    onchange: move |on| change(Box::new(move |s: &mut Settings| s.console.cursor_blink = on)),
                 }
             }
-            Row { label: "Weight", hint: "Bold text is drawn heavier than this.",
+            SettingRow { label: "Weight", hint: "Bold text is drawn heavier than this.",
                 select {
                     onchange: move |e| {
                         if let Ok(w) = e.value().parse::<u16>() {
@@ -555,28 +497,26 @@ fn ConsolePane(now: Settings, change: Callback<Change>) -> Element {
 #[component]
 fn PromptPane(now: Settings, change: Callback<Change>) -> Element {
     rsx! {
-        section { class: "settings-group",
-            Row { label: "Fewest lines", hint: "The prompt is never shorter than this.",
-                input {
-                    r#type: "number",
+        SettingGroup {
+            SettingRow { label: "Fewest lines", hint: "The prompt is never shorter than this.",
+                NumberField {
                     min: "1",
                     max: "40",
                     value: "{now.prompt_min_rows}",
-                    onchange: move |e| {
-                        if let Ok(n) = e.value().parse::<usize>() {
+                    onchange: move |value: String| {
+                        if let Ok(n) = value.parse::<usize>() {
                             change(Box::new(move |s: &mut Settings| s.prompt_min_rows = n));
                         }
                     },
                 }
             }
-            Row { label: "Most lines", hint: "Past this the prompt scrolls inside.",
-                input {
-                    r#type: "number",
+            SettingRow { label: "Most lines", hint: "Past this the prompt scrolls inside.",
+                NumberField {
                     min: "1",
                     max: "60",
                     value: "{now.prompt_max_rows}",
-                    onchange: move |e| {
-                        if let Ok(n) = e.value().parse::<usize>() {
+                    onchange: move |value: String| {
+                        if let Ok(n) = value.parse::<usize>() {
                             change(Box::new(move |s: &mut Settings| s.prompt_max_rows = n));
                         }
                     },
@@ -590,28 +530,25 @@ fn PromptPane(now: Settings, change: Callback<Change>) -> Element {
 fn ProgramsPane(now: Settings, change: Callback<Change>) -> Element {
     let login = crate::programs::login_shell();
     rsx! {
-        section { class: "settings-group",
-            h2 { "Shell" }
-            Row { label: "Command", hint: "The shell a shell tab runs, with its arguments; empty for your login shell, started as a login shell.",
-                input {
+        SettingGroup { title: "Shell",
+            SettingRow { label: "Command", hint: "The shell a shell tab runs, with its arguments; empty for your login shell, started as a login shell.",
+                TextField {
                     class: "settings-command",
-                    r#type: "text",
                     value: "{format_command(&now.shell.command)}",
                     placeholder: "{login} -l",
-                    onchange: move |e| {
-                        if let Some(c) = parse_command(&e.value()) {
+                    onchange: move |value: String| {
+                        if let Some(c) = parse_command(&value) {
                             change(Box::new(move |s: &mut Settings| s.shell.command = c));
                         }
                     },
                 }
             }
-            Row { label: "Environment", hint: "Variables set for it, one a line as NAME=value.",
-                textarea {
-                    class: "settings-env",
+            SettingRow { label: "Environment", hint: "Variables set for it, one a line as NAME=value.",
+                TextArea {
                     value: "{format_env(&now.shell.env)}",
                     placeholder: "LANG=en_US.UTF-8",
-                    onchange: move |e| {
-                        let env = parse_env(&e.value());
+                    onchange: move |value: String| {
+                        let env = parse_env(&value);
                         change(Box::new(move |s: &mut Settings| s.shell.env = env));
                     },
                 }
@@ -639,33 +576,29 @@ fn LaunchGroup(
 ) -> Element {
     let (a, b, c) = (launch.clone(), launch.clone(), launch.clone());
     rsx! {
-        section { class: "settings-group",
-            h2 { "{title}" }
-            Row { label: "Command", hint,
-                input {
+        SettingGroup { title: "{title}",
+            SettingRow { label: "Command", hint,
+                TextField {
                     class: "settings-command",
-                    r#type: "text",
                     value: "{format_command(&launch.command)}",
                     placeholder,
-                    onchange: move |e| {
-                        if let Some(command) = parse_command(&e.value()) {
+                    onchange: move |value: String| {
+                        if let Some(command) = parse_command(&value) {
                             set(Launch { command, ..a.clone() });
                         }
                     },
                 }
             }
-            Row { label: "Start through the shell", hint: "Run by your shell as an interactive login shell, so what its startup files set reaches it.",
-                input {
-                    r#type: "checkbox",
+            SettingRow { label: "Start through the shell", hint: "Run by your shell as an interactive login shell, so what its startup files set reaches it.",
+                Toggle {
                     checked: launch.via_shell,
-                    onchange: move |e| set(Launch { via_shell: e.checked(), ..b.clone() }),
+                    onchange: move |on| set(Launch { via_shell: on, ..b.clone() }),
                 }
             }
-            Row { label: "Environment", hint: "Variables set for it, one a line as NAME=value.",
-                textarea {
-                    class: "settings-env",
+            SettingRow { label: "Environment", hint: "Variables set for it, one a line as NAME=value.",
+                TextArea {
                     value: "{format_env(&launch.env)}",
-                    onchange: move |e| set(Launch { env: parse_env(&e.value()), ..c.clone() }),
+                    onchange: move |value: String| set(Launch { env: parse_env(&value), ..c.clone() }),
                 }
             }
         }
@@ -797,27 +730,24 @@ fn CodexGroup(
         options.clone(),
     );
     rsx! {
-        section { class: "settings-group",
-            h2 { "{title}" }
-            Row { label: "Model", hint: "Empty to use Codex's own model.",
-                input {
+        SettingGroup { title: "{title}",
+            SettingRow { label: "Model", hint: "Empty to use Codex's own model.",
+                TextField {
                     class: "settings-command",
-                    r#type: "text",
                     value: options.model,
                     aria_label: "Model",
                     placeholder: "Codex's own",
-                    onchange: move |e| set(crate::agents::CodexOptions { model: e.value().trim().into(), ..model.clone() }),
+                    onchange: move |value: String| set(crate::agents::CodexOptions { model: value.trim().into(), ..model.clone() }),
                 }
             }
-            Row { label: "Reasoning effort", hint: "Use a level supported by the selected model, or leave empty for Codex's own.",
-                input {
+            SettingRow { label: "Reasoning effort", hint: "Use a level supported by the selected model, or leave empty for Codex's own.",
+                TextField {
                     class: "settings-command",
-                    r#type: "text",
                     list: "codex-efforts",
                     aria_label: "Reasoning effort",
                     value: options.reasoning_effort,
                     placeholder: "Codex's own",
-                    onchange: move |e| set(crate::agents::CodexOptions { reasoning_effort: e.value().trim().into(), ..effort.clone() }),
+                    onchange: move |value: String| set(crate::agents::CodexOptions { reasoning_effort: value.trim().into(), ..effort.clone() }),
                 }
                 datalist { id: "codex-efforts",
                     for value in ["low", "medium", "high", "xhigh", "max", "ultra"] {
@@ -825,38 +755,17 @@ fn CodexGroup(
                     }
                 }
             }
-            Row { label: "Approval policy", hint: "When Codex asks before running a command. Never ask keeps sandbox restrictions in place.",
-                Choice { label: "Approval policy", value: options.approval_policy,
+            SettingRow { label: "Approval policy", hint: "When Codex asks before running a command. Never ask keeps sandbox restrictions in place.",
+                Select { label: "Approval policy", value: options.approval_policy,
                     choices: vec![("", "Codex's own"), ("on-request", "Ask when needed"), ("never", "Never ask")],
-                    set: move |value| set(crate::agents::CodexOptions { approval_policy: value, ..approval.clone() }),
+                    onchange: move |value| set(crate::agents::CodexOptions { approval_policy: value, ..approval.clone() }),
                 }
             }
-            Row { label: "Sandbox", hint: "Where commands can write. Full access removes the sandbox.",
-                Choice { label: "Sandbox", value: options.sandbox_mode,
+            SettingRow { label: "Sandbox", hint: "Where commands can write. Full access removes the sandbox.",
+                Select { label: "Sandbox", value: options.sandbox_mode,
                     choices: vec![("", "Codex's own"), ("read-only", "Read only"), ("workspace-write", "Workspace write"), ("danger-full-access", "Full access")],
-                    set: move |value| set(crate::agents::CodexOptions { sandbox_mode: value, ..sandbox.clone() }),
+                    onchange: move |value| set(crate::agents::CodexOptions { sandbox_mode: value, ..sandbox.clone() }),
                 }
-            }
-        }
-    }
-}
-
-#[component]
-fn Choice(
-    label: String,
-    value: String,
-    choices: Vec<(&'static str, &'static str)>,
-    set: Callback<String>,
-) -> Element {
-    rsx! {
-        select {
-            aria_label: label,
-            onchange: move |e| set(e.value()),
-            if !choices.iter().any(|(key, _)| *key == value) {
-                option { value: value.clone(), selected: true, "{value}" }
-            }
-            for (key, label) in choices {
-                option { key: "{key}", value: key, selected: value == key, "{label}" }
             }
         }
     }
@@ -874,16 +783,14 @@ fn SessionGroup(title: String, options: SessionOptions, set: Callback<SessionOpt
     );
     let list = format!("models-{title}");
     rsx! {
-        section { class: "settings-group",
-            h2 { "{title}" }
-            Row { label: "Model", hint: "The model they start with, as Claude Code's --model takes it; empty for Claude Code's own.",
-                input {
+        SettingGroup { title: "{title}",
+            SettingRow { label: "Model", hint: "The model they start with, as Claude Code's --model takes it; empty for Claude Code's own.",
+                TextField {
                     class: "settings-command",
-                    r#type: "text",
                     list: "{list}",
                     value: "{options.model}",
                     placeholder: "Claude Code's own",
-                    onchange: move |e| set(SessionOptions { model: e.value().trim().to_string(), ..a.clone() }),
+                    onchange: move |value: String| set(SessionOptions { model: value.trim().to_string(), ..a.clone() }),
                 }
                 datalist { id: "{list}",
                     for m in MODELS {
@@ -891,7 +798,7 @@ fn SessionGroup(title: String, options: SessionOptions, set: Callback<SessionOpt
                     }
                 }
             }
-            Row { label: "Permission mode", hint: "How they ask before they act.",
+            SettingRow { label: "Permission mode", hint: "How they ask before they act.",
                 select {
                     onchange: move |e| set(SessionOptions { permission_mode: e.value(), ..b.clone() }),
                     for (mode , name) in MODES {
@@ -899,23 +806,21 @@ fn SessionGroup(title: String, options: SessionOptions, set: Callback<SessionOpt
                     }
                 }
             }
-            Row { label: "Tools denied", hint: "Tools they may not use, separated by commas.",
-                input {
+            SettingRow { label: "Tools denied", hint: "Tools they may not use, separated by commas.",
+                TextField {
                     class: "settings-command",
-                    r#type: "text",
                     value: "{options.disallowed_tools.join(\", \")}",
                     placeholder: "Edit, Write",
-                    onchange: move |e| {
-                        let tools = e.value().split(',').map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect();
+                    onchange: move |value: String| {
+                        let tools = value.split(',').map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect();
                         set(SessionOptions { disallowed_tools: tools, ..c.clone() })
                     },
                 }
             }
-            Row { label: "Confirm Adroit's channel warning", hint: "Confirm, once a launch, Claude Code's warning about loading development channels when it names Adroit's own channel alone; every other dialog stays yours.",
-                input {
-                    r#type: "checkbox",
+            SettingRow { label: "Confirm Adroit's channel warning", hint: "Confirm, once a launch, Claude Code's warning about loading development channels when it names Adroit's own channel alone; every other dialog stays yours.",
+                Toggle {
                     checked: options.confirm_channel_warning,
-                    onchange: move |e| set(SessionOptions { confirm_channel_warning: e.checked(), ..d.clone() }),
+                    onchange: move |on| set(SessionOptions { confirm_channel_warning: on, ..d.clone() }),
                 }
             }
         }

@@ -4,6 +4,8 @@
 use adroit_term::{CursorShape, Picture, Screen};
 use dioxus::prelude::*;
 
+// Where the screen and the keys panes still take it from.
+pub use crate::components::Keys;
 use crate::style::use_cell_height;
 
 /// One screen, each cell exactly `cell_width` wide, so wide characters and the
@@ -103,16 +105,6 @@ fn run_style(run: &adroit_term::Run, cw: f64, ch: f64) -> String {
         _ => {}
     }
     out
-}
-
-/// Keys as the bindings write them, a cap for each key of the sequence.
-#[component]
-pub fn Keys(keys: String) -> Element {
-    rsx! {
-        for (i , chord) in keys.split(' ').map(str::to_string).enumerate() {
-            kbd { key: "{i}", "{chord}" }
-        }
-    }
 }
 
 /// The background that paints a block element's `parts` of a cell `width`

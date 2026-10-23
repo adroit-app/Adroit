@@ -13,10 +13,11 @@ use dioxus::html::geometry::WheelDelta;
 use dioxus::prelude::*;
 use tokio::sync::{Notify, mpsc};
 
+use crate::components::{EmptyState, KeyHint};
 use crate::icons::{Icon, IconView};
 use crate::style::use_cell_height;
 use crate::tabs::Tab;
-use crate::view::{Keys, ScreenView};
+use crate::view::ScreenView;
 
 /// How many completions the menu shows at a time.
 const MENU_ITEMS: usize = 10;
@@ -109,7 +110,7 @@ pub fn ConsoleScreen(tab: Tab, frame: Signal<u64>, cell_width: f64, focused: boo
     let pane = hub.panes.borrow().get(&tab).cloned();
     let Some(pane) = pane else {
         return rsx! {
-            div { class: "console-empty", "Attaching…" }
+            EmptyState { "Attaching…" }
         };
     };
     let screen = pane.screen();
@@ -141,8 +142,7 @@ pub fn ConsoleScreen(tab: Tab, frame: Signal<u64>, cell_width: f64, focused: boo
             Clicks { cell_width, onclick: { let pane = pane.clone(); move |(col, row)| pane.click(col, row) } }
         }
         if pane.exited() {
-            div { class: "console-empty detached",
-                div { class: "console-empty-title", "Ended" }
+            EmptyState { kind: "detached", title: "Ended",
                 div { "What ran here has exited." }
             }
         }
@@ -414,13 +414,13 @@ pub fn Composer(
                     if selected_image.is_some() {
                         span { class: "kbd-list", "← → select · Delete remove · Esc return" }
                     } else if let Some(k) = image_keys {
-                        span { class: "kbd-list", Keys { keys: k } " images" }
+                        KeyHint { keys: k, does: "images" }
                     }
                 }
                 if answering {
                     span { class: "prompt-foot-answering", "keys answer above" }
                 } else if let Some(k) = send_keys {
-                    span { class: "kbd-list", Keys { keys: k } " send" }
+                    KeyHint { keys: k, does: "send" }
                 }
             }
         }
