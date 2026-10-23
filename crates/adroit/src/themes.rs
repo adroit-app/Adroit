@@ -70,6 +70,26 @@ pub fn palette(name: &str, dir: &Path) -> Result<Palette, String> {
         .unwrap_or_else(|| Err(format!("no theme named {name:?}")))
 }
 
+/// The stylesheet variable of each of the theme's ANSI colours, by number.
+pub const ANSI: [&str; 16] = [
+    "--ansi-0",
+    "--ansi-1",
+    "--ansi-2",
+    "--ansi-3",
+    "--ansi-4",
+    "--ansi-5",
+    "--ansi-6",
+    "--ansi-7",
+    "--ansi-8",
+    "--ansi-9",
+    "--ansi-10",
+    "--ansi-11",
+    "--ansi-12",
+    "--ansi-13",
+    "--ansi-14",
+    "--ansi-15",
+];
+
 /// The window's colours in a theme: the stylesheet's variables, by name,
 /// and whether the theme is a dark one.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -90,30 +110,33 @@ pub fn window(p: &Palette) -> Window {
     let dark = lum(bg) < lum(fg);
     // On a light background the ground darkens less, or it reads as a border.
     let ground = if dark { away } else { mix(bg, fg, -0.04) };
-    Window {
-        vars: vec![
-            ("--ground", ground.hex()),
-            ("--panel", bg.hex()),
-            ("--raised", toward(0.06)),
-            ("--select", toward(0.12)),
-            ("--line", toward(0.09)),
-            ("--line-strong", toward(0.17)),
-            ("--text", fg.hex()),
-            ("--text-2", toward(0.72)),
-            ("--text-3", toward(0.55)),
-            ("--wait", p.ansi[3].hex()),
-            ("--run", p.ansi[4].hex()),
-            ("--done", p.ansi[2].hex()),
-            ("--fail", p.ansi[1].hex()),
-            ("--coord", p.ansi[5].hex()),
-            ("--usage-cpu", p.ansi[6].hex()),
-            ("--usage-context", p.ansi[6].hex()),
-            ("--usage-gpu", p.ansi[5].hex()),
-            ("--usage-memory", p.ansi[2].hex()),
-            ("--usage-storage", mix(p.ansi[3], p.ansi[1], 0.25).hex()),
-        ],
-        dark,
-    }
+    let mut vars = vec![
+        ("--ground", ground.hex()),
+        ("--panel", bg.hex()),
+        ("--raised", toward(0.06)),
+        ("--select", toward(0.12)),
+        ("--line", toward(0.09)),
+        ("--line-strong", toward(0.17)),
+        ("--text", fg.hex()),
+        ("--text-2", toward(0.72)),
+        ("--text-3", toward(0.55)),
+        ("--wait", p.ansi[3].hex()),
+        ("--run", p.ansi[4].hex()),
+        ("--done", p.ansi[2].hex()),
+        ("--fail", p.ansi[1].hex()),
+        ("--coord", p.ansi[5].hex()),
+        ("--usage-cpu", p.ansi[6].hex()),
+        ("--usage-context", p.ansi[6].hex()),
+        ("--usage-gpu", p.ansi[5].hex()),
+        ("--usage-memory", p.ansi[2].hex()),
+        ("--usage-storage", mix(p.ansi[3], p.ansi[1], 0.25).hex()),
+    ];
+    vars.extend(
+        ANSI.iter()
+            .zip(p.ansi)
+            .map(|(name, colour)| (*name, colour.hex())),
+    );
+    Window { vars, dark }
 }
 
 /// `from` moved `amount` of the way to `to`; a negative amount moves away.
@@ -203,6 +226,16 @@ mod tests {
         assert_eq!(var(&w, "--wait"), p.ansi[3].hex());
         assert_eq!(var(&w, "--fail"), p.ansi[1].hex());
         assert!(w.dark);
+    }
+
+    #[test]
+    fn every_ansi_colour_of_the_theme_is_a_variable_of_its_number() {
+        let p = palette("Nightfox", Path::new("/no/such/folder")).unwrap();
+        let w = window(&p);
+        for (n, colour) in p.ansi.iter().enumerate() {
+            assert_eq!(var(&w, ANSI[n]), colour.hex(), "{n}");
+            assert_eq!(ANSI[n], format!("--ansi-{n}"));
+        }
     }
 
     #[test]

@@ -129,7 +129,7 @@ fn clipboard_command() -> std::process::Command {
 }
 
 /// Put `text` on the system clipboard.
-fn copy_to_clipboard(text: &str) -> std::io::Result<()> {
+pub(crate) fn copy_to_clipboard(text: &str) -> std::io::Result<()> {
     use std::io::Write;
     let mut child = clipboard_command()
         .stdin(std::process::Stdio::piped())

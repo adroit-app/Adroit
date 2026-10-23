@@ -17,6 +17,7 @@ mod details;
 pub mod editor;
 pub mod env;
 pub mod execution;
+pub mod file_icons;
 pub mod filer;
 pub mod focus;
 mod fuzzy;
@@ -56,6 +57,7 @@ pub mod tabs;
 pub mod terminals;
 pub mod themes;
 mod view;
+pub mod viewers;
 mod window_socket;
 pub mod zoom;
 
