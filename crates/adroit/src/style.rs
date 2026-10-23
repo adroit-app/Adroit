@@ -133,7 +133,7 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 .list-row.group .place-mark { color: var(--text-3); }
 .tab-where { flex: none; padding: 0 5px; border-radius: 4px; background: var(--raised); color: var(--text-3); font-family: var(--mono); font-size: 10px; line-height: 16px; }
 .list-row.shown .tab-where { background: rgba(120,174,232,0.16); color: var(--run); }
-.nf { flex: none; width: 16px; text-align: center; font-family: var(--term-font), "Symbols Nerd Font Mono", "Symbols Nerd Font", monospace; font-size: 14px; line-height: 1; color: var(--text-2); }
+.nf { flex: none; width: 16px; text-align: center; font-family: "Adroit Symbols", var(--term-font); font-size: 14px; line-height: 1; color: var(--text-2); }
 .list-row.file { height: 22px; font-family: var(--mono); font-size: 12px; color: var(--text-2); }
 .list-row.file.dir { color: var(--text); }
 .list-row.file.back { color: var(--text-3); }
