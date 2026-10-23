@@ -36,12 +36,13 @@ mod tests {
     };
 
     use crate::{
-        AgentFacts, AgentsWork, Change, CommandsRead, CommandsSight, Composed, ConfigChange,
-        ConfigFile, ConfigWork, ConsoleChange, ConsoleWork, ConversationRead, DetailsChange,
-        DetailsWork, Dialog, Event, FileText, HistoryRead, Listed, Offers, PastChange, PastSight,
-        PastWork, PickChange, PickSight, PickWork, PlaceChange, PlaceRead, PlaceWork, PromptChange,
-        PromptWork, RepositoryRead, RepositorySight, Request, Seq, SessionRead, Sight, SystemUsage,
-        Told, TreeChange, TreeSight, Typing, Version, WorkPatch, WorkSnapshot,
+        AgentFacts, AgentsWork, Change, Colours, CommandsRead, CommandsSight, Composed,
+        ConfigChange, ConfigFile, ConfigWork, Configured, ConsoleChange, ConsoleWork,
+        ConversationRead, DetailsChange, DetailsWork, Dialog, Event, FileText, HistoryRead, Listed,
+        Offers, PastChange, PastSight, PastWork, PickChange, PickSight, PickWork, PlaceChange,
+        PlaceRead, PlaceWork, PromptChange, PromptWork, RepositoryRead, RepositorySight, Request,
+        Seq, SessionRead, Sight, SystemUsage, ThemeRead, Told, TreeChange, TreeSight, Typing,
+        Version, WorkPatch, WorkSnapshot,
     };
 
     fn round_trips<T>(message: T)
@@ -230,6 +231,15 @@ mod tests {
             config: ConfigWork {
                 settings: Some(ConfigFile::default()),
                 keys: None,
+                configured: Some(Configured {
+                    scratch: "/s".into(),
+                    theme: ThemeRead {
+                        name: "Mine".into(),
+                        colours: Colours::Theme {
+                            text: "background = #010203\n".into(),
+                        },
+                    },
+                }),
             },
             console: ConsoleWork {
                 dialog: Some(Dialog {

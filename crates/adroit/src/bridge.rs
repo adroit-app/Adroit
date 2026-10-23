@@ -27,7 +27,7 @@ use dioxus::prelude::*;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::layout::{Kept as _, Layout};
-use crate::paths::{home, instance_state, scratch_dir};
+use crate::paths::{home, instance_state};
 
 /// What runs an effect handed to `App`.
 type Handed = Rc<dyn Fn(Effect)>;
@@ -78,7 +78,7 @@ pub(crate) fn use_app() -> AppCtx {
         // and a panel kept hidden was not hidden now. The host's first
         // answers are taken in before the window is drawn, so it opens in
         // the configuration's zoom and theme.
-        let effects = pump(
+        let mut effects = pump(
             &mut view,
             &*loopback,
             &mut events,
@@ -86,12 +86,17 @@ pub(crate) fn use_app() -> AppCtx {
                 Msg::PanelsKept(Layout::load()),
                 Msg::WindowFocused(dioxus::desktop::window().is_focused()),
                 Msg::Opened { home: home() },
-                Msg::ContentOpened {
-                    kept,
-                    scratch: scratch_dir(),
-                },
             ],
         );
+        // Where a session started with nothing open runs, as the host
+        // answered.
+        let scratch = view.config.scratch.clone();
+        effects.extend(pump(
+            &mut view,
+            &*loopback,
+            &mut events,
+            [Msg::ContentOpened { kept, scratch }],
+        ));
         loopback.watch_config();
         let link: Rc<dyn HostLink> = loopback.clone();
         let app = AppCtx {
@@ -242,6 +247,7 @@ impl AppCtx {
             | Effect::FilterFocus(_)
             | Effect::PromptOffer(_)
             | Effect::PromptCommands(_)
+            | Effect::Palette(_)
             | Effect::PromptRoot(_)
             | Effect::StartTerminal(_)
             | Effect::PromptClose(_)
@@ -448,6 +454,7 @@ mod tests {
                     },
                 }),
                 keys: None,
+                configured: None,
             };
             let (link, events) = Loopback::new(Host::new(Work::configured(config)));
             let mut window = Self {

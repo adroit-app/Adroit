@@ -40,6 +40,9 @@ pub enum Effect {
     /// Tell the user this in the status line.
     Notice(String),
 
+    /// Draw the consoles in these colours.
+    Palette(adroit_protocol::Colours),
+
     // The chrome.
     /// Keep this layout of the side panels for the next run.
     KeepLayout(Layout),

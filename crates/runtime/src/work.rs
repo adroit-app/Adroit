@@ -1199,9 +1199,10 @@ mod tests {
         let configured = Work::configured(ConfigWork {
             settings: Some(match read("zoom = 1.25\n") {
                 ConfigChange::Settings { file } => file,
-                ConfigChange::Keys { .. } => unreachable!(),
+                ConfigChange::Keys { .. } | ConfigChange::Configured { .. } => unreachable!(),
             }),
             keys: None,
+            configured: None,
         });
         let mut host = Host::new(configured.clone());
         assert_eq!(

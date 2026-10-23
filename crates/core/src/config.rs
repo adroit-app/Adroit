@@ -2,9 +2,9 @@
 //! key bindings, taken in from the files as the host last read them.
 
 use adroit_model::paths::tilde;
-use adroit_protocol::{ConfigFile, ConfigWork, FileText};
+use adroit_protocol::{Colours, ConfigFile, ConfigWork, FileText};
 
-use crate::chrome::status_line;
+use crate::chrome::status_line::{self, StatusLine};
 use crate::effect::Effect;
 use crate::keymap::Keymap;
 use crate::settings::Settings;
@@ -17,6 +17,8 @@ pub struct Config {
     pub settings: Settings,
     /// Why the settings file cannot be had, while it cannot.
     pub settings_error: Option<String>,
+    /// Where scratch sessions run, as the host says.
+    pub scratch: std::path::PathBuf,
     /// Why the key bindings file cannot be had, while it cannot.
     keys_error: Option<String>,
     /// The files as they were last taken in.
@@ -63,7 +65,30 @@ pub(crate) fn take_in(state: &mut ViewState) -> Vec<Effect> {
             ));
         }
     }
+    if work.config.configured != config.taken.configured {
+        let was = std::mem::replace(&mut config.taken.configured, work.config.configured.clone());
+        if let Some(made) = &config.taken.configured {
+            config.scratch = made.scratch.clone();
+            if was.as_ref().map(|c| &c.theme) != Some(&made.theme) {
+                effects.extend(theme_taken(
+                    &mut state.chrome.status,
+                    &made.theme.colours,
+                    was.is_none(),
+                ));
+            }
+        }
+    }
     effects
+}
+
+/// The consoles are drawn in `colours`; ones that cannot be had leave them
+/// as they are and say why, but for the first, which leaves adroit's own.
+fn theme_taken(status: &mut StatusLine, colours: &Colours, first: bool) -> Vec<Effect> {
+    match colours {
+        Colours::Unreadable { .. } if first => vec![Effect::Palette(Colours::Own)],
+        Colours::Unreadable { error } => status_line::set(status, Some(error.clone())),
+        colours => vec![Effect::Palette(colours.clone())],
+    }
 }
 
 /// The bindings `file` holds over the defaults; the defaults alone when it
@@ -103,6 +128,7 @@ pub(crate) mod testing {
             config: ConfigWork {
                 settings: Some(settings_file(settings)),
                 keys: None,
+                configured: None,
             },
             ..Default::default()
         }))
@@ -119,7 +145,7 @@ pub(crate) mod testing {
 
 #[cfg(test)]
 mod tests {
-    use adroit_protocol::{ConfigChange, ConfigFile, FileText};
+    use adroit_protocol::{Colours, ConfigChange, ConfigFile, Configured, FileText, ThemeRead};
 
     use super::testing::{configured, keys_file, reconfigured, settings_file};
     use crate::effect::Effect;
@@ -259,6 +285,64 @@ mod tests {
             !run.last_effects()
                 .iter()
                 .any(|e| matches!(e, Effect::Zoom(_)))
+        );
+    }
+
+    fn made(seq: u64, scratch: &str, theme: &str, colours: Colours) -> adroit_protocol::Event {
+        reconfigured(
+            seq,
+            ConfigChange::Configured {
+                configured: Configured {
+                    scratch: scratch.into(),
+                    theme: ThemeRead {
+                        name: theme.into(),
+                        colours,
+                    },
+                },
+            },
+        )
+    }
+
+    fn palettes(run: &Scenario) -> Vec<Colours> {
+        run.effects()
+            .iter()
+            .filter_map(|e| match e {
+                Effect::Palette(c) => Some(c.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_host_s_theme_colours_the_consoles_once_each_time_another_is_read() {
+        let nord = || Colours::Theme {
+            text: "background = #2e3440\n".into(),
+        };
+        let run = Scenario::new()
+            .event(configured(""))
+            .event(made(1, "/s", "Nord", nord()))
+            .event(made(2, "/t", "Nord", nord()))
+            .event(made(3, "/t", "Adroit", Colours::Own));
+        assert_eq!(palettes(&run), [nord(), Colours::Own]);
+        assert_eq!(run.state().config.scratch, std::path::PathBuf::from("/t"));
+    }
+
+    #[test]
+    fn a_theme_that_cannot_be_had_says_why_but_the_first_leaves_adroit_s_own() {
+        let cannot = |why: &str| Colours::Unreadable { error: why.into() };
+        let run = Scenario::new().event(configured("")).event(made(
+            1,
+            "/s",
+            "Gone",
+            cannot("no theme named \"Gone\""),
+        ));
+        assert_eq!(palettes(&run), [Colours::Own]);
+        assert_eq!(run.state().chrome.status.line, None);
+        let run = run.event(made(2, "/s", "Lost", cannot("no theme named \"Lost\"")));
+        assert_eq!(palettes(&run), [Colours::Own]);
+        assert_eq!(
+            run.state().chrome.status.line.as_deref(),
+            Some("no theme named \"Lost\"")
         );
     }
 }

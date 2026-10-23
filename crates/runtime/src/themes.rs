@@ -3,6 +3,7 @@
 
 use std::path::Path;
 
+use adroit_protocol::Colours;
 use adroit_term::{Palette, Rgb};
 
 pub use adroit_core::palette::{ANSI, DEFAULT};
@@ -53,20 +54,35 @@ pub fn names(dir: &Path) -> Vec<String> {
 /// The palette of the theme `name`: the user's file of that name in `dir`
 /// first, so one can be changed by writing it there, then adroit's.
 pub fn palette(name: &str, dir: &Path) -> Result<Palette, String> {
+    match colours(name, dir) {
+        Colours::Own => Ok(Palette::default()),
+        Colours::Theme { text } => Palette::from_ghostty(&text),
+        Colours::Unreadable { error } => Err(error),
+    }
+}
+
+/// The colours of the theme `name`, found as [`palette`] finds them: a
+/// theme's text only once it reads as a palette.
+pub fn colours(name: &str, dir: &Path) -> Colours {
     let file = dir.join(name);
-    if !name.contains('/') && file.is_file() {
-        let text =
-            std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
-        return Palette::from_ghostty(&text).map_err(|e| format!("{}: {e}", file.display()));
+    let read = if !name.contains('/') && file.is_file() {
+        std::fs::read_to_string(&file)
+            .map_err(|e| e.to_string())
+            .and_then(|text| Palette::from_ghostty(&text).map(|_| text))
+            .map_err(|e| format!("{}: {e}", file.display()))
+    } else if name == DEFAULT {
+        return Colours::Own;
+    } else {
+        PRESETS
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, text)| Palette::from_ghostty(text).map(|_| (*text).to_string()))
+            .unwrap_or_else(|| Err(format!("no theme named {name:?}")))
+    };
+    match read {
+        Ok(text) => Colours::Theme { text },
+        Err(error) => Colours::Unreadable { error },
     }
-    if name == DEFAULT {
-        return Ok(Palette::default());
-    }
-    PRESETS
-        .iter()
-        .find(|(n, _)| *n == name)
-        .map(|(_, text)| Palette::from_ghostty(text))
-        .unwrap_or_else(|| Err(format!("no theme named {name:?}")))
 }
 
 /// The window's colours in a theme: the stylesheet's variables, by name,
@@ -145,6 +161,26 @@ mod tests {
     use adroit_term::Rgb;
 
     use super::*;
+
+    #[test]
+    fn a_theme_s_colours_are_adroit_s_own_its_text_or_why_it_cannot_be_had() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Mine"), "background = #010203\n").unwrap();
+        assert_eq!(colours(DEFAULT, dir.path()), Colours::Own);
+        assert_eq!(
+            colours("Mine", dir.path()),
+            Colours::Theme {
+                text: "background = #010203\n".into()
+            }
+        );
+        assert!(matches!(colours("Nord", dir.path()), Colours::Theme { .. }));
+        assert_eq!(
+            colours("Nothing", dir.path()),
+            Colours::Unreadable {
+                error: "no theme named \"Nothing\"".into()
+            }
+        );
+    }
 
     #[test]
     fn every_theme_adroit_comes_with_reads() {

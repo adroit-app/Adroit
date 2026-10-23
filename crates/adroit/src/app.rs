@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use adroit_model::Session;
 use adroit_nvim::notation;
-use adroit_protocol::Typing;
+use adroit_protocol::{Colours, Typing};
 use adroit_term::{Key, Palette, Pane, Screen, Size, Spawn};
 use dioxus::prelude::*;
 use tokio::sync::{mpsc, oneshot};
@@ -31,7 +31,7 @@ use crate::layout::Side;
 use crate::menu_bar;
 use crate::nav::{self, Item};
 use crate::pasted;
-use crate::paths::{instance_state, scratch_dir};
+use crate::paths::instance_state;
 use crate::picker::Picker;
 use crate::pictures::{self, Gallery};
 use crate::programs;
@@ -39,7 +39,6 @@ use crate::prompt_tab::{PromptTab, TabGoes};
 use crate::prompts::{self, Op, Prompts};
 use crate::scratch::{self, Moment};
 use crate::sessions;
-use crate::settings;
 use crate::settings_window;
 use crate::shell::overlays::{ConfirmDialog, ContextMenu, DaemonBanner, KeysHelp, old_daemon_note};
 use crate::shell::{self, header::Header, panels::Splitter, status_bar::StatusBar};
@@ -60,10 +59,12 @@ use adroit_core::overlay;
 use adroit_core::overlay::confirm::Ask;
 use adroit_core::overlay::context_menu::Target;
 
-/// The palette of the theme `settings` name, or adroit's own when it cannot
-/// be read.
-fn palette_of(settings: &settings::Settings) -> Result<Palette, String> {
-    themes::palette(&settings.theme, &crate::settings::themes_dir())
+/// The palette of `colours`, as the host read them.
+fn palette_of(colours: &Colours) -> Palette {
+    match colours {
+        Colours::Theme { text } => Palette::from_ghostty(text).unwrap_or_default(),
+        Colours::Own | Colours::Unreadable { .. } => Palette::default(),
+    }
 }
 
 /// Open the window.
@@ -509,7 +510,14 @@ fn App() -> Element {
     let mut cell_height_now = use_signal(|| DEFAULT_CELL_HEIGHT);
     use_context_provider(|| CellHeight(cell_height_now));
     // The theme's palette, which a new theme replaces.
-    let palette = use_signal(|| palette_of(&app.config.peek().settings).unwrap_or_default());
+    let palette = use_signal(|| {
+        let host = app.host.peek();
+        let theme = host
+            .work
+            .as_ref()
+            .and_then(|w| w.config.configured.as_ref());
+        theme.map_or_else(Palette::default, |c| palette_of(&c.theme.colours))
+    });
     // The side panels' widths and whether they are shown, as the chrome
     // holds them.
     let layout = use_memo(move || app.chrome.read().panels.layout);
@@ -972,10 +980,11 @@ fn App() -> Element {
                 let tab = match shown {
                     None => {
                         app.dispatch(Msg::Draft {
-                            worktree: scratch_dir(),
+                            worktree: app.config.peek().scratch.clone(),
                             write: false,
                         });
-                        app.active().unwrap_or_else(|| Tab::draft(scratch_dir()))
+                        app.active()
+                            .unwrap_or_else(|| Tab::draft(app.config.peek().scratch.clone()))
                     }
                     Some(shown) => shown,
                 };
@@ -1052,7 +1061,8 @@ fn App() -> Element {
                 };
                 // Made only now, so a draft left unsent leaves no empty
                 // directory behind.
-                let started = match scratch::start_dir(worktree, &scratch_dir(), Moment::now()) {
+                let scratch = app.config.peek().scratch.clone();
+                let started = match scratch::start_dir(worktree, &scratch, Moment::now()) {
                     Ok(worktree) => {
                         let request = crate::execution::StartRequest {
                             agent: taken.agent,
@@ -1180,30 +1190,6 @@ fn App() -> Element {
         }
     };
 
-    // A new theme reaches every console open, what is drawn and what a
-    // program asking for its colours is told.
-    let theme = use_memo(move || settings.read().theme.clone());
-    let themed = use_hook(|| Rc::new(RefCell::new(theme.peek().clone())));
-    use_effect({
-        let hub = hub.clone();
-        move || {
-            let theme = theme();
-            if *themed.borrow() == theme {
-                return;
-            }
-            themed.replace(theme);
-            match palette_of(&settings.peek()) {
-                Ok(p) => {
-                    for pane in hub.panes.borrow().values() {
-                        pane.set_palette(&p);
-                    }
-                    let mut palette = hub.palette;
-                    palette.set(p);
-                }
-                Err(e) => app.status(Some(e)),
-            }
-        }
-    });
     use_drop(settings_window::close);
     use_drop(image_window::close_all);
 
@@ -1441,6 +1427,16 @@ fn App() -> Element {
                             let _ = nv.set_candidates(&list).await;
                         });
                     }
+                }
+                // A new theme reaches every console open, what is drawn and
+                // what a program asking for its colours is told.
+                CoreEffect::Palette(colours) => {
+                    let p = palette_of(&colours);
+                    for pane in hub.panes.borrow().values() {
+                        pane.set_palette(&p);
+                    }
+                    let mut palette = hub.palette;
+                    palette.set(p);
                 }
                 CoreEffect::PromptCommands(list) => {
                     if let Some(nv) = nvim.peek().clone() {
