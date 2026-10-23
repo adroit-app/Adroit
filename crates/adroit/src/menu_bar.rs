@@ -134,6 +134,8 @@ pub fn sections() -> Vec<Section> {
                 Separator,
                 Run(Action::SessionNext, "Next Session"),
                 Run(Action::SessionPrev, "Previous Session"),
+                Run(Action::WorkspaceNext, "Next Workspace"),
+                Run(Action::WorkspacePrev, "Previous Workspace"),
                 Run(Action::WaitingNext, "Next Waiting"),
                 Run(Action::WaitingPrev, "Previous Waiting"),
                 Separator,

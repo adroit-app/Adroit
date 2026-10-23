@@ -65,6 +65,8 @@ pub const DEFAULTS: &str = r#"
 "Ctrl+q [" = "waiting.prev"
 "Ctrl+q N" = "session.next"
 "Ctrl+q P" = "session.prev"
+"Ctrl+q }" = "workspace.next"
+"Ctrl+q {" = "workspace.prev"
 "Mod+p" = "session.pick"
 "Ctrl+q ." = "console.send Ctrl+q"
 "Mod+n" = "session.new"
@@ -119,6 +121,8 @@ pub const DEFAULTS: &str = r#"
 "!" = "worktrees.toggle"
 "] w" = "waiting.next"
 "[ w" = "waiting.prev"
+"}" = "workspace.next"
+"{" = "workspace.prev"
 
 [details]
 "j" = "cursor.down"
@@ -598,6 +602,8 @@ actions! {
     WaitingPrev => "waiting.prev",
     SessionNext => "session.next",
     SessionPrev => "session.prev",
+    WorkspaceNext => "workspace.next",
+    WorkspacePrev => "workspace.prev",
     SessionPick => "session.pick",
     SessionNew => "session.new",
     SessionScratch => "session.scratch",
@@ -1239,6 +1245,36 @@ mod tests {
         assert_eq!(
             Chord::pressed("n", false, true, false, true),
             Some("Cmd+Alt+n".into())
+        );
+    }
+
+    #[test]
+    fn another_workspace_is_a_key_away_from_every_area() {
+        let map = Keymap::defaults();
+        for ctx in [
+            Context::Tree,
+            Context::Details,
+            Context::Console,
+            Context::Prompt,
+        ] {
+            let areas = [ctx, Context::Global];
+            assert_eq!(
+                step(&map, &areas, &["Ctrl+q"], "}"),
+                Step::Run(Action::WorkspaceNext)
+            );
+            assert_eq!(
+                step(&map, &areas, &["Ctrl+q"], "{"),
+                Step::Run(Action::WorkspacePrev)
+            );
+        }
+        let tree = [Context::Tree, Context::Global];
+        assert_eq!(
+            step(&map, &tree, &[], "}"),
+            Step::Run(Action::WorkspaceNext)
+        );
+        assert_eq!(
+            step(&map, &tree, &[], "{"),
+            Step::Run(Action::WorkspacePrev)
         );
     }
 

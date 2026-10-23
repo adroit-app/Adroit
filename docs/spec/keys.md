@@ -203,6 +203,7 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 | `cursor.reveal` | in the details panel, show the selected file of the overview in the Finder |
 | `waiting.next`, `waiting.prev` | open the next or previous session waiting on you |
 | `session.next`, `session.prev` | open the session after or before the one shown, in the tree's order over every session, folded away or filtered out too, going round at the ends; the keys stay in the area they are in |
+| `workspace.next`, `workspace.prev` | open a session of the workspace after or before the one shown, in the tree's order over every workspace holding a session, folded away or filtered out too, going round at the ends: the session last shown there since the window opened, or else its first; the keys stay in the area they are in |
 | `session.pick` | open the picker, to go to a session or choose where a new one works ([details](workspaces.md#going-to-a-session-or-starting-one)) |
 | `session.new` | start a session, with the prompt ready to write its first message: in the selected row's worktree or directory from the tree, in the one the focused window shows from elsewhere |
 | `session.scratch` | start a scratch session, with the prompt ready: one that runs in a new directory of its own, for talking about something no project holds ([details](workspaces.md#scratch-sessions)) |
@@ -298,6 +299,8 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 "Ctrl+q [" = "waiting.prev"
 "Ctrl+q N" = "session.next"
 "Ctrl+q P" = "session.prev"
+"Ctrl+q }" = "workspace.next"
+"Ctrl+q {" = "workspace.prev"
 "Mod+p" = "session.pick"
 "Ctrl+q ." = "console.send Ctrl+q"
 "Mod+n" = "session.new"
@@ -352,6 +355,8 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 "!" = "worktrees.toggle"
 "] w" = "waiting.next"
 "[ w" = "waiting.prev"
+"}" = "workspace.next"
+"{" = "workspace.prev"
 
 [details]
 "j" = "cursor.down"

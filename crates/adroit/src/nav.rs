@@ -1,7 +1,7 @@
 //! The tree as one column of items: the workspaces, each worktree's headings
 //! and what they hold, then the sessions waiting on the user.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use adroit_model::{
@@ -397,6 +397,50 @@ pub fn next_session(
         }
     };
     Some(all[i % n].1.id.clone())
+}
+
+/// A session of the workspace after (or before) the one shown, in the
+/// tree's order, passing over workspaces with no session and wrapping
+/// around: the session `last` shown there, by the workspace's root, or else
+/// its first. A tab that shows no session goes from the workspace of its
+/// worktree, `place`; with neither, the first workspace is next and the last
+/// one before.
+pub fn next_workspace(
+    tree: &Tree,
+    shown: Option<&Tab>,
+    place: Option<&Place>,
+    last: &HashMap<PathBuf, String>,
+    forward: bool,
+) -> Option<String> {
+    let all = &tree.workspaces;
+    let n = all.len();
+    let session = match shown {
+        Some(Tab::Session(id)) => tree.find(id).map(|(ws, _, _)| ws.root.clone()),
+        _ => None,
+    };
+    let at = session
+        .and_then(|root| all.iter().position(|ws| ws.root == root))
+        .or_else(|| {
+            let p = place?;
+            all.iter()
+                .position(|ws| ws.worktrees.iter().any(|w| w.worktree.path == p.worktree))
+        });
+    let order: Vec<usize> = match (at, forward) {
+        (Some(i), true) => (1..=n).map(|d| (i + d) % n).collect(),
+        (Some(i), false) => (1..=n).map(|d| (i + n - d) % n).collect(),
+        (None, true) => (0..n).collect(),
+        (None, false) => (0..n).rev().collect(),
+    };
+    let ws = order
+        .into_iter()
+        .map(|i| &all[i])
+        .find(|ws| ws.sessions().next().is_some())?;
+    let remembered = last
+        .get(&ws.root)
+        .filter(|id| ws.sessions().any(|s| &s.id == *id));
+    remembered
+        .cloned()
+        .or_else(|| ws.sessions().next().map(|s| s.id.clone()))
 }
 
 /// Where the middle of the window is: the worktree, or the directory outside
@@ -1308,6 +1352,94 @@ mod tests {
         let draft = next_session(&t, None, nowhere.as_ref(), true);
         assert_eq!(draft.as_deref(), Some("a"));
         assert_eq!(next_session(&Tree::default(), None, None, true), None);
+    }
+
+    #[test]
+    fn the_next_workspace_opens_its_first_session_and_wraps_around() {
+        let t = tree();
+        let shown = |id: &str| Some(Tab::Session(id.into()));
+        let none = HashMap::new();
+        let next = |id: &str, forward| next_workspace(&t, shown(id).as_ref(), None, &none, forward);
+        for (from, forward, to) in [
+            ("a", true, "z"),
+            ("o", true, "z"),
+            ("z", true, "c"),
+            ("c", true, "a"),
+            ("a", false, "c"),
+            ("o", false, "c"),
+            ("c", false, "z"),
+        ] {
+            assert_eq!(next(from, forward).as_deref(), Some(to), "{from} {forward}");
+        }
+    }
+
+    #[test]
+    fn the_next_workspace_opens_the_session_last_shown_there() {
+        let t = tree();
+        let shown = Some(Tab::Session("c".into()));
+        let last: HashMap<PathBuf, String> = [(PathBuf::from("/api"), "o".to_string())].into();
+        let next = next_workspace(&t, shown.as_ref(), None, &last, true);
+        assert_eq!(next.as_deref(), Some("o"));
+        // A session last shown that has gone gives way to the first.
+        let last: HashMap<PathBuf, String> = [(PathBuf::from("/api"), "gone".to_string())].into();
+        let next = next_workspace(&t, shown.as_ref(), None, &last, true);
+        assert_eq!(next.as_deref(), Some("a"));
+    }
+
+    #[test]
+    fn a_tab_without_a_session_goes_from_the_workspace_of_its_worktree() {
+        let t = tree();
+        let shell = Some(Tab::Terminal(1));
+        let none = HashMap::new();
+        let next = |path: &str, forward| {
+            next_workspace(&t, shell.as_ref(), Some(&at(path)), &none, forward)
+        };
+        assert_eq!(next(OAUTH, true).as_deref(), Some("z"));
+        assert_eq!(next("/web", true).as_deref(), Some("a"));
+        assert_eq!(next("/web", false).as_deref(), Some("z"));
+        // With nothing shown, the first workspace is next and the last before.
+        assert_eq!(
+            next_workspace(&t, None, None, &none, true).as_deref(),
+            Some("a")
+        );
+        assert_eq!(
+            next_workspace(&t, None, None, &none, false).as_deref(),
+            Some("c")
+        );
+        let nowhere = Some(at("/nowhere"));
+        let draft = next_workspace(&t, None, nowhere.as_ref(), &none, true);
+        assert_eq!(draft.as_deref(), Some("a"));
+        assert_eq!(
+            next_workspace(&Tree::default(), None, None, &none, true),
+            None
+        );
+    }
+
+    #[test]
+    fn a_workspace_with_no_session_is_passed_over() {
+        // `notes` holds only a shell.
+        let t = shelled();
+        let none = HashMap::new();
+        let shell = Some(Tab::Terminal(5));
+        let next =
+            |forward| next_workspace(&t, shell.as_ref(), Some(&at("/notes")), &none, forward);
+        assert_eq!(next(true).as_deref(), Some("z"));
+        assert_eq!(next(false).as_deref(), Some("a"));
+        let shown = Some(Tab::Session("a".into()));
+        let after = next_workspace(&t, shown.as_ref(), None, &none, true);
+        assert_eq!(after.as_deref(), Some("z"));
+    }
+
+    #[test]
+    fn with_one_workspace_the_next_is_the_session_last_shown_in_it() {
+        let t = tree();
+        let only = Tree {
+            workspaces: vec![t.workspaces[0].clone()],
+        };
+        let shown = Some(Tab::Session("b".into()));
+        let last: HashMap<PathBuf, String> = [(PathBuf::from("/api"), "b".to_string())].into();
+        let next = next_workspace(&only, shown.as_ref(), None, &last, true);
+        assert_eq!(next.as_deref(), Some("b"));
     }
 
     #[test]

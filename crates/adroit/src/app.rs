@@ -1816,6 +1816,20 @@ fn App() -> Element {
     let active = use_signal(|| None::<Tab>);
     let content = use_signal(Content::<Tab>::default);
     let middle = Middle { content, active };
+    // The session last shown in each workspace, by its root, which
+    // `workspace.next` goes back to. Kept only while the window is open.
+    let mut last_shown = use_signal(HashMap::<PathBuf, String>::new);
+    use_effect(move || {
+        let Some(Tab::Session(id)) = active() else {
+            return;
+        };
+        let Some(root) = tree.read().find(&id).map(|(ws, _, _)| ws.root.clone()) else {
+            return;
+        };
+        if last_shown.peek().get(&root) != Some(&id) {
+            last_shown.write().insert(root, id);
+        }
+    });
     let mut window_focused = use_signal(|| dioxus::desktop::window().is_focused());
     let mut completions = use_signal(Completions::default);
     use_effect(move || {
@@ -5116,6 +5130,18 @@ fn App() -> Element {
                         active.peek().as_ref(),
                         place.peek().as_ref(),
                         action == Action::SessionNext,
+                    );
+                    if let Some(id) = next {
+                        show_session(id);
+                    }
+                }
+                Action::WorkspaceNext | Action::WorkspacePrev => {
+                    let next = nav::next_workspace(
+                        &tree.peek(),
+                        active.peek().as_ref(),
+                        place.peek().as_ref(),
+                        &last_shown.peek(),
+                        action == Action::WorkspaceNext,
                     );
                     if let Some(id) = next {
                         show_session(id);

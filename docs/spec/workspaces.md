@@ -106,7 +106,8 @@ chooses the directory under the cursor. `Ctrl+f` goes back to the list and
 
 `n` on a row starts a session in that row's worktree or directory without the
 picker. `Ctrl+q N` and `Ctrl+q P` open the next and
-the previous session without asking.
+the previous session without asking, and `Ctrl+q }` and `Ctrl+q {` a session
+of the next and the previous workspace, the one last shown there.
 
 ## Scratch sessions
 
