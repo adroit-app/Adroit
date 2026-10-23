@@ -15,8 +15,9 @@ use crate::keymap::Context;
 use crate::keys_help;
 use crate::keys_help_view::KeysHelpView;
 use crate::nav::{self, Item};
-use crate::standing::{self, Standing};
+use crate::standing;
 use adroit_core::content::Tab;
+use adroit_protocol::TerminalHostStanding;
 
 /// The keys help for the areas the chrome holds it open for, with the
 /// bindings it holds.
@@ -182,16 +183,16 @@ pub(crate) fn DaemonBanner() -> Element {
 
 /// What the banner says of a daemon this window cannot work with, as
 /// `standing` has it; `None` while it can, or none answers.
-pub(crate) fn old_daemon_note(standing: &Standing) -> Option<String> {
+pub(crate) fn old_daemon_note(standing: &TerminalHostStanding) -> Option<String> {
     match standing {
-        Standing::Incompatible(Some(said)) => Some(format!(
+        TerminalHostStanding::Old { build: Some(said) } => Some(format!(
             "It runs adroit {said}, and this window adroit {}.",
             standing::build()
         )),
-        Standing::Incompatible(None) => {
+        TerminalHostStanding::Old { build: None } => {
             Some("It runs a build of adroit too old to say which.".into())
         }
-        Standing::Absent | Standing::Compatible => None,
+        TerminalHostStanding::Absent | TerminalHostStanding::Works => None,
     }
 }
 
@@ -218,9 +219,9 @@ mod tests {
 
     #[test]
     fn a_daemon_this_window_cannot_work_with_is_named_beside_this_window_s_build() {
-        let note = old_daemon_note(&Standing::Incompatible(Some(
-            "0.1.0 (v0.1.0-3-gabc)".into(),
-        )))
+        let note = old_daemon_note(&TerminalHostStanding::Old {
+            build: Some("0.1.0 (v0.1.0-3-gabc)".into()),
+        })
         .unwrap();
         assert!(note.contains("0.1.0 (v0.1.0-3-gabc)"), "{note}");
         assert!(note.contains(&standing::build()), "{note}");
@@ -228,12 +229,12 @@ mod tests {
 
     #[test]
     fn a_daemon_too_old_to_say_its_versions_is_shown_too() {
-        assert!(old_daemon_note(&Standing::Incompatible(None)).is_some());
+        assert!(old_daemon_note(&TerminalHostStanding::Old { build: None }).is_some());
     }
 
     #[test]
     fn a_daemon_this_window_can_work_with_or_none_at_all_shows_no_banner() {
-        assert_eq!(old_daemon_note(&Standing::Compatible), None);
-        assert_eq!(old_daemon_note(&Standing::Absent), None);
+        assert_eq!(old_daemon_note(&TerminalHostStanding::Works), None);
+        assert_eq!(old_daemon_note(&TerminalHostStanding::Absent), None);
     }
 }

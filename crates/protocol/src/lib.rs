@@ -4,6 +4,8 @@
 
 mod agents;
 mod ask;
+#[cfg(feature = "client")]
+pub mod client;
 mod codec;
 mod config;
 mod console;

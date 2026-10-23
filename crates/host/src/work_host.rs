@@ -6,9 +6,8 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use adroit_protocol::client::{ask_stop, hello};
 use adroit_protocol::{Hello, SPOKEN, WorkHost, judge};
-use serde::Serialize;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use crate::cli::HostCommand;
 use crate::paths::instance_state;
@@ -35,14 +34,6 @@ pub fn hello_of_ours() -> Hello {
     }
 }
 
-/// What a work host is asked to stop by. Its shape is the same in every
-/// version, so any window can replace any work host.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "op", rename_all = "snake_case")]
-enum Ask {
-    Stop,
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("{0}")]
@@ -56,9 +47,6 @@ pub enum Error {
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
-
-/// How long a work host is given to say hello.
-const HELLO: Duration = Duration::from_secs(2);
 
 /// A work host's socket, bound and answering until asked to stop.
 pub struct WorkHostServer {
@@ -116,19 +104,6 @@ impl WorkHostServer {
     }
 }
 
-/// What the work host at `socket` says: `None` where none listens, and
-/// `Some(None)` where one listens but says nothing it can be judged by.
-pub async fn hello(socket: &Path) -> Option<Option<Hello>> {
-    let stream = tokio::net::UnixStream::connect(socket).await.ok()?;
-    let said = tokio::time::timeout(HELLO, async {
-        let mut line = String::new();
-        BufReader::new(stream).read_line(&mut line).await.ok()?;
-        serde_json::from_str::<Hello>(&line).ok()
-    })
-    .await;
-    Some(said.ok().flatten())
-}
-
 /// How the work host at `socket` stands against this build.
 pub async fn standing(socket: &Path) -> WorkHost {
     let said = hello(socket).await;
@@ -139,24 +114,6 @@ pub async fn standing(socket: &Path) -> WorkHost {
 /// listening to stop. No session ends with it.
 pub async fn stop(socket: &Path) -> Result<bool> {
     Ok(adroit_term::stop_listening(socket, || async { Ok(ask_stop(socket).await?) }).await?)
-}
-
-/// Ask the work host at `socket` to stop, returning once it has taken the
-/// request.
-async fn ask_stop(socket: &Path) -> std::io::Result<()> {
-    let stream = tokio::net::UnixStream::connect(socket).await?;
-    let (read, mut write) = stream.into_split();
-    let mut asked = serde_json::to_vec(&Ask::Stop)?;
-    asked.push(b'\n');
-    write.write_all(&asked).await?;
-    let mut lines = BufReader::new(read).lines();
-    // Its hello, then its word that it stops, or its hanging up.
-    while lines
-        .next_line()
-        .await?
-        .is_some_and(|line| !line.contains("stopping"))
-    {}
-    Ok(())
 }
 
 /// Start `program` with `args` apart from adroit as the work host at
@@ -300,6 +257,8 @@ mod tests {
     use adroit_protocol::{
         Answer, Ask, Change, Event, PromptChange, Request, Seq, Version, WorkPatch, decode, encode,
     };
+
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
     use super::*;
 

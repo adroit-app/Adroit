@@ -67,10 +67,12 @@ and keep running when it closes.
   `$XDG_STATE_HOME/adroit/felis/daemon.sock` for the default instance and
   `$XDG_STATE_HOME/adroit/instances/<name>/felis/daemon.sock` for another
   (`$XDG_STATE_HOME` being `~/.local/state` when unset).
-- The work host, `adroit host`, lets sessions start and message sessions
-  ([sessions that start sessions](delegation.md)) and judges how each session
-  it started stands. It listens on `$ADROIT_HOST`, or `host/host.sock` in the
-  same state folder as the terminal host's `felis` folder.
+- The work host, `adroit host`, holds the work: it starts and lists every
+  session and shell, reads what the window shows of them, lets sessions start
+  and message sessions ([sessions that start sessions](delegation.md)) and
+  judges how each session it started stands. It listens on `$ADROIT_HOST`, or
+  `host/host.sock` in the same state folder as the terminal host's `felis`
+  folder.
 
 The folder of either socket has to be yours and open to no one else: adroit
 makes it so when it makes the folder, and refuses one already there that is
@@ -81,10 +83,13 @@ works with a host whenever they share one, whichever build of adroit either
 is. A version changes only when what the protocol sends changes shape, so an
 update of adroit that leaves the protocols alone asks nothing of the user.
 
-The window starts the hosts of its instance when none answers. A work host the
-window cannot work with, or one of another build, it replaces without asking;
-nothing ends with it, and a session's tools that ask while it is being
-replaced wait for the new one. A terminal host the window cannot work with,
+The window starts the work host of its instance when none answers, and the
+work host starts the terminal host. A work host the window cannot work with,
+or one of another build, the window replaces without asking; nothing ends with
+it. When the work host goes, the window starts another, connects to it and
+shows the work as it holds it; a session's tools that ask meanwhile wait for
+the new one, and what the window asked of the one gone and was not answered
+fails with a word to the user. A terminal host the window cannot work with,
 including one too old to say which versions it speaks, the window never
 replaces on its own: it shows a banner offering to restart it, with the build
 the host says it is.

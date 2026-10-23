@@ -1,6 +1,8 @@
 //! Starting sessions and shells with a pane of their own, so their program
 //! starts in the theme's colours: a shell or a Neovim asked for, a session
-//! from a draft's first prompt, a conversation an agent kept continued.
+//! from a draft's first prompt, a conversation an agent kept continued. The
+//! work host starts each with its program held; the window attaches, tells
+//! it the theme's colours, and has the host let the program go.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -8,103 +10,81 @@ use std::sync::Arc;
 use adroit_core::content::{Area, Tab, TerminalAsk, file_name, fresh_name, label_from};
 use adroit_core::msg::Msg;
 use adroit_core::prompt::send::Start;
-use adroit_model::time::now_ms;
-use adroit_term::{Pane, Size, Spawn};
+use adroit_protocol::{Answer, Ask, Request, SessionStart, TerminalStart};
+use adroit_term::{Pane, Size};
 use dioxus::prelude::*;
 
 use super::tell_live;
 use crate::bridge::AppCtx;
 use crate::console::Hub;
-use crate::delegation::app::{self as delegation, Recorded};
-use crate::execution::{StartRequest, TerminalStartRequest};
 use crate::nav::Item;
-use crate::scratch::{self, Moment};
+use crate::sessions;
 use crate::shell::Ui;
-use crate::{daemon, programs, sessions};
 
 /// This program, as a session should call it to reach the window.
 pub(crate) fn adroit_program() -> PathBuf {
     std::env::current_exe().unwrap_or_else(|_| "adroit".into())
 }
 
-/// Start a session as `spawn` says, with the pane of the tab `tab_of` its id
-/// names, so that its program starts in the theme's colours.
-async fn start(
+/// Attach to the session `id`, which the host started with its program
+/// held, as `tab` shows it at `size`, so it is told the theme's colours;
+/// then have the host let the program go.
+async fn attach_held(
     app: AppCtx,
     hub: &Hub,
-    spawn: Spawn,
+    id: u128,
+    tab: Tab,
     size: Size,
-    tab_of: impl Fn(u128) -> Tab,
-    recorded: Option<Recorded>,
-) -> adroit_term::Result<u128> {
+) -> adroit_term::Result<()> {
     let palette = hub.palette.peek().clone();
     let wake = hub.wake.clone();
-    let failure_owner = recorded.clone();
-    let pane = Pane::start_prepared(
-        &hub.daemon,
-        spawn,
-        size,
-        &palette,
-        |id| {
-            let tab = tab_of(id);
-            move || {
-                let _ = wake.send(tab.clone());
-            }
-        },
-        move |id| async move {
-            match recorded {
-                Some(recorded) => recorded.attach(id).await,
-                None => Ok(()),
-            }
-        },
-    )
+    let woken = tab.clone();
+    let pane = Pane::attach(&hub.daemon, id, size, &palette, move || {
+        let _ = wake.send(woken.clone());
+    })
     .await;
-    let pane = match pane {
-        Ok(pane) => pane,
-        Err(error) => {
-            if let Some(owner) = failure_owner {
-                owner.failed().await;
-            }
-            return Err(error);
-        }
+    // The colours are told before the program goes; whatever came of the
+    // attach, it is not left waiting for a window that cannot show it.
+    let fenced = match &pane {
+        Ok(pane) => pane.fenced().await,
+        Err(_) => Ok(()),
     };
+    app.tell_host(Request::Release { id });
+    let pane = pane?;
+    fenced?;
     // A theme chosen while the session was being started passed it by.
     let now = hub.palette.peek().clone();
     if now != palette {
         pane.set_palette(&now);
     }
-    let id = pane.id();
-    hub.panes.borrow_mut().insert(tab_of(id), Arc::new(pane));
+    hub.panes.borrow_mut().insert(tab, Arc::new(pane));
     tell_live(app, hub);
-    Ok(id)
+    Ok(())
 }
 
 impl Ui {
-    /// Start the session `request` asks for at `size`, as the delegation store
-    /// records it: why it could not be prepared, or why its pane could not
-    /// start as `failed` words it.
+    /// Start the session `start` asks for, and attach to it: its id, or why
+    /// it could not start, or why its pane could not attach as `failed`
+    /// words it.
     async fn start_session(
         &self,
-        request: StartRequest,
-        size: Size,
+        start: SessionStart,
         failed: impl FnOnce(adroit_term::Error) -> String,
-    ) -> Result<u128, String> {
-        let settings = self.app.config.peek().settings.clone();
-        let (resolved, recorded) = delegation::prepare(
-            &delegation::root(),
-            &settings,
-            request,
-            None,
-            &adroit_program(),
-        )
-        .await?;
-        let mut spawn = resolved.spawn;
-        spawn.cols = size.cols;
-        spawn.rows = size.rows;
-        let tab_of = |id| Tab::Session(sessions::hex(id));
-        start(self.app, &self.hub, spawn, size, tab_of, Some(recorded))
+    ) -> Result<String, String> {
+        let size = Size::new(start.cols, start.rows);
+        let id = match self.app.ask(Ask::StartSession(Box::new(start))).await {
+            Answer::Session { id } => id,
+            Answer::Failed { text } => return Err(text),
+            answer => return Err(format!("the work host answered {answer:?}")),
+        };
+        let Some(terminal) = sessions::id_of(&id) else {
+            return Err(format!("the work host started no session it names: {id}"));
+        };
+        let tab = Tab::Session(id.clone());
+        attach_held(self.app, &self.hub, terminal, tab, size)
             .await
-            .map_err(failed)
+            .map_err(failed)?;
+        Ok(id)
     }
 
     /// Start a shell or a Neovim as asked, named apart from those in its
@@ -133,44 +113,47 @@ impl Ui {
         };
         let name = fresh_name(&base, &taken);
         let size = *self.local.console_size.peek();
-        let mut resolved = crate::execution::resolve_terminal(
-            &app.config.peek().settings,
-            TerminalStartRequest {
-                name,
-                cwd: p.worktree.clone(),
-                program: runs,
-                // Not `agent_env`: a shell or Neovim keeps the user's own editor.
-                env: daemon::terminal_env(),
-                file,
-                command: Vec::new(),
-            },
-            &programs::login_shell(),
-        );
-        resolved.spawn.cols = size.cols;
-        resolved.spawn.rows = size.rows;
+        let start = TerminalStart {
+            name,
+            cwd: p.worktree.clone(),
+            program: runs,
+            file,
+            cols: size.cols,
+            rows: size.rows,
+        };
         let hub = self.hub.clone();
         spawn(async move {
-            match start(app, &hub, resolved.spawn, size, Tab::Terminal, None).await {
-                Ok(id) => {
-                    resolved.terminal.id = id;
-                    app.dispatch(Msg::TerminalOpened(resolved.terminal));
-                    app.dispatch(Msg::Show {
-                        thing: Tab::Terminal(id),
-                        place: Some(p),
-                        how: Some(opening),
-                    });
-                    if take_keys {
-                        app.dispatch(Msg::Focus(Area::Console));
-                    }
+            let terminal = match app.ask(Ask::StartTerminal(Box::new(start))).await {
+                Answer::Terminal { terminal } => terminal,
+                Answer::Failed { text } => {
+                    app.status(Some(format!("cannot start {base}: {text}")));
+                    return;
                 }
-                Err(e) => app.status(Some(format!("cannot start {base}: {e}"))),
+                answer => {
+                    app.status(Some(format!("cannot start {base}: {answer:?}")));
+                    return;
+                }
+            };
+            let id = terminal.id;
+            if let Err(e) = attach_held(app, &hub, id, Tab::Terminal(id), size).await {
+                app.status(Some(format!("cannot start {base}: {e}")));
+                return;
+            }
+            app.dispatch(Msg::TerminalOpened(terminal));
+            app.dispatch(Msg::Show {
+                thing: Tab::Terminal(id),
+                place: Some(p),
+                how: Some(opening),
+            });
+            if take_keys {
+                app.dispatch(Msg::Focus(Area::Console));
             }
         });
     }
 
     /// Start a session from a draft with its first prompt, in the draft's
-    /// place, which a scratch draft makes only now: a draft left unsent
-    /// leaves no empty directory behind.
+    /// place, where the host makes a folder of its own for a scratch draft
+    /// only now: a draft left unsent leaves no empty directory behind.
     pub(crate) fn start_draft(&self, asked: Start) {
         let (app, ui) = (self.app, self.clone());
         spawn(async move {
@@ -186,29 +169,22 @@ impl Ui {
                 app.dispatch(Msg::PromptWent(false));
                 return;
             };
-            let scratch = app.config.peek().scratch.clone();
-            let started = match scratch::start_dir(worktree, &scratch, Moment::now()) {
-                Ok(worktree) => {
-                    let request = StartRequest {
-                        agent: taken.agent,
-                        name: name.clone(),
-                        cwd: worktree,
-                        model: options.model,
-                        permissions: options.permissions,
-                        prompt: text,
-                        images: taken.images.clone(),
-                        env: daemon::agent_env(),
-                        started_ms: now_ms(),
-                        ..Default::default()
-                    };
-                    let failed = |e| format!("cannot start {name}: {e}");
-                    ui.start_session(request, size, failed).await
-                }
-                Err(e) => Err(format!("cannot make a directory for {name}: {e}")),
+            let start = SessionStart {
+                agent: taken.agent,
+                name: name.clone(),
+                cwd: worktree.clone(),
+                draft: true,
+                model: options.model,
+                permissions: options.permissions,
+                prompt: text,
+                images: taken.images.clone(),
+                resume: None,
+                cols: size.cols,
+                rows: size.rows,
             };
-            match started {
+            let failed = |e| format!("cannot start {name}: {e}");
+            match ui.start_session(start, failed).await {
                 Ok(id) => {
-                    let id = sessions::hex(id);
                     app.dispatch(Msg::Relist);
                     app.dispatch(Msg::TreeSelect(Some(Item::Session(id.clone()))));
                     app.dispatch(Msg::Replace {
@@ -241,19 +217,19 @@ impl Ui {
             let taken: Vec<&str> = names.iter().map(String::as_str).collect();
             let name = fresh_name(&label_from(&past.title), &taken);
             app.status(Some(format!("resuming {name}…")));
-            let request = StartRequest {
+            let start = SessionStart {
                 agent: past.agent,
                 name: name.clone(),
                 cwd: past.cwd.clone(),
                 resume: Some(past.id.clone()),
-                env: daemon::agent_env(),
-                started_ms: now_ms(),
+                cols: size.cols,
+                rows: size.rows,
                 ..Default::default()
             };
-            match ui.start_session(request, size, |e| e.to_string()).await {
+            let failed = |e| format!("cannot resume {name}: {e}");
+            match ui.start_session(start, failed).await {
                 Ok(id) => {
                     app.status(None);
-                    let id = sessions::hex(id);
                     app.dispatch(Msg::Relist);
                     app.dispatch(Msg::TreeSelect(Some(Item::Session(id.clone()))));
                     app.dispatch(Msg::Show {
@@ -262,7 +238,7 @@ impl Ui {
                         how: None,
                     });
                 }
-                Err(e) => app.status(Some(format!("cannot resume {name}: {e}"))),
+                Err(e) => app.status(Some(e)),
             }
         });
     }

@@ -1,8 +1,7 @@
-//! The work host: the work it holds, how it answers a window's requests,
-//! and the link a window reaches it through.
+//! The work host: the work it holds, and how it answers a window's
+//! requests.
 
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
 
 use std::path::PathBuf;
 
@@ -484,68 +483,6 @@ fn details_in_sight(change: &DetailsChange, sight: &Sight) -> bool {
     }
 }
 
-/// How a window reaches the work host. Sending never waits: what the host
-/// says, in answer or of its own accord, arrives on the receiver the link
-/// was made with.
-pub trait HostLink {
-    fn send(&self, request: Request);
-}
-
-/// A host run in the window's own process.
-pub struct Loopback {
-    host: Arc<Mutex<Host>>,
-    events: mpsc::UnboundedSender<Event>,
-}
-
-impl Loopback {
-    pub fn new(host: Host) -> (Self, mpsc::UnboundedReceiver<Event>) {
-        let (events, received) = mpsc::unbounded_channel();
-        let link = Self {
-            host: Arc::new(Mutex::new(host)),
-            events,
-        };
-        (link, received)
-    }
-
-    /// Start reading the configuration again as it changes, in the
-    /// background.
-    pub fn watch_config(&self) {
-        crate::watch::start_config(self.watched());
-    }
-
-    /// Start reading, in the background, what the window shows: each fact
-    /// the host keeps current while it is in sight.
-    pub fn watch(&self) {
-        crate::watch::start(self.watched());
-    }
-
-    fn watched(&self) -> crate::watch::Watched {
-        let events = self.events.clone();
-        crate::watch::Watched::new(
-            self.host.clone(),
-            Arc::new(move |event| {
-                // A window that stopped listening has closed; nothing is
-                // owed it.
-                let _ = events.send(event);
-            }),
-        )
-    }
-}
-
-impl HostLink for Loopback {
-    fn send(&self, request: Request) {
-        let answer = self
-            .host
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .handle(request);
-        for event in answer {
-            // A window that stopped listening has closed; nothing is owed it.
-            let _ = self.events.send(event);
-        }
-    }
-}
-
 /// A host run without a window: `requests` in turn, the work they leave and
 /// every event they draw, for tests to read.
 pub fn scenario(work: Work, requests: impl IntoIterator<Item = Request>) -> (Work, Vec<Event>) {
@@ -694,34 +631,6 @@ mod tests {
                 ..Default::default()
             }
         );
-    }
-
-    #[test]
-    fn the_loopback_hands_the_answers_to_its_receiver_in_order() {
-        let (link, mut events) = Loopback::new(Host::default());
-        link.send(hello(&[1]));
-        link.send(Request::Snapshot);
-        let mut got = Vec::new();
-        while let Ok(event) = events.try_recv() {
-            got.push(event);
-        }
-        assert_eq!(
-            got,
-            vec![
-                Event::Welcome {
-                    version: Version(1)
-                },
-                Event::Snapshot(Box::default()),
-                Event::Snapshot(Box::default()),
-            ]
-        );
-    }
-
-    #[test]
-    fn a_closed_window_does_not_stop_the_host() {
-        let (link, events) = Loopback::new(Host::default());
-        drop(events);
-        link.send(Request::Snapshot);
     }
 
     fn watch(session: Option<&str>, worktree: Option<&str>) -> Request {

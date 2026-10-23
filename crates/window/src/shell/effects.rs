@@ -4,12 +4,13 @@
 
 use adroit_core::effect::Effect;
 use adroit_nvim::notation;
+use adroit_protocol::{Answer, Ask};
 use dioxus::prelude::*;
 
 use super::Ui;
 use crate::prompts::Op;
 use crate::viewers;
-use crate::{complete, keys, pasted};
+use crate::{complete, keys};
 
 /// Hand the view state's effects that live here to `ui`, once.
 pub(crate) fn use_effects(ui: &Ui) {
@@ -151,15 +152,16 @@ impl Ui {
                 }
             }
             Effect::KeepImage { mime, data } => {
-                let dir = pasted::dir();
-                let now = std::time::SystemTime::now();
-                pasted::prune(&dir, now);
-                match pasted::save(&dir, &mime, &data, now) {
-                    Ok(path) => {
-                        let _ = prompts.send(Op::Attach(path));
+                let (app, kept) = (self.app, self.app.ask(Ask::KeepImage { mime, data }));
+                spawn(async move {
+                    match kept.await {
+                        Answer::Kept { path } => {
+                            let _ = prompts.send(Op::Attach(path));
+                        }
+                        Answer::Failed { text } => app.notice(text),
+                        answer => app.notice(format!("the work host answered {answer:?}")),
                     }
-                    Err(e) => self.app.notice(e.to_string()),
-                }
+                });
             }
             Effect::PromptClose(to) => {
                 let _ = prompts.send(Op::Close(to));

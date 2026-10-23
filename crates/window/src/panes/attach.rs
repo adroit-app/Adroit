@@ -138,10 +138,8 @@ impl Ui {
     /// End a shell and close its windows, showing another thing of its
     /// worktree if no window is left.
     pub(crate) fn end_shell(&self, id: u128) {
-        let daemon = self.hub.daemon.clone();
-        spawn(async move {
-            let _ = daemon.end(id).await;
-        });
+        self.app
+            .tell_host(adroit_protocol::Request::EndTerminal { id });
         close_shell(self.app, &self.hub.panes, id);
     }
 

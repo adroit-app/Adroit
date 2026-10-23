@@ -19,15 +19,31 @@ use adroit_core::prompt::PromptView;
 use adroit_core::state::ViewState;
 use adroit_core::tree::TreeView;
 use adroit_core::update::step;
-use adroit_host::work::{Host, HostLink, Loopback, Work};
 use adroit_model::Key;
-use adroit_protocol::{Event, Request};
+use adroit_protocol::{Answer, Ask, Event, Request};
 use dioxus::core::{Runtime, current_scope_id};
 use dioxus::prelude::*;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::layout::{Kept as _, Layout};
+use crate::link::{Link, To};
 use crate::paths::{home, instance_state};
+
+/// How long the window waits for the work before it is first drawn, so it
+/// opens in the configuration's zoom and theme; a work host started for it
+/// takes a moment.
+const FIRST_WORK: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// How the window reaches the work host.
+trait HostLink {
+    fn send(&self, request: Request);
+}
+
+impl HostLink for Link {
+    fn send(&self, request: Request) {
+        Link::send(self, request);
+    }
+}
 
 /// What runs an effect handed to `App`.
 type Handed = Rc<dyn Fn(Effect)>;
@@ -41,9 +57,7 @@ type Performer = Rc<dyn Fn(Action, Option<Key>)>;
 #[derive(Clone, Copy)]
 pub(crate) struct AppCtx {
     view: CopyValue<ViewState>,
-    link: CopyValue<Rc<dyn HostLink>>,
-    /// The host run in-process, whose watchers start once the daemon runs.
-    loopback: CopyValue<Rc<Loopback>>,
+    link: CopyValue<Rc<Link>>,
     pub(crate) chrome: Signal<Chrome>,
     pub(crate) config: Signal<Config>,
     pub(crate) host: Signal<HostView>,
@@ -64,12 +78,13 @@ pub(crate) struct AppCtx {
 }
 
 /// The window's view state, opened once for the component that calls it,
-/// with the work host run in-process and its events fed back as messages.
+/// with the work host linked and its events fed back as messages.
 pub(crate) fn use_app() -> AppCtx {
     use_hook(|| {
-        let configured = Work::configured(adroit_host::config::read());
-        let (link, mut events) = Loopback::new(Host::new(configured));
-        let loopback = Rc::new(link);
+        let (link, mut events, first) = Link::open(work_host());
+        let link = Rc::new(link);
+        // Drawn without the work, should the host not answer in time.
+        let _ = first.recv_timeout(FIRST_WORK);
         let mut view = ViewState::default();
         let kept = std::fs::read_to_string(shown_path())
             .ok()
@@ -80,7 +95,7 @@ pub(crate) fn use_app() -> AppCtx {
         // the configuration's zoom and theme.
         let mut effects = pump(
             &mut view,
-            &*loopback,
+            &*link,
             &mut events,
             [
                 Msg::PanelsKept(Layout::load()),
@@ -93,12 +108,10 @@ pub(crate) fn use_app() -> AppCtx {
         let scratch = view.config.scratch.clone();
         effects.extend(pump(
             &mut view,
-            &*loopback,
+            &*link,
             &mut events,
             [Msg::ContentOpened { kept, scratch }],
         ));
-        loopback.watch_config();
-        let link: Rc<dyn HostLink> = loopback.clone();
         let app = AppCtx {
             chrome: Signal::new(view.chrome.clone()),
             config: Signal::new(view.config.clone()),
@@ -115,7 +128,6 @@ pub(crate) fn use_app() -> AppCtx {
             scope: current_scope_id(),
             view: CopyValue::new(view),
             link: CopyValue::new(link),
-            loopback: CopyValue::new(loopback),
         };
         provide_context(app);
         app.run(effects);
@@ -160,11 +172,9 @@ impl AppCtx {
         link.send(request);
     }
 
-    /// Start keeping read, in the background, what the window shows and
-    /// the sessions there are: once the daemon the sessions are listed from
-    /// runs, so the list does not fail while it starts.
-    pub(crate) fn watch(&self) {
-        self.loopback.read().watch();
+    /// Ask the host `ask`, and what came of it.
+    pub(crate) fn ask(&self, ask: Ask) -> impl std::future::Future<Output = Answer> + use<> {
+        self.link.read().ask(ask)
     }
 
     /// Hand the effects whose state still lives in `App` to `run`: the
@@ -341,6 +351,17 @@ pub(crate) fn open<const N: usize>(args: [String; N]) {
     });
 }
 
+/// The work host of the window's instance, started as this program serving
+/// it.
+fn work_host() -> To {
+    To {
+        socket: adroit_host::work_host::socket(),
+        program: crate::panes::adroit_program(),
+        args: adroit_host::work_host::serve_args(),
+        build: adroit_host::standing::build(),
+    }
+}
+
 /// Where the tab shown is kept for the next run of the window.
 fn shown_path() -> std::path::PathBuf {
     instance_state().join("shown")
@@ -437,15 +458,34 @@ fn run(effects: Vec<Effect>, link: &dyn HostLink, mut local: impl FnMut(Effect))
 mod tests {
     use adroit_core::host::Link;
     use adroit_core::zoom::Step;
-    use adroit_protocol::{ConfigFile, ConfigWork, FileText, SPOKEN};
+    use adroit_protocol::{ConfigFile, ConfigWork, FileText, SPOKEN, WorkSnapshot, agree};
+    use tokio::sync::mpsc::UnboundedSender;
 
     use super::*;
+
+    /// A work host holding `work`, which answers hello as one does.
+    struct Answering {
+        work: WorkSnapshot,
+        events: UnboundedSender<Event>,
+    }
+
+    impl HostLink for Answering {
+        fn send(&self, request: Request) {
+            if let Request::Hello { versions } = request {
+                let version = agree(SPOKEN, &versions).expect("a version both speak");
+                let _ = self.events.send(Event::Welcome { version });
+                let _ = self
+                    .events
+                    .send(Event::Snapshot(Box::new(self.work.clone())));
+            }
+        }
+    }
 
     /// The window as `AppCtx` runs it, without Dioxus: each message stepped,
     /// its effects run, and every event the host sends back stepped in turn.
     struct Window {
         view: ViewState,
-        link: Loopback,
+        link: Answering,
         events: UnboundedReceiver<Event>,
         drawn: Vec<Effect>,
     }
@@ -463,7 +503,14 @@ mod tests {
                 keys: None,
                 configured: None,
             };
-            let (link, events) = Loopback::new(Host::new(Work::configured(config)));
+            let (sent, events) = tokio::sync::mpsc::unbounded_channel();
+            let link = Answering {
+                work: WorkSnapshot {
+                    config,
+                    ..Default::default()
+                },
+                events: sent,
+            };
             let mut window = Self {
                 view: ViewState::default(),
                 link,
