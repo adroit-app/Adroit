@@ -35,6 +35,8 @@ pub struct Sight {
     pub past: Option<PastSight>,
     /// What the picker lists, while it is open.
     pub pick: Option<PickSight>,
+    /// The worktree in the middle, whose files `@` in the prompt offers.
+    pub place: Option<PathBuf>,
 }
 
 impl Sight {

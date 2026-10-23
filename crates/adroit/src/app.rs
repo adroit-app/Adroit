@@ -10,7 +10,6 @@ use adroit_agents::claude::commands;
 use adroit_model::Session;
 use adroit_nvim::{Embedded, Event as NvimEvent, notation};
 use adroit_term::{Key, Palette, Pane, Screen, Size, Spawn};
-use adroit_vcs::Repo;
 use dioxus::prelude::*;
 use tokio::sync::{Notify, mpsc, oneshot};
 
@@ -741,22 +740,19 @@ fn App() -> Element {
     });
 
     // What `@` in the prompt offers: the sessions, and the open worktree's
-    // files, listed when the worktree changes. The memo passes a list on only
-    // when it differs, so a session changing state resends nothing.
-    let mut files = use_signal(Vec::<String>::new);
-    use_effect(move || {
-        let p = place();
-        spawn(async move {
-            let listed = match &p {
-                Some(p) => Repo::open(&p.worktree).files().await.unwrap_or_default(),
-                None => Vec::new(),
-            };
-            // A listing that took longer than the next one is for a worktree
-            // no longer on screen.
-            if app.place() == p {
-                files.set(listed);
-            }
-        });
+    // files, as the host read them. The memo passes a list on only when it
+    // differs, so a session changing state resends nothing.
+    let files = use_memo(move || {
+        let host = app.host.read();
+        let place = place.read();
+        match (host.work.as_ref(), place.as_ref()) {
+            (Some(work), Some(p)) => work
+                .place
+                .of(&p.worktree)
+                .map(|r| r.files.clone())
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        }
     });
     let offered = use_memo(move || candidates(&tree.read(), place.read().as_ref(), &files.read()));
     use_effect(move || {
@@ -2842,7 +2838,14 @@ fn App() -> Element {
     // A workspace outside git may still be a jj repository, which the details
     // panel reads through jj.
     let outside_git = current.as_ref().is_some_and(|p| {
-        t.workspace_of(&p.worktree).is_some_and(|w| !w.git) && !Repo::open(&p.worktree).is_jj()
+        let jj = app
+            .host
+            .read()
+            .work
+            .as_ref()
+            .and_then(|w| w.place.of(&p.worktree))
+            .is_some_and(|r| r.jj);
+        t.workspace_of(&p.worktree).is_some_and(|w| !w.git) && !jj
     });
     let active_tab = active();
     let current_agent = draft_agent::for_tab(

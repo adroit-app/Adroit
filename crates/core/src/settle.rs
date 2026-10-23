@@ -165,7 +165,7 @@ fn picker_listed(state: &mut ViewState, _: &mut Vec<Effect>) {
 }
 
 /// The host keeps read what the tree, the details panel and the picker
-/// show, asked once each time it changes.
+/// show, and the worktree in the middle, asked once each time it changes.
 fn watched(state: &mut ViewState, effects: &mut Vec<Effect>) {
     let sight = sight(state);
     if state.host.watched == sight {
@@ -181,6 +181,7 @@ pub(crate) fn sight(state: &ViewState) -> Sight {
         tree: tree::sight(&state.tree),
         past: state.picker.past_sight(),
         pick: state.picker.sight(),
+        place: state.content.place.as_ref().map(|p| p.worktree.clone()),
         ..details::sight(&state.details)
     }
 }

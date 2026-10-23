@@ -23,7 +23,6 @@ use adroit_runtime::work::{Host, HostLink, Loopback};
 use dioxus::prelude::*;
 
 use crate::layout::{Kept as _, Layout};
-use crate::nav::Place;
 use crate::paths::{home, instance_state, scratch_dir};
 use crate::settings;
 
@@ -308,11 +307,6 @@ impl AppCtx {
     /// The area that has the keys now.
     pub(crate) fn focus(&self) -> Area {
         self.content.peek().focus
-    }
-
-    /// The worktree in the middle now.
-    pub(crate) fn place(&self) -> Option<Place> {
-        self.content.peek().place.clone()
     }
 }
 

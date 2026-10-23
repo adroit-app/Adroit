@@ -6,8 +6,9 @@ use std::sync::{Arc, Mutex};
 
 use adroit_model::{Session, TerminalSession};
 use adroit_protocol::{
-    Change, DetailsChange, DetailsWork, Event, PastChange, PastWork, PickChange, PickWork, Request,
-    SPOKEN, Seq, Sight, TreeChange, TreeWork, WorkPatch, WorkSnapshot, agree,
+    Change, DetailsChange, DetailsWork, Event, PastChange, PastWork, PickChange, PickWork,
+    PlaceChange, PlaceWork, Request, SPOKEN, Seq, Sight, TreeChange, TreeWork, WorkPatch,
+    WorkSnapshot, agree,
 };
 use tokio::sync::{mpsc, watch};
 
@@ -19,6 +20,7 @@ pub struct Work {
     tree: TreeWork,
     past: PastWork,
     pick: PickWork,
+    place: PlaceWork,
 }
 
 impl Work {
@@ -30,6 +32,7 @@ impl Work {
             tree: self.tree.clone(),
             past: self.past.clone(),
             pick: self.pick.clone(),
+            place: self.place.clone(),
         }
     }
 
@@ -48,6 +51,7 @@ impl Work {
             Change::Tree(change) => self.tree.apply(change),
             Change::Past(change) => self.past.apply(change),
             Change::Pick(change) => self.pick.apply(change),
+            Change::Place(change) => self.place.apply(change),
         }
     }
 }
@@ -277,6 +281,13 @@ impl Host {
             .as_ref()
             .filter(|_| sight.pick.is_none())
             .map(|_| Change::Pick(PickChange::Left));
+        let place = self
+            .work
+            .place
+            .read
+            .as_ref()
+            .filter(|r| sight.place.as_ref() != Some(&r.worktree))
+            .map(|_| Change::Place(PlaceChange::Left));
         sessions
             .chain(repositories)
             .map(Change::from)
@@ -284,6 +295,7 @@ impl Host {
             .filter(|c| !in_sight(c, sight))
             .chain(past)
             .chain(pick)
+            .chain(place)
             .collect()
     }
 }
@@ -304,6 +316,8 @@ fn in_sight(change: &Change, sight: &Sight) -> bool {
         Change::Past(PastChange::Left) => true,
         Change::Pick(PickChange::Offers { .. }) => sight.pick.is_some(),
         Change::Pick(PickChange::Left) => true,
+        Change::Place(PlaceChange::Read { read }) => sight.place.as_ref() == Some(&read.worktree),
+        Change::Place(PlaceChange::Left) => true,
     }
 }
 
@@ -529,7 +543,7 @@ mod tests {
                 .into_iter()
                 .filter_map(|c| match c {
                     Change::Details(c) => Some(c),
-                    Change::Tree(_) | Change::Past(_) | Change::Pick(_) => None,
+                    Change::Tree(_) | Change::Past(_) | Change::Pick(_) | Change::Place(_) => None,
                 })
                 .collect(),
             _ => Vec::new(),
@@ -672,7 +686,7 @@ mod tests {
             })
             .filter_map(|c| match c {
                 Change::Tree(c) => Some(c),
-                Change::Details(_) | Change::Past(_) | Change::Pick(_) => None,
+                Change::Details(_) | Change::Past(_) | Change::Pick(_) | Change::Place(_) => None,
             })
             .collect()
     }
@@ -877,6 +891,37 @@ mod tests {
             vec![Change::Pick(PickChange::Left)]
         );
         assert_eq!(host.work().snapshot().pick.offers, None);
+    }
+
+    #[test]
+    fn the_worktree_in_the_middle_is_read_while_it_is_there_and_left_as_it_goes() {
+        let mut host = Host::default();
+        let read = |worktree: &str| PlaceChange::Read {
+            read: adroit_protocol::PlaceRead {
+                worktree: worktree.into(),
+                files: vec!["a.rs".into()],
+                jj: false,
+            },
+        };
+        let middle = |worktree: Option<&str>| {
+            Request::Watch(Box::new(Sight {
+                place: worktree.map(Into::into),
+                ..Default::default()
+            }))
+        };
+        assert!(patched(host.record([read("/w")])).is_empty());
+        host.handle(middle(Some("/w")));
+        assert!(patched(host.record([read("/v")])).is_empty(), "not shown");
+        assert_eq!(
+            patched(host.record([read("/w")])),
+            vec![Change::Place(read("/w"))]
+        );
+        assert!(patched(host.handle(middle(Some("/w")))).is_empty());
+        assert_eq!(
+            patched(host.handle(middle(Some("/v")))),
+            vec![Change::Place(PlaceChange::Left)]
+        );
+        assert_eq!(host.work().snapshot().place.read, None);
     }
 
     #[test]

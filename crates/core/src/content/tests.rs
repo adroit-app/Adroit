@@ -666,3 +666,21 @@ fn the_details_describe_the_focused_window_s_worktree_and_nothing_while_nothing_
     let closed = run.send(Msg::Window(Action::TabClose));
     assert_eq!(closed.state().content.described(), None);
 }
+
+#[test]
+fn the_host_reads_the_worktree_in_the_middle_while_it_is_there() {
+    let watched = |run: &Scenario| {
+        run.effects()
+            .iter()
+            .rev()
+            .find_map(|e| match e {
+                Effect::Host(Request::Watch(sight)) => Some(sight.place.clone()),
+                _ => None,
+            })
+            .flatten()
+    };
+    let run = Scenario::new().event(listing(vec![session("a", "/r/a")], vec![]));
+    assert_eq!(watched(&run), None);
+    let run = run.send(show_session("a"));
+    assert_eq!(watched(&run), Some("/r/a".into()));
+}

@@ -37,9 +37,9 @@ mod tests {
 
     use crate::{
         Change, ConversationRead, DetailsChange, DetailsWork, Event, Listed, Offers, PastChange,
-        PastSight, PastWork, PickChange, PickSight, PickWork, RepositoryRead, RepositorySight,
-        Request, Seq, SessionRead, Sight, SystemUsage, TreeChange, TreeSight, Version, WorkPatch,
-        WorkSnapshot,
+        PastSight, PastWork, PickChange, PickSight, PickWork, PlaceChange, PlaceRead, PlaceWork,
+        RepositoryRead, RepositorySight, Request, Seq, SessionRead, Sight, SystemUsage, TreeChange,
+        TreeSight, Version, WorkPatch, WorkSnapshot,
     };
 
     fn round_trips<T>(message: T)
@@ -80,6 +80,7 @@ mod tests {
             pick: Some(PickSight {
                 listed: BTreeSet::from(["/home".into()]),
             }),
+            place: Some("/w".into()),
         })));
         round_trips(Request::Relist);
         round_trips(Request::Typed {
@@ -110,6 +111,7 @@ mod tests {
             tree: Default::default(),
             past: Default::default(),
             pick: Default::default(),
+            place: Default::default(),
         })));
         round_trips(Event::Snapshot(Box::new(WorkSnapshot {
             seq: Seq(7),
@@ -141,6 +143,9 @@ mod tests {
             },
             pick: PickWork {
                 offers: Some(Offers::default()),
+            },
+            place: PlaceWork {
+                read: Some(PlaceRead::default()),
             },
         })));
         round_trips(Event::Patch(WorkPatch {
@@ -254,6 +259,14 @@ mod tests {
                     },
                 }),
                 Change::Pick(PickChange::Left),
+                Change::Place(PlaceChange::Read {
+                    read: PlaceRead {
+                        worktree: "/w".into(),
+                        files: vec!["src/a.rs".into()],
+                        jj: true,
+                    },
+                }),
+                Change::Place(PlaceChange::Left),
             ],
         }));
     }
