@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use adroit_agents::claude::{commands, places};
-use adroit_model::{InboxItem, Kind, Session, State, TerminalProgram, TerminalSession, Tree};
+use adroit_model::{Kind, Session, State, TerminalProgram, TerminalSession, Tree};
 use adroit_nvim::{Embedded, Event as NvimEvent, notation};
 use adroit_term::{Key, Palette, Pane, Screen, Size, Spawn};
 use adroit_vcs::{Repo, ghq};
@@ -20,6 +20,7 @@ use crate::bridge::{AppCtx, use_app};
 use crate::bundled_font::{faces, use_bundled_font};
 use crate::complete::{self, candidates};
 use crate::completion::Completions;
+use crate::components::{SessionMark, TerminalMark, glyph, runs_of, session_mark};
 use crate::console::{Composer, ConsoleScreen, Hub, Panes, ReaderScreen, mode_of};
 use crate::console_keys::direct_key;
 use crate::console_read;
@@ -30,7 +31,6 @@ use crate::draft_agent;
 use crate::editor;
 use crate::file_icons;
 use crate::filer::{Filer, read_dirs};
-use crate::files;
 use crate::focus::{Area, Dir, Shown, Spot, corner, cycled, moved, settled};
 use crate::icons::{Icon, IconView};
 use crate::image_window;
@@ -56,16 +56,13 @@ use crate::sessions;
 use crate::settings;
 use crate::settings_window;
 use crate::shell::{
-    self,
-    header::Header,
-    overlays::KeysHelp,
-    panels::Splitter,
-    status_bar::StatusBar,
+    self, header::Header, overlays::KeysHelp, panels::Splitter, status_bar::StatusBar,
 };
 use crate::standing::{self, Standing};
 use crate::style::{CSS, CellHeight, DEFAULT_CELL_HEIGHT};
 use crate::tabs::{self, Tab, fresh_name, label_from, named, shows_prompt};
 use crate::themes;
+use crate::tree::{RowContext, RowEvents, TreePanel};
 use crate::view::Keys;
 use crate::viewers;
 use crate::window_socket::{Request, Response, ask, bind, serve, socket_path};
@@ -431,15 +428,6 @@ fn app_key(key: &Key) -> bool {
     key.meta || Chord::held_mod(key)
 }
 
-fn row_badge(tree: &Tree, item: &Item) -> Option<&'static str> {
-    match item {
-        Item::Session(id) | Item::Waiting(id) => {
-            nav::find(tree, id).map(|(_, s)| agents::adapter(s.agent).label())
-        }
-        _ => None,
-    }
-}
-
 /// A border between windows being dragged: where the pointer was pressed,
 /// along the border's axis, and how long the split it divides is drawn.
 #[derive(Clone)]
@@ -543,7 +531,7 @@ fn WindowStrip(strip: Strip) -> Element {
     rsx! {
         div { class: if shell { "win-bar shell" } else { "win-bar" },
             match strip.mark {
-                StripMark::Terminal(runs) => rsx! { Terminal { runs } },
+                StripMark::Terminal(runs) => rsx! { TerminalMark { runs } },
                 StripMark::File(glyph, colour) => rsx! { span { class: "nf", style: "{colour}", "aria-hidden": "true", "{glyph}" } },
                 _ => rsx! { span { class: "{g}", title: "{tip}", IconView { icon, size: 13 } } },
             }
@@ -559,43 +547,6 @@ fn WindowStrip(strip: Strip) -> Element {
             }
         }
     }
-}
-
-/// What a sidebar row is, told when the pointer rests on it.
-fn row_tip(item: &Item) -> &'static str {
-    match item {
-        Item::Workspace(_) => {
-            "A workspace: a git repository or a directory sessions run in. Enter folds it; n starts a session there"
-        }
-        Item::Worktree(_) => {
-            "A worktree: a checkout of the repository, on a branch of its own. Enter or l unfolds it while folded, else opens its session; n starts a session in it, s a shell"
-        }
-        Item::Session(_) | Item::Waiting(_) => {
-            "A session. Enter opens it, or unfolds the sessions it started while they are folded"
-        }
-        Item::Terminal(_) => {
-            "A terminal adroit runs. Enter shows it; closing its tab leaves it running"
-        }
-        Item::Heading(..) => "What runs in the worktree, of one kind. Enter folds it",
-        Item::File { dir: true, .. } => {
-            "A directory of the worktree. Enter or l unfolds it, h folds it"
-        }
-        Item::File { .. } => "A file of the worktree",
-    }
-}
-
-/// A state's mark: its class, its icon, and the word told when the pointer
-/// is over it.
-fn glyph(state: &State) -> (&'static str, Icon, &'static str) {
-    let (class, icon) = match state {
-        State::Waiting(_) => ("state-glyph wait", Icon::Bell),
-        State::Starting => ("state-glyph idle", Icon::Circle),
-        State::Working => ("state-glyph run", Icon::Loader),
-        State::Idle => ("state-glyph idle", Icon::Circle),
-        State::Done => ("state-glyph done", Icon::Check),
-        State::Failed => ("state-glyph fail", Icon::AlertTriangle),
-    };
-    (class, icon, state.word())
 }
 
 /// Start writing in the prompt, whatever mode it was left in: a draft asks
@@ -692,18 +643,6 @@ fn file_name(path: &Path) -> String {
     path.file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| short(path))
-}
-
-/// Whether `shown` shows the file at `path`: in its viewer, or in the Neovim
-/// started on it.
-fn shows_file(shown: Option<&Tab>, terminals: &[TerminalSession], path: &Path) -> bool {
-    match shown {
-        Some(Tab::Viewer(p)) => p == path,
-        Some(Tab::Terminal(id)) => terminals
-            .iter()
-            .any(|t| t.id == *id && t.file.as_deref() == Some(path)),
-        _ => false,
-    }
 }
 
 /// What `thing` is called in a tab and on its windows.
@@ -920,47 +859,6 @@ async fn pane_for(hub: &Hub, tab: &Tab, size: Size) -> Option<Arc<Pane>> {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     None
-}
-
-/// The action that shows `sheet`.
-fn session_mark(reads_only: bool) -> Option<(Icon, &'static str)> {
-    reads_only.then_some((Icon::Book, "only reads"))
-}
-
-/// The session's read-only mark, shared by rows and tabs.
-#[component]
-fn SessionMark(mark: Option<(Icon, &'static str)>) -> Element {
-    rsx! {
-        if let Some((icon, title)) = mark {
-            span { class: "reads-only-mark", title,
-                IconView { icon, size: 13 }
-            }
-        }
-    }
-}
-
-/// What the shell `id` runs; a shell when it is not among `terminals`.
-fn runs_of(terminals: &[TerminalSession], id: u128) -> TerminalProgram {
-    terminals
-        .iter()
-        .find(|s| s.id == id)
-        .map(|s| s.program)
-        .unwrap_or_default()
-}
-
-/// The mark of a shell's row or tab, by what it runs.
-#[component]
-fn Terminal(runs: TerminalProgram) -> Element {
-    let (icon, title) = match runs {
-        TerminalProgram::Shell => (Icon::Terminal2, "shell"),
-        TerminalProgram::Neovim => (Icon::Code, "Neovim"),
-        TerminalProgram::Command => (Icon::Terminal, "program"),
-    };
-    rsx! {
-        span { class: "shell-mark", title,
-            IconView { icon }
-        }
-    }
 }
 
 #[component]
@@ -1925,7 +1823,7 @@ fn App() -> Element {
     });
 
     // The filter's field, which takes the keys while it is typed into.
-    let mut filter_field = use_signal(|| None::<Rc<MountedData>>);
+    let filter_field = use_signal(|| None::<Rc<MountedData>>);
     let focus_filter = move |on: bool| {
         if let Some(field) = filter_field.peek().clone() {
             spawn(async move {
@@ -4471,10 +4369,6 @@ fn App() -> Element {
     // Whether what has the keys takes text, which an input method may compose.
     let passing = direct();
     let session_shown = matches!(active_tab, Some(Tab::Session(_)));
-    let shown_id = match &active_tab {
-        Some(Tab::Session(id)) => Some(id.clone()),
-        _ => None,
-    };
     let in_dialog = session_shown && dialog();
     let answering = match &active_tab {
         Some(Tab::Session(id)) => {
@@ -4521,17 +4415,6 @@ fn App() -> Element {
         Area::Sidebar => ("TREE".into(), "normal"),
         Area::Details => ("DETAILS".into(), "normal"),
     };
-    let items_now = app.tree.read().rows.clone();
-    let filter_text = app.tree.read().filter.clone();
-    let file_marks = app
-        .host
-        .read()
-        .work
-        .as_ref()
-        .map(|w| w.tree.marks.clone())
-        .unwrap_or_default();
-    let sel = selected();
-    let inbox_now: Vec<InboxItem> = app.tree.read().narrowed_waiting.clone();
     // What the window says about its keys, from the bindings in force.
     let km = keymap.read().clone();
     let k_moves = km.keys_for_all(
@@ -4943,326 +4826,45 @@ fn App() -> Element {
                     }
                     shell::panels::pointer_released(app);
                 },
-                div { class: if area == Area::Sidebar { "app-panel sidebar focused" } else { "app-panel sidebar" },
-                    hidden: !layout().show_sidebar,
-                    style: "width:{app.chrome.read().panels.drawn().0}px",
-                    onmousedown: move |_| focus.set(Area::Sidebar),
-                    div { class: "sidebar-bar",
-                        div {
-                            class: if app.tree.read().filtering { "filter-field on" } else { "filter-field" },
-                            title: "Narrow the list by name; Enter keeps it, Esc clears it",
-                            // A click goes on with what it holds, where `/` starts afresh.
-                            onclick: move |_| focus_filter(true),
-                            span { class: "filter-field-funnel", IconView { icon: Icon::Filter, size: 13 } }
-                            input {
-                                class: "filter-field-input",
-                                placeholder: "Filter",
-                                value: "{filter_text}",
-                                autocomplete: "off",
-                                spellcheck: "false",
-                                "autocorrect": "off",
-                                "autocapitalize": "off",
-                                onmounted: move |e: MountedEvent| filter_field.set(Some(e.data())),
-                                onfocus: move |_| {
-                                    focus.set(Area::Sidebar);
-                                    app.dispatch(Msg::TreeFiltering(true));
-                                },
-                                onblur: move |_| app.dispatch(Msg::TreeFiltering(false)),
-                                oninput: move |e: Event<FormData>| app.dispatch(Msg::TreeFilter(e.value())),
-                                onkeydown: move |e: Event<KeyboardData>| {
-                                    match keys::of_field(&e).map(|k| k.key) .as_deref() {
-                                        Some("Enter") => focus_filter(false),
-                                        Some("Escape") => {
-                                            app.dispatch(Msg::TreeFilter(String::new()));
-                                            focus_filter(false);
-                                        }
-                                        _ => {}
-                                    }
-                                },
-                            }
-                }
-                        span { class: "sidebar-tools",
-                            button {
-                                class: if app.tree.read().every_worktree { "sidebar-tool on" } else { "sidebar-tool" },
-                                "aria-pressed": app.tree.read().every_worktree,
-                                title: if app.tree.read().every_worktree { "List only the worktrees with sessions" } else { "List every worktree, those without sessions too" },
-                                onclick: {
-                                    let mut run = run_button.clone();
-                                    move |_| run(Action::WorktreesToggle)
-                                },
-                                IconView { icon: Icon::ListTree }
-                            }
-                            span {
-                                class: "sidebar-tool",
-                                title: "Start a session: choose where it works",
-                                onclick: move |_| open_picker(),
-                                IconView { icon: Icon::Plus }
-                            }
+                TreePanel {
+                    focused: area == Area::Sidebar,
+                    context: RowContext {
+                        content: content.into(),
+                        completions: completions.into(),
+                        drafted: drafted.into(),
+                        renaming,
+                    },
+                    on: RowEvents {
+                        onopen: EventHandler::new(move |item| {
+                            let mut open = open;
+                            open(item, Some(Opening::Existing));
+                        }),
+                        onmenu: EventHandler::new(move |(x, y, target)| menu.set(Some((x, y, target)))),
+                        onstart: {
+                            let run = run_menu.clone();
+                            EventHandler::new(move |item| {
+                                let mut run = run.clone();
+                                run(Target::Row(item), Action::SessionNew);
+                            })
+                        },
+                        onrename: EventHandler::new(move |(id, place)| begin_rename(id, place)),
+                        onrenamed: {
+                            let send = send_rename.clone();
+                            EventHandler::new(send)
+                        },
+                    },
+                    field: filter_field,
+                    waiting_keys: (k_waiting_prev.clone(), k_waiting_next.clone()),
+                    ontaken: move |_| focus.set(Area::Sidebar),
+                    onfilter: focus_filter,
+                    onworktrees: {
+                        let run = run_button.clone();
+                        move |_| {
+                            let mut run = run.clone();
+                            run(Action::WorktreesToggle);
                         }
-                    }
-                    div { class: "list-rows", style: "flex:1",
-                        if t.workspaces.is_empty() {
-                            div { class: "list-row dim", "No sessions yet" }
-                        }
-                        for item in items_now.iter().filter(|i| !matches!(i, Item::Waiting(_))) {
-                            {
-                                let it = item.clone();
-                                let is_sel = sel.as_ref() == Some(&it);
-                                let mut open = open;
-                                let mark = match &it {
-                                    Item::Session(id) => nav::find(&t, id).and_then(|(_, s)| session_mark(s.reads_only())),
-                                    _ => None,
-                                };
-                                let (class, text, meta, glyph_class) = match &it {
-                                    Item::Workspace(root) => {
-                                        let name = t
-                                            .workspace_of(root)
-                                            .map(|w| w.name.clone())
-                                            .unwrap_or_else(|| short(root));
-                                        ("list-row head", name, String::new(), None)
-                                    }
-                                    Item::Worktree(path) => {
-                                        let node = t
-                                            .worktrees()
-                                            .find(|w| &w.worktree.path == path);
-                                        let label = node
-                                            .and_then(|w| w.worktree.branch.clone())
-                                            .or_else(|| path.file_name().map(|f| f.to_string_lossy().into_owned()))
-                                            .unwrap_or_else(|| short(path));
-                                        let empty = node.is_none_or(|w| w.sessions.is_empty() && w.terminals.is_empty());
-                                        (if empty { "list-row dim mono vacant" } else { "list-row dim mono" }, label, String::new(), None)
-                                    }
-                                    Item::Heading(path, heading) => {
-                                        let view = app.tree.read();
-                                        let shown = &view.narrowed;
-                                        let count = shown
-                                            .worktrees()
-                                            .find(|w| &w.worktree.path == path)
-                                            .map_or(0, |w| nav::under(shown, w, *heading).len());
-                                        let count = if count > 0 { count.to_string() } else { String::new() };
-                                        ("list-row group", heading.name().to_string(), count, None)
-                                    }
-                                    Item::Session(id) => {
-                                        let s = nav::find(&t, id).map(|(_, s)| s.clone());
-                                        let elsewhere = s.as_ref().and_then(|s| nav::runs_at(&t, s)).unwrap_or_default();
-                                        (
-                                            "list-row",
-                                            s.as_ref().map(|s| s.name.clone()).unwrap_or_else(|| id.clone()),
-                                            elsewhere,
-                                            s.map(|s| glyph(completions.read().state(&s))),
-                                        )
-                                    }
-                                    Item::Terminal(id) => {
-                                        let name = t.terminal(*id).map(|(_, _, s)| s.name.clone()).unwrap_or_default();
-                                        ("list-row", name, String::new(), None)
-                                    }
-                                    Item::File { worktree, path, dir } => {
-                                        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                                        let marks = &file_marks;
-                                        // Hidden or ignored files stand back, as fern draws them.
-                                        let back = files::is_hidden(path) || marks.get(worktree).is_some_and(|m| m.ignores(path));
-                                        let class = match (*dir, back) {
-                                            (true, true) => "list-row file dir back",
-                                            (true, false) => "list-row file dir",
-                                            (false, true) => "list-row file back",
-                                            (false, false) => "list-row file",
-                                        };
-                                        (class, if *dir { format!("{name}/") } else { name }, String::new(), None)
-                                    }
-                                    Item::Waiting(_) => ("list-row", String::new(), String::new(), None),
-                                };
-                                // The rows are of the narrowed tree, where a
-                                // workspace can be flat that is not in full.
-                                let indent = 14 * nav::depth(&app.tree.read().narrowed, &it);
-                                // The tabs of the content that show it.
-                                let chips = match &it {
-                                    Item::Session(id) => content_now.tabs_showing(&Tab::Session(id.clone())),
-                                    Item::Terminal(id) => content_now.tabs_showing(&Tab::Terminal(*id)),
-                                    // A file stands in its viewer's tabs and its Neovim's.
-                                    Item::File { path, dir: false, .. } => {
-                                        let mut at = content_now.tabs_showing(&Tab::Viewer(path.clone()));
-                                        for t in terminals.read().iter().filter(|t| t.file.as_ref() == Some(path)) {
-                                            at.extend(content_now.tabs_showing(&Tab::Terminal(t.id)));
-                                        }
-                                        at.sort_unstable();
-                                        at.dedup();
-                                        at
-                                    }
-                                    _ => Vec::new(),
-                                }
-                                .iter()
-                                .map(usize::to_string)
-                                .collect::<Vec<_>>()
-                                .join(" ");
-                                let row_title = row_tip(&it).to_owned();
-                                let (file_glyph, file_mark) = match &it {
-                                    Item::File { worktree, path, dir } => {
-                                        let kind = if *dir {
-                                            file_icons::Kind::Directory { open: app.tree.read().folds.is_open(&it) }
-                                        } else {
-                                            file_icons::Kind::File
-                                        };
-                                        let icon = file_icons::find(path, kind);
-                                        let colour = icon.colour.map(|c| format!("color:{}", c.css())).unwrap_or_default();
-                                        let mark = file_marks.get(worktree).and_then(|m| m.of(path, *dir));
-                                        (Some((icon.glyph, colour)), mark)
-                                    }
-                                    _ => (None, None),
-                                };
-                                let terminal = match &it {
-                                    Item::Terminal(id) => Some(runs_of(&terminals.read(), *id)),
-                                    _ => None,
-                                };
-                                let place_icon = match &it {
-                                    Item::Workspace(root) if t.workspace_of(root).is_some_and(|w| w.scratch) => Some(Icon::Notes),
-                                    Item::Workspace(_) if !app.tree.read().folds.is_open(&it) => Some(Icon::Folder),
-                                    Item::Workspace(_) => Some(Icon::FolderOpen),
-                                    Item::Worktree(_) => Some(Icon::GitBranch),
-                                    Item::Heading(..) if app.tree.read().folds.is_open(&it) => Some(Icon::ChevronDown),
-                                    Item::Heading(..) => Some(Icon::ChevronRight),
-                                    _ => None,
-                                };
-                                let class = if is_sel { format!("{class} selected") } else { class.to_string() };
-                                // What the console shows stands out wherever the selection is.
-                                let class = match &it {
-                                    Item::Session(id) if shown_id.as_deref() == Some(id.as_str()) => format!("{class} shown"),
-                                    Item::Terminal(id) if active_tab == Some(Tab::Terminal(*id)) => format!("{class} shown"),
-                                    Item::File { path, dir: false, .. } if shows_file(active_tab.as_ref(), &terminals.read(), path) => format!("{class} shown"),
-                                    _ => class,
-                                };
-                                let target = Target::Row(it.clone());
-                                // Where a session can start, a button starts one there.
-                                let starts = matches!(it, Item::Workspace(_) | Item::Worktree(_));
-                                let has_draft = match &it {
-                                    Item::Session(id) | Item::Waiting(id) => {
-                                        drafted.read().contains(&Tab::Session(id.clone()))
-                                    }
-                                    _ => false,
-                                };
-                                let here = target.clone();
-                                let badge = row_badge(&t, &it);
-                                let here_row = it.clone();
-                                rsx! {
-                                    div {
-                                        key: "{it:?}",
-                                        class: "{class}",
-                                        style: "padding-left:{8 + indent}px",
-                                        title: "{row_title}",
-                                        onclick: move |_| open(it.clone(), Some(Opening::Existing)),
-                                        oncontextmenu: move |e: Event<MouseData>| {
-                                            e.prevent_default();
-                                            let at = e.client_coordinates();
-                                            menu.set(Some((at.x, at.y, target.clone())));
-                                        },
-                                        if let Some((g, icon, tip)) = glyph_class {
-                                            span { class: "{g}", title: "{tip}", IconView { icon, size: 13 } }
-                                        }
-                                        if let Some(icon) = place_icon {
-                                            span { class: "place-mark", IconView { icon } }
-                                        }
-                                        if let Some((glyph, colour)) = &file_glyph {
-                                            span { class: "nf", style: "{colour}", "aria-hidden": "true", "{glyph}" }
-                                        }
-                                        if let Some(runs) = terminal { Terminal { runs } }
-                                        span { class: "list-row-name",
-                                            if let Item::Session(id) = &here_row {
-                                                SessionName {
-                                                    id: id.clone(), name: text.clone(), place: RenamePlace::Sidebar, editing: renaming,
-                                                    onstart: move |(id, place)| begin_rename(id, place),
-                                                    onfinish: { let send = send_rename.clone(); move |r| send(r) },
-                                                }
-                                            } else { "{text}" }
-                                        }
-                                        SessionMark { mark }
-                                        if has_draft {
-                                            span { class: "draft-mark", title: "Something is written for it in the prompt", "✎" }
-                                        }
-                                        span { class: "list-row-meta", "{meta}" }
-                                        if !chips.is_empty() {
-                                            span { class: "tab-where", title: "The tabs showing it", "{chips}" }
-                                        }
-                                        if let Some(mark) = file_mark {
-                                            span { class: if mark == 'A' { "file-status added" } else { "file-status" }, "{mark}" }
-                                        }
-                                        if let Some(label) = badge {
-                                            span { class: "agent-badge", title: "Session agent", "{label}" }
-                                        }
-                                        if starts {
-                                            span {
-                                                class: "list-row-start",
-                                                title: "Start a session here",
-                                                onclick: {
-                                                    let mut run = run_menu.clone();
-                                                    move |e: Event<MouseData>| {
-                                                        e.stop_propagation();
-                                                        run(here.clone(), Action::SessionNew);
-                                                    }
-                                                },
-                                                IconView { icon: Icon::Plus, size: 13 }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if !inbox_now.is_empty() {
-                        div { class: "sidebar-divider" }
-                        div { class: "sidebar-title",
-                            span { "Waiting on you" }
-                            span { class: "kbd-list",
-                                if let Some(k) = k_waiting_prev.clone() { Keys { keys: k } }
-                                if let Some(k) = k_waiting_next.clone() { Keys { keys: k } }
-                            }
-                        }
-                        div { class: "list-rows sidebar-inbox",
-                            for it in inbox_now.iter() {
-                                {
-                                    let item = Item::Waiting(it.session.id.clone());
-                                    let is_sel = sel.as_ref() == Some(&item);
-                                    let shown = shown_id.as_deref() == Some(it.session.id.as_str());
-                                    let sub = format!(
-                                        "{} · {}",
-                                        it.workspace,
-                                        it.wait
-                                    );
-                                    let mut open = open;
-                                    let target = Target::Row(item.clone());
-                                    let badge = row_badge(&t, &item);
-                                    rsx! {
-                                        div {
-                                            key: "w-{it.session.id}",
-                                            class: match (is_sel, shown) {
-                                                (true, true) => "list-row selected shown",
-                                                (true, false) => "list-row selected",
-                                                (false, true) => "list-row shown",
-                                                (false, false) => "list-row",
-                                            },
-                                            onclick: move |_| open(item.clone(), Some(Opening::Existing)),
-                                            oncontextmenu: move |e: Event<MouseData>| {
-                                                e.prevent_default();
-                                                let at = e.client_coordinates();
-                                                menu.set(Some((at.x, at.y, target.clone())));
-                                            },
-                                            span { class: "state-glyph wait", title: "waiting", style: "margin-top:2px",
-                                                IconView { icon: Icon::Bell, size: 13 }
-                                            }
-                                            div { class: "sidebar-inbox-text",
-                                                span { class: "list-row-name",
-                                                    "{it.session.name}"
-                                                    SessionMark { mark: session_mark(it.session.reads_only()) }
-                                                }
-                                                span { class: "sidebar-inbox-sub", "{sub}" }
-                                            }
-                                            if let Some(label) = badge {
-                                                span { class: "agent-badge", title: "Session agent", "{label}" }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    },
+                    onpick: move |_| open_picker(),
                 }
                 if layout().show_sidebar {
                     Splitter { side: Side::Sidebar }
@@ -5310,7 +4912,7 @@ fn App() -> Element {
                                         if let Some((g, icon, tip)) = glyph_class {
                                             span { class: "{g}", title: "{tip}", IconView { icon, size: 13 } }
                                         }
-                                        if let Some(runs) = shell { Terminal { runs } }
+                                        if let Some(runs) = shell { TerminalMark { runs } }
                                         if matches!(tab, Tab::Draft { .. }) { span { class: "place-mark", IconView { icon: Icon::MessagePlus, size: 13 } } }
                                         if let (Tab::Session(id), true) = (&tab, is_active) {
                                             SessionName {
@@ -5653,30 +5255,7 @@ fn DraftLaunchOptions(
 
 #[cfg(test)]
 mod tests {
-    use adroit_model::build;
-
     use super::*;
-    use crate::shell::status_bar::mode_tip;
-
-    #[test]
-    fn a_file_is_shown_by_its_viewer_or_by_the_neovim_started_on_it() {
-        let nvim = TerminalSession {
-            id: 7,
-            program: TerminalProgram::Neovim,
-            file: Some("/w/a.rs".into()),
-            ..Default::default()
-        };
-        let terminals = [nvim];
-        let path = Path::new("/w/a.rs");
-        assert!(shows_file(Some(&Tab::Terminal(7)), &terminals, path));
-        assert!(!shows_file(Some(&Tab::Terminal(8)), &terminals, path));
-        assert!(shows_file(
-            Some(&Tab::Viewer("/w/b.png".into())),
-            &terminals,
-            Path::new("/w/b.png")
-        ));
-        assert!(!shows_file(None, &terminals, path));
-    }
 
     #[test]
     fn the_details_describe_the_focused_window_s_worktree_and_nothing_while_nothing_is_open() {
@@ -5713,12 +5292,6 @@ mod tests {
     fn restarting_the_daemon_is_asked_as_a_loss_as_killing_a_process_is() {
         assert!(Ask::RestartDaemon.destroys());
         assert!(!Ask::Stop(Session::default()).destroys());
-    }
-
-    #[test]
-    fn sessions_and_drafts_that_only_read_are_marked() {
-        assert_eq!(session_mark(true), Some((Icon::Book, "only reads")));
-        assert_eq!(session_mark(false), None);
     }
 
     #[test]
@@ -5765,32 +5338,6 @@ mod tests {
             }
             assert!(!shows_usage(Some(&Tab::Terminal(1)), agent));
             assert!(!shows_usage(None, agent));
-        }
-    }
-
-    #[test]
-    fn sidebar_session_badges_identify_the_agent_even_when_names_match() {
-        use adroit_model::Agent;
-
-        let sessions = [Agent::Claude, Agent::Codex].map(|agent| Session {
-            id: agent.key().into(),
-            agent,
-            name: "Review".into(),
-            cwd: "/project".into(),
-            ..Session::default()
-        });
-        let tree = build(&sessions, &[], &HashMap::new(), &[], None);
-        for (id, label) in [("claude", "Claude Code"), ("codex", "Codex")] {
-            assert_eq!(row_badge(&tree, &Item::Session(id.into())), Some(label));
-            assert_eq!(row_badge(&tree, &Item::Waiting(id.into())), Some(label));
-        }
-        for item in [
-            Item::Workspace("/project".into()),
-            Item::Worktree("/project".into()),
-            Item::Terminal(1),
-            Item::Session("missing".into()),
-        ] {
-            assert_eq!(row_badge(&tree, &item), None);
         }
     }
 
@@ -5895,17 +5442,6 @@ mod tests {
         assert_eq!(with_card, 600.0 - 120.0 - CONSOLE_GAP);
         assert_eq!(without, 600.0 - SCREEN_TOP);
         assert!(without > with_card + 120.0);
-    }
-
-    #[test]
-    fn tips_that_hold_for_any_agent_name_the_session_rather_than_claude_code() {
-        for tip in [
-            mode_tip("DIRECT", false),
-            row_tip(&Item::Session("s1".into())),
-            row_tip(&Item::Waiting("s1".into())),
-        ] {
-            assert!(!tip.contains("Claude"), "{tip}");
-        }
     }
 
     #[test]

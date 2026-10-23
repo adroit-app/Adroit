@@ -55,6 +55,7 @@ mod settings_window;
 mod shell;
 use adroit_runtime::standing;
 mod style;
+mod tree;
 pub use adroit_core::tabs;
 pub use adroit_runtime::terminals;
 pub use adroit_runtime::themes;
