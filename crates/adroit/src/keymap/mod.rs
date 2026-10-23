@@ -5,194 +5,12 @@ use std::str::FromStr;
 
 use adroit_term::Key;
 
+mod chord;
+
+pub use chord::*;
+
 /// The bindings adroit ships, in the format of the user's file.
-pub const DEFAULTS: &str = r#"
-[global]
-"Ctrl+q h" = "window.left"
-"Ctrl+q ArrowLeft" = "window.left"
-"Ctrl+q j" = "window.down"
-"Ctrl+q ArrowDown" = "window.down"
-"Ctrl+q k" = "window.up"
-"Ctrl+q ArrowUp" = "window.up"
-"Ctrl+q l" = "window.right"
-"Ctrl+q ArrowRight" = "window.right"
-"Ctrl+q w" = "window.next"
-"Ctrl+q Ctrl+q" = "window.next"
-"Ctrl+q W" = "window.prev"
-"Ctrl+q t" = "window.top"
-"Ctrl+q b" = "window.bottom"
-"Ctrl+q p" = "window.back"
-"Ctrl+q v" = "window.vsplit"
-"Ctrl+q s" = "window.split"
-"Ctrl+q n" = "window.new"
-"Ctrl+q c" = "window.quit"
-"Ctrl+q q" = "window.quit"
-"Ctrl+q o" = "window.only"
-"Ctrl+q H" = "window.move_left"
-"Ctrl+q J" = "window.move_down"
-"Ctrl+q K" = "window.move_up"
-"Ctrl+q L" = "window.move_right"
-"Ctrl+q x" = "window.exchange"
-"Ctrl+q r" = "window.rotate"
-"Ctrl+q =" = "window.equalize"
-"Ctrl+q <" = "window.narrower"
-"Ctrl+q >" = "window.wider"
-"Ctrl+q Plus" = "window.taller"
-"Ctrl+q -" = "window.shorter"
-"Ctrl+q _" = "window.maximize_height"
-"Ctrl+q |" = "window.maximize_width"
-"Ctrl+q T" = "window.to_tab"
-"Ctrl+q Tab" = "tab.next"
-"Ctrl+q Shift+Tab" = "tab.prev"
-"Ctrl+q 1" = "tab.go 1"
-"Ctrl+q 2" = "tab.go 2"
-"Ctrl+q 3" = "tab.go 3"
-"Ctrl+q 4" = "tab.go 4"
-"Ctrl+q 5" = "tab.go 5"
-"Ctrl+q 6" = "tab.go 6"
-"Ctrl+q 7" = "tab.go 7"
-"Ctrl+q 8" = "tab.go 8"
-"Ctrl+q 9" = "tab.go 9"
-"Ctrl+q g Tab" = "tab.last"
-"Mod+]" = "tab.next"
-"Mod+[" = "tab.prev"
-"Mod+w" = "tab.close"
-"Cmd+W" = "window.close"
-"Mod+1" = "details.overview"
-"Mod+2" = "details.changes"
-"Mod+3" = "details.log"
-"Ctrl+q ]" = "waiting.next"
-"Ctrl+q [" = "waiting.prev"
-"Ctrl+q N" = "session.next"
-"Ctrl+q P" = "session.prev"
-"Mod+p" = "session.pick"
-"Ctrl+q ." = "console.send Ctrl+q"
-"Mod+n" = "session.new"
-"Mod+s" = "shell.open"
-"Mod+e" = "neovim.open"
-"Mod+t" = "session.take_over"
-"Mod+Backspace" = "session.stop"
-"Mod+f" = "filter"
-"Mod+r" = "refresh"
-"Mod+," = "settings.open"
-"Mod+=" = "zoom.in"
-"Mod+Plus" = "zoom.in"
-"Mod+-" = "zoom.out"
-"Mod+0" = "zoom.reset"
-"Mod+b" = "tree.toggle"
-"Mod+d" = "details.toggle"
-
-[draft]
-"Ctrl+g a" = "session.agent_next"
-"Ctrl+g A" = "session.agent_prev"
-
-[tree]
-"j" = "cursor.down"
-"ArrowDown" = "cursor.down"
-"k" = "cursor.up"
-"ArrowUp" = "cursor.up"
-"g g" = "cursor.first"
-"G" = "cursor.last"
-"Enter" = "cursor.go"
-"o" = "cursor.open"
-"l" = "cursor.open"
-"s" = "cursor.split"
-"v" = "cursor.vsplit"
-"t" = "cursor.tab"
-"L" = "cursor.show"
-"Shift+Enter" = "cursor.show"
-"Ctrl+Enter" = "cursor.show"
-"h" = "cursor.fold"
-"n" = "session.new"
-"$" = "shell.open"
-"e" = "neovim.open"
-"T" = "session.take_over"
-"x" = "cursor.close"
-"X" = "session.stop"
-"R" = "session.rename"
-"y" = "cursor.copy"
-"i" = "prompt.write"
-"a" = "prompt.write"
-"r" = "refresh"
-"/" = "filter"
-"w" = "session.pick"
-"!" = "worktrees.toggle"
-"] w" = "waiting.next"
-"[ w" = "waiting.prev"
-
-[details]
-"j" = "cursor.down"
-"ArrowDown" = "cursor.down"
-"k" = "cursor.up"
-"ArrowUp" = "cursor.up"
-"g g" = "cursor.first"
-"G" = "cursor.last"
-"Escape" = "cursor.fold"
-"y" = "cursor.copy"
-"Backspace" = "cursor.fold"
-"Ctrl+d" = "scroll.half_down"
-"Ctrl+u" = "scroll.half_up"
-
-[console]
-"Enter" = "console.send"
-"ArrowUp" = "prompt.history_prev"
-"ArrowDown" = "prompt.history_next"
-"ArrowLeft" = "console.send"
-"ArrowRight" = "console.send"
-"Tab" = "console.send"
-"Shift+Tab" = "console.send"
-"F2" = "console.send"
-"Ctrl+l" = "console.send"
-"Ctrl+p" = "prompt.history_prev"
-"Ctrl+n" = "prompt.history_next"
-"Ctrl+o" = "console.send"
-"Ctrl+t" = "console.send"
-"Ctrl+_" = "console.send"
-"Ctrl+-" = "console.send Ctrl+_"
-"Ctrl+c" = "console.send Escape"
-"g Ctrl+c" = "console.send Ctrl+c"
-"Ctrl+g Ctrl+o" = "console.send_next"
-"Ctrl+g i" = "console.pass_every_key"
-"Ctrl+g Ctrl+i" = "console.pass_every_key"
-"i" = "prompt.write"
-"a" = "prompt.write"
-"I" = "prompt.write"
-"A" = "prompt.write"
-"o" = "prompt.write"
-"O" = "prompt.write"
-"T" = "session.take_over"
-"X" = "session.stop"
-
-[prompt]
-"Mod+i" = "prompt.images"
-"Tab" = "console.send"
-"Shift+Tab" = "console.send"
-"Ctrl+c" = "console.send Escape"
-"Ctrl+Enter" = "prompt.send"
-"Ctrl+p" = "prompt.history_prev"
-"Ctrl+n" = "prompt.history_next"
-
-[viewer]
-"j" = "scroll.down"
-"ArrowDown" = "scroll.down"
-"k" = "scroll.up"
-"ArrowUp" = "scroll.up"
-"Ctrl+d" = "scroll.half_down"
-"Ctrl+u" = "scroll.half_up"
-"g g" = "scroll.top"
-"G" = "scroll.bottom"
-"Plus" = "viewer.zoom_in"
-"=" = "viewer.zoom_in"
-"-" = "viewer.zoom_out"
-"0" = "viewer.zoom_fit"
-"J" = "viewer.page_next"
-"K" = "viewer.page_prev"
-"Space" = "viewer.play"
-"h" = "viewer.back"
-"l" = "viewer.forward"
-"y" = "viewer.copy_path"
-"q" = "window.quit"
-"#;
+pub const DEFAULTS: &str = include_str!("defaults.toml");
 
 /// A mistake in a file of bindings.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -206,228 +24,6 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-/// The keys that are not one character, by the names the window reports them.
-const NAMED: &[&str] = &[
-    "Enter",
-    "Escape",
-    "Tab",
-    "Backspace",
-    "Delete",
-    "Insert",
-    "Home",
-    "End",
-    "PageUp",
-    "PageDown",
-    "ArrowUp",
-    "ArrowDown",
-    "ArrowLeft",
-    "ArrowRight",
-];
-
-/// Keys that stay with the menu with Command held: copy, paste and the rest
-/// of editing, quitting, hiding and minimizing.
-pub const MENU_KEYS: &[&str] = &["c", "v", "x", "a", "z", "q", "h", "m"];
-
-fn menu_key(key: &str) -> bool {
-    MENU_KEYS.contains(&key.to_lowercase().as_str())
-}
-
-/// Whether `Mod` is Command, as on macOS, rather than Ctrl with Shift, which
-/// terminal applications elsewhere take for themselves.
-const MOD_IS_CMD: bool = cfg!(target_os = "macos");
-
-/// One key with the modifiers held for it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Chord {
-    key: String,
-    ctrl: bool,
-    alt: bool,
-    shift: bool,
-    meta: bool,
-}
-
-impl Chord {
-    pub fn parse(text: &str) -> Result<Self, Error> {
-        Self::parse_on(text, MOD_IS_CMD)
-    }
-
-    /// `text` read with `Mod` as Command, or as Ctrl with Shift unless
-    /// `mod_is_cmd`.
-    fn parse_on(text: &str, mod_is_cmd: bool) -> Result<Self, Error> {
-        let bad = || Error(format!("{text:?} is not a key"));
-        let (mods, name) = match text.rsplit_once('+') {
-            Some((mods, name)) => (mods, name),
-            None => ("", text),
-        };
-        let mut c = Chord {
-            key: String::new(),
-            ctrl: false,
-            alt: false,
-            shift: false,
-            meta: false,
-        };
-        let mut held_mod = false;
-        for m in mods.split('+').filter(|_| !mods.is_empty()) {
-            match m {
-                "Mod" if mod_is_cmd => {
-                    held_mod = true;
-                    c.meta = true;
-                }
-                "Mod" => {
-                    held_mod = true;
-                    c.ctrl = true;
-                    c.shift = true;
-                }
-                "Ctrl" => c.ctrl = true,
-                "Alt" => c.alt = true,
-                "Shift" => c.shift = true,
-                "Cmd" => c.meta = true,
-                _ => return Err(bad()),
-            }
-        }
-        c.key = match name {
-            "Space" => " ".into(),
-            "Plus" => "+".into(),
-            n if n.chars().count() == 1 => n.into(),
-            n if NAMED.contains(&n) => n.into(),
-            n if n
-                .strip_prefix('F')
-                .is_some_and(|d| d.parse::<u8>().is_ok_and(|d| (1..=12).contains(&d))) =>
-            {
-                n.into()
-            }
-            _ => return Err(bad()),
-        };
-        // A character carries its own case; Shift with a letter is its
-        // capital.
-        if c.printable() && c.shift {
-            if c.key.chars().all(char::is_alphabetic) {
-                c.key = c.key.to_uppercase();
-                c.shift = false;
-            } else if !c.ctrl {
-                // Shift with another character types a third one, written as
-                // itself: Shift and 1 is !. Held with Ctrl as well, as `Mod`
-                // is off macOS, Shift stays for the key to need.
-                return Err(bad());
-            }
-        }
-        if (c.meta || held_mod) && menu_key(&c.key) {
-            return Err(Error(format!("{text:?} stays with the menu")));
-        }
-        Ok(c)
-    }
-
-    /// A key pressed in the window, by the name it reports and its
-    /// modifiers, written as the file writes it; `None` for a modifier on
-    /// its own and for Command with a key the menu keeps.
-    pub fn pressed(key: &str, ctrl: bool, alt: bool, shift: bool, meta: bool) -> Option<String> {
-        if (meta && menu_key(key))
-            || matches!(
-                key,
-                "Control" | "Alt" | "Shift" | "Meta" | "CapsLock" | "Dead" | "Process"
-            )
-        {
-            return None;
-        }
-        let name = match key {
-            " " => "Space".to_string(),
-            "+" => "Plus".to_string(),
-            k => k.to_string(),
-        };
-        // A character carries its own case, so Shift is already in it.
-        let character = key.chars().count() == 1 && key != " ";
-        let mut text = String::new();
-        for (on, m) in [
-            (meta, "Cmd+"),
-            (ctrl, "Ctrl+"),
-            (alt, "Alt+"),
-            (shift && !character, "Shift+"),
-        ] {
-            if on {
-                text.push_str(m);
-            }
-        }
-        text.push_str(&name);
-        Chord::parse(&text).ok().map(|c| c.to_string())
-    }
-
-    /// Whether `key` is held with `Mod`.
-    pub fn held_mod(key: &Key) -> bool {
-        Self::held_mod_on(key, MOD_IS_CMD)
-    }
-
-    fn held_mod_on(key: &Key, mod_is_cmd: bool) -> bool {
-        if mod_is_cmd {
-            key.meta
-        } else {
-            key.ctrl && key.shift
-        }
-    }
-
-    fn printable(&self) -> bool {
-        self.key.chars().count() == 1 && self.key != " "
-    }
-
-    pub fn matches(&self, key: &Key) -> bool {
-        key.key == self.key
-            && key.ctrl == self.ctrl
-            && key.alt == self.alt
-            && key.meta == self.meta
-            && ((self.printable() && !self.shift) || key.shift == self.shift)
-    }
-
-    /// The key this chord stands for, as the window would report it.
-    pub fn key(&self) -> Key {
-        let shifted = self.printable() && self.key.chars().any(char::is_uppercase);
-        Key {
-            key: self.key.clone(),
-            ctrl: self.ctrl,
-            alt: self.alt,
-            shift: self.shift || shifted,
-            meta: self.meta,
-        }
-    }
-}
-
-impl fmt::Display for Chord {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (on, name) in [
-            (self.meta, "Cmd+"),
-            (self.ctrl, "Ctrl+"),
-            (self.alt, "Alt+"),
-            (self.shift, "Shift+"),
-        ] {
-            if on {
-                f.write_str(name)?;
-            }
-        }
-        match self.key.as_str() {
-            " " => f.write_str("Space"),
-            "+" => f.write_str("Plus"),
-            k => f.write_str(k),
-        }
-    }
-}
-
-fn parse_sequence(text: &str) -> Result<Vec<Chord>, Error> {
-    let chords: Vec<Chord> = text
-        .split(' ')
-        .filter(|t| !t.is_empty())
-        .map(Chord::parse)
-        .collect::<Result<_, _>>()?;
-    if chords.is_empty() {
-        return Err(Error(format!("{text:?} is not a key")));
-    }
-    Ok(chords)
-}
-
-fn show_sequence(chords: &[Chord]) -> String {
-    chords
-        .iter()
-        .map(Chord::to_string)
-        .collect::<Vec<_>>()
-        .join(" ")
-}
 
 /// The areas of the window that bindings belong to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -880,16 +476,6 @@ mod tests {
     }
 
     #[test]
-    fn a_chord_names_its_modifiers_before_its_key() {
-        let c = Chord::parse("Ctrl+Shift+Tab").unwrap();
-        assert_eq!(c.key(), Key::new("Tab").ctrl().shift());
-        assert_eq!(
-            Chord::parse("Ctrl+Alt+x").unwrap().key(),
-            Key::new("x").ctrl().alt()
-        );
-    }
-
-    #[test]
     fn the_bindings_are_listed_by_area_with_the_user_s_in_place_of_the_defaults() {
         let map = Keymap::with_user("[tree]\n\"j\" = \"none\"\n\"J\" = \"cursor.down\"\n").unwrap();
         let listed = map.listed();
@@ -898,35 +484,6 @@ mod tests {
         let areas: Vec<&str> = listed.iter().map(|(a, _, _)| *a).collect();
         let first_sidebar = areas.iter().position(|a| *a == "tree").unwrap();
         assert!(areas[..first_sidebar].iter().all(|a| *a == "global"));
-    }
-
-    #[test]
-    fn a_pressed_key_is_written_as_the_file_writes_it() {
-        let c = |k: &str, ctrl, alt, shift, meta| Chord::pressed(k, ctrl, alt, shift, meta);
-        assert_eq!(c("w", true, false, false, false), Some("Ctrl+w".into()));
-        // A character carries its case, and Shift is in it.
-        assert_eq!(c("G", false, false, true, false), Some("G".into()));
-        assert_eq!(
-            c("Tab", false, false, true, false),
-            Some("Shift+Tab".into())
-        );
-        assert_eq!(c(" ", false, false, false, false), Some("Space".into()));
-        assert_eq!(c("+", false, false, true, false), Some("Plus".into()));
-        // A modifier alone is no key yet; Command with what the menu uses
-        // stays with the menu.
-        assert_eq!(c("Control", true, false, false, false), None);
-        assert_eq!(c("j", false, false, false, true), Some("Cmd+j".into()));
-        assert_eq!(c("c", false, false, false, true), None);
-        assert_eq!(c("w", false, false, false, true), Some("Cmd+w".into()));
-    }
-
-    #[test]
-    fn every_action_is_offered_by_its_name() {
-        assert!(Action::NAMES.contains(&"cursor.down"));
-        assert!(Action::NAMES.contains(&"console.send"));
-        for n in Action::NAMES {
-            assert!(n.parse::<Action>().is_ok(), "{n}");
-        }
     }
 
     #[test]
@@ -949,22 +506,6 @@ mod tests {
             vec!["Ctrl+q h is window.left everywhere; this one wins in tree".to_string()]
         );
         assert!(map.clashes(Context::Tree, "Ctrl+w", None).is_empty());
-    }
-
-    #[test]
-    fn command_keys_the_menu_uses_cannot_be_bound() {
-        for taken in ["Cmd+c", "Cmd+v", "Cmd+q", "Cmd+Z", "Cmd+h", "Cmd+m"] {
-            assert!(Chord::parse(taken).is_err(), "{taken}");
-        }
-        for free in [
-            "Cmd+w", "Cmd+W", "Cmd+b", "Cmd+0", "Cmd+,", "Cmd+Plus", "Cmd+-",
-        ] {
-            assert!(Chord::parse(free).is_ok(), "{free}");
-        }
-        let chord = Chord::parse("Cmd+N").unwrap();
-        assert!(chord.matches(&Key::new("N").shift().meta()));
-        assert!(!chord.matches(&Key::new("N").shift()));
-        assert_eq!(chord.to_string(), "Cmd+N");
     }
 
     #[test]
@@ -1013,28 +554,6 @@ mod tests {
     }
 
     #[test]
-    fn mod_is_command_on_macos_and_ctrl_with_shift_elsewhere() {
-        let mac = |t: &str| Chord::parse_on(t, true);
-        let other = |t: &str| Chord::parse_on(t, false);
-        assert_eq!(mac("Mod+p"), mac("Cmd+p"));
-        assert_eq!(other("Mod+p").unwrap().key(), Key::new("P").ctrl().shift());
-        assert_eq!(other("Mod+p"), other("Ctrl+P"));
-        // Another character is typed with Shift held, which it then needs.
-        let bracket = other("Mod+]").unwrap();
-        assert!(bracket.matches(&Key::new("]").ctrl().shift()));
-        assert!(!bracket.matches(&Key::new("]").ctrl()));
-        assert_eq!(bracket.to_string(), "Ctrl+Shift+]");
-        assert_eq!(other("Ctrl+Shift+]"), Ok(bracket));
-        assert!(Chord::held_mod_on(&Key::new("p").meta(), true));
-        assert!(!Chord::held_mod_on(&Key::new("p").meta(), false));
-        assert!(Chord::held_mod_on(&Key::new("P").ctrl().shift(), false));
-        assert!(!Chord::held_mod_on(&Key::new("p").ctrl(), false));
-        // The menu's keys stay with it, whichever keys Mod is.
-        assert!(mac("Mod+c").is_err());
-        assert!(other("Mod+c").is_err());
-    }
-
-    #[test]
     fn the_keys_the_menu_alone_offers_now_have_no_default() {
         let map = Keymap::defaults();
         for areas in [&[Context::Tree, Context::Global][..], &[Context::Global]] {
@@ -1049,80 +568,6 @@ mod tests {
         assert_eq!(
             map.keys_for(Context::Tree, &Action::WorktreesToggle),
             Some("!".into())
-        );
-    }
-
-    #[test]
-    fn shift_with_a_character_other_than_a_letter_is_refused() {
-        // Shift and 1 types !, which is written as itself.
-        assert!(Chord::parse("Shift+1").is_err());
-        assert_eq!(Chord::parse("Shift+g").unwrap(), Chord::parse("G").unwrap());
-    }
-
-    #[test]
-    fn a_letter_s_case_is_part_of_it() {
-        assert!(Chord::parse("G").unwrap().matches(&Key::new("G").shift()));
-        assert!(!Chord::parse("G").unwrap().matches(&Key::new("g")));
-        assert!(!Chord::parse("g").unwrap().matches(&Key::new("G").shift()));
-    }
-
-    #[test]
-    fn a_named_key_needs_its_modifiers_exactly() {
-        assert!(
-            Chord::parse("Shift+Tab")
-                .unwrap()
-                .matches(&Key::new("Tab").shift())
-        );
-        assert!(
-            !Chord::parse("Tab")
-                .unwrap()
-                .matches(&Key::new("Tab").shift())
-        );
-        assert!(!Chord::parse("Ctrl+w").unwrap().matches(&Key::new("w")));
-    }
-
-    #[test]
-    fn space_and_plus_have_names_of_their_own() {
-        assert_eq!(Chord::parse("Space").unwrap().key(), Key::new(" "));
-        assert_eq!(
-            Chord::parse("Ctrl+Plus").unwrap().key(),
-            Key::new("+").ctrl()
-        );
-    }
-
-    #[test]
-    fn a_chord_that_names_nothing_is_refused() {
-        for bad in ["", "Ctrl+", "Hyper+x", "Ctrl++"] {
-            assert!(Chord::parse(bad).is_err(), "{bad:?}");
-        }
-    }
-
-    #[test]
-    fn a_chord_reads_back_as_written() {
-        for s in ["Ctrl+w", "G", "Shift+Tab", "Space", "Ctrl+Alt+x"] {
-            assert_eq!(Chord::parse(s).unwrap().to_string(), s);
-        }
-    }
-
-    #[test]
-    fn an_action_reads_from_its_name_and_back() {
-        let a: Action = "cursor.down".parse().unwrap();
-        assert_eq!(a, Action::CursorDown);
-        assert_eq!(a.to_string(), "cursor.down");
-        assert!("cursor.sideways".parse::<Action>().is_err());
-    }
-
-    #[test]
-    fn sending_a_key_names_the_key_to_send() {
-        let a: Action = "console.send Escape".parse().unwrap();
-        assert_eq!(
-            a,
-            Action::ConsoleSend(Some(Chord::parse("Escape").unwrap()))
-        );
-        assert_eq!(a.to_string(), "console.send Escape");
-        assert_eq!(
-            "console.send".parse::<Action>().unwrap(),
-            Action::ConsoleSend(None)
         );
     }
 
@@ -1934,7 +1379,7 @@ mod tests {
 
     #[test]
     fn the_specification_lists_the_bindings_adroit_ships() {
-        let spec = include_str!("../../../docs/spec/keys.md");
+        let spec = include_str!("../../../../docs/spec/keys.md");
         assert!(spec.contains(DEFAULTS.trim()));
     }
 
@@ -1943,5 +1388,35 @@ mod tests {
         // The defaults are text, so a mistake in them shows here rather than
         // as a key that silently does nothing.
         Keymap::try_defaults().unwrap();
+    }
+    #[test]
+    fn every_action_is_offered_by_its_name() {
+        assert!(Action::NAMES.contains(&"cursor.down"));
+        assert!(Action::NAMES.contains(&"console.send"));
+        for n in Action::NAMES {
+            assert!(n.parse::<Action>().is_ok(), "{n}");
+        }
+    }
+
+    #[test]
+    fn an_action_reads_from_its_name_and_back() {
+        let a: Action = "cursor.down".parse().unwrap();
+        assert_eq!(a, Action::CursorDown);
+        assert_eq!(a.to_string(), "cursor.down");
+        assert!("cursor.sideways".parse::<Action>().is_err());
+    }
+
+    #[test]
+    fn sending_a_key_names_the_key_to_send() {
+        let a: Action = "console.send Escape".parse().unwrap();
+        assert_eq!(
+            a,
+            Action::ConsoleSend(Some(Chord::parse("Escape").unwrap()))
+        );
+        assert_eq!(a.to_string(), "console.send Escape");
+        assert_eq!(
+            "console.send".parse::<Action>().unwrap(),
+            Action::ConsoleSend(None)
+        );
     }
 }
