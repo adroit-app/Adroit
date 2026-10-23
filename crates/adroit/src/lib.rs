@@ -16,6 +16,7 @@ mod details;
 pub mod editor;
 pub mod env;
 pub mod execution;
+pub mod file_icons;
 pub mod filer;
 pub mod focus;
 mod fuzzy;

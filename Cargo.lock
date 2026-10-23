@@ -24,6 +24,7 @@ dependencies = [
  "nucleo-matcher",
  "objc2",
  "objc2-app-kit",
+ "regex",
  "resvg",
  "rusqlite",
  "schemars",
