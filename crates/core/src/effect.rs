@@ -117,6 +117,9 @@ pub enum Effect {
     /// Tell the window with [`crate::msg::Msg::PullLapsed`] after this long
     /// that the request numbered `pull` lapsed.
     LapsePull { pull: u64, after: Duration },
+    /// Tell the window with [`crate::msg::Msg::ComposeLapsed`] after this long
+    /// that the host was asked to compose the prompt numbered `asked`.
+    LapseCompose { asked: u64, after: Duration },
 
     // The prompt.
     /// Put the prompt sent one before, or one after when not `back`, among

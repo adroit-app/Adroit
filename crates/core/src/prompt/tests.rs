@@ -300,7 +300,7 @@ mod sending {
 
     use super::*;
     use crate::content::Area;
-    use crate::prompt::send::Taken;
+    use crate::prompt::send::{COMPOSE_WAIT, Taken};
     use adroit_protocol::{Composed, Typing};
 
     fn listed(state: State) -> Event {
@@ -523,6 +523,41 @@ mod sending {
                 images: Vec::new(),
             }]
         );
+    }
+
+    #[test]
+    fn a_prompt_the_host_does_not_compose_in_time_is_put_back_with_a_word_why() {
+        let session = Tab::Session("a".into());
+        let taken = written(session.clone(), "fix it");
+        let silent = || {
+            Scenario::answering(|_| Vec::new())
+                .event(listed(State::Idle))
+                .send(Msg::Show {
+                    thing: session.clone(),
+                    place: None,
+                    how: None,
+                })
+                .send(Msg::PromptSend)
+                .send(Msg::PromptTaken(Box::new(taken.clone())))
+        };
+        assert!(silent().last_effects().contains(&Effect::LapseCompose {
+            asked: 1,
+            after: COMPOSE_WAIT,
+        }));
+        let lapsed = silent().send(Msg::ComposeLapsed(1));
+        assert_eq!(
+            notices(&lapsed),
+            ["The work host did not answer; your message waits here".to_string()]
+        );
+        assert!(restored(&lapsed));
+        assert_eq!(lapsed.state().prompt.sending, None);
+        // One composed in time, or asked before, lapses without a word.
+        let composed = sending(State::Idle, Tab::Session("a".into()))
+            .send(Msg::PromptTaken(Box::new(taken.clone())))
+            .send(Msg::ComposeLapsed(1));
+        assert!(composed.last_effects().is_empty());
+        let earlier = silent().send(Msg::ComposeLapsed(0));
+        assert!(earlier.last_effects().is_empty());
     }
 
     #[test]

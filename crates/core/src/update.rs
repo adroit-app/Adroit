@@ -146,7 +146,8 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         | Msg::PromptSend
         | Msg::PromptEmpty
         | Msg::PromptTaken(_)
-        | Msg::PromptWent(_)) => prompt::update(state, msg),
+        | Msg::PromptWent(_)
+        | Msg::ComposeLapsed(_)) => prompt::update(state, msg),
 
         Msg::Perform { action, key, probe } => crate::perform::perform(state, action, key, &probe),
 

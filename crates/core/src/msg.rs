@@ -301,6 +301,8 @@ pub enum Msg {
     PromptTaken(Box<Taken>),
     /// The prompt handed over to send went, or did not.
     PromptWent(bool),
+    /// The host has been asked long enough to compose the prompt numbered so.
+    ComposeLapsed(u64),
 
     // The overlays.
     /// A key while something drawn over the window holds the keys.

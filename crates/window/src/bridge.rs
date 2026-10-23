@@ -291,6 +291,13 @@ impl AppCtx {
                     app.dispatch(Msg::PullLapsed(pull));
                 });
             }
+            Effect::LapseCompose { asked, after } => {
+                let app = *self;
+                spawn(async move {
+                    tokio::time::sleep(after).await;
+                    app.dispatch(Msg::ComposeLapsed(asked));
+                });
+            }
             Effect::KeepLayout(layout) => layout.save(),
             Effect::ScrollKeysHelp(lines) => crate::keys_help_view::scroll(lines),
             Effect::LapseNotice {

@@ -35,7 +35,8 @@ prompt to what the focused window shows next.
 
 Text taken from Claude Code's input goes to the session it was taken for, even
 when another window is focused by the time it arrives. A message that cannot
-be sent goes back to its session.
+be sent goes back to its session. So does one the work host does not answer
+for within a few seconds, with a word why.
 
 While the focused window's session waits on an answer, the prompt's keys and text are
 that answer, sent to the session; what the prompt holds stays for after.

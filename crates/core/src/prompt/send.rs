@@ -3,6 +3,7 @@
 //! where it was written for, and put back when it could not be sent.
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use adroit_model::Agent;
 use adroit_protocol::{Request, Typing};
@@ -14,6 +15,9 @@ use crate::msg::Msg;
 use crate::state::ViewState;
 use crate::tree::{self, nav};
 use crate::update::step;
+
+/// How long the host is given to compose a prompt before it is put back.
+pub const COMPOSE_WAIT: Duration = Duration::from_secs(5);
 
 /// A prompt on its way.
 #[derive(Debug, Clone, PartialEq)]
@@ -90,7 +94,13 @@ pub(crate) fn taken(state: &mut ViewState, taken: Taken) -> Vec<Effect> {
         images: taken.images.clone(),
     };
     state.prompt.sending = Some(Sending::Composing { asked, taken });
-    vec![Effect::Host(request)]
+    vec![
+        Effect::Host(request),
+        Effect::LapseCompose {
+            asked,
+            after: COMPOSE_WAIT,
+        },
+    ]
 }
 
 /// The host composed the prompt on its way: it goes where it was written
@@ -122,6 +132,22 @@ pub(crate) fn composed(state: &mut ViewState) -> Vec<Effect> {
             ..taken
         },
     )
+}
+
+/// The host has not composed the prompt numbered `asked`, if it is still on
+/// its way: it is put back, with a word why.
+pub(crate) fn lapsed(state: &mut ViewState, asked: u64) -> Vec<Effect> {
+    match state.prompt.sending.take() {
+        Some(Sending::Composing { asked: was, taken }) if was == asked => refuse(
+            state,
+            "The work host did not answer; your message waits here",
+            taken,
+        ),
+        sending => {
+            state.prompt.sending = sending;
+            Vec::new()
+        }
+    }
 }
 
 /// `notice` said, and `taken` put back.
