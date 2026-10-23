@@ -2,7 +2,7 @@
 //! window shows it, kept by the session or worktree it was read for, and
 //! the changes that bring a window's copy up to date.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -12,7 +12,7 @@ use adroit_model::usage::Limit;
 use adroit_model::{Agent, ConversationStats, Note, Process};
 use serde::{Deserialize, Serialize};
 
-use crate::{PastSight, TreeSight};
+use crate::{PastSight, PickSight, TreeSight};
 
 /// What a window shows that the host keeps read while it is shown. The host
 /// reads nothing for a window that shows nothing.
@@ -33,6 +33,17 @@ pub struct Sight {
     pub tree: TreeSight,
     /// The conversations the agents kept that are listed, while they are.
     pub past: Option<PastSight>,
+    /// What the picker lists, while it is open.
+    pub pick: Option<PickSight>,
+}
+
+impl Sight {
+    /// Every directory whose entries are listed, for the tree or the
+    /// picker.
+    pub fn listed_dirs(&self) -> BTreeSet<PathBuf> {
+        let picked = self.pick.iter().flat_map(|p| p.listed.iter());
+        self.tree.listed.iter().chain(picked).cloned().collect()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

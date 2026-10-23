@@ -16,6 +16,7 @@ mod context;
 mod conversation;
 mod entries;
 mod marks;
+mod offers;
 mod past;
 mod processes;
 mod repository;
@@ -149,6 +150,7 @@ pub fn start(watched: Watched) {
     tokio::spawn(sessions::watch(watched.clone()));
     tokio::spawn(marks::watch(watched.clone()));
     tokio::spawn(past::watch(watched.clone()));
+    tokio::spawn(offers::watch(watched.clone()));
     tokio::spawn(entries::watch(watched.clone()));
     tokio::spawn(repository::watch(watched.clone()));
     tokio::spawn(conversation::watch(watched.clone()));

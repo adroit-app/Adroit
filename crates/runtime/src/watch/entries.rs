@@ -1,4 +1,4 @@
-//! What each directory the tree lists holds, read again every two seconds
+//! What each directory the tree or the picker lists holds, read again every two seconds
 //! so files made or removed meanwhile show.
 
 use std::fs;
@@ -12,7 +12,7 @@ use super::Watched;
 
 pub(super) async fn watch(mut watched: Watched) {
     loop {
-        let dirs = watched.sight().tree.listed;
+        let dirs = watched.sight().listed_dirs();
         let read = tokio::task::spawn_blocking(move || {
             dirs.into_iter()
                 .map(|dir| {
@@ -26,7 +26,7 @@ pub(super) async fn watch(mut watched: Watched) {
             watched.record(read);
         }
         watched
-            .wait(Duration::from_secs(2), |s| s.sight.tree.listed.clone())
+            .wait(Duration::from_secs(2), |s| s.sight.listed_dirs())
             .await;
     }
 }

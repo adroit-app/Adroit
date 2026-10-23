@@ -36,9 +36,10 @@ mod tests {
     };
 
     use crate::{
-        Change, ConversationRead, DetailsChange, DetailsWork, Event, Listed, PastChange, PastSight,
-        PastWork, RepositoryRead, RepositorySight, Request, Seq, SessionRead, Sight, SystemUsage,
-        TreeChange, TreeSight, Version, WorkPatch, WorkSnapshot,
+        Change, ConversationRead, DetailsChange, DetailsWork, Event, Listed, Offers, PastChange,
+        PastSight, PastWork, PickChange, PickSight, PickWork, RepositoryRead, RepositorySight,
+        Request, Seq, SessionRead, Sight, SystemUsage, TreeChange, TreeSight, Version, WorkPatch,
+        WorkSnapshot,
     };
 
     fn round_trips<T>(message: T)
@@ -76,6 +77,9 @@ mod tests {
             past: Some(PastSight {
                 dir: Some("/w".into()),
             }),
+            pick: Some(PickSight {
+                listed: BTreeSet::from(["/home".into()]),
+            }),
         })));
         round_trips(Request::Relist);
         round_trips(Request::Typed {
@@ -105,6 +109,7 @@ mod tests {
             details: DetailsWork::default(),
             tree: Default::default(),
             past: Default::default(),
+            pick: Default::default(),
         })));
         round_trips(Event::Snapshot(Box::new(WorkSnapshot {
             seq: Seq(7),
@@ -133,6 +138,9 @@ mod tests {
                         at_ms: 1,
                     }],
                 )),
+            },
+            pick: PickWork {
+                offers: Some(Offers::default()),
             },
         })));
         round_trips(Event::Patch(WorkPatch {
@@ -237,6 +245,15 @@ mod tests {
                     conversations: Vec::new(),
                 }),
                 Change::Past(PastChange::Left),
+                Change::Pick(PickChange::Offers {
+                    offers: Offers {
+                        recent: vec!["/w".into()],
+                        ghq: vec!["/g/r".into()],
+                        listed: vec!["/l/a".into()],
+                        roots: vec!["/g".into(), "/l".into()],
+                    },
+                }),
+                Change::Pick(PickChange::Left),
             ],
         }));
     }

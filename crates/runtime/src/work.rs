@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex};
 
 use adroit_model::{Session, TerminalSession};
 use adroit_protocol::{
-    Change, DetailsChange, DetailsWork, Event, PastChange, PastWork, Request, SPOKEN, Seq, Sight,
-    TreeChange, TreeWork, WorkPatch, WorkSnapshot, agree,
+    Change, DetailsChange, DetailsWork, Event, PastChange, PastWork, PickChange, PickWork, Request,
+    SPOKEN, Seq, Sight, TreeChange, TreeWork, WorkPatch, WorkSnapshot, agree,
 };
 use tokio::sync::{mpsc, watch};
 
@@ -18,6 +18,7 @@ pub struct Work {
     details: DetailsWork,
     tree: TreeWork,
     past: PastWork,
+    pick: PickWork,
 }
 
 impl Work {
@@ -28,6 +29,7 @@ impl Work {
             details: self.details.clone(),
             tree: self.tree.clone(),
             past: self.past.clone(),
+            pick: self.pick.clone(),
         }
     }
 
@@ -45,6 +47,7 @@ impl Work {
             Change::Details(change) => self.details.apply(change),
             Change::Tree(change) => self.tree.apply(change),
             Change::Past(change) => self.past.apply(change),
+            Change::Pick(change) => self.pick.apply(change),
         }
     }
 }
@@ -267,12 +270,20 @@ impl Host {
             .as_ref()
             .filter(|(of, _)| sight.past.as_ref() != Some(of))
             .map(|_| Change::Past(PastChange::Left));
+        let pick = self
+            .work
+            .pick
+            .offers
+            .as_ref()
+            .filter(|_| sight.pick.is_none())
+            .map(|_| Change::Pick(PickChange::Left));
         sessions
             .chain(repositories)
             .map(Change::from)
             .chain(marks.chain(entries).map(Change::from))
             .filter(|c| !in_sight(c, sight))
             .chain(past)
+            .chain(pick)
             .collect()
     }
 }
@@ -287,10 +298,12 @@ fn in_sight(change: &Change, sight: &Sight) -> bool {
             sight.tree.marked.contains(worktree)
         }
         Change::Tree(TreeChange::Entries { dir, .. } | TreeChange::EntriesLeft { dir }) => {
-            sight.tree.listed.contains(dir)
+            sight.listed_dirs().contains(dir)
         }
         Change::Past(PastChange::Listed { sight: of, .. }) => sight.past.as_ref() == Some(of),
         Change::Past(PastChange::Left) => true,
+        Change::Pick(PickChange::Offers { .. }) => sight.pick.is_some(),
+        Change::Pick(PickChange::Left) => true,
     }
 }
 
@@ -377,8 +390,8 @@ mod tests {
     use adroit_model::repository::{Listing, Spot};
     use adroit_model::{Agent, Past, Session};
     use adroit_protocol::{
-        Event, PastChange, PastSight, PastWork, RepositoryRead, RepositorySight, Request, SPOKEN,
-        Seq, Version, WorkSnapshot,
+        Event, Offers, PastChange, PastSight, PastWork, PickSight, RepositoryRead, RepositorySight,
+        Request, SPOKEN, Seq, Version, WorkSnapshot,
     };
 
     use super::*;
@@ -516,7 +529,7 @@ mod tests {
                 .into_iter()
                 .filter_map(|c| match c {
                     Change::Details(c) => Some(c),
-                    Change::Tree(_) | Change::Past(_) => None,
+                    Change::Tree(_) | Change::Past(_) | Change::Pick(_) => None,
                 })
                 .collect(),
             _ => Vec::new(),
@@ -659,7 +672,7 @@ mod tests {
             })
             .filter_map(|c| match c {
                 Change::Tree(c) => Some(c),
-                Change::Details(_) | Change::Past(_) => None,
+                Change::Details(_) | Change::Past(_) | Change::Pick(_) => None,
             })
             .collect()
     }
@@ -820,5 +833,70 @@ mod tests {
         assert_eq!(conversation().as_deref(), Some("resumed"));
         host.handle(watch(None, None));
         assert_eq!(seen.borrow().session, None);
+    }
+
+    fn picking(listed: &[&str]) -> Request {
+        Request::Watch(Box::new(Sight {
+            pick: Some(PickSight {
+                listed: listed.iter().map(Into::into).collect(),
+            }),
+            ..Default::default()
+        }))
+    }
+
+    fn offers(recent: &str) -> PickChange {
+        PickChange::Offers {
+            offers: Offers {
+                recent: vec![recent.into()],
+                ..Default::default()
+            },
+        }
+    }
+
+    fn patched(events: impl IntoIterator<Item = Event>) -> Vec<Change> {
+        events
+            .into_iter()
+            .flat_map(|e| match e {
+                Event::Patch(patch) => patch.changes,
+                _ => Vec::new(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_picker_s_offers_reach_the_window_while_it_is_open_and_leave_as_it_closes() {
+        let mut host = Host::default();
+        assert!(patched(host.record([offers("/a")])).is_empty());
+        host.handle(picking(&[]));
+        assert_eq!(
+            patched(host.record([offers("/a")])),
+            vec![Change::Pick(offers("/a"))]
+        );
+        assert_eq!(
+            patched(host.handle(watch(None, None))),
+            vec![Change::Pick(PickChange::Left)]
+        );
+        assert_eq!(host.work().snapshot().pick.offers, None);
+    }
+
+    #[test]
+    fn the_directories_the_picker_lists_are_listed_beside_the_tree_s() {
+        let mut host = Host::default();
+        host.handle(picking(&["/home"]));
+        // (read, what the window is sent)
+        let cases = [
+            (entries("/home"), vec![entries("/home")]),
+            (entries("/w"), vec![]),
+        ];
+        for (read, want) in cases {
+            let sent = host.record([read.clone()]).into_iter().collect();
+            assert_eq!(tree_changes(sent), want, "{read:?}");
+        }
+        assert_eq!(
+            tree_changes(host.handle(watch(None, None))),
+            vec![TreeChange::EntriesLeft {
+                dir: "/home".into()
+            }]
+        );
     }
 }
