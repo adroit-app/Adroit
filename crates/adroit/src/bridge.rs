@@ -197,6 +197,8 @@ impl AppCtx {
                 let by = match scroll {
                     Scroll::Down => "17",
                     Scroll::Up => "-17",
+                    Scroll::HalfDown => "b.clientHeight / 2",
+                    Scroll::HalfUp => "-b.clientHeight / 2",
                     Scroll::Top => "-b.scrollHeight",
                     Scroll::Bottom => "b.scrollHeight",
                 };
@@ -224,7 +226,12 @@ impl AppCtx {
                     }
                 }
             }
+            Effect::OpenSettings => crate::settings_window::open(self.agents()),
+            Effect::CloseWindow => dioxus::desktop::window().close(),
             effect @ (Effect::ShowShot { .. }
+            | Effect::Viewer { .. }
+            | Effect::TakeSuggestion { .. }
+            | Effect::EndShell(_)
             | Effect::FilterFocus(_)
             | Effect::PromptOffer(_)
             | Effect::PromptRoot(_)

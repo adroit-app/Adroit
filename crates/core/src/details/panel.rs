@@ -89,6 +89,8 @@ pub enum Key {
 pub enum Scroll {
     Down,
     Up,
+    HalfDown,
+    HalfUp,
     Top,
     Bottom,
 }

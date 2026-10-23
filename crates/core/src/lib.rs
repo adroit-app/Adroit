@@ -22,6 +22,7 @@ pub mod layout;
 pub mod msg;
 pub mod overlay;
 pub mod palette;
+pub mod perform;
 pub mod picker;
 pub mod prompt;
 pub mod scenario;

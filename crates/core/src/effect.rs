@@ -10,11 +10,12 @@ use std::path::PathBuf;
 use adroit_model::{Key, Process, Session};
 
 use crate::actions::Action;
-use crate::content::{Tab, TerminalAsk};
+use crate::content::{Tab, TerminalAsk, WindowId};
 use crate::details::{Scroll, Shot};
 use crate::layout::Layout;
 use crate::overlay::rename::Rename;
 use crate::prompt::send::{Start, Taken};
+use crate::viewers::ViewerAction;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Effect {
@@ -151,6 +152,33 @@ pub enum Effect {
         text: String,
         images: Vec<PathBuf>,
     },
+
+    // The actions.
+    /// Hand this action to the viewer of the window by this id.
+    Viewer {
+        window: WindowId,
+        action: ViewerAction,
+    },
+    /// Tab pressed in the prompt as `key`: to Neovim, or to the session for
+    /// the prompt it suggests, once the window knows whether the prompt is
+    /// empty. `neovim_owns` while Neovim shows its completions or its
+    /// command line, `session` while a session's pane can take the key,
+    /// `hands_back` while that session hands its input back, `no_images`
+    /// while none is attached; `tab` is what the focused window shows.
+    TakeSuggestion {
+        key: Key,
+        neovim_owns: bool,
+        session: bool,
+        hands_back: bool,
+        no_images: bool,
+        tab: Option<Tab>,
+    },
+    /// End the shell by this id and close its windows.
+    EndShell(u128),
+    /// Open the Settings window.
+    OpenSettings,
+    /// Close the window.
+    CloseWindow,
 
     // The overlays.
     /// Run `action` where the keys are now.

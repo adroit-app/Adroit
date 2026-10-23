@@ -114,6 +114,7 @@ fn reading(normal: bool, line: usize, scrolls_itself: bool) -> Probe {
             },
         }),
         inserting: false,
+        ..Probe::default()
     }
 }
 

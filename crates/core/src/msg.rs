@@ -219,6 +219,14 @@ pub enum Msg {
     /// List every directory's conversations, or the directory's again.
     PickerEvery,
 
+    /// Run `action`, which `key` ran or a click when none, where the keys
+    /// are now, with what the window knows of its programs then.
+    Perform {
+        action: Action,
+        key: Option<Key>,
+        probe: Box<Probe>,
+    },
+
     // The console.
     /// A key pressed where no field of the window's own takes it, with what
     /// the window knows of its programs then.

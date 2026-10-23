@@ -84,6 +84,11 @@ pub struct Probe {
     pub reader: Option<ReaderAt>,
     /// The prompt's Neovim is inserting.
     pub inserting: bool,
+    /// The prompt's Neovim shows its completions or its command line,
+    /// which the keys that move through them belong to.
+    pub prompt_owns: bool,
+    /// How many rows the console's terminal has.
+    pub rows: u16,
 }
 
 /// Where the console's reader is.

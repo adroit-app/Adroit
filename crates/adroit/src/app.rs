@@ -18,8 +18,8 @@ use crate::bundled_font::{faces, use_bundled_font};
 use crate::complete;
 use crate::console::{Consoles, Hub, Panes, PromptNeovim, Reader, use_prompt_neovim, use_reader};
 use crate::content::{
-    Area, Axis, ContentPanel, Opening, Tab, TerminalAsk, WindowId, draft as draft_agent, file_name,
-    fresh_name, label_from, shows_prompt,
+    Area, Axis, ContentPanel, Tab, TerminalAsk, WindowId, file_name, fresh_name, label_from,
+    shows_prompt,
 };
 use crate::daemon;
 use crate::details::{self, Entry, Sheet, Shot, Source};
@@ -37,7 +37,7 @@ use crate::pictures::{self, Gallery};
 use crate::programs;
 use crate::prompt_tab::{PromptTab, TabGoes};
 use crate::prompts::{self, Op, Prompts};
-use crate::rename::{Place as RenamePlace, Rename};
+use crate::rename::Rename;
 use crate::scratch::{self, Moment};
 use crate::sessions;
 use crate::settings;
@@ -52,7 +52,6 @@ use crate::view::Keys;
 use crate::viewers;
 use crate::window_socket::{Request, Response, ask, bind, serve, socket_path};
 use crate::work_host;
-use crate::zoom;
 use adroit_agents as agents;
 use adroit_core::console::reader::{self, Edge};
 use adroit_core::console::route::{self, Footing, passes_enter};
@@ -62,7 +61,6 @@ use adroit_core::msg::Msg;
 use adroit_core::overlay;
 use adroit_core::overlay::confirm::Ask;
 use adroit_core::overlay::context_menu::Target;
-use adroit_core::tree as tree_view;
 
 /// The palette of the theme `settings` name, or adroit's own when it cannot
 /// be read.
@@ -473,7 +471,7 @@ fn App() -> Element {
             .unwrap_or_default()
     });
     // The latest action for a viewer, with the window whose viewer it is for.
-    let mut viewer_command = use_signal(|| None::<(WindowId, viewers::Command)>);
+    let viewer_command = use_signal(|| None::<(WindowId, viewers::Command)>);
     // The content as the view state holds it, each part read alone.
     let active = use_memo(move || app.content.read().active().cloned());
     let focus = use_memo(move || app.content.read().focus);
@@ -983,21 +981,6 @@ fn App() -> Element {
             });
         }
     };
-    // Open a row where `how` says, or as anything else opens a thing when it
-    // says nothing; `take_keys` gives the keys to what opened.
-    let open = move |item: Item, how: Option<Opening>, take_keys: bool| {
-        // Typing stops going to the filter once a row is taken; what it
-        // narrowed to stays.
-        if app.tree.peek().filtering {
-            focus_filter(false);
-        }
-        app.dispatch(Msg::OpenRow {
-            item,
-            how,
-            take_keys,
-        });
-    };
-
     // Take what is written from the prompt to send. Taken now, so what is
     // typed while it is sent stays for the next prompt; it goes to the tab
     // it was written for, though another be shown by now.
@@ -1204,17 +1187,6 @@ fn App() -> Element {
                 }
             });
         }
-    };
-
-    let choose_agent = move |tab: Option<Tab>, agent| app.dispatch(Msg::DraftAgent { tab, agent });
-
-    // A session started already keeps its own agent.
-    let switch_agent = move |forward: bool| match app.active() {
-        tab if draft_agent::can_choose(tab.as_ref()) => {
-            let now = app.agent_of(tab.as_ref());
-            choose_agent(tab, if forward { now.next() } else { now.prev() });
-        }
-        _ => app.notice("Only a session not started yet can change its agent".into()),
     };
 
     // Continue a conversation an agent kept in a new session, in the
@@ -1504,6 +1476,7 @@ fn App() -> Element {
     // What the view state asks of the panes, the prompt and the console,
     // which live here.
     use_hook({
+        let hub = hub.clone();
         let panes = hub.panes.clone();
         let ask_input = ask_input.clone();
         let take_prompt = take_prompt.clone();
@@ -1662,173 +1635,27 @@ fn App() -> Element {
                         gallery.write().store.retain(|id| sessions.contains(id));
                     }
                 }
-                _ => {}
-            })
-        }
-    });
-
-    // Run an action where the keys are now: what a binding runs, and what a
-    // click on a row's or a tab's menu runs. `key` is the key that ran it,
-    // which some actions pass on; a click has none.
-    let perform = {
-        let active_pane = active_pane.clone();
-        let hub = hub.clone();
-        move |action: Action, key: Option<Key>| {
-            let area = app.focus();
-            let pane = active_pane().filter(|_| matches!(area, Area::Console | Area::Prompt));
-            let nvim_insert = nvim
-                .peek()
-                .as_ref()
-                .is_some_and(|n| n.state().mode().starts_with("insert"));
-            let list = app.tree.peek().rows.clone();
-            let cur = app.tree.peek().selected.clone();
-            // From the sidebar an action is on the selected row; from elsewhere,
-            // on what the console shows.
-            let on_list = matches!(area, Area::Sidebar | Area::Details);
-            let scroll = |by: &str| {
-                document::eval(&format!(
-                    "const b = document.querySelector('.details-scroll'); if (b) b.scrollBy(0, {by});"
-                ));
-            };
-            // In the console, the scroll actions move its view back through
-            // what scrolled off instead.
-            let on_console = area == Area::Console && pane.is_some();
-            let half = (console_size.peek().rows / 2).max(1) as i32;
-            let mut console_scroll = |lines: i32| {
-                if let Some(p) = &pane {
-                    p.wheel(lines, 0, 0);
-                    *frame.write() += 1;
+                CoreEffect::Viewer { window, action } => {
+                    let mut viewer_command = viewer_command;
+                    let seq = viewer_command.peek().as_ref().map_or(1, |(_, c)| c.seq + 1);
+                    viewer_command.set(Some((window, viewers::Command { seq, action })));
                 }
-            };
-            let thing = app.active();
-            // The focused window's viewer takes the viewer's actions.
-            if area == Area::Console
-                && let Some(Tab::Viewer(_)) = &thing
-                && let Some(v) = viewers::ViewerAction::of(&action)
-                && let Some(w) = app.content.peek().windows.focused_window()
-            {
-                let seq = viewer_command.peek().as_ref().map_or(1, |(_, c)| c.seq + 1);
-                viewer_command.set(Some((w, viewers::Command { seq, action: v })));
-                return;
-            }
-            match action {
-                Action::None => {}
-                Action::KeysHelp => {
-                    app.dispatch(Msg::KeysHelpOpen(route::help_contexts(
-                        area,
-                        thing.as_ref(),
-                    )));
+                CoreEffect::EndShell(id) => {
+                    end_shell(&hub, id);
+                    close_shell(id, &hub.panes, app);
                 }
-                Action::ViewerZoomIn
-                | Action::ViewerZoomOut
-                | Action::ViewerZoomFit
-                | Action::ViewerPageNext
-                | Action::ViewerPagePrev
-                | Action::ViewerPlay
-                | Action::ViewerBack
-                | Action::ViewerForward
-                | Action::ViewerCopyPath => {}
-                Action::WindowLeft
-                | Action::WindowDown
-                | Action::WindowUp
-                | Action::WindowRight
-                | Action::WindowNext
-                | Action::WindowPrev
-                | Action::WindowTop
-                | Action::WindowBottom
-                | Action::WindowBack
-                | Action::WindowSplit
-                | Action::WindowVsplit
-                | Action::WindowNew
-                | Action::WindowQuit
-                | Action::WindowOnly
-                | Action::WindowMoveLeft
-                | Action::WindowMoveDown
-                | Action::WindowMoveUp
-                | Action::WindowMoveRight
-                | Action::WindowExchange
-                | Action::WindowRotate
-                | Action::WindowEqualize
-                | Action::WindowWider
-                | Action::WindowNarrower
-                | Action::WindowTaller
-                | Action::WindowShorter
-                | Action::WindowMaximizeWidth
-                | Action::WindowMaximizeHeight
-                | Action::WindowToTab
-                | Action::TabGo(_)
-                | Action::TabLast
-                | Action::TabNext
-                | Action::TabPrev
-                | Action::TabClose => app.dispatch(Msg::Window(action)),
-                // The key pressed is Neovim's while it shows its completions
-                // or its command line, as Tab is there, and while the prompt
-                // has no agent to send it to.
-                Action::ConsoleSend(None)
-                    if area == Area::Prompt
-                        && let Some(nv) = nvim.peek().clone().filter(|n| {
-                            let s = n.state();
-                            pane.is_none() || s.popup().is_some() || s.mode().starts_with("cmdline")
-                        })
-                        && let Some(n) = key.as_ref().and_then(notation) =>
-                {
-                    spawn(async move {
-                        let _ = nv.input(&n).await;
-                    });
-                }
-                Action::ConsoleSend(chord) => {
-                    if let Some(p) = &pane
-                        && let Some(k) = chord.map(|c| c.key()).or(key)
-                    {
-                        p.key(&k);
-                        // Control keys fill the input too: Up brings back an
-                        // earlier prompt, Ctrl-_ undoes a clear.
-                        app.dispatch(Msg::ConsoleTyped);
-                    }
-                }
-                Action::ConsoleSendNext => app.dispatch(Msg::ConsoleSendNext),
-                Action::ConsolePassEveryKey => {
-                    if pane.is_some() {
-                        app.dispatch(Msg::ConsolePassEveryKey);
-                    }
-                }
-                Action::PromptFocus
-                | Action::PromptWrite
-                | Action::PromptSend
-                | Action::PromptImages
-                | Action::PromptTakeSuggestion
-                | Action::HistoryPrev
-                | Action::HistoryNext
-                    if !shows_prompt(thing.as_ref()) => {}
-                Action::PromptFocus => app.dispatch(Msg::Focus(Area::Prompt)),
-                Action::PromptWrite => {
-                    app.dispatch(Msg::Focus(Area::Prompt));
-                    // The same key starts writing there, as in Vim.
-                    if !nvim_insert
-                        && let Some(n) = key.as_ref().and_then(notation)
-                        && let Some(nv) = nvim.peek().clone()
-                    {
-                        spawn(async move {
-                            let _ = nv.input(&n).await;
-                        });
-                    }
-                }
-                Action::PromptSend => app.dispatch(Msg::PromptSend),
-                Action::PromptTakeSuggestion => {
+                CoreEffect::TakeSuggestion {
+                    key,
+                    neovim_owns,
+                    session,
+                    hands_back,
+                    no_images,
+                    tab,
+                } => {
                     let Some(nv) = nvim.peek().clone() else {
                         return;
                     };
-                    let key = key.unwrap_or_else(|| Key::new("Tab"));
-                    let neovim_owns = {
-                        let s = nv.state();
-                        s.popup().is_some() || s.mode().starts_with("cmdline")
-                    };
-                    let tab = app.active();
-                    let hands_back = app.console.peek().answers
-                        && matches!(&tab, Some(Tab::Session(id))
-                            if nav::find(&tree.peek(), id).is_some_and(|(_, s)| s.adroit_editor));
-                    let no_images = !*has_images.peek();
-                    let pane = pane.clone();
+                    let pane = active_pane().filter(|_| session);
                     spawn(async move {
                         let empty = no_images && nv.text().await.is_ok_and(|t| t.trim().is_empty());
                         let goes = PromptTab {
@@ -1863,208 +1690,54 @@ fn App() -> Element {
                         }
                     });
                 }
-                Action::PromptImages => {
-                    app.dispatch(Msg::ImagesChoose);
+                _ => {}
+            })
+        }
+    });
+
+    // What the window knows of its programs now, which the view state routes
+    // a key and runs an action by.
+    let probe_now = {
+        let active_pane = active_pane.clone();
+        move || {
+            let pane = active_pane();
+            let reader = reader.peek().clone().map(|r| {
+                let screen = r.state().screen();
+                ReaderAt {
+                    normal: r.state().mode() == "normal",
+                    edge: Edge {
+                        line: reader_view.peek().0 + screen.cursor.map_or(0, |c| c.row),
+                        lines: read_rows.peek().0,
+                        page: screen.rows,
+                    },
                 }
-                Action::HistoryPrev | Action::HistoryNext => {
-                    // In the prompt the same keys choose among Neovim's
-                    // completions and its command-line history.
-                    let nv = nvim.peek().clone();
-                    if area == Area::Prompt
-                        && let Some(nv) = nv.filter(|n| {
-                            let s = n.state();
-                            s.popup().is_some() || s.mode().starts_with("cmdline")
-                        })
-                        && let Some(n) = key.as_ref().and_then(notation)
-                    {
-                        spawn(async move {
-                            let _ = nv.input(&n).await;
-                        });
-                        return;
-                    }
-                    let tab = app.active();
-                    let agent = app.agent_of(tab.as_ref());
-                    let back = action == Action::HistoryPrev;
-                    app.dispatch(Msg::Recall { back, agent });
-                    app.dispatch(Msg::Focus(Area::Prompt));
-                    consoles.start_writing();
-                }
-                Action::SessionResume => app.dispatch(Msg::ResumeOpen),
-                Action::SessionAgentNext => switch_agent(true),
-                Action::SessionAgentPrev => switch_agent(false),
-                Action::SessionStop => app.dispatch(Msg::ConfirmStop { selection: on_list }),
-                Action::SessionRename => {
-                    let chosen = match &cur {
-                        Some(Item::Session(id) | Item::Waiting(id)) if on_list => Some(id.clone()),
-                        _ => match &app.active() {
-                            Some(Tab::Session(id)) => Some(id.clone()),
-                            _ => None,
-                        },
-                    };
-                    if let Some(id) = chosen {
-                        let place = if on_list {
-                            RenamePlace::Sidebar
-                        } else {
-                            RenamePlace::Tab
-                        };
-                        app.dispatch(Msg::RenameStart { id, place });
-                    }
-                }
-                Action::ScrollDown if on_console => console_scroll(-1),
-                Action::ScrollUp if on_console => console_scroll(1),
-                Action::ScrollHalfDown if on_console => console_scroll(-half),
-                Action::ScrollHalfUp if on_console => console_scroll(half),
-                Action::ScrollTop if on_console => console_scroll(i32::MAX),
-                Action::ScrollBottom if on_console => console_scroll(i32::MIN),
-                Action::ScrollDown => scroll("17"),
-                Action::ScrollUp => scroll("-17"),
-                Action::ScrollHalfDown => scroll("b.clientHeight / 2"),
-                Action::ScrollHalfUp => scroll("-b.clientHeight / 2"),
-                Action::ScrollTop => scroll("-b.scrollHeight"),
-                Action::ScrollBottom => scroll("b.scrollHeight"),
-                Action::CursorDown
-                | Action::CursorUp
-                | Action::CursorFirst
-                | Action::CursorLast
-                | Action::CursorGo
-                | Action::CursorSplit
-                | Action::CursorVsplit
-                | Action::CursorTab
-                | Action::CursorClose
-                | Action::CursorOpen
-                | Action::CursorShow
-                | Action::CursorFold
-                | Action::CursorCopy
-                | Action::CursorReveal
-                    if area == Area::Details =>
-                {
-                    // In the details panel, the cursor moves through a list
-                    // shown and scrolls anything else.
-                    let key = match action {
-                        Action::CursorDown => Some(details::Key::Down),
-                        Action::CursorUp => Some(details::Key::Up),
-                        Action::CursorFirst => Some(details::Key::First),
-                        Action::CursorLast => Some(details::Key::Last),
-                        Action::CursorGo | Action::CursorOpen | Action::CursorShow => {
-                            Some(details::Key::Open)
-                        }
-                        Action::CursorFold => Some(details::Key::Fold),
-                        Action::CursorCopy => Some(details::Key::Copy),
-                        Action::CursorReveal => Some(details::Key::Reveal),
-                        _ => None,
-                    };
-                    if let Some(key) = key {
-                        app.dispatch(Msg::DetailsKey(key));
-                    }
-                }
-                Action::CursorDown => app.dispatch(Msg::TreeKey(tree_view::Key::Down)),
-                Action::CursorUp => app.dispatch(Msg::TreeKey(tree_view::Key::Up)),
-                Action::CursorFirst => app.dispatch(Msg::TreeKey(tree_view::Key::First)),
-                Action::CursorLast => app.dispatch(Msg::TreeKey(tree_view::Key::Last)),
-                Action::CursorGo
-                | Action::CursorOpen
-                | Action::CursorSplit
-                | Action::CursorVsplit
-                | Action::CursorTab => {
-                    if let Some(item) = cur {
-                        let how = match action {
-                            Action::CursorGo => Opening::Existing,
-                            Action::CursorSplit => Opening::Split(Axis::Column),
-                            Action::CursorVsplit => Opening::Split(Axis::Row),
-                            Action::CursorTab => Opening::Tab,
-                            _ => Opening::Here,
-                        };
-                        open(item, Some(how), true);
-                    }
-                }
-                Action::CursorShow => {
-                    if let Some(item) = cur {
-                        open(item, Some(Opening::Here), false);
-                    }
-                }
-                Action::CursorFold => app.dispatch(Msg::TreeKey(tree_view::Key::Fold)),
-                Action::CursorClose => app.dispatch(Msg::Window(action)),
-                Action::CursorCopy => {
-                    let copied = cur.as_ref().and_then(|item| {
-                        nav::copied(item, &app.tree.peek().narrowed, &terminals.peek())
-                    });
-                    let (text, what) = match copied {
-                        Some(nav::Copied::Path(p)) => (p.display().to_string(), "path"),
-                        Some(nav::Copied::Name(n)) => (n, "name"),
-                        None => return,
-                    };
-                    app.notice(match copy_to_clipboard(&text) {
-                        Ok(()) => format!("Copied the {what} {text}"),
-                        Err(e) => format!("cannot copy: {e}"),
-                    });
-                }
-                // Only the overview's files are revealed.
-                Action::CursorReveal => {}
-                Action::WaitingNext | Action::WaitingPrev => {
-                    let current = match &cur {
-                        Some(Item::Waiting(id)) | Some(Item::Session(id)) => Some(id.as_str()),
-                        _ => None,
-                    };
-                    let forward = action == Action::WaitingNext;
-                    let next = nav::next_waiting(&app.tree.peek().waiting, current, forward);
-                    if let Some(id) = next {
-                        open(Item::Waiting(id), None, false);
-                        // It waits on an answer, given in the console.
-                        app.dispatch(Msg::Focus(Area::Console));
-                    }
-                }
-                Action::SessionPick => app.dispatch(Msg::PickerOpen),
-                Action::SessionScratch => {
-                    app.dispatch(Msg::PickerClose);
-                    app.dispatch(Msg::Window(action));
-                }
-                Action::SessionNext
-                | Action::SessionPrev
-                | Action::WorkspaceNext
-                | Action::WorkspacePrev
-                | Action::SessionNew
-                | Action::ShellOpen
-                | Action::NeovimOpen => app.dispatch(Msg::Window(action)),
-                // On a shell's row, that shell closes, whichever tab is shown.
-                Action::TerminalStop
-                    if let Some(Item::Terminal(id)) = cur.as_ref().filter(|_| on_list) =>
-                {
-                    app.dispatch(Msg::TreeSelect(nav::row_above(&list, &Item::Terminal(*id))));
-                    end_shell(&hub, *id);
-                    close_shell(*id, &hub.panes, app);
-                }
-                Action::TerminalStop => {
-                    let current_tab = app.active();
-                    if let Some(Tab::Terminal(id)) = current_tab {
-                        end_shell(&hub, id);
-                        close_shell(id, &hub.panes, app);
-                    }
-                }
-                Action::Refresh => app.dispatch(Msg::Relist),
-                Action::DetailsOverview | Action::DetailsChanges | Action::DetailsLog => {
-                    let s = match action {
-                        Action::DetailsChanges => Sheet::Changes,
-                        Action::DetailsLog => Sheet::Log,
-                        _ => Sheet::Overview,
-                    };
-                    app.dispatch(Msg::DetailsSheet(s));
-                    app.dispatch(Msg::PanelShow(Side::Details));
-                }
-                Action::WorktreesToggle => app.dispatch(Msg::TreeEveryWorktree),
-                Action::SettingsOpen => settings_window::open(app.agents()),
-                Action::DaemonRestart => app.dispatch(Msg::Confirm(Box::new(Ask::RestartDaemon))),
-                Action::WindowClose => dioxus::desktop::window().close(),
-                Action::TreeToggle => toggle_panel(Side::Sidebar),
-                Action::DetailsToggle => toggle_panel(Side::Details),
-                Action::ZoomIn => app.dispatch(Msg::Zoom(zoom::Step::In)),
-                Action::ZoomOut => app.dispatch(Msg::Zoom(zoom::Step::Out)),
-                Action::ZoomReset => app.dispatch(Msg::Zoom(zoom::Step::Reset)),
-                Action::Filter => {
-                    app.dispatch(Msg::Focus(Area::Sidebar));
-                    app.dispatch(Msg::TreeFilter(String::new()));
-                    focus_filter(true);
-                }
+            });
+            let (inserting, prompt_owns) = nvim.peek().as_ref().map_or((false, false), |n| {
+                let s = n.state();
+                (
+                    s.mode().starts_with("insert"),
+                    s.popup().is_some() || s.mode().starts_with("cmdline"),
+                )
+            });
+            Probe {
+                pane: pane.is_some(),
+                scrolls_itself: pane.as_ref().is_some_and(|p| p.takes_mouse()),
+                reader,
+                inserting,
+                prompt_owns,
+                rows: console_size.peek().rows,
             }
+        }
+    };
+
+    // Run an action where the keys are now: what a binding runs, and what a
+    // click on a row's or a tab's menu runs. `key` is the key that ran it,
+    // which some actions pass on; a click has none.
+    let perform = {
+        let probe_now = probe_now.clone();
+        move |action: Action, key: Option<Key>| {
+            let probe = Box::new(probe_now());
+            app.dispatch(Msg::Perform { action, key, probe });
         }
     };
 
@@ -2074,7 +1747,7 @@ fn App() -> Element {
         let perform = RefCell::new(perform.clone());
         move || {
             app.hand_perform(move |action, key| {
-                if let Ok(mut perform) = perform.try_borrow_mut() {
+                if let Ok(perform) = perform.try_borrow_mut() {
                     perform(action, key);
                 }
             })
@@ -2082,7 +1755,7 @@ fn App() -> Element {
     });
     // Run an action from a button, where the keys are now.
     let run_button = {
-        let mut perform = perform.clone();
+        let perform = perform.clone();
         move |action: Action| perform(action, None)
     };
 
@@ -2128,7 +1801,7 @@ fn App() -> Element {
     // the keys. The entries act on this window whichever of adroit's is in
     // front, and bring it forward to show what they did.
     dioxus::desktop::use_muda_event_handler({
-        let mut perform = perform.clone();
+        let perform = perform.clone();
         let desktop = dioxus::desktop::window();
         move |event| {
             let Some(action) = menu_bar::action_of(&event.id().0) else {
@@ -2155,7 +1828,7 @@ fn App() -> Element {
     });
 
     let handle_key = {
-        let active_pane = active_pane.clone();
+        let probe_now = probe_now.clone();
         move |key: Key| {
             if key.key == "Process"
                 || key.key == "Dead"
@@ -2171,29 +1844,7 @@ fn App() -> Element {
                 return;
             }
             let area = app.focus();
-            // What the window knows of its programs, which the view state
-            // routes the key by.
-            let pane = active_pane();
-            let reader = reader.peek().clone().map(|r| {
-                let screen = r.state().screen();
-                ReaderAt {
-                    normal: r.state().mode() == "normal",
-                    edge: Edge {
-                        line: reader_view.peek().0 + screen.cursor.map_or(0, |c| c.row),
-                        lines: read_rows.peek().0,
-                        page: screen.rows,
-                    },
-                }
-            });
-            let probe = Probe {
-                pane: pane.is_some(),
-                scrolls_itself: pane.as_ref().is_some_and(|p| p.takes_mouse()),
-                reader,
-                inserting: nvim
-                    .peek()
-                    .as_ref()
-                    .is_some_and(|n| n.state().mode().starts_with("insert")),
-            };
+            let probe = probe_now();
             keys::trace(|| format!("area={area:?} {probe:?}"));
             app.dispatch(Msg::Key {
                 key,
@@ -2456,7 +2107,7 @@ fn App() -> Element {
                     onworktrees: {
                         let run = run_button.clone();
                         move |_| {
-                            let mut run = run.clone();
+                            let run = run.clone();
                             run(Action::WorktreesToggle);
                         }
                     },

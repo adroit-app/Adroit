@@ -148,6 +148,8 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         | Msg::PromptTaken(_)
         | Msg::PromptWent(_)) => prompt::update(state, msg),
 
+        Msg::Perform { action, key, probe } => crate::perform::perform(state, action, key, &probe),
+
         Msg::HeldKey(key) => overlay::press(state, key),
         Msg::MenuOpen { x, y, target } => overlay::open_menu(state, Menu { x, y, target }),
         Msg::MenuClose => overlay::close_menu(state),
