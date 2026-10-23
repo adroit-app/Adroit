@@ -12,7 +12,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 name = "adroit"
 version = "0.0.0"
 dependencies = [
- "adroit-claude",
+ "adroit-agents",
  "adroit-model",
  "adroit-nvim",
  "adroit-term",
@@ -42,12 +42,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "adroit-claude"
+name = "adroit-agents"
 version = "0.0.0"
 dependencies = [
  "adroit-model",
  "adroit-vcs",
  "libc",
+ "schemars",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",

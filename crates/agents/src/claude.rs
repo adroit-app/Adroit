@@ -7,6 +7,8 @@ use std::time::{Duration, Instant};
 use adroit_model::{ParseError, Session};
 use tokio::process::Command;
 
+mod adapter;
+pub use adapter::Claude;
 pub mod commands;
 pub mod context;
 mod control;
@@ -16,6 +18,7 @@ pub mod links;
 pub mod metrics;
 pub mod models;
 pub mod places;
+mod plugin;
 pub mod subagents;
 pub mod usage;
 
@@ -43,11 +46,7 @@ pub fn claude_program() -> String {
     std::env::var("ADROIT_CLAUDE").unwrap_or_else(|_| "claude".into())
 }
 
-/// A command that starts Claude Code: the program, its arguments and the
-/// variables set for it. What asks Claude Code something takes a way to make
-/// one from the arguments it needs, so it starts as the user has sessions
-/// start.
-pub type Started = (String, Vec<String>, Vec<(String, String)>);
+use crate::Started;
 
 /// The environment Claude Code runs in when adroit starts it: told the
 /// console draws Kitty graphics, which it would not believe of a terminal

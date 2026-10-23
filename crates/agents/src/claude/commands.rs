@@ -8,7 +8,8 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use crate::{Started, control};
+use super::control;
+use crate::Started;
 
 /// A command `/` offers.
 #[derive(Debug, Clone, PartialEq, Eq)]

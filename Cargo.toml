@@ -14,7 +14,7 @@ repository = "https://github.com/lambdalisue/adroit"
 adroit-model = { path = "crates/model", version = "0.0.0" }
 adroit-term = { path = "crates/term", version = "0.0.0" }
 adroit-nvim = { path = "crates/nvim", version = "0.0.0" }
-adroit-claude = { path = "crates/claude", version = "0.0.0" }
+adroit-agents = { path = "crates/agents", version = "0.0.0" }
 adroit-vcs = { path = "crates/vcs", version = "0.0.0" }
 
 felis-vt = { git = "https://github.com/felis-terminal/felis", rev = "6ee73ba9f3db5b0febfef89e6b1d23e102b573d4" }

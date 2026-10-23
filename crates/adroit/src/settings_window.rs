@@ -210,7 +210,7 @@ fn SettingsWindow() -> Element {
                                 class: if agent() == choice { "settings-nav-item settings-agent on" } else { "settings-nav-item settings-agent" },
                                 aria_current: if agent() == choice { "page" } else { "false" },
                                 onclick: move |_| agent.set(choice),
-                                "{crate::agents::adapter(choice).label()}"
+                                "{adroit_agents::adapter(choice).label()}"
                             }
                         }
                     }
@@ -625,7 +625,7 @@ fn agent_choices(chosen: adroit_model::Agent) -> Vec<AgentChoice> {
         .into_iter()
         .map(|agent| AgentChoice {
             agent,
-            label: crate::agents::adapter(agent).label(),
+            label: adroit_agents::adapter(agent).label(),
             selected: agent == chosen,
         })
         .collect()
@@ -655,7 +655,7 @@ impl AgentSection {
 fn AgentsPane(agent: adroit_model::Agent, now: Settings, change: Callback<Change>) -> Element {
     use adroit_model::Agent;
     let mut section = use_signal(|| AgentSection::Sessions);
-    let adapter = crate::agents::adapter(agent);
+    let adapter = adroit_agents::adapter(agent);
     rsx! {
         div { class: "settings-agent-tabs", role: "group", aria_label: "Agent settings",
             for item in AgentSection::ALL {
@@ -701,7 +701,7 @@ fn AgentsPane(agent: adroit_model::Agent, now: Settings, change: Callback<Change
                         key: "codex-{agent.key()}",
                         title: section().title(),
                         options: now.codex_sessions.clone(),
-                        set: move |options: crate::agents::CodexOptions| change(Box::new(move |s: &mut Settings| {
+                        set: move |options: adroit_agents::CodexOptions| change(Box::new(move |s: &mut Settings| {
                             s.codex_sessions = options;
                         })),
                     }
@@ -714,8 +714,8 @@ fn AgentsPane(agent: adroit_model::Agent, now: Settings, change: Callback<Change
 #[component]
 fn CodexGroup(
     title: String,
-    options: crate::agents::CodexOptions,
-    set: Callback<crate::agents::CodexOptions>,
+    options: adroit_agents::CodexOptions,
+    set: Callback<adroit_agents::CodexOptions>,
 ) -> Element {
     let (model, effort, approval, sandbox) = (
         options.clone(),
@@ -731,7 +731,7 @@ fn CodexGroup(
                     value: options.model,
                     aria_label: "Model",
                     placeholder: "Codex's own",
-                    onchange: move |value: String| set(crate::agents::CodexOptions { model: value.trim().into(), ..model.clone() }),
+                    onchange: move |value: String| set(adroit_agents::CodexOptions { model: value.trim().into(), ..model.clone() }),
                 }
             }
             SettingRow { label: "Reasoning effort", hint: "Use a level supported by the selected model, or leave empty for Codex's own.",
@@ -741,7 +741,7 @@ fn CodexGroup(
                     aria_label: "Reasoning effort",
                     value: options.reasoning_effort,
                     placeholder: "Codex's own",
-                    onchange: move |value: String| set(crate::agents::CodexOptions { reasoning_effort: value.trim().into(), ..effort.clone() }),
+                    onchange: move |value: String| set(adroit_agents::CodexOptions { reasoning_effort: value.trim().into(), ..effort.clone() }),
                 }
                 datalist { id: "codex-efforts",
                     for value in ["low", "medium", "high", "xhigh", "max", "ultra"] {
@@ -752,13 +752,13 @@ fn CodexGroup(
             SettingRow { label: "Approval policy", hint: "When Codex asks before running a command. Never ask keeps sandbox restrictions in place.",
                 Select { label: "Approval policy", value: options.approval_policy,
                     choices: vec![("", "Codex's own"), ("on-request", "Ask when needed"), ("never", "Never ask")],
-                    onchange: move |value| set(crate::agents::CodexOptions { approval_policy: value, ..approval.clone() }),
+                    onchange: move |value| set(adroit_agents::CodexOptions { approval_policy: value, ..approval.clone() }),
                 }
             }
             SettingRow { label: "Sandbox", hint: "Where commands can write. Full access removes the sandbox.",
                 Select { label: "Sandbox", value: options.sandbox_mode,
                     choices: vec![("", "Codex's own"), ("read-only", "Read only"), ("workspace-write", "Workspace write"), ("danger-full-access", "Full access")],
-                    onchange: move |value| set(crate::agents::CodexOptions { sandbox_mode: value, ..sandbox.clone() }),
+                    onchange: move |value| set(adroit_agents::CodexOptions { sandbox_mode: value, ..sandbox.clone() }),
                 }
             }
         }

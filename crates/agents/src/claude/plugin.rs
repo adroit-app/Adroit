@@ -1,15 +1,10 @@
 //! The Claude Code plugin every session adroit starts loads, which tells
 //! Claude of the `adroit` command it can run from there.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-const MANIFEST: &str = include_str!("../plugin/.claude-plugin/plugin.json");
-const START_SESSION: &str = include_str!("../plugin/skills/start-session/SKILL.md");
-
-/// Where the plugin is written for sessions to load.
-pub fn dir() -> PathBuf {
-    crate::paths::instance_state().join("plugin")
-}
+const MANIFEST: &str = include_str!("../../plugin/.claude-plugin/plugin.json");
+const START_SESSION: &str = include_str!("../../plugin/skills/start-session/SKILL.md");
 
 /// The skill, naming `program` as the command to run.
 fn start_session(program: &Path) -> String {
@@ -40,12 +35,12 @@ pub fn install(program: &Path, dir: &Path) -> std::io::Result<()> {
     std::fs::write(skill.join("SKILL.md"), start_session(program))
 }
 
-/// The arguments that load the plugin, written afresh for the session about
-/// to start; none when it cannot be written, as the session runs without it.
-pub fn args(program: &Path) -> Vec<String> {
-    let dir = dir();
-    match install(program, &dir) {
-        Ok(()) => adroit_claude::plugin_args(&dir),
+/// The arguments that load the plugin, written afresh into `dir` for the
+/// session about to start; none when it cannot be written, as the session
+/// runs without it.
+pub fn args(program: &Path, dir: &Path) -> Vec<String> {
+    match install(program, dir) {
+        Ok(()) => super::plugin_args(dir),
         Err(_) => Vec::new(),
     }
 }

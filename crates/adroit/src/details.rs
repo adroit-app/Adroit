@@ -4,9 +4,9 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use adroit_claude::links::{Kind as LinkKind, Link, Peer, Touch};
-use adroit_claude::subagents::{Agent, Standing};
-use adroit_claude::usage::{Limit, Severity, Window};
+use adroit_agents::claude::links::{Kind as LinkKind, Link, Peer, Touch};
+use adroit_agents::claude::subagents::{Agent, Standing};
+use adroit_agents::claude::usage::{Limit, Severity, Window};
 use adroit_model::{Session, State};
 use adroit_vcs::{Change, Commit, DiffLine, Limits, Repo, Rev, Spot};
 
@@ -220,7 +220,7 @@ fn until(ms: u64) -> String {
 
 /// What a link of the overview shows: what it is called, and a word on it.
 pub fn shown_link(link: &Link, worktree: &Path, home: &Path) -> (String, String) {
-    let id = || adroit_claude::links::artifact_id(&link.target).unwrap_or(&link.target);
+    let id = || adroit_agents::claude::links::artifact_id(&link.target).unwrap_or(&link.target);
     match link.kind {
         LinkKind::Artifact => match &link.title {
             Some(t) => (t.clone(), id().to_string()),

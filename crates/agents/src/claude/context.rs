@@ -6,7 +6,8 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use crate::{Started, control};
+use super::control;
+use crate::Started;
 
 /// What one line Claude Code printed says about the context asked for.
 #[derive(Debug, Clone, PartialEq, Eq)]

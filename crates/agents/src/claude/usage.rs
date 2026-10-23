@@ -7,7 +7,8 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use crate::{Started, control};
+use super::control;
+use crate::Started;
 
 /// The span a limit counts usage over.
 #[derive(Debug, Clone, PartialEq, Eq)]

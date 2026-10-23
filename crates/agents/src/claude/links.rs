@@ -7,7 +7,7 @@ use std::path::{Component, Path, PathBuf};
 
 use serde_json::Value;
 
-use crate::subagents::{Agent, Subagents};
+use super::subagents::{Agent, Subagents};
 
 /// How a session came across a file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -176,7 +176,7 @@ impl Collector {
             Some("user") => false,
             _ => return,
         };
-        self.now_ms = v["timestamp"].as_str().and_then(crate::subagents::epoch_ms);
+        self.now_ms = v["timestamp"].as_str().and_then(super::subagents::epoch_ms);
         let origin = &v["origin"];
         if origin["kind"].as_str() == Some("peer")
             && let Some(name) = origin["name"].as_str()
@@ -494,7 +494,7 @@ pub struct Transcript {
     rest: Vec<u8>,
     found: Collector,
     agents: Subagents,
-    metrics: crate::metrics::Collector,
+    metrics: super::metrics::Collector,
 }
 
 impl Transcript {
@@ -507,7 +507,7 @@ impl Transcript {
         let path = path.into();
         Transcript {
             agents: Subagents::new(&path),
-            metrics: crate::metrics::Collector::default(),
+            metrics: super::metrics::Collector::default(),
             path,
             read_to: 0,
             file: None,
@@ -582,7 +582,7 @@ impl Transcript {
     }
 
     fn restart(&mut self) {
-        self.metrics = crate::metrics::Collector::default();
+        self.metrics = super::metrics::Collector::default();
         self.read_to = 0;
         self.file = None;
         self.rest.clear();
@@ -1181,7 +1181,7 @@ mod tests {
 
     #[test]
     fn a_transcript_lists_the_subagents_it_runs_with_their_steps() {
-        use crate::subagents::{Standing, Step};
+        use crate::claude::subagents::{Standing, Step};
         let path = scratch("agents");
         let own = path.with_extension("").join("subagents");
         std::fs::create_dir_all(&own).unwrap();

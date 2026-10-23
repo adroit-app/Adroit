@@ -63,8 +63,8 @@ pub async fn record(
     parent: Option<SessionId>,
 ) -> std::result::Result<Recorded, String> {
     if request.agent == Agent::Codex {
-        request.developer_instructions = crate::agents::adapter(request.agent)
-            .developer_instructions(settings.clone(), request.cwd.clone())
+        request.developer_instructions = adroit_agents::adapter(request.agent)
+            .developer_instructions(crate::programs::agents_of(settings), request.cwd.clone())
             .await?;
     }
     let new = NewSession {
@@ -124,8 +124,8 @@ pub fn peers(
     record: SessionId,
     sessions: &[super::Session],
     messages: &[Message],
-) -> Vec<adroit_claude::links::Peer> {
-    let mut out: Vec<adroit_claude::links::Peer> = Vec::new();
+) -> Vec<adroit_agents::claude::links::Peer> {
+    let mut out: Vec<adroit_agents::claude::links::Peer> = Vec::new();
     for message in messages {
         let (other, sent) = if message.sender == Some(record) {
             (Some(message.recipient), true)
@@ -141,7 +141,7 @@ pub fn peers(
         let at = match out.iter().position(|p| p.name == name) {
             Some(at) => at,
             None => {
-                out.push(adroit_claude::links::Peer {
+                out.push(adroit_agents::claude::links::Peer {
                     name,
                     sent: false,
                     received: false,
@@ -159,7 +159,7 @@ pub fn peers(
 }
 
 /// [`peers`] read from the record at `root`.
-pub async fn peers_at(root: &Path, record: SessionId) -> Vec<adroit_claude::links::Peer> {
+pub async fn peers_at(root: &Path, record: SessionId) -> Vec<adroit_agents::claude::links::Peer> {
     with_store(root, move |store| {
         Ok(peers(
             record,

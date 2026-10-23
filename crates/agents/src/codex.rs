@@ -49,16 +49,20 @@ impl AgentAdapter for Codex {
 
     fn resolve_conversation(
         &self,
-        settings: Settings,
+        settings: AgentSettings,
         cwd: PathBuf,
         title: String,
     ) -> ConversationLookup {
         Box::pin(identity::resolve(settings, cwd, title))
     }
 
-    fn developer_instructions(&self, settings: Settings, cwd: PathBuf) -> DeveloperInstructions {
+    fn developer_instructions(
+        &self,
+        settings: AgentSettings,
+        cwd: PathBuf,
+    ) -> DeveloperInstructions {
         Box::pin(async move {
-            let start = super::launch_with_settings(
+            let start = launch_with_settings(
                 &settings,
                 Agent::Codex,
                 vec!["app-server".into()],
@@ -101,12 +105,12 @@ impl AgentAdapter for Codex {
 
     fn deliver(
         &self,
-        settings: Settings,
+        settings: AgentSettings,
         cwd: PathBuf,
         conversation: String,
         envelope: String,
     ) -> DeliveryFuture {
-        Box::pin(super::delivery::codex_queue(
+        Box::pin(crate::delivery::codex_queue(
             settings,
             cwd,
             conversation,
@@ -150,7 +154,7 @@ impl AgentAdapter for Codex {
     fn usage_url(&self) -> Option<&'static str> {
         Some("https://chatgpt.com/settings/usage")
     }
-    fn integration_args(&self, _program: &Path) -> Vec<String> {
+    fn integration_args(&self, _program: &Path, _state: &Path) -> Vec<String> {
         vec![
             "-c".into(),
             "tui.terminal_title=[\"app-name\",\"thread-id\"]".into(),
@@ -164,13 +168,14 @@ impl AgentAdapter for Codex {
     }
     fn transcript(
         &self,
+        settings: &AgentSettings,
         home: &Path,
         session: &adroit_model::Session,
     ) -> Option<Box<dyn ConversationReader>> {
         if !transcript::thread_id(&session.session_id) {
             return None;
         }
-        let root = crate::settings::current()
+        let root = settings
             .codex
             .env
             .get("CODEX_HOME")
@@ -184,40 +189,54 @@ impl AgentAdapter for Codex {
             home,
         )))
     }
-    fn commands(&self, dir: PathBuf) -> Probe<adroit_claude::commands::Command> {
+    fn commands(
+        &self,
+        settings: AgentSettings,
+        dir: PathBuf,
+    ) -> Probe<crate::claude::commands::Command> {
         Box::pin(async move {
             commands::probe(
-                super::launch(Agent::Codex, vec!["app-server".into()], Vec::new()),
-                &dir,
-                adroit_claude::commands::PROBE_TIMEOUT,
-            )
-            .await
-        })
-    }
-    fn builtin_commands(&self) -> Vec<adroit_claude::commands::Command> {
-        commands::builtins()
-    }
-    fn models(&self, settings: Settings, dir: PathBuf) -> Probe<adroit_model::ProviderModel> {
-        Box::pin(async move {
-            models::probe(
-                super::launch_with_settings(
+                launch_with_settings(
                     &settings,
                     Agent::Codex,
                     vec!["app-server".into()],
                     Vec::new(),
                 ),
                 &dir,
-                adroit_claude::commands::PROBE_TIMEOUT,
+                crate::claude::commands::PROBE_TIMEOUT,
             )
             .await
         })
     }
-    fn usage(&self, home: PathBuf) -> Probe<adroit_claude::usage::Limit> {
+    fn builtin_commands(&self) -> Vec<crate::claude::commands::Command> {
+        commands::builtins()
+    }
+    fn models(&self, settings: AgentSettings, dir: PathBuf) -> Probe<adroit_model::ProviderModel> {
+        Box::pin(async move {
+            models::probe(
+                launch_with_settings(
+                    &settings,
+                    Agent::Codex,
+                    vec!["app-server".into()],
+                    Vec::new(),
+                ),
+                &dir,
+                crate::claude::commands::PROBE_TIMEOUT,
+            )
+            .await
+        })
+    }
+    fn usage(&self, settings: AgentSettings, home: PathBuf) -> Probe<crate::claude::usage::Limit> {
         Box::pin(async move {
             usage::probe(
-                super::launch(Agent::Codex, vec!["app-server".into()], Vec::new()),
+                launch_with_settings(
+                    &settings,
+                    Agent::Codex,
+                    vec!["app-server".into()],
+                    Vec::new(),
+                ),
                 &home,
-                adroit_claude::usage::PROBE_TIMEOUT,
+                crate::claude::usage::PROBE_TIMEOUT,
             )
             .await
         })
@@ -294,7 +313,7 @@ impl AgentAdapter for Codex {
     }
     fn start_args(
         &self,
-        settings: &Settings,
+        settings: &AgentSettings,
         _name: &str,
         _conversation: &str,
         prompt: &str,
@@ -390,7 +409,7 @@ mod tests {
 
     #[test]
     fn sessions_keep_their_output_in_terminal_scrollback() {
-        let args = Codex.start_args(&Settings::default(), "fix", "", "hello");
+        let args = Codex.start_args(&AgentSettings::default(), "fix", "", "hello");
         let options = args.split(|arg| arg == "--").next().unwrap();
         assert!(options.iter().any(|arg| arg == "--no-alt-screen"));
     }
@@ -464,7 +483,7 @@ mod tests {
             Codex.conversation_title("01234567-89ab-cdef-0123-456789abcdeg"),
             None
         );
-        let args = Codex.integration_args(Path::new("/bin/adroit"));
+        let args = Codex.integration_args(Path::new("/bin/adroit"), Path::new("/unused"));
         assert_eq!(
             args,
             ["-c", "tui.terminal_title=[\"app-name\",\"thread-id\"]"]
@@ -495,7 +514,7 @@ IFS= read -r query
 printf '%s' "$query" > "$ADROIT_TEST_CAPTURE"
 printf '%s\n' '{"id":"adroit-query","result":{"data":[{"id":"01a15b64-d462-7570-8a72-28a490123456"}],"nextCursor":null}}'
 "#).unwrap();
-        let mut settings = Settings::default();
+        let mut settings = AgentSettings::default();
         settings.codex.command = vec!["/bin/sh".into(), program.to_string_lossy().into_owned()];
         settings.codex.env.insert(
             "ADROIT_TEST_CAPTURE".into(),
@@ -533,7 +552,7 @@ printf '%s\n' "$ADROIT_TEST_PAGE"
 "#,
         )
         .unwrap();
-        let mut settings = Settings::default();
+        let mut settings = AgentSettings::default();
         settings.codex.command = vec!["/bin/sh".into(), program.to_string_lossy().into_owned()];
         for page in [
             serde_json::json!({"data":[],"nextCursor":null}),
@@ -555,44 +574,6 @@ printf '%s\n' "$ADROIT_TEST_PAGE"
                 None
             );
         }
-    }
-
-    #[tokio::test]
-    async fn codex_slash_commands_reach_the_embedded_prompt() {
-        let list = Codex.builtin_commands();
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        let editor = adroit_nvim::Embedded::spawn(
-            "nvim",
-            &["-u", "NONE", "-i", "NONE", "--noplugin"],
-            80,
-            10,
-            move |event| {
-                let _ = tx.send(event);
-            },
-        )
-        .await
-        .unwrap();
-        editor
-            .set_commands(&crate::complete::commands(&list))
-            .await
-            .unwrap();
-        editor.input("/mo").await.unwrap();
-        tokio::time::timeout(std::time::Duration::from_secs(5), async {
-            loop {
-                if editor
-                    .state()
-                    .popup()
-                    .is_some_and(|p| p.items.iter().any(|c| c.word == "/model"))
-                {
-                    break;
-                }
-                rx.recv().await.expect("editor event");
-            }
-        })
-        .await
-        .expect("/model completion");
-        editor.input("<C-y>").await.unwrap();
-        assert_eq!(editor.take_text().await.unwrap(), "/model ");
     }
 
     #[test]

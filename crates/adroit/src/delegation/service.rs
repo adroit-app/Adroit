@@ -490,8 +490,8 @@ async fn watch_models(context: Context) {
             if next.get(&agent).is_none_or(|at| now >= *at) {
                 // Far ahead while asking, so a slow answer is not asked twice.
                 next.insert(agent, now + Duration::from_secs(600));
-                let asked =
-                    crate::agents::adapter(agent).models(settings.clone(), crate::paths::home());
+                let asked = adroit_agents::adapter(agent)
+                    .models(crate::programs::agents_of(&settings), crate::paths::home());
                 asking.spawn(async move { (agent, asked.await) });
             }
         }
@@ -614,7 +614,7 @@ impl Watcher {
                 .map_err(storage)?;
             return Ok(());
         }
-        let seen = crate::agents::adapter(record.agent).startup_readiness(screen);
+        let seen = adroit_agents::adapter(record.agent).startup_readiness(screen);
         let elapsed = Duration::from_millis(super::now_ms().saturating_sub(record.started_ms));
         if let Some(readiness) = readiness(seen, elapsed) {
             context
@@ -630,7 +630,7 @@ impl Watcher {
         record: &Session,
         native: &adroit_term::Session,
     ) {
-        let adapter = crate::agents::adapter(record.agent);
+        let adapter = adroit_agents::adapter(record.agent);
         let Some(title) = native.title.as_deref() else {
             return;
         };
@@ -656,7 +656,12 @@ impl Watcher {
                 let Ok(Some(launch)) = context.call(move |store| store.launch(id)).await else {
                     return (id, None);
                 };
-                (id, adapter.resolve_conversation(launch, cwd, title).await)
+                (
+                    id,
+                    adapter
+                        .resolve_conversation(crate::programs::agents_of(&launch), cwd, title)
+                        .await,
+                )
             });
         }
     }
@@ -722,7 +727,7 @@ fn readiness(seen: Option<StartupReadiness>, elapsed: Duration) -> Option<Readin
 fn turn_over(agent: Agent, status: Option<&adroit_term::Status>, screen: &[String]) -> bool {
     let state = match status {
         Some(status) => adroit_model::State::reported(&status.state, status.kind.as_deref()),
-        None => match crate::agents::adapter(agent).screen_state(screen) {
+        None => match adroit_agents::adapter(agent).screen_state(screen) {
             Some(state) => state,
             None => return false,
         },
@@ -743,7 +748,7 @@ fn channel_warning_keys(
     screen: &[String],
 ) -> Option<&'static [u8]> {
     let ours = || {
-        adroit_claude::dialog::development_channels(screen)
+        adroit_agents::claude::dialog::development_channels(screen)
             .is_some_and(|channels| channels == [CLAUDE_CHANNEL])
     };
     (agent == Agent::Claude && allowed && !answered && ours()).then_some(b"\r")
@@ -759,7 +764,7 @@ mod tests {
 
     fn claude_screen(name: &str) -> Vec<String> {
         let path = format!(
-            "{}/../claude/tests/screens/{name}.txt",
+            "{}/../agents/tests/screens/{name}.txt",
             env!("CARGO_MANIFEST_DIR")
         );
         std::fs::read_to_string(&path)

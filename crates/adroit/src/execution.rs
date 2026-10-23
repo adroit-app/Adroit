@@ -8,7 +8,9 @@ use adroit_model::{
 };
 use adroit_term::{Daemon, Palette, Pane, Size, Spawn};
 
-use crate::{agents, delegation::launch::Delegation, sessions, settings::Settings};
+use adroit_agents as agents;
+
+use crate::{delegation::launch::Delegation, sessions, settings::Settings};
 
 #[derive(Debug, Clone, Default)]
 pub struct StartRequest {
@@ -149,9 +151,10 @@ pub fn resolve(
     adroit_program: &Path,
 ) -> Result<ResolvedLaunch, String> {
     let (settings, target) = configured(settings, &request)?;
+    let agent_settings = crate::programs::agents_of(&settings);
     let adapter = agents::adapter(request.agent);
     let conversation = adapter.conversation();
-    let mut args = adapter.integration_args(adroit_program);
+    let mut args = adapter.integration_args(adroit_program, &crate::paths::instance_state());
     if let Some(delegation) = &request.delegation {
         args.extend(delegation.args(request.agent, adroit_program));
         let instructions = match (&request.developer_instructions, request.agent) {
@@ -162,13 +165,13 @@ pub fn resolve(
     }
     args.extend(adapter.image_args(&request.images));
     args.extend(adapter.start_args(
-        &settings,
+        &agent_settings,
         &request.name,
         &conversation,
         &adapter.image_prompt(&request.prompt, &request.images),
     ));
     let (program, args, mut env) =
-        agents::launch_with_settings(&settings, request.agent, args, request.env);
+        agents::launch_with_settings(&agent_settings, request.agent, args, request.env);
     if let Some(delegation) = &request.delegation {
         env.retain(|(name, _)| !crate::env::reserved_delegation(name));
         env.extend(delegation.environment());
@@ -222,7 +225,7 @@ fn configured(
         }
         (AgentPermissions::ReadOnly, Agent::Claude) => {
             settings.sessions.read_only = Some(
-                adroit_claude::ReadOnly::for_dir(&request.cwd)
+                adroit_agents::claude::ReadOnly::for_dir(&request.cwd)
                     .protected()
                     .to_vec(),
             );
@@ -295,7 +298,7 @@ pub fn select_target(
     .map(|(_, target)| target)
 }
 
-pub use crate::agents::{DeliveryFailure, DeliveryFuture};
+pub use adroit_agents::{DeliveryFailure, DeliveryFuture};
 
 /// Submit to a native queue without touching the TUI's input buffer.
 pub fn deliver(
@@ -305,5 +308,10 @@ pub fn deliver(
     conversation: String,
     envelope: String,
 ) -> DeliveryFuture {
-    agents::adapter(agent).deliver(settings, cwd, conversation, envelope)
+    agents::adapter(agent).deliver(
+        crate::programs::agents_of(&settings),
+        cwd,
+        conversation,
+        envelope,
+    )
 }

@@ -34,22 +34,12 @@ pub enum Kept {
     Terminal(TerminalSession),
 }
 
-/// The daemon's id as the window writes it.
-pub fn hex(id: u128) -> String {
-    format!("{id:032x}")
-}
-
-/// The daemon's id a session of adroit's goes by in the window.
-pub fn id_of(hex: &str) -> Option<u128> {
-    (hex.len() == 32)
-        .then(|| u128::from_str_radix(hex, 16).ok())
-        .flatten()
-}
+pub use adroit_model::daemon::{hex, id_of};
 
 /// Keep the conversation reported by the agent's terminal title on its
 /// daemon session, including when the agent switches conversations.
 pub fn follow_title(session: &mut Session, title: &str) -> Option<(u128, &'static str, String)> {
-    let conversation = crate::agents::adapter(session.agent).conversation_title(title)?;
+    let conversation = adroit_agents::adapter(session.agent).conversation_title(title)?;
     let id = id_of(&session.id)?;
     if conversation == session.session_id {
         return None;
@@ -118,55 +108,13 @@ pub fn read(session: &adroit_term::Session) -> Option<Kept> {
     }
 }
 
-/// Read Claude Code's `listed` sessions against adroit's `own`: each of `own`
-/// learns the process that holds its conversation, and follows that process
-/// to the conversation `/clear` or `/resume` moves it to. The sessions of
-/// `listed` that run in other terminals, and what was learned, as each
-/// session's daemon id, the tag's key and its new value.
-pub fn follow(
-    own: &mut [Session],
-    listed: Vec<Session>,
-) -> (Vec<Session>, Vec<(u128, &'static str, String)>) {
-    let mut learned = Vec::new();
-    for s in own
-        .iter_mut()
-        .filter(|s| s.agent == adroit_model::Agent::Claude)
-    {
-        let Some(id) = id_of(&s.id) else { continue };
-        match s.pid {
-            Some(pid) => {
-                let moved = listed
-                    .iter()
-                    .find(|l| l.pid == Some(pid))
-                    .filter(|l| !l.session_id.is_empty() && l.session_id != s.session_id);
-                if let Some(l) = moved {
-                    s.session_id = l.session_id.clone();
-                    learned.push((id, CONVERSATION, s.session_id.clone()));
-                }
-            }
-            None => {
-                let holding = listed
-                    .iter()
-                    .filter(|_| !s.session_id.is_empty())
-                    .find(|l| l.session_id == s.session_id)
-                    .and_then(|l| l.pid);
-                if let Some(pid) = holding {
-                    s.pid = Some(pid);
-                    learned.push((id, PID, pid.to_string()));
-                }
-            }
-        }
+/// The tag that keeps on its daemon session what a session `learned` from
+/// its agent's listing: the session's daemon id, the tag's key and its value.
+pub fn learned_tag((id, learned): (u128, adroit_agents::Learned)) -> (u128, &'static str, String) {
+    match learned {
+        adroit_agents::Learned::Conversation(conversation) => (id, CONVERSATION, conversation),
+        adroit_agents::Learned::Pid(pid) => (id, PID, pid.to_string()),
     }
-    let elsewhere = listed
-        .into_iter()
-        .filter(|l| {
-            !own.iter().any(|s| {
-                s.agent == l.agent
-                    && (s.session_id == l.session_id || (s.pid.is_some() && s.pid == l.pid))
-            })
-        })
-        .collect();
-    (elsewhere, learned)
 }
 
 /// The tags a Claude Code session adroit starts or resumes carries, holding
@@ -356,6 +304,17 @@ mod tests {
             status: None,
             sequence: 1,
         }
+    }
+
+    /// Claude Code's listing read against `own`, with what was learned as
+    /// the tags that keep it.
+    fn follow(
+        own: &mut [Session],
+        listed: Vec<Session>,
+    ) -> (Vec<Session>, Vec<(u128, &'static str, String)>) {
+        let (elsewhere, learned) =
+            adroit_agents::adapter(adroit_model::Agent::Claude).follow(own, listed);
+        (elsewhere, learned.into_iter().map(learned_tag).collect())
     }
 
     #[test]
@@ -622,11 +581,5 @@ mod tests {
     fn the_process_a_session_runs_in_is_read_back_from_its_tags() {
         assert_eq!(own(7, "uuid", Some(42)).pid, Some(42));
         assert_eq!(own(7, "uuid", None).pid, None);
-    }
-
-    #[test]
-    fn only_a_daemon_id_reads_as_one() {
-        assert_eq!(id_of("not an id"), None);
-        assert_eq!(id_of(&hex(u128::MAX)), Some(u128::MAX));
     }
 }

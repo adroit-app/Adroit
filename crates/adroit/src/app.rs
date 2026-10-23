@@ -6,9 +6,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use adroit_claude::links::{Kind as LinkKind, Link, Links, Touch};
-use adroit_claude::usage::{self, Severity};
-use adroit_claude::{commands, places};
+use adroit_agents::claude::links::{Kind as LinkKind, Link, Links, Touch};
+use adroit_agents::claude::usage::{self, Severity};
+use adroit_agents::claude::{commands, places};
 use adroit_model::{
     InboxItem, Kind, Session, State, TerminalProgram, TerminalSession, Tree, Worktree, build, inbox,
 };
@@ -19,7 +19,6 @@ use dioxus::prelude::*;
 use tokio::sync::{Notify, mpsc, oneshot};
 
 use crate::actions::Action;
-use crate::agents;
 use crate::alerts;
 use crate::complete::{self, candidates};
 use crate::completion::Completions;
@@ -32,6 +31,7 @@ use crate::details::{
     Drill, Entry, Group, Listing, Related, Sheet, Shot, Source, Tie, View, capped, gauges, load,
     overview_shown, related, shown_agent, shown_link, shown_shot, with_agents, with_images,
 };
+use crate::draft_agent;
 use crate::editor;
 use crate::file_icons;
 use crate::filer::{Filer, read_dirs};
@@ -68,6 +68,7 @@ use crate::view::Keys;
 use crate::viewers;
 use crate::window_socket::{Request, Response, ask, bind, serve, socket_path};
 use crate::zoom;
+use adroit_agents as agents;
 
 fn shows_usage(tab: Option<&Tab>, agent: adroit_model::Agent) -> bool {
     matches!(tab, Some(Tab::Session(_) | Tab::Draft { .. }))
@@ -1393,10 +1394,13 @@ async fn read_sessions(
     let mut elsewhere = Vec::new();
     for agent in adroit_model::Agent::ALL {
         let adapter = agents::adapter(agent);
-        let listed = adapter.list_sessions().await.unwrap_or_default();
+        let listed = adapter
+            .list_sessions(crate::programs::agents())
+            .await
+            .unwrap_or_default();
         let (external, tags) = adapter.follow(&mut own, listed);
         elsewhere.extend(external);
-        learned.extend(tags);
+        learned.extend(tags.into_iter().map(sessions::learned_tag));
     }
     // Kept on the session, so a window opened later follows it too; one not
     // kept is learned again on the next read.
@@ -2152,7 +2156,7 @@ fn App() -> Element {
     let commands_here = use_memo(move || {
         let t = tree.read();
         let tab = active.read();
-        let agent = agents::for_tab(
+        let agent = draft_agent::for_tab(
             &t,
             tab.as_ref(),
             &draft_options.read(),
@@ -2175,7 +2179,9 @@ fn App() -> Element {
             return;
         }
         spawn(async move {
-            let got = agents::adapter(agent).commands(dir.clone()).await;
+            let got = agents::adapter(agent)
+                .commands(crate::programs::agents(), dir.clone())
+                .await;
             command_cache
                 .write()
                 .entry(agent)
@@ -2291,7 +2297,7 @@ fn App() -> Element {
         move || {
             spawn(async move {
                 loop {
-                    let agent = agents::for_tab(
+                    let agent = draft_agent::for_tab(
                         &tree.peek(),
                         active.peek().as_ref(),
                         &draft_options.peek(),
@@ -2306,7 +2312,9 @@ fn App() -> Element {
                             .or_default()
                             .want(Instant::now())
                     {
-                        let got = agents::adapter(agent).usage(home()).await;
+                        let got = agents::adapter(agent)
+                            .usage(crate::programs::agents(), home())
+                            .await;
                         usage_limits
                             .write()
                             .entry(agent)
@@ -2325,7 +2333,7 @@ fn App() -> Element {
         let wake = usage_wake.clone();
         move || {
             let _ = layout().show_details;
-            let _ = agents::for_tab(
+            let _ = draft_agent::for_tab(
                 &tree.read(),
                 active.read().as_ref(),
                 &draft_options.read(),
@@ -2336,7 +2344,8 @@ fn App() -> Element {
     });
     // How full the shown conversation's context is, for an agent whose
     // transcript does not say: asked again as the conversation moves on.
-    let mut asked_context = use_signal(adroit_claude::context::Fresh::<ConversationKey>::default);
+    let mut asked_context =
+        use_signal(adroit_agents::claude::context::Fresh::<ConversationKey>::default);
     use_hook(move || {
         spawn(async move {
             loop {
@@ -2356,7 +2365,9 @@ fn App() -> Element {
                 if let Some((s, key, stats)) = reading {
                     let mark = stats.tokens.map_or(0, |t| t.total());
                     if asked_context.write().want(&key, mark, Instant::now()) {
-                        let got = agents::adapter(s.agent).context(&s, stats.model).await;
+                        let got = agents::adapter(s.agent)
+                            .context(crate::programs::agents(), &s, stats.model)
+                            .await;
                         asked_context.write().settle(&key, Instant::now(), got);
                     }
                 }
@@ -2382,7 +2393,11 @@ fn App() -> Element {
                         let key = conversation_key(&s);
                         let reader = match held.take() {
                             Some((was, reader)) if was == key => Some(reader),
-                            _ => agents::adapter(s.agent).transcript(&home(), &s),
+                            _ => agents::adapter(s.agent).transcript(
+                                &crate::programs::agents(),
+                                &home(),
+                                &s,
+                            ),
                         };
                         if let Some(t) = reader {
                             let sheet = drill.peek().sheet();
@@ -3179,7 +3194,7 @@ fn App() -> Element {
                 let size = *console_size.peek();
                 let t = tree.peek().clone();
                 let launch_settings = settings::current();
-                let agent = agents::for_tab(
+                let agent = draft_agent::for_tab(
                     &t,
                     Some(&tab),
                     &draft_options.peek(),
@@ -3201,7 +3216,7 @@ fn App() -> Element {
                     }
                     _ if !images.is_empty()
                         && agents::adapter(agent).capabilities().shell_bang
-                        && adroit_claude::shell_line(&text).is_some() =>
+                        && adroit_agents::claude::shell_line(&text).is_some() =>
                     {
                         notify.notice("Images cannot be sent with a shell command".into());
                         false
@@ -3228,7 +3243,7 @@ fn App() -> Element {
                                 ));
                                 false
                             } else {
-                                match adroit_claude::shell_line(&text)
+                                match adroit_agents::claude::shell_line(&text)
                                     .filter(|_| agents::adapter(agent).capabilities().shell_bang)
                                 {
                                     Some(command) => {
@@ -3271,7 +3286,7 @@ fn App() -> Element {
                     // run as a command; it could reach the model as a message.
                     Tab::Draft { .. }
                         if agents::adapter(agent).capabilities().shell_bang
-                            && adroit_claude::shell_line(&text).is_some() =>
+                            && adroit_agents::claude::shell_line(&text).is_some() =>
                     {
                         notify.notice(
                             "A shell line runs in a session: start it with a message first".into(),
@@ -3369,7 +3384,7 @@ fn App() -> Element {
     };
 
     let mut choose_agent = move |tab: Option<Tab>, agent| {
-        agents::choose(
+        draft_agent::choose(
             &mut draft_options.write(),
             tab,
             agent,
@@ -3379,8 +3394,8 @@ fn App() -> Element {
 
     // A session started already keeps its own agent.
     let mut switch_agent = move |forward: bool| match active.peek().clone() {
-        tab if agents::can_choose(tab.as_ref()) => {
-            let now = agents::for_tab(
+        tab if draft_agent::can_choose(tab.as_ref()) => {
+            let now = draft_agent::for_tab(
                 &tree.peek(),
                 tab.as_ref(),
                 &draft_options.peek(),
@@ -3400,7 +3415,7 @@ fn App() -> Element {
                 status.set(Some(format!("taking over {}…", asked.name)));
                 // The session may have moved on while the dialog was open.
                 let adapter = agents::adapter(asked.agent);
-                let now = match adapter.list_sessions().await {
+                let now = match adapter.list_sessions(crate::programs::agents()).await {
                     Ok(list) => list
                         .into_iter()
                         .find(|s| s.session_id == asked.session_id && s.pid == asked.pid),
@@ -3416,14 +3431,16 @@ fn App() -> Element {
                     )));
                     return;
                 };
-                let Some(resume) = adapter.resume_args(&settings::current(), &now.session_id)
+                let Some(resume) = adapter.resume_args(&crate::programs::agents(), &now.session_id)
                 else {
                     status.set(Some("This agent cannot be taken over".into()));
                     return;
                 };
                 moving.write().insert(now.id.clone());
                 let stopped = match now.pid {
-                    Some(pid) => adroit_claude::stop(pid, adroit_claude::STOP_GRACE).await,
+                    Some(pid) => {
+                        adroit_agents::claude::stop(pid, adroit_agents::claude::STOP_GRACE).await
+                    }
                     None => Ok(()),
                 };
                 if let Err(e) = stopped {
@@ -3433,7 +3450,8 @@ fn App() -> Element {
                 }
                 let size = *console_size.peek();
                 let program_path = adroit_program();
-                let mut args = adapter.integration_args(&program_path);
+                let mut args =
+                    adapter.integration_args(&program_path, &crate::paths::instance_state());
                 let mut request = crate::execution::StartRequest {
                     agent: now.agent,
                     name: now.name.clone(),
@@ -3453,7 +3471,8 @@ fn App() -> Element {
                     args.extend(adapter.instruction_args(delegation.instructions()));
                 }
                 args.extend(resume);
-                let (program, args, mut env) = agents::launch(now.agent, args, daemon::agent_env());
+                let (program, args, mut env) =
+                    crate::programs::launch(now.agent, args, daemon::agent_env());
                 let mut tags = sessions::agent_tags(
                     now.agent,
                     &now.name,
@@ -3755,7 +3774,7 @@ fn App() -> Element {
             let (Some(name), Some(id)) = (r.name(), sessions::id_of(&r.id)) else {
                 return;
             };
-            let agent = agents::for_tab(
+            let agent = draft_agent::for_tab(
                 &tree.peek(),
                 Some(&Tab::Session(r.id.clone())),
                 &HashMap::new(),
@@ -4062,7 +4081,7 @@ fn App() -> Element {
             let _ = frame();
             let shows = match &*active.read() {
                 Some(tab @ Tab::Session(_)) => {
-                    let agent = agents::for_tab(
+                    let agent = draft_agent::for_tab(
                         &tree.read(),
                         Some(tab),
                         &draft_options.read(),
@@ -4524,7 +4543,7 @@ fn App() -> Element {
                         Some(Tab::Draft { worktree, .. }) => Some(PathBuf::from(worktree)),
                         _ => None,
                     };
-                    let agent = agents::for_tab(
+                    let agent = draft_agent::for_tab(
                         &tree.peek(),
                         tab.as_ref(),
                         &draft_options.peek(),
@@ -5333,7 +5352,7 @@ fn App() -> Element {
                 Area::Prompt if nvim_insert => &[Context::Prompt],
                 Area::Prompt => &[Context::Prompt, Context::Global],
             };
-            let contexts: Vec<_> = agents::can_choose(active.peek().as_ref())
+            let contexts: Vec<_> = draft_agent::can_choose(active.peek().as_ref())
                 .then_some(Context::Draft)
                 .into_iter()
                 .chain(contexts.iter().copied())
@@ -5538,7 +5557,7 @@ fn App() -> Element {
     let active_tab = active();
     let drill_now = drill();
     let sheet_now = drill_now.sheet();
-    let current_agent = agents::for_tab(
+    let current_agent = draft_agent::for_tab(
         &t,
         active_tab.as_ref(),
         &draft_options.read(),
@@ -7817,7 +7836,7 @@ mod tests {
 
     #[test]
     fn a_subagent_row_goes_by_its_title_with_its_kind_as_a_badge() {
-        use adroit_claude::subagents::{Agent, Standing};
+        use adroit_agents::claude::subagents::{Agent, Standing};
         let agent = |title: Option<&str>, kind: Option<&str>| Agent {
             call: format!("toolu_{}", kind.unwrap_or("none")),
             id: None,

@@ -3,7 +3,7 @@ use std::{fmt, path::PathBuf, pin::Pin, process::Stdio, time::Duration};
 
 use tokio::io::AsyncReadExt;
 
-use crate::settings::Settings;
+use crate::AgentSettings;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeliveryFailure {
@@ -27,7 +27,7 @@ pub type DeliveryFuture =
     Pin<Box<dyn std::future::Future<Output = Result<(), DeliveryFailure>> + Send>>;
 
 pub(super) async fn codex_queue(
-    settings: Settings,
+    settings: AgentSettings,
     cwd: PathBuf,
     conversation: String,
     envelope: String,

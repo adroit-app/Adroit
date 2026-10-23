@@ -7,7 +7,8 @@ use std::time::Duration;
 use adroit_model::ProviderModel;
 use serde_json::Value;
 
-use crate::{Started, commands, control};
+use super::{commands, control};
+use crate::Started;
 
 /// Read one line of Claude Code's output: `Some` once it is the answer, with
 /// `None` inside when the answer lists no models.

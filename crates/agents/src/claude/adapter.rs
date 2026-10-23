@@ -1,4 +1,4 @@
-use super::*;
+use crate::*;
 use adroit_model::config::SessionOptions;
 
 pub struct Claude;
@@ -9,7 +9,7 @@ impl AgentAdapter for Claude {
         let rules = screen
             .iter()
             .enumerate()
-            .filter(|(_, line)| adroit_claude::dialog::rule(line))
+            .filter(|(_, line)| super::dialog::rule(line))
             .map(|(i, _)| i)
             .collect::<Vec<_>>();
         let prompt = rules
@@ -27,7 +27,7 @@ impl AgentAdapter for Claude {
                 || line.contains("allow this tool")
                 || line.contains("permission to")
         });
-        if !adroit_claude::dialog::dialog_open(screen)
+        if !super::dialog::dialog_open(screen)
             && prompt
                 .is_some_and(|prompt| decision_question.is_none_or(|question| prompt > question))
         {
@@ -57,7 +57,7 @@ impl AgentAdapter for Claude {
         {
             return Some(StartupReadiness::AwaitingPermission);
         }
-        adroit_claude::dialog::dialog_open(screen).then_some(StartupReadiness::AwaitingInput)
+        super::dialog::dialog_open(screen).then_some(StartupReadiness::AwaitingInput)
     }
 
     fn instruction_args(&self, instructions: &str) -> Vec<String> {
@@ -76,7 +76,7 @@ impl AgentAdapter for Claude {
         "Claude Code"
     }
     fn program(&self) -> String {
-        adroit_claude::claude_program()
+        super::claude_program()
     }
     fn capabilities(&self) -> Capabilities {
         Capabilities {
@@ -90,65 +90,73 @@ impl AgentAdapter for Claude {
     fn usage_url(&self) -> Option<&'static str> {
         Some("https://claude.ai/settings/usage")
     }
-    fn commands(&self, dir: PathBuf) -> Probe<adroit_claude::commands::Command> {
+    fn commands(&self, settings: AgentSettings, dir: PathBuf) -> Probe<super::commands::Command> {
         Box::pin(async move {
-            adroit_claude::commands::probe(
-                crate::programs::claude_asked,
+            super::commands::probe(
+                |args| asked(&settings, args),
                 &dir,
-                adroit_claude::commands::PROBE_TIMEOUT,
+                super::commands::PROBE_TIMEOUT,
             )
             .await
         })
     }
-    fn models(&self, settings: Settings, dir: PathBuf) -> Probe<adroit_model::ProviderModel> {
+    fn models(&self, settings: AgentSettings, dir: PathBuf) -> Probe<adroit_model::ProviderModel> {
         Box::pin(async move {
-            adroit_claude::models::probe(
-                |args| super::launch_with_settings(&settings, Agent::Claude, args, Vec::new()),
+            super::models::probe(
+                |args| launch_with_settings(&settings, Agent::Claude, args, Vec::new()),
                 &dir,
-                adroit_claude::commands::PROBE_TIMEOUT,
+                super::commands::PROBE_TIMEOUT,
             )
             .await
         })
     }
-    fn usage(&self, home: PathBuf) -> Probe<adroit_claude::usage::Limit> {
+    fn usage(&self, settings: AgentSettings, home: PathBuf) -> Probe<super::usage::Limit> {
         Box::pin(async move {
-            adroit_claude::usage::probe(
-                crate::programs::claude_asked,
+            super::usage::probe(
+                |args| asked(&settings, args),
                 &home,
-                adroit_claude::usage::PROBE_TIMEOUT,
+                super::usage::PROBE_TIMEOUT,
             )
             .await
         })
     }
-    fn context(&self, session: &adroit_model::Session, model: Option<String>) -> ContextProbe {
+    fn context(
+        &self,
+        settings: AgentSettings,
+        session: &adroit_model::Session,
+        model: Option<String>,
+    ) -> ContextProbe {
         let (dir, id) = (session.cwd.clone(), session.session_id.clone());
         Box::pin(async move {
             if id.is_empty() {
                 return None;
             }
-            adroit_claude::context::probe(
-                crate::programs::claude_asked,
+            super::context::probe(
+                |args| asked(&settings, args),
                 &dir,
                 &id,
                 model.as_deref(),
-                adroit_claude::context::PROBE_TIMEOUT,
+                super::context::PROBE_TIMEOUT,
             )
             .await
         })
     }
     fn transcript(
         &self,
+        _settings: &AgentSettings,
         home: &Path,
         session: &adroit_model::Session,
     ) -> Option<Box<dyn ConversationReader>> {
-        let path = adroit_claude::places::transcript(home, &session.cwd, &session.session_id);
-        Some(Box::new(ClaudeConversation(
-            adroit_claude::links::Transcript::new(path, &session.cwd, home.to_path_buf()),
-        )))
+        let path = super::places::transcript(home, &session.cwd, &session.session_id);
+        Some(Box::new(ClaudeConversation(super::links::Transcript::new(
+            path,
+            &session.cwd,
+            home.to_path_buf(),
+        ))))
     }
-    fn list_sessions(&self) -> Listing {
-        Box::pin(async {
-            adroit_claude::list_sessions(crate::programs::claude_asked)
+    fn list_sessions(&self, settings: AgentSettings) -> Listing {
+        Box::pin(async move {
+            super::list_sessions(|args| asked(&settings, args))
                 .await
                 .map_err(|e| e.to_string())
         })
@@ -157,55 +165,55 @@ impl AgentAdapter for Claude {
         &self,
         own: &mut [adroit_model::Session],
         listed: Vec<adroit_model::Session>,
-    ) -> (Vec<adroit_model::Session>, Learned) {
-        crate::sessions::follow(own, listed)
+    ) -> (Vec<adroit_model::Session>, Vec<(u128, Learned)>) {
+        follow(own, listed)
     }
-    fn resume_args(&self, settings: &Settings, conversation: &str) -> Option<Vec<String>> {
-        Some(adroit_claude::resume_args(
+    fn resume_args(&self, settings: &AgentSettings, conversation: &str) -> Option<Vec<String>> {
+        Some(super::resume_args(
             conversation,
             &options(&settings.sessions),
         ))
     }
     fn conversation(&self) -> String {
-        adroit_claude::new_session_id()
+        super::new_session_id()
     }
     fn start_args(
         &self,
-        settings: &Settings,
+        settings: &AgentSettings,
         name: &str,
         conversation: &str,
         prompt: &str,
     ) -> Vec<String> {
         let options = options(&settings.sessions);
-        adroit_claude::start_args(name, conversation, &options, prompt)
+        super::start_args(name, conversation, &options, prompt)
     }
-    fn integration_args(&self, program: &Path) -> Vec<String> {
-        crate::plugin::args(program)
+    fn integration_args(&self, program: &Path, state: &Path) -> Vec<String> {
+        super::plugin::args(program, &state.join("plugin"))
     }
     fn environment(&self) -> Vec<(String, String)> {
-        adroit_claude::ENV
+        super::ENV
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect()
     }
     fn history(&self, project: &Path) -> Vec<String> {
-        adroit_claude::history::read(project)
+        super::history::read(project)
     }
     fn dialog_open(&self, screen: &[String]) -> bool {
-        adroit_claude::dialog::dialog_open(screen)
+        super::dialog::dialog_open(screen)
     }
     fn rename_command(&self, name: &str) -> Option<String> {
         Some(format!("/rename {name}"))
     }
 }
 
-struct ClaudeConversation(adroit_claude::links::Transcript);
+struct ClaudeConversation(super::links::Transcript);
 
 impl ConversationReader for ClaudeConversation {
     fn stats(&self) -> adroit_model::ConversationStats {
         self.0.stats()
     }
-    fn read(&mut self) -> adroit_claude::links::Links {
+    fn read(&mut self) -> super::links::Links {
         self.0.read(&|p: &Path| p.is_file());
         self.0.links()
     }
@@ -213,8 +221,8 @@ impl ConversationReader for ClaudeConversation {
 
 /// Claude Code's options for a session as `sessions` says, each word trimmed
 /// and empty tools dropped.
-fn options(sessions: &SessionOptions) -> adroit_claude::Options {
-    adroit_claude::Options {
+fn options(sessions: &SessionOptions) -> super::Options {
+    super::Options {
         model: sessions.model.trim().to_string(),
         permission_mode: sessions.permission_mode.trim().to_string(),
         disallowed_tools: sessions
@@ -223,9 +231,71 @@ fn options(sessions: &SessionOptions) -> adroit_claude::Options {
             .map(|t| t.trim().to_string())
             .filter(|t| !t.is_empty())
             .collect(),
-        read_only: sessions
-            .read_only
-            .as_ref()
-            .map(adroit_claude::ReadOnly::protecting),
+        read_only: sessions.read_only.as_ref().map(super::ReadOnly::protecting),
     }
+}
+
+/// What starts Claude Code with `args` to ask it something outside a console,
+/// as `settings` start a session: the program, its arguments, and the
+/// variables the settings add.
+fn asked(settings: &AgentSettings, args: Vec<String>) -> Started {
+    let (program, args) =
+        settings
+            .claude
+            .command_line(&super::claude_program(), &args, &settings.shell);
+    (
+        program,
+        args,
+        settings.claude.env.clone().into_iter().collect(),
+    )
+}
+
+/// Read Claude Code's `listed` sessions against adroit's `own`: each of `own`
+/// learns the process that holds its conversation, and follows that process
+/// to the conversation `/clear` or `/resume` moves it to. The sessions of
+/// `listed` that run in other terminals, and what was learned, by each
+/// session's daemon id.
+fn follow(
+    own: &mut [adroit_model::Session],
+    listed: Vec<adroit_model::Session>,
+) -> (Vec<adroit_model::Session>, Vec<(u128, Learned)>) {
+    let mut learned = Vec::new();
+    for s in own.iter_mut().filter(|s| s.agent == Agent::Claude) {
+        let Some(id) = adroit_model::daemon::id_of(&s.id) else {
+            continue;
+        };
+        match s.pid {
+            Some(pid) => {
+                let moved = listed
+                    .iter()
+                    .find(|l| l.pid == Some(pid))
+                    .filter(|l| !l.session_id.is_empty() && l.session_id != s.session_id);
+                if let Some(l) = moved {
+                    s.session_id = l.session_id.clone();
+                    learned.push((id, Learned::Conversation(s.session_id.clone())));
+                }
+            }
+            None => {
+                let holding = listed
+                    .iter()
+                    .filter(|_| !s.session_id.is_empty())
+                    .find(|l| l.session_id == s.session_id)
+                    .and_then(|l| l.pid);
+                if let Some(pid) = holding {
+                    s.pid = Some(pid);
+                    learned.push((id, Learned::Pid(pid)));
+                }
+            }
+        }
+    }
+    let elsewhere = listed
+        .into_iter()
+        .filter(|l| {
+            !own.iter().any(|s| {
+                s.agent == l.agent
+                    && (s.session_id == l.session_id || (s.pid.is_some() && s.pid == l.pid))
+            })
+        })
+        .collect();
+    (elsewhere, learned)
 }

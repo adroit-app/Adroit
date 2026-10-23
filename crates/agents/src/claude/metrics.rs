@@ -6,7 +6,7 @@ use adroit_model::{ConversationStats, Tokens};
 use serde_json::Value;
 
 pub fn timestamp_ms(value: &Value) -> Option<u64> {
-    value.as_str().and_then(crate::subagents::epoch_ms)
+    value.as_str().and_then(super::subagents::epoch_ms)
 }
 
 #[derive(Debug, Clone, Default)]

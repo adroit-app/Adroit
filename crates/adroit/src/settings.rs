@@ -7,8 +7,8 @@ use std::sync::{LazyLock, RwLock};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 
-pub use crate::agents::CodexOptions;
 use crate::paths::config_dir;
+pub use adroit_agents::CodexOptions;
 pub use adroit_model::config::{Launch, SessionOptions, ShellLaunch};
 
 /// Which Option keys count as Alt, sending Meta, in a console; the others type
@@ -253,6 +253,18 @@ fn expand(path: &str, home: &std::path::Path) -> PathBuf {
 const RETIRED: &[&str] = &["naming_model", "projects_dir"];
 
 impl Settings {
+    /// What these settings say of how agents start, `login` being the
+    /// account's login shell.
+    pub fn agents(&self, login: &str) -> adroit_agents::AgentSettings {
+        adroit_agents::AgentSettings {
+            shell: self.shell.program(login),
+            claude: self.claude.clone(),
+            codex: self.codex.clone(),
+            sessions: self.sessions.clone(),
+            codex_sessions: self.codex_sessions.clone(),
+        }
+    }
+
     /// How `agent` is started.
     pub fn launch(&self, agent: adroit_model::Agent) -> &Launch {
         match agent {
@@ -299,7 +311,7 @@ impl Settings {
         let d = &mut self.details;
         d.log_commits = d.log_commits.clamp(1, 1000);
         d.diff_lines = d.diff_lines.clamp(1, 100_000);
-        d.links_kept = d.links_kept.clamp(1, adroit_claude::links::KEPT);
+        d.links_kept = d.links_kept.clamp(1, adroit_agents::claude::links::KEPT);
         d.links_shown = d.links_shown.max(1);
         self
     }

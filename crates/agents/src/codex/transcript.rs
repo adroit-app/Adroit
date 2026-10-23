@@ -5,10 +5,10 @@ use std::io::{Read, Seek, SeekFrom};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
-use adroit_claude::links::{Collector, Links};
+use crate::claude::links::{Collector, Links};
 use serde_json::{Value, json};
 
-use crate::agents::ConversationReader;
+use crate::ConversationReader;
 
 pub(super) fn thread_id(id: &str) -> bool {
     id.len() == 36
@@ -343,7 +343,7 @@ impl ConversationReader for Transcript {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adroit_claude::links::{Kind, Touch};
+    use crate::claude::links::{Kind, Touch};
     use serde_json::{Value, json};
     use std::io::Write;
 

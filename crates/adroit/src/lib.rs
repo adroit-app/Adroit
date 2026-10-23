@@ -1,7 +1,6 @@
 //! The adroit window.
 
 pub mod actions;
-mod agents;
 mod alerts;
 mod app;
 mod awake;
@@ -16,6 +15,7 @@ pub mod content;
 mod daemon;
 pub mod delegation;
 mod details;
+mod draft_agent;
 pub mod editor;
 pub mod env;
 pub mod execution;
@@ -41,7 +41,6 @@ mod paths;
 pub mod picker;
 mod picker_view;
 mod pictures;
-mod plugin;
 mod processes;
 mod programs;
 pub mod prompts;

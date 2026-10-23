@@ -8,7 +8,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use adroit_claude::links::ImageFile;
+use adroit_agents::claude::links::ImageFile;
 use adroit_term::Drawn;
 use base64::Engine;
 use image::{DynamicImage, ImageFormat, RgbaImage};
@@ -343,7 +343,7 @@ fn mime(path: &Path) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use adroit_claude::links::Touch;
+    use adroit_agents::claude::links::Touch;
 
     use super::*;
 

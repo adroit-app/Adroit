@@ -6,7 +6,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 /// Ask an app-server process one question, without creating a thread or turn.
 pub(super) async fn request(
-    (program, args, env): adroit_claude::Started,
+    (program, args, env): crate::Started,
     dir: &Path,
     timeout: Duration,
     method: &str,

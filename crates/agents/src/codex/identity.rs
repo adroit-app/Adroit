@@ -5,7 +5,8 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use super::{Agent, Settings, rpc, transcript};
+use super::{rpc, transcript};
+use crate::{Agent, AgentSettings};
 
 pub(super) fn prefix(title: &str) -> Option<String> {
     let mut matches = title.split_whitespace().filter_map(|part| {
@@ -17,13 +18,17 @@ pub(super) fn prefix(title: &str) -> Option<String> {
     matches.next().is_none().then_some(found)
 }
 
-pub(super) async fn resolve(settings: Settings, cwd: PathBuf, title: String) -> Option<String> {
+pub(super) async fn resolve(
+    settings: AgentSettings,
+    cwd: PathBuf,
+    title: String,
+) -> Option<String> {
     let prefix = prefix(&title)?;
     tokio::time::timeout(Duration::from_secs(3), async {
         let mut cursor = Value::Null;
         let mut matched = BTreeSet::new();
         for _ in 0..8 {
-            let start = crate::agents::launch_with_settings(
+            let start = crate::launch_with_settings(
                 &settings,
                 Agent::Codex,
                 vec!["app-server".into()],

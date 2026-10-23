@@ -3,6 +3,7 @@
 //! about the directories they run in.
 
 pub mod config;
+pub mod daemon;
 mod inbox;
 mod launch;
 mod metrics;

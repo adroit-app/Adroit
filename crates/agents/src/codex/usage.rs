@@ -1,4 +1,4 @@
-use adroit_claude::usage::{Limit, Severity, Window};
+use crate::claude::usage::{Limit, Severity, Window};
 use serde_json::Value;
 use std::path::Path;
 use std::time::Duration;
@@ -58,7 +58,7 @@ fn limits(result: &Value) -> Option<Vec<Limit>> {
 
 /// Ask the installed Codex for account limits without starting a thread or turn.
 pub(super) async fn probe(
-    start: adroit_claude::Started,
+    start: crate::Started,
     dir: &Path,
     timeout: Duration,
 ) -> Option<Vec<Limit>> {
@@ -121,7 +121,7 @@ mod tests {
         );
     }
 
-    fn fake(body: &str) -> (tempfile::TempDir, adroit_claude::Started) {
+    fn fake(body: &str) -> (tempfile::TempDir, crate::Started) {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         let program = dir.path().join("codex");
@@ -203,7 +203,7 @@ exec sleep 30
         let got = probe(
             ("codex".into(), vec!["app-server".into()], vec![]),
             &std::env::temp_dir(),
-            adroit_claude::usage::PROBE_TIMEOUT,
+            crate::claude::usage::PROBE_TIMEOUT,
         )
         .await
         .expect("Codex account limits");

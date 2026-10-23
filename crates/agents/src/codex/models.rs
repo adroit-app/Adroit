@@ -33,7 +33,7 @@ fn models(result: &Value) -> Option<Vec<ProviderModel>> {
 
 /// Ask the installed Codex which models it accepts without starting a thread or turn.
 pub(super) async fn probe(
-    start: adroit_claude::Started,
+    start: crate::Started,
     dir: &Path,
     timeout: Duration,
 ) -> Option<Vec<ProviderModel>> {

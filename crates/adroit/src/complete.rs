@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use adroit_claude::commands::Command;
+use adroit_agents::claude::commands::Command;
 use adroit_model::Tree;
 use adroit_nvim::Candidate;
 
@@ -207,5 +207,40 @@ mod tests {
             commands_dir(&Tree::default(), Some(&Tab::Terminal(1)), Some(&place)),
             None
         );
+    }
+
+    #[tokio::test]
+    async fn codex_slash_commands_reach_the_embedded_prompt() {
+        let list = adroit_agents::adapter(adroit_model::Agent::Codex).builtin_commands();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let editor = adroit_nvim::Embedded::spawn(
+            "nvim",
+            &["-u", "NONE", "-i", "NONE", "--noplugin"],
+            80,
+            10,
+            move |event| {
+                let _ = tx.send(event);
+            },
+        )
+        .await
+        .unwrap();
+        editor.set_commands(&commands(&list)).await.unwrap();
+        editor.input("/mo").await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                if editor
+                    .state()
+                    .popup()
+                    .is_some_and(|p| p.items.iter().any(|c| c.word == "/model"))
+                {
+                    break;
+                }
+                rx.recv().await.expect("editor event");
+            }
+        })
+        .await
+        .expect("/model completion");
+        editor.input("<C-y>").await.unwrap();
+        assert_eq!(editor.take_text().await.unwrap(), "/model ");
     }
 }

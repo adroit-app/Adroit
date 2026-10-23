@@ -1,7 +1,7 @@
 //! A subagent of the overview, opened: what it was asked, its latest steps,
 //! and what it reported once it ended.
 
-use adroit_claude::subagents::{Agent, Standing, Step};
+use adroit_agents::claude::subagents::{Agent, Standing, Step};
 use dioxus::prelude::*;
 
 use crate::components::{Breadcrumbs, Section, StateGlyph};

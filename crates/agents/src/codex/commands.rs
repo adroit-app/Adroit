@@ -1,4 +1,4 @@
-use adroit_claude::commands::Command;
+use crate::claude::commands::Command;
 
 fn skills(reply: &serde_json::Value, dir: &std::path::Path) -> Vec<Command> {
     let mut seen = std::collections::HashSet::new();
@@ -39,7 +39,7 @@ fn skills(reply: &serde_json::Value, dir: &std::path::Path) -> Vec<Command> {
 }
 
 pub(super) async fn probe(
-    start: adroit_claude::Started,
+    start: crate::Started,
     dir: &std::path::Path,
     timeout: std::time::Duration,
 ) -> Option<Vec<Command>> {
