@@ -6,13 +6,14 @@
 # it, else ad hoc. Only the same identity keeps what macOS let the app do.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
-app="$root/target/macos/Adroit.app"
-work="$root/target/macos/work"
+target="${CARGO_TARGET_DIR:-$root/target}"
+app="$target/macos/Adroit.app"
+work="$target/macos/work"
 version=$(perl -ne 'print $1 and exit if /^version = "(.*)"/' "$root/Cargo.toml")
 
 rm -rf "$app" "$work"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$work/adroit.iconset"
-cp "$root/target/release/adroit" "$app/Contents/MacOS/adroit"
+cp "$target/release/adroit" "$app/Contents/MacOS/adroit"
 # The build links libiconv from the Nix store; macOS has its own, so the app
 # runs where the store is not.
 nix_iconv=$(otool -L "$app/Contents/MacOS/adroit" | perl -ne 'print $1 if m{(\/nix\/store\/\S*libiconv\S*)}')

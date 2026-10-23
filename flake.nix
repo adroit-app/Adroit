@@ -97,6 +97,14 @@
             ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ pkgs.libiconv ]
             ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.pkg-config ]
             ++ webviewLibraries pkgs;
+            # Every jj workspace builds into the main checkout's target, found
+            # beside the common Git directory, instead of a copy of its own.
+            shellHook = ''
+              if [ -z "''${CARGO_TARGET_DIR:-}" ]; then
+                common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) &&
+                  export CARGO_TARGET_DIR="$(dirname "$common")/target"
+              fi
+            '';
           };
         }
       );

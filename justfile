@@ -45,7 +45,7 @@ build-macos:
 [confirm("Replace /Applications/Adroit.app?")]
 install-macos: build-macos
     rm -rf /Applications/Adroit.app
-    cp -R target/macos/Adroit.app /Applications/
+    cp -R "${CARGO_TARGET_DIR:-target}/macos/Adroit.app" /Applications/
 
 # Make the identity the macOS app is signed with, "Adroit Release", into a new folder to keep.
 [macos]
