@@ -13,6 +13,7 @@ adroit-nvim.workspace = true
 adroit-term.workspace = true
 base64.workspace = true
 dioxus = { version = "0.7.10", features = ["desktop"] }
+fontdb = "0.24.0"
 image.workspace = true
 libc.workspace = true
 nucleo-matcher.workspace = true
@@ -27,6 +28,7 @@ shell-words.workspace = true
 sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
 toml.workspace = true
 toml_edit.workspace = true
+ttf-parser = "0.25.1"
 tokio.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -41,5 +43,4 @@ serde_json.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
-ttf-parser = "0.25.1"
 wuff = "0.2.9"

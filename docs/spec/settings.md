@@ -162,6 +162,11 @@ for its sessions. Only that agent's options are offered; changes
 do not affect other agents or sessions already running. General sets the
 agent new sessions start with. Programs holds the shell and Neovim options.
 
+The Settings window offers the font among adroit's default, adroit's own and
+the families installed whose letters and digits are all as wide, the console
+being a grid. A family the settings name that is not installed is offered as
+such and kept, drawn in adroit's own meanwhile, until another is picked.
+
 A theme is adroit's own, one of those it comes with (Nightfox, TokyoNight,
 Catppuccin, Gruvbox, Dracula, Nord, Kanagawa, Rose Pine and GitHub Light among
 them), or one of your own: a file in `themes/` beside `settings.toml`, named

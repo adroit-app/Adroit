@@ -22,6 +22,7 @@ pub mod file_icons;
 pub mod filer;
 pub mod files;
 pub mod focus;
+mod fonts;
 mod fuzzy;
 mod graph;
 mod icons;
