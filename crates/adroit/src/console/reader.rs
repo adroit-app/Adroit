@@ -115,7 +115,8 @@ impl Reader {
             match ev {
                 NvimEvent::Redraw => *self.reader_frame.write() += 1,
                 NvimEvent::Scrolled { top, left } => self.reader_view.set((top, left)),
-                NvimEvent::Yank { text, lines } => match crate::app::copy_to_clipboard(&text) {
+                NvimEvent::Yank { text, lines } => match crate::clipboard::copy_to_clipboard(&text)
+                {
                     Ok(()) if lines == 1 => app.notice("Copied a line".into()),
                     Ok(()) => app.notice(format!("Copied {lines} lines")),
                     Err(e) => app.notice(format!("cannot copy: {e}")),

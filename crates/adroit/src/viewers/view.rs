@@ -241,7 +241,7 @@ fn ViewerOf(
                     document::eval(&media_script(&media_id, m));
                 }
                 Effect::CopyPath => {
-                    let _ = crate::app::copy_to_clipboard(&path.to_string_lossy());
+                    let _ = crate::clipboard::copy_to_clipboard(&path.to_string_lossy());
                 }
                 Effect::Close => on_close.call(()),
                 Effect::Redraw | Effect::Nothing => {}

@@ -199,7 +199,7 @@ impl AppCtx {
             Effect::Open(target) => open([target]),
             Effect::Reveal(path) => open(["-R".into(), path]),
             Effect::Copy { text, done } => {
-                let told = match crate::app::copy_to_clipboard(&text) {
+                let told = match crate::clipboard::copy_to_clipboard(&text) {
                     Ok(()) => done,
                     Err(e) => format!("cannot copy: {e}"),
                 };
