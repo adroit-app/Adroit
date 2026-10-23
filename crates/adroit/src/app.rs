@@ -2607,9 +2607,7 @@ fn App() -> Element {
                         drafted: drafted.into(),
                     },
                     on: RowEvents {
-                        onopen: EventHandler::new(move |item| {
-                            open(item, Some(Opening::Existing), false);
-                        }),
+                        onopen: EventHandler::new(move |item| app.dispatch(Msg::RowClicked(item))),
                         onstart: EventHandler::new(move |item| {
                             app.dispatch(Msg::MenuRun { target: Target::Row(item), action: Action::SessionNew });
                         }),

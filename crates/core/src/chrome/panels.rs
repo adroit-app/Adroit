@@ -51,8 +51,14 @@ pub(crate) fn kept(panels: &mut Panels, layout: Layout) -> Vec<Effect> {
     Vec::new()
 }
 
-/// The window's body was drawn `body` pixels wide.
+/// The window's body was drawn `body` pixels wide. A body of no width is
+/// not one the window is drawn at: the page reports it for a moment as the
+/// first session opens, and reports nothing after, so taking it would leave
+/// the panels squeezed to their floor.
 pub(crate) fn resized(panels: &mut Panels, body: f64) -> Vec<Effect> {
+    if body <= 0.0 {
+        return Vec::new();
+    }
     panels.body = body;
     Vec::new()
 }
@@ -243,6 +249,19 @@ mod tests {
         let run = run.send(Msg::PanelShow(Side::Details));
         assert!(run.state().chrome.panels.layout.show_details);
         assert!(keeps(&run).is_empty());
+    }
+
+    #[test]
+    fn a_body_measured_as_nothing_leaves_the_panels_as_they_were_drawn() {
+        // The first session opened in an empty window draws the body as 0
+        // by 0 for a moment, and nothing measures it again afterwards.
+        let run = Scenario::new()
+            .send(kept(240.0, 240.0))
+            .send(Msg::BodyResized(960.0))
+            .send(Msg::BodyResized(0.0));
+        assert_eq!(run.state().chrome.panels.drawn(), (240.0, 240.0));
+        let run = run.send(Msg::BodyResized(900.0));
+        assert_eq!(run.state().chrome.panels.drawn(), (210.0, 210.0));
     }
 
     #[test]

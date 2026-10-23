@@ -575,6 +575,20 @@ fn opening_a_row_shows_what_it_stands_for_and_may_take_the_keys() {
 }
 
 #[test]
+fn a_row_clicked_opens_as_cursor_go_opens_it() {
+    let item = Item::Session("a".into());
+    let clicked = listed_with(vec![session("a", "/r")]).send(Msg::RowClicked(item.clone()));
+    let gone = listed_with(vec![session("a", "/r")]).send(Msg::OpenRow {
+        item,
+        how: Some(Opening::Existing),
+        take_keys: true,
+    });
+    assert_eq!(active(&clicked), active(&gone));
+    assert_eq!(clicked.state().content.focus, Area::Console);
+    assert_eq!(clicked.last_effects(), gone.last_effects());
+}
+
+#[test]
 fn opening_a_file_s_row_starts_a_neovim_on_it() {
     let file = Item::File {
         worktree: "/r".into(),

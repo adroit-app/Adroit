@@ -125,6 +125,8 @@ pub enum Msg {
         how: Option<Opening>,
         take_keys: bool,
     },
+    /// A row was clicked: it opens as `cursor.go` opens it.
+    RowClicked(Item),
     /// A key or a menu asked the content to do this.
     Window(Action),
     /// A window was clicked.
