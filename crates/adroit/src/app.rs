@@ -6,7 +6,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use adroit_claude::git::DiffKind;
 use adroit_claude::links::{Kind as LinkKind, Link, Links, Touch};
 use adroit_claude::usage::{self, Severity};
 use adroit_claude::{commands, places};
@@ -15,6 +14,7 @@ use adroit_model::{
 };
 use adroit_nvim::{Embedded, Event as NvimEvent, notation};
 use adroit_term::{Daemon, Key, Palette, Pane, Size, Spawn};
+use adroit_vcs::{DiffKind, Repo, ghq};
 use dioxus::prelude::*;
 use tokio::sync::{Notify, mpsc, oneshot};
 
@@ -2144,7 +2144,7 @@ fn App() -> Element {
                                 let mut asking = tokio::task::JoinSet::new();
                                 for dir in unread {
                                     asking.spawn(async move {
-                                        let w = adroit_claude::inspect(&dir).await;
+                                        let w = adroit_vcs::inspect(&dir).await;
                                         (dir, w)
                                     });
                                 }
@@ -2175,7 +2175,7 @@ fn App() -> Element {
                                 }) {
                                     let repo = repo.clone();
                                     asking.spawn(async move {
-                                        let ws = adroit_claude::git::worktrees(&repo)
+                                        let ws = adroit_vcs::git::worktrees(&repo)
                                             .await
                                             .unwrap_or_default();
                                         (repo, ws)
@@ -2366,9 +2366,7 @@ fn App() -> Element {
         let p = place();
         spawn(async move {
             let listed = match &p {
-                Some(p) => adroit_claude::git::files(&p.worktree)
-                    .await
-                    .unwrap_or_default(),
+                Some(p) => Repo::open(&p.worktree).files().await.unwrap_or_default(),
                 None => Vec::new(),
             };
             // A listing that took longer than the next one is for a worktree
@@ -3114,7 +3112,7 @@ fn App() -> Element {
     // What jj or git says of the files of each worktree whose files are
     // listed, read again now and then; reading it lists the files again too,
     // so files made or removed meanwhile show.
-    let mut file_marks = use_signal(HashMap::<PathBuf, files::Marks>::new);
+    let mut file_marks = use_signal(HashMap::<PathBuf, adroit_vcs::Marks>::new);
     let items = use_memo(move || {
         let _ = file_marks.read();
         nav::items(
@@ -3138,13 +3136,8 @@ fn App() -> Element {
                 .collect();
             let mut read = HashMap::new();
             for root in open {
-                let changes = adroit_claude::git::changes(&root).await.unwrap_or_default();
-                let ignored = adroit_claude::git::ignored(&root).await.unwrap_or_default();
-                let jj = adroit_claude::jj::is_jj(&root);
-                read.insert(
-                    root.clone(),
-                    files::Marks::new(&root, &changes, &ignored, jj),
-                );
+                let marks = Repo::open(&root).marks().await;
+                read.insert(root, marks);
             }
             if *file_marks.peek() != read {
                 file_marks.set(read);
@@ -3784,7 +3777,7 @@ fn App() -> Element {
                 tokio::task::spawn_blocking(move || places::recent(&home)),
                 async {
                     if asked.ghq {
-                        tokio::join!(places::ghq_list(), places::ghq_roots())
+                        tokio::join!(ghq::list(), ghq::roots())
                     } else {
                         (Vec::new(), Vec::new())
                     }
@@ -5783,8 +5776,7 @@ fn App() -> Element {
     // A workspace outside git may still be a jj repository, which the details
     // panel reads through jj.
     let outside_git = current.as_ref().is_some_and(|p| {
-        t.workspace_of(&p.worktree).is_some_and(|w| !w.git)
-            && !adroit_claude::jj::is_jj(&p.worktree)
+        t.workspace_of(&p.worktree).is_some_and(|w| !w.git) && !Repo::open(&p.worktree).is_jj()
     });
     let waiting = ib.read().len();
     let working = t

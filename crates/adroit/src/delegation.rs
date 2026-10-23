@@ -11,7 +11,6 @@ pub mod launch;
 pub mod protocol;
 pub mod service;
 pub mod store;
-pub mod worktree;
 
 /// How a session stands while its agent starts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

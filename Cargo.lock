@@ -16,6 +16,7 @@ dependencies = [
  "adroit-model",
  "adroit-nvim",
  "adroit-term",
+ "adroit-vcs",
  "base64 0.23.1",
  "core-foundation",
  "dioxus",
@@ -46,6 +47,7 @@ name = "adroit-claude"
 version = "0.0.0"
 dependencies = [
  "adroit-model",
+ "adroit-vcs",
  "libc",
  "serde_json",
  "tempfile",
@@ -91,6 +93,16 @@ dependencies = [
  "libc",
  "png 0.18.1",
  "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+]
+
+[[package]]
+name = "adroit-vcs"
+version = "0.0.0"
+dependencies = [
+ "adroit-model",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",

@@ -5,68 +5,7 @@ use std::path::Path;
 
 use adroit_model::Worktree;
 
-use crate::{Error, run, run_head};
-
-/// A file a change touches.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Change {
-    /// How it changed: git's two letters for the worktree, index then
-    /// worktree (`M `, ` M`, `??`, …), and one for a commit (`M`, `A`, `D`,
-    /// `R`, `C`).
-    pub status: String,
-    pub path: String,
-    /// The path a rename or copy came from.
-    pub from: Option<String>,
-}
-
-impl Change {
-    /// The paths to ask a diff of, the one it came from first.
-    pub fn paths(&self) -> Vec<&str> {
-        self.from
-            .iter()
-            .map(String::as_str)
-            .chain([self.path.as_str()])
-            .collect()
-    }
-
-    /// Its path, and where it came from.
-    pub fn shown(&self) -> String {
-        match &self.from {
-            Some(from) => format!("{from} -> {}", self.path),
-            None => self.path.clone(),
-        }
-    }
-}
-
-/// A commit, or a jj change.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Commit {
-    /// What names it: a commit hash, or a change ID, which a rewrite keeps.
-    pub id: String,
-    /// `id` as short as it is shown.
-    pub short: String,
-    /// The first line of its description; empty when it has none.
-    pub subject: String,
-    /// How long ago, as git or jj words it.
-    pub when: String,
-    /// The commit hash its children name it by among their parents.
-    pub node: String,
-    /// The commit hashes of its parents, the first parent first.
-    pub parents: Vec<String>,
-    /// Whether it is the working copy.
-    pub current: bool,
-    pub empty: bool,
-    pub conflict: bool,
-    pub bookmarks: Vec<String>,
-}
-
-/// The identity and full description of a single revision.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Revision {
-    pub id: String,
-    pub short: String,
-    pub description: String,
-}
+use crate::{Change, Commit, DIFF_BYTES, DiffKind, DiffLine, Error, Revision, run, run_head};
 
 pub fn parse_revision(out: &str) -> Option<Revision> {
     let mut fields = out.splitn(3, '\0');
@@ -97,27 +36,6 @@ pub async fn revision(path: &Path, rev: &str) -> Result<Revision, Error> {
         stderr: "Cannot read the commit description".into(),
     })
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DiffKind {
-    File,
-    Hunk,
-    Added,
-    Removed,
-    Context,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DiffLine {
-    pub kind: DiffKind,
-    pub text: String,
-}
-
-/// The most diff lines read; the rest is cut.
-pub const DIFF_LINES: usize = 2000;
-
-/// The most diff bytes read, for a diff of few but very long lines.
-pub const DIFF_BYTES: usize = 1 << 20;
 
 const FIELD: char = '\u{1f}';
 
@@ -467,6 +385,7 @@ pub async fn ignored(path: &Path) -> Result<Vec<String>, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::DIFF_LINES;
 
     #[tokio::test]
     async fn ignored_paths_name_a_directory_ignored_whole_once() {
@@ -608,14 +527,6 @@ mod tests {
                 change("R ", "new.rs", Some("old.rs")),
             ]
         );
-    }
-
-    #[test]
-    fn a_renamed_file_is_shown_with_where_it_came_from_and_diffed_on_both_paths() {
-        let c = change("R", "new.rs", Some("old.rs"));
-        assert_eq!(c.shown(), "old.rs -> new.rs");
-        assert_eq!(c.paths(), ["old.rs", "new.rs"]);
-        assert_eq!(change("M", "a.rs", None).paths(), ["a.rs"]);
     }
 
     #[test]

@@ -4,11 +4,11 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use adroit_claude::git::{Change, Commit, DiffLine};
 use adroit_claude::links::{Kind as LinkKind, Link, Peer, Touch};
 use adroit_claude::subagents::{Agent, Standing};
 use adroit_claude::usage::{Limit, Severity, Window};
 use adroit_model::{Session, State};
+use adroit_vcs::{Change, Commit, DiffLine, Limits, Repo, Rev, Spot};
 
 /// One line of what the overview says about a session.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -396,23 +396,6 @@ impl Sheet {
         let at = Self::ALL.iter().position(|s| *s == self).unwrap_or(0);
         Self::ALL[crate::nav::wrap(at, delta, Self::ALL.len())]
     }
-}
-
-/// Where changes are read from.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Rev {
-    /// What is being worked on: git's worktree, or jj's `@`.
-    WorkingCopy,
-    /// A commit, or a jj change, by its [`Commit::id`].
-    Commit(String),
-}
-
-/// What a level of a sheet shows.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Spot {
-    Files(Rev),
-    Diff(Rev, Change),
-    Log,
 }
 
 /// What was read for a spot.
@@ -890,7 +873,7 @@ pub struct View {
     pub spot: Spot,
     pub worktree: PathBuf,
     pub listing: Listing,
-    pub revision: Option<adroit_claude::git::Revision>,
+    pub revision: Option<adroit_vcs::Revision>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1100,77 +1083,23 @@ impl Drill {
 /// Read what `spot` shows of `worktree`: through jj in a jj repository,
 /// through git otherwise or when jj cannot be run.
 pub async fn load(spot: Spot, worktree: PathBuf) -> View {
-    use adroit_claude::{Error, git, jj};
-    let diff_lines = crate::settings::current().details.diff_lines;
-    let mut listing = None;
-    let mut read_with_jj = false;
-    if jj::is_jj(&worktree) {
-        let rev = |r: &Rev| match r {
-            Rev::WorkingCopy => "@".to_string(),
-            Rev::Commit(id) => id.clone(),
-        };
-        let read = match &spot {
-            Spot::Files(r) => jj::files(&worktree, &rev(r)).await.map(Listing::Files),
-            Spot::Diff(r, c) => jj::file_diff(&worktree, &rev(r), c, diff_lines)
-                .await
-                .map(Listing::Diff),
-            Spot::Log => jj::history(&worktree, crate::settings::current().details.log_commits)
-                .await
-                .map(Listing::Log),
-        };
-        // Without jj, a colocated repository still reads through git.
-        if !matches!(read, Err(Error::Spawn { .. })) {
-            read_with_jj = true;
-            listing = Some(read);
-        }
-    }
-    let read = match listing {
-        Some(read) => read,
-        None => {
-            let rev = |r: &Rev| match r {
-                Rev::WorkingCopy => None,
-                Rev::Commit(id) => Some(id.clone()),
-            };
-            match &spot {
-                Spot::Files(Rev::WorkingCopy) => git::changes(&worktree).await.map(Listing::Files),
-                Spot::Files(Rev::Commit(id)) => {
-                    git::commit_files(&worktree, id).await.map(Listing::Files)
-                }
-                Spot::Diff(r, c) => git::file_diff(&worktree, rev(r).as_deref(), c, diff_lines)
-                    .await
-                    .map(Listing::Diff),
-                Spot::Log => {
-                    git::history(&worktree, crate::settings::current().details.log_commits)
-                        .await
-                        .map(Listing::Log)
-                }
-            }
-        }
+    let details = crate::settings::current().details;
+    let limits = Limits {
+        diff_lines: details.diff_lines,
+        log_commits: details.log_commits,
     };
-    let revision = if read.is_ok() {
-        match &spot {
-            Spot::Files(rev) => {
-                let target = match rev {
-                    Rev::WorkingCopy if read_with_jj => "@",
-                    Rev::WorkingCopy => "HEAD",
-                    Rev::Commit(id) => id,
-                };
-                if read_with_jj {
-                    jj::revision(&worktree, target).await.ok()
-                } else {
-                    git::revision(&worktree, target).await.ok()
-                }
-            }
-            _ => None,
-        }
-    } else {
-        None
+    let read = Repo::open(&worktree).load(&spot, limits).await;
+    let listing = match read.listing {
+        Ok(adroit_vcs::Listing::Files(files)) => Listing::Files(files),
+        Ok(adroit_vcs::Listing::Log(commits)) => Listing::Log(commits),
+        Ok(adroit_vcs::Listing::Diff(lines)) => Listing::Diff(lines),
+        Err(e) => Listing::Error(e.to_string()),
     };
     View {
         spot,
         worktree,
-        listing: read.unwrap_or_else(|e| Listing::Error(e.to_string())),
-        revision,
+        listing,
+        revision: read.revision,
     }
 }
 
@@ -1178,71 +1107,9 @@ pub async fn load(spot: Spot, worktree: PathBuf) -> View {
 mod tests {
     use super::*;
 
-    use adroit_claude::git::DiffKind;
+    use adroit_vcs::DiffKind;
 
     use adroit_model::{Kind, Session, State, Wait};
-
-    #[tokio::test]
-    async fn changes_and_opened_log_entries_show_their_full_descriptions_even_without_files() {
-        let dir = tempfile::tempdir().unwrap();
-        let jj = |args: &[&str]| {
-            std::process::Command::new("jj")
-                .args([
-                    "--config",
-                    "user.name=test",
-                    "--config",
-                    "user.email=test@example.com",
-                ])
-                .args(args)
-                .current_dir(dir.path())
-                .output()
-                .unwrap()
-                .status
-                .success()
-        };
-        assert!(jj(&["git", "init", "."]));
-        assert!(jj(&[
-            "describe",
-            "-m",
-            "first subject",
-            "-m",
-            "The reason for this change."
-        ]));
-        let changes = load(Spot::Files(Rev::WorkingCopy), dir.path().into()).await;
-        assert!(matches!(changes.listing, Listing::Files(ref files) if files.is_empty()));
-        let first = changes.revision.unwrap();
-        assert_eq!(
-            first.description,
-            "first subject\n\nThe reason for this change."
-        );
-        assert!(jj(&["new", "-m", "second subject"]));
-        let opened = load(
-            Spot::Files(Rev::Commit(first.id.clone())),
-            dir.path().into(),
-        )
-        .await;
-        assert_eq!(opened.revision, Some(first));
-        let changes = load(Spot::Files(Rev::WorkingCopy), dir.path().into()).await;
-        assert_eq!(changes.revision.unwrap().description, "second subject");
-        assert!(load(Spot::Log, dir.path().into()).await.revision.is_none());
-    }
-
-    #[tokio::test]
-    async fn an_unborn_git_worktree_lists_its_files_without_a_commit_description() {
-        let dir = tempfile::tempdir().unwrap();
-        assert!(
-            std::process::Command::new("git")
-                .args(["init", "-q"])
-                .current_dir(dir.path())
-                .status()
-                .unwrap()
-                .success()
-        );
-        std::fs::write(dir.path().join("new.txt"), "new").unwrap();
-        let view = load(Spot::Files(Rev::WorkingCopy), dir.path().into()).await;
-        assert!(matches!(view.listing, Listing::Files(ref files) if files.len() == 1));
-        assert!(view.revision.is_none());
-    }
 
     #[test]
     fn processes_fold_expand_and_open_with_the_same_overview_navigation() {

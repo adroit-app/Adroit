@@ -1,0 +1,16 @@
+[package]
+name = "adroit-vcs"
+description = "What adroit reads of and makes in git and jj repositories, and the repositories ghq keeps"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+adroit-model.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

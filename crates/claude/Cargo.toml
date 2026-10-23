@@ -1,6 +1,6 @@
 [package]
 name = "adroit-claude"
-description = "The calls adroit makes to Claude Code, git, jj and ghq"
+description = "The calls adroit makes to Claude Code"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,6 +9,7 @@ publish = false
 
 [dependencies]
 adroit-model.workspace = true
+adroit-vcs.workspace = true
 libc.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

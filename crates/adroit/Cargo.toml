@@ -11,6 +11,7 @@ adroit-claude.workspace = true
 adroit-model.workspace = true
 adroit-nvim.workspace = true
 adroit-term.workspace = true
+adroit-vcs.workspace = true
 base64.workspace = true
 dioxus = { version = "0.7.10", features = ["desktop"] }
 image.workspace = true

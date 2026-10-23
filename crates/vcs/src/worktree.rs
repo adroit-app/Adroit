@@ -7,13 +7,9 @@ use std::{
     time::Duration,
 };
 
-type Result<T> = std::result::Result<T, String>;
+use crate::Backend;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Backend {
-    Jj,
-    Git,
-}
+type Result<T> = std::result::Result<T, String>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Worktree {
@@ -108,8 +104,8 @@ fn slug(name: &str) -> String {
 }
 
 async fn identify(source: &Path) -> Result<(Backend, PathBuf, PathBuf)> {
-    for parent in source.ancestors() {
-        if exists(&parent.join(".jj"))? {
+    match Backend::of(source) {
+        Some(Backend::Jj) => {
             let reported = jj(source, &["root".as_ref()]).await?;
             let root = canonical(Path::new(reported.trim()))?;
             let metadata = root.join(".jj/repo");
@@ -120,9 +116,9 @@ async fn identify(source: &Path) -> Result<(Backend, PathBuf, PathBuf)> {
                     .map_err(|error| format!("cannot read the jj repository identity: {error}"))?;
                 root.join(".jj").join(pointer.trim())
             };
-            return Ok((Backend::Jj, root, canonical(&repository)?));
+            Ok((Backend::Jj, root, canonical(&repository)?))
         }
-        if exists(&parent.join(".git"))? {
+        Some(Backend::Git) => {
             let reported = command(
                 source,
                 "git",
@@ -138,17 +134,17 @@ async fn identify(source: &Path) -> Result<(Backend, PathBuf, PathBuf)> {
             let [top, common] = lines.as_slice() else {
                 return Err("Git did not report its worktree and repository".into());
             };
-            return Ok((
+            Ok((
                 Backend::Git,
                 canonical(Path::new(top))?,
                 canonical(Path::new(common))?,
-            ));
+            ))
         }
+        None => Err(format!(
+            "{} is not under version control, so no worktree can be made of it",
+            source.display()
+        )),
     }
-    Err(format!(
-        "{} is not under version control, so no worktree can be made of it",
-        source.display()
-    ))
 }
 
 async fn output(dir: &Path, program: &str, args: &[&OsStr]) -> Result<std::process::Output> {

@@ -1,10 +1,8 @@
-//! The directories a new session may be started in: those Claude Code has been
-//! used in, and the repositories ghq keeps.
+//! The directories a new session may be started in that Claude Code has been
+//! used in, and where it keeps their conversations.
 
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
-
-use crate::run;
 
 /// Where Claude Code keeps its state: `$CLAUDE_CONFIG_DIR`, else the home
 /// directory, which holds `.claude.json` and `.claude/` side by side.
@@ -97,25 +95,6 @@ fn last_written(dir: &Path) -> Option<SystemTime> {
     newest.chain([own]).max()
 }
 
-/// The repositories ghq keeps, or none when ghq is not installed.
-pub async fn ghq_list() -> Vec<PathBuf> {
-    lines(run("ghq", &["list", "--full-path"], None).await.ok())
-}
-
-/// The folders ghq keeps repositories under.
-pub async fn ghq_roots() -> Vec<PathBuf> {
-    lines(run("ghq", &["root", "--all"], None).await.ok())
-}
-
-fn lines(out: Option<String>) -> Vec<PathBuf> {
-    out.unwrap_or_default()
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .map(PathBuf::from)
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
@@ -193,14 +172,5 @@ mod tests {
         assert_eq!(last_written(&dir), Some(later));
         assert_eq!(last_written(&dir.join("missing")), None);
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn a_listing_is_one_path_a_line() {
-        assert_eq!(
-            lines(Some("/a\n\n /b \n".into())),
-            vec![PathBuf::from("/a"), PathBuf::from("/b")]
-        );
-        assert!(lines(None).is_empty());
     }
 }

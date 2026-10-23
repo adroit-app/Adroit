@@ -110,7 +110,7 @@ async fn start(
     let name = name_for(asked.name.as_deref(), prompt, &taken);
     let cwd = if asked.worktree {
         let summary = prompt.lines().next().unwrap_or_default();
-        crate::delegation::worktree::create(&dir, &name, asked.base.as_deref(), summary)
+        adroit_vcs::worktree::create(&dir, &name, asked.base.as_deref(), summary)
             .await?
             .path
     } else {

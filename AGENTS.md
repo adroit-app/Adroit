@@ -71,6 +71,7 @@ Scoped Commits:
 | `nvim` | `crates/nvim/` |
 | `model` | `crates/model/` |
 | `term` | `crates/term/` |
+| `vcs` | `crates/vcs/` |
 | `assets` | `assets/` |
 | `docs` | `docs/concept.md`, `README.md`, `AGENTS.md` |
 | `adr` | `docs/adr/` |

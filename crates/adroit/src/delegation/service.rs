@@ -360,7 +360,7 @@ async fn start(context: &Context, caller: &Session, start: protocol::Start) -> R
     let cwd = match (start.worktree, &start.base) {
         (true, base) => {
             let summary = prompt.lines().next().unwrap_or_default();
-            super::worktree::create(&dir, &name, base.as_deref(), summary)
+            adroit_vcs::worktree::create(&dir, &name, base.as_deref(), summary)
                 .await
                 .map_err(|error| Error::new(Code::Invalid, error))?
                 .path
@@ -419,7 +419,7 @@ async fn start(context: &Context, caller: &Session, start: protocol::Start) -> R
 /// The sessions that have not ended, narrowed as `filter` asks.
 async fn listed(all: Vec<Session>, filter: &protocol::Sessions) -> Result<Value> {
     let wanted_repo = match &filter.repo {
-        Some(dir) => Some(repository_of(dir).await.ok_or_else(|| {
+        Some(dir) => Some(adroit_vcs::common_dir(dir).await.ok_or_else(|| {
             Error::new(
                 Code::Invalid,
                 format!("{} is in no repository", dir.display()),
@@ -433,7 +433,7 @@ async fn listed(all: Vec<Session>, filter: &protocol::Sessions) -> Result<Value>
         .map(|dir| std::fs::canonicalize(dir).unwrap_or(dir.clone()));
     let mut out = Vec::new();
     for session in all.iter().filter(|session| !session.ended) {
-        let repository = repository_of(&session.cwd).await;
+        let repository = adroit_vcs::common_dir(&session.cwd).await;
         if wanted_repo.is_some() && repository != wanted_repo {
             continue;
         }
@@ -457,27 +457,6 @@ async fn listed(all: Vec<Session>, filter: &protocol::Sessions) -> Result<Value>
         }));
     }
     Ok(Value::Array(out))
-}
-
-/// The repository a directory belongs to, as Git names its shared directory,
-/// so worktrees of one repository answer the same.
-async fn repository_of(dir: &Path) -> Option<PathBuf> {
-    let output = tokio::time::timeout(
-        Duration::from_secs(5),
-        tokio::process::Command::new("git")
-            .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
-            .current_dir(dir)
-            .env_remove("GIT_DIR")
-            .env_remove("GIT_WORK_TREE")
-            .output(),
-    )
-    .await
-    .ok()?
-    .ok()?;
-    output
-        .status
-        .success()
-        .then(|| PathBuf::from(String::from_utf8_lossy(&output.stdout).trim()))
 }
 
 async fn watch_models(context: Context) {

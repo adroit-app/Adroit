@@ -3,16 +3,8 @@
 
 use std::path::Path;
 
-use crate::git::{Change, Commit, DIFF_BYTES, DiffLine, Revision, parse_diff, parse_revision};
-use crate::{Error, run, run_head};
-
-/// Whether `dir` belongs to a jj workspace: the nearest directory holding
-/// `.jj` or `.git` holds `.jj`, as a colocated one also does.
-pub fn is_jj(dir: &Path) -> bool {
-    dir.ancestors()
-        .find(|d| d.join(".jj").is_dir() || d.join(".git").exists())
-        .is_some_and(|d| d.join(".jj").is_dir())
-}
+use crate::git::{parse_diff, parse_revision};
+use crate::{Change, Commit, DIFF_BYTES, DiffLine, Error, Revision, run, run_head};
 
 const FIELD: char = '\u{1f}';
 const RECORD: char = '\u{1e}';
@@ -156,9 +148,7 @@ pub async fn file_diff(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::git::DIFF_LINES;
-
-    use crate::git::DiffKind;
+    use crate::{DIFF_LINES, DiffKind};
 
     fn change(status: &str, path: &str, from: Option<&str>) -> Change {
         Change {
@@ -291,26 +281,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
-    }
-
-    #[test]
-    fn a_directory_is_jj_s_when_the_nearest_repository_above_it_is() {
-        let dir = scratch("detect");
-        for d in [
-            "jj/.jj",
-            "jj/src",
-            "colo/.jj",
-            "colo/.git",
-            "jj/wt/.git",
-            "plain/.git",
-        ] {
-            std::fs::create_dir_all(dir.join(d)).unwrap();
-        }
-        assert!(is_jj(&dir.join("jj/src")));
-        assert!(is_jj(&dir.join("colo")));
-        // A git worktree inside a jj repository is git's.
-        assert!(!is_jj(&dir.join("jj/wt")));
-        assert!(!is_jj(&dir.join("plain")));
     }
 
     fn jj(dir: &Path, args: &[&str]) -> bool {
