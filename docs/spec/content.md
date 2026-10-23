@@ -34,12 +34,17 @@ A viewer's window has no prompt and takes the `viewer` area's keys.
 
 ## Opening
 
-Opening something, from the tree, the picker, the next waiting session or
-anywhere else, moves the focus to the window of the shown tab that already
+Opening something, from the picker, the next waiting session or anywhere else
+but the tree, moves the focus to the window of the shown tab that already
 shows it. When none does, it is shown in the focused window, in place of what
 that window showed, or in a new tab when nothing is open.
-A file opened from the tree opens by its kind, in a viewer or in Neovim
-([viewers](viewers.md)).
+
+From the tree, the key says where a row opens and the row says what: in a
+window of any tab already showing it, or else in the focused window; in the
+focused window, though another shows it too; in a new window split below or
+beside the focused one; or in a new tab ([keys](keys.md#actions)). A row
+clicked opens as `cursor.go` opens it. A file opened from the tree opens by
+its kind, in a viewer or in Neovim ([viewers](viewers.md)).
 
 ## Closing
 

@@ -105,14 +105,17 @@ or the Session menu.
 | In the tree | |
 | --- | --- |
 | `j` `k`, `gg` `G` | move |
-| `Enter` `l` `o` | open a session, worktree or file, a file in Neovim or in a viewer by its kind; fold or unfold a workspace, a heading or a directory |
-| `L` `Shift-Enter` `Ctrl-Enter` | show a session, worktree or file in the focused window, with the keys staying in the tree |
+| `Enter` | go to where a session, worktree or file is already shown, in any tab, or else open it as `o` does |
+| `o` `l` | open a session, worktree or file in the focused window, a file in Neovim or in a viewer by its kind; fold or unfold a workspace, a heading or a directory |
+| `s` `v` `t` | open it in a new split below or beside the focused window, or in a new tab |
+| `L` `Shift-Enter` `Ctrl-Enter` | open it as `o` does, with the keys staying in the tree |
 | `h` | fold, or go up to the row above |
 | `]w` `[w` | the next or previous session waiting on you, with the console ready to answer it; `Ctrl-q ]` `Ctrl-q [` from anywhere |
 | `w` | choose where a new session works |
-| `n` | start a session in the selected worktree or directory |
-| `s` `x` | open a shell in the worktree; close the current tab, ending a shell or putting a session back to the tree only |
-| `t` | take over an interactive session ([details](docs/spec/interactive-sessions.md)) |
+| `n` `$` `e` | start a session, a shell or Neovim in the selected worktree or directory |
+| `x` | close the windows showing the selected row; what they show runs on |
+| `y` | copy the path of a file or worktree, or the name of a session or shell |
+| `T` | take over an interactive session ([details](docs/spec/interactive-sessions.md)) |
 | `X` | end a session; Claude Code keeps its conversation, for `/resume` |
 | `i` | write a prompt |
 | `/` | narrow the tree to sessions by name; `Enter` keeps it, `Esc` clears it |

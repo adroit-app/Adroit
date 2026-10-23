@@ -4,6 +4,19 @@
 
 use crate::focus::Dir;
 
+/// Where something opened from the tree goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Opening {
+    /// To a window already showing it, in any tab, or else as [`Opening::Here`].
+    Existing,
+    /// In the focused window, in place of what it shows.
+    Here,
+    /// In a new window split off the focused one along the axis.
+    Split(Axis),
+    /// In a new tab after the one shown.
+    Tab,
+}
+
 /// A window's identity, unique across every tab of the content.
 pub type WindowId = u64;
 
@@ -485,12 +498,29 @@ impl<T: Clone + PartialEq> Content<T> {
             .map(|w| w.id);
         match already {
             Some(id) => tab.focus_on(id),
-            None => {
+            None => self.open_in(thing, Opening::Here),
+        }
+    }
+
+    /// Show `thing` where `how` says; in a new tab when nothing is open.
+    pub fn open_in(&mut self, thing: T, how: Opening) {
+        match how {
+            Opening::Existing => {
+                if !self.reveal(&thing) {
+                    self.open_in(thing, Opening::Here);
+                }
+            }
+            Opening::Here => {
+                let Some(tab) = self.current_mut() else {
+                    return self.open_tab(thing);
+                };
                 let path = tab.root.path(tab.focus).expect("the focus is in the tab");
                 if let Node::Window(w) = tab.root.at_mut(&path) {
                     w.shows = thing;
                 }
             }
+            Opening::Split(axis) => self.split(axis, thing),
+            Opening::Tab => self.open_tab(thing),
         }
     }
 
@@ -1404,6 +1434,66 @@ mod tests {
         assert_eq!(c.focused(), Some(&"a"));
         c.close_showing(|_| true);
         assert!(c.is_empty());
+    }
+
+    #[test]
+    fn opening_where_it_is_goes_to_a_window_of_any_tab_showing_it() {
+        let mut c = one("a");
+        c.split(Axis::Row, "b");
+        c.open_tab("c");
+        c.open_in("b", Opening::Existing);
+        assert_eq!((c.current_index(), c.focused()), (0, Some(&"b")));
+        assert_eq!(c.tabs().len(), 2);
+    }
+
+    #[test]
+    fn opening_where_it_is_shows_it_in_the_focused_window_when_none_shows_it() {
+        let mut c = one("a");
+        c.open_in("z", Opening::Existing);
+        assert_eq!(drawn(&c), "z");
+    }
+
+    #[test]
+    fn opening_here_replaces_what_the_focused_window_shows_though_another_shows_it() {
+        let mut c = one("a");
+        c.split(Axis::Row, "b");
+        c.open_in("a", Opening::Here);
+        assert_eq!(drawn(&c), "(a | a)");
+        assert_eq!(c.focused(), Some(&"a"));
+    }
+
+    #[test]
+    fn opening_in_a_split_puts_a_new_window_below_or_beside_the_focused_one() {
+        let mut c = one("a");
+        c.open_in("b", Opening::Split(Axis::Column));
+        assert_eq!(drawn(&c), "(a / b)");
+        c.open_in("c", Opening::Split(Axis::Row));
+        assert_eq!(drawn(&c), "(a / (b | c))");
+        assert_eq!(c.focused(), Some(&"c"));
+    }
+
+    #[test]
+    fn opening_in_a_tab_adds_one_after_the_shown_tab() {
+        let mut c = one("a");
+        c.open_tab("b");
+        c.go_to_tab(0);
+        c.open_in("a", Opening::Tab);
+        assert_eq!((c.tabs().len(), c.current_index()), (3, 1));
+        assert_eq!(c.focused(), Some(&"a"));
+    }
+
+    #[test]
+    fn opening_anyhow_with_nothing_open_opens_a_tab() {
+        for how in [
+            Opening::Existing,
+            Opening::Here,
+            Opening::Split(Axis::Row),
+            Opening::Tab,
+        ] {
+            let mut c = C::default();
+            c.open_in("a", how);
+            assert_eq!(drawn(&c), "a", "{how:?}");
+        }
     }
 
     #[test]

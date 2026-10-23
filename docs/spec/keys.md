@@ -75,8 +75,8 @@ there until it is fixed.
 [tree]
 "Ctrl+n" = "cursor.down"
 "Ctrl+p" = "cursor.up"
-"t" = "none"
-"T" = "session.take_over"
+"T" = "none"
+"t" = "session.take_over"
 
 [console]
 "Ctrl+c" = "console.send Ctrl+c"
@@ -192,10 +192,14 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 | `tab.close` | close the content's tab shown and every window in it; agents and terminals keep running and remain reachable from the tree |
 | `window.close` | close the window, which ends adroit; its sessions run on |
 | `cursor.down`, `cursor.up`, `cursor.first`, `cursor.last` | move the selection in the tree; in the details panel, in the list it shows, or scroll what else it shows |
-| `cursor.open` | open the selected session, shell, worktree or file in the focused window and move to it, or to the prompt of a session not started yet; fold or unfold a workspace, a heading or a directory; in the details panel, open the selected row |
-| `cursor.show` | show the selected session, shell, worktree or file, as `cursor.open` does, with the keys staying in the tree; fold or unfold a workspace, a heading or a directory; in the details panel, open the selected row |
+| `cursor.go` | go to a window showing the selected session, shell, worktree or file, in any tab, or else open it as `cursor.open` does; in the details panel, open the selected row |
+| `cursor.open` | open the selected session, shell, worktree or file in the focused window, in place of what it shows, and move to it, or to the prompt of a session not started yet; fold or unfold a workspace, a heading or a directory; in the details panel, open the selected row |
+| `cursor.split`, `cursor.vsplit` | open the selected session, shell, worktree or file as `cursor.open` does, in a new window split off the focused one, below it or beside it |
+| `cursor.tab` | open the selected session, shell, worktree or file as `cursor.open` does, in a new tab after the one shown |
+| `cursor.show` | open the selected session, shell, worktree or file in the focused window as `cursor.open` does, with the keys staying in the tree; fold or unfold a workspace, a heading or a directory; in the details panel, open the selected row |
+| `cursor.close` | close every window showing the selected session, shell or Neovim, or the selected file in its viewer or its Neovim; what they showed runs on |
 | `cursor.fold` | fold the selected node, or on a row that is not unfolded go up to the row it sits under; in the details panel, go back out to the list what it shows was opened from |
-| `cursor.copy` | in the details panel, copy the selected link of the overview: its address, or its file's path |
+| `cursor.copy` | copy the path of the selected file, worktree or workspace, or the name of the selected session, shell or Neovim; in the details panel, the selected link of the overview: its address, or its file's path |
 | `cursor.reveal` | in the details panel, show the selected file of the overview in the Finder |
 | `waiting.next`, `waiting.prev` | open the next or previous session waiting on you |
 | `session.next`, `session.prev` | open the session after or before the one shown, in the tree's order over every session, folded away or filtered out too, going round at the ends; the keys stay in the area they are in |
@@ -322,28 +326,32 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 "ArrowUp" = "cursor.up"
 "g g" = "cursor.first"
 "G" = "cursor.last"
-"Enter" = "cursor.open"
-"l" = "cursor.open"
+"Enter" = "cursor.go"
 "o" = "cursor.open"
+"l" = "cursor.open"
+"s" = "cursor.split"
+"v" = "cursor.vsplit"
+"t" = "cursor.tab"
 "L" = "cursor.show"
 "Shift+Enter" = "cursor.show"
 "Ctrl+Enter" = "cursor.show"
 "h" = "cursor.fold"
-"] w" = "waiting.next"
-"[ w" = "waiting.prev"
 "n" = "session.new"
-"s" = "shell.open"
-"v" = "neovim.open"
-"x" = "tab.close"
+"$" = "shell.open"
+"e" = "neovim.open"
+"T" = "session.take_over"
+"x" = "cursor.close"
 "X" = "session.stop"
 "R" = "session.rename"
-"t" = "session.take_over"
+"y" = "cursor.copy"
 "i" = "prompt.write"
 "a" = "prompt.write"
 "r" = "refresh"
 "/" = "filter"
 "w" = "session.pick"
 "!" = "worktrees.toggle"
+"] w" = "waiting.next"
+"[ w" = "waiting.prev"
 
 [details]
 "j" = "cursor.down"

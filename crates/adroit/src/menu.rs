@@ -35,40 +35,51 @@ pub fn entries(target: &Target, session: Option<&Session>) -> Vec<(Action, &'sta
     let rename = session
         .filter(|s| s.kind == Kind::Own)
         .map(|_| (Action::SessionRename, "Rename…"));
+    // The key says where a row opens, as in fern.
+    let opens = [
+        (Action::CursorGo, "Open"),
+        (Action::CursorSplit, "Open in a split below"),
+        (Action::CursorVsplit, "Open in a split beside"),
+        (Action::CursorTab, "Open in a new tab"),
+        (Action::CursorShow, "Show"),
+    ];
+    let copy_path = (Action::CursorCopy, "Copy path");
+    let copy_name = (Action::CursorCopy, "Copy name");
+    let close = (Action::CursorClose, "Close its windows");
     match target {
-        Target::Row(Item::Session(_) | Item::Waiting(_)) => {
-            [(Action::CursorOpen, "Open"), (Action::CursorShow, "Show")]
-                .into_iter()
-                .chain(rename)
-                .chain(here)
-                .chain(ending)
-                .collect()
-        }
-        Target::Row(Item::Terminal(_)) => {
-            [(Action::CursorOpen, "Open"), (Action::CursorShow, "Show")]
-                .into_iter()
-                .chain(here)
-                .chain([(Action::TerminalStop, "Stop terminal")])
-                .collect()
-        }
-        Target::Row(Item::File { dir: false, .. }) => {
-            [(Action::CursorOpen, "Open"), (Action::CursorShow, "Show")]
-                .into_iter()
-                .chain(here)
-                .collect()
-        }
+        Target::Row(Item::Session(_) | Item::Waiting(_)) => opens
+            .into_iter()
+            .chain(rename)
+            .chain([copy_name])
+            .chain(here)
+            .chain([close])
+            .chain(ending)
+            .collect(),
+        Target::Row(Item::Terminal(_)) => opens
+            .into_iter()
+            .chain([copy_name])
+            .chain(here)
+            .chain([close, (Action::TerminalStop, "Stop terminal")])
+            .collect(),
+        Target::Row(Item::File { dir: false, .. }) => opens
+            .into_iter()
+            .chain([copy_path])
+            .chain(here)
+            .chain([close])
+            .collect(),
         Target::Row(Item::Worktree(_)) => {
-            [(Action::CursorOpen, "Open"), (Action::CursorShow, "Show")]
+            opens.into_iter().chain([copy_path]).chain(here).collect()
+        }
+        Target::Row(Item::Workspace(_) | Item::File { dir: true, .. }) => {
+            [(Action::CursorGo, "Fold or unfold"), copy_path]
                 .into_iter()
                 .chain(here)
                 .collect()
         }
-        Target::Row(Item::Workspace(_) | Item::Heading(..) | Item::File { dir: true, .. }) => {
-            [(Action::CursorOpen, "Fold or unfold")]
-                .into_iter()
-                .chain(here)
-                .collect()
-        }
+        Target::Row(Item::Heading(..)) => [(Action::CursorGo, "Fold or unfold")]
+            .into_iter()
+            .chain(here)
+            .collect(),
         Target::Tab(Tab::Session(_)) => [(Action::TabClose, "Close tab")]
             .into_iter()
             .chain(rename)
@@ -92,9 +103,11 @@ pub fn entries(target: &Target, session: Option<&Session>) -> Vec<(Action, &'sta
 pub fn groups(target: &Target, session: Option<&Session>) -> Vec<Vec<(Action, &'static str)>> {
     let kin = |a: &Action| match a {
         Action::SessionNew | Action::ShellOpen | Action::NeovimOpen => 1,
-        Action::SessionTakeOver | Action::SessionStop | Action::TerminalStop | Action::TabClose => {
-            2
-        }
+        Action::SessionTakeOver
+        | Action::SessionStop
+        | Action::TerminalStop
+        | Action::TabClose
+        | Action::CursorClose => 2,
         _ => 0,
     };
     let mut out: Vec<Vec<(Action, &'static str)>> = Vec::new();
@@ -161,13 +174,9 @@ mod tests {
         assert_eq!(
             grouped(Target::Row(Item::Session("a".into())), Some(&s)),
             [
-                vec![
-                    Action::CursorOpen,
-                    Action::CursorShow,
-                    Action::SessionRename
-                ],
-                vec![Action::SessionNew, Action::ShellOpen, Action::NeovimOpen,],
-                vec![Action::SessionStop],
+                [&OPENS[..], &[Action::SessionRename, Action::CursorCopy]].concat(),
+                vec![Action::SessionNew, Action::ShellOpen, Action::NeovimOpen],
+                vec![Action::CursorClose, Action::SessionStop],
             ]
         );
         assert_eq!(
@@ -180,6 +189,15 @@ mod tests {
         };
         assert!(grouped(Target::Tab(draft), None).is_empty());
     }
+
+    /// What every row that opens offers first: where to open it.
+    const OPENS: [Action; 5] = [
+        Action::CursorGo,
+        Action::CursorSplit,
+        Action::CursorVsplit,
+        Action::CursorTab,
+        Action::CursorShow,
+    ];
 
     fn session(kind: Kind) -> Session {
         Session {
@@ -199,14 +217,18 @@ mod tests {
         assert_eq!(
             actions(Target::Row(Item::Session("a".into())), Some(&s)),
             [
-                Action::CursorOpen,
-                Action::CursorShow,
-                Action::SessionRename,
-                Action::SessionNew,
-                Action::ShellOpen,
-                Action::NeovimOpen,
-                Action::SessionStop,
+                &OPENS[..],
+                &[
+                    Action::SessionRename,
+                    Action::CursorCopy,
+                    Action::SessionNew,
+                    Action::ShellOpen,
+                    Action::NeovimOpen,
+                    Action::CursorClose,
+                    Action::SessionStop,
+                ],
             ]
+            .concat()
         );
     }
 
@@ -225,11 +247,11 @@ mod tests {
         let here = [Action::SessionNew, Action::ShellOpen, Action::NeovimOpen];
         assert_eq!(
             actions(Target::Row(Item::Workspace("/api".into())), None),
-            [&[Action::CursorOpen][..], &here].concat()
+            [&[Action::CursorGo, Action::CursorCopy][..], &here].concat()
         );
         assert_eq!(
             actions(Target::Row(Item::Worktree("/api".into())), None),
-            [&[Action::CursorOpen, Action::CursorShow][..], &here].concat()
+            [&OPENS[..], &[Action::CursorCopy], &here].concat()
         );
     }
 
@@ -238,14 +260,51 @@ mod tests {
         assert_eq!(
             actions(Target::Row(Item::Terminal(1)), None),
             [
-                Action::CursorOpen,
-                Action::CursorShow,
-                Action::SessionNew,
-                Action::ShellOpen,
-                Action::NeovimOpen,
-                Action::TerminalStop,
+                &OPENS[..],
+                &[
+                    Action::CursorCopy,
+                    Action::SessionNew,
+                    Action::ShellOpen,
+                    Action::NeovimOpen,
+                    Action::CursorClose,
+                    Action::TerminalStop,
+                ],
             ]
+            .concat()
         );
+    }
+
+    #[test]
+    fn a_file_opens_where_its_key_says_copies_its_path_and_closes_its_windows() {
+        let file = Item::File {
+            worktree: "/api".into(),
+            path: "/api/a.rs".into(),
+            dir: false,
+        };
+        assert_eq!(
+            actions(Target::Row(file), None),
+            [
+                &OPENS[..],
+                &[
+                    Action::CursorCopy,
+                    Action::SessionNew,
+                    Action::ShellOpen,
+                    Action::NeovimOpen,
+                    Action::CursorClose,
+                ],
+            ]
+            .concat()
+        );
+    }
+
+    #[test]
+    fn a_heading_folds_and_has_nothing_to_copy() {
+        let got = actions(
+            Target::Row(Item::Heading("/api".into(), crate::nav::Heading::Files)),
+            None,
+        );
+        assert_eq!(got[0], Action::CursorGo);
+        assert!(!got.contains(&Action::CursorCopy));
     }
 
     #[test]

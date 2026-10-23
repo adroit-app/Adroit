@@ -25,7 +25,7 @@ use crate::completion::Completions;
 use crate::console::{Composer, ConsoleScreen, Hub, Panes, ReaderScreen, mode_of};
 use crate::console_keys::direct_key;
 use crate::console_read;
-use crate::content::{Axis, Border, Content, WindowId};
+use crate::content::{Axis, Border, Content, Opening, WindowId};
 use crate::daemon;
 use crate::details::{
     Drill, Entry, Group, Listing, Related, Sheet, Shot, Source, Tie, View, capped, gauges, load,
@@ -1125,13 +1125,14 @@ struct WindowDrag {
     px: f64,
 }
 
-/// A shell or a Neovim to start: where, on which file, and whether the keys
-/// move to it.
+/// A shell or a Neovim to start: where, on which file, in which window, and
+/// whether the keys move to it.
 #[derive(Debug, Clone, PartialEq)]
 struct TerminalAsk {
     place: Place,
     runs: TerminalProgram,
     file: Option<PathBuf>,
+    opening: Opening,
     focus: bool,
 }
 
@@ -3236,6 +3237,7 @@ fn App() -> Element {
                 place: p,
                 runs,
                 file,
+                opening,
                 focus: take_keys,
             }) = ask
             else {
@@ -3277,7 +3279,7 @@ fn App() -> Element {
                         resolved.terminal.id = id;
                         terminals.write().push(resolved.terminal);
                         place.set(Some(p));
-                        middle.open(Tab::Terminal(id));
+                        middle.edit(|c| c.open_in(Tab::Terminal(id), opening));
                         if take_keys {
                             focus.set(Area::Console);
                         }
@@ -3287,68 +3289,39 @@ fn App() -> Element {
             });
         }
     });
-    let mut open = move |item: Item| {
+    // Open a row where `how` says, or as anything else opens a thing when it
+    // says nothing. Only the keys that open in place fold a row.
+    let mut open = move |item: Item, how: Option<Opening>| {
         // Typing stops going to the filter once a row is taken; what it
         // narrowed to stays.
         if *filtering.peek() {
             focus_filter(false);
         }
         selected.set(Some(item.clone()));
-        match &item {
-            Item::Workspace(_) | Item::Heading(..) | Item::File { dir: true, .. } => {
-                folds.write().toggle(&item)
-            }
-            // A file opens by its kind: in a viewer, or else in Neovim, the
-            // one already started on it if there is one.
-            Item::File {
-                worktree,
-                path,
-                dir: false,
-            } => {
-                let p = Place {
-                    worktree: worktree.clone(),
-                };
-                let editing = terminals
-                    .peek()
-                    .iter()
-                    .find(|t| t.file.as_ref() == Some(path))
-                    .map(|t| t.id);
-                if viewers::FileKind::of(path).has_viewer() {
-                    place.set(Some(p));
-                    middle.open(Tab::Viewer(path.clone()));
-                } else if let Some(id) = editing {
-                    place.set(Some(p));
-                    middle.open(Tab::Terminal(id));
-                } else {
-                    terminal_ask.set(Some(TerminalAsk {
-                        place: p,
-                        runs: TerminalProgram::Neovim,
-                        file: Some(path.clone()),
-                        focus: false,
-                    }));
+        let in_place = matches!(how, None | Some(Opening::Existing | Opening::Here));
+        let show = move |thing: Tab| match how {
+            Some(how) => middle.edit(|c| c.open_in(thing, how)),
+            None => middle.open(thing),
+        };
+        match nav::opens(&item, &shown_tree.peek(), &terminals.peek()) {
+            nav::Opens::Fold if in_place => folds.write().toggle(&item),
+            nav::Opens::Fold => {}
+            nav::Opens::Shows(thing, p) => {
+                if p.is_some() {
+                    place.set(p);
                 }
+                show(thing);
             }
-            Item::Waiting(id) | Item::Session(id) => {
-                if let Some(p) = nav::place_of(&tree.peek(), &item) {
-                    place.set(Some(p));
-                }
-                middle.open(Tab::Session(id.clone()));
-            }
-            Item::Terminal(id) => {
-                if let Some(p) = nav::place_of(&tree.peek(), &item) {
-                    place.set(Some(p));
-                }
-                middle.open(Tab::Terminal(*id));
-            }
-            Item::Worktree(path) => {
-                let p = Place {
-                    worktree: path.clone(),
-                };
-                let first = nav::sessions_in(&shown_tree.peek(), &p)
-                    .first()
-                    .map(|s| Tab::Session(s.id.clone()));
-                middle.open(first.unwrap_or_else(|| draft_at(path.clone())));
-                place.set(Some(p));
+            nav::Opens::Edit(worktree, file) => terminal_ask.set(Some(TerminalAsk {
+                place: Place { worktree },
+                runs: TerminalProgram::Neovim,
+                file: Some(file),
+                opening: how.unwrap_or(Opening::Here),
+                focus: false,
+            })),
+            nav::Opens::Draft(worktree) => {
+                show(draft_at(worktree.clone()));
+                place.set(Some(Place { worktree }));
             }
         }
     };
@@ -4864,6 +4837,11 @@ fn App() -> Element {
                 | Action::CursorUp
                 | Action::CursorFirst
                 | Action::CursorLast
+                | Action::CursorGo
+                | Action::CursorSplit
+                | Action::CursorVsplit
+                | Action::CursorTab
+                | Action::CursorClose
                 | Action::CursorOpen
                 | Action::CursorShow
                 | Action::CursorFold
@@ -4896,7 +4874,7 @@ fn App() -> Element {
                             let fold = match (chosen, &action) {
                                 (
                                     Some(Entry::Heading { group, folded, .. }),
-                                    Action::CursorOpen | Action::CursorShow,
+                                    Action::CursorGo | Action::CursorOpen | Action::CursorShow,
                                 ) => Some((*group, !folded)),
                                 (Some(Entry::Heading { group, .. }), Action::CursorFold) => {
                                     Some((*group, true))
@@ -4905,7 +4883,9 @@ fn App() -> Element {
                                 _ => None,
                             };
                             let how = match action {
-                                Action::CursorOpen | Action::CursorShow => Some(Use::Open),
+                                Action::CursorGo | Action::CursorOpen | Action::CursorShow => {
+                                    Some(Use::Open)
+                                }
                                 Action::CursorCopy => Some(Use::Copy),
                                 Action::CursorReveal => Some(Use::Reveal),
                                 _ => None,
@@ -5010,7 +4990,7 @@ fn App() -> Element {
                         (Action::CursorFold, _) => {
                             d.back();
                         }
-                        (Action::CursorOpen | Action::CursorShow, Some(l)) => {
+                        (Action::CursorGo | Action::CursorOpen | Action::CursorShow, Some(l)) => {
                             d.open(l);
                         }
                         (Action::CursorDown, Some(l)) => d.step(l, 1),
@@ -5031,13 +5011,24 @@ fn App() -> Element {
                 Action::CursorUp => selected.set(nav::step(&list, cur.as_ref(), -1)),
                 Action::CursorFirst => selected.set(list.first().cloned()),
                 Action::CursorLast => selected.set(list.last().cloned()),
-                Action::CursorOpen => {
+                Action::CursorGo
+                | Action::CursorOpen
+                | Action::CursorSplit
+                | Action::CursorVsplit
+                | Action::CursorTab => {
                     if let Some(item) = cur {
+                        let how = match action {
+                            Action::CursorGo => Opening::Existing,
+                            Action::CursorSplit => Opening::Split(Axis::Column),
+                            Action::CursorVsplit => Opening::Split(Axis::Row),
+                            Action::CursorTab => Opening::Tab,
+                            _ => Opening::Here,
+                        };
                         let toggles = matches!(
-                            item,
-                            Item::Workspace(_) | Item::Heading(..) | Item::File { dir: true, .. }
+                            nav::opens(&item, &shown_tree.peek(), &terminals.peek()),
+                            nav::Opens::Fold
                         );
-                        open(item);
+                        open(item, Some(how));
                         // A Neovim still starting takes the keys once it has.
                         if terminal_ask.peek().is_some()
                             && let Some(ask) = terminal_ask.write().as_mut()
@@ -5057,7 +5048,7 @@ fn App() -> Element {
                 }
                 Action::CursorShow => {
                     if let Some(item) = cur {
-                        open(item);
+                        open(item, Some(Opening::Here));
                     }
                 }
                 Action::CursorFold => {
@@ -5071,8 +5062,30 @@ fn App() -> Element {
                         }
                     }
                 }
-                // Only the overview's links are copied or revealed.
-                Action::CursorCopy | Action::CursorReveal => {}
+                Action::CursorClose => {
+                    if let Some(item) = &cur {
+                        let things = nav::stands_for(item, &terminals.peek());
+                        if !things.is_empty() {
+                            middle.closing(prompts, |c| c.close_showing(|t| things.contains(t)));
+                        }
+                    }
+                }
+                Action::CursorCopy => {
+                    let copied = cur
+                        .as_ref()
+                        .and_then(|item| nav::copied(item, &shown_tree.peek(), &terminals.peek()));
+                    let (text, what) = match copied {
+                        Some(nav::Copied::Path(p)) => (p.display().to_string(), "path"),
+                        Some(nav::Copied::Name(n)) => (n, "name"),
+                        None => return,
+                    };
+                    notify.notice(match copy_to_clipboard(&text) {
+                        Ok(()) => format!("Copied the {what} {text}"),
+                        Err(e) => format!("cannot copy: {e}"),
+                    });
+                }
+                // Only the overview's files are revealed.
+                Action::CursorReveal => {}
                 Action::WaitingNext | Action::WaitingPrev => {
                     let current = match &cur {
                         Some(Item::Waiting(id)) | Some(Item::Session(id)) => Some(id.as_str()),
@@ -5080,7 +5093,7 @@ fn App() -> Element {
                     };
                     let forward = action == Action::WaitingNext;
                     if let Some(id) = nav::next_waiting(&ib.peek(), current, forward) {
-                        open(Item::Waiting(id));
+                        open(Item::Waiting(id), None);
                         // It waits on an answer, given in the console.
                         focus.set(Area::Console);
                     }
@@ -5127,6 +5140,7 @@ fn App() -> Element {
                             place: p,
                             runs,
                             file: None,
+                            opening: Opening::Here,
                             focus: true,
                         }));
                     }
@@ -6081,7 +6095,11 @@ fn App() -> Element {
     let k_waiting_next_here = km.keys_in(here, &Action::WaitingNext);
     let k_down = km.keys_for(Context::Tree, &Action::CursorDown);
     let k_up = km.keys_for(Context::Tree, &Action::CursorUp);
-    let k_open = km.keys_for(Context::Tree, &Action::CursorOpen);
+    let k_open = km.keys_for(Context::Tree, &Action::CursorGo);
+    let k_open_beside = km.keys_for_all(
+        Context::Tree,
+        &[Action::CursorSplit, Action::CursorVsplit, Action::CursorTab],
+    );
     let k_back = km
         .keys_in(&[Context::Details, Context::Tree], &Action::CursorFold)
         .unwrap_or_default();
@@ -6228,6 +6246,10 @@ fn App() -> Element {
                             if let Some(k) = k_open.clone() {
                                 div { class: "console-legend-keys", Keys { keys: k } }
                                 div { "Open the selected row" }
+                            }
+                            if let Some(k) = k_open_beside.clone() {
+                                div { class: "console-legend-keys", Keys { keys: k } }
+                                div { "Open it in a split below, beside, or a new tab" }
                             }
                             if let Some(k) = k_new.clone() {
                                 div { class: "console-legend-keys", Keys { keys: k } }
@@ -6715,7 +6737,7 @@ fn App() -> Element {
                                         class: "{class}",
                                         style: "padding-left:{8 + indent}px",
                                         title: "{row_title}",
-                                        onclick: move |_| open(it.clone()),
+                                        onclick: move |_| open(it.clone(), Some(Opening::Existing)),
                                         oncontextmenu: move |e: Event<MouseData>| {
                                             e.prevent_default();
                                             let at = e.client_coordinates();
@@ -6805,7 +6827,7 @@ fn App() -> Element {
                                                 (false, true) => "list-row shown",
                                                 (false, false) => "list-row",
                                             },
-                                            onclick: move |_| open(item.clone()),
+                                            onclick: move |_| open(item.clone(), Some(Opening::Existing)),
                                             oncontextmenu: move |e: Event<MouseData>| {
                                                 e.prevent_default();
                                                 let at = e.client_coordinates();

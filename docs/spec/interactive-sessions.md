@@ -7,8 +7,8 @@ shows no state but working or not.
 
 ## Taking one over
 
-Press `t` on an interactive session in the tree, or `T` in the window
-showing it, to bring it into adroit. adroit asks first; once you agree, Claude Code
+Press `T` on an interactive session in the tree, or in the window showing
+it, to bring it into adroit. adroit asks first; once you agree, Claude Code
 exits in its terminal and the same conversation continues in a session of
 adroit's own, in the same windows.
 

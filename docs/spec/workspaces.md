@@ -48,8 +48,10 @@ hides the sessions it started. Once its starter has ended, a started session
 is listed by the directory it runs in, like any other. There is one tree: no
 view lists sessions by role or request.
 
-Opening a terminal's row shows it in the focused window and moves the keys
-there, as opening a session's row does ([content](content.md)). Closing its
+Opening a terminal's row shows it where the key pressed says and moves the
+keys there, as opening a session's row does ([content](content.md#opening)).
+Closing a row's windows from the tree closes every window that shows it, and
+leaves it running. Closing its
 windows hides it; Stop Terminal
 explicitly ends its program ([terminals](terminals.md)). Going from session to
 session, the waiting sessions and the picker pass shells over.

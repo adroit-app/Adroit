@@ -4,7 +4,9 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use adroit_model::{InboxItem, Session, State, TerminalProgram, Tree, WorktreeNode};
+use adroit_model::{
+    InboxItem, Session, State, TerminalProgram, TerminalSession, Tree, WorktreeNode,
+};
 
 use crate::files::Entry;
 use crate::tabs::Tab;
@@ -602,6 +604,106 @@ pub fn sessions_in<'a>(tree: &'a Tree, place: &Place) -> Vec<&'a Session> {
         .filter(|w| w.worktree.path == place.worktree)
         .flat_map(|w| w.sessions.iter())
         .collect()
+}
+
+/// What opening a row of the tree comes to, whichever key says where.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Opens {
+    /// The row folds or unfolds.
+    Fold,
+    /// A window shows this, of this worktree.
+    Shows(Tab, Option<Place>),
+    /// A Neovim to start on the file, in the worktree.
+    Edit(PathBuf, PathBuf),
+    /// A session not started yet, in the worktree.
+    Draft(PathBuf),
+}
+
+/// What opening `item` shows: a file by its kind, in its viewer or in
+/// Neovim, the one already started on it if there is one; a worktree its
+/// first session, or else a new one.
+pub fn opens(item: &Item, tree: &Tree, terminals: &[TerminalSession]) -> Opens {
+    match item {
+        Item::Workspace(_) | Item::Heading(..) | Item::File { dir: true, .. } => Opens::Fold,
+        Item::File {
+            worktree,
+            path,
+            dir: false,
+        } => {
+            let at = Some(Place {
+                worktree: worktree.clone(),
+            });
+            let editing = terminals
+                .iter()
+                .find(|t| t.file.as_ref() == Some(path))
+                .map(|t| t.id);
+            if crate::viewers::FileKind::of(path).has_viewer() {
+                Opens::Shows(Tab::Viewer(path.clone()), at)
+            } else if let Some(id) = editing {
+                Opens::Shows(Tab::Terminal(id), at)
+            } else {
+                Opens::Edit(worktree.clone(), path.clone())
+            }
+        }
+        Item::Waiting(id) | Item::Session(id) => {
+            Opens::Shows(Tab::Session(id.clone()), place_of(tree, item))
+        }
+        Item::Terminal(id) => Opens::Shows(Tab::Terminal(*id), place_of(tree, item)),
+        Item::Worktree(path) => {
+            let p = Place {
+                worktree: path.clone(),
+            };
+            match sessions_in(tree, &p).first() {
+                Some(s) => Opens::Shows(Tab::Session(s.id.clone()), Some(p)),
+                None => Opens::Draft(path.clone()),
+            }
+        }
+    }
+}
+
+/// What a window shows of `item`: a file in its viewer or in any Neovim
+/// started on it.
+pub fn stands_for(item: &Item, terminals: &[TerminalSession]) -> Vec<Tab> {
+    match item {
+        Item::Waiting(id) | Item::Session(id) => vec![Tab::Session(id.clone())],
+        Item::Terminal(id) => vec![Tab::Terminal(*id)],
+        Item::File {
+            path, dir: false, ..
+        } => std::iter::once(Tab::Viewer(path.clone()))
+            .chain(
+                terminals
+                    .iter()
+                    .filter(|t| t.file.as_ref() == Some(path))
+                    .map(|t| Tab::Terminal(t.id)),
+            )
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// What copying a row gives.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Copied {
+    Path(PathBuf),
+    Name(String),
+}
+
+/// What copying `item` gives: the path of a file, a worktree or a
+/// workspace, the name of what runs.
+pub fn copied(item: &Item, tree: &Tree, terminals: &[TerminalSession]) -> Option<Copied> {
+    match item {
+        Item::File { path, .. } | Item::Worktree(path) | Item::Workspace(path) => {
+            Some(Copied::Path(path.clone()))
+        }
+        Item::Waiting(id) | Item::Session(id) => {
+            find(tree, id).map(|(_, s)| Copied::Name(s.name.clone()))
+        }
+        Item::Terminal(id) => terminals
+            .iter()
+            .find(|t| t.id == *id)
+            .map(|t| Copied::Name(t.name.clone())),
+        Item::Heading(..) => None,
+    }
 }
 
 #[cfg(test)]
@@ -1455,5 +1557,108 @@ mod tests {
         let sessions = [listed("a08bbcf2", "a08bbcf2-2cbf")];
         assert_eq!(successor_row(&sessions, &session("a08bbcf2")), None);
         assert_eq!(successor_row(&sessions, &ws("/api")), None);
+    }
+    fn editing(id: u128, path: &str) -> TerminalSession {
+        TerminalSession {
+            id,
+            program: TerminalProgram::Neovim,
+            file: Some(path.into()),
+            ..sh(id, "nvim", "/api")
+        }
+    }
+
+    #[test]
+    fn a_session_s_row_opens_the_session_in_its_worktree() {
+        let t = tree();
+        assert_eq!(
+            opens(&session("o"), &t, &[]),
+            Opens::Shows(Tab::Session("o".into()), Some(at(OAUTH)))
+        );
+        assert_eq!(
+            opens(&Item::Waiting("b".into()), &t, &[]),
+            Opens::Shows(Tab::Session("b".into()), Some(at("/api")))
+        );
+    }
+
+    #[test]
+    fn a_worktree_s_row_opens_its_first_session_or_else_a_new_one() {
+        let t = tree();
+        assert_eq!(
+            opens(&worktree(OAUTH), &t, &[]),
+            Opens::Shows(Tab::Session("o".into()), Some(at(OAUTH)))
+        );
+        assert_eq!(
+            opens(&worktree("/none"), &t, &[]),
+            Opens::Draft("/none".into())
+        );
+    }
+
+    #[test]
+    fn a_file_opens_in_its_viewer_or_in_the_neovim_already_on_it_or_a_new_one() {
+        let t = tree();
+        let nvim = [editing(9, "/api/a.rs")];
+        assert_eq!(
+            opens(&file("/api", "/api/logo.png", false), &t, &nvim),
+            Opens::Shows(Tab::Viewer("/api/logo.png".into()), Some(at("/api")))
+        );
+        assert_eq!(
+            opens(&file("/api", "/api/a.rs", false), &t, &nvim),
+            Opens::Shows(Tab::Terminal(9), Some(at("/api")))
+        );
+        assert_eq!(
+            opens(&file("/api", "/api/b.rs", false), &t, &nvim),
+            Opens::Edit("/api".into(), "/api/b.rs".into())
+        );
+    }
+
+    #[test]
+    fn a_workspace_a_heading_and_a_directory_fold_rather_than_open() {
+        let t = tree();
+        let dir = Item::File {
+            worktree: "/api".into(),
+            path: "/api/src".into(),
+            dir: true,
+        };
+        for item in [ws("/api"), sessions_of("/api"), dir] {
+            assert_eq!(opens(&item, &t, &[]), Opens::Fold, "{item:?}");
+        }
+    }
+
+    #[test]
+    fn a_row_stands_for_what_windows_show_of_it_a_file_for_its_viewer_and_its_neovim() {
+        let nvim = [editing(9, "/api/a.rs"), editing(10, "/api/b.rs")];
+        assert_eq!(
+            stands_for(&file("/api", "/api/a.rs", false), &nvim),
+            [Tab::Viewer("/api/a.rs".into()), Tab::Terminal(9)]
+        );
+        assert_eq!(
+            stands_for(&Item::Waiting("b".into()), &nvim),
+            [Tab::Session("b".into())]
+        );
+        assert_eq!(stands_for(&Item::Terminal(3), &nvim), [Tab::Terminal(3)]);
+        assert!(stands_for(&worktree("/api"), &nvim).is_empty());
+    }
+
+    #[test]
+    fn a_file_or_worktree_row_copies_its_path_and_what_runs_its_name() {
+        let t = tree();
+        let shells = [sh(3, "build", "/api")];
+        assert_eq!(
+            copied(&file("/api", "/api/a.rs", false), &t, &shells),
+            Some(Copied::Path("/api/a.rs".into()))
+        );
+        assert_eq!(
+            copied(&worktree(OAUTH), &t, &shells),
+            Some(Copied::Path(OAUTH.into()))
+        );
+        assert_eq!(
+            copied(&session("o"), &t, &shells),
+            Some(Copied::Name("o".into()))
+        );
+        assert_eq!(
+            copied(&Item::Terminal(3), &t, &shells),
+            Some(Copied::Name("build".into()))
+        );
+        assert_eq!(copied(&sessions_of("/api"), &t, &shells), None);
     }
 }

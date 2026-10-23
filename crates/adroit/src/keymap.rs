@@ -93,28 +93,32 @@ pub const DEFAULTS: &str = r#"
 "ArrowUp" = "cursor.up"
 "g g" = "cursor.first"
 "G" = "cursor.last"
-"Enter" = "cursor.open"
-"l" = "cursor.open"
+"Enter" = "cursor.go"
 "o" = "cursor.open"
+"l" = "cursor.open"
+"s" = "cursor.split"
+"v" = "cursor.vsplit"
+"t" = "cursor.tab"
 "L" = "cursor.show"
 "Shift+Enter" = "cursor.show"
 "Ctrl+Enter" = "cursor.show"
 "h" = "cursor.fold"
-"] w" = "waiting.next"
-"[ w" = "waiting.prev"
 "n" = "session.new"
-"s" = "shell.open"
-"v" = "neovim.open"
-"x" = "tab.close"
+"$" = "shell.open"
+"e" = "neovim.open"
+"T" = "session.take_over"
+"x" = "cursor.close"
 "X" = "session.stop"
 "R" = "session.rename"
-"t" = "session.take_over"
+"y" = "cursor.copy"
 "i" = "prompt.write"
 "a" = "prompt.write"
 "r" = "refresh"
 "/" = "filter"
 "w" = "session.pick"
 "!" = "worktrees.toggle"
+"] w" = "waiting.next"
+"[ w" = "waiting.prev"
 
 [details]
 "j" = "cursor.down"
@@ -580,9 +584,14 @@ actions! {
     CursorUp => "cursor.up",
     CursorFirst => "cursor.first",
     CursorLast => "cursor.last",
+    CursorGo => "cursor.go",
     CursorOpen => "cursor.open",
+    CursorSplit => "cursor.split",
+    CursorVsplit => "cursor.vsplit",
+    CursorTab => "cursor.tab",
     CursorShow => "cursor.show",
     CursorFold => "cursor.fold",
+    CursorClose => "cursor.close",
     CursorCopy => "cursor.copy",
     CursorReveal => "cursor.reveal",
     WaitingNext => "waiting.next",
@@ -1140,7 +1149,7 @@ mod tests {
     #[test]
     fn a_key_bound_nowhere_in_the_areas_does_nothing() {
         let map = Keymap::defaults();
-        assert_eq!(step(&map, &[Context::Tree], &[], "y"), Step::Nothing);
+        assert_eq!(step(&map, &[Context::Tree], &[], "z"), Step::Nothing);
     }
 
     #[test]
@@ -1166,7 +1175,7 @@ mod tests {
             ("k", Action::CursorUp),
             ("ArrowUp", Action::CursorUp),
             ("G", Action::CursorLast),
-            ("Enter", Action::CursorOpen),
+            ("Enter", Action::CursorGo),
             ("l", Action::CursorOpen),
             ("Shift+Enter", Action::CursorShow),
             ("h", Action::CursorFold),
@@ -1419,13 +1428,13 @@ mod tests {
         );
         assert_eq!(
             map.keys_for(Context::Tree, &Action::SessionTakeOver),
-            Some("t".into())
+            Some("T".into())
         );
         let map =
-            Keymap::with_user("[tree]\n\"t\" = \"none\"\n\"T\" = \"session.take_over\"\n").unwrap();
+            Keymap::with_user("[tree]\n\"T\" = \"none\"\n\"t\" = \"session.take_over\"\n").unwrap();
         assert_eq!(
             map.keys_for(Context::Tree, &Action::SessionTakeOver),
-            Some("T".into())
+            Some("t".into())
         );
     }
 
@@ -1511,21 +1520,50 @@ mod tests {
             Chord::pressed("L", false, false, true, false),
             Some("L".into())
         );
-        assert_eq!(
-            step(&map, &sidebar, &[], "Enter"),
-            Step::Run(Action::CursorOpen)
-        );
     }
 
     #[test]
-    fn x_closes_the_tab_and_capital_x_stops_a_session() {
+    fn in_the_tree_the_key_says_where_the_row_opens() {
+        let map = Keymap::defaults();
+        let tree = [Context::Tree, Context::Global];
+        for (key, action) in [
+            ("Enter", Action::CursorGo),
+            ("o", Action::CursorOpen),
+            ("l", Action::CursorOpen),
+            ("s", Action::CursorSplit),
+            ("v", Action::CursorVsplit),
+            ("t", Action::CursorTab),
+        ] {
+            assert_eq!(step(&map, &tree, &[], key), Step::Run(action), "{key}");
+        }
+    }
+
+    #[test]
+    fn in_the_tree_what_starts_beside_a_row_moved_off_the_keys_that_open_it() {
+        let map = Keymap::defaults();
+        let tree = [Context::Tree, Context::Global];
+        for (key, action) in [
+            ("$", Action::ShellOpen),
+            ("e", Action::NeovimOpen),
+            ("T", Action::SessionTakeOver),
+            ("n", Action::SessionNew),
+        ] {
+            assert_eq!(step(&map, &tree, &[], key), Step::Run(action), "{key}");
+        }
+    }
+
+    #[test]
+    fn in_the_tree_x_closes_the_row_s_windows_capital_x_stops_and_y_copies() {
         let map = Keymap::defaults();
         let sidebar = [Context::Tree, Context::Global];
         let console = [Context::Console, Context::Global];
-        assert_eq!(step(&map, &sidebar, &[], "x"), Step::Run(Action::TabClose));
         assert_eq!(
-            step(&map, &sidebar, &[], "v"),
-            Step::Run(Action::NeovimOpen)
+            step(&map, &sidebar, &[], "x"),
+            Step::Run(Action::CursorClose)
+        );
+        assert_eq!(
+            step(&map, &sidebar, &[], "y"),
+            Step::Run(Action::CursorCopy)
         );
         assert_eq!(
             step(&map, &sidebar, &[], "X"),
