@@ -10,7 +10,7 @@ mod naming;
 mod tab;
 mod windows;
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
 
 use adroit_model::{Agent, TerminalProgram, Tree};
@@ -58,6 +58,9 @@ pub struct ContentView {
     looked_at: Tree,
     /// What the listing was last looked at with.
     looked: Option<(Seq, BTreeSet<String>)>,
+    /// The names of the sessions shown that the listing no longer lists but
+    /// that stay live here, to say they ended once they stop being live.
+    unlisted: BTreeMap<String, String>,
     /// The sessions shown live here, or being attached to: one started a
     /// moment ago may not be listed yet.
     live: BTreeSet<String>,
@@ -87,6 +90,7 @@ impl Default for ContentView {
             restored: false,
             looked_at: Tree::default(),
             looked: None,
+            unlisted: BTreeMap::new(),
             live: BTreeSet::new(),
             kept: None,
             placed_for: None,

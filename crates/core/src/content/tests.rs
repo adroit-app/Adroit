@@ -161,7 +161,7 @@ fn a_session_live_here_stays_though_it_is_not_listed() {
 }
 
 #[test]
-fn a_session_no_longer_live_is_given_up_once_told() {
+fn a_session_no_longer_live_is_given_up_and_said_to_have_ended_once_told() {
     let run = listed_with(vec![session("a", "/r")])
         .send(show_session("a"))
         .send(live(&["a"]))
@@ -169,6 +169,10 @@ fn a_session_no_longer_live_is_given_up_once_told() {
     assert_eq!(shown(&run), [Tab::Session("a".into())]);
     let gone = run.send(live(&[]));
     assert_eq!(shown(&gone), Vec::<Tab>::new());
+    assert_eq!(
+        gone.state().chrome.status.line.as_deref(),
+        Some("a-name ended")
+    );
 }
 
 #[test]

@@ -66,6 +66,23 @@ pub(crate) fn listed(state: &mut ViewState) -> Vec<Effect> {
     {
         view.place = Some(p);
     }
+    // A session shown and no longer listed is not in the tree looked at
+    // next, though it may stay live here a while yet.
+    let shown = view.windows.shown();
+    for t in &shown {
+        if let Tab::Session(id) = t
+            && nav::is_gone(sessions, id)
+            && let Some((_, s)) = nav::find(&was, id)
+        {
+            view.unlisted.insert(id.clone(), s.name.clone());
+        }
+    }
+    view.unlisted.retain(|id, _| {
+        nav::is_gone(sessions, id)
+            && shown
+                .iter()
+                .any(|t| matches!(t, Tab::Session(s) if s == id))
+    });
     // A session gone from the list gives its windows up as a closed shell
     // does.
     let ended: Vec<String> = view
@@ -89,10 +106,10 @@ pub(crate) fn listed(state: &mut ViewState) -> Vec<Effect> {
             nav::tab_after_closing(next, p, &left)
         });
         // Said, or the window would vanish unexplained.
-        if let Some((_, s)) = nav::find(&was, id) {
+        if let Some(name) = view.unlisted.remove(id) {
             effects.extend(status_line::notice(
                 &mut state.chrome.status,
-                format!("{} ended", s.name),
+                format!("{name} ended"),
             ));
         }
         let gone = Tab::Session(id.clone());
