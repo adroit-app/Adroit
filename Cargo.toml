@@ -34,7 +34,9 @@ nucleo-matcher = "0.3.1"
 resvg = { version = "0.48.1", default-features = false }
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 objc2 = "0.6.5"
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSImage", "NSMenu", "NSMenuItem"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSBitmapImageRep", "NSGraphics", "NSImage", "NSImageRep", "NSMenu", "NSMenuItem"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSData", "NSDictionary", "NSGeometry", "NSString", "NSURL"] }
+objc2-pdf-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-app-kit", "PDFDocument", "PDFPage"] }
 tokio = { version = "1.53.3", features = ["rt-multi-thread", "macros", "process", "sync", "time", "io-util", "io-std", "net"] }
 
 serde = { version = "1.0.229", features = ["derive"] }

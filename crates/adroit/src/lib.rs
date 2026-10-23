@@ -55,6 +55,7 @@ pub mod tabs;
 pub mod terminals;
 pub mod themes;
 mod view;
+pub mod viewers;
 mod window_socket;
 pub mod zoom;
 

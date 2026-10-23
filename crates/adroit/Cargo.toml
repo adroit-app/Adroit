@@ -32,6 +32,8 @@ tokio.workspace = true
 core-foundation.workspace = true
 objc2.workspace = true
 objc2-app-kit.workspace = true
+objc2-foundation.workspace = true
+objc2-pdf-kit.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
