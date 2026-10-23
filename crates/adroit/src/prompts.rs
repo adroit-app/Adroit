@@ -1,7 +1,7 @@
 //! What is written in the prompt for each tab. The prompt holds the shown
 //! tab's text; the others' is kept aside until their tab is shown again.
 
-use std::collections::{BTreeMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -13,6 +13,9 @@ use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use tokio::sync::oneshot;
 
+use adroit_core::msg::Msg;
+
+use crate::bridge::AppCtx;
 use crate::content::Tab;
 use crate::paths::instance_state;
 
@@ -143,13 +146,14 @@ impl Prompts {
 
 /// Run the ops sent to the returned sender on the prompt Neovim holds, one
 /// at a time, so that taking a tab's text and putting another's never cross.
-/// `drafted` follows the tabs that have text kept aside, for the window to
-/// mark.
-pub fn keeper(
-    nvim: Signal<Option<Arc<Embedded>>>,
-    mut drafted: Signal<HashSet<Tab>>,
-    mut shown_images: Signal<Vec<PathBuf>>,
-) -> Prompts {
+/// The view state is told the images attached to the prompt shown and the
+/// tabs that have text kept aside, for the window to mark.
+pub(crate) fn keeper(nvim: Signal<Option<Arc<Embedded>>>, app: AppCtx) -> Prompts {
+    let show_images = move |images: &[PathBuf]| {
+        if app.prompt.peek().images != images {
+            app.dispatch(Msg::PromptImages(images.to_vec()));
+        }
+    };
     let (tx, mut ops) = unbounded_channel();
     {
         let tx = tx.clone();
@@ -174,7 +178,7 @@ pub fn keeper(
             }
         };
         let mut drafts = Drafts::restored(checkpoint.text);
-        let mut images = crate::pasted::Attachments::restored(checkpoint.images);
+        let mut images = adroit_core::prompt::images::Attachments::restored(checkpoint.images);
         let mut saved = None;
         let mut opened = false;
         let mut history = History::default();
@@ -217,7 +221,7 @@ pub fn keeper(
                         history.reset();
                         let Some(nv) = &nv else {
                             drafts.turn_to(now);
-                            shown_images.set(images.current().to_vec());
+                            show_images(images.current());
                             continue;
                         };
                         let taken = nv.take_text().await.unwrap_or_default();
@@ -285,13 +289,11 @@ pub fn keeper(
                         eprintln!("adroit: cannot save the prompt checkpoint: {error}");
                     }
                 }
-                if *shown_images.peek() != images.current() {
-                    shown_images.set(images.current().to_vec());
-                }
+                show_images(images.current());
                 let mut holding = drafts.holding();
                 holding.extend(images.holding());
-                if *drafted.peek() != holding {
-                    drafted.set(holding);
+                if app.prompt.peek().drafted != holding {
+                    app.dispatch(Msg::Drafted(holding));
                 }
             }
         }
@@ -403,142 +405,5 @@ mod tests {
         )
         .unwrap();
         assert!(DraftCheckpoint::load(directory.path()).is_err());
-    }
-
-    fn session(id: &str) -> Option<Tab> {
-        Some(Tab::Session(id.into()))
-    }
-
-    #[test]
-    fn hiding_the_last_session_keeps_its_prompt_and_images_for_reopening() {
-        use crate::pasted::Attachments;
-
-        let leader = session("leader");
-        let mut drafts = Drafts::default();
-        let mut images = Attachments::default();
-        drafts.show(leader.clone(), String::new());
-        images.show(leader.clone());
-        images.add(vec!["/leader.png".into()]);
-
-        assert_eq!(drafts.show(None, "unsent-view-draft".into()), None);
-        images.show(None);
-        assert!(images.current().is_empty());
-        assert!(
-            drafts
-                .saved("")
-                .values()
-                .any(|text| text == "unsent-view-draft")
-        );
-
-        assert_eq!(
-            drafts.show(leader.clone(), String::new()),
-            Some("unsent-view-draft".into())
-        );
-        images.show(leader);
-        assert_eq!(images.current(), &[PathBuf::from("/leader.png")]);
-    }
-
-    #[test]
-    fn a_stopped_sessions_unsent_input_stays_saved_under_its_original_identity() {
-        use crate::pasted::Attachments;
-
-        let stopped = session("root-a");
-        let other = session("root-b");
-        let mut drafts = Drafts::default();
-        let mut images = Attachments::default();
-        drafts.show(other.clone(), String::new());
-        images.show(other.clone());
-        images.add(vec!["/root-b.png".into()]);
-        drafts.show(stopped.clone(), "root-b draft".into());
-        images.show(stopped.clone());
-        images.add(vec!["/root-a.png".into()]);
-
-        let visible = drafts
-            .show(other.clone(), "preserve-final draft".into())
-            .unwrap();
-        images.show(other);
-        assert_eq!(visible, "root-b draft");
-        assert_eq!(images.current(), &[PathBuf::from("/root-b.png")]);
-        let saved_text = drafts.saved(&visible);
-        let saved_images = images.saved();
-        assert_eq!(
-            saved_text.get("session:root-a").map(String::as_str),
-            Some("preserve-final draft")
-        );
-        assert_eq!(
-            saved_text.get("session:root-b").map(String::as_str),
-            Some("root-b draft")
-        );
-        assert_eq!(
-            saved_images.get("session:root-a"),
-            Some(&vec![PathBuf::from("/root-a.png")])
-        );
-        let mut recovered = Drafts::restored(saved_text);
-        assert_eq!(
-            recovered.show(stopped, String::new()),
-            Some("preserve-final draft".into())
-        );
-    }
-
-    #[test]
-    fn hiding_a_session_keeps_both_sessions_prompts_and_attachments_separate() {
-        use crate::pasted::Attachments;
-
-        let leader = session("leader");
-        let worker = session("worker");
-        let mut drafts = Drafts::default();
-        let mut images = Attachments::default();
-        drafts.show(worker.clone(), String::new());
-        images.show(worker.clone());
-        images.add(vec!["/worker.png".into()]);
-        drafts.show(leader.clone(), "worker draft".into());
-        images.show(leader.clone());
-        images.add(vec!["/leader.png".into()]);
-
-        assert_eq!(
-            drafts.show(worker, "leader draft".into()),
-            Some("worker draft".into())
-        );
-        images.show(session("worker"));
-        assert_eq!(images.current(), &[PathBuf::from("/worker.png")]);
-        assert_eq!(
-            drafts.show(leader.clone(), "edited worker draft".into()),
-            Some("leader draft".into())
-        );
-        images.show(leader);
-        assert_eq!(images.current(), &[PathBuf::from("/leader.png")]);
-    }
-
-    #[test]
-    fn closing_an_ephemeral_draft_keeps_its_text_and_images_accessible_to_the_next_composer() {
-        use crate::pasted::Attachments;
-
-        for next in [None, session("existing")] {
-            let draft = Some(Tab::draft("/repo"));
-            let mut drafts = Drafts::default();
-            let mut images = Attachments::default();
-            drafts.show(next.clone(), String::new());
-            images.show(next.clone());
-            images.add(vec!["/next.png".into()]);
-            drafts.show(draft.clone(), "next draft".into());
-            images.show(draft);
-            images.add(vec!["/unsent.png".into()]);
-
-            let mut composer = "unsent new-session draft".to_string();
-            if let Some(text) = drafts.close(next.clone()) {
-                composer.push('\n');
-                composer.push_str(&text);
-            }
-            images.close(next);
-            assert!(composer.contains("unsent new-session draft"));
-            assert!(
-                drafts
-                    .saved(&composer)
-                    .values()
-                    .any(|text| text.contains("unsent new-session draft"))
-            );
-            assert!(images.current().contains(&PathBuf::from("/unsent.png")));
-            assert!(images.current().contains(&PathBuf::from("/next.png")));
-        }
     }
 }

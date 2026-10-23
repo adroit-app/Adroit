@@ -58,7 +58,7 @@ use crate::work_host;
 use crate::zoom;
 use adroit_agents as agents;
 use adroit_core::console::reader::{self, Edge};
-use adroit_core::console::route::{self, Footing, Typed, passes_enter};
+use adroit_core::console::route::{self, Footing, passes_enter};
 use adroit_core::console::{Probe, ReaderAt};
 use adroit_core::effect::Effect as CoreEffect;
 use adroit_core::msg::Msg;
@@ -533,7 +533,6 @@ fn App() -> Element {
     });
     let mut frame = use_signal(|| 0u64);
     let mut prompt_frame = use_signal(|| 0u64);
-    let mut prompt_mode = use_signal(|| ("normal", "…"));
     // Moves when a pane is started, for what the console says around it.
     let mut attached = use_signal(|| 0u64);
     let mut prompt_rows = use_signal(|| settings::current().prompt_min_rows);
@@ -541,8 +540,6 @@ fn App() -> Element {
     let mut prompt_height = use_signal(|| 1usize);
     // The line the prompt shows from, and how many it has.
     let mut prompt_view = use_signal(|| (0usize, 0usize));
-    // Whether the prompt's text starts with `!`.
-    let mut prompt_shell = use_signal(|| false);
     let mut prompt_cols = use_signal(|| 80u16);
     let mut cell_width = use_signal(|| 7.8f64);
     let mut console_size = use_signal(|| Size::new(100, 30));
@@ -576,13 +573,11 @@ fn App() -> Element {
     let win_boxes = use_signal(HashMap::<WindowId, (f64, f64)>::new);
     let toggle_panel = move |side: Side| app.dispatch(Msg::PanelToggle(side));
     // The tabs with something written for them kept aside.
-    let drafted = use_signal(HashSet::<Tab>::new);
-    let shown_images = use_signal(Vec::<PathBuf>::new);
-    let mut selected_image = use_signal(|| None::<PathBuf>);
-    let prompts = use_hook(|| prompts::keeper(nvim, drafted, shown_images));
+    let drafted = use_memo(move || app.prompt.read().drafted.clone());
+    let has_images = use_memo(move || !app.prompt.read().images.is_empty());
+    let prompts = use_hook(|| prompts::keeper(nvim, app));
     use_effect(move || {
-        let has_images = !shown_images.read().is_empty();
-        selected_image.set(None);
+        let has_images = has_images();
         let s = settings::current();
         let rows = crate::console::prompt_rows(
             *prompt_height.peek(),
@@ -978,14 +973,14 @@ fn App() -> Element {
                         NvimEvent::Redraw => {
                             *prompt_frame.write() += 1;
                             let m = mode_of(&embedded.state());
-                            if *prompt_mode.peek() != m {
-                                prompt_mode.set(m);
+                            if app.prompt.peek().mode != m {
+                                app.dispatch(Msg::PromptMode(m.0, m.1));
                             }
                         }
                         // Only the console's reader tells of yanks and of
                         // where it is scrolled to.
                         NvimEvent::Yank { .. } | NvimEvent::Scrolled { .. } => {}
-                        NvimEvent::Shell(on) => prompt_shell.set(on),
+                        NvimEvent::Shell(on) => app.dispatch(Msg::PromptShell(on)),
                         NvimEvent::CommandsWanted => {
                             if let Some(dir) = commands_here.peek().clone() {
                                 revalidate(dir);
@@ -1001,7 +996,7 @@ fn App() -> Element {
                             let s = settings::current();
                             let rows = crate::console::prompt_rows(
                                 h,
-                                !shown_images.peek().is_empty(),
+                                *has_images.peek(),
                                 s.prompt_min_rows,
                                 s.prompt_max_rows,
                             );
@@ -1631,7 +1626,7 @@ fn App() -> Element {
                     }
                     let rows = crate::console::prompt_rows(
                         *prompt_height.peek(),
-                        !shown_images.peek().is_empty(),
+                        *has_images.peek(),
                         s.prompt_min_rows,
                         s.prompt_max_rows,
                     );
@@ -2092,6 +2087,9 @@ fn App() -> Element {
                     }
                 }
                 CoreEffect::AskInput(tab) => ask_input(tab),
+                CoreEffect::RemoveImage(path) => {
+                    let _ = prompts.send(Op::RemoveImage(path));
+                }
                 CoreEffect::PromptRecall { tab, back, sent } => {
                     let _ = prompts.send(Op::Recall(tab, back, sent));
                 }
@@ -2282,7 +2280,7 @@ fn App() -> Element {
                     let hands_back = ANSWERS.load(Ordering::Relaxed)
                         && matches!(&tab, Some(Tab::Session(id))
                             if nav::find(&tree.peek(), id).is_some_and(|(_, s)| s.adroit_editor));
-                    let no_images = shown_images.peek().is_empty();
+                    let no_images = !*has_images.peek();
                     let pane = pane.clone();
                     spawn(async move {
                         let empty = no_images && nv.text().await.is_ok_and(|t| t.trim().is_empty());
@@ -2319,10 +2317,7 @@ fn App() -> Element {
                     });
                 }
                 Action::PromptImages => {
-                    if app.text_goes() == Typed::Prompt {
-                        app.dispatch(Msg::Focus(Area::Prompt));
-                        selected_image.set(shown_images.peek().first().cloned());
-                    }
+                    app.dispatch(Msg::ImagesChoose);
                 }
                 Action::HistoryPrev | Action::HistoryNext => {
                     // In the prompt the same keys choose among Neovim's
@@ -2645,20 +2640,6 @@ fn App() -> Element {
                 return;
             }
             let area = app.focus();
-            if area == Area::Prompt && app.text_goes() == Typed::Prompt {
-                let images = shown_images.peek();
-                let chosen = selected_image.peek().clone();
-                if let Some(action) = pasted::image_key(&images, chosen.as_ref(), &key) {
-                    match action {
-                        pasted::ImageKey::Select(path) => selected_image.set(path),
-                        pasted::ImageKey::Remove(path) => {
-                            let _ = prompts.send(Op::RemoveImage(path));
-                        }
-                    }
-                    return;
-                }
-                selected_image.set(None);
-            }
             // What the window knows of its programs, which the view state
             // routes the key by.
             let pane = active_pane();
@@ -2696,7 +2677,7 @@ fn App() -> Element {
     // Keys with a modifier and keys that type nothing come as keys; plain
     // characters come as text.
     use_hook({
-        let mut handle_key = handle_key.clone();
+        let handle_key = handle_key.clone();
         let page_focused = page_focused.clone();
         move || {
             spawn(async move {
@@ -2870,7 +2851,15 @@ fn App() -> Element {
     } else {
         0.0
     };
-    let mode = prompt_mode();
+    let (mode, prompt_shell, shown_images, selected_image) = {
+        let prompt = app.prompt.read();
+        (
+            prompt.mode,
+            prompt.shell,
+            prompt.images.clone(),
+            prompt.selected.clone(),
+        )
+    };
     // Whether what has the keys takes text, which an input method may compose.
     let session_shown = matches!(active_tab, Some(Tab::Session(_)));
     let in_dialog = session_shown && dialog;
@@ -2886,7 +2875,7 @@ fn App() -> Element {
         _ if overlay::takes_text_away(&held) => false,
         Area::Console => passing || answering || !session_shown,
         Area::Prompt => {
-            answering || (selected_image().is_none() && matches!(mode.0, "insert" | "cmd"))
+            answering || (selected_image.is_none() && matches!(mode.0, "insert" | "cmd"))
         }
         Area::Sidebar | Area::Details => false,
     };
@@ -3007,8 +2996,7 @@ fn App() -> Element {
                     composer_height,
                     prompt_width,
                     onpick: move |_| {
-                        selected_image.set(None);
-                        app.dispatch(Msg::Focus(Area::Prompt));
+                        app.dispatch(Msg::ImageSelect(None));
                         // A click on the prompt is to write there; the
                         // first key typed would otherwise run as a command.
                         let writing = nvim
@@ -3022,12 +3010,12 @@ fn App() -> Element {
                     send_keys: k_send.clone(),
                     view: prompt_view(),
                     rows: prompt_rows(),
-                    shell: prompt_shell(),
+                    shell: prompt_shell,
                     answering,
-                    images: shown_images(),
+                    images: shown_images,
                     image_keys: km.keys_for(Context::Prompt, &Action::PromptImages),
-                    selected_image: selected_image(),
-                    onselectimage: move |path| { app.dispatch(Msg::Focus(Area::Prompt)); selected_image.set(Some(path)); },
+                    selected_image,
+                    onselectimage: move |path| app.dispatch(Msg::ImageSelect(Some(path))),
                     onremoveimage: move |path| { let _ = prompts.send(Op::RemoveImage(path)); },
                 }
             }

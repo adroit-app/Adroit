@@ -1,7 +1,7 @@
 //! What can happen to the window: what the user does, what the window is
 //! told, and what the work host says.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::PathBuf;
 
 use adroit_model::{Agent, Key, TerminalSession};
@@ -273,6 +273,18 @@ pub enum Msg {
         back: bool,
         agent: Agent,
     },
+    /// Neovim's mode, as the class the footer draws it with and its word.
+    PromptMode(&'static str, &'static str),
+    /// What is written is a shell line for the session, or no longer.
+    PromptShell(bool),
+    /// The images attached to the prompt shown.
+    PromptImages(Vec<PathBuf>),
+    /// The tabs with something written for them kept aside.
+    Drafted(HashSet<Tab>),
+    /// Select this image attached, or none, the keys going to the prompt.
+    ImageSelect(Option<PathBuf>),
+    /// Select the first image attached, where text goes to the prompt.
+    ImagesChoose,
 
     // The overlays.
     /// A key while something drawn over the window holds the keys.

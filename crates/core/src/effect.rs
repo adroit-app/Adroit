@@ -5,6 +5,7 @@ use std::time::Duration;
 use adroit_protocol::Request;
 
 use std::collections::BTreeSet;
+use std::path::PathBuf;
 
 use adroit_model::{Key, Process, Session};
 
@@ -117,6 +118,8 @@ pub enum Effect {
         back: bool,
         sent: Vec<String>,
     },
+    /// Take this image away from the prompt shown.
+    RemoveImage(PathBuf),
 
     // The overlays.
     /// Run `action` where the keys are now.

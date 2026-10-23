@@ -138,6 +138,9 @@ pub(crate) fn press(state: &mut ViewState, key: Key, probe: Probe) -> Vec<Effect
     if overlay::holder(state).is_some() {
         return overlay::press(state, key);
     }
+    if let Some(effects) = crate::prompt::image_key(state, &key) {
+        return effects;
+    }
     let area = state.content.focus;
     let pane = probe.pane && area == Area::Console;
     let console = &mut state.console;

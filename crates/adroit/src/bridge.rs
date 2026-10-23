@@ -7,7 +7,6 @@ use std::rc::Rc;
 use adroit_core::actions::Action;
 use adroit_core::chrome::Chrome;
 use adroit_core::console::ConsoleView;
-use adroit_core::console::route::Typed;
 use adroit_core::content::{Area, ContentView, Tab, kept_name};
 use adroit_core::details::{Details, Scroll};
 use adroit_core::effect::Effect;
@@ -15,6 +14,7 @@ use adroit_core::host::Host as HostView;
 use adroit_core::msg::Msg;
 use adroit_core::overlay::{self, Holder, Overlays};
 use adroit_core::picker::PickerView;
+use adroit_core::prompt::PromptView;
 use adroit_core::state::ViewState;
 use adroit_core::tree::TreeView;
 use adroit_core::update::step;
@@ -49,6 +49,7 @@ pub(crate) struct AppCtx {
     pub(crate) picker: Signal<PickerView>,
     pub(crate) overlays: Signal<Overlays>,
     pub(crate) console: Signal<ConsoleView>,
+    pub(crate) prompt: Signal<PromptView>,
     /// What runs the effects whose state `App` still holds.
     handed: CopyValue<Option<Handed>>,
     /// What runs an action where the keys are now, which `App` still does.
@@ -92,6 +93,7 @@ pub(crate) fn use_app() -> AppCtx {
             picker: Signal::new(view.picker.clone()),
             overlays: Signal::new(view.overlays.clone()),
             console: Signal::new(view.console.clone()),
+            prompt: Signal::new(view.prompt.clone()),
             handed: CopyValue::new(None),
             performer: CopyValue::new(None),
             view: CopyValue::new(view),
@@ -130,6 +132,7 @@ impl AppCtx {
         set_changed(self.picker, &view.picker);
         set_changed(self.overlays, &view.overlays);
         set_changed(self.console, &view.console);
+        set_changed(self.prompt, &view.prompt);
     }
 
     /// Start keeping read, in the background, what the window shows and
@@ -225,6 +228,7 @@ impl AppCtx {
             | Effect::KeepImage { .. }
             | Effect::AskInput(_)
             | Effect::PromptRecall { .. }
+            | Effect::RemoveImage(_)
             | Effect::Resume(_)
             | Effect::Stop(_)
             | Effect::KillProcess { .. }
@@ -298,11 +302,6 @@ impl AppCtx {
     /// What the content's focused window shows now.
     pub(crate) fn active(&self) -> Option<Tab> {
         self.content.peek().active().cloned()
-    }
-
-    /// Where text typed or pasted now goes.
-    pub(crate) fn text_goes(&self) -> Typed {
-        adroit_core::console::text_goes(&self.view.peek())
     }
 
     /// The area that has the keys now.

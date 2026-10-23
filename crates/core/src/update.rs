@@ -137,7 +137,13 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         | Msg::PullLapsed(_)
         | Msg::InputTaken) => console::update(state, msg),
 
-        Msg::Recall { back, agent } => prompt::recall(state, back, agent),
+        msg @ (Msg::Recall { .. }
+        | Msg::PromptMode(..)
+        | Msg::PromptShell(_)
+        | Msg::PromptImages(_)
+        | Msg::Drafted(_)
+        | Msg::ImageSelect(_)
+        | Msg::ImagesChoose) => prompt::update(state, msg),
 
         Msg::HeldKey(key) => overlay::press(state, key),
         Msg::MenuOpen { x, y, target } => overlay::open_menu(state, Menu { x, y, target }),

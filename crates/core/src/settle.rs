@@ -23,6 +23,7 @@ const RULES: &[Rule] = &[
     console_live,
     console_freed,
     prompt_recalled,
+    prompt_images,
     tree_failing,
     tree_rows,
     tree_kept,
@@ -106,6 +107,11 @@ fn console_freed(state: &mut ViewState, effects: &mut Vec<Effect>) {
 /// prompt it steps to in the prompt.
 fn prompt_recalled(state: &mut ViewState, effects: &mut Vec<Effect>) {
     effects.extend(prompt::recalled(state));
+}
+
+/// Images attached or taken away leave none selected.
+fn prompt_images(state: &mut ViewState, _: &mut Vec<Effect>) {
+    prompt::keep_selection(&mut state.prompt);
 }
 
 /// The status line says why the sessions cannot be listed, while they
