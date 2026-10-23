@@ -169,6 +169,20 @@ fn text_pasted_into_the_session_is_asked_for_once_the_keys_leave_it() {
 }
 
 #[test]
+fn passing_every_key_stops_when_the_session_they_went_to_ends() {
+    let run = window()
+        .send_all([Msg::ConsolePassEveryKey, key("x")])
+        .event(relisted(2, vec![session("b")]));
+    assert_ne!(run.state().content.active(), Some(&tab("a")));
+    assert_eq!(run.state().content.focus, Area::Console);
+    assert!(!run.state().console.direct);
+    let shown_next = window()
+        .send(Msg::ConsolePassEveryKey)
+        .send(Msg::ShowSession("b".into()));
+    assert!(!shown_next.state().console.direct);
+}
+
+#[test]
 fn passing_every_key_stops_without_a_program_to_pass_them_to() {
     let run = window().send_all([
         Msg::ConsolePassEveryKey,

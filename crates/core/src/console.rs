@@ -411,7 +411,11 @@ pub(crate) fn keep_to_area(state: &mut ViewState) {
     if console.seen.as_ref() == Some(&now) {
         return;
     }
-    if now.0 != Area::Console {
+    // Every key passed on goes to the one session it was started for: shown
+    // something else, as when that session ends, they would go where the
+    // user did not choose to type.
+    let shown_before = console.seen.as_ref().map(|(_, shown)| shown);
+    if now.0 != Area::Console || shown_before.is_some_and(|shown| *shown != now.1) {
         console.direct = false;
     }
     console.pending.clear();
