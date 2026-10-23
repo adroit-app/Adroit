@@ -22,7 +22,7 @@ use crate::console::{Composer, ConsoleScreen, Hub, Panes, ReaderScreen, mode_of}
 use crate::console_read;
 use crate::content::{
     Area, Axis, ContentPanel, DraftForm, NothingOpen, Opening, Starting, Tab, TerminalAsk,
-    WindowId, draft as draft_agent, file_name, fresh_name, label_from, named, shows_prompt,
+    WindowId, draft as draft_agent, file_name, fresh_name, label_from, shows_prompt,
 };
 use crate::daemon;
 use crate::details::{self, Entry, Sheet, Shot, Source};
@@ -1174,8 +1174,6 @@ fn App() -> Element {
             focus_filter(false);
         }
     });
-    // Keep sessions visible while a prompt is in flight, even across tab switches.
-    let mut sending = use_signal(|| false);
 
     // The prompt shows what the focused window shows.
     use_effect(move || {
@@ -1257,25 +1255,21 @@ fn App() -> Element {
         });
     };
 
-    let submit = {
+    // Take what is written from the prompt to send. Taken now, so what is
+    // typed while it is sent stays for the next prompt; it goes to the tab
+    // it was written for, though another be shown by now.
+    let take_prompt = {
         let hub = hub.clone();
         move || {
             let hub = hub.clone();
-            if *sending.peek() || !shows_prompt(app.active().as_ref()) {
-                return;
-            }
-            sending.set(true);
             spawn(async move {
-                // Taken now, so what is typed while it is sent stays for the
-                // next prompt; put back if it cannot be sent. It goes to the
-                // tab it was written for, though another be shown by now.
                 let (give, given) = oneshot::channel();
                 let taken = match prompts.send(Op::Take(give)) {
                     Ok(()) => given.await.ok(),
                     Err(_) => None,
                 };
-                // Sent empty, the key itself goes to the session, as it would in
-                // Claude Code's own input.
+                // Sent empty, the key itself goes to the session, as it would
+                // in Claude Code's own input.
                 if let Some(id) = taken
                     .as_ref()
                     .filter(|(_, _, images)| images.is_empty())
@@ -1289,15 +1283,15 @@ fn App() -> Element {
                 let Some((shown, text, images)) =
                     taken.filter(|(_, text, images)| !text.trim().is_empty() || !images.is_empty())
                 else {
-                    sending.set(false);
+                    app.dispatch(Msg::PromptEmpty);
                     return;
                 };
                 let nv = nvim.peek().clone();
                 if let Some(nv) = nv {
                     let _ = nv.stop_writing().await;
                 }
-                // Sent with nothing open, a prompt starts a scratch session, as
-                // a draft there would.
+                // Sent with nothing open, a prompt starts a scratch session,
+                // as a draft there would.
                 let tab = match shown {
                     None => {
                         app.dispatch(Msg::Draft {
@@ -1308,205 +1302,171 @@ fn App() -> Element {
                     }
                     Some(shown) => shown,
                 };
-                let sent_to = Some(tab.clone());
-                let size = *console_size.peek();
-                let t = tree.peek().clone();
-                let launch_settings = settings::current();
                 let agent = draft_agent::for_tab(
-                    &t,
+                    &tree.peek(),
                     Some(&tab),
                     &app.content.peek().drafts.options,
                     app.content
                         .peek()
                         .drafts
                         .last_agent
-                        .unwrap_or(launch_settings.agent),
+                        .unwrap_or(settings::current().agent),
                 );
-                let waiting =
-                    |id: &str| nav::find(&t, id).is_some_and(|(_, s)| s.state.takes_every_key());
-                let sent = match tab {
-                    // The Enter that ends a prompt would pick the choice in
-                    // front, usually Yes; the prompt waits for it to be answered.
-                    Tab::Session(id) if waiting(&id) => {
-                        // The keys go where the answer is given; what was written
-                        // waits in the prompt for after.
-                        app.dispatch(Msg::Focus(Area::Console));
-                        app.notice(
-                            "Answer the session above first; your message waits here".into(),
-                        );
-                        false
-                    }
-                    _ if !images.is_empty()
-                        && agents::adapter(agent).capabilities().shell_bang
-                        && adroit_agents::claude::shell_line(&text).is_some() =>
-                    {
-                        app.notice("Images cannot be sent with a shell command".into());
-                        false
-                    }
-                    _ if images.iter().any(|path| !path.is_file()) => {
-                        app.notice(
-                            "An attached image is unavailable; remove it or paste it again".into(),
-                        );
-                        false
-                    }
-                    tab @ Tab::Session(_) => match pane_for(app, &hub, &tab, size).await {
-                        Some(p) => {
-                            // Claude Code turns on bracketed paste once it is
-                            // ready for input.
-                            for _ in 0..ATTACH_WAIT_STEPS {
-                                if p.bracketed_paste() || p.exited() {
-                                    break;
-                                }
-                                tokio::time::sleep(Duration::from_millis(50)).await;
+                let taken = adroit_core::prompt::send::Taken {
+                    shell_bang: agents::adapter(agent).capabilities().shell_bang,
+                    shell_line: adroit_agents::claude::shell_line(&text).is_some(),
+                    image_missing: images.iter().any(|path| !path.is_file()),
+                    tab: Some(tab),
+                    text,
+                    images,
+                    agent,
+                };
+                app.dispatch(Msg::PromptTaken(Box::new(taken)));
+            });
+        }
+    };
+
+    // Send a prompt to the session it was written for, once it is ready for
+    // input.
+    let send_prompt = {
+        let hub = hub.clone();
+        move |taken: adroit_core::prompt::send::Taken| {
+            let hub = hub.clone();
+            spawn(async move {
+                let size = *console_size.peek();
+                let Some(tab) = taken.tab.clone() else {
+                    app.dispatch(Msg::PromptWent(false));
+                    return;
+                };
+                let (text, images, agent) = (&taken.text, &taken.images, taken.agent);
+                let sent = match pane_for(app, &hub, &tab, size).await {
+                    Some(p) => {
+                        // Claude Code turns on bracketed paste once it is
+                        // ready for input.
+                        for _ in 0..ATTACH_WAIT_STEPS {
+                            if p.bracketed_paste() || p.exited() {
+                                break;
                             }
-                            if p.exited() {
-                                app.status(Some(
-                                    "The session ended before it took the prompt".into(),
-                                ));
-                                false
-                            } else {
-                                match adroit_agents::claude::shell_line(&text)
-                                    .filter(|_| agents::adapter(agent).capabilities().shell_bang)
-                                {
-                                    Some(command) => {
-                                        p.type_text("!");
-                                        tokio::time::sleep(Duration::from_millis(40)).await;
-                                        p.paste(command);
-                                    }
-                                    None => {
-                                        let adapter = agents::adapter(agent);
-                                        for image in adapter.image_pastes(&images) {
-                                            p.paste(&image);
-                                            tokio::time::sleep(Duration::from_millis(80)).await;
-                                        }
-                                        let message = adapter.image_prompt(&text, &images);
-                                        if !message.is_empty() {
-                                            p.paste(&message);
-                                        }
-                                    }
-                                }
-                                tokio::time::sleep(Duration::from_millis(40)).await;
-                                p.key(&Key::new("Enter"));
-                                true
-                            }
+                            tokio::time::sleep(Duration::from_millis(50)).await;
                         }
-                        None => {
-                            app.status(Some("This session cannot be reached from here".into()));
+                        if p.exited() {
+                            app.status(Some("The session ended before it took the prompt".into()));
                             false
-                        }
-                    },
-                    Tab::Terminal(_) | Tab::Viewer(_) => false,
-                    Tab::Draft { .. }
-                        if named(&text).0.is_some()
-                            && named(&text).1.trim().is_empty()
-                            && images.is_empty() =>
-                    {
-                        app.notice("Write what the session is to do below its name".into());
-                        false
-                    }
-                    // Given as the first prompt, a shell line is not known to
-                    // run as a command; it could reach the model as a message.
-                    Tab::Draft { .. }
-                        if agents::adapter(agent).capabilities().shell_bang
-                            && adroit_agents::claude::shell_line(&text).is_some() =>
-                    {
-                        app.notice(
-                            "A shell line runs in a session: start it with a message first".into(),
-                        );
-                        false
-                    }
-                    Tab::Draft { worktree, id } => {
-                        let (given, text) = named(&text);
-                        let label = given.unwrap_or_else(|| label_from(&text));
-                        let taken: Vec<&str> = t.sessions().map(|(_, s)| s.name.as_str()).collect();
-                        let name = fresh_name(&label, &taken);
-                        let options = app
-                            .content
-                            .peek()
-                            .drafts
-                            .options
-                            .get(&Tab::Draft {
-                                worktree: worktree.clone(),
-                                id,
-                            })
-                            .cloned()
-                            .unwrap_or_default();
-                        let draft = Tab::Draft {
-                            worktree: worktree.clone(),
-                            id,
-                        };
-                        // Made only now, so a draft left unsent leaves no
-                        // empty directory behind.
-                        let started =
-                            match scratch::start_dir(&worktree, &scratch_dir(), Moment::now()) {
-                                Ok(worktree) => {
-                                    let request = crate::execution::StartRequest {
-                                        agent,
-                                        name: name.clone(),
-                                        cwd: worktree,
-                                        model: options.model,
-                                        permissions: options.permissions,
-                                        prompt: text,
-                                        images: images.clone(),
-                                        env: daemon::agent_env(),
-                                        started_ms: now_ms(),
-                                        ..Default::default()
-                                    };
-                                    match crate::delegation::app::prepare(
-                                        &crate::delegation::app::root(),
-                                        &launch_settings,
-                                        request,
-                                        None,
-                                        &adroit_program(),
-                                    )
-                                    .await
-                                    {
-                                        Ok((resolved, recorded)) => {
-                                            let mut spawn = resolved.spawn;
-                                            spawn.cols = size.cols;
-                                            spawn.rows = size.rows;
-                                            start(
-                                                app,
-                                                &hub,
-                                                spawn,
-                                                size,
-                                                |id| Tab::Session(sessions::hex(id)),
-                                                Some(recorded),
-                                            )
-                                            .await
-                                            .map_err(|e| format!("cannot start {name}: {e}"))
-                                        }
-                                        Err(e) => Err(e),
+                        } else {
+                            match adroit_agents::claude::shell_line(text)
+                                .filter(|_| taken.shell_bang)
+                            {
+                                Some(command) => {
+                                    p.type_text("!");
+                                    tokio::time::sleep(Duration::from_millis(40)).await;
+                                    p.paste(command);
+                                }
+                                None => {
+                                    let adapter = agents::adapter(agent);
+                                    for image in adapter.image_pastes(images) {
+                                        p.paste(&image);
+                                        tokio::time::sleep(Duration::from_millis(80)).await;
+                                    }
+                                    let message = adapter.image_prompt(text, images);
+                                    if !message.is_empty() {
+                                        p.paste(&message);
                                     }
                                 }
-                                Err(e) => Err(format!("cannot make a directory for {name}: {e}")),
-                            };
-                        match started {
-                            Ok(id) => {
-                                let id = sessions::hex(id);
-                                app.dispatch(Msg::Relist);
-                                app.dispatch(Msg::TreeSelect(Some(Item::Session(id.clone()))));
-                                app.dispatch(Msg::Replace {
-                                    from: draft,
-                                    to: Tab::Session(id),
-                                });
-                                true
                             }
-                            Err(e) => {
-                                app.status(Some(e));
-                                false
-                            }
+                            tokio::time::sleep(Duration::from_millis(40)).await;
+                            p.key(&Key::new("Enter"));
+                            true
                         }
+                    }
+                    None => {
+                        app.status(Some("This session cannot be reached from here".into()));
+                        false
                     }
                 };
-                if sent {
-                    let _ = prompts.send(Op::Sent);
-                } else {
-                    let lines: Vec<String> = text.lines().map(String::from).collect();
-                    let _ = prompts.send(Op::RestoreImages(sent_to.clone(), images));
-                    let _ = prompts.send(Op::Add(sent_to, lines, None));
+                app.dispatch(Msg::PromptWent(sent));
+            });
+        }
+    };
+
+    // Start a session from a draft with its first prompt.
+    let start_draft = {
+        let hub = hub.clone();
+        move |asked: adroit_core::prompt::send::Start| {
+            let hub = hub.clone();
+            spawn(async move {
+                let size = *console_size.peek();
+                let adroit_core::prompt::send::Start {
+                    draft,
+                    name,
+                    text,
+                    options,
+                    taken,
+                } = asked;
+                let Tab::Draft { worktree, .. } = &draft else {
+                    app.dispatch(Msg::PromptWent(false));
+                    return;
+                };
+                // Made only now, so a draft left unsent leaves no empty
+                // directory behind.
+                let started = match scratch::start_dir(worktree, &scratch_dir(), Moment::now()) {
+                    Ok(worktree) => {
+                        let request = crate::execution::StartRequest {
+                            agent: taken.agent,
+                            name: name.clone(),
+                            cwd: worktree,
+                            model: options.model,
+                            permissions: options.permissions,
+                            prompt: text,
+                            images: taken.images.clone(),
+                            env: daemon::agent_env(),
+                            started_ms: now_ms(),
+                            ..Default::default()
+                        };
+                        match crate::delegation::app::prepare(
+                            &crate::delegation::app::root(),
+                            &settings::current(),
+                            request,
+                            None,
+                            &adroit_program(),
+                        )
+                        .await
+                        {
+                            Ok((resolved, recorded)) => {
+                                let mut spawn = resolved.spawn;
+                                spawn.cols = size.cols;
+                                spawn.rows = size.rows;
+                                start(
+                                    app,
+                                    &hub,
+                                    spawn,
+                                    size,
+                                    |id| Tab::Session(sessions::hex(id)),
+                                    Some(recorded),
+                                )
+                                .await
+                                .map_err(|e| format!("cannot start {name}: {e}"))
+                            }
+                            Err(e) => Err(e),
+                        }
+                    }
+                    Err(e) => Err(format!("cannot make a directory for {name}: {e}")),
+                };
+                match started {
+                    Ok(id) => {
+                        let id = sessions::hex(id);
+                        app.dispatch(Msg::Relist);
+                        app.dispatch(Msg::TreeSelect(Some(Item::Session(id.clone()))));
+                        app.dispatch(Msg::Replace {
+                            from: draft,
+                            to: Tab::Session(id),
+                        });
+                        app.dispatch(Msg::PromptWent(true));
+                    }
+                    Err(e) => {
+                        app.status(Some(e));
+                        app.dispatch(Msg::PromptWent(false));
+                    }
                 }
-                sending.set(false);
             });
         }
     };
@@ -1990,6 +1950,9 @@ fn App() -> Element {
     use_hook({
         let panes = hub.panes.clone();
         let ask_input = ask_input.clone();
+        let take_prompt = take_prompt.clone();
+        let send_prompt = send_prompt.clone();
+        let start_draft = start_draft.clone();
         let console_live = console_live.clone();
         let enter_reading = enter_reading.clone();
         let active_pane = active_pane.clone();
@@ -2087,6 +2050,17 @@ fn App() -> Element {
                     }
                 }
                 CoreEffect::AskInput(tab) => ask_input(tab),
+                CoreEffect::TakePrompt => take_prompt(),
+                CoreEffect::SendPrompt(taken) => send_prompt(*taken),
+                CoreEffect::StartDraft(start) => start_draft(*start),
+                CoreEffect::PromptSent => {
+                    let _ = prompts.send(Op::Sent);
+                }
+                CoreEffect::PromptRestore { tab, text, images } => {
+                    let lines: Vec<String> = text.lines().map(String::from).collect();
+                    let _ = prompts.send(Op::RestoreImages(tab.clone(), images));
+                    let _ = prompts.send(Op::Add(tab, lines, None));
+                }
                 CoreEffect::RemoveImage(path) => {
                     let _ = prompts.send(Op::RemoveImage(path));
                 }
@@ -2124,7 +2098,6 @@ fn App() -> Element {
     // which some actions pass on; a click has none.
     let perform = {
         let active_pane = active_pane.clone();
-        let mut submit = submit.clone();
         let hub = hub.clone();
         move |action: Action, key: Option<Key>| {
             let area = app.focus();
@@ -2266,7 +2239,7 @@ fn App() -> Element {
                         });
                     }
                 }
-                Action::PromptSend => submit(),
+                Action::PromptSend => app.dispatch(Msg::PromptSend),
                 Action::PromptTakeSuggestion => {
                     let Some(nv) = nvim.peek().clone() else {
                         return;

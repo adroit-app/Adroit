@@ -143,7 +143,11 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         | Msg::PromptImages(_)
         | Msg::Drafted(_)
         | Msg::ImageSelect(_)
-        | Msg::ImagesChoose) => prompt::update(state, msg),
+        | Msg::ImagesChoose
+        | Msg::PromptSend
+        | Msg::PromptEmpty
+        | Msg::PromptTaken(_)
+        | Msg::PromptWent(_)) => prompt::update(state, msg),
 
         Msg::HeldKey(key) => overlay::press(state, key),
         Msg::MenuOpen { x, y, target } => overlay::open_menu(state, Menu { x, y, target }),

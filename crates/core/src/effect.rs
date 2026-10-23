@@ -14,6 +14,7 @@ use crate::content::{Tab, TerminalAsk};
 use crate::details::{Scroll, Shot};
 use crate::layout::Layout;
 use crate::overlay::rename::Rename;
+use crate::prompt::send::{Start, Taken};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Effect {
@@ -120,6 +121,25 @@ pub enum Effect {
     },
     /// Take this image away from the prompt shown.
     RemoveImage(PathBuf),
+    /// Take what is written from the prompt to send it, telling the window
+    /// with [`crate::msg::Msg::PromptTaken`], or
+    /// [`crate::msg::Msg::PromptEmpty`] when it holds nothing.
+    TakePrompt,
+    /// Send this to the session it was written for, telling the window with
+    /// [`crate::msg::Msg::PromptWent`] whether it went.
+    SendPrompt(Box<Taken>),
+    /// Start a session from a draft with its first prompt, telling the
+    /// window with [`crate::msg::Msg::PromptWent`] whether it started.
+    StartDraft(Box<Start>),
+    /// A prompt went: stepping through those sent starts again from the
+    /// newest.
+    PromptSent,
+    /// Put back what could not be sent, for the tab it was written for.
+    PromptRestore {
+        tab: Option<Tab>,
+        text: String,
+        images: Vec<PathBuf>,
+    },
 
     // The overlays.
     /// Run `action` where the keys are now.

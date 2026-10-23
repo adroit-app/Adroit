@@ -229,6 +229,11 @@ impl AppCtx {
             | Effect::AskInput(_)
             | Effect::PromptRecall { .. }
             | Effect::RemoveImage(_)
+            | Effect::TakePrompt
+            | Effect::SendPrompt(_)
+            | Effect::StartDraft(_)
+            | Effect::PromptSent
+            | Effect::PromptRestore { .. }
             | Effect::Resume(_)
             | Effect::Stop(_)
             | Effect::KillProcess { .. }

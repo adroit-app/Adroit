@@ -4,6 +4,7 @@
 
 pub mod drafts;
 pub mod images;
+pub mod send;
 pub mod tab;
 #[cfg(test)]
 mod tests;
@@ -37,6 +38,8 @@ pub struct PromptView {
     pub drafted: HashSet<Tab>,
     /// The images attached when last looked at.
     images_seen: Vec<PathBuf>,
+    /// The prompt on its way, while one is.
+    pub(crate) sending: Option<send::Sending>,
     /// A step through the prompts sent, waiting on the history the host
     /// reads for it.
     recall: Option<Recall>,
@@ -54,6 +57,7 @@ impl Default for PromptView {
             selected: None,
             drafted: HashSet::new(),
             images_seen: Vec::new(),
+            sending: None,
             recall: None,
             asked: 0,
         }
@@ -133,6 +137,10 @@ pub(crate) fn recalled(state: &mut ViewState) -> Vec<Effect> {
 pub(crate) fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
     match msg {
         Msg::Recall { back, agent } => recall(state, back, agent),
+        Msg::PromptSend => send::send(state),
+        Msg::PromptEmpty => send::nothing_taken(state),
+        Msg::PromptTaken(taken) => send::taken(state, *taken),
+        Msg::PromptWent(ok) => send::sent(state, ok),
         Msg::ImageSelect(path) => {
             let effects = step(state, Msg::Focus(Area::Prompt));
             state.prompt.selected = path;

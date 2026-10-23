@@ -16,6 +16,7 @@ use crate::layout::{Layout, Side};
 use crate::overlay::confirm::Ask;
 use crate::overlay::context_menu::Target;
 use crate::overlay::rename::Place as RenamePlace;
+use crate::prompt::send::Taken;
 use crate::tree;
 use crate::tree::nav::{Item, Place};
 use crate::zoom;
@@ -285,6 +286,14 @@ pub enum Msg {
     ImageSelect(Option<PathBuf>),
     /// Select the first image attached, where text goes to the prompt.
     ImagesChoose,
+    /// Send what is written in the prompt.
+    PromptSend,
+    /// The prompt held nothing to send.
+    PromptEmpty,
+    /// This was taken from the prompt to send.
+    PromptTaken(Box<Taken>),
+    /// The prompt handed over to send went, or did not.
+    PromptWent(bool),
 
     // The overlays.
     /// A key while something drawn over the window holds the keys.

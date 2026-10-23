@@ -294,3 +294,189 @@ fn images_attached_or_taken_away_leave_none_selected() {
         .send(Msg::PromptImages(vec!["/one.png".into()]));
     assert_eq!(run.state().prompt.selected, None);
 }
+
+mod sending {
+    use adroit_model::{Agent, Session, State, Wait};
+
+    use super::*;
+    use crate::content::Area;
+    use crate::prompt::send::Taken;
+
+    fn listed(state: State) -> Event {
+        let sessions = vec![Session {
+            id: "a".into(),
+            name: "a".into(),
+            cwd: "/r/a".into(),
+            state,
+            ..Default::default()
+        }];
+        let found = [("/r/a".into(), Some(wt("/r/a", "/r", "main")))]
+            .into_iter()
+            .collect();
+        let tree = build(&sessions, &[], &found, &[], None);
+        Event::Snapshot(Box::new(WorkSnapshot {
+            seq: Seq(1),
+            tree: TreeWork {
+                listed: Some(Box::new(Listed {
+                    sessions,
+                    terminals: Vec::new(),
+                    tree,
+                })),
+                ..Default::default()
+            },
+            ..Default::default()
+        }))
+    }
+
+    fn written(tab: Tab, text: &str) -> Taken {
+        Taken {
+            tab: Some(tab),
+            text: text.into(),
+            agent: Agent::Claude,
+            shell_bang: true,
+            ..Default::default()
+        }
+    }
+
+    fn sending(state: State, tab: Tab) -> Scenario {
+        Scenario::new()
+            .event(listed(state))
+            .send(Msg::Show {
+                thing: tab,
+                place: None,
+                how: None,
+            })
+            .send(Msg::PromptSend)
+    }
+
+    fn notices(run: &Scenario) -> Vec<String> {
+        run.last_effects()
+            .iter()
+            .filter_map(|e| match e {
+                Effect::LapseNotice { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn restored(run: &Scenario) -> bool {
+        run.last_effects()
+            .iter()
+            .any(|e| matches!(e, Effect::PromptRestore { .. }))
+    }
+
+    #[test]
+    fn a_prompt_is_taken_once_while_it_is_on_its_way() {
+        let run = sending(State::Idle, Tab::Session("a".into()));
+        assert_eq!(run.last_effects(), [Effect::TakePrompt]);
+        let again = run.send(Msg::PromptSend);
+        assert!(again.last_effects().is_empty());
+        let empty = again.send(Msg::PromptEmpty).send(Msg::PromptSend);
+        assert_eq!(empty.last_effects(), [Effect::TakePrompt]);
+        let shell = sending(State::Idle, Tab::Terminal(1));
+        assert!(shell.last_effects().is_empty());
+    }
+
+    #[test]
+    fn a_prompt_that_cannot_go_is_put_back_with_a_word_why() {
+        let session = Tab::Session("a".into());
+        let draft = Tab::draft("/r/a");
+        let image = |t: Taken| Taken {
+            images: vec!["/a.png".into()],
+            ..t
+        };
+        // (session's state, taken, the notice)
+        let cases = [
+            (
+                State::Waiting(Wait::Permission),
+                written(session.clone(), "go"),
+                "Answer the session above first; your message waits here",
+            ),
+            (
+                State::Idle,
+                Taken {
+                    shell_line: true,
+                    ..image(written(session.clone(), "!ls"))
+                },
+                "Images cannot be sent with a shell command",
+            ),
+            (
+                State::Idle,
+                Taken {
+                    image_missing: true,
+                    ..image(written(session.clone(), "see"))
+                },
+                "An attached image is unavailable; remove it or paste it again",
+            ),
+            (
+                State::Idle,
+                written(draft.clone(), "name: fixer\n"),
+                "Write what the session is to do below its name",
+            ),
+            (
+                State::Idle,
+                Taken {
+                    shell_line: true,
+                    ..written(draft.clone(), "!ls")
+                },
+                "A shell line runs in a session: start it with a message first",
+            ),
+        ];
+        for (state, taken, notice) in cases {
+            let tab = taken.tab.clone().unwrap();
+            let run = sending(state, tab).send(Msg::PromptTaken(Box::new(taken.clone())));
+            assert_eq!(notices(&run), [notice.to_string()], "{taken:?}");
+            assert!(restored(&run), "{taken:?}");
+            assert_eq!(run.state().prompt.sending, None);
+        }
+        let waited = sending(State::Waiting(Wait::Permission), session.clone())
+            .send(Msg::PromptTaken(Box::new(written(session, "go"))));
+        assert_eq!(waited.state().content.focus, Area::Console);
+    }
+
+    #[test]
+    fn a_prompt_for_a_session_is_handed_over_and_put_back_if_it_did_not_go() {
+        let session = Tab::Session("a".into());
+        let taken = written(session.clone(), "fix it");
+        let run = sending(State::Idle, session).send(Msg::PromptTaken(Box::new(taken.clone())));
+        assert_eq!(
+            run.last_effects(),
+            [Effect::SendPrompt(Box::new(taken.clone()))]
+        );
+        assert_eq!(
+            run.send(Msg::PromptWent(true)).last_effects(),
+            [Effect::PromptSent]
+        );
+        let failed = sending(State::Idle, Tab::Session("a".into()))
+            .send(Msg::PromptTaken(Box::new(taken.clone())))
+            .send(Msg::PromptWent(false));
+        assert_eq!(
+            failed.last_effects(),
+            [Effect::PromptRestore {
+                tab: taken.tab,
+                text: taken.text,
+                images: Vec::new(),
+            }]
+        );
+    }
+
+    #[test]
+    fn a_draft_starts_a_session_named_by_its_prompt_or_the_name_above_it() {
+        let draft = Tab::draft("/r/a");
+        // (written, the name, the prompt it starts with)
+        let cases = [
+            ("name: fixer\nfix the tests", "fixer", "fix the tests"),
+            ("a", "a-2", "a"),
+        ];
+        for (text, name, prompt) in cases {
+            let run = sending(State::Idle, draft.clone())
+                .send(Msg::PromptTaken(Box::new(written(draft.clone(), text))));
+            let [Effect::StartDraft(start)] = run.last_effects() else {
+                panic!("{text:?}: {:?}", run.last_effects());
+            };
+            assert_eq!(start.draft, draft, "{text:?}");
+            assert_eq!(start.name, name, "{text:?}");
+            assert_eq!(start.text, prompt, "{text:?}");
+        }
+    }
+}
