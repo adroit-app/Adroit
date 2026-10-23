@@ -82,7 +82,7 @@ pub(crate) fn ContextMenu(keymap: Keymap) -> Element {
             },
             div {
                 class: "context-menu",
-                style: "left:{x}px;top:{y}px",
+                style: placed(x, y),
                 onclick: move |e| e.stop_propagation(),
                 for (action , label , keys , apart) in entries {
                     {
@@ -113,6 +113,16 @@ pub(crate) fn ContextMenu(keymap: Keymap) -> Element {
             }
         }
     }
+}
+
+/// Where a menu opened at `x`, `y` is drawn: there, or moved back by as
+/// much of its own size as would pass the window's right or bottom edge.
+/// Its size is known only once it is laid out, so the move is a translate,
+/// whose percentages are of the menu itself.
+fn placed(x: f64, y: f64) -> String {
+    let dx = format!("min(0px, calc(100vw - {x}px - 100% - 4px))");
+    let dy = format!("max(calc(4px - {y}px), min(0px, calc(100vh - {y}px - 100% - 4px)))");
+    format!("left:{x}px;top:{y}px;translate:{dx} {dy}")
 }
 
 /// The question the window holds the keys for until it is answered.
@@ -182,6 +192,23 @@ pub(crate) fn old_daemon_note(standing: &Standing) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_menu_opened_near_an_edge_is_moved_back_inside_the_window_by_its_own_size() {
+        let style = placed(900.0, 700.0);
+        assert!(style.starts_with("left:900px;top:700px;"), "{style}");
+        // Shifted left and up by however much of its own width and height
+        // would pass the window's right and bottom edges, never past the
+        // top-left corner.
+        assert!(
+            style.contains("min(0px, calc(100vw - 900px - 100% - 4px))"),
+            "{style}"
+        );
+        assert!(
+            style.contains("max(calc(4px - 700px), min(0px, calc(100vh - 700px - 100% - 4px)))"),
+            "{style}"
+        );
+    }
 
     #[test]
     fn a_daemon_this_window_cannot_work_with_is_named_beside_this_window_s_build() {

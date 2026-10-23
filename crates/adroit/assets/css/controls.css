@@ -23,7 +23,8 @@
 .tab-close:hover { background: var(--line-strong); color: var(--text); }
 .context-menu-shade { position: fixed; inset: 0; z-index: 30; }
 .context-menu { position: fixed; min-width: 220px; padding: 4px; border-radius: 8px; background: var(--raised);
-  border: 1px solid var(--line-strong); box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+  border: 1px solid var(--line-strong); box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  max-height: calc(100vh - 8px); overflow-y: auto; }
 .context-menu-item { display: flex; align-items: center; gap: 9px; height: 28px;
   padding: 0 8px; border-radius: 5px; color: var(--text); font-size: 12.5px; cursor: default; }
 .context-menu-item:hover { background: var(--select); }
