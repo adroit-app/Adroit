@@ -306,6 +306,81 @@ mod tests {
         }
     }
 
+    #[test]
+    fn the_tags_a_session_is_started_with_keep_their_spelling() {
+        let permissions = serde_json::to_string(&adroit_model::AgentPermissions::ReadOnly).unwrap();
+        assert_eq!(
+            claude_tags(
+                "fix",
+                std::path::Path::new("/api"),
+                "uuid",
+                &adroit_model::AgentPermissions::ReadOnly,
+                42,
+            ),
+            [
+                "adroit.kind=claude".to_string(),
+                "adroit.name=fix".into(),
+                "adroit.cwd=/api".into(),
+                "adroit.started=42".into(),
+                "adroit.claude=uuid".into(),
+                format!("adroit.permissions={permissions}"),
+            ]
+        );
+        assert_eq!(
+            agent_tags(
+                adroit_model::Agent::Codex,
+                "fix",
+                std::path::Path::new("/api"),
+                "",
+                &adroit_model::AgentPermissions::ReadOnly,
+                42,
+            ),
+            [
+                "adroit.name=fix".to_string(),
+                "adroit.cwd=/api".into(),
+                "adroit.started=42".into(),
+                format!("adroit.permissions={permissions}"),
+                "adroit.kind=codex".into(),
+            ]
+        );
+        let resource = adroit_model::TerminalResourceId::default();
+        assert_eq!(
+            terminal_tags(
+                "shell",
+                std::path::Path::new("/api"),
+                TerminalProgram::Neovim,
+                resource,
+                Some(std::path::Path::new("/api/a.rs")),
+            ),
+            [
+                "adroit.kind=terminal".to_string(),
+                "adroit.name=shell".into(),
+                "adroit.cwd=/api".into(),
+                format!("adroit.resource={resource}"),
+                "adroit.program=neovim".into(),
+                "adroit.file=/api/a.rs".into(),
+            ]
+        );
+        assert_eq!(
+            learned_tag((7, adroit_agents::Learned::Pid(42))),
+            (7, "adroit.pid", "42".to_string())
+        );
+        assert_eq!(
+            learned_tag((7, adroit_agents::Learned::Conversation("c".into()))),
+            (7, "adroit.claude", "c".to_string())
+        );
+        assert_eq!(
+            note_input(
+                &mut Session {
+                    id: hex(7),
+                    ..Session::default()
+                },
+                5
+            ),
+            Some((7, "adroit.last-input", "5".to_string()))
+        );
+    }
+
     /// Claude Code's listing read against `own`, with what was learned as
     /// the tags that keep it.
     fn follow(

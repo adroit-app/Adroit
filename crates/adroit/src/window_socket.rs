@@ -111,6 +111,33 @@ async fn reply(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn requests_and_answers_keep_the_lines_they_are_written_as() {
+        let written = [
+            (
+                Request::Editor {
+                    path: "/tmp/edit.md".into(),
+                },
+                r#"{"op":"editor","path":"/tmp/edit.md"}"#,
+            ),
+            (Request::Show, r#"{"op":"show"}"#),
+        ];
+        for (request, line) in written {
+            assert_eq!(serde_json::to_string(&request).unwrap(), line);
+            assert_eq!(serde_json::from_str::<Request>(line).unwrap(), request);
+        }
+        let answered = [
+            (Response::Taken(3), r#"{"taken":3}"#),
+            (Response::Declined, r#""declined""#),
+            (Response::Shown, r#""shown""#),
+            (Response::Error("no".into()), r#"{"error":"no"}"#),
+        ];
+        for (response, line) in answered {
+            assert_eq!(serde_json::to_string(&response).unwrap(), line);
+            assert_eq!(serde_json::from_str::<Response>(line).unwrap(), response);
+        }
+    }
     use std::io::Read;
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::MetadataExt;
