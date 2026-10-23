@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use adroit_model::{TerminalProgram, TerminalResourceId, TerminalSession};
-use adroit_term::Daemon;
+use adroit_term::{Daemon, Input};
 
 use crate::execution::{TerminalStartRequest, resolve_terminal, spawn_headless};
 use crate::sessions::{self, Kept};
@@ -42,6 +42,18 @@ pub async fn screen(daemon: &Daemon, resource: TerminalResourceId) -> Result<Vec
     Ok(lines)
 }
 
+pub async fn input(
+    daemon: &Daemon,
+    resource: TerminalResourceId,
+    input: &[Input],
+) -> Result<(), String> {
+    let terminal = find(daemon, resource).await?;
+    daemon
+        .input(terminal.id, input)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 pub async fn stop(daemon: &Daemon, resource: TerminalResourceId) -> Result<(), String> {
     let terminal = find(daemon, resource).await?;
     daemon.end(terminal.id).await.map_err(|e| e.to_string())
@@ -64,12 +76,21 @@ pub async fn start(
 enum Operation {
     List,
     Screen(TerminalResourceId),
+    Input(TerminalResourceId, Vec<Input>),
     Stop(TerminalResourceId),
     Start {
         program: TerminalProgram,
         dir: Option<PathBuf>,
         name: Option<String>,
+        command: Vec<String>,
     },
+}
+
+/// A key written as the keys file writes it, as the window sends it; `None`
+/// for one that never reaches a program.
+fn key(text: &str) -> Option<Input> {
+    let key = crate::keymap::Chord::parse(text).ok()?.key();
+    (!key.meta).then_some(Input::Key(key))
 }
 
 fn parse(args: &[String]) -> Option<(Operation, bool)> {
@@ -79,33 +100,76 @@ fn parse(args: &[String]) -> Option<(Operation, bool)> {
     let mut program = TerminalProgram::Shell;
     let mut dir = None;
     let mut name = None;
-    let mut rest = rest.iter();
+    let mut input = Vec::new();
+    let mut argv = None;
+    let mut rest = rest.iter().peekable();
     while let Some(flag) = rest.next() {
         match (command.as_str(), flag.as_str()) {
             (_, "--json") if !json => json = true,
-            ("screen" | "stop", "--terminal") if resource.is_none() => {
+            ("screen" | "stop" | "input", "--terminal") if resource.is_none() => {
                 resource = Some(rest.next()?.parse().ok()?)
+            }
+            ("input", "--text") => input.push(Input::Text(rest.next()?.clone())),
+            ("input", "--paste") => input.push(Input::Paste(rest.next()?.clone())),
+            ("input", "--keys") => {
+                let mut any = false;
+                while let Some(k) = rest.next_if(|k| !k.starts_with("--")) {
+                    input.push(key(k)?);
+                    any = true;
+                }
+                if !any {
+                    return None;
+                }
             }
             ("start", "--program") => {
                 program = match rest.next()?.as_str() {
                     "shell" => TerminalProgram::Shell,
                     "neovim" => TerminalProgram::Neovim,
+                    "command" => TerminalProgram::Command,
                     _ => return None,
                 }
             }
             ("start", "--dir") if dir.is_none() => dir = Some(rest.next()?.into()),
             ("start", "--name") if name.is_none() => name = Some(rest.next()?.clone()),
+            ("start", "--") => {
+                argv = Some(rest.by_ref().cloned().collect::<Vec<_>>());
+            }
             _ => return None,
         }
     }
     let operation = match command.as_str() {
         "list" => Operation::List,
         "screen" => Operation::Screen(resource?),
+        "input" if !input.is_empty() => Operation::Input(resource?, input),
         "stop" => Operation::Stop(resource?),
-        "start" => Operation::Start { program, dir, name },
+        "start" => {
+            let command = match (program, argv) {
+                (TerminalProgram::Command, Some(argv)) if !argv.is_empty() => argv,
+                (TerminalProgram::Command, _) | (_, Some(_)) => return None,
+                (_, None) => Vec::new(),
+            };
+            Operation::Start {
+                program,
+                dir,
+                name,
+                command,
+            }
+        }
         _ => return None,
     };
     Some((operation, json))
+}
+
+/// The name a terminal is given unless one is asked for.
+pub(crate) fn base_name(program: TerminalProgram, command: &[String]) -> String {
+    match program {
+        TerminalProgram::Shell => "shell".into(),
+        TerminalProgram::Neovim => "nvim".into(),
+        TerminalProgram::Command => command
+            .first()
+            .and_then(|p| std::path::Path::new(p).file_name())
+            .map_or_else(|| "command".into(), |n| n.to_string_lossy().into_owned()),
+    }
 }
 
 async fn execute(daemon: &Daemon, operation: Operation, json: bool) -> Result<String, String> {
@@ -130,6 +194,14 @@ async fn execute(daemon: &Daemon, operation: Operation, json: bool) -> Result<St
                 Ok(lines.join("\n"))
             }
         }
+        Operation::Input(resource, sent) => {
+            input(daemon, resource, &sent).await?;
+            Ok(if json {
+                serde_json::json!({"resource_id": resource, "sent": true}).to_string()
+            } else {
+                resource.to_string()
+            })
+        }
         Operation::Stop(resource) => {
             stop(daemon, resource).await?;
             Ok(if json {
@@ -138,7 +210,12 @@ async fn execute(daemon: &Daemon, operation: Operation, json: bool) -> Result<St
                 resource.to_string()
             })
         }
-        Operation::Start { program, dir, name } => {
+        Operation::Start {
+            program,
+            dir,
+            name,
+            command,
+        } => {
             let cwd = dir
                 .map_or_else(std::env::current_dir, Ok)
                 .and_then(std::fs::canonicalize)
@@ -153,11 +230,8 @@ async fn execute(daemon: &Daemon, operation: Operation, json: bool) -> Result<St
                 .map(|t| t.name)
                 .collect();
             let names: Vec<_> = taken.iter().map(String::as_str).collect();
-            let base = match program {
-                TerminalProgram::Shell => "shell",
-                TerminalProgram::Neovim => "nvim",
-            };
-            let name = crate::tabs::fresh_name(name.as_deref().unwrap_or(base), &names);
+            let base = name.unwrap_or_else(|| base_name(program, &command));
+            let name = crate::tabs::fresh_name(&base, &names);
             let terminal = start(
                 daemon,
                 &crate::settings::current(),
@@ -165,9 +239,10 @@ async fn execute(daemon: &Daemon, operation: Operation, json: bool) -> Result<St
                     name,
                     cwd,
                     program,
-                    // Not `agent_env`: a shell or Neovim keeps the user's own editor.
+                    // Not `agent_env`: a terminal keeps the user's own editor.
                     env: crate::daemon::terminal_env(),
                     file: None,
+                    command,
                 },
             )
             .await?;
@@ -183,7 +258,7 @@ async fn execute(daemon: &Daemon, operation: Operation, json: bool) -> Result<St
 pub fn cli(args: &[String]) -> i32 {
     let Some((operation, json)) = parse(args) else {
         eprintln!(
-            "usage: adroit terminal start [--program shell|neovim] [--dir PATH] [--name NAME] [--json]\n       adroit terminal list [--json]\n       adroit terminal screen|stop --terminal ID [--json]"
+            "usage: adroit terminal start [--program shell|neovim] [--dir PATH] [--name NAME] [--json]\n       adroit terminal start --program command [--dir PATH] [--name NAME] [--json] -- PROGRAM [ARGS...]\n       adroit terminal list [--json]\n       adroit terminal input --terminal ID [--text TEXT | --paste TEXT | --keys KEY...]... [--json]\n       adroit terminal screen|stop --terminal ID [--json]"
         );
         return 2;
     };
@@ -219,6 +294,7 @@ pub fn cli(args: &[String]) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adroit_term::Key;
 
     #[test]
     fn screen_and_stop_address_a_resource_and_never_guess_from_a_name_or_cwd() {
@@ -232,5 +308,107 @@ mod tests {
         assert_eq!(parse(&args), Some((Operation::Screen(id), true)));
         assert_eq!(parse(&["screen".into(), "server".into()]), None);
         assert_eq!(parse(&["stop".into()]), None);
+    }
+
+    fn args(words: &[&str]) -> Vec<String> {
+        words.iter().map(|w| w.to_string()).collect()
+    }
+
+    #[test]
+    fn input_sends_text_pastes_and_keys_in_the_order_given() {
+        let id = TerminalResourceId::new();
+        let id_text = id.to_string();
+        let parsed = parse(&args(&[
+            "input",
+            "--terminal",
+            &id_text,
+            "--text",
+            "hi",
+            "--keys",
+            "Tab",
+            "Shift+Tab",
+            "Ctrl+g",
+            "--paste",
+            "a\nb",
+            "--keys",
+            "Enter",
+            "--json",
+        ]));
+        assert_eq!(
+            parsed,
+            Some((
+                Operation::Input(
+                    id,
+                    vec![
+                        Input::Text("hi".into()),
+                        Input::Key(Key::new("Tab")),
+                        Input::Key(Key::new("Tab").shift()),
+                        Input::Key(Key::new("g").ctrl()),
+                        Input::Paste("a\nb".into()),
+                        Input::Key(Key::new("Enter")),
+                    ]
+                ),
+                true
+            ))
+        );
+    }
+
+    #[test]
+    fn input_names_keys_as_the_keys_file_does_and_refuses_what_never_reaches_a_program() {
+        let id = TerminalResourceId::new().to_string();
+        let input = |rest: &[&str]| {
+            let mut words = vec!["input", "--terminal", &id];
+            words.extend(rest);
+            parse(&args(&words))
+        };
+        assert!(input(&["--keys", "Escape", "Space", "G", "F5", "ArrowUp"]).is_some());
+        assert_eq!(input(&["--keys", "Return"]), None);
+        assert_eq!(input(&["--keys", "Cmd+c"]), None);
+        assert_eq!(input(&["--keys"]), None);
+        assert_eq!(input(&["--text"]), None);
+        assert_eq!(input(&[]), None);
+        assert_eq!(parse(&args(&["input", "--text", "hi"])), None);
+    }
+
+    #[test]
+    fn a_command_terminal_takes_its_program_and_arguments_after_a_double_dash() {
+        let parsed = parse(&args(&[
+            "start",
+            "--program",
+            "command",
+            "--dir",
+            "/src",
+            "--",
+            "claude",
+            "--debug",
+        ]));
+        assert_eq!(
+            parsed,
+            Some((
+                Operation::Start {
+                    program: TerminalProgram::Command,
+                    dir: Some("/src".into()),
+                    name: None,
+                    command: args(&["claude", "--debug"]),
+                },
+                false
+            ))
+        );
+        assert_eq!(parse(&args(&["start", "--program", "command"])), None);
+        assert_eq!(parse(&args(&["start", "--program", "command", "--"])), None);
+        assert_eq!(parse(&args(&["start", "--", "claude"])), None);
+    }
+
+    #[test]
+    fn a_terminal_is_named_after_what_it_runs() {
+        assert_eq!(base_name(TerminalProgram::Shell, &[]), "shell");
+        assert_eq!(base_name(TerminalProgram::Neovim, &[]), "nvim");
+        assert_eq!(
+            base_name(
+                TerminalProgram::Command,
+                &args(&["/usr/local/bin/claude", "--debug"])
+            ),
+            "claude"
+        );
     }
 }

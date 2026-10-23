@@ -211,14 +211,23 @@ fn files_in(
     }
 }
 
+/// The heading a terminal running `program` is listed under: a command
+/// beside the shells, as it would run in one.
+fn listed_under(program: TerminalProgram) -> Heading {
+    match program {
+        TerminalProgram::Shell | TerminalProgram::Command => Heading::Shells,
+        TerminalProgram::Neovim => Heading::Editors,
+    }
+}
+
 /// What runs in a worktree, under one of its headings; Files holds no such
 /// rows. Sessions are each followed by the sessions they started, wherever
 /// those run; a session whose starter is listed is listed under it instead.
 pub fn under(tree: &Tree, w: &WorktreeNode, heading: Heading) -> Vec<Item> {
-    let runs = |program| {
+    let runs = |heading| {
         w.terminals
             .iter()
-            .filter(move |t| t.program == program)
+            .filter(move |t| listed_under(t.program) == heading)
             .map(|t| Item::Terminal(t.id))
     };
     match heading {
@@ -230,8 +239,7 @@ pub fn under(tree: &Tree, w: &WorktreeNode, heading: Heading) -> Vec<Item> {
             }
             rows
         }
-        Heading::Shells => runs(TerminalProgram::Shell).collect(),
-        Heading::Editors => runs(TerminalProgram::Neovim).collect(),
+        Heading::Shells | Heading::Editors => runs(heading).collect(),
         Heading::Files => Vec::new(),
     }
 }
@@ -571,11 +579,10 @@ fn heading_of(tree: &Tree, shown: Option<&Tab>) -> Option<Item> {
         }
         Tab::Terminal(id) => {
             let (_, w, t) = tree.terminal(*id)?;
-            let heading = match t.program {
-                TerminalProgram::Shell => Heading::Shells,
-                TerminalProgram::Neovim => Heading::Editors,
-            };
-            Some(Item::Heading(w.worktree.path.clone(), heading))
+            Some(Item::Heading(
+                w.worktree.path.clone(),
+                listed_under(t.program),
+            ))
         }
         _ => None,
     }
@@ -1516,6 +1523,19 @@ mod tests {
         assert_eq!(under(&t, w, Heading::Editors), [shell(6)]);
         let list = rows(&t, &[], &Folds::default());
         assert_eq!(row_above(&list, &shell(6)), Some(editors_of(DEV)));
+    }
+
+    #[test]
+    fn a_command_sits_under_shells_in_the_order_started() {
+        let mut claude = sh(7, "claude", DEV);
+        claude.program = TerminalProgram::Command;
+        let t = shelled().with_terminals(&[sh(2, "shell", DEV), claude]);
+        let w = t.worktrees().find(|w| w.worktree.path == Path::new(DEV));
+        let w = w.unwrap();
+        assert_eq!(under(&t, w, Heading::Shells), [shell(2), shell(7)]);
+        assert_eq!(under(&t, w, Heading::Editors), []);
+        let list = rows(&t, &[], &Folds::default());
+        assert_eq!(row_above(&list, &shell(7)), Some(shell(2)));
     }
 
     #[test]

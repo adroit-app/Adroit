@@ -35,6 +35,20 @@ it is, how you checked it and what remains. Adroit ends your session after
 that turn. You cannot start sessions: if the work proves larger than it
 looked, `send` your starter what you found and how you would divide the rest.
 
+## Probes and helper programs
+
+Run a program you want to try or keep beside you in an Adroit terminal, which
+the user sees in the tree, never in tmux or a hidden background process. Type
+into it with keys written as Adroit's keys file writes them, read its screen,
+and stop it when you are done:
+
+```sh
+@ADROIT@ terminal start --program command --dir <dir> --json -- <program> [args...]
+@ADROIT@ terminal input --terminal <resource-id> --text "hello" --keys Tab Enter
+@ADROIT@ terminal screen --terminal <resource-id>
+@ADROIT@ terminal stop --terminal <resource-id>
+```
+
 ## Sessions that share your repository
 
 Before touching something you share with other sessions — the checkout, a

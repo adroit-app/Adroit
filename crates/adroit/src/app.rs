@@ -1725,6 +1725,7 @@ fn Terminal(runs: TerminalProgram) -> Element {
     let (icon, title) = match runs {
         TerminalProgram::Shell => (Icon::Terminal2, "shell"),
         TerminalProgram::Neovim => (Icon::Code, "Neovim"),
+        TerminalProgram::Command => (Icon::Terminal, "program"),
     };
     rsx! {
         span { class: "shell-mark", title,
@@ -3259,8 +3260,7 @@ fn App() -> Element {
             let taken: Vec<&str> = names.iter().map(String::as_str).collect();
             let base = match (&file, runs) {
                 (Some(f), _) => file_name(f),
-                (None, TerminalProgram::Shell) => "shell".into(),
-                (None, TerminalProgram::Neovim) => "nvim".into(),
+                (None, runs) => crate::terminals::base_name(runs, &[]),
             };
             let name = fresh_name(&base, &taken);
             let size = *console_size.peek();
@@ -3273,6 +3273,7 @@ fn App() -> Element {
                     // Not `agent_env`: a shell or Neovim keeps the user's own editor.
                     env: daemon::terminal_env(),
                     file,
+                    command: Vec::new(),
                 },
                 &programs::login_shell(),
             );

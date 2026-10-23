@@ -17,7 +17,7 @@ use felis_transport::local::{ReadHalf, WriteHalf};
 use felis_transport::{Delivery, Endpoint, Incoming};
 
 use crate::screen::{Overrides, screen_of_lines};
-use crate::{Palette, Screen};
+use crate::{Input, Palette, Screen};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -37,6 +37,8 @@ pub enum Error {
     PreparationAborted { session: u128, reason: String },
     #[error("the daemon, process {0}, did not stop")]
     NotStopped(u32),
+    #[error("{0} never reaches a program")]
+    Unsent(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -270,16 +272,45 @@ impl Daemon {
     /// Send `bytes` to a session's program as typed keys, with no pane
     /// attached, returning once the session has taken them.
     pub async fn press(&self, id: u128, bytes: &[u8]) -> Result<()> {
-        use felis_protocol::messages::{InputMsg, SessionToDaemonMsg};
+        use felis_protocol::messages::InputMsg;
+        self.send_input(id, &[InputMsg::KeyBytes(bytes.to_vec())])
+            .await
+    }
+
+    /// Send `input` to a session's program in order, each key as the
+    /// program's modes ask, with no pane attached, returning once the
+    /// session has taken it all; nothing is sent when a key never reaches a
+    /// program.
+    pub async fn input(&self, id: u128, input: &[Input]) -> Result<()> {
+        use felis_protocol::messages::InputMsg;
+        let msgs = input
+            .iter()
+            .map(|i| match i {
+                Input::Text(text) => Ok(InputMsg::KeyBytes(text.as_bytes().to_vec())),
+                Input::Paste(text) => Ok(InputMsg::Paste(text.as_bytes().to_vec())),
+                Input::Key(key) => key
+                    .event()
+                    .map(InputMsg::Key)
+                    .ok_or_else(|| Error::Unsent(key.key.clone())),
+            })
+            .collect::<Result<Vec<_>>>()?;
+        self.send_input(id, &msgs).await
+    }
+
+    async fn send_input(
+        &self,
+        id: u128,
+        msgs: &[felis_protocol::messages::InputMsg],
+    ) -> Result<()> {
+        use felis_protocol::messages::SessionToDaemonMsg;
         let mut conn = self.ops().await?;
         conn.attach(id, AttachIntent::Deliberate).await?;
         // Input sent before the attach's burst is read can be dropped when
         // the daemon finds the connection's outbox full.
         rehydrated(&mut conn).await?;
-        conn.writer
-            .send_unflushed(&InputMsg::KeyBytes(bytes.to_vec()))
-            .await
-            .map_err(proto)?;
+        for msg in msgs {
+            conn.writer.send_unflushed(msg).await.map_err(proto)?;
+        }
         conn.input_fence().await?;
         conn.writer
             .send(&SessionToDaemonMsg::Detach)
