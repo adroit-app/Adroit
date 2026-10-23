@@ -1,0 +1,40 @@
+ ▝▝   ▝▝   ~/ghq/github.com/adroit-app/Adroit/.claude/worktrees/pass-keys-to-claude-code-dialogs
+
+
+❯ /model
+  ⎿  Kept model as Opus 5.5 (default)
+
+❯ /config
+  ⎿  Disabled auto-compact
+
+❯ /permissions
+  ⎿  Permissions dialog dismissed
+
+❯ /mcp
+  ⎿  MCP dialog dismissed
+
+❯ /theme
+  ⎿  Theme picker dismissed
+
+❯ /agents
+  ⎿  The /agents wizard has been removed.
+
+     Ask Claude to create or update subagents for you (e.g. "create a code-reviewer subagent that ..."),
+     or edit the files directly:
+       • .claude/agents/       (this project)
+       • ~/.claude/agents/     (all projects)
+
+     Docs: https://code.claude.com/docs/en/sub-agents
+
+✻ Running… (3s · esc to interrupt)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fix ─
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle)                          Update available! Run: brew upgrade claude-code@latest
+                                                                                                    ◐ medium · /effort
+                                                                                                                   /rc
+
+
+
+

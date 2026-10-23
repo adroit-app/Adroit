@@ -60,9 +60,20 @@ pub fn development_channels<S: AsRef<str>>(lines: &[S]) -> Option<Vec<String>> {
 /// are indented and cornered, so they never pass.
 const RULE_MIN: usize = 20;
 
-fn rule(line: &str) -> bool {
+/// Whether `line` is a rule across the screen, as drawn above and below the
+/// input box. A session started with a name carries it near the right end of
+/// the input box's top rule, as in `──── fix ─`.
+pub fn rule(line: &str) -> bool {
     let line = line.trim_end();
-    line.starts_with('─') && line.chars().all(|c| c == '─') && line.chars().count() >= RULE_MIN
+    let label = line.trim_matches('─');
+    let drawn = line.chars().filter(|&c| c == '─').count();
+    line.starts_with('─')
+        && drawn >= RULE_MIN
+        && (label.is_empty()
+            || (line.ends_with('─')
+                && label.starts_with(' ')
+                && label.ends_with(' ')
+                && !label.contains('─')))
 }
 
 /// The first line of the input box, after its prompt: `❯`, or `!` in bash mode.
@@ -85,7 +96,9 @@ mod tests {
     /// Code 2.1.302 at 120×40, and `model-while-working` from 2.1.303 at
     /// 120×40 with the lines only that session showed taken out; `working` and
     /// `quoting-a-dialog` are `after-a-reply` with a spinner, or a reply
-    /// quoting a dialog, written in. `dev-channels` was recorded from 2.1.304
+    /// quoting a dialog, written in. Those ending in `-named` are the screen
+    /// without that suffix with the session's name, `fix`, written into the
+    /// input box's top rule as a session started with `--name` shows it. `dev-channels` was recorded from 2.1.304
     /// at 120×40 launched with a development channel, and
     /// `dev-channels-confirmed` right after confirming it, with the lines only
     /// that recording's environment showed taken out.
@@ -124,6 +137,23 @@ mod tests {
     #[test]
     fn a_session_working_with_its_spinner_shows_no_dialog() {
         assert!(!dialog_open(&screen("working")));
+    }
+
+    #[test]
+    fn a_picker_opened_above_an_input_box_carrying_the_session_s_name_is_a_dialog() {
+        assert!(dialog_open(&screen("model-while-working-named")));
+        assert!(!dialog_open(&screen("working-named")));
+    }
+
+    #[test]
+    fn a_rule_across_the_screen_may_carry_a_name() {
+        assert!(rule(&"─".repeat(80)));
+        assert!(rule(&format!("{} keys-ctrl-q ─", "─".repeat(80))));
+        assert!(!rule(&format!("{} keys-ctrl-q", "─".repeat(80))));
+        assert!(!rule(&format!("{}keys-ctrl-q─", "─".repeat(80))));
+        assert!(!rule(&format!("  {} keys-ctrl-q ─", "─".repeat(80))));
+        assert!(!rule(&format!("{} a ─ b ─", "─".repeat(80))));
+        assert!(!rule(&"─".repeat(RULE_MIN - 1)));
     }
 
     #[test]
