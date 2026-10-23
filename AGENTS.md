@@ -40,6 +40,7 @@ Run `just ci` before reporting a change as done. CI runs the same recipe.
 | `crates/agents/plugin/` | the Claude Code plugin every session adroit starts loads |
 | `crates/core/` | the window's state and the rules it changes by, with no UI and no programs run |
 | `crates/core/icons/` | the Tabler icons the window draws, with their licence |
+| `crates/protocol/` | what the window and the work host say to each other: requests, events, the work they describe, the versions they speak |
 | `crates/runtime/` | what the window runs: the daemon, sessions, shells, editor, socket, delegation and what is kept on disk |
 | `crates/runtime/themes/` | the console themes adroit comes with |
 | `crates/runtime/terminfo/` | the terminfo entry the console's programs are given |
@@ -82,6 +83,7 @@ Scoped Commits:
 | `runtime` | `crates/runtime/` |
 | `nvim` | `crates/nvim/` |
 | `model` | `crates/model/` |
+| `protocol` | `crates/protocol/` |
 | `term` | `crates/term/` |
 | `vcs` | `crates/vcs/` |
 | `assets` | `assets/` |

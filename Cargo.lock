@@ -92,6 +92,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "adroit-protocol"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "adroit-runtime"
 version = "0.0.0"
 dependencies = [
