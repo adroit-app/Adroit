@@ -24,3 +24,4 @@ serde_json.workspace = true
 [dev-dependencies]
 adroit-model = { workspace = true, features = ["testing"] }
 tempfile.workspace = true
+ttf-parser = "0.25.1"

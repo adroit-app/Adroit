@@ -51,6 +51,16 @@ nix develop -c cargo run --release -p adroit
 On macOS, `just install-macos` builds it as the application Adroit and puts it in
 `/Applications`.
 
+It is signed by the self-signed certificate "Adroit Release" when the login
+keychain has it, so a reinstall keeps the permissions macOS gave the previous
+build; without it, the app is signed ad hoc and macOS asks again. Make the
+certificate once, keep the folder, and import it on each Mac:
+
+```sh
+just macos-make-identity ~/adroit-identity
+just macos-import-identity ~/adroit-identity
+```
+
 Press `w` to choose where a session works, from the directories sessions run
 in, those Claude Code was used in, the repositories ghq keeps, or a file tree,
 and say what you want done. adroit keeps no list of its own: the sessions are

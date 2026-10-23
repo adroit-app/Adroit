@@ -271,6 +271,25 @@ pub fn started_by<'a>(tree: &'a Tree, session: &Session) -> impl Iterator<Item =
         .filter(move |s| own.is_some() && s.parent == own)
 }
 
+/// Where a session listed under its starter runs, in short, when its starter
+/// runs elsewhere: the name of its worktree's directory, or of its own
+/// directory within its starter's worktree. `None` when that is its name.
+pub fn runs_at(tree: &Tree, session: &Session) -> Option<String> {
+    let starter = starter(tree, session)?;
+    if session.cwd == starter.cwd {
+        return None;
+    }
+    let worktree = |s: &Session| tree.find(&s.id).map(|(_, w, _)| w.worktree.path.clone());
+    let own = worktree(session);
+    let place = if own.is_some() && own == worktree(starter) {
+        session.cwd.clone()
+    } else {
+        own.unwrap_or_else(|| session.cwd.clone())
+    };
+    let name = place.file_name()?.to_string_lossy().into_owned();
+    (name != session.name).then_some(name)
+}
+
 /// The row `item` sits under in `list`: the nearest above it one level up.
 /// The sessions waiting on the user sit under none.
 pub fn parent(list: &[Item], tree: &Tree, item: &Item) -> Option<Item> {
@@ -943,6 +962,23 @@ mod tests {
         );
         let o = find(&t, "o").unwrap().1;
         assert_eq!(starter(&t, o).map(|s| s.id.as_str()), Some("a"));
+    }
+
+    #[test]
+    fn a_started_session_running_elsewhere_names_the_worktree_s_directory_not_its_path() {
+        let t = delegating_tree(true);
+        let at = |id: &str| runs_at(&t, find(&t, id).unwrap().1);
+        assert_eq!(at("o").as_deref(), Some("oauth"));
+        assert_eq!(at("w").as_deref(), Some("web"));
+        assert_eq!(at("a"), None);
+    }
+
+    #[test]
+    fn a_started_session_named_after_where_it_runs_names_it_once() {
+        let t = delegating_tree(true);
+        let mut o = find(&t, "o").unwrap().1.clone();
+        o.name = "oauth".into();
+        assert_eq!(runs_at(&t, &o), None);
     }
 
     #[test]

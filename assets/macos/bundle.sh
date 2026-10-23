@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Assemble target/macos/Adroit.app from the release build: the executable,
 # Info.plist with the workspace's version, and the icon drawn from the logo.
-# Signed ad hoc, as macOS will not open an app bundle without a seal.
+# Signed, as macOS will not open an app bundle without a seal, by the identity
+# ADROIT_SIGN_IDENTITY names, else by "Adroit Release" when the keychain has
+# it, else ad hoc. Only the same identity keeps what macOS let the app do.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
 app="$root/target/macos/Adroit.app"
@@ -30,6 +32,19 @@ for size in 16 32 128 256 512; do
 done
 iconutil -c icns "$work/adroit.iconset" -o "$app/Contents/Resources/adroit.icns"
 
-codesign --force --sign - "$app"
+identity="${ADROIT_SIGN_IDENTITY:-}"
+if [ -z "$identity" ]; then
+  # An identity, not a certificate: the certificate alone, without its
+  # private key, cannot sign. Captured before grepping: under `pipefail`,
+  # `grep -q` closing the pipe early would fail `security` instead.
+  identities="$(security find-identity -p codesigning)"
+  if grep -qF '"Adroit Release"' <<<"$identities"; then
+    identity="Adroit Release"
+  else
+    identity="-"
+    echo "no \"Adroit Release\" in the keychain; signing ad hoc, so macOS will ask for its permissions again (just macos-make-identity, then just macos-import-identity)" >&2
+  fi
+fi
+codesign --force --sign "$identity" "$app"
 rm -rf "$work"
 echo "$app"

@@ -52,6 +52,7 @@ pub use adroit_core::status;
 use adroit_runtime::standing;
 mod style;
 mod subagent_view;
+mod symbols_font;
 pub use adroit_core::tabs;
 use adroit_runtime::system_usage;
 pub use adroit_runtime::terminals;

@@ -243,4 +243,26 @@ mod tests {
     fn every_pattern_reads_as_a_regular_expression() {
         assert_eq!(PATTERNS.len(), PATTERN.len());
     }
+
+    /// Every glyph the tables can give a path.
+    fn every_glyph() -> impl Iterator<Item = &'static str> {
+        [BASENAME, EXTENSION, DIRECTORY, PATTERN]
+            .into_iter()
+            .flatten()
+            .map(|(_, g)| *g)
+            .chain([DEFAULT])
+    }
+
+    #[test]
+    fn every_private_use_glyph_is_in_the_bundled_symbols_font() {
+        let font = include_bytes!("../../../assets/fonts/SymbolsNerdFontMono-Regular.ttf");
+        let face = ttf_parser::Face::parse(font, 0).unwrap();
+        let missing: Vec<String> = every_glyph()
+            .flat_map(str::chars)
+            .filter(|c| matches!(u32::from(*c), 0xe000..=0xf8ff | 0xf0000..=0x10ffff))
+            .filter(|c| face.glyph_index(*c).is_none())
+            .map(|c| format!("U+{:04X}", u32::from(c)))
+            .collect();
+        assert!(missing.is_empty(), "{missing:?}");
+    }
 }
