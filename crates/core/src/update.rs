@@ -3,6 +3,7 @@
 use adroit_protocol::Request;
 
 use crate::chrome::{panels, status_line};
+use crate::content::Opening;
 use crate::effect::Effect;
 use crate::msg::Msg;
 use crate::overlay::{self, Menu};
@@ -65,6 +66,7 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
             how,
             take_keys,
         } => content::open_row(state, item, how, take_keys),
+        Msg::RowClicked(item) => content::open_row(state, item, Some(Opening::Existing), true),
         Msg::Window(action) => content::act(state, action),
         Msg::WindowFocus(id) => content::focus_window(state, id),
         Msg::TabShow(at) => content::show_tab(state, at),
