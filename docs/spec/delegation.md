@@ -82,8 +82,11 @@ no progress notes and no replies that only acknowledge.
 Adroit watches each session it starts until its agent is ready. When the
 agent waits on a dialog — trust, permissions, a model change, or any dialog
 Adroit cannot name — the session shows it as waiting on you, and the session
-that started it is told; so it is when the session becomes ready, and when it
-neither becomes ready nor shows a dialog for long enough to count as stalled.
+that started it is told; so it is when the session neither becomes ready nor
+shows a dialog for long enough to count as stalled, and when a session it was
+told of either way becomes ready after all. A session that becomes ready
+without either is not announced: its starter next hears from it in its report
+or a message.
 Adroit never answers trust or permission questions for the user.
 
 Claude Code warns at every launch that Adroit's channel is a development
