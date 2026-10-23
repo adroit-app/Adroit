@@ -4395,8 +4395,9 @@ fn App() -> Element {
                 if hidden {
                     return;
                 }
+                let focused = content.peek().focused_window();
                 if let Some(w) = to.window
-                    && content.peek().focused_window() != Some(w)
+                    && focused != Some(w)
                 {
                     middle.edit(|c| {
                         c.focus(w);
@@ -4405,7 +4406,11 @@ fn App() -> Element {
                 focus.set(settled(to.area, shows_prompt(active.peek().as_ref())));
             };
             let prompts_of = |t: Option<&Tab>| shows_prompt(t);
-            let mut window = |d: Dir| go(moved(here, d, &content.peek(), prompts_of, shown));
+            // Each spot is found before `go` is told it, which changes the content.
+            let mut window = |d: Dir| {
+                let to = moved(here, d, &content.peek(), prompts_of, shown);
+                go(to);
+            };
             let thing = active.peek().clone();
             match action {
                 Action::None => {}
@@ -4413,14 +4418,29 @@ fn App() -> Element {
                 Action::WindowDown => window(Dir::Down),
                 Action::WindowUp => window(Dir::Up),
                 Action::WindowRight => window(Dir::Right),
-                Action::WindowNext => go(cycled(here, true, &content.peek(), prompts_of, shown)),
-                Action::WindowPrev => go(cycled(here, false, &content.peek(), prompts_of, shown)),
-                Action::WindowTop => go(corner(true, &content.peek(), prompts_of, shown)),
-                Action::WindowBottom => go(corner(false, &content.peek(), prompts_of, shown)),
+                Action::WindowNext => {
+                    let to = cycled(here, true, &content.peek(), prompts_of, shown);
+                    go(to);
+                }
+                Action::WindowPrev => {
+                    let to = cycled(here, false, &content.peek(), prompts_of, shown);
+                    go(to);
+                }
+                Action::WindowTop => {
+                    let to = corner(true, &content.peek(), prompts_of, shown);
+                    go(to);
+                }
+                Action::WindowBottom => {
+                    let to = corner(false, &content.peek(), prompts_of, shown);
+                    go(to);
+                }
                 Action::WindowBack => {
                     let back = *came_from.peek();
                     if let Some(to) = back {
-                        let gone = to.window.is_some_and(|w| content.peek().shows(w).is_none());
+                        let gone = {
+                            let c = content.peek();
+                            to.window.is_some_and(|w| c.shows(w).is_none())
+                        };
                         if !gone {
                             go(to);
                         }
