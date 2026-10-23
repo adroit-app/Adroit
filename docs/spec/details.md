@@ -1,11 +1,14 @@
 # The details panel
 
-The details panel tells about the worktree the console shows, on the sheets
-Overview, Changes and Log.
+The details panel tells about what the content's focused window shows, and the
+worktree it is in, on the sheets Overview, Changes and Log
+([content](content.md)). It follows the focus from window to window and from
+tab to tab, not the sidebar's selection; with nothing open, it has nothing to
+describe.
 
 ## Sheets
 
-- **Overview** names the session shown, how it stands, and the workspace and
+- **Overview** names the session the focused window shows, how it stands, and the workspace and
   worktree it works in. Conversation facts include the latest model, elapsed
   time since the last user input, the tokens the whole conversation has used,
   and its prompt and tool call counts.
@@ -80,10 +83,10 @@ Back goes out one level at a time, to the list the shown row was opened from,
 with that row selected. A row opens by its keys or a click; the line above a
 row opened names what was opened, and a click on it goes back.
 
-Usage follows the agent shown in Console on every details sheet. It shows
+Usage follows the agent of the focused window on every details sheet. It shows
 each reported account limit as a bar of what is used, with what is left and
 when it resets. A session's reported context utilization appears with those
-limits. Shell and Neovim tabs show no account limits or context utilization.
+limits. Shell and Neovim windows show no account limits or context utilization.
 
 The usage limits are asked of the session's agent while the details panel is
 in sight, again every few minutes, without starting a conversation or spending any of
@@ -94,7 +97,7 @@ utilization is asked of the agent the same way, again as the conversation
 moves on, without changing or continuing the conversation.
 A separate section below account usage shows live CPU, GPU and memory usage
 for the whole machine and capacity used on the startup volume, including in
-Shell and Neovim tabs.
+Shell and Neovim windows.
 Each resource can be hidden independently in Settings. A resource that cannot
 be read is marked unavailable. Resources have distinct colors; high usage
 overrides those colors with a warning. Memory and storage include used and

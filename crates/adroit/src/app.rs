@@ -1305,6 +1305,12 @@ fn spot_of(area: Area, content: &Content<Tab>) -> Spot {
     }
 }
 
+/// The worktree the details describe and the header names: the one in the
+/// middle, while a window shows something there.
+fn described(place: Option<Place>, shown: Option<&Tab>) -> Option<Place> {
+    place.filter(|_| shown.is_some())
+}
+
 /// The worktree `thing` is in, as the sidebar lists it.
 fn place_of_thing(tree: &Tree, terminals: &[TerminalSession], thing: &Tab) -> Option<Place> {
     match thing {
@@ -5547,7 +5553,7 @@ fn App() -> Element {
         Vec::new()
     };
     let t = tree.read().clone();
-    let current = place();
+    let current = described(place(), active.read().as_ref());
     let workspace = current
         .as_ref()
         .and_then(|p| t.workspace_of(&p.worktree))
@@ -7302,6 +7308,16 @@ fn DraftLaunchOptions(
 mod tests {
     use super::*;
     use crate::details::overview;
+
+    #[test]
+    fn the_details_describe_the_focused_window_s_worktree_and_nothing_while_nothing_is_open() {
+        let here = Some(Place {
+            worktree: "/w".into(),
+        });
+        let shown = Tab::Session("s".into());
+        assert_eq!(described(here.clone(), Some(&shown)), here);
+        assert_eq!(described(here, None), None);
+    }
 
     #[test]
     fn a_daemon_of_another_build_is_named_beside_this_window_s() {
