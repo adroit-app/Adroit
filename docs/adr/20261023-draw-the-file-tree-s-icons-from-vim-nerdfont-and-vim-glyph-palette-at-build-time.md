@@ -1,6 +1,7 @@
 # Draw the file tree's icons from vim-nerdfont and vim-glyph-palette at build time
 
-Status: Accepted
+Status: Accepted; superseded in part, for the font the glyphs are drawn
+from, by 20261023-ship-jetbrainsmono-nerd-font-mono-and-draw-the-console-in-it-by-default.md
 
 ## Context
 

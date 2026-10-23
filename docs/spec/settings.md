@@ -34,9 +34,12 @@ prompt_min_rows = 3
 prompt_max_rows = 12
 
 # The font the console and the prompt are drawn in, as the system names its
-# family, ahead of the built-in ones; empty for those alone. Its size runs
-# from 8 to 32 points and its weight from 100 to 900. A line is as tall as the
-# font asks, as in a terminal.
+# family; empty for adroit's own, JetBrainsMono Nerd Font Mono. Adroit's own
+# stands behind any other, so Nerd Font glyphs draw whatever font is chosen,
+# and a Japanese font behind that. Its size runs from 8 to 32 points and its
+# weight from 100 to 900; adroit's own comes in regular and bold, and draws
+# other weights in the nearer of them. A line is as tall as the font asks, as
+# in a terminal.
 font_family = ""
 font_size = 13.0
 font_weight = 400

@@ -27,9 +27,9 @@ workspace has no worktree row, the headings are its checkout's.
 
 Files starts folded. Unfolded, it lists the worktree's files as a file tree,
 directories first, each with its Nerd Font icon in the colour vim-glyph-palette
-gives it, drawn from a symbols font adroit carries whatever the console's font
-is. A directory is read when it is
-unfolded, `l` or `Enter` unfolding it and `h` folding it or going up to the
+gives it, drawn from adroit's own Nerd Font whatever the console's font
+is. A directory is read when it is unfolded, `l` or `Enter` unfolding it and
+`h` folding it or going up to the
 directory above. Names with a leading dot, and what git ignores, are drawn
 dim; the version control's own `.git` and `.jj` are not listed. A file jj or
 git sees changed is marked at the end of its row with the letter git gives it,
