@@ -716,3 +716,39 @@ async fn refused_startup_preparation_never_releases_the_program_or_keeps_its_ses
     assert!(!marker.exists());
     assert!(daemon.sessions().await.unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn a_held_program_runs_once_released_and_is_told_the_theme_of_the_pane_attached_first() {
+    let (d, _dir) = daemon().await;
+    let id = d
+        .spawn_held(sh(r"printf '\033]11;?\033\\'; sleep 5"))
+        .await
+        .unwrap();
+    let palette = themed(adroit_term::Rgb::new(0x12, 0x34, 0x56));
+    let pane = Pane::attach(&d, id, Size::new(40, 6), &palette, || {})
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        pane.screen().text().iter().all(|l| !l.contains("rgb:")),
+        "ran before it was released"
+    );
+    pane.fenced().await.unwrap();
+    d.release(id).await.unwrap();
+    let text = until(&pane, |t| t.iter().any(|l| l.contains("rgb:"))).await;
+    assert!(
+        text.iter().any(|l| l.contains("rgb:1212/3434/5656")),
+        "{text:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_held_program_that_cannot_be_found_is_not_started() {
+    let (d, _dir) = daemon().await;
+    let spawn = Spawn {
+        program: "/no/such/program".into(),
+        ..sh("")
+    };
+    assert!(d.spawn_held(spawn).await.is_err());
+    assert!(d.sessions().await.unwrap().is_empty());
+}

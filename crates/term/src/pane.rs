@@ -168,6 +168,25 @@ fn gated(spawn: Spawn) -> Spawn {
     }
 }
 
+impl Daemon {
+    /// Start a session as `spawn` says with its program held back, returning
+    /// its id. A pane attached to it tells it the colours; [`Daemon::release`]
+    /// then lets the program go, so the first colour it asks for is theirs.
+    pub async fn spawn_held(&self, spawn: Spawn) -> Result<u128> {
+        // Behind the gate the daemon starts a shell, which is always there,
+        // so a program missing is told here, as the daemon would have.
+        if !found(&spawn) {
+            return Err(Error::NotFound(spawn.program));
+        }
+        self.spawn(gated(spawn)).await
+    }
+
+    /// Let the program of a session [`Daemon::spawn_held`] made go.
+    pub async fn release(&self, id: u128) -> Result<()> {
+        self.press(id, RELEASE).await
+    }
+}
+
 /// Whether `spawn`'s program is one that can run, looked up on the `PATH`
 /// it is started with.
 fn found(spawn: &Spawn) -> bool {
@@ -408,6 +427,12 @@ impl Pane {
 
     pub fn id(&self) -> u128 {
         self.id
+    }
+
+    /// Returns once the daemon has taken everything sent through this pane
+    /// so far, the colours it told among them.
+    pub async fn fenced(&self) -> Result<()> {
+        self.input_fence().await
     }
 
     async fn input_fence(&self) -> Result<()> {
