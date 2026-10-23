@@ -1,6 +1,6 @@
 //! What a window of the content shows, and the names new sessions are given.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use adroit_model::{Agent, AgentPermissions, DraftId};
 
@@ -69,6 +69,23 @@ const FILLER: &[&str] = &[
 /// and each of its characters takes about two columns of a sidebar row.
 const UNSPACED_LABEL_CHARS: usize = 12;
 
+/// The ASCII words of one word of a prompt. A path says what it is by its
+/// file name's words, without the dates and numbers that tell files apart.
+fn words_of(word: &str) -> Vec<String> {
+    let word = word.to_ascii_lowercase();
+    if !word.contains('/') {
+        return vec![word.chars().filter(char::is_ascii_alphanumeric).collect()];
+    }
+    let stem = Path::new(&word)
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    stem.split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|w| !w.chars().all(|c| c.is_ascii_digit()))
+        .map(String::from)
+        .collect()
+}
+
 /// A short label for a new session from its first prompt: the first few
 /// words that say something, lower case, joined by `-`, keeping ASCII
 /// letters and digits only. A prompt without such words is labelled by its
@@ -76,12 +93,7 @@ const UNSPACED_LABEL_CHARS: usize = 12;
 pub fn label_from(prompt: &str) -> String {
     let words: Vec<String> = prompt
         .split_whitespace()
-        .map(|w| {
-            w.chars()
-                .filter(|c| c.is_ascii_alphanumeric())
-                .collect::<String>()
-                .to_ascii_lowercase()
-        })
+        .flat_map(words_of)
         .filter(|w| !w.is_empty() && !FILLER.contains(&w.as_str()))
         .take(3)
         .collect();
@@ -232,6 +244,20 @@ mod tests {
         assert_eq!(
             label_from("investigate why the integration tests keep failing"),
             "investigate-integration-tests"
+        );
+    }
+
+    #[test]
+    fn a_path_in_the_prompt_says_what_its_file_name_says() {
+        assert_eq!(
+            label_from(
+                "/Users/me/notes/2026-10-23-1502-adroit-tree-content-01-layout.md を実装して"
+            ),
+            "adroit-tree-content"
+        );
+        assert_eq!(
+            label_from("Follow ~/notes/login-flow.md please"),
+            "follow-login-flow"
         );
     }
 

@@ -6631,9 +6631,7 @@ fn App() -> Element {
                                     }
                                     Item::Session(id) => {
                                         let s = nav::find(&t, id).map(|(_, s)| s.clone());
-                                        let starter = s.as_ref().and_then(|s| nav::starter(&t, s)).cloned();
-                                        // A started session names where it runs when its starter runs elsewhere.
-                                        let elsewhere = s.as_ref().zip(starter.as_ref()).filter(|(s, starter)| s.cwd != starter.cwd).map(|(s, _)| short(&s.cwd)).unwrap_or_default();
+                                        let elsewhere = s.as_ref().and_then(|s| nav::runs_at(&t, s)).unwrap_or_default();
                                         (
                                             "list-row",
                                             s.as_ref().map(|s| s.name.clone()).unwrap_or_else(|| id.clone()),

@@ -42,11 +42,11 @@ it is shown in, and the row of what the focused window shows stands out.
 
 A session started by another session is listed under the one that started it,
 wherever it runs, inside its starter's Sessions heading and not under its own
-worktree; its row names its worktree
-or directory when that differs from its starter's. Folding a session's row
-hides the sessions it started. Once its starter has ended, a started session
-is listed by the directory it runs in, like any other. There is one tree: no
-view lists sessions by role or request.
+worktree. Its row leads with its name, and names its worktree or directory
+in short when that differs from its starter's and says more than its name.
+Folding a session's row hides the sessions it started. Once its starter has
+ended, a started session is listed by the directory it runs in, like any
+other. There is one tree: no view lists sessions by role or request.
 
 Opening a terminal's row shows it where the key pressed says and moves the
 keys there, as opening a session's row does ([content](content.md#opening)).
@@ -91,9 +91,10 @@ picker.
 
 Choosing a session opens it as its row in the tree would, leaving the keys
 where they were. Choosing a directory opens a new session there: the first
-prompt sent starts it, named from its first words or from a first line
-`name: <label>`. A prompt with no words in ASCII letters, one written in
-Japanese for one, is named by its own first letters, cut short.
+prompt sent starts it, named from its first words, a path among them by
+its file name, or from a first line `name: <label>`. A prompt with no words
+in ASCII letters, one written in Japanese for one, is named by its own first
+letters, cut short.
 
 `Ctrl+f` turns the picker into a **file tree** for a directory the list does
 not offer. It shows the directories under the home directory, under each
