@@ -2,6 +2,8 @@
 //! lists, which nodes are folded, the row selected, the filter narrowing
 //! the rows, and what of the tree the host is asked to keep read.
 
+pub mod nav;
+
 use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -12,8 +14,8 @@ use adroit_protocol::{Request, Seq, TreeSight, TreeWork, WorkSnapshot};
 
 use crate::chrome::status_line::{self, StatusLine};
 use crate::effect::Effect;
-use crate::nav::{self, Folds, Heading, Item, Place};
 use crate::tabs::Tab;
+use nav::{Folds, Heading, Item, Place};
 
 /// What the content's focused window shows, and the worktree it is in, as
 /// the window tells it.

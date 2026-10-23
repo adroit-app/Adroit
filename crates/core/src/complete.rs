@@ -4,8 +4,8 @@ use std::path::PathBuf;
 
 use adroit_model::Tree;
 
-use crate::nav::{self, Place};
 use crate::tabs::Tab;
+use crate::tree::nav::{self, Place};
 
 /// The directory whose commands `/` offers while `tab` is shown, or the
 /// open worktree with no tab: where its session runs, or would start. A shell

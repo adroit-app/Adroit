@@ -15,7 +15,7 @@ pub fn for_tab(
 ) -> Agent {
     match tab {
         Some(crate::tabs::Tab::Session(id)) => {
-            crate::nav::find(tree, id).map_or(fallback, |(_, s)| s.agent)
+            crate::tree::nav::find(tree, id).map_or(fallback, |(_, s)| s.agent)
         }
         Some(draft @ crate::tabs::Tab::Draft { .. }) => chosen
             .get(draft)

@@ -5,8 +5,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use adroit_model::Session;
 
-use crate::nav;
 use crate::tabs::{self, Tab};
+use crate::tree::nav;
 
 /// The name the text written with nothing open is kept by.
 const NOTHING_OPEN: &str = "nothing";

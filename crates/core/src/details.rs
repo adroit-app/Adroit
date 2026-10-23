@@ -393,7 +393,7 @@ impl Sheet {
     /// The sheet `delta` places along, wrapping around.
     pub fn step(self, delta: isize) -> Sheet {
         let at = Self::ALL.iter().position(|s| *s == self).unwrap_or(0);
-        Self::ALL[crate::nav::wrap(at, delta, Self::ALL.len())]
+        Self::ALL[crate::tree::nav::wrap(at, delta, Self::ALL.len())]
     }
 }
 

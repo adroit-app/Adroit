@@ -8,8 +8,8 @@ use adroit_model::{
     InboxItem, Session, State, TerminalProgram, TerminalSession, Tree, WorktreeNode,
 };
 
-use crate::files::Entry;
 use crate::tabs::Tab;
+use adroit_model::files::Entry;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Item {

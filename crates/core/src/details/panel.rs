@@ -425,7 +425,7 @@ fn session_read<'a>(details: &Details, work: Option<&'a WorkSnapshot>) -> Option
 /// The session shown, as the tree lists it.
 pub fn shown_session<'a>(details: &Details, work: Option<&'a WorkSnapshot>) -> Option<&'a Session> {
     let id = details.shown.session.as_ref()?;
-    crate::nav::find(work?.tree.tree(), id).map(|(_, s)| s)
+    crate::tree::nav::find(work?.tree.tree(), id).map(|(_, s)| s)
 }
 
 /// The overview's rows for the session shown, once something was read
@@ -646,8 +646,8 @@ mod tests {
 
     use super::*;
     use crate::msg::Msg;
-    use crate::nav::Place;
     use crate::scenario::Scenario;
+    use crate::tree::nav::Place;
 
     fn session(id: &str) -> Session {
         Session {

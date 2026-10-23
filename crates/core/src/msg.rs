@@ -9,7 +9,7 @@ use adroit_protocol::Event;
 use crate::details::{self, Sheet};
 use crate::keymap::Context;
 use crate::layout::{Layout, Side};
-use crate::nav::Item;
+use crate::tree::nav::Item;
 use crate::tree::{self, Showing};
 use crate::zoom;
 

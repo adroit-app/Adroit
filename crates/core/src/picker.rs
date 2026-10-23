@@ -264,7 +264,7 @@ pub fn step(cursor: usize, len: usize, delta: isize) -> usize {
     if len == 0 {
         return 0;
     }
-    crate::nav::wrap(cursor, delta, len)
+    crate::tree::nav::wrap(cursor, delta, len)
 }
 
 pub use adroit_model::paths::tilde as short;

@@ -4,8 +4,8 @@
 use adroit_model::{Kind, Session};
 
 use crate::actions::{Action, Group};
-use crate::nav::Item;
 use crate::tabs::Tab;
+use crate::tree::nav::Item;
 
 /// What a menu was opened on.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -292,7 +292,10 @@ mod tests {
     #[test]
     fn a_heading_folds_and_has_nothing_to_copy() {
         let got = actions(
-            Target::Row(Item::Heading("/api".into(), crate::nav::Heading::Files)),
+            Target::Row(Item::Heading(
+                "/api".into(),
+                crate::tree::nav::Heading::Files,
+            )),
             None,
         );
         assert_eq!(got[0], Action::CursorGo);
