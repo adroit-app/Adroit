@@ -124,8 +124,12 @@ pub async fn prepare(
     let context =
         crate::programs::starting(settings, Some(request.agent), request.profile.as_ref())?;
     crate::programs::ready(&context, &request.cwd, &request.env)?;
+    let asked = adroit_agents::AgentContext {
+        adroit: program.to_path_buf(),
+        ..context
+    };
     if let Some(refused) = adroit_agents::adapter(request.agent)
-        .refusal(context, request.cwd.clone())
+        .refusal(asked, request.cwd.clone())
         .await
     {
         return Err(refused);

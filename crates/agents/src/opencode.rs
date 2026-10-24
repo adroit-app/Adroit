@@ -166,16 +166,18 @@ fn denied(name: &str) -> bool {
 }
 
 /// The roots OpenCode keeps everything of its own under, each named by its
-/// variable and the folder of an account's home it is moved to.
-const ROOTS: [(&str, &str); 4] = [
+/// variable and the folder of an account's home it is moved to: the four of
+/// its own, and the temporary folder it keeps the output of commands in.
+const ROOTS: [(&str, &str); 5] = [
     ("XDG_CONFIG_HOME", "config"),
     ("XDG_DATA_HOME", "data"),
     ("XDG_STATE_HOME", "state"),
     ("XDG_CACHE_HOME", "cache"),
+    ("TMPDIR", "tmp"),
 ];
 
 /// The variables of [`ROOTS`].
-const ROOT_NAMES: [&str; 4] = [ROOTS[0].0, ROOTS[1].0, ROOTS[2].0, ROOTS[3].0];
+const ROOT_NAMES: [&str; 5] = [ROOTS[0].0, ROOTS[1].0, ROOTS[2].0, ROOTS[3].0, ROOTS[4].0];
 
 impl AgentAdapter for OpenCode {
     fn instruction_args(&self, instructions: &str) -> Vec<String> {

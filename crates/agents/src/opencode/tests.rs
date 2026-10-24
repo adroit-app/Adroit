@@ -218,6 +218,7 @@ fn an_account_of_its_own_keeps_every_root_of_opencode_s_in_its_home() {
             ("XDG_DATA_HOME", "/w/oc/data"),
             ("XDG_STATE_HOME", "/w/oc/state"),
             ("XDG_CACHE_HOME", "/w/oc/cache"),
+            ("TMPDIR", "/w/oc/tmp"),
             ("OPENCODE_DISABLE_CLAUDE_CODE", "1"),
         ]
         .map(|(n, v)| (n.to_string(), v.to_string()))

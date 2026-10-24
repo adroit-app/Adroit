@@ -32,6 +32,11 @@ printf 'OPENAI_EXTRA=%s\n' "${OPENAI_EXTRA-unset}"
 printf 'CODEX_EXTRA=%s\n' "${CODEX_EXTRA-unset}"
 printf 'PI_CODING_AGENT_DIR=%s\n' "${PI_CODING_AGENT_DIR-unset}"
 printf 'AWS_PROFILE=%s\n' "${AWS_PROFILE-unset}"
+printf 'XDG_DATA_HOME=%s\n' "${XDG_DATA_HOME-unset}"
+printf 'XDG_CONFIG_HOME=%s\n' "${XDG_CONFIG_HOME-unset}"
+printf 'GITHUB_TOKEN=%s\n' "${GITHUB_TOKEN-unset}"
+printf 'OPENCODE_DB=%s\n' "${OPENCODE_DB-unset}"
+printf 'ADROIT_OUTSIDE_XDG_DATA_HOME=%s\n' "${ADROIT_OUTSIDE_XDG_DATA_HOME-unset}"
 printf '%s\n' "$@"
 } > "$ADROIT_TEST_OUT"
 "#,
@@ -100,6 +105,10 @@ fn started(settings: &Settings, agent: Agent, profile: &str, out: &Path) -> Vec<
         .env("ANTHROPIC_VERTEX_REGION", "inherited")
         .env("CODEX_EXTRA", "inherited")
         .env("AWS_PROFILE", "inherited")
+        .env("GITHUB_TOKEN", "inherited")
+        .env("OPENCODE_DB", "/inherited.db")
+        .env("XDG_DATA_HOME", "/outside/data")
+        .env_remove("XDG_CONFIG_HOME")
         .env_remove("CLAUDE_CONFIG_DIR")
         .env_remove("CODEX_HOME")
         .env_remove("PI_CODING_AGENT_DIR")
@@ -504,6 +513,138 @@ async fn two_pi_profiles_list_the_models_their_own_logins_can_run() {
         [
             ("own".to_string(), vec!["fake/own-model".to_string()]),
             ("work".to_string(), vec!["fake/work-model".to_string()]),
+        ]
+    );
+}
+
+#[test]
+fn two_opencode_profiles_start_side_by_side_each_with_only_its_account_s_folders_and_none_of_its_keys()
+ {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("opencode-work");
+    let s = settings(Agent::OpenCode, &agent_program(dir.path()), &home, None);
+
+    let own = started(&s, Agent::OpenCode, "own", &dir.path().join("own"));
+    let work = started(&s, Agent::OpenCode, "work", &dir.path().join("work"));
+
+    // The user's own environment is OpenCode's as adroit found it.
+    for line in [
+        "XDG_DATA_HOME=/outside/data",
+        "GITHUB_TOKEN=inherited",
+        "ANTHROPIC_API_KEY=inherited",
+        "OPENCODE_DB=/inherited.db",
+        "ADROIT_OUTSIDE_XDG_DATA_HOME=unset",
+    ] {
+        assert!(has(&own, line), "{line} {own:?}");
+    }
+    for line in [
+        format!("XDG_DATA_HOME={}", home.join("data").display()),
+        format!("XDG_CONFIG_HOME={}", home.join("config").display()),
+        "GITHUB_TOKEN=unset".into(),
+        "ANTHROPIC_API_KEY=unset".into(),
+        "OPENAI_API_KEY=unset".into(),
+        "AWS_PROFILE=unset".into(),
+        "OPENCODE_DB=unset".into(),
+        "ADROIT_OUTSIDE_XDG_DATA_HOME=/outside/data".into(),
+    ] {
+        assert!(has(&work, &line), "{line} {work:?}");
+    }
+    // Both run a server of their own on the conversation adroit chose.
+    for lines in [&own, &work] {
+        assert!(
+            has(lines, "--standalone") && has(lines, "--session"),
+            "{lines:?}"
+        );
+        assert!(has(lines, "--prompt=go"), "{lines:?}");
+    }
+}
+
+#[test]
+fn what_a_shell_s_startup_files_set_reaches_no_opencode_account_of_its_own() {
+    let dir = tempfile::tempdir().unwrap();
+    let shell = meddling_shell(dir.path());
+    let home = dir.path().join("opencode-work");
+    let s = settings(
+        Agent::OpenCode,
+        &agent_program(dir.path()),
+        &home,
+        Some(&shell),
+    );
+
+    let own = started(&s, Agent::OpenCode, "own", &dir.path().join("own"));
+    let work = started(&s, Agent::OpenCode, "work", &dir.path().join("work"));
+
+    assert!(has(&own, "OPENAI_API_KEY=from-rc"), "{own:?}");
+    assert!(has(&work, "OPENAI_API_KEY=unset"), "{work:?}");
+    assert!(has(&work, "OPENAI_EXTRA=unset"), "{work:?}");
+    assert!(
+        has(
+            &work,
+            &format!("XDG_DATA_HOME={}", home.join("data").display())
+        ),
+        "{work:?}"
+    );
+}
+
+/// A program standing in for `opencode models`, which lists one model named
+/// after the account it was started in: the folder its data root is in.
+fn opencode_model_listing(dir: &Path) -> PathBuf {
+    let path = dir.join("opencode-models.sh");
+    std::fs::write(
+        &path,
+        r#"[ "$*" = 'models --standalone' ] || exit 1
+login=$(basename "$(dirname "${XDG_DATA_HOME:-/own/data}")")
+printf 'opencode/big-pickle\nfake/%s-model\n' "$login"
+"#,
+    )
+    .unwrap();
+    path
+}
+
+#[tokio::test]
+async fn two_opencode_profiles_list_the_models_of_their_own_accounts() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = settings(
+        Agent::OpenCode,
+        &opencode_model_listing(dir.path()),
+        &dir.path().join("work"),
+        None,
+    );
+    // The user's own environment keeps whatever data root adroit runs with;
+    // pinned here.
+    s.profiles[0]
+        .launch
+        .env
+        .insert("XDG_DATA_HOME".into(), "/own/data".into());
+    let mut listed = Vec::new();
+    for context in adroit_host::programs::profiles(&s)
+        .into_iter()
+        .filter(|c| c.agent() == Agent::OpenCode)
+    {
+        let context = adroit_agents::AgentContext {
+            adroit: ADROIT.into(),
+            ..context
+        };
+        let models = adroit_agents::adapter(Agent::OpenCode)
+            .models_within(context.clone(), dir.path().into(), Duration::from_secs(60))
+            .await
+            .unwrap();
+        listed.push((
+            context.profile.to_string(),
+            models.into_iter().map(|m| m.id).collect::<Vec<_>>(),
+        ));
+    }
+    assert_eq!(
+        listed,
+        [
+            (
+                "own".to_string(),
+                vec!["opencode/big-pickle".to_string(), "fake/own-model".into()]
+            ),
+            (
+                "work".to_string(),
+                vec!["opencode/big-pickle".to_string(), "fake/work-model".into()]
+            ),
         ]
     );
 }

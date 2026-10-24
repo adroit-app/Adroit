@@ -52,11 +52,12 @@ pub(super) fn past(context: &AgentContext, home: &Path, dir: Option<&Path>) -> V
 }
 
 /// The conversations OpenCode listed in `out` that ran in `dir`, when one is
-/// given.
+/// given. OpenCode names a directory by its real path, through every link.
 fn listed(context: &AgentContext, out: &str, dir: Option<&Path>) -> Vec<Past> {
     let Ok(listed) = serde_json::from_str::<Value>(out) else {
         return Vec::new();
     };
+    let dir = dir.map(|dir| dir.canonicalize().unwrap_or_else(|_| dir.into()));
     listed["data"]
         .as_array()
         .into_iter()
@@ -64,7 +65,7 @@ fn listed(context: &AgentContext, out: &str, dir: Option<&Path>) -> Vec<Past> {
         .filter(|session| session.get("parentID").is_none_or(Value::is_null))
         .filter_map(|session| {
             let cwd = Path::new(session["location"]["directory"].as_str()?);
-            if dir.is_some_and(|dir| dir != cwd) {
+            if dir.as_ref().is_some_and(|dir| dir != cwd) {
                 return None;
             }
             Some(Past {
@@ -123,6 +124,16 @@ mod tests {
         );
         assert_eq!(seen(None).len(), 3);
         assert!(listed(&context, "not json", None).is_empty());
+        // Asked through a link, the directory is the one it leads to.
+        let real = tempfile::tempdir().unwrap();
+        let linked = tempfile::tempdir().unwrap();
+        let link = linked.path().join("link");
+        std::os::unix::fs::symlink(real.path(), &link).unwrap();
+        let there = format!(
+            r#"{{"data":[{{"id":"ses_r","time":{{"updated":1}},"location":{{"directory":{}}}}}]}}"#,
+            serde_json::to_string(&real.path().canonicalize().unwrap()).unwrap()
+        );
+        assert_eq!(listed(&context, &there, Some(&link)).len(), 1);
         let past = listed(&context, out, Some(Path::new("/x")));
         assert_eq!(
             (past[0].agent, past[0].profile.as_str()),
