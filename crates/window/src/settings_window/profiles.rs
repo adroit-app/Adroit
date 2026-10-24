@@ -9,13 +9,13 @@ use std::rc::Rc;
 use adroit_core::agent_pages::AgentPage;
 use adroit_core::profiles::{self, NewHome};
 use adroit_model::Agent;
-use adroit_model::config::{CodexOptions, Launch, PiOptions, SessionOptions};
+use adroit_model::config::{CodexOptions, Launch, OpenCodeOptions, PiOptions, SessionOptions};
 use adroit_model::paths::tilde;
 use adroit_model::profile::{ConnectionId, LoginStanding, ProfileId};
 use adroit_protocol::{AgentsWork, Answer, Ask, Request};
 use dioxus::prelude::*;
 
-use super::{Change, CodexGroup, LaunchGroup, PiGroup, SessionGroup};
+use super::{Change, CodexGroup, LaunchGroup, OpenCodeGroup, PiGroup, SessionGroup};
 use crate::components::{SettingGroup, SettingRow, SettingsError, TextField};
 use crate::icons::{Icon, IconView};
 use crate::link::Link;
@@ -392,6 +392,24 @@ fn ProfilePage(
                             change(Box::new(move |s: &mut Settings| {
                                 if let Ok(p) = profiles::profile_mut(s, &id) {
                                     p.options = AgentOptions::Pi(options);
+                                }
+                            }))
+                        }
+                    },
+                }
+            },
+            AgentOptions::OpenCode(options) => rsx! {
+                OpenCodeGroup {
+                    key: "opencode-{profile.id}",
+                    title: "New sessions",
+                    options,
+                    set: {
+                        let id = profile.id.clone();
+                        move |options: OpenCodeOptions| {
+                            let id = id.clone();
+                            change(Box::new(move |s: &mut Settings| {
+                                if let Ok(p) = profiles::profile_mut(s, &id) {
+                                    p.options = AgentOptions::OpenCode(options);
                                 }
                             }))
                         }
@@ -882,6 +900,9 @@ fn LoginRow(
             format!("{} didn't say whether it is logged in.", agent.label())
         }
         Some(Probed::Failed(why)) => why.clone(),
+        Some(Probed::Is(LoginStanding::LoggedOut, _)) => crate::logins::without_login(agent)
+            .unwrap_or_default()
+            .to_string(),
         _ => String::new(),
     };
     let hint = match &now {

@@ -836,6 +836,63 @@ fn PiGroup(
     }
 }
 
+/// How OpenCode sessions run: their model, the agent they start as, their
+/// permission rules and whether they approve on their own, which is all
+/// OpenCode has for permissions.
+#[component]
+fn OpenCodeGroup(
+    title: String,
+    options: adroit_model::config::OpenCodeOptions,
+    set: Callback<adroit_model::config::OpenCodeOptions>,
+) -> Element {
+    use adroit_model::config::{OpenCodeOptions, format_rules, parse_rules};
+    let (model, agent, rules, auto) = (
+        options.clone(),
+        options.clone(),
+        options.clone(),
+        options.clone(),
+    );
+    rsx! {
+        SettingGroup { title: "{title}",
+            SettingRow { label: "Model", hint: "As provider/model, the way OpenCode lists its models; empty for OpenCode's own.",
+                TextField {
+                    value: options.model,
+                    aria_label: "Model",
+                    placeholder: "OpenCode's own",
+                    onchange: move |value: String| set(OpenCodeOptions { model: value.trim().into(), ..model.clone() }),
+                }
+            }
+            SettingRow { label: "Agent", hint: "The primary agent they start as, one of OpenCode's or the account's own; empty for OpenCode's default.",
+                TextField {
+                    list: "opencode-agents",
+                    aria_label: "Agent",
+                    value: options.agent,
+                    placeholder: "build",
+                    onchange: move |value: String| set(OpenCodeOptions { agent: value.trim().into(), ..agent.clone() }),
+                }
+                datalist { id: "opencode-agents",
+                    for value in ["build", "plan"] {
+                        option { key: "{value}", value: value }
+                    }
+                }
+            }
+            SettingRow { label: "Permission rules", hint: "One a line: allow, ask or deny, then what a tool does, such as edit, shell or webfetch, then what it is done to, * for anything. They come after the account's own, and the last that matches a tool call decides. OpenCode has no sandbox: a session allowed shell runs any command.",
+                TextArea {
+                    value: "{format_rules(&options.permissions)}",
+                    placeholder: "ask shell *",
+                    onchange: move |value: String| set(OpenCodeOptions { permissions: parse_rules(&value), ..rules.clone() }),
+                }
+            }
+            SettingRow { label: "Approve on their own", hint: "Every tool call no rule denies runs without asking, as OpenCode's --auto does.",
+                Toggle {
+                    checked: options.auto,
+                    onchange: move |on: bool| set(OpenCodeOptions { auto: on, ..auto.clone() }),
+                }
+            }
+        }
+    }
+}
+
 /// How sessions of one kind run: their model, permission mode, the tools
 /// denied them, and whether Adroit's channel warning is confirmed for them.
 #[component]

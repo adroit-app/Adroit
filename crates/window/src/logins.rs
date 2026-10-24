@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
+use adroit_model::Agent;
 use adroit_model::profile::{ConnectionId, LoginStanding, ProfileId};
 use adroit_protocol::{Answer, Ask};
 use dioxus::prelude::*;
@@ -27,6 +28,15 @@ pub(crate) enum Login {
 }
 
 pub(crate) type Logins = HashMap<ProfileId, Login>;
+
+/// What a profile of `agent` can do without a login, said where it shows as
+/// not logged in: OpenCode runs its free models and local ones without one.
+pub(crate) fn without_login(agent: Agent) -> Option<&'static str> {
+    match agent {
+        Agent::OpenCode => Some("Free and local models need no login."),
+        Agent::Claude | Agent::Codex | Agent::Pi => None,
+    }
+}
 
 /// Whether a login known as `known` is to be asked of its CLI at `now`:
 /// never asked, or answered too long ago; not while it is being asked.
@@ -124,6 +134,17 @@ mod tests {
         assert!(stale(Some(&answered(FRESH)), now));
         assert!(!stale(Some(&Login::Asking), now));
         assert!(!stale(Some(&Login::LoggingIn(7)), now));
+    }
+
+    #[test]
+    fn only_opencode_says_what_runs_without_a_login() {
+        for agent in Agent::ALL {
+            assert_eq!(
+                without_login(agent).is_some(),
+                agent == Agent::OpenCode,
+                "{agent:?}"
+            );
+        }
     }
 
     #[test]

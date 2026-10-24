@@ -267,7 +267,12 @@ fn LoginNotice(profile: ProfileId, connection: ConnectionId, agent: Agent) -> El
             Some(LoginStanding::LoggedOut) => rsx! {
                 div { class: "launch-form-label", "Login" }
                 div { class: "launch-form-agent", role: "status",
-                    span { class: "launch-form-where", "Not logged in" }
+                    span { class: "launch-form-where",
+                        "Not logged in"
+                        if let Some(needless) = crate::logins::without_login(agent) {
+                            ". {needless}"
+                        }
+                    }
                     Button {
                         kind: "primary",
                         onclick: move |_| {

@@ -204,6 +204,39 @@ pub fn parse_env(text: &str) -> BTreeMap<String, String> {
         .collect()
 }
 
+/// OpenCode's rules as written a line each: the effect, `allow`, `ask` or
+/// `deny`, the action, and the resource, `*` when left out. Lines that are
+/// empty, start with `#` or name no such effect are left out.
+pub fn parse_rules(text: &str) -> Vec<OpenCodeRule> {
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.starts_with('#'))
+        .filter_map(|l| {
+            let (effect, rest) = l.split_once(char::is_whitespace)?;
+            if !matches!(effect, "allow" | "ask" | "deny") {
+                return None;
+            }
+            let rest = rest.trim();
+            let (action, resource) = rest.split_once(char::is_whitespace).unwrap_or((rest, "*"));
+            Some(OpenCodeRule {
+                action: action.into(),
+                resource: resource.trim().into(),
+                effect: effect.into(),
+            })
+        })
+        .filter(|r| !r.action.is_empty())
+        .collect()
+}
+
+/// `rules` written as [`parse_rules`] reads them.
+pub fn format_rules(rules: &[OpenCodeRule]) -> String {
+    rules
+        .iter()
+        .map(|r| format!("{} {} {}", r.effect, r.action, r.resource))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// `env` written as [`parse_env`] reads it.
 pub fn format_env(env: &BTreeMap<String, String>) -> String {
     env.iter()
@@ -218,6 +251,31 @@ mod tests {
 
     fn words(w: &[&str]) -> Vec<String> {
         w.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn opencode_s_rules_are_written_a_line_each_as_effect_action_and_resource() {
+        let rule = |effect: &str, action: &str, resource: &str| OpenCodeRule {
+            action: action.into(),
+            resource: resource.into(),
+            effect: effect.into(),
+        };
+        let rules = parse_rules(
+            "allow shell git *\n\n# a note\ndeny edit\nask  webfetch  https://*  \nmaybe read *\nallow",
+        );
+        assert_eq!(
+            rules,
+            [
+                rule("allow", "shell", "git *"),
+                rule("deny", "edit", "*"),
+                rule("ask", "webfetch", "https://*"),
+            ]
+        );
+        assert_eq!(
+            format_rules(&rules),
+            "allow shell git *\ndeny edit *\nask webfetch https://*"
+        );
+        assert_eq!(parse_rules(&format_rules(&rules)), rules);
     }
 
     #[test]
