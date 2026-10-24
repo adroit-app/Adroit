@@ -24,9 +24,9 @@ holds for adroit to follow it.
 
 ## Alternatives considered
 
-- Write adroit's server into the configuration of the connection's Pi. adroit
-  would put its own files into a state folder it otherwise only names, and
-  every Pi of that connection, adroit's or not, would carry the server.
+- Write adroit's server into the configuration of the profile's own Pi.
+  adroit would put its own files into a state folder it otherwise only names,
+  and every Pi run in that folder, adroit's or not, would carry the server.
 - Type each message into the session's console. It would land in whatever
   the user is typing, and a dialog open would take it as an answer.
 - Leave Pi without adroit's tools and messages. A Pi session could neither
