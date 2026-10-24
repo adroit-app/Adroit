@@ -24,14 +24,16 @@ pub enum Agent {
     #[default]
     Claude,
     Codex,
+    Pi,
 }
 
 impl Agent {
-    pub const ALL: [Self; 2] = [Self::Claude, Self::Codex];
+    pub const ALL: [Self; 3] = [Self::Claude, Self::Codex, Self::Pi];
     pub const fn key(self) -> &'static str {
         match self {
             Self::Claude => "claude",
             Self::Codex => "codex",
+            Self::Pi => "pi",
         }
     }
 
@@ -40,6 +42,7 @@ impl Agent {
         match self {
             Self::Claude => "Claude Code",
             Self::Codex => "Codex",
+            Self::Pi => "Pi",
         }
     }
 
@@ -59,6 +62,7 @@ impl Agent {
         match key {
             "claude" => Some(Self::Claude),
             "codex" => Some(Self::Codex),
+            "pi" => Some(Self::Pi),
             _ => None,
         }
     }
@@ -217,6 +221,8 @@ mod tests {
     fn each_agent_is_called_by_its_program_s_own_name() {
         assert_eq!(Agent::Claude.label(), "Claude Code");
         assert_eq!(Agent::Codex.label(), "Codex");
+        assert_eq!(Agent::Pi.label(), "Pi");
+        assert_eq!(Agent::parse("pi"), Some(Agent::Pi));
     }
 
     fn one(json: &str) -> Running {

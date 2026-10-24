@@ -10,7 +10,7 @@ use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 
 use crate::Agent;
-use crate::config::{CodexOptions, Launch, SessionOptions};
+use crate::config::{CodexOptions, Launch, PiOptions, SessionOptions};
 
 /// Why a string cannot be an id.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -134,6 +134,7 @@ impl ConnectionId {
 pub enum AgentOptions {
     Claude(SessionOptions),
     Codex(CodexOptions),
+    Pi(PiOptions),
 }
 
 impl AgentOptions {
@@ -142,6 +143,7 @@ impl AgentOptions {
         match agent {
             Agent::Claude => Self::Claude(SessionOptions::default()),
             Agent::Codex => Self::Codex(CodexOptions::default()),
+            Agent::Pi => Self::Pi(PiOptions::default()),
         }
     }
 
@@ -149,6 +151,25 @@ impl AgentOptions {
         match self {
             Self::Claude(_) => Agent::Claude,
             Self::Codex(_) => Agent::Codex,
+            Self::Pi(_) => Agent::Pi,
+        }
+    }
+
+    /// The model sessions start with, in the agent's own terms; empty for
+    /// the agent's own choice.
+    pub fn model(&self) -> &str {
+        match self {
+            Self::Claude(options) => &options.model,
+            Self::Codex(options) => &options.model,
+            Self::Pi(options) => &options.model,
+        }
+    }
+
+    pub fn model_mut(&mut self) -> &mut String {
+        match self {
+            Self::Claude(options) => &mut options.model,
+            Self::Codex(options) => &mut options.model,
+            Self::Pi(options) => &mut options.model,
         }
     }
 }
@@ -196,14 +217,14 @@ impl AgentProfile {
     pub fn claude(&self) -> Option<&SessionOptions> {
         match &self.options {
             AgentOptions::Claude(options) => Some(options),
-            AgentOptions::Codex(_) => None,
+            _ => None,
         }
     }
 
     pub fn claude_mut(&mut self) -> Option<&mut SessionOptions> {
         match &mut self.options {
             AgentOptions::Claude(options) => Some(options),
-            AgentOptions::Codex(_) => None,
+            _ => None,
         }
     }
 
@@ -211,14 +232,29 @@ impl AgentProfile {
     pub fn codex(&self) -> Option<&CodexOptions> {
         match &self.options {
             AgentOptions::Codex(options) => Some(options),
-            AgentOptions::Claude(_) => None,
+            _ => None,
         }
     }
 
     pub fn codex_mut(&mut self) -> Option<&mut CodexOptions> {
         match &mut self.options {
             AgentOptions::Codex(options) => Some(options),
-            AgentOptions::Claude(_) => None,
+            _ => None,
+        }
+    }
+
+    /// Pi's options, for a Pi profile.
+    pub fn pi(&self) -> Option<&PiOptions> {
+        match &self.options {
+            AgentOptions::Pi(options) => Some(options),
+            _ => None,
+        }
+    }
+
+    pub fn pi_mut(&mut self) -> Option<&mut PiOptions> {
+        match &mut self.options {
+            AgentOptions::Pi(options) => Some(options),
+            _ => None,
         }
     }
 }
@@ -233,7 +269,7 @@ struct ProfileEntry {
     /// What the profile is called; empty for its id.
     #[serde(default)]
     name: String,
-    /// The agent it starts, `claude` or `codex`.
+    /// The agent it starts, `claude`, `codex` or `pi`.
     agent: Agent,
     /// The connection it runs in, by id; left out for the agent's own
     /// environment, which the agent's key also names.
@@ -250,6 +286,10 @@ struct ProfileEntry {
     /// `codex` profile; empty values leave Codex's own settings in effect.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     codex: Option<CodexOptions>,
+    /// Pi's model as `provider/id`, thinking level and tools, for a `pi`
+    /// profile; empty values leave Pi's own settings in effect.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pi: Option<PiOptions>,
     /// Whether it is kept only for the sessions that ran from it, and offered
     /// for no new one.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -260,21 +300,24 @@ impl TryFrom<ProfileEntry> for AgentProfile {
     type Error = String;
 
     fn try_from(entry: ProfileEntry) -> Result<Self, Self::Error> {
-        let options = match (entry.agent, entry.claude, entry.codex) {
-            (Agent::Claude, claude, None) => AgentOptions::Claude(claude.unwrap_or_default()),
-            (Agent::Codex, None, codex) => AgentOptions::Codex(codex.unwrap_or_default()),
-            (agent, _, _) => {
-                let other = Agent::ALL
-                    .into_iter()
-                    .find(|a| *a != agent)
-                    .unwrap_or(agent);
-                return Err(format!(
-                    "profile `{}` starts {} and cannot hold options for {}",
-                    entry.id,
-                    agent.label(),
-                    other.label()
-                ));
-            }
+        let agent = entry.agent;
+        let held = [
+            (Agent::Claude, entry.claude.is_some()),
+            (Agent::Codex, entry.codex.is_some()),
+            (Agent::Pi, entry.pi.is_some()),
+        ];
+        if let Some((other, _)) = held.iter().find(|(a, held)| *held && *a != agent) {
+            return Err(format!(
+                "profile `{}` starts {} and cannot hold options for {}",
+                entry.id,
+                agent.label(),
+                other.label()
+            ));
+        }
+        let options = match agent {
+            Agent::Claude => AgentOptions::Claude(entry.claude.unwrap_or_default()),
+            Agent::Codex => AgentOptions::Codex(entry.codex.unwrap_or_default()),
+            Agent::Pi => AgentOptions::Pi(entry.pi.unwrap_or_default()),
         };
         Ok(Self {
             connection: entry
@@ -292,10 +335,12 @@ impl TryFrom<ProfileEntry> for AgentProfile {
 impl From<AgentProfile> for ProfileEntry {
     fn from(profile: AgentProfile) -> Self {
         let agent = profile.agent();
-        let (claude, codex) = match profile.options {
-            AgentOptions::Claude(options) => (Some(options), None),
-            AgentOptions::Codex(options) => (None, Some(options)),
-        };
+        let (mut claude, mut codex, mut pi) = (None, None, None);
+        match profile.options {
+            AgentOptions::Claude(options) => claude = Some(options),
+            AgentOptions::Codex(options) => codex = Some(options),
+            AgentOptions::Pi(options) => pi = Some(options),
+        }
         Self {
             id: profile.id,
             name: profile.name,
@@ -305,6 +350,7 @@ impl From<AgentProfile> for ProfileEntry {
             launch: profile.launch,
             claude,
             codex,
+            pi,
             archived: profile.archived,
         }
     }
@@ -323,7 +369,7 @@ pub struct AgentConnection {
     /// What the connection is called; empty for its id.
     #[serde(default)]
     pub name: String,
-    /// The agent whose CLI keeps its state there, `claude` or `codex`.
+    /// The agent whose CLI keeps its state there, `claude`, `codex` or `pi`.
     pub agent: Agent,
     /// The state directory, as an absolute path without `~`, `.` or `..` and
     /// with no `/` doubled or at its end; it is fixed when the connection is
@@ -521,6 +567,47 @@ mod tests {
             "{error}"
         );
         assert!(read(r#"{"id":"p","agent":"claude","colour":"red"}"#).is_err());
+    }
+
+    #[test]
+    fn a_pi_profile_holds_its_model_thinking_and_tools() {
+        let read = |text: &str| serde_json::from_str::<AgentProfile>(text);
+        let pi = read(
+            r#"{"id":"p","agent":"pi","pi":{"model":"ollama/qwen3","thinking":"high","tools":["read","grep"]}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            pi.pi(),
+            Some(&PiOptions {
+                model: "ollama/qwen3".into(),
+                thinking: "high".into(),
+                tools: vec!["read".into(), "grep".into()],
+            })
+        );
+        assert_eq!(pi.claude(), None);
+        assert_eq!(pi.codex(), None);
+        let written = serde_json::to_value(&pi).unwrap();
+        assert_eq!(written["pi"]["model"], "ollama/qwen3");
+        assert_eq!(written.get("codex"), None);
+        assert_eq!(serde_json::from_value::<AgentProfile>(written).unwrap(), pi);
+        let error = read(r#"{"id":"p","agent":"pi","codex":{"model":"x"}}"#)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("profile `p` starts Pi and cannot hold options for Codex"),
+            "{error}"
+        );
+        let error = read(r#"{"id":"p","agent":"codex","pi":{}}"#)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("profile `p` starts Codex and cannot hold options for Pi"),
+            "{error}"
+        );
+        assert!(read(r#"{"id":"p","agent":"pi","pi":{"approval_policy":"never"}}"#).is_err());
+        let builtin = AgentProfile::builtin(Agent::Pi);
+        assert_eq!((builtin.id.as_str(), builtin.label()), ("pi", "Pi"));
+        assert_eq!(builtin.pi(), Some(&PiOptions::default()));
     }
 
     #[test]

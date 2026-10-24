@@ -1,0 +1,27 @@
+Warning: No project session found with id 'adroit-probe-1'; creating a new session with that id.
+
+ ▀▀█  v1.3.0
+ █▀ █ escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more
+ Press ctrl+o to show full startup help and loaded resources.
+
+ Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.
+
+[Skills]
+  ai-notes, arto, cc-add, code-review-codex, code-review-codex-loop, code-review-loop, doc-check, doc-review,
+doc-review-codex, doc-review-codex-loop, doc-review-loop, find-skills, jj-commit, jj-rebase, jj-resolve, jj-reword,
+jj-workspace, oss-init, pr-create, pr-review, pr-update, slite-note, yomiyasu
+
+
+ Warning: fd not found. Offline mode enabled, skipping download.
+
+
+ say hello
+
+
+ Hello from the slow fake model.
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+/private/tmp/claude-501/-Users-alisue-ghq-github-com-adroit-app-Adroit--claude-worktrees-agent-profiles-pi/528fa619-3...
+↑10 ↓6 0.0%/33k (auto)                                                                                              slow

@@ -133,6 +133,21 @@ pub struct CodexOptions {
     pub sandbox_mode: String,
 }
 
+/// How Pi sessions start, in Pi's own terms: it asks before no tool call, so
+/// what a session may do is the tools it is given.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct PiOptions {
+    /// Pi's model as `provider/id`; empty for its own choice.
+    pub model: String,
+    /// Its thinking level: `off`, `minimal`, `low`, `medium`, `high`,
+    /// `xhigh` or `max`, as the model supports; empty for its own choice.
+    pub thinking: String,
+    /// The tools it may use, by Pi's names, such as `read`, `bash`, `edit`
+    /// and `write`; empty for Pi's own set.
+    pub tools: Vec<String>,
+}
+
 /// A command written as a shell would split it into words; `None` while a
 /// quote is left open.
 pub fn parse_command(text: &str) -> Option<Vec<String>> {

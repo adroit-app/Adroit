@@ -74,6 +74,9 @@ pub enum CustomPermissions {
         approval_policy: String,
         sandbox_mode: String,
     },
+    /// Pi asks before no tool call and has no sandbox: what it may do is the
+    /// tools it is given.
+    Pi { tools: Vec<String> },
 }
 
 /// Where a launch's model came from.
