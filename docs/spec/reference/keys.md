@@ -104,7 +104,7 @@ changes them ([keys](../keys.md)).
 | `prompt.history_next` |  | put the prompt sent after the one shown in the prompt, as `prompt.history_prev` does | `console`: `ArrowDown`, `Ctrl+n`<br>`prompt`: `Ctrl+n` |
 | `settings.open` | Settings… | open the Settings window | `global`: `Mod+,` |
 | `daemon.restart` | Restart Session Daemon… | restart the sessions' daemon after asking, ending every session it holds ([details](../sessions.md#the-hosts)) |  |
-| `keys.help` | Keyboard Shortcuts | show every binding in force, area by area, the areas the keys are in first, each with what its action does; `Escape`, `q` or the key that showed it closes it, and no other key acts behind it | `global`: `F1`<br>`prompt`: `F1` |
+| `keys.help` | Keyboard Shortcuts | show every binding in force, area by area, the areas the keys are in first, each with what its action does and whether it repeats; `Escape`, `q` or the key that showed it closes it, and no other key acts behind it | `global`: `F1`<br>`prompt`: `F1` |
 | `zoom.in` | Zoom In | draw the window a step larger | `global`: `Mod+=`, `Mod+Plus` |
 | `zoom.out` | Zoom Out | draw the window a step smaller | `global`: `Mod+-` |
 | `zoom.reset` | Actual Size | draw the window at the zoom the settings give | `global`: `Mod+0` |

@@ -13,8 +13,11 @@
 .keys-help-row:hover { background: var(--select); }
 .keys-help-icon { display: inline-flex; padding-left: 6px; height: 22px; align-items: center; color: var(--text-3); }
 .keys-help-label { padding-right: 12px; line-height: 22px; overflow-wrap: anywhere; }
+.keys-help-repeats { margin-left: 6px; padding: 0 5px; border-radius: 4px; font-size: 11px; color: var(--wait); background: var(--wait-tint); cursor: default; }
 .keys-help-keys { display: flex; padding-right: 6px; flex-wrap: wrap; gap: 4px 6px; }
 .keys-help-seq { display: inline-flex; align-items: center; gap: 3px; height: 22px; padding: 0 3px; border-radius: 5px; background: var(--ground); white-space: nowrap; }
 .keys-help-end { display: contents; }
 .keys-help-or { color: var(--text-3); font-size: 11px; padding: 0 1px; }
+.keys-help-legend { display: inline-flex; align-items: center; gap: 6px; }
+.keys-help-legend .keys-help-repeats { margin-left: 0; }
 .keys-help-footer { display: flex; gap: 14px; padding: 6px 8px 0; border-top: 1px solid var(--line); color: var(--text-3); font-size: 11.5px; }

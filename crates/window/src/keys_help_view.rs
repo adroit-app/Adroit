@@ -44,7 +44,16 @@ pub fn KeysHelpView(groups: Vec<Group>, onclose: EventHandler<()>) -> Element {
                                                 IconView { icon, size: 14 }
                                             }
                                         }
-                                        span { class: "keys-help-label", "{row.label}" }
+                                        span { class: "keys-help-label",
+                                            "{row.label}"
+                                            if row.repeats {
+                                                span {
+                                                    class: "keys-help-repeats",
+                                                    title: "Repeats: press the last key again to do it again",
+                                                    "↻"
+                                                }
+                                            }
+                                        }
                                         span { class: "keys-help-keys",
                                             for (j, keys) in row.keys.into_iter().enumerate() {
                                                 span { key: "{j}", class: "keys-help-seq",
@@ -71,6 +80,10 @@ pub fn KeysHelpView(groups: Vec<Group>, onclose: EventHandler<()>) -> Element {
                 div { class: "keys-help-footer",
                     KeyHint { keys: "j/k", does: "scroll" }
                     KeyHint { keys: "Esc", does: "close" }
+                    span { class: "keys-help-legend",
+                        span { class: "keys-help-repeats", "↻" }
+                        "the last key repeats it"
+                    }
                 }
             }
         }

@@ -350,7 +350,7 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::HistoryNext, "prompt.history_next", "put the prompt sent after the one shown in the prompt, as `prompt.history_prev` does").says("Next prompt"),
     S::new(A::SettingsOpen, "settings.open", "open the Settings window").bar("Settings…", Icon::Settings),
     S::new(A::DaemonRestart, "daemon.restart", "restart the sessions' daemon after asking, ending every session it holds ([details](sessions.md#the-hosts))").bar("Restart Session Daemon…", Icon::ServerBolt),
-    S::new(A::KeysHelp, "keys.help", "show every binding in force, area by area, the areas the keys are in first, each with what its action does; `Escape`, `q` or the key that showed it closes it, and no other key acts behind it").bar("Keyboard Shortcuts", Icon::Keyboard),
+    S::new(A::KeysHelp, "keys.help", "show every binding in force, area by area, the areas the keys are in first, each with what its action does and whether it repeats; `Escape`, `q` or the key that showed it closes it, and no other key acts behind it").bar("Keyboard Shortcuts", Icon::Keyboard),
     S::new(A::ZoomIn, "zoom.in", "draw the window a step larger").bar("Zoom In", Icon::ZoomIn),
     S::new(A::ZoomOut, "zoom.out", "draw the window a step smaller").bar("Zoom Out", Icon::ZoomOut),
     S::new(A::ZoomReset, "zoom.reset", "draw the window at the zoom the settings give").bar("Actual Size", Icon::ZoomReset),

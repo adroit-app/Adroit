@@ -22,6 +22,8 @@ pub struct Row {
     pub keys: Vec<Keys>,
     pub label: String,
     pub icon: Option<Icon>,
+    /// Whether the last key of its sequences runs the action again alone.
+    pub repeats: bool,
 }
 
 /// Sequences of a row that start alike: the keys they share, then the last
@@ -58,10 +60,11 @@ pub fn groups(keymap: &Keymap, here: &[Context]) -> Vec<Group> {
             }
             let rows: Vec<Row> = fold_numbers(bound)
                 .into_iter()
-                .map(|(label, icon, seqs)| Row {
+                .map(|(action, label, seqs)| Row {
                     keys: share_leads(&seqs),
                     label,
-                    icon,
+                    icon: action.icon(),
+                    repeats: action.repeats(),
                 })
                 .collect();
             (!rows.is_empty()).then(|| Group {
@@ -76,7 +79,7 @@ pub fn groups(keymap: &Keymap, here: &[Context]) -> Vec<Group> {
 /// The rows of `bound`, labelled, with the sequences of [`Action::TabGo`]
 /// that differ only in a run of numbers ending them folded into one row,
 /// `Ctrl+q 1–9`, where the first of those numbers stood.
-fn fold_numbers(bound: Vec<(Action, Vec<String>)>) -> Vec<(String, Option<Icon>, Vec<String>)> {
+fn fold_numbers(bound: Vec<(Action, Vec<String>)>) -> Vec<(Action, String, Vec<String>)> {
     let mut heads: Vec<(&str, Vec<u8>)> = Vec::new();
     for (action, seqs) in &bound {
         let Action::TabGo(n) = action else {
@@ -106,13 +109,13 @@ fn fold_numbers(bound: Vec<(Action, Vec<String>)>) -> Vec<(String, Option<Icon>,
     let mut rows = Vec::new();
     for (action, seqs) in bound {
         let Action::TabGo(n) = action else {
-            rows.push((action.label(), action.icon(), seqs));
+            rows.push((action.clone(), action.label(), seqs));
             continue;
         };
         if let Some(runs) = runs.take() {
             rows.push((
+                action.clone(),
                 format!("{}–{hi}", Action::TabGo(lo).label()),
-                action.icon(),
                 runs,
             ));
         }
@@ -121,7 +124,7 @@ fn fold_numbers(bound: Vec<(Action, Vec<String>)>) -> Vec<(String, Option<Icon>,
             .filter(|s| !before_number(s, n).is_some_and(|h| taken.contains(&(h.to_string(), n))))
             .collect();
         if !seqs.is_empty() {
-            rows.push((action.label(), action.icon(), seqs));
+            rows.push((action.clone(), action.label(), seqs));
         }
     }
     rows
@@ -277,6 +280,17 @@ mod tests {
         let groups = groups(&Keymap::defaults(), &[]);
         let settings = row(&groups, Context::Global, "Settings…").unwrap();
         assert_eq!(settings.icon, Some(Icon::Settings));
+    }
+
+    #[test]
+    fn a_row_says_whether_its_last_key_repeats_it() {
+        let groups = groups(&Keymap::defaults(), &[]);
+        let next = row(&groups, Context::Global, &Action::TabNext.label()).unwrap();
+        assert!(next.repeats);
+        let split = row(&groups, Context::Global, &Action::WindowSplit.label()).unwrap();
+        assert!(!split.repeats);
+        let numbered = format!("{}–9", Action::TabGo(1).label());
+        assert!(!row(&groups, Context::Global, &numbered).unwrap().repeats);
     }
 
     #[test]
