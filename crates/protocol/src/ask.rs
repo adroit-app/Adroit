@@ -52,6 +52,10 @@ pub enum Ask {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct SessionStart {
     pub agent: Agent,
+    /// The profile it starts from, which has to start `agent`; `agent`'s
+    /// default profile when none is named.
+    #[serde(default)]
+    pub profile: Option<adroit_model::profile::ProfileId>,
     pub name: String,
     /// Where it runs, or the draft's place a new folder is made under when
     /// it is the scratch folder.

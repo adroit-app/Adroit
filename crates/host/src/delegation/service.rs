@@ -332,14 +332,17 @@ async fn start(context: &Context, caller: &Session, start: protocol::Start) -> R
             ),
         ));
     }
-    let agent = {
-        let models = context.models.lock().expect("the models' lock");
-        let agent = start.agent.unwrap_or(settings.default_agent());
-        models
-            .check(Some(agent), start.model.as_deref())
-            .map_err(|error| Error::new(Code::Invalid, error))?;
-        agent
-    };
+    // The caller's own profile is not passed on: a session starts from the
+    // one it names, else from the default.
+    let chosen = crate::programs::starting(&settings, start.agent, start.profile.as_ref())
+        .map_err(|error| Error::new(Code::Invalid, error))?;
+    let (agent, profile) = (chosen.agent(), chosen.profile);
+    context
+        .models
+        .lock()
+        .expect("the models' lock")
+        .check(Some(agent), start.model.as_deref())
+        .map_err(|error| Error::new(Code::Invalid, error))?;
     let dir = start.dir.clone().unwrap_or_else(|| caller.cwd.clone());
     let dir = std::fs::canonicalize(&dir)
         .ok()
@@ -375,6 +378,7 @@ async fn start(context: &Context, caller: &Session, start: protocol::Start) -> R
     };
     let request = crate::execution::StartRequest {
         agent,
+        profile: Some(profile),
         model: start.model,
         name: name.clone(),
         cwd: cwd.clone(),

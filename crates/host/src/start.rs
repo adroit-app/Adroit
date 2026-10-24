@@ -12,7 +12,7 @@ use crate::content::{fresh_name, label_from, label_of};
 use crate::scratch::{self, Moment};
 use crate::sessions::{self, Kept};
 
-const USAGE: &str = "usage: adroit session start [--dir <path>] [--worktree [--base <rev>]] [--name <name>] [--permissions <default|read_only> | --permissions-file <path>] [--agent <claude|codex>] [--model <model>] [-- <prompt>]";
+const USAGE: &str = "usage: adroit session start [--dir <path>] [--worktree [--base <rev>]] [--name <name>] [--permissions <default|read_only> | --permissions-file <path>] [--agent <claude|codex>] [--profile <id>] [--model <model>] [-- <prompt>]";
 
 /// The size a session starts at, until a window shows it at its own.
 const COLS: u16 = 120;
@@ -28,6 +28,7 @@ struct Asked {
     permissions: AgentPermissions,
     permissions_file: Option<PathBuf>,
     agent: Option<adroit_model::Agent>,
+    profile: Option<adroit_model::profile::ProfileId>,
     model: Option<String>,
     /// `None` when the prompt is to be read from standard input.
     prompt: Option<String>,
@@ -56,6 +57,7 @@ fn parse(args: &[String]) -> Option<Asked> {
                 permissions_given = true;
             }
             "--agent" => asked.agent = Some(adroit_model::Agent::parse(rest.next()?)?),
+            "--profile" => asked.profile = Some(rest.next()?.parse().ok()?),
             "--model" => {
                 let model = rest.next()?.trim();
                 if model.is_empty() {
@@ -89,6 +91,9 @@ async fn start(
     dir: PathBuf,
     prompt: &str,
 ) -> Result<String, String> {
+    // Refused before a worktree is made for it.
+    let settings = crate::settings::current();
+    let chosen = crate::programs::starting(&settings, asked.agent, asked.profile.as_ref())?;
     let listed = daemon
         .sessions()
         .await
@@ -110,9 +115,9 @@ async fn start(
     } else {
         dir
     };
-    let settings = crate::settings::current();
     let request = crate::execution::StartRequest {
-        agent: asked.agent.unwrap_or(settings.default_agent()),
+        agent: chosen.agent(),
+        profile: Some(chosen.profile),
         model: asked.model.clone(),
         name: name.clone(),
         cwd,
@@ -164,6 +169,7 @@ async fn start_as(
             worktree: asked.worktree,
             base: asked.base.clone(),
             agent: asked.agent,
+            profile: asked.profile.clone(),
             model: asked.model.clone(),
             permissions: Some(asked.permissions.clone()),
             name: asked.name.clone(),
@@ -371,6 +377,7 @@ mod tests {
                 permissions: AgentPermissions::ReadOnly,
                 permissions_file: None,
                 agent: None,
+                profile: None,
                 model: None,
                 prompt: Some("find why --it fails".into()),
             })
@@ -397,6 +404,17 @@ mod tests {
                 .agent
                 .is_none()
         );
+    }
+
+    #[test]
+    fn the_command_can_name_a_profile_by_its_id() {
+        let asked = parse(&args(&["--profile", "claude-work", "--", "go"])).unwrap();
+        assert_eq!(
+            asked.profile.map(String::from).as_deref(),
+            Some("claude-work")
+        );
+        assert_eq!(parse(&args(&["--profile", "Claude Work"])), None);
+        assert_eq!(parse(&args(&["--profile"])), None);
     }
 
     #[test]

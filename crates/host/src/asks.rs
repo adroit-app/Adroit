@@ -125,6 +125,7 @@ async fn start_session(watched: &Watched, start: SessionStart) -> Result<Answer,
     };
     let request = StartRequest {
         agent: start.agent,
+        profile: start.profile,
         name: name.clone(),
         cwd,
         model: start.model,

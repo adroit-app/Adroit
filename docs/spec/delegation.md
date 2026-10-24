@@ -20,8 +20,14 @@ cannot act as another.
 
 - **`start_session`** starts a session with a first prompt. It takes the
   directory to work in (the caller's own when omitted), whether to work in a
-  new worktree, the revision that worktree starts from, the agent, the model,
-  the permission profile and a name. It returns the new session's id and name.
+  new worktree, the revision that worktree starts from, the profile, the
+  agent, the model, the permission profile and a name. It returns the new
+  session's id and name. It starts from the profile it names, which has to
+  start the agent when both are named; else from the agent's default profile,
+  else from the default profile ([settings](settings.md#profiles-and-connections)).
+  It never starts from the caller's profile unless it names it. A profile that
+  is not defined, is archived or starts another agent is refused, and a
+  refused start leaves no record and runs nothing.
   A new worktree is a jj workspace when the directory belongs to jj, otherwise
   a git worktree; it starts from the given revision, or from the caller's
   current change or commit. Outside version control, a new worktree is
@@ -126,7 +132,9 @@ none follows `--`.
   names the revision it starts from.
 - `--name <name>` names it; without one it is named from its prompt, as the
   window names a session. A name already taken gets a number.
-- `--agent claude|codex` overrides the default agent.
+- `--profile <id>` starts it from that profile, and `--agent claude|codex`
+  from that agent's default profile; with both, the profile has to start the
+  agent. Without either it starts from the default profile.
 - `--model <model>` selects the model for this launch without changing the
   defaults for other sessions. If neither specifies a model, the agent uses its
   own default. The agent's TUI can still change its model after launch.

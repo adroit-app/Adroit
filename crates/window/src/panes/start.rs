@@ -171,6 +171,7 @@ impl Ui {
             };
             let start = SessionStart {
                 agent: taken.agent,
+                profile: None,
                 name: name.clone(),
                 cwd: HostPath::local(worktree),
                 draft: true,

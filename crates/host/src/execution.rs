@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use adroit_model::profile::AgentOptions;
+use adroit_model::profile::{AgentOptions, ProfileId};
 use adroit_model::{
     Agent, AgentPermissions, CustomPermissions, TerminalProgram, TerminalResourceId,
     TerminalSession,
@@ -16,6 +16,9 @@ use crate::{delegation::launch::Delegation, sessions, settings::Settings};
 #[derive(Debug, Clone, Default)]
 pub struct StartRequest {
     pub agent: Agent,
+    /// The profile it starts from, which has to start `agent`; `agent`'s
+    /// default profile when none is named.
+    pub profile: Option<ProfileId>,
     pub model: Option<String>,
     pub name: String,
     pub cwd: PathBuf,
@@ -173,16 +176,15 @@ pub fn resolve(
     request: StartRequest,
     adroit_program: &Path,
 ) -> Result<ResolvedLaunch, String> {
-    let profile = settings.profile_of(request.agent);
-    if profile.connection.implicit_agent().is_none() {
+    let (context, target) = configured(settings, &request)?;
+    if context.home.is_some() {
         // Started without its state directory, the agent would run as the
         // CLI's own login rather than the connection's.
         return Err(format!(
             "profile `{}` runs in connection `{}`, which adroit does not start sessions in",
-            profile.id, profile.connection
+            context.profile, context.connection
         ));
     }
-    let (context, target) = configured(settings, &request)?;
     let adapter = agents::adapter(request.agent);
     let conversation = request
         .resume
@@ -261,7 +263,8 @@ fn configured(
     settings: &Settings,
     request: &StartRequest,
 ) -> Result<(adroit_agents::AgentContext, adroit_model::TargetSelection), String> {
-    let mut context = crate::programs::context_of(settings, request.agent);
+    let mut context =
+        crate::programs::starting(settings, Some(request.agent), request.profile.as_ref())?;
     match (&request.permissions, request.agent) {
         (AgentPermissions::Default, _) => {}
         (AgentPermissions::ReadOnly, Agent::Codex) => {

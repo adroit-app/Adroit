@@ -62,20 +62,19 @@ pub async fn record(
     request: &mut StartRequest,
     parent: Option<SessionId>,
 ) -> std::result::Result<Recorded, String> {
+    let context =
+        crate::programs::starting(settings, Some(request.agent), request.profile.as_ref())?;
+    request.profile = Some(context.profile.clone());
     if request.agent == Agent::Codex {
         request.developer_instructions = adroit_agents::adapter(request.agent)
-            .developer_instructions(
-                crate::programs::context_of(settings, request.agent),
-                request.cwd.clone(),
-            )
+            .developer_instructions(context.clone(), request.cwd.clone())
             .await?;
     }
-    let profile = settings.profile_of(request.agent);
     let new = NewSession {
         parent,
         agent: request.agent,
-        profile: profile.id.clone(),
-        connection: profile.connection.clone(),
+        profile: context.profile,
+        connection: context.connection,
         name: request.name.clone(),
         cwd: request.cwd.clone(),
         launch: settings.clone(),
@@ -114,6 +113,9 @@ pub async fn prepare(
     parent: Option<SessionId>,
     program: &Path,
 ) -> std::result::Result<(crate::execution::ResolvedLaunch, Recorded), String> {
+    // Refused before anything is recorded or asked of the agent, so a start
+    // that cannot run leaves nothing behind.
+    crate::execution::resolve(settings, request.clone(), program)?;
     let recorded = record(root, settings, &mut request, parent).await?;
     match crate::execution::resolve(settings, request, program) {
         Ok(resolved) => Ok((resolved, recorded)),
@@ -291,5 +293,38 @@ mod tests {
             (kept[0].profile.as_str(), kept[0].connection.as_str()),
             ("mine", "claude")
         );
+    }
+    #[tokio::test]
+    async fn a_start_that_is_refused_records_nothing_and_runs_no_agent() {
+        let root = tempfile::tempdir().unwrap();
+        let ran = root.path().join("ran");
+        let script = root.path().join("codex.sh");
+        std::fs::write(&script, format!("touch '{}'\n", ran.display())).unwrap();
+        let settings = Settings::parse(&format!(
+            "[[profiles]]\nid = \"codex\"\nagent = \"codex\"\n[profiles.launch]\ncommand = [\"/bin/sh\", \"{}\"]\n\n[[profiles]]\nid = \"old\"\nagent = \"codex\"\narchived = true\n",
+            script.display()
+        ))
+        .unwrap();
+        for (profile, model, why) in [
+            ("gone", None, "profile `gone` is not defined"),
+            ("claude", None, "starts Claude Code, not Codex"),
+            ("old", None, "profile `old` is archived"),
+            ("codex", Some(" "), "the model is empty"),
+        ] {
+            let request = crate::execution::StartRequest {
+                agent: Agent::Codex,
+                profile: Some(profile.parse().unwrap()),
+                model: model.map(String::from),
+                name: "fix".into(),
+                cwd: root.path().into(),
+                ..Default::default()
+            };
+            let error = prepare(root.path(), &settings, request, None, Path::new("/adroit"))
+                .await
+                .unwrap_err();
+            assert!(error.contains(why), "{error}");
+        }
+        assert!(sessions(root.path()).await.unwrap().is_empty());
+        assert!(!ran.exists(), "Codex was asked for its instructions");
     }
 }
