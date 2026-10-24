@@ -251,9 +251,14 @@ pub fn start_config(watched: Watched) {
 
 /// Every watcher, run in the background for as long as the process lives.
 pub fn start(watched: Watched) {
-    let (jobs, histories, redraws) = {
+    let (jobs, histories, redraws, quits) = {
         let mut host = watched.host();
-        (host.take_jobs(), host.take_histories(), host.take_redraws())
+        (
+            host.take_jobs(),
+            host.take_histories(),
+            host.take_redraws(),
+            host.take_quits(),
+        )
     };
     if let Some(jobs) = jobs {
         tokio::spawn(crate::jobs::run(watched.clone(), jobs));
@@ -263,6 +268,9 @@ pub fn start(watched: Watched) {
     }
     if let Some(redraws) = redraws {
         tokio::spawn(dialog::watch(watched.clone(), redraws));
+    }
+    if let Some(quits) = quits {
+        tokio::spawn(crate::jobs::quit(quits));
     }
     tokio::spawn(sessions::watch(watched.clone()));
     tokio::spawn(marks::watch(watched.clone()));

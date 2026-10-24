@@ -37,6 +37,18 @@ pub(crate) async fn run(watched: Watched, mut jobs: UnboundedReceiver<(WindowId,
     }
 }
 
+/// Ask each Neovim `quits` brings to quit, for as long as the host lives.
+/// One that refuses, holding an unsaved change, runs on; one that quits is
+/// listed no more once the sessions are next listed.
+pub(crate) async fn quit(mut quits: UnboundedReceiver<u128>) {
+    while let Some(id) = quits.recv().await {
+        tokio::spawn(async move {
+            // One that ended already has nothing to lose.
+            let _ = crate::terminals::quit_neovim(&crate::daemon::daemon(), id).await;
+        });
+    }
+}
+
 /// End `asked`; its agent keeps its conversation.
 async fn stop(watched: &Watched, window: WindowId, asked: Session) {
     let Some(id) = id_of(&asked.id) else {

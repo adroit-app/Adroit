@@ -39,6 +39,9 @@ pub struct Sight {
     pub place: Option<HostPath>,
     /// The agent and the directory whose commands `/` in the prompt offers.
     pub commands: Option<CommandsSight>,
+    /// The terminals the window's tabs show, in any of their windows.
+    #[serde(with = "crate::wire::wide_set")]
+    pub terminals: BTreeSet<u128>,
 }
 
 impl Sight {

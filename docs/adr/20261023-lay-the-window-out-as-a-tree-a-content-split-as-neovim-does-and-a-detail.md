@@ -15,7 +15,10 @@ The window is a tree of what can be opened, a content holding what is open,
 and a detail describing what the content's focused window shows. The content
 holds tabs split into windows as Neovim splits them. A window shows one thing,
 the same thing may stand in any number of windows, and closing a window never
-ends a program: programs live apart from the windows that show them.
+ends a program: programs live apart from the windows that show them. The one
+exception, a Neovim started on a file that loses nothing by quitting, is
+recorded in
+`20261024-let-a-file-s-row-stand-for-its-neovim-and-quit-it-as-qa-does-once-no-window-shows-it.md`.
 
 ## Alternatives considered
 

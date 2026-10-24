@@ -3,7 +3,7 @@
 //! terminal leaves out of its own JSON, since `adroit terminal list` shows
 //! its resource id alone.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use adroit_model::TerminalSession;
 use serde::de::Error as _;
@@ -41,6 +41,27 @@ pub(crate) mod wide_keys {
         BTreeMap::<String, V>::deserialize(input)?
             .into_iter()
             .map(|(k, v)| Ok((k.parse().map_err(D::Error::custom)?, v)))
+            .collect()
+    }
+}
+
+/// A set of 128-bit ids, each a decimal string.
+pub(crate) mod wide_set {
+    use super::*;
+
+    pub(crate) fn serialize<S: Serializer>(
+        ids: &BTreeSet<u128>,
+        out: S,
+    ) -> Result<S::Ok, S::Error> {
+        out.collect_seq(ids.iter().map(u128::to_string))
+    }
+
+    pub(crate) fn deserialize<'de, D: Deserializer<'de>>(
+        input: D,
+    ) -> Result<BTreeSet<u128>, D::Error> {
+        Vec::<String>::deserialize(input)?
+            .iter()
+            .map(|id| id.parse().map_err(D::Error::custom))
             .collect()
     }
 }
