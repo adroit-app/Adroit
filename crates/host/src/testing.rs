@@ -6,6 +6,7 @@
 //! sets, so a field added to a record changes this file alone.
 
 use adroit_model::Agent;
+use adroit_model::profile::{ConnectionId, ProfileId};
 
 use crate::delegation::{Message, MessageId, MessageKind, Readiness, Session, SessionId};
 
@@ -16,6 +17,8 @@ pub fn record(name: &str) -> RecordBuilder {
         id: SessionId::new(),
         parent: None,
         agent: Agent::Claude,
+        profile: ProfileId::builtin(Agent::Claude),
+        connection: ConnectionId::implicit(Agent::Claude),
         name: name.into(),
         cwd: "/repo".into(),
         terminal: None,

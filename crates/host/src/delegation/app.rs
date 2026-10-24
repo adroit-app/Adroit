@@ -67,9 +67,12 @@ pub async fn record(
             .developer_instructions(crate::programs::agents_of(settings), request.cwd.clone())
             .await?;
     }
+    let profile = settings.profile_of(request.agent);
     let new = NewSession {
         parent,
         agent: request.agent,
+        profile: profile.id.clone(),
+        connection: profile.connection.clone(),
         name: request.name.clone(),
         cwd: request.cwd.clone(),
         launch: settings.clone(),
@@ -217,11 +220,11 @@ pub async fn notes_at(root: &Path, record: SessionId) -> Vec<crate::details::Not
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::record;
+    use crate::testing::record as recorded;
 
     /// Adroit's record of a session called `name` that has ended.
     fn session(name: &str) -> super::super::Session {
-        record(name).ended().build()
+        recorded(name).ended().build()
     }
 
     /// A message delivered from `from` to `to`.
@@ -261,5 +264,29 @@ mod tests {
             .map(|n| (n.outgoing, n.other.as_str()))
             .collect();
         assert_eq!(listed, [(true, "api"), (false, "Adroit")]);
+    }
+
+    #[tokio::test]
+    async fn a_session_is_recorded_with_the_profile_it_starts_from_and_that_profile_s_connection() {
+        let root = tempfile::tempdir().unwrap();
+        let settings =
+            Settings::parse("[[profiles]]\nid = \"mine\"\nagent = \"claude\"\n").unwrap();
+        let mut request = crate::execution::StartRequest {
+            agent: Agent::Claude,
+            name: "fix".into(),
+            cwd: "/repo".into(),
+            ..Default::default()
+        };
+
+        record(root.path(), &settings, &mut request, None)
+            .await
+            .unwrap();
+
+        let kept = sessions(root.path()).await.unwrap();
+        assert_eq!(kept.len(), 1);
+        assert_eq!(
+            (kept[0].profile.as_str(), kept[0].connection.as_str()),
+            ("mine", "claude")
+        );
     }
 }

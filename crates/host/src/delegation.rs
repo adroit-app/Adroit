@@ -47,6 +47,9 @@ pub struct Session {
     /// The session that started this one; none for a session the user started.
     pub parent: Option<SessionId>,
     pub agent: Agent,
+    /// The profile it started from, and the connection that ran in.
+    pub profile: adroit_model::profile::ProfileId,
+    pub connection: adroit_model::profile::ConnectionId,
     pub name: String,
     pub cwd: PathBuf,
     pub terminal: Option<u128>,

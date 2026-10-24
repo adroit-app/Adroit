@@ -6,13 +6,16 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use adroit_model::Agent;
+use adroit_model::profile::{ConnectionId, ProfileId};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use super::{Code, Error, Message, MessageId, MessageKind, Readiness, Result, Session, SessionId};
 use crate::settings::Settings;
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
+/// The tables as the first schema made them; a new database is made by it
+/// and then by every step in `MIGRATIONS`, so it ends as one carried forward.
 const SCHEMA: &str = "
 CREATE TABLE sessions (
     id TEXT PRIMARY KEY,
@@ -43,11 +46,22 @@ CREATE TABLE messages (
 CREATE INDEX undelivered ON messages(recipient, delivered);
 ";
 
+/// What carries a database from each schema to the next, the first from 1 to 2.
+const MIGRATIONS: &[&str] = &[
+    // Sessions from before ran in their agent's own environment, which its
+    // built-in profile and implicit connection, both named by its key, stand for.
+    "ALTER TABLE sessions ADD COLUMN profile TEXT NOT NULL DEFAULT '';
+     ALTER TABLE sessions ADD COLUMN connection TEXT NOT NULL DEFAULT '';
+     UPDATE sessions SET profile = agent, connection = agent;",
+];
+
 /// What the window or the work host knows of a session before its program starts.
 #[derive(Debug, Clone)]
 pub struct NewSession {
     pub parent: Option<SessionId>,
     pub agent: Agent,
+    pub profile: ProfileId,
+    pub connection: ConnectionId,
     pub name: String,
     pub cwd: PathBuf,
     pub launch: Settings,
@@ -84,9 +98,10 @@ impl Store {
             let transaction =
                 connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
             transaction.execute_batch(SCHEMA)?;
-            transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+            transaction.pragma_update(None, "user_version", 1)?;
             transaction.commit()?;
         }
+        migrate(&mut connection)?;
         Ok(Self { connection })
     }
 
@@ -122,13 +137,15 @@ impl Store {
         let id = SessionId::new();
         let token = format!("{}{}", SessionId::new(), SessionId::new());
         transaction.execute(
-            "INSERT INTO sessions (id, token, parent, agent, name, cwd, launch, readiness, started_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "INSERT INTO sessions (id, token, parent, agent, profile, connection, name, cwd, launch, readiness, started_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 id.to_string(),
                 token,
                 new.parent.map(|parent| parent.to_string()),
                 new.agent.key(),
+                new.profile.as_str(),
+                new.connection.as_str(),
                 new.name,
                 new.cwd.to_string_lossy(),
                 serde_json::to_string(&new.launch).map_err(storage)?,
@@ -367,8 +384,7 @@ impl Store {
     }
 }
 
-const SESSION_COLUMNS: &str =
-    "id, parent, agent, name, cwd, terminal, conversation, readiness, started_ms, reported, ended";
+const SESSION_COLUMNS: &str = "id, parent, agent, name, cwd, terminal, conversation, readiness, started_ms, reported, ended, profile, connection";
 
 fn read_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Session>> {
     let id: String = row.get(0)?;
@@ -382,6 +398,8 @@ fn read_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Session>> {
     let conversation = row.get(6)?;
     let reported = row.get(9)?;
     let ended = row.get(10)?;
+    let profile: String = row.get(11)?;
+    let connection: String = row.get(12)?;
     Ok((|| {
         Ok(Session {
             id: id.parse().map_err(storage)?,
@@ -393,6 +411,8 @@ fn read_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Session>> {
                 .into_iter()
                 .find(|known| known.key() == agent)
                 .ok_or_else(|| storage(format!("unknown agent {agent}")))?,
+            profile: profile.parse().map_err(storage)?,
+            connection: connection.parse().map_err(storage)?,
             name,
             cwd: PathBuf::from(cwd),
             terminal: terminal.as_deref().and_then(crate::sessions::id_of),
@@ -473,6 +493,24 @@ fn insert(
     Ok(id)
 }
 
+/// Carries the database from the schema it holds to this adroit's, one step
+/// at a time, each step whole or not at all.
+fn migrate(connection: &mut Connection) -> Result<()> {
+    loop {
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let schema: i64 = transaction.pragma_query_value(None, "user_version", |row| row.get(0))?;
+        let Some(step) = usize::try_from(schema - 1)
+            .ok()
+            .and_then(|at| MIGRATIONS.get(at))
+        else {
+            return Ok(());
+        };
+        transaction.execute_batch(step)?;
+        transaction.pragma_update(None, "user_version", schema + 1)?;
+        transaction.commit()?;
+    }
+}
+
 /// Creates the database privately, returning whether it was created now.
 fn private_database(path: &Path) -> Result<bool> {
     let parent = path
@@ -535,6 +573,8 @@ mod tests {
         NewSession {
             parent,
             agent: Agent::Claude,
+            profile: ProfileId::builtin(Agent::Claude),
+            connection: ConnectionId::implicit(Agent::Claude),
             name: name.into(),
             cwd: "/repo".into(),
             launch: Settings::default(),
@@ -820,5 +860,103 @@ mod tests {
         );
         drop(store);
         assert_eq!(Store::open(&path).err().unwrap().code, Code::Unsupported);
+    }
+
+    #[test]
+    fn a_session_keeps_the_profile_and_connection_it_started_from() {
+        let (_dir, mut store) = store();
+        let (id, _) = store
+            .register(NewSession {
+                agent: Agent::Codex,
+                profile: "codex-review".parse().unwrap(),
+                connection: "work".parse().unwrap(),
+                ..new(None, "review")
+            })
+            .unwrap();
+
+        let kept = store.session(id).unwrap().unwrap();
+        assert_eq!(
+            (kept.profile.as_str(), kept.connection.as_str()),
+            ("codex-review", "work")
+        );
+        assert_eq!(store.sessions().unwrap()[0], kept);
+    }
+
+    /// The tables as adroit created them before it recorded profiles.
+    const SCHEMA_1: &str = "
+CREATE TABLE sessions (
+    id TEXT PRIMARY KEY,
+    token TEXT NOT NULL UNIQUE,
+    parent TEXT REFERENCES sessions(id),
+    agent TEXT NOT NULL,
+    name TEXT NOT NULL,
+    cwd TEXT NOT NULL,
+    launch TEXT NOT NULL,
+    terminal TEXT,
+    conversation TEXT,
+    readiness TEXT NOT NULL,
+    started_ms INTEGER NOT NULL,
+    reported INTEGER NOT NULL DEFAULT 0,
+    ended INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX sessions_by_parent ON sessions(parent);
+CREATE TABLE messages (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT NOT NULL UNIQUE,
+    sender TEXT REFERENCES sessions(id),
+    recipient TEXT NOT NULL REFERENCES sessions(id),
+    kind TEXT NOT NULL,
+    body TEXT NOT NULL,
+    sent_ms INTEGER NOT NULL,
+    delivered INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX undelivered ON messages(recipient, delivered);
+PRAGMA user_version = 1;
+";
+
+    #[test]
+    fn a_database_from_before_profiles_were_recorded_reads_each_session_in_its_agent_s_own_environment()
+     {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.sqlite3");
+        let (claude, codex) = (SessionId::new(), SessionId::new());
+        {
+            let old = Connection::open(&path).unwrap();
+            old.execute_batch(SCHEMA_1).unwrap();
+            // Launches kept then name each agent's tables, not profiles.
+            let launch = r#"{"agent":"codex","claude":{"command":[],"via_shell":true,"env":{}},"codex_sessions":{"model":"m","reasoning_effort":"","approval_policy":"","sandbox_mode":""}}"#;
+            for (id, agent) in [(claude, "claude"), (codex, "codex")] {
+                old.execute(
+                    "INSERT INTO sessions (id, token, agent, name, cwd, launch, readiness, started_ms)
+                     VALUES (?1, ?2, ?3, 'old', '/repo', ?4, 'ready', 1)",
+                    params![id.to_string(), format!("token-{agent}"), agent, launch],
+                )
+                .unwrap();
+            }
+            old.execute(
+                "INSERT INTO messages (id, sender, recipient, kind, body, sent_ms) VALUES (?1, ?2, ?3, 'message', 'kept', 1)",
+                params![MessageId::new().to_string(), claude.to_string(), codex.to_string()],
+            )
+            .unwrap();
+        }
+
+        let mut store = Store::open(&path).unwrap();
+
+        store.ensure_current_schema().unwrap();
+        for (id, agent) in [(claude, Agent::Claude), (codex, Agent::Codex)] {
+            let session = store.session(id).unwrap().unwrap();
+            assert_eq!(session.profile, ProfileId::builtin(agent));
+            assert_eq!(session.connection, ConnectionId::implicit(agent));
+        }
+        let launch = store.launch(codex).unwrap().unwrap();
+        assert_eq!(launch.default_agent(), Agent::Codex);
+        assert_eq!(launch.profile_of(Agent::Codex).codex().unwrap().model, "m");
+        assert!(launch.profile_of(Agent::Claude).launch.via_shell);
+        assert_eq!(bodies(&mut store, codex), ["kept"]);
+        assert_eq!(store.authenticate("token-claude").unwrap(), claude);
+        // Opened again, it is as it was left.
+        drop(store);
+        let store = Store::open(&path).unwrap();
+        assert_eq!(store.sessions().unwrap().len(), 2);
     }
 }
