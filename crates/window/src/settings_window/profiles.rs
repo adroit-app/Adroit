@@ -9,13 +9,13 @@ use std::rc::Rc;
 use adroit_core::agent_pages::AgentPage;
 use adroit_core::profiles::{self, NewHome};
 use adroit_model::Agent;
-use adroit_model::config::{CodexOptions, Launch, SessionOptions};
+use adroit_model::config::{CodexOptions, Launch, PiOptions, SessionOptions};
 use adroit_model::paths::tilde;
 use adroit_model::profile::{ConnectionId, LoginStanding, ProfileId};
 use adroit_protocol::{AgentsWork, Answer, Ask, Request};
 use dioxus::prelude::*;
 
-use super::{Change, CodexGroup, LaunchGroup, SessionGroup};
+use super::{Change, CodexGroup, LaunchGroup, PiGroup, SessionGroup};
 use crate::components::{SettingGroup, SettingRow, SettingsError, TextField};
 use crate::icons::{Icon, IconView};
 use crate::link::Link;
@@ -374,6 +374,24 @@ fn ProfilePage(
                             change(Box::new(move |s: &mut Settings| {
                                 if let Ok(p) = profiles::profile_mut(s, &id) {
                                     p.options = AgentOptions::Codex(options);
+                                }
+                            }))
+                        }
+                    },
+                }
+            },
+            AgentOptions::Pi(options) => rsx! {
+                PiGroup {
+                    key: "pi-{profile.id}",
+                    title: "New sessions",
+                    options,
+                    set: {
+                        let id = profile.id.clone();
+                        move |options: PiOptions| {
+                            let id = id.clone();
+                            change(Box::new(move |s: &mut Settings| {
+                                if let Ok(p) = profiles::profile_mut(s, &id) {
+                                    p.options = AgentOptions::Pi(options);
                                 }
                             }))
                         }

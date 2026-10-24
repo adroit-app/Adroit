@@ -787,6 +787,55 @@ fn CodexGroup(
     }
 }
 
+/// How Pi sessions run: their model, thinking level and the tools they are
+/// given, which is all Pi has for permissions.
+#[component]
+fn PiGroup(
+    title: String,
+    options: adroit_model::config::PiOptions,
+    set: Callback<adroit_model::config::PiOptions>,
+) -> Element {
+    use adroit_model::config::PiOptions;
+    let (model, thinking, tools) = (options.clone(), options.clone(), options.clone());
+    rsx! {
+        SettingGroup { title: "{title}",
+            SettingRow { label: "Model", hint: "As provider/id, the way Pi's --model takes it; empty for Pi's own.",
+                TextField {
+                    value: options.model,
+                    aria_label: "Model",
+                    placeholder: "Pi's own",
+                    onchange: move |value: String| set(PiOptions { model: value.trim().into(), ..model.clone() }),
+                }
+            }
+            SettingRow { label: "Thinking", hint: "A level the selected model supports, or empty for Pi's own.",
+                TextField {
+                    list: "pi-thinking",
+                    aria_label: "Thinking",
+                    value: options.thinking,
+                    placeholder: "Pi's own",
+                    onchange: move |value: String| set(PiOptions { thinking: value.trim().into(), ..thinking.clone() }),
+                }
+                datalist { id: "pi-thinking",
+                    for value in ["off", "minimal", "low", "medium", "high", "xhigh", "max"] {
+                        option { key: "{value}", value: value }
+                    }
+                }
+            }
+            SettingRow { label: "Tools", hint: "The tools they may use, separated by commas; empty for Pi's own set. Pi asks before no tool call and has no sandbox: a session given bash runs any command.",
+                TextField {
+                    value: "{options.tools.join(\", \")}",
+                    aria_label: "Tools",
+                    placeholder: "read, bash, edit, write",
+                    onchange: move |value: String| {
+                        let given = value.split(',').map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect();
+                        set(PiOptions { tools: given, ..tools.clone() })
+                    },
+                }
+            }
+        }
+    }
+}
+
 /// How sessions of one kind run: their model, permission mode, the tools
 /// denied them, and whether Adroit's channel warning is confirmed for them.
 #[component]
