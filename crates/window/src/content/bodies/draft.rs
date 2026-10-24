@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use adroit_core::msg::Msg;
 use adroit_model::profile::{ConnectionId, LoginStanding, ProfileId};
 use adroit_model::{Agent, AgentPermissions};
+use adroit_protocol::Request;
 use std::time::Instant;
 
 use dioxus::prelude::*;
@@ -242,10 +243,25 @@ fn LoginNotice(profile: ProfileId, connection: ConnectionId, agent: Agent) -> El
             }
         });
     }
-    let standing = match app.logins.read().get(&profile) {
-        Some(Login::Is(standing, _)) => Some(*standing),
+    let known = app.logins.read().get(&profile).copied();
+    let standing = match known {
+        Some(Login::Is(standing, _)) => Some(standing),
         _ => None,
     };
+    if let Some(Login::LoggingIn(terminal)) = known {
+        let check = ask.clone();
+        return rsx! {
+            div { class: "launch-form-label", "Login" }
+            div { class: "launch-form-agent", role: "status",
+                span { class: "launch-form-where", "Waiting for login…" }
+                Button { onclick: move |_| check(), "Check again" }
+                Button {
+                    onclick: move |_| app.tell_host(Request::EndTerminal { id: terminal }),
+                    "Cancel"
+                }
+            }
+        };
+    }
     rsx! {
         match standing {
             Some(LoginStanding::LoggedOut) => rsx! {

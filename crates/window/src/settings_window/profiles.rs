@@ -12,7 +12,7 @@ use adroit_model::Agent;
 use adroit_model::config::{CodexOptions, Launch, SessionOptions};
 use adroit_model::paths::tilde;
 use adroit_model::profile::{ConnectionId, LoginStanding, ProfileId};
-use adroit_protocol::{AgentsWork, Answer, Ask};
+use adroit_protocol::{AgentsWork, Answer, Ask, Request};
 use dioxus::prelude::*;
 
 use super::{Change, CodexGroup, LaunchGroup, SessionGroup};
@@ -739,8 +739,9 @@ fn ArchivedPage(now: Settings, change: Callback<Change>) -> Element {
 #[derive(Debug, Clone, PartialEq)]
 enum Probed {
     Asking,
-    /// Its login terminal is open; it is asked again once that ends.
-    LoggingIn,
+    /// Its login terminal, by its id, is open; it is asked again once that
+    /// ends.
+    LoggingIn(u128),
     /// As the CLI the profile it names starts there said.
     Is(LoginStanding, ProfileId),
     Failed(String),
@@ -754,26 +755,38 @@ fn probe(
     id: ConnectionId,
     after: Option<u128>,
 ) {
-    probed.write().insert(
-        id.clone(),
-        if after.is_some() {
-            Probed::LoggingIn
-        } else {
-            Probed::Asking
-        },
-    );
+    let waited = match (after, probed.peek().get(&id)) {
+        (Some(terminal), _) | (None, Some(&Probed::LoggingIn(terminal))) => Some(terminal),
+        _ => None,
+    };
+    probed
+        .write()
+        .insert(id.clone(), waited.map_or(Probed::Asking, Probed::LoggingIn));
     let asked = link.ask(Ask::LoginStanding {
         connection: id.clone(),
         profile: None,
         after,
     });
     spawn(async move {
-        let got = match asked.await {
-            Answer::LoginStanding { standing, profile } => Probed::Is(standing, profile),
-            Answer::Failed { text } => Probed::Failed(text),
-            answer => Probed::Failed(format!("the work host answered {answer:?}")),
+        let (got, standing) = match asked.await {
+            Answer::LoginStanding { standing, profile } => {
+                (Probed::Is(standing, profile), Some(standing))
+            }
+            Answer::Failed { text } => (Probed::Failed(text), None),
+            answer => (
+                Probed::Failed(format!("the work host answered {answer:?}")),
+                None,
+            ),
         };
-        probed.write().insert(id, got);
+        let mut probed = probed.write();
+        // A login terminal still open is waited for still, unless this
+        // answer came once it ended or says the login is done.
+        if let Some(Probed::LoggingIn(terminal)) = probed.get(&id)
+            && !crate::logins::ends_wait(*terminal, after, standing)
+        {
+            return;
+        }
+        probed.insert(id, got);
     });
 }
 
@@ -805,7 +818,7 @@ fn open_login(link: Link, probed: Signal<HashMap<ConnectionId, Probed>>, id: Con
 
 /// Whether the account `id` is logged in, asked as the row is shown unless
 /// it was already, with what to do next: open its login terminal, or ask
-/// again. `now` names the profile whose CLI answered, unless it is
+/// again; while that terminal is open, ask again or cancel the login. `now` names the profile whose CLI answered, unless it is
 /// `asking`, the profile whose page the row is on.
 #[component]
 fn LoginRow(
@@ -830,7 +843,7 @@ fn LoginRow(
     let now = probed.read().get(&id).cloned();
     let (chip, class) = match &now {
         None | Some(Probed::Asking) => ("Checking…".to_string(), "login-standing"),
-        Some(Probed::LoggingIn) => ("Waiting for login…".to_string(), "login-standing"),
+        Some(Probed::LoggingIn(_)) => ("Waiting for login…".to_string(), "login-standing"),
         Some(Probed::Is(s, _)) => (
             s.label().to_string(),
             match s {
@@ -863,8 +876,12 @@ fn LoginRow(
         _ => said,
     };
     let logged_out = matches!(now, Some(Probed::Is(LoginStanding::LoggedOut, _)));
-    let busy = matches!(now, None | Some(Probed::Asking) | Some(Probed::LoggingIn));
-    let (a, b) = (link.clone(), link);
+    let busy = matches!(now, None | Some(Probed::Asking));
+    let waiting = match now {
+        Some(Probed::LoggingIn(terminal)) => Some(terminal),
+        _ => None,
+    };
+    let (a, b, c) = (link.clone(), link.clone(), link);
     let (again, login) = (id.clone(), id);
     rsx! {
         SettingRow { label: "Login", hint,
@@ -877,13 +894,21 @@ fn LoginRow(
                 onclick: move |_| probe(&a, probed, again.clone(), None),
                 IconView { icon: Icon::Refresh, size: 13 }
             }
-            button {
-                r#type: "button",
-                class: if logged_out { "primary" } else { "" },
-                disabled: busy,
-                onclick: move |_| open_login(b.clone(), probed, login.clone()),
-                IconView { icon: Icon::Terminal, size: 13 }
-                " Open login terminal"
+            if let Some(terminal) = waiting {
+                button {
+                    r#type: "button",
+                    onclick: move |_| c.send(Request::EndTerminal { id: terminal }),
+                    "Cancel"
+                }
+            } else {
+                button {
+                    r#type: "button",
+                    class: if logged_out { "primary" } else { "" },
+                    disabled: busy,
+                    onclick: move |_| open_login(b.clone(), probed, login.clone()),
+                    IconView { icon: Icon::Terminal, size: 13 }
+                    " Open login terminal"
+                }
             }
         }
     }
