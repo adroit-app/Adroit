@@ -31,7 +31,7 @@ writing for the same session do not see each other's text, and a window opened
 later gets back the one kept last.
 What is written with nothing open becomes the first prompt of a new session
 opened next. Sent with nothing open, it starts a
-[scratch session](workspaces.md#scratch-sessions).
+[scratch session](tree.md#scratch-sessions).
 
 Closing a session's windows keeps its unsent text and attachments
 with that session. Closing the last window of an unstarted draft transfers its

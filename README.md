@@ -65,7 +65,7 @@ Press `w` to choose where a session works, from the directories sessions run
 in, those Claude Code was used in, the repositories ghq keeps, or a file tree,
 and say what you want done. adroit keeps no list of its own: the sessions are
 the ones it runs, which keep running when the window closes
-([details](docs/spec/workspaces.md)). `Mod-t` lists the past conversations of
+([details](docs/spec/tree.md)). `Mod-t` lists the past conversations of
 Claude Code and Codex, to resume one in a new session
 ([details](docs/spec/sessions.md#resuming-a-past-conversation)). While they run, the Mac does not go to
 idle sleep, so they go on with the display off
@@ -170,8 +170,8 @@ to it.
 
 A session lists terminal resources with `adroit terminal list --json` and
 reads one with `adroit terminal screen --terminal <resource-id>`
-([details](docs/spec/terminals.md)). Programs can show images with the kitty
-graphics protocol ([details](docs/spec/images.md)).
+([details](docs/spec/content.md#terminals)). Programs can show images with the kitty
+graphics protocol ([details](docs/spec/content.md#images-in-the-console)).
 
 ## Development
 

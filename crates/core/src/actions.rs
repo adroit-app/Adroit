@@ -280,11 +280,11 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::SessionPrev, "session.prev", "open the session before the one shown, in the tree's order over every session, folded away or filtered out too, going round at the start; the keys stay in the area they are in").bar("Previous Session", Icon::MessageUp),
     S::new(A::WorkspaceNext, "workspace.next", "open a session of the workspace after the one shown, in the tree's order over every workspace holding a session, folded away or filtered out too, going round at the end: the session last shown there since the window opened, or else its first; the keys stay in the area they are in").bar("Next Workspace", Icon::FolderDown),
     S::new(A::WorkspacePrev, "workspace.prev", "open a session of the workspace before the one shown, as `workspace.next` does, going round at the start").bar("Previous Workspace", Icon::FolderUp),
-    S::new(A::SessionPick, "session.pick", "open the picker, to go to a session or choose where a new one works ([details](workspaces.md#going-to-a-session-or-starting-one))").bar("Go to or Start Session…", Icon::Search),
+    S::new(A::SessionPick, "session.pick", "open the picker, to go to a session or choose where a new one works ([details](tree.md#going-to-a-session-or-starting-one))").bar("Go to or Start Session…", Icon::Search),
     S::new(A::SessionNew, "session.new", "start a session, with the prompt ready to write its first message: in the selected row's worktree or directory from the tree, in the one the focused window shows from elsewhere")
         .bar("New Session", Icon::MessagePlus)
         .row("New session here", Start),
-    S::new(A::SessionScratch, "session.scratch", "start a scratch session, with the prompt ready: one that runs in a new directory of its own, for talking about something no project holds ([details](workspaces.md#scratch-sessions))").bar("New Scratch Session", Icon::Notes),
+    S::new(A::SessionScratch, "session.scratch", "start a scratch session, with the prompt ready: one that runs in a new directory of its own, for talking about something no project holds ([details](tree.md#scratch-sessions))").bar("New Scratch Session", Icon::Notes),
     S::new(A::SessionResume, "session.resume", "list the conversations Claude Code and Codex kept, to resume one in a new session ([details](sessions.md#resuming-a-past-conversation))").bar("Resume Conversation…", Icon::TransferIn),
     S::new(A::SessionStop, "session.stop", "end a session adroit runs after asking; Claude Code keeps its conversation, for `/resume` in a session started later")
         .bar("End…", Icon::PlayerStop)
@@ -302,14 +302,14 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::TerminalStop, "terminal.stop", "end the terminal selected in the tree, or else the one shown")
         .bar("Stop Terminal", Icon::SquareX)
         .row("Stop terminal", End),
-    S::new(A::NeovimOpen, "neovim.open", "open Neovim, with your own configuration, in the worktree as `shell.open` opens a shell ([shells](terminals.md))")
+    S::new(A::NeovimOpen, "neovim.open", "open Neovim, with your own configuration, in the worktree as `shell.open` opens a shell ([shells](content.md#terminals))")
         .bar("Open Neovim", Icon::Code)
         .row("Open Neovim here", Start),
     S::new(A::TabClose, "tab.close", "close the content's tab shown and every window in it; agents and terminals keep running and remain reachable from the tree")
         .bar("Close Tab", Icon::X)
         .row("Close tab", End),
     S::new(A::WindowClose, "window.close", "close the window; the instance's other windows stay open, and its sessions run on").bar("Close Window", Icon::AppWindow),
-    S::new(A::WindowOpen, "window.open", "open another window of the instance ([instances](sessions.md#instances))").bar("New Window", Icon::CopyPlus),
+    S::new(A::WindowOpen, "window.open", "open another window of the instance ([windows](sessions.md#windows))").bar("New Window", Icon::CopyPlus),
     S::new(A::Refresh, "refresh", "read the sessions, and what git says of where they run, again now").bar("Refresh", Icon::Refresh),
     S::new(A::Filter, "filter", "narrow the tree to the sessions, shells, workspaces and worktrees whose names hold what is typed next; `Enter` keeps it, `Escape` clears it").bar("Filter…", Icon::Filter),
     S::new(A::DetailsOverview, "details.overview", "show the overview sheet of the details panel ([details](details.md)), and the panel when it is hidden").bar("Overview", Icon::InfoCircle),
@@ -339,7 +339,7 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::ZoomReset, "zoom.reset", "draw the window at the zoom the settings give").bar("Actual Size", Icon::ZoomReset),
     S::new(A::TreeToggle, "tree.toggle", "show or hide the tree").bar("Toggle Tree", Icon::LayoutSidebar),
     S::new(A::DetailsToggle, "details.toggle", "show or hide the details panel").bar("Toggle Details", Icon::LayoutSidebarRight),
-    S::new(A::ViewerZoomIn, "viewer.zoom_in", "in a viewer, draw an image, a PDF or an HTML page larger ([viewers](viewers.md))").says("Zoom in"),
+    S::new(A::ViewerZoomIn, "viewer.zoom_in", "in a viewer, draw an image, a PDF or an HTML page larger ([viewers](content.md#viewers))").says("Zoom in"),
     S::new(A::ViewerZoomOut, "viewer.zoom_out", "in a viewer, draw an image, a PDF or an HTML page smaller").says("Zoom out"),
     S::new(A::ViewerZoomFit, "viewer.zoom_fit", "in a viewer, draw an image, a PDF or an HTML page fitting the window").says("Fit to the window"),
     S::new(A::ViewerPageNext, "viewer.page_next", "in a viewer, show a PDF's next page").says("Next page"),

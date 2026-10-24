@@ -1,9 +1,9 @@
 # Sessions
 
-Every session adroit starts, and every shell, runs in a felis daemon of
-adroit's own, not in the window. Closing the window leaves them running, their
-scrollback kept; opening it again lists them as they are and shows each one
-from where it stands, starting with the session or shell it showed when it
+Every session adroit starts, and every terminal, runs in a host of adroit's
+own, not in the window ([the hosts](#the-hosts)). Closing the window leaves
+them running, their scrollback kept; opening it again lists them as they are
+and shows each one from where it stands, starting with what it showed when it
 closed, if that still runs.
 
 ## Agents
@@ -49,13 +49,19 @@ from the others. `adroit --instance <name>` opens a window of the instance
 the instance `default`. A name is made of letters, digits, `-` and `_`, up to
 32 of them.
 
+The sessions and terminals of an instance, and the commands run in them,
+belong to it: they see only its sessions and terminals, and the sessions they
+start are its own. Settings and keys are the same in every instance.
+
+## Windows
+
 Opening adroit while a window of the instance is open brings that window to
 the front instead, the one opened first when there are several. New Window
 (`window.open`), or `adroit --new-window` with or without `--instance`,
 opens another window of the instance. The windows of other instances open
 beside them.
 
-Every window of an instance shows the same work: a session or a shell
+Every window of an instance shows the same work: a session or a terminal
 started, ended or renamed in one is seen in the others. How a window shows
 it is its own: the tree's folds, selection and filter, the content's tabs and
 windows, the panels, the details, the picker, and the prompt. Closing a window
@@ -67,54 +73,65 @@ what its focused window showed when it closed, and the next window opened
 with that number shows them again. Windows are not opened again together:
 opening adroit opens one, and each New Window the next.
 
-The sessions and shells of an instance, and the commands run in them, belong
-to it: they see only its sessions and shells, and the sessions they start are
-its own. Settings and keys are the same in every instance.
+### The window sockets
+
+Each window answers the editor handoff and foreground requests on a socket
+of its own, in `$ADROIT_WINDOWS`, or the `windows` folder of its instance's
+state folder. These requests do not control sessions or terminals.
+
+Claude Code's external editor uses `adroit editor <file>` to hand over its
+input. Every agent session adroit starts, from the window, from
+`adroit session start` or by another session, names it as `$VISUAL` and
+`$EDITOR`, keeping the user's own editor in `$ADROIT_USER_EDITOR`; every
+terminal keeps the user's editor. A window asks for the input only of a
+session started this way, and `adroit editor` offers the file to each window
+of the instance in turn, so the input reaches the window that asked for it. A
+JSONL request `{"op":"editor","path":"/tmp/prompt.md"}` receives
+`{"taken":2}` when two lines were taken, or `"declined"` when the window did
+not ask for the input. A file every window declines opens in
+`$ADROIT_USER_EDITOR`. `{"op":"show"}` brings the window to the front and
+receives `"shown"`.
 
 ## The hosts
 
-Two processes of adroit's own run each instance's work, apart from the window,
-and keep running when it closes.
+Two processes of adroit's own run each instance's work, apart from the
+windows, and keep running when they close.
 
-- The terminal host, `adroit daemon`, holds every session's and shell's
-  terminal, and nothing else. It listens on `$ADROIT_DAEMON`, or
+- The terminal host, `adroit daemon`, holds every session's and terminal's
+  pseudo-terminal, and nothing else. It listens on `$ADROIT_DAEMON`, or
   `$XDG_STATE_HOME/adroit/felis/daemon.sock` for the default instance and
   `$XDG_STATE_HOME/adroit/instances/<name>/felis/daemon.sock` for another
-  (`$XDG_STATE_HOME` being `~/.local/state` when unset).
+  (`$XDG_STATE_HOME` being `~/.local/state` when unset). Windows send it keys
+  and draw its screens directly ([terminal protocol](terminal-protocol.md)).
 - The work host, `adroit host`, holds the work: it starts and lists every
-  session and shell, reads what the window shows of them, lets sessions start
-  and message sessions ([sessions that start sessions](delegation.md)) and
-  judges how each session it started stands. It listens on `$ADROIT_HOST`, or
+  session and terminal, reads the files, repositories and settings the windows
+  show, keeps what is written in the prompts, lets sessions start and message
+  sessions ([sessions that start sessions](delegation.md)) and judges how each
+  session it started stands. It listens on `$ADROIT_HOST`, or
   `host/host.sock` in the same state folder as the terminal host's `felis`
-  folder.
+  folder. Windows and the `adroit` commands reach it there
+  ([work protocol](work-protocol.md)).
 
 The folder of either socket has to be yours and open to no one else: adroit
 makes it so when it makes the folder, and refuses one already there that is
 not, leaving it as it is.
 
-Each host says first which versions of its protocol it speaks, and the window
-works with a host whenever they share one, whichever build of adroit either
-is. A version changes only when what the protocol sends changes shape, so an
-update of adroit that leaves the protocols alone asks nothing of the user.
-
-The window starts the work host of its instance when none answers, and the
-work host starts the terminal host. A work host the window cannot work with,
-or one of another build, the window replaces without asking; nothing ends with
-it. When the work host goes, the window starts another, connects to it and
-shows the work as it holds it; a session's tools that ask meanwhile wait for
-the new one, and what the window asked of the one gone and was not answered
-fails with a word to the user. A terminal host the window cannot work with,
-including one too old to say which versions it speaks, the window never
-replaces on its own: it shows a banner offering to restart it, with the build
-the host says it is.
+A window works with a host whenever they share a version of its protocol,
+whichever build of adroit either is, so an update of adroit that leaves the
+protocols alone asks nothing of the user. The window starts the work host of
+its instance when none answers, and the work host starts the terminal host.
+A work host the window cannot work with, or one of another build, the window
+replaces without asking; nothing ends with it. A terminal host the window
+cannot work with the window never replaces on its own: it shows a banner
+offering to restart it, with the build the host says it is.
 
 `adroit daemon stop` stops the terminal host of the instance and waits until
 its process is gone; `adroit daemon restart` stops it, if one runs, and starts
-another. Either ends every session the terminal host holds, agents and shells
-alike, with what they scrolled back. A terminal host too old to be asked to
-stop is stopped by signal. `adroit host stop` and `adroit host restart` do the
-same for the work host, and end no session. Stopping where no host runs is not
-an error.
+another. Either ends every session and terminal the terminal host holds, with
+what they scrolled back. A terminal host too old to be asked to stop is
+stopped by signal. `adroit host stop` and `adroit host restart` do the same
+for the work host, and end no session. Stopping where no host runs is not an
+error.
 
 The window restarts the terminal host with Restart Session Daemon
 (`daemon.restart`), only after the user confirms that every session ends.

@@ -5,7 +5,7 @@ its own, and a file you write changes, adds to or takes away from them. The
 prompt's keys are Neovim's and are set up in Neovim; a dialog that asks
 before ending something always answers to `y`, `Enter`, `n` and `Escape`, and
 attachment selection, the picker and the list of past conversations have their
-own keys ([workspaces](workspaces.md#going-to-a-session-or-starting-one),
+own keys ([the tree](tree.md#going-to-a-session-or-starting-one),
 [sessions](sessions.md#resuming-a-past-conversation)).
 `F1` shows every binding in force wherever the keys are.
 

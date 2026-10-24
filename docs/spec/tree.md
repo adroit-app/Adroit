@@ -1,4 +1,4 @@
-# Workspaces
+# The tree
 
 adroit lists every session it runs by the directory it runs in
 ([details](sessions.md)). What holds them is what git says about the directory
@@ -6,7 +6,7 @@ each runs in. Sessions started outside adroit are not listed; their
 conversations can be resumed in adroit
 ([resuming](sessions.md#resuming-a-past-conversation)).
 
-## The tree
+## Workspaces and worktrees
 
 A **workspace** is where sessions and the shells you open in adroit run:
 
@@ -37,7 +37,7 @@ git sees changed is marked at the end of its row with the letter git gives it,
 an added one in a jj workspace with `A`, and a directory holding one with a
 dot. The marks and the listing follow the disk within seconds.
 Opening a file shows it in a viewer or in Neovim, by its kind
-([viewers](viewers.md)), and its row shows the tabs it is shown in.
+([viewers](content.md#viewers)), and its row shows the tabs it is shown in.
 
 A row of a session, a shell or a Neovim shows the numbers of the content's tabs
 it is shown in, and the row of what the focused window shows stands out.
@@ -55,7 +55,7 @@ keys there, as opening a session's row does ([content](content.md#opening)).
 Closing a row's windows from the tree closes every window that shows it, and
 leaves it running. Closing its
 windows hides it; Stop Terminal
-explicitly ends its program ([terminals](terminals.md)). Going from session to
+explicitly ends its program ([terminals](content.md#terminals)). Going from session to
 session, the waiting sessions and the picker pass shells over.
 
 `!` in the tree shows every worktree git knows of each workspace, those

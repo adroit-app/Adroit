@@ -62,9 +62,9 @@ changes them ([keys](../keys.md)).
 | `session.prev` | Previous Session | open the session before the one shown, in the tree's order over every session, folded away or filtered out too, going round at the start; the keys stay in the area they are in | `global`: `Ctrl+q P` |
 | `workspace.next` | Next Workspace | open a session of the workspace after the one shown, in the tree's order over every workspace holding a session, folded away or filtered out too, going round at the end: the session last shown there since the window opened, or else its first; the keys stay in the area they are in | `global`: `Ctrl+q }`<br>`tree`: `}` |
 | `workspace.prev` | Previous Workspace | open a session of the workspace before the one shown, as `workspace.next` does, going round at the start | `global`: `Ctrl+q {`<br>`tree`: `{` |
-| `session.pick` | Go to or Start Session… | open the picker, to go to a session or choose where a new one works ([details](../workspaces.md#going-to-a-session-or-starting-one)) | `global`: `Mod+p`<br>`tree`: `w` |
+| `session.pick` | Go to or Start Session… | open the picker, to go to a session or choose where a new one works ([details](../tree.md#going-to-a-session-or-starting-one)) | `global`: `Mod+p`<br>`tree`: `w` |
 | `session.new` | New Session | start a session, with the prompt ready to write its first message: in the selected row's worktree or directory from the tree, in the one the focused window shows from elsewhere | `global`: `Mod+n`<br>`tree`: `n` |
-| `session.scratch` | New Scratch Session | start a scratch session, with the prompt ready: one that runs in a new directory of its own, for talking about something no project holds ([details](../workspaces.md#scratch-sessions)) |  |
+| `session.scratch` | New Scratch Session | start a scratch session, with the prompt ready: one that runs in a new directory of its own, for talking about something no project holds ([details](../tree.md#scratch-sessions)) |  |
 | `session.resume` | Resume Conversation… | list the conversations Claude Code and Codex kept, to resume one in a new session ([details](../sessions.md#resuming-a-past-conversation)) | `global`: `Mod+t`<br>`tree`: `O` |
 | `session.stop` | End… | end a session adroit runs after asking; Claude Code keeps its conversation, for `/resume` in a session started later | `global`: `Mod+Backspace`<br>`tree`: `X`<br>`console`: `X` |
 | `session.rename` | Rename… | edit the name of a session adroit runs in place; the tree shows it, and the session is sent Claude Code's `/rename` so its own interface says it too | `tree`: `R` |
@@ -72,10 +72,10 @@ changes them ([keys](../keys.md)).
 | `session.agent_prev` | Previous Agent of New Session | while a session not started yet is shown, switch the agent it is to run to the previous one ([details](../sessions.md#agents)) | `draft`: `Ctrl+g A` |
 | `shell.open` | Open Shell | open a shell in the worktree | `global`: `Mod+s`<br>`tree`: `$` |
 | `terminal.stop` | Stop Terminal | end the terminal selected in the tree, or else the one shown |  |
-| `neovim.open` | Open Neovim | open Neovim, with your own configuration, in the worktree as `shell.open` opens a shell ([shells](../terminals.md)) | `global`: `Mod+e`<br>`tree`: `e` |
+| `neovim.open` | Open Neovim | open Neovim, with your own configuration, in the worktree as `shell.open` opens a shell ([shells](../content.md#terminals)) | `global`: `Mod+e`<br>`tree`: `e` |
 | `tab.close` | Close Tab | close the content's tab shown and every window in it; agents and terminals keep running and remain reachable from the tree | `global`: `Mod+w` |
 | `window.close` | Close Window | close the window; the instance's other windows stay open, and its sessions run on | `global`: `Cmd+W` |
-| `window.open` | New Window | open another window of the instance ([instances](../sessions.md#instances)) | `global`: `Cmd+N` |
+| `window.open` | New Window | open another window of the instance ([windows](../sessions.md#windows)) | `global`: `Cmd+N` |
 | `refresh` | Refresh | read the sessions, and what git says of where they run, again now | `global`: `Mod+r`<br>`tree`: `r` |
 | `filter` | Filter… | narrow the tree to the sessions, shells, workspaces and worktrees whose names hold what is typed next; `Enter` keeps it, `Escape` clears it | `global`: `Mod+f`<br>`tree`: `/` |
 | `details.overview` | Overview | show the overview sheet of the details panel ([details](../details.md)), and the panel when it is hidden | `global`: `Mod+1` |
@@ -105,7 +105,7 @@ changes them ([keys](../keys.md)).
 | `zoom.reset` | Actual Size | draw the window at the zoom the settings give | `global`: `Mod+0` |
 | `tree.toggle` | Toggle Tree | show or hide the tree | `global`: `Mod+b` |
 | `details.toggle` | Toggle Details | show or hide the details panel | `global`: `Mod+d` |
-| `viewer.zoom_in` |  | in a viewer, draw an image, a PDF or an HTML page larger ([viewers](../viewers.md)) | `viewer`: `Plus`, `=` |
+| `viewer.zoom_in` |  | in a viewer, draw an image, a PDF or an HTML page larger ([viewers](../content.md#viewers)) | `viewer`: `Plus`, `=` |
 | `viewer.zoom_out` |  | in a viewer, draw an image, a PDF or an HTML page smaller | `viewer`: `-` |
 | `viewer.zoom_fit` |  | in a viewer, draw an image, a PDF or an HTML page fitting the window | `viewer`: `0` |
 | `viewer.page_next` |  | in a viewer, show a PDF's next page | `viewer`: `J` |
