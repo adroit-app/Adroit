@@ -5,14 +5,12 @@
 .dialog-title .icon { color: var(--text-2); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
 .button { display: inline-flex; border: 0; font: inherit; align-items: center; gap: 8px; height: 28px; padding: 0 12px; border-radius: 7px; background: var(--select); color: var(--text); cursor: default; }
-.button.primary { background: rgba(232,180,94,0.16); color: var(--wait); font-weight: 500; }
-.button.danger { color: var(--fail); background: rgba(235,163,170,0.10); }
-.dialog-actions .flex-spacer { flex: 1; }
-.sidebar-tool { color: var(--text-2); font-size: 15px; line-height: 1; padding: 0 4px; border-radius: 4px; cursor: default; }
+.button.primary { background: var(--wait-tint); color: var(--wait); font-weight: 500; }
+.button.danger { color: var(--fail); background: var(--fail-tint); }
+.sidebar-tool { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 4px;
+  background: transparent; color: var(--text-2); font-size: 15px; line-height: 1; cursor: default; }
 .sidebar-tool:hover { background: var(--select); color: var(--text); }
 .sidebar-tools { display: inline-flex; gap: 2px; margin-left: auto; }
-.sidebar-tool { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; }
-.sidebar-tool { border: 0; background: transparent; }
 .list-row-start { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; margin-left: auto;
   flex: none; border-radius: 4px; color: var(--text-3); }
 .list-row-start:hover { background: var(--line-strong); color: var(--text); }

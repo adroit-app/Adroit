@@ -1,14 +1,3 @@
-:root {
-  color-scheme: dark;
-  --ground: #0f1114; --panel: #16191d; --raised: #1d2126; --select: #252a31; --line: #22262c; --line-strong: #2f353d;
-  --text: #e7e8eb; --text-2: #a2a8b1; --text-3: #868c96; --wait: #e8b45e; --run: #78aee8; --fail: #eba3aa;
-  --mono: "SF Mono", Menlo, ui-monospace, "Hiragino Kaku Gothic ProN", monospace;
-  --sans: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
-}
-* { box-sizing: border-box; }
-.icon { display: inline-flex; flex: none; align-items: center; justify-content: center; }
-/* As thick as icons::STROKE, which the menu bar's icons are drawn with. */
-.icon svg { width: var(--icon, 14px); height: var(--icon, 14px); stroke-width: 1.75; }
 html, body { margin: 0; height: 100%; background: var(--ground); color: var(--text);
   font-family: var(--sans); font-size: 13px; overflow: hidden; user-select: none; cursor: default; }
 #main { height: 100%; }
@@ -48,7 +37,7 @@ input[type=checkbox] { width: 16px; height: 16px; margin: 0; padding: 0; accent-
 select:focus, input:focus, textarea:focus { border-color: var(--run); }
 button { background: var(--select); border-color: transparent; padding: 5px 12px; }
 button:hover { background: #2d333b; }
-button.primary { background: rgba(232,180,94,0.16); color: var(--wait); font-weight: 500; }
+button.primary { background: var(--wait-tint); color: var(--wait); font-weight: 500; }
 .settings-error { color: var(--fail); margin-bottom: 12px; user-select: text; }
 @media (max-width: 760px) {
   .settings-nav { width: 155px; }
@@ -60,7 +49,7 @@ button.primary { background: rgba(232,180,94,0.16); color: var(--wait); font-wei
 }
 .keys-bar { display: flex; gap: 8px; margin-bottom: 12px; }
 .keys-bar-search { flex: 1; min-width: 0; }
-kbd { font-family: var(--mono); font-size: 10.5px; color: #c9ccd2; background: var(--raised); border: 1px solid var(--line-strong);
+kbd { font-family: var(--mono); font-size: 10.5px; color: var(--kbd-text); background: var(--raised); border: 1px solid var(--line-strong);
   border-radius: 4px; padding: 0 5px; margin-right: 3px; }
 .keys-area { padding: 4px 0 6px; }
 .keys-area-head { padding: 8px 14px 6px; }
@@ -69,12 +58,12 @@ kbd { font-family: var(--mono); font-size: 10.5px; color: #c9ccd2; background: v
 .binding:hover { background: var(--raised); }
 .binding-keys { flex: 0 0 200px; }
 .binding-action { flex: 1; min-width: 0; color: var(--text); }
-.binding-mark { font-size: 11px; color: var(--wait); background: rgba(232,180,94,0.12); border-radius: 4px; padding: 1px 6px; }
+.binding-mark { font-size: 11px; color: var(--wait); background: var(--wait-tint-soft); border-radius: 4px; padding: 1px 6px; }
 .binding.gone .binding-action, .binding.gone .binding-keys { opacity: 0.5; text-decoration: line-through; }
 .binding.gone .binding-mark { color: var(--text-3); background: var(--raised); }
 button.settings-link { background: none; border: none; color: var(--run); padding: 2px 4px; }
 button.settings-link:hover { background: none; text-decoration: underline; }
-button.danger { color: var(--fail); background: rgba(235,163,170,0.10); }
+button.danger { color: var(--fail); background: var(--fail-tint); }
 button:disabled { opacity: 0.45; }
 .binding-add { border-top: 1px solid var(--line); padding: 4px 10px 0; }
 .binding-form { border-top: 1px solid var(--line); background: var(--raised); padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }

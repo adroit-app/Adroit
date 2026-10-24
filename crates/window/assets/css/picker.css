@@ -3,7 +3,7 @@
 .dialog.picker-dialog .filter-field { margin: 0 8px; }
 .dialog.picker-dialog .list-rows { flex: 1; min-height: 0; padding: 0; line-height: normal; }
 .dialog.picker-dialog .list-row { color: var(--text-2); }
-.dialog.picker-dialog .list-row.selected { color: var(--text); box-shadow: inset 0 0 0 1px #3a4352; }
+.dialog.picker-dialog .list-row.selected { color: var(--text); box-shadow: inset 0 0 0 1px var(--focus-line); }
 .dialog.picker-dialog .list-row-name { min-width: 0; }
 .picker-chevron { flex: none; display: inline-flex; color: var(--text-3); }
 .picker-match { color: var(--wait); font-weight: 600; }

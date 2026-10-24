@@ -40,8 +40,6 @@ fn shown_steps(agent: &Agent) -> Vec<&Step> {
     steps
 }
 
-const CSS: &str = include_str!("../../assets/css/subagent.css");
-
 /// A subagent opened from the overview, told at `now_ms`; `on_back` goes
 /// back to the overview, as `back_keys` do.
 #[component]
@@ -61,7 +59,6 @@ pub fn SubagentView(
         "Steps"
     };
     rsx! {
-        style { {CSS} }
         Breadcrumbs {
             title: "Back to the overview ({back_keys})",
             crumbs: vec![label],

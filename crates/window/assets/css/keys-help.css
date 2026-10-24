@@ -6,7 +6,7 @@
 .keys-help-head { display: flex; align-items: center; gap: 8px; height: 24px; }
 .keys-help-title { color: var(--text); font-weight: 500; }
 .keys-help-group.here .keys-help-title { color: var(--wait); }
-.keys-help-here { font-size: 10.5px; color: var(--wait); background: rgba(232,180,94,0.16); border-radius: 4px; padding: 1px 6px; }
+.keys-help-here { font-size: 10.5px; color: var(--wait); background: var(--wait-tint); border-radius: 4px; padding: 1px 6px; }
 .keys-help-hint { color: var(--text-3); font-size: 11.5px; margin-bottom: 4px; }
 .keys-help-row { display: flex; align-items: center; gap: 8px; min-height: 26px; padding: 0 6px; border-radius: 6px; font-size: 12.5px; }
 .keys-help-row:hover { background: var(--select); }

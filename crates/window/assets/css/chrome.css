@@ -7,7 +7,7 @@
 .flex-spacer { flex: 1; }
 .header-chip { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 10px; border-radius: 11px;
   background: var(--panel); color: var(--text-2); font-size: 12px; }
-.header-chip.wait { background: rgba(232,180,94,0.12); color: var(--wait); font-weight: 500; }
+.header-chip.wait { background: var(--wait-tint-soft); color: var(--wait); font-weight: 500; }
 .app-body { flex: 1; min-height: 0; display: flex; padding: 0 8px; }
 .app-body.dragging, .app-body.dragging * { cursor: col-resize !important; user-select: none; }
 .panel-splitter { flex: none; width: 8px; cursor: col-resize; position: relative; }
@@ -18,15 +18,15 @@
 .pane-toggle.on { color: var(--text-2); }
 [hidden] { display: none !important; }
 .app-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; display: flex; flex-direction: column; overflow: hidden; }
-.app-panel.focused { border-color: #3a4352; }
+.app-panel.focused { border-color: var(--focus-line); }
 .sidebar { flex: none; }
 .center-panel { flex: 1 1 0; min-width: 0; }
 .details { flex: none; }
 .details-scroll { flex: 1; min-height: 0; overflow-y: auto; }
 .details-scroll .list-rows { overflow: visible; }
 .sidebar-title { font-size: 12px; font-weight: 500; color: var(--text-2); padding: 12px 16px 6px; display: flex; justify-content: space-between; gap: 8px; white-space: nowrap; }
-.filter-field { margin: 0 12px 6px; padding: 4px 8px; border-radius: 6px; background: var(--raised); font-family: var(--mono); font-size: 12.5px; color: var(--text); }
-.filter-field { display: flex; align-items: center; gap: 6px; cursor: text; border: 1px solid transparent; }
+.filter-field { display: flex; align-items: center; gap: 6px; margin: 0 12px 6px; padding: 4px 8px; border: 1px solid transparent; border-radius: 6px;
+  background: var(--raised); font-family: var(--mono); font-size: 12.5px; color: var(--text); cursor: text; }
 .filter-field.on { border-color: var(--line-strong); }
 .filter-field-funnel { display: inline-flex; color: var(--text-3); }
 .filter-field-input::placeholder { color: var(--text-3); font-family: var(--sans); font-size: 12px; }

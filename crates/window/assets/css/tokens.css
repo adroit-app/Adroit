@@ -1,0 +1,38 @@
+/* The variables and the icons' rules every window shares. */
+:root {
+  color-scheme: dark;
+  --ground: #0f1114;
+  --panel: #16191d;
+  --raised: #1d2126;
+  --select: #252a31;
+  --line: #22262c;
+  --line-strong: #2f353d;
+  --text: #e7e8eb;
+  --text-2: #a2a8b1;
+  --text-3: #868c96;
+  --wait: #e8b45e;
+  --run: #78aee8;
+  --done: #8fc6a4;
+  --fail: #eba3aa;
+  --coord: #b9a2ec;
+  --usage-cpu: #58c9df;
+  --usage-gpu: #b9a2ec;
+  --usage-memory: #8fc6a4;
+  --usage-storage: #e8a275;
+  --usage-context: #58c9df;
+  --mono: "SF Mono", Menlo, ui-monospace, "Hiragino Kaku Gothic ProN", monospace;
+  /* The console's font and line height, set from the settings. */
+  --term-font: var(--mono); --term-size: 13px; --term-weight: 400; --cell-h: 17px;
+  --sans: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  /* Tints and lines no theme sets, so they stay as they are in every theme. */
+  --wait-tint: rgba(232,180,94,0.16);
+  --wait-tint-soft: rgba(232,180,94,0.12);
+  --fail-tint: rgba(235,163,170,0.10);
+  --focus-line: #3a4352;
+  --focus-border: #4a5566;
+  --kbd-text: #c9ccd2;
+}
+* { box-sizing: border-box; }
+.icon { display: inline-flex; flex: none; align-items: center; justify-content: center; }
+/* As thick as icons::STROKE, which the menu bar's icons are drawn with. */
+.icon svg { width: var(--icon, 14px); height: var(--icon, 14px); stroke-width: 1.75; }

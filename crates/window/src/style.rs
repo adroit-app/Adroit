@@ -19,6 +19,7 @@ pub fn use_cell_height() -> f64 {
 /// The main window's stylesheet, an area to a file, in the order the
 /// cascade needs.
 pub const CSS: &str = concat!(
+    include_str!("../assets/css/tokens.css"),
     include_str!("../assets/css/base.css"),
     include_str!("../assets/css/chrome.css"),
     include_str!("../assets/css/tree.css"),
@@ -34,4 +35,7 @@ pub const CSS: &str = concat!(
 );
 
 /// The Settings window's stylesheet, on the main window's colours.
-pub const SETTINGS_CSS: &str = include_str!("../assets/css/settings.css");
+pub const SETTINGS_CSS: &str = concat!(
+    include_str!("../assets/css/tokens.css"),
+    include_str!("../assets/css/settings.css"),
+);

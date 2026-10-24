@@ -5,8 +5,6 @@ use dioxus::prelude::*;
 use crate::components::{Breadcrumbs, Section};
 use crate::details::Note;
 
-const CSS: &str = include_str!("../../assets/css/message.css");
-
 /// A message opened from the overview, told at `now_ms`; `on_back` goes back
 /// to the overview, as `back_keys` do.
 #[component]
@@ -19,7 +17,6 @@ pub fn MessageView(
     let tag = note.tag(now_ms);
     let summary = note.summary().to_owned();
     rsx! {
-        style { {CSS} }
         Breadcrumbs {
             title: "Back to the overview ({back_keys})",
             crumbs: vec![summary],

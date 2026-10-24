@@ -7,8 +7,8 @@
 .list-row.shown { box-shadow: inset 3px 0 0 var(--run); background: rgba(120,174,232,0.08); border-top-left-radius: 0; border-bottom-left-radius: 0; }
 .list-row.shown.selected { background: var(--select); }
 .list-row.shown .list-row-name { color: var(--text); font-weight: 600; }
-.app-panel.focused .list-row.selected.shown { box-shadow: inset 3px 0 0 var(--run), inset 0 0 0 1px #3a4352; }
-.app-panel.focused .list-row.selected { box-shadow: inset 0 0 0 1px #3a4352; }
+.app-panel.focused .list-row.selected.shown { box-shadow: inset 3px 0 0 var(--run), inset 0 0 0 1px var(--focus-line); }
+.app-panel.focused .list-row.selected { box-shadow: inset 0 0 0 1px var(--focus-line); }
 .list-row.head { font-weight: 500; }
 .list-row.vacant { opacity: 0.5; }
 .list-row.dim { color: var(--text-2); }
