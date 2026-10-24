@@ -46,6 +46,50 @@ fn fitted(width: f64, room: f64, cell_width: f64, cell_height: f64) -> Size {
     }
 }
 
+/// What the focused window's console was last measured as: its box, the
+/// prompt card's height when one is shown, and the cell.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Measured {
+    pub console: (f64, f64),
+    pub card: f64,
+    pub cell: (f64, f64),
+}
+
+impl Measured {
+    /// The terminal of the focused window's console showing `tab`: what the
+    /// prompt card leaves of the console when that tab shows one, all of it
+    /// otherwise; `None` until the console is measured.
+    pub(crate) fn fitted(&self, tab: Option<&Tab>) -> Option<Size> {
+        let (width, height) = self.console;
+        if width <= 0.0 {
+            return None;
+        }
+        let card = shows_prompt(tab).then_some(self.card);
+        let (cw, ch) = self.cell;
+        Some(fitted(width, console_room(height, card), cw, ch))
+    }
+}
+
+impl crate::shell::Local {
+    /// The console as it was last measured, read without subscribing.
+    fn measured(&self) -> Measured {
+        Measured {
+            console: *self.console_box.peek(),
+            card: *self.composer_height.peek(),
+            cell: (*self.cell_width.peek(), *self.cell_height.peek()),
+        }
+    }
+
+    /// The size the focused window's console gives `tab`'s program, even
+    /// while another tab is shown: a session sized for a terminal shown
+    /// meanwhile would lay its screen out under the prompt card.
+    pub(crate) fn console_size_for(&self, tab: &Tab) -> Size {
+        self.measured()
+            .fitted(Some(tab))
+            .unwrap_or_else(|| *self.console_size.peek())
+    }
+}
+
 /// Keep every console of the shown tab measured, sized and attached.
 pub(crate) fn use_console_sizes(ui: &Ui) {
     let app = ui.app;
@@ -102,17 +146,20 @@ pub(crate) fn use_console_sizes(ui: &Ui) {
         });
     });
 
+    // The console as measured now, read so that a change sizes again.
+    let measured = move || Measured {
+        console: console_box(),
+        card: (local.composer_height)(),
+        cell: (cell_width(), cell_height()),
+    };
+
     // The console's terminal fills what the prompt card leaves of the console,
     // in cells of the measured width; all of it when no card is shown.
     use_effect(move || {
-        let (width, height) = console_box();
-        let cw = cell_width();
-        let _ = (face(), cell_height());
-        if width <= 0.0 {
+        let _ = face();
+        let Some(next) = measured().fitted(active().as_ref()) else {
             return;
-        }
-        let card = shows_prompt(active().as_ref()).then_some((local.composer_height)());
-        let next = fitted(width, console_room(height, card), cw, cell_height());
+        };
         if *console_size.peek() != next {
             console_size.set(next);
         }
@@ -163,12 +210,17 @@ pub(crate) fn use_console_sizes(ui: &Ui) {
         }
     });
 
-    // Attach the active tab's session at the console's size.
+    // Attach the active tab's session at the size the console gives that tab,
+    // not the size it gave the tab shown before: the effect above may not
+    // have run yet for the tab now shown.
     use_effect({
         let hub = ui.hub.clone();
         move || {
             let Some(tab) = active() else { return };
-            let size = console_size();
+            let _ = face();
+            let size = measured()
+                .fitted(Some(&tab))
+                .unwrap_or_else(|| *console_size.read());
             // Read, so a session listed only now is attached to once it is,
             // and one attached is sized to the console as it is by then.
             let _ = (tree.read(), attached());
@@ -195,5 +247,29 @@ mod tests {
         assert_eq!(with_card, 600.0 - 120.0 - CONSOLE_GAP);
         assert_eq!(without, 600.0 - SCREEN_TOP);
         assert!(without > with_card + 120.0);
+    }
+
+    #[test]
+    fn a_tab_s_program_is_sized_by_whether_that_tab_shows_the_prompt() {
+        let measured = Measured {
+            console: (640.0, 600.0),
+            card: 120.0,
+            cell: (8.0, 20.0),
+        };
+        let session = measured.fitted(Some(&Tab::Session("a".into()))).unwrap();
+        let terminal = measured.fitted(Some(&Tab::Terminal(1))).unwrap();
+        assert_eq!(session.rows, ((600.0 - 120.0 - CONSOLE_GAP) / 20.0) as u16);
+        assert_eq!(terminal.rows, ((600.0 - SCREEN_TOP) / 20.0) as u16);
+        assert_eq!(session.cols, terminal.cols);
+    }
+
+    #[test]
+    fn a_console_not_measured_yet_sizes_no_program() {
+        let measured = Measured {
+            console: (0.0, 0.0),
+            card: 120.0,
+            cell: (8.0, 20.0),
+        };
+        assert_eq!(measured.fitted(Some(&Tab::Session("a".into()))), None);
     }
 }

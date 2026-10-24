@@ -67,8 +67,9 @@ impl Ui {
                 .filter(|(_, _, images)| images.is_empty())
                 .and_then(|(tab, text, _)| passes_enter(tab.as_ref(), text))
             {
-                let size = *ui.local.console_size.peek();
-                if let Some(p) = pane_for(app, &ui.hub, &Tab::Session(id), size).await {
+                let tab = Tab::Session(id);
+                let size = ui.local.console_size_for(&tab);
+                if let Some(p) = pane_for(app, &ui.hub, &tab, size).await {
                     p.key(&Key::new("Enter").ctrl());
                 }
             }
@@ -112,11 +113,11 @@ impl Ui {
     pub(crate) fn send_prompt(&self, taken: Taken) {
         let (app, ui) = (self.app, self.clone());
         spawn(async move {
-            let size = *ui.local.console_size.peek();
             let Some(tab) = taken.tab.clone() else {
                 app.dispatch(Msg::PromptWent(false));
                 return;
             };
+            let size = ui.local.console_size_for(&tab);
             let sent = match pane_for(app, &ui.hub, &tab, size).await {
                 Some(p) => {
                     // Claude Code turns on bracketed paste once it is ready
@@ -149,7 +150,7 @@ impl Ui {
     pub(crate) fn type_into_tab(&self, tab: Tab, typing: Vec<Typing>) {
         let (app, ui) = (self.app, self.clone());
         spawn(async move {
-            let size = *ui.local.console_size.peek();
+            let size = ui.local.console_size_for(&tab);
             if let Some(p) = pane_for(app, &ui.hub, &tab, size).await {
                 type_into(&p, &typing).await;
             }
