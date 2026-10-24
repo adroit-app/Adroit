@@ -33,7 +33,7 @@ describe.
   that ended last, each named by what it was last asked about, marked with
   what kind it is, and saying how it stands and for how long it has run or
   ran. After them it lists what the session's conversation brought up,
-  newest first, for Claude Code, Codex and Pi alike: the claude.ai artifacts, the
+  newest first, for Claude Code, Codex, Pi and OpenCode alike: the claude.ai artifacts, the
   images, the other web addresses, and the files it wrote or edited, read, or
   named in a reply where such a file exists, each saying how the session came
   across it. An address inside

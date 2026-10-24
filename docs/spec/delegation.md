@@ -59,8 +59,11 @@ limit named, and sessions the user started never count against it.
 
 A message is handed to the recipient's agent through its own way of hearing
 from outside: Claude Code's channel, Codex's queue of incoming
-notifications, or, for Pi, the extension Adroit loads into every Pi session it
-starts, which also gives it the tools above. It reaches the agent between turns and starts one, headed by
+notifications, for Pi the extension Adroit loads into every Pi session it
+starts, which also gives it the tools above, and for OpenCode the plugin Adroit
+loads into every OpenCode session it starts. A message for an OpenCode
+conversation not yet made, as one is before its first prompt is sent, waits
+for it. It reaches the agent between turns and starts one, headed by
 who sent it: the sender's id, name and directory. A message sent while the
 recipient waits on a dialog or is still starting is handed over once it is
 ready. Handing it over is receipt; no acknowledgement is asked for, and
@@ -136,7 +139,7 @@ none follows `--`.
   names the revision it starts from.
 - `--name <name>` names it; without one it is named from its prompt, as the
   window names a session. A name already taken gets a number.
-- `--profile <id>` starts it from that profile, and `--agent claude|codex|pi`
+- `--profile <id>` starts it from that profile, and `--agent claude|codex|pi|opencode`
   from that agent's default profile; with both, the profile has to start the
   agent. Without either it starts from the default profile.
 - `--model <model>` selects the model for this launch without changing the
@@ -144,11 +147,15 @@ none follows `--`.
   own default. The agent's TUI can still change its model after launch.
 - `--permissions default|read_only` selects the launch's permission profile.
   Read-only uses Codex's read-only sandbox, and gives Pi only the tools that
-  read, none that run commands or write. A read-only Claude Code session
-  loses its file-editing tools and runs its shell commands in Claude Code's
-  sandbox, which keeps them from writing to its directory or the repository's
-  history; the user's and the repository's Claude Code settings cannot loosen
-  this. Where that sandbox cannot run, the session fails to start.
+  read, none that run commands or write. A read-only OpenCode session is set
+  to its plan agent, may use only the tools that read as any agent it starts
+  as, and reads no configuration of the repository's; OpenCode has no
+  sandbox, so that is all that keeps it to reading, and the plugins and MCP
+  servers the account's own configuration names still run. A read-only Claude
+  Code session loses its file-editing tools and runs its shell commands in
+  Claude Code's sandbox, which keeps them from writing to its directory or the
+  repository's history; the user's and the repository's Claude Code settings
+  cannot loosen this. Where that sandbox cannot run, the session fails to start.
 - `--permissions-file <path>` reads custom permissions from JSON instead of a
   named profile. These are provider-specific options, not a read-only promise.
   The file is one of:
@@ -163,6 +170,11 @@ none follows `--`.
 
   ```json
   {"agent":"pi","tools":["read","grep","find","ls","bash"]}
+  ```
+
+  ```json
+  {"agent":"opencode","primary":"build","auto":false,
+   "permissions":[{"action":"shell","resource":"git *","effect":"allow"}]}
   ```
 
   The provider must match `--agent`; unknown fields are rejected.

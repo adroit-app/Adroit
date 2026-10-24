@@ -8,7 +8,7 @@ closed, if that still runs.
 
 ## Agents
 
-A session runs Claude Code, Codex CLI or Pi in its own terminal interface. Each
+A session runs Claude Code, Codex CLI, Pi or OpenCode in its own terminal interface. Each
 session is given its profile, and with it its agent and connection
 ([settings](settings.md#profiles-and-connections)), while it is still a
 draft, before its first prompt is sent. The empty window and drafts offer
@@ -85,7 +85,28 @@ Pi sessions list their conversation's links and files in the overview, and
 follow the conversation the session moves to with `/new` or `/resume`. Their
 prompt history is the prompts sent in the session's directory, as Pi keeps
 them. Renaming in Adroit renames the Pi session with `/name`, and a message
-with a leading `!` runs as a shell line in Pi.
+
+OpenCode sessions use the embedded prompt too. Adroit runs OpenCode 2.1 or
+later, the `@opencode/cli` package, and refuses to start a session of an older
+release, saying how to install a newer one. Each session runs with a server of
+its own, which no other session or terminal shares, and starts on a
+conversation whose id Adroit chooses; OpenCode makes it once its first prompt
+is sent. OpenCode asks as its permission rules say and has no sandbox, so
+what an OpenCode session may do is the agent it runs as and its rules: a
+read-only one is set to its plan agent, may use only the tools that read as
+any agent it starts as, and reads no configuration of the repository's; no
+other configuration's rules widen it, though the plugins and MCP servers the
+account's own configuration names still run;
+custom permissions for OpenCode name its agent, its rules and whether it
+approves on its own. Either way Adroit's own tools stay allowed. A session
+allowed its shell tool can run any command its user can. OpenCode has no
+account usage to show. Adroit can override its model, as `provider/model`,
+for each launch. A permission OpenCode asks for shows the session as waiting
+on you.
+
+OpenCode sessions list their conversation's links and files in the overview,
+read through OpenCode itself. A message with a leading `!` runs as a shell
+line in OpenCode.
 
 ## Instances
 
@@ -187,8 +208,8 @@ console then says so, and it is listed no more.
 
 ## Resuming a past conversation
 
-Claude Code, Codex and Pi keep each conversation after its session ends,
-and adroit lists only the sessions it runs. Resume Conversation in the Session
+Claude Code, Codex, Pi and OpenCode keep each conversation after its
+session ends, and adroit lists only the sessions it runs. Resume Conversation in the Session
 menu, or `session.resume`, opens a list of the conversations the agents kept,
 in every connection a profile runs in,
 for the directory the focused window works in, the newest first, each with its
@@ -232,7 +253,7 @@ sleeps when idle again.
 The state a session shows, working, waiting on you and for what, done or
 failed, is what its program reports with the
 [OSC 7501 program status protocol](https://www.superlogical.com/rex/docs/build/program-status),
-as the daemon keeps it. When Codex or Pi reports no status, its visible activity and
+as the daemon keeps it. When Codex, Pi or OpenCode reports no status, its visible activity and
 requests for approval or input supply the state instead. A session Adroit
 started shows as starting until its program reports a state or its visible
 activity supplies one.

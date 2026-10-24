@@ -102,7 +102,9 @@ as its own attachment, as a file dragged onto a terminal is, before the
 words; a session started from a draft is given them with its first prompt,
 which Claude Code receives as files named in the prompt. A running Pi
 session gets each image's path before the words, which Pi reads as a file
-of the conversation rather than an attachment. Images
+of the conversation rather than an attachment. A running OpenCode session
+gets each image pasted into its input as its own attachment; one started
+from a draft is given their paths in its first prompt. Images
 can be sent without text. A shell command cannot carry images.
 PNG, JPEG, GIF and WebP images are accepted; another kind is refused with a
 notice. A video is not taken. A saved image is kept for a week after it is

@@ -71,7 +71,8 @@ and when its login terminal ends, never over and over. Open login terminal
 starts a terminal, listed in the tree as any other, that runs the program's
 own login in the account, the way a session there is started; the user logs
 in in it. Pi logs in only from its own interface, so its login terminal
-opens Pi with `/login` typed in. While that terminal is open the login is
+opens Pi with `/login` typed in. OpenCode's login terminal runs its own
+`auth login`, which asks which provider to connect. While that terminal is open the login is
 waited for: asking again ends the wait only when the program says it is logged in, and cancelling
 ends the terminal, as closing it does, and asks again. The account shared
 with the terminal is the program as it runs outside adroit, so logging in or
@@ -177,10 +178,10 @@ home = "/Users/me/.adroit/pi-local"
 A profile's `id` is how everything else refers to it, and it is kept when
 the profile is renamed: renaming changes `name` alone. An id is lowercase
 letters, digits and `-`, starts with a letter or a digit, and is at most 64
-characters long; no two profiles share one. `agent` is `claude`, `codex` or
-`pi`, and the profile holds options for that agent alone: `[profiles.claude]`
-for Claude Code, `[profiles.codex]` for Codex, `[profiles.pi]` for Pi, each
-left out for the agent's options with nothing chosen. `[profiles.launch]` says how the agent is
+characters long; no two profiles share one. `agent` is `claude`, `codex`,
+`pi` or `opencode`, and the profile holds options for that agent alone:
+`[profiles.claude]` for Claude Code, `[profiles.codex]` for Codex,
+`[profiles.pi]` for Pi, `[profiles.opencode]` for OpenCode, each left out for the agent's options with nothing chosen. `[profiles.launch]` says how the agent is
 started, as `[neovim]` does for Neovim. An archived profile is kept, and is
 offered for no new session; it cannot be the default.
 
@@ -221,7 +222,19 @@ the user shares. The context files of the directory it works in, such as
 `AGENTS.md`, are read all the same. Pi tells whether it can reach one
 provider, never whether it is logged in at all, so a Pi account, as the window calls a
 connection, is shown as logged in when the provider of its profile's model is ready, and unknown
-for a profile that names no model.
+
+OpenCode keeps its logins, conversations, configuration and caches in folders
+of its own, so a profile in an OpenCode account of its own keeps all of them,
+and the output of the commands it runs, in the account's `home`; the commands
+a session runs are given back the folders of the environment Adroit runs in.
+OpenCode connects every provider whose key it finds in its environment, so an
+OpenCode account of its own gets only the variables that locate the user,
+the terminal and the network, Adroit's own, and those the profile's launch
+sets: a key or a toolchain's folder its sessions need is set there. The
+user's home stays the user's, so the skills OpenCode finds there are every
+account's. An OpenCode account is shown as logged in once OpenCode lists any
+connection in it, a key it found in the environment among them; one shown
+as not logged in says that free and local models need no login.
 
 A file that names no `profiles` holds the profiles adroit comes with, one
 for each agent, named after the agent, which start it in its own environment
@@ -252,7 +265,32 @@ gives it:
 
 A profile then names the model as `ollama/qwen3:8b`, and its account is
 shown as logged in. Pi lists only the models named there, and Adroit
-neither starts the server nor fetches a model for it.
+
+### Local models for OpenCode
+
+OpenCode finds an Ollama running on this machine by itself. One elsewhere, or
+any other OpenAI-compatible server, is named as a provider in OpenCode's
+configuration, `opencode.json` in the `opencode` folder of the account's
+`config`, or of `~/.config` in OpenCode's own environment:
+
+```json
+{
+  "providers": {
+    "ollama": {
+      "settings": { "baseURL": "http://gpu-host:11434/v1" }
+    },
+    "lab": {
+      "name": "Lab",
+      "package": "@opencode/ai/providers/openai-compatible",
+      "settings": { "baseURL": "http://127.0.0.1:8000/v1", "apiKey": "none" },
+      "models": { "qwen3-coder": { "name": "Qwen 3 Coder" } }
+    }
+  }
+}
+```
+
+A profile then names the model as `ollama/qwen3:8b` or `lab/qwen3-coder`.
+Adroit neither starts the server nor fetches a model for it.
 
 ### Files written before profiles
 
