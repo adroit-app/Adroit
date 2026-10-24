@@ -49,9 +49,7 @@ select:focus, input:focus, textarea:focus { border-color: var(--run); }
 button { background: var(--select); border-color: transparent; padding: 5px 12px; }
 button:hover { background: #2d333b; }
 button.primary { background: rgba(232,180,94,0.16); color: var(--wait); font-weight: 500; }
-.settings-actions { display: flex; justify-content: flex-end; }
 .settings-error { color: var(--fail); margin-bottom: 12px; user-select: text; }
-.settings-empty { color: var(--text-3); padding: 12px 14px; }
 @media (max-width: 760px) {
   .settings-nav { width: 155px; }
   .settings-pane { padding: 20px 18px; }
@@ -62,10 +60,6 @@ button.primary { background: rgba(232,180,94,0.16); color: var(--wait); font-wei
 }
 .keys-bar { display: flex; gap: 8px; margin-bottom: 12px; }
 .keys-bar-search { flex: 1; min-width: 0; }
-table.keys-table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
-table.keys-table th { text-align: left; font-weight: 500; font-size: 12px; color: var(--text-2); padding: 8px 12px; border-bottom: 1px solid var(--line); }
-table.keys-table td { padding: 5px 12px; border-top: 1px solid var(--line); }
-table.keys-table .keys-table-area { color: var(--text-3); }
 kbd { font-family: var(--mono); font-size: 10.5px; color: #c9ccd2; background: var(--raised); border: 1px solid var(--line-strong);
   border-radius: 4px; padding: 0 5px; margin-right: 3px; }
 .keys-area { padding: 4px 0 6px; }

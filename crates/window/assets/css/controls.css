@@ -6,9 +6,7 @@
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
 .button { display: inline-flex; border: 0; font: inherit; align-items: center; gap: 8px; height: 28px; padding: 0 12px; border-radius: 7px; background: var(--select); color: var(--text); cursor: default; }
 .button.primary { background: rgba(232,180,94,0.16); color: var(--wait); font-weight: 500; }
-.button.small { height: 24px; padding: 0 9px; font-size: 12px; }
 .button.danger { color: var(--fail); background: rgba(235,163,170,0.10); }
-.button.busy { opacity: 0.6; }
 .dialog-actions .flex-spacer { flex: 1; }
 .sidebar-tool { color: var(--text-2); font-size: 15px; line-height: 1; padding: 0 4px; border-radius: 4px; cursor: default; }
 .sidebar-tool:hover { background: var(--select); color: var(--text); }
