@@ -24,9 +24,9 @@ cannot act as another.
   agent, the model, the permission profile and a name. It returns the new
   session's id and name. It starts from the profile it names, which has to
   start the agent when both are named; else from the agent's default profile,
-  else from the default profile ([settings](settings.md#profiles-and-connections)).
+  else from the default profile ([settings](settings.md#profiles)).
   It never starts from the caller's profile unless it names it. A profile that
-  is not defined, is archived or starts another agent is refused, and a
+  is not defined or starts another agent is refused, and a
   refused start leaves no record and runs nothing.
   A new worktree is a jj workspace when the directory belongs to jj, otherwise
   a git worktree; it starts from the given revision, or from the caller's
@@ -45,9 +45,10 @@ cannot act as another.
   worktree, and everything in it, stays.
 - **`stop_session`** ends a session the caller started.
 - **`models`** lists, for each profile a session can start from, its agent,
-  the connection it runs in and the models its provider reports there, and
+  the folder of its own its login is kept in, if any, and the models its
+  provider reports there, and
   which profile a start that names neither a profile nor an agent uses. Each
-  profile's list is its own, asked again when the profile or its connection
+  profile's list is its own, asked again when the profile or its login
   changes. A profile whose provider has not answered has no list, and its
   models are not checked.
 

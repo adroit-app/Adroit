@@ -82,7 +82,7 @@ with that row selected. A row opens by its keys or a click; the line above a
 row opened names what was opened, and a click on it goes back.
 
 Usage follows the agent of the focused window on every details sheet, and the
-account it is logged in as: that of the connection the session runs in, or,
+account it is logged in as: that of the login the session runs in, or,
 for a draft, that of its agent's default profile. It shows each reported
 account limit as a bar of what is used, with what is left and
 when it resets. A session's reported context utilization appears with those

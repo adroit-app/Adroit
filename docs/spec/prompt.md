@@ -65,7 +65,7 @@ keeps the previous list, and built-in commands remain available.
 
 A Pi session or draft offers Pi's built-in commands, and those its
 extensions, prompt templates and skills add, as Pi lists them for the
-account its profile runs in.
+login its profile runs in.
 
 A Claude Code session or draft offers Claude Code's commands, the account's own
 skills and plugins among them, as Claude Code lists them for where the shown

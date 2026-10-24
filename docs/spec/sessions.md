@@ -9,11 +9,11 @@ closed, if that still runs.
 ## Agents
 
 A session runs Claude Code, Codex CLI, Pi or OpenCode in its own terminal interface. Each
-session is given its profile, and with it its agent and connection
-([settings](settings.md#profiles-and-connections)), while it is still a
+session is given its profile, and with it its agent and login
+([settings](settings.md#profiles)), while it is still a
 draft, before its first prompt is sent. The empty window and drafts offer
-the agents and every profile not archived, each named with the connection
-it runs in when that is not its agent's own environment. `session.agent_next` and `session.agent_prev` switch the agent,
+the agents and every profile, each named with a mark when it
+has a login of its own. `session.agent_next` and `session.agent_prev` switch the agent,
 which starts from its default profile, and `session.profile_next` and
 `session.profile_prev` switch the profile. What is chosen, by the form or by
 key, is what new sessions start with while the window is open. Reopening the
@@ -25,29 +25,30 @@ and permissions while the agent stays the same; to another agent they go
 back to the defaults of the profile chosen, and the status line says so. The
 empty window offers them too, and the next new session starts with what was
 chosen there. The usage, the `/` commands and the history a draft offers are
-those of the connection its profile runs in. A session keeps its agent and
+those of its profile's login. A session keeps its agent and
 profile once it runs, whatever the default becomes. Every kind can run in
 the same workspace.
 
-A draft whose profile's program says, in the profile's connection, that it
+A draft whose profile's program says, in the profile's login, that it
 is not logged in offers to open the login terminal
 ([settings](settings.md#profiles-in-the-settings-window)), which runs that
 program, and asks again once that terminal ends or, while it is open, when
 asked to or cancelled; one whose program cannot be found says so. However
 it is started, from a draft, `adroit session start` or another session, a
 session is refused before anything is recorded or runs when its profile is
-not defined or is archived, when its connection's folder cannot be made, or
+not defined, when its login's folder cannot be made, or
 when its agent's program is not found where it is started without a shell;
 the refusal says what to do about it.
 
-A session also keeps the profile it started from, and the connection that
-runs in ([settings](settings.md#profiles-and-connections)), whatever the
+A session also keeps the profile it started from, and the login it runs
+in ([settings](settings.md#profiles)), whatever the
 settings say since, and after the work host starts again: messages are
 handed to it, its conversation, history and processes are read, and its
 starting dialogs are answered, as the settings it was started with say. The
 tree and the strip of a window showing it name the session's agent and,
 when it is called otherwise, its profile; the details name its profile and
-its account.
+its login. A profile deleted since is named as it was called when the
+session started.
 
 Codex sessions use the embedded prompt and report their working and waiting
 states through the terminal, including permission and question prompts. Their
@@ -211,10 +212,10 @@ console then says so, and it is listed no more.
 Claude Code, Codex, Pi and OpenCode keep each conversation after its
 session ends, and adroit lists only the sessions it runs. Resume Conversation in the Session
 menu, or `session.resume`, opens a list of the conversations the agents kept,
-in every connection a profile runs in,
+in every login a profile runs in,
 for the directory the focused window works in, the newest first, each with its
-agent and profile, the connection that keeps it when that is not the agent's
-own environment, its title or first prompt, its directory and when it was
+agent and profile, marked when it is kept in a login of the profile's own,
+its title or first prompt, its directory and when it was
 last talked in. `Ctrl+a` lists those of every directory instead, and pressed again only
 the directory's; with nothing open, every directory's are listed. Typing
 narrows the list by a fuzzy match on the title and the directory. `Ctrl+n`
@@ -222,9 +223,9 @@ and `Ctrl+p` (or the arrow keys, `Tab` and `Shift+Tab`) move, `Enter` chooses,
 and `Escape` closes the list.
 
 Choosing a conversation resumes it in a new session of its agent, in the
-directory it ran in, with the agent's own resume, in the connection that
-keeps it and from a profile that runs there; when the settings no longer
-hold that profile in that connection, the resume is refused, naming why,
+directory it ran in, with the agent's own resume, in the login that
+keeps it and from the profile that runs there; when the settings no longer
+hold that profile with that login, the resume is refused, naming why,
 and never runs under another login. Nothing running is stopped
 or changed. A conversation a session of this instance already holds is not
 resumed a second time: choosing it shows that session.
