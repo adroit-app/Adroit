@@ -9,6 +9,7 @@ pub mod route;
 mod tests;
 
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use adroit_model::{Key, State};
@@ -355,6 +356,24 @@ pub(crate) fn image(state: &mut ViewState, mime: String, data: String) -> Vec<Ef
     }
 }
 
+/// Files dropped: the images among them kept for the prompt, as a pasted
+/// image is. A program in the console gets nothing: it has no clipboard to
+/// read them off.
+pub(crate) fn dropped(state: &mut ViewState, paths: Vec<PathBuf>) -> Vec<Effect> {
+    let images: Vec<PathBuf> = paths
+        .into_iter()
+        .filter(|path| crate::prompt::images::is_image(path))
+        .collect();
+    if images.is_empty() || text_goes(state) != Typed::Prompt {
+        return Vec::new();
+    }
+    state.console.pending.clear();
+    state.console.repeat = None;
+    let mut effects = step(state, Msg::Focus(Area::Prompt));
+    effects.push(Effect::KeepImageFiles(images));
+    effects
+}
+
 /// The keys came into the prompt from elsewhere: the console stops being
 /// read, and the session there is asked for what was typed into it.
 pub(crate) fn prompt_entered(state: &mut ViewState) -> Vec<Effect> {
@@ -413,6 +432,7 @@ pub(crate) fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         Msg::Key { key, probe } => press(state, key, *probe),
         Msg::Text { text, pasted } => self::text(state, text, pasted),
         Msg::ImagePasted { mime, data } => image(state, mime, data),
+        Msg::FilesDropped(paths) => dropped(state, paths),
         Msg::ConsoleTyped => {
             typed(state);
             Vec::new()

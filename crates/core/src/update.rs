@@ -124,6 +124,7 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         msg @ (Msg::Key { .. }
         | Msg::Text { .. }
         | Msg::ImagePasted { .. }
+        | Msg::FilesDropped(_)
         | Msg::ConsoleTyped
         | Msg::InputMayHold(_)
         | Msg::SequenceDropped

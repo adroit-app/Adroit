@@ -101,6 +101,18 @@ impl Attachments {
     }
 }
 
+/// Whether the file at `path` is of a kind of image the prompt takes, by its
+/// extension.
+pub fn is_image(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| {
+            ["png", "jpg", "jpeg", "gif", "webp"]
+                .iter()
+                .any(|kind| ext.eq_ignore_ascii_case(kind))
+        })
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum ImageKey {
     Select(Option<PathBuf>),

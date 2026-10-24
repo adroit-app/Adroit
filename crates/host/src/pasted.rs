@@ -23,6 +23,8 @@ pub enum Error {
     /// An image outside the supported attachment formats.
     Unsupported(String),
     Undecodable,
+    /// A file dropped could not be read.
+    Unread(std::io::Error),
     Io(std::io::Error),
 }
 
@@ -33,6 +35,7 @@ impl fmt::Display for Error {
                 write!(f, "Images must be PNG, JPEG, GIF or WebP, not {mime}")
             }
             Error::Undecodable => write!(f, "The pasted image could not be read"),
+            Error::Unread(e) => write!(f, "The dropped image could not be read: {e}"),
             Error::Io(e) => write!(f, "The pasted image could not be saved: {e}"),
         }
     }
@@ -50,14 +53,37 @@ fn extension(mime: &str) -> Option<&'static str> {
 }
 
 /// Write the image of `mime`, given in base64, as a new file in `dir`,
-/// named after `now`, and return its path. A pasted image is often a
-/// screenshot, so the file and a `dir` made for it are the user's alone.
+/// named after `now`, and return its path.
 pub fn save(dir: &Path, mime: &str, base64: &str, now: SystemTime) -> Result<PathBuf, Error> {
-    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
     let ext = extension(mime).ok_or_else(|| Error::Unsupported(mime.to_string()))?;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(base64.trim())
         .map_err(|_| Error::Undecodable)?;
+    write(dir, ext, &bytes, now)
+}
+
+/// Copy the image file at `from`, of a kind its extension names, into `dir`
+/// as [`save`] writes a pasted one, so the attachment stays what it was
+/// though the file be changed or removed.
+pub fn copy(dir: &Path, from: &Path, now: SystemTime) -> Result<PathBuf, Error> {
+    let named = from
+        .extension()
+        .map(|ext| ext.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    let ext = match named.as_str() {
+        "jpeg" => "jpg",
+        ext => extension(&format!("image/{ext}"))
+            .ok_or_else(|| Error::Unsupported(format!(".{named} files")))?,
+    };
+    let bytes = std::fs::read(from).map_err(Error::Unread)?;
+    write(dir, ext, &bytes, now)
+}
+
+/// Write `bytes` as a new file in `dir` with the extension `ext`, named
+/// after `now`. A pasted image is often a screenshot, so the file and a `dir`
+/// made for it are the user's alone.
+fn write(dir: &Path, ext: &str, bytes: &[u8], now: SystemTime) -> Result<PathBuf, Error> {
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
     std::fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)
@@ -80,7 +106,7 @@ pub fn save(dir: &Path, mime: &str, base64: &str, now: SystemTime) -> Result<Pat
             .open(&path);
         match created {
             Ok(mut file) => {
-                file.write_all(&bytes).map_err(Error::Io)?;
+                file.write_all(bytes).map_err(Error::Io)?;
                 return Ok(path);
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
@@ -161,6 +187,34 @@ mod tests {
                 "{mime}"
             );
         }
+    }
+
+    #[test]
+    fn a_dropped_image_file_is_copied_as_a_pasted_one_is_and_another_kind_refused() {
+        let from = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let shot = from.path().join("Shot.JPEG");
+        std::fs::write(&shot, b"\x89PNG\r\n\x1a\n").unwrap();
+
+        let path = copy(dir.path(), &shot, at(1)).unwrap();
+
+        assert_eq!(path.parent(), Some(dir.path()));
+        assert_eq!(path.extension().unwrap(), "jpg");
+        assert_eq!(std::fs::read(&path).unwrap(), b"\x89PNG\r\n\x1a\n");
+        std::fs::remove_file(&shot).unwrap();
+        assert!(path.exists(), "the copy outlives the file dropped");
+
+        let notes = from.path().join("notes.txt");
+        std::fs::write(&notes, "hi").unwrap();
+        assert!(matches!(
+            copy(dir.path(), &notes, at(1)),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            copy(dir.path(), &from.path().join("gone.png"), at(1)),
+            Err(Error::Unread(_))
+        ));
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 
     #[test]

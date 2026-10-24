@@ -163,6 +163,25 @@ impl Ui {
                     }
                 });
             }
+            Effect::KeepImageFiles(paths) => {
+                let app = self.app;
+                let asked: Vec<_> = paths
+                    .into_iter()
+                    .map(|path| app.ask(Ask::KeepImageFile { path }))
+                    .collect();
+                // Attached in the order dropped, whichever copy is made first.
+                spawn(async move {
+                    for kept in asked {
+                        match kept.await {
+                            Answer::Kept { path } => {
+                                let _ = prompts.send(Op::Attach(path));
+                            }
+                            Answer::Failed { text } => app.notice(text),
+                            answer => app.notice(format!("the work host answered {answer:?}")),
+                        }
+                    }
+                });
+            }
             Effect::PromptClose(to) => {
                 let _ = prompts.send(Op::Close(to));
             }

@@ -109,6 +109,9 @@ pub enum Effect {
     /// Keep an image pasted, of the type `mime`, its bytes in base64, for the
     /// prompt.
     KeepImage { mime: String, data: String },
+    /// Keep a copy of each of these image files, in this order, for the
+    /// prompt.
+    KeepImageFiles(Vec<PathBuf>),
     /// Run `action`, which `key` ran, where the keys are now.
     PerformKey(Action, Key),
     /// Ask the session in this tab for its input with `Ctrl-g`.

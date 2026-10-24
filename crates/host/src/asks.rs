@@ -45,6 +45,10 @@ async fn answer(watched: &Watched, judged: &watch::Sender<Judged>, ask: Ask) -> 
             restarted.map(|standing| Answer::TerminalHost { standing })
         }
         Ask::KeepImage { mime, data } => keep_image(&mime, &data),
+        Ask::KeepImageFile { path } => tokio::task::spawn_blocking(move || keep_image_file(&path))
+            .await
+            .map_err(|e| e.to_string())
+            .and_then(|kept| kept),
         Ask::SaveSettings { text } => save_settings(text),
         Ask::SaveKeys { text } => save_keys(&text),
         Ask::Drafts => {
@@ -214,6 +218,17 @@ fn keep_image(mime: &str, data: &str) -> Result<Answer, String> {
     let now = std::time::SystemTime::now();
     pasted::prune(&dir, now);
     pasted::save(&dir, mime, data, now)
+        .map(|path| Answer::Kept { path })
+        .map_err(|e| e.to_string())
+}
+
+/// Keep a copy of a dropped image file where the prompt's images are kept,
+/// dropping those kept too long.
+fn keep_image_file(from: &std::path::Path) -> Result<Answer, String> {
+    let dir = pasted::dir();
+    let now = std::time::SystemTime::now();
+    pasted::prune(&dir, now);
+    pasted::copy(&dir, from, now)
         .map(|path| Answer::Kept { path })
         .map_err(|e| e.to_string())
 }

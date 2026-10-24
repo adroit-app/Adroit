@@ -25,6 +25,8 @@ pub enum Ask {
     RestartTerminalHost,
     /// Keep an image pasted into the prompt, of `mime`, its bytes in base64.
     KeepImage { mime: String, data: String },
+    /// Keep a copy of the image file at `path`, dropped on the prompt.
+    KeepImageFile { path: PathBuf },
     /// Make the settings those `text` writes in `settings.toml`'s format.
     SaveSettings { text: String },
     /// Make `text` the key bindings over the defaults, as `keys.toml` holds

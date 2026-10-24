@@ -352,6 +352,7 @@ impl AppCtx {
             | Effect::PromptKey(_)
             | Effect::PromptText { .. }
             | Effect::KeepImage { .. }
+            | Effect::KeepImageFiles(_)
             | Effect::AskInput(_)
             | Effect::PromptRecall { .. }
             | Effect::RemoveImage(_)

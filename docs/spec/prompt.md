@@ -76,12 +76,15 @@ card shows it as one. Sent to a session, it runs in Claude Code's bash mode,
 as if typed there, and its output joins the conversation. A draft does not
 take a shell line; its session is started with a message first.
 
-## A pasted image
+## A pasted or dropped image
 
 An image pasted into the prompt, with no text beside it on the clipboard, is
 saved as an attachment, separate from the words being written. Pasted while
 a session's console has the keys, it is attached all the same and the prompt
-takes the keys, as it does for text, so Ctrl+Enter sends it. Attachments
+takes the keys, as it does for text, so Ctrl+Enter sends it.
+Image files dragged onto the focused window's console or prompt are attached
+as pasted images are, a copy of each in the order dropped, wherever a
+pasted image would be; other files dropped there are left alone. Attachments
 show previews and can be selected and removed with the mouse or keyboard.
 While images are attached, the text area fits its actual screen lines, up to
 the configured maximum, without reserving the minimum text rows. Attachments
@@ -93,9 +96,9 @@ image paths are added only at sending, never to the Neovim buffer. Images
 can be sent without text. A shell command cannot carry images.
 PNG, JPEG, GIF and WebP images are accepted; another kind is refused with a
 notice. A video is not taken. A saved image is kept for a week after it is
-pasted, so an older attachment may need to be pasted again.
+attached, so an older attachment may need to be attached again.
 
 Where the console's program has the text instead, as in a shell or while
 Claude Code is answered from the prompt or passed every key, the program is
 handed an empty paste, as a terminal hands on an image paste; Claude Code
-reads the image off the clipboard itself.
+reads the image off the clipboard itself. A file dropped there is not taken.

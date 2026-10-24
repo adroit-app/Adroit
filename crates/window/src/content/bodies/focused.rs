@@ -5,6 +5,7 @@
 use adroit_core::content::{Area, Tab, file_name, shows_prompt};
 use adroit_core::msg::Msg;
 use adroit_core::tree as tree_view;
+use dioxus::html::HasFileData;
 use dioxus::prelude::*;
 
 use super::{DraftForm, NothingOpen, Starting};
@@ -129,6 +130,14 @@ pub(crate) fn FocusedBody() -> Element {
                 if let Ok(sz) = e.data().get_content_box_size() {
                     console_box.set((sz.width, sz.height));
                 }
+            },
+            // Files may be dropped on the console and the prompt card both;
+            // a drop the page does not take would open the file in its place.
+            ondragover: move |e: Event<DragData>| e.prevent_default(),
+            ondrop: move |e: Event<DragData>| {
+                e.prevent_default();
+                let paths = e.files().iter().map(|f| f.path()).collect();
+                app.dispatch(Msg::FilesDropped(paths));
             },
             match (&active_tab, pane.is_some()) {
                 (Some(tab @ Tab::Draft { worktree, .. }), _) => rsx! {

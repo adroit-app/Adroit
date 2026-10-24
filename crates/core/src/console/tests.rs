@@ -498,6 +498,46 @@ fn ctrl_enter_sends_an_image_pasted_while_the_console_had_the_keys() {
 }
 
 #[test]
+fn image_files_dropped_for_a_session_are_kept_for_its_prompt_as_a_pasted_image_is() {
+    let dropped = |paths: &[&str]| Msg::FilesDropped(paths.iter().map(Into::into).collect());
+    let run = window().send(dropped(&["/a.PNG", "/notes.txt", "/b.jpeg", "/c"]));
+    assert_eq!(run.state().content.focus, Area::Prompt);
+    assert_eq!(
+        run.last_effects().last(),
+        Some(&Effect::KeepImageFiles(vec![
+            "/a.PNG".into(),
+            "/b.jpeg".into()
+        ]))
+    );
+    for (why, run) in [
+        ("no image", window().send(dropped(&["/notes.txt"]))),
+        (
+            "passing every key",
+            window().send_all([Msg::ConsolePassEveryKey, dropped(&["/a.png"])]),
+        ),
+        (
+            "the picker open",
+            window().send_all([Msg::PickerOpen, dropped(&["/a.png"])]),
+        ),
+        (
+            "a shell shown",
+            window().send_all([
+                Msg::Show {
+                    thing: Tab::Terminal(1),
+                    place: None,
+                    how: None,
+                },
+                Msg::Focus(Area::Console),
+                dropped(&["/a.png"]),
+            ]),
+        ),
+    ] {
+        assert!(run.last_effects().is_empty(), "{why}");
+        assert_eq!(run.state().content.focus, Area::Console, "{why}");
+    }
+}
+
+#[test]
 fn text_or_a_menu_bar_entry_breaks_off_a_sequence_begun() {
     let begun = || window().send(press(Key::new("q").ctrl(), with_pane()));
     let typed = begun().send(Msg::Text {

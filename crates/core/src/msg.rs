@@ -239,6 +239,8 @@ pub enum Msg {
         text: String,
         pasted: bool,
     },
+    /// Files dropped on the focused window's console or prompt.
+    FilesDropped(Vec<PathBuf>),
     /// An image pasted, of the type `mime`, its bytes in base64.
     ImagePasted {
         mime: String,
