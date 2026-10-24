@@ -55,7 +55,8 @@ rather than like operating a dashboard.
   programs report; repositories and worktrees come from git. adroit draws them
   and gives you the controls.
 - **Borrow before building.** Terminals and their persistence come from felis;
-  conversations and the agents inside them come from Claude Code and Codex.
+  conversations and the agents inside them come from Claude Code, Codex and
+  Pi.
   adroit adds the place, the hands-on feel, and the means for sessions to
   start and reach one another.
 

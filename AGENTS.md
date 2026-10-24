@@ -37,8 +37,9 @@ Run `just ci` before reporting a change as done. CI runs the same recipe.
 | `crates/adroit/` | the `adroit` application binary: which of the window, the hosts and the commands to run |
 | `crates/window/` | the window: its Dioxus UI, menu bar and Settings window, which reaches the work only through the work host's socket |
 | `crates/window/assets/` | the windows' stylesheets and page scripts, taken in with `include_str!` |
-| `crates/agents/` | each agent's adapter: how Claude Code and Codex are started, asked and read back |
+| `crates/agents/` | each agent's adapter: how Claude Code, Codex and Pi are started, asked and read back |
 | `crates/agents/plugin/` | the Claude Code plugin every session adroit starts loads |
+| `crates/agents/pi/` | the extensions the Pi sessions adroit starts, and the Pi it opens to log in, load |
 | `crates/core/` | the window's state and the rules it changes by, with no UI and no programs run |
 | `crates/core/icons/` | the Tabler icons the window draws, with their licence |
 | `crates/core/examples/` | `references`, which writes `docs/spec/reference/` from the code |

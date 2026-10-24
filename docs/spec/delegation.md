@@ -58,8 +58,9 @@ limit named, and sessions the user started never count against it.
 ## Messages
 
 A message is handed to the recipient's agent through its own way of hearing
-from outside: Claude Code's channel, or Codex's queue of incoming
-notifications. It reaches the agent between turns and starts one, headed by
+from outside: Claude Code's channel, Codex's queue of incoming
+notifications, or, for Pi, the extension Adroit loads into every Pi session it
+starts, which also gives it the tools above. It reaches the agent between turns and starts one, headed by
 who sent it: the sender's id, name and directory. A message sent while the
 recipient waits on a dialog or is still starting is handed over once it is
 ready. Handing it over is receipt; no acknowledgement is asked for, and
@@ -135,14 +136,15 @@ none follows `--`.
   names the revision it starts from.
 - `--name <name>` names it; without one it is named from its prompt, as the
   window names a session. A name already taken gets a number.
-- `--profile <id>` starts it from that profile, and `--agent claude|codex`
+- `--profile <id>` starts it from that profile, and `--agent claude|codex|pi`
   from that agent's default profile; with both, the profile has to start the
   agent. Without either it starts from the default profile.
 - `--model <model>` selects the model for this launch without changing the
   defaults for other sessions. If neither specifies a model, the agent uses its
   own default. The agent's TUI can still change its model after launch.
 - `--permissions default|read_only` selects the launch's permission profile.
-  Read-only uses Codex's read-only sandbox. A read-only Claude Code session
+  Read-only uses Codex's read-only sandbox, and gives Pi only the tools that
+  read, none that run commands or write. A read-only Claude Code session
   loses its file-editing tools and runs its shell commands in Claude Code's
   sandbox, which keeps them from writing to its directory or the repository's
   history; the user's and the repository's Claude Code settings cannot loosen
@@ -157,6 +159,10 @@ none follows `--`.
 
   ```json
   {"agent":"codex","approval_policy":"on-request","sandbox_mode":"workspace-write"}
+  ```
+
+  ```json
+  {"agent":"pi","tools":["read","grep","find","ls","bash"]}
   ```
 
   The provider must match `--agent`; unknown fields are rejected.

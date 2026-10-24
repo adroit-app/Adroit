@@ -8,7 +8,7 @@ closed, if that still runs.
 
 ## Agents
 
-A session runs Claude Code or Codex CLI in its own terminal interface. Each
+A session runs Claude Code, Codex CLI or Pi in its own terminal interface. Each
 session is given its profile, and with it its agent and connection
 ([settings](settings.md#profiles-and-connections)), while it is still a
 draft, before its first prompt is sent. The empty window and drafts offer
@@ -26,7 +26,7 @@ back to the defaults of the profile chosen, and the status line says so. The
 empty window offers them too, and the next new session starts with what was
 chosen there. The usage, the `/` commands and the history a draft offers are
 those of the connection its profile runs in. A session keeps its agent and
-profile once it runs, whatever the default becomes. Both kinds can run in
+profile once it runs, whatever the default becomes. Every kind can run in
 the same workspace.
 
 A draft whose profile's program says, in the profile's connection, that it
@@ -69,6 +69,23 @@ menus:
 `Ctrl-g i` passes keys through until `Esc`. Renaming in Adroit changes the
 Codex session's name in the tree only. A message with a leading `!` is pasted into
 Codex as it was written, so what Codex does with it is up to Codex.
+
+Pi sessions use the embedded prompt too, and their output stays in the
+terminal scrollback. Pi asks before no tool call and has no sandbox, so what
+a Pi session may do is the tools it is given: a read-only one is given only
+those that read files and none that run commands or write; custom
+permissions for Pi name its tools. Either way it keeps Adroit's own. A
+session given its shell tool can run any command its user can. Pi has no
+account usage to show. Adroit can override its model, as `provider/id`,
+its thinking level and its tools for each launch. Pi asks whether to trust a
+project's own files before its interface starts; the session shows it as
+waiting on you, and shows Pi's login dialog as waiting on a login.
+
+Pi sessions list their conversation's links and files in the overview, and
+follow the conversation the session moves to with `/new` or `/resume`. Their
+prompt history is the prompts sent in the session's directory, as Pi keeps
+them. Renaming in Adroit renames the Pi session with `/name`, and a message
+with a leading `!` runs as a shell line in Pi.
 
 ## Instances
 
@@ -170,9 +187,9 @@ console then says so, and it is listed no more.
 
 ## Resuming a past conversation
 
-Claude Code and Codex keep each conversation after its session ends, and
-adroit lists only the sessions it runs. Resume Conversation in the Session
-menu, or `session.resume`, opens a list of the conversations both agents kept,
+Claude Code, Codex and Pi keep each conversation after its session ends,
+and adroit lists only the sessions it runs. Resume Conversation in the Session
+menu, or `session.resume`, opens a list of the conversations the agents kept,
 in every connection a profile runs in,
 for the directory the focused window works in, the newest first, each with its
 agent and profile, the connection that keeps it when that is not the agent's
@@ -215,7 +232,7 @@ sleeps when idle again.
 The state a session shows, working, waiting on you and for what, done or
 failed, is what its program reports with the
 [OSC 7501 program status protocol](https://www.superlogical.com/rex/docs/build/program-status),
-as the daemon keeps it. When Codex reports no status, its visible activity and
+as the daemon keeps it. When Codex or Pi reports no status, its visible activity and
 requests for approval or input supply the state instead. A session Adroit
 started shows as starting until its program reports a state or its visible
 activity supplies one.

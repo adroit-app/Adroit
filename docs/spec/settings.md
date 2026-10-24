@@ -70,8 +70,9 @@ for granted. It is asked when the account is first shown, when asked again,
 and when its login terminal ends, never over and over. Open login terminal
 starts a terminal, listed in the tree as any other, that runs the program's
 own login in the account, the way a session there is started; the user logs
-in in it. While that terminal is open the login is waited for: asking again
-ends the wait only when the program says it is logged in, and cancelling
+in in it. Pi logs in only from its own interface, so its login terminal
+opens Pi with `/login` typed in. While that terminal is open the login is
+waited for: asking again ends the wait only when the program says it is logged in, and cancelling
 ends the terminal, as closing it does, and asks again. The account shared
 with the terminal is the program as it runs outside adroit, so logging in or
 out of it there changes it here too.
@@ -149,20 +150,37 @@ agent = "codex"
 [profiles.codex]
 sandbox_mode = "read-only"
 
+[[profiles]]
+id = "pi-local"
+name = "Pi Local"
+agent = "pi"
+connection = "local"
+
+[profiles.pi]
+model = "ollama/qwen3:8b"
+thinking = "low"
+tools = ["read", "grep", "find", "ls", "bash"]
+
 [[connections]]
 id = "work"
 name = "Work"
 agent = "claude"
 home = "/Users/me/.adroit/claude-work"
+
+[[connections]]
+id = "local"
+name = "Local models"
+agent = "pi"
+home = "/Users/me/.adroit/pi-local"
 ```
 
 A profile's `id` is how everything else refers to it, and it is kept when
 the profile is renamed: renaming changes `name` alone. An id is lowercase
 letters, digits and `-`, starts with a letter or a digit, and is at most 64
-characters long; no two profiles share one. `agent` is `claude` or `codex`,
-and the profile holds options for that agent alone: `[profiles.claude]` for
-Claude Code, `[profiles.codex]` for Codex, either left out for the agent's
-options with nothing chosen. `[profiles.launch]` says how the agent is
+characters long; no two profiles share one. `agent` is `claude`, `codex` or
+`pi`, and the profile holds options for that agent alone: `[profiles.claude]`
+for Claude Code, `[profiles.codex]` for Codex, `[profiles.pi]` for Pi, each
+left out for the agent's options with nothing chosen. `[profiles.launch]` says how the agent is
 started, as `[neovim]` does for Neovim. An archived profile is kept, and is
 offered for no new session; it cannot be the default.
 
@@ -195,10 +213,46 @@ cannot set them either, nor the state directory: a session of a profile
 whose launch does is refused, naming the variable. In the agent's own
 environment the launch sets what it likes.
 
+Pi keeps more than its logins in its state directory, so a Pi profile in a
+connection of its own also keeps its sessions there, whatever a project's own
+Pi settings say, and loads only the skills in the connection's `skills`
+folder, beside the one Adroit gives every session: none of those every Pi of
+the user shares. The context files of the directory it works in, such as
+`AGENTS.md`, are read all the same. Pi tells whether it can reach one
+provider, never whether it is logged in at all, so a Pi account, as the window calls a
+connection, is shown as logged in when the provider of its profile's model is ready, and unknown
+for a profile that names no model.
+
 A file that names no `profiles` holds the profiles adroit comes with, one
 for each agent, named after the agent, which start it in its own environment
 as its program's own settings say, with `claude` as the default profile
 unless `profile` names another of them.
+
+### Local models for Pi
+
+Pi reaches a model server of your own, such as Ollama, as a provider named
+in `models.json` in its state directory: the connection's `home`, or
+`~/.pi/agent` in Pi's own environment. Ollama serves the OpenAI chat API, so
+it is named with `openai-completions` as its API, its address with `/v1`,
+any key, which Ollama does not check, and each model by the name Ollama
+gives it:
+
+```json
+{
+  "providers": {
+    "ollama": {
+      "baseUrl": "http://127.0.0.1:11434/v1",
+      "api": "openai-completions",
+      "apiKey": "ollama",
+      "models": [{ "id": "qwen3:8b", "contextWindow": 32768 }]
+    }
+  }
+}
+```
+
+A profile then names the model as `ollama/qwen3:8b`, and its account is
+shown as logged in. Pi lists only the models named there, and Adroit
+neither starts the server nor fetches a model for it.
 
 ### Files written before profiles
 

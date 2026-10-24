@@ -7,12 +7,12 @@
 
 # Adroit
 
-A workspace for Claude Code and Codex sessions: their own terminal interfaces, prompts in Neovim, Vim-style moves.
+A workspace for Claude Code, Codex and Pi sessions: their own terminal interfaces, prompts in Neovim, Vim-style moves.
 
 > [!NOTE]
 > adroit is early: it runs, but expect rough edges and changes.
 
-One window holds your Claude Code and Codex sessions, grouped where
+One window holds your Claude Code, Codex and Pi sessions, grouped where
 it runs. You start one by choosing a directory and talking; nothing has to be
 named or declared first:
 
@@ -66,7 +66,7 @@ in, those Claude Code was used in, the repositories ghq keeps, or a file tree,
 and say what you want done. adroit keeps no list of its own: the sessions are
 the ones it runs, which keep running when the window closes
 ([details](docs/spec/tree.md)). `Mod-t` lists the past conversations of
-Claude Code and Codex, to resume one in a new session
+Claude Code, Codex and Pi, to resume one in a new session
 ([details](docs/spec/sessions.md#resuming-a-past-conversation)). While they run, the Mac does not go to
 idle sleep, so they go on with the display off
 ([details](docs/spec/sessions.md#keeping-the-mac-awake)).

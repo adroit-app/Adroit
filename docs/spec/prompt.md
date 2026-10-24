@@ -63,6 +63,10 @@ Picking a skill inserts its Codex invocation, beginning with `$`. Typing `$`
 also offers skills. Skills refresh periodically; an unsuccessful refresh
 keeps the previous list, and built-in commands remain available.
 
+A Pi session or draft offers Pi's built-in commands, and those its
+extensions, prompt templates and skills add, as Pi lists them for the
+account its profile runs in.
+
 A Claude Code session or draft offers Claude Code's commands, the account's own
 skills and plugins among them, as Claude Code lists them for where the shown
 session runs or a draft would start. Until
@@ -96,7 +100,9 @@ image paths are added only at sending, never to the Neovim buffer. A
 running Claude Code or Codex session gets each image pasted into its input
 as its own attachment, as a file dragged onto a terminal is, before the
 words; a session started from a draft is given them with its first prompt,
-which Claude Code receives as files named in the prompt. Images
+which Claude Code receives as files named in the prompt. A running Pi
+session gets each image's path before the words, which Pi reads as a file
+of the conversation rather than an attachment. Images
 can be sent without text. A shell command cannot carry images.
 PNG, JPEG, GIF and WebP images are accepted; another kind is refused with a
 notice. A video is not taken. A saved image is kept for a week after it is
