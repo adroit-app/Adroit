@@ -23,13 +23,18 @@ pub fn window(p: &Palette) -> Window {
     let dark = p.is_dark();
     // On a light background the ground darkens less, or it reads as a border.
     let ground = if dark { away } else { mix(bg, fg, -0.04) };
+    // Dark lines on a light ground stand out more than light lines on a
+    // dark one, so a light theme draws them closer to its panels.
+    let line = |amount: f64| toward(if dark { amount } else { amount * 0.65 });
     let mut vars = vec![
         ("--ground", ground.hex()),
         ("--panel", bg.hex()),
         ("--raised", toward(0.06)),
         ("--select", toward(0.12)),
-        ("--line", toward(0.09)),
-        ("--line-strong", toward(0.17)),
+        ("--line", line(0.09)),
+        ("--line-strong", line(0.17)),
+        ("--focus-line", line(0.20)),
+        ("--focus-border", line(0.30)),
         ("--text", fg.hex()),
         ("--text-2", toward(0.72)),
         ("--text-3", toward(0.55)),
@@ -48,7 +53,7 @@ pub fn window(p: &Palette) -> Window {
         // smudge rather than as depth.
         (
             "--shadow",
-            format!("rgba(0,0,0,{})", if dark { 0.45 } else { 0.12 }),
+            format!("rgba(0,0,0,{})", if dark { 0.45 } else { 0.06 }),
         ),
     ];
     vars.extend(
@@ -118,6 +123,51 @@ mod tests {
     }
 
     #[test]
+    fn focus_is_drawn_from_the_theme_between_the_lines_and_the_quiet_text() {
+        let lum = |hex: &str| {
+            Rgb::parse(hex)
+                .map(|c| c.r as i32 + c.g as i32 + c.b as i32)
+                .unwrap()
+        };
+        for name in ["Nightfox", "Catppuccin Latte"] {
+            let w = window(&preset(name));
+            let from_panel = |v: &str| (lum(var(&w, v)) - lum(var(&w, "--panel"))).abs();
+            let steps = [
+                "--line-strong",
+                "--focus-line",
+                "--focus-border",
+                "--text-3",
+            ];
+            for pair in steps.windows(2) {
+                assert!(
+                    from_panel(pair[0]) < from_panel(pair[1]),
+                    "{name}: {pair:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_light_theme_draws_its_lines_and_focus_closer_to_its_panels() {
+        let lum = |hex: &str| {
+            Rgb::parse(hex)
+                .map(|c| c.r as f64 + c.g as f64 + c.b as f64)
+                .unwrap()
+        };
+        let share = |w: &Window, v: &str| {
+            let (panel, text) = (lum(var(w, "--panel")), lum(var(w, "--text")));
+            (lum(var(w, v)) - panel) / (text - panel)
+        };
+        let (dark, light) = (
+            window(&preset("Nightfox")),
+            window(&preset("Catppuccin Latte")),
+        );
+        for v in ["--line", "--line-strong", "--focus-line", "--focus-border"] {
+            assert!(share(&light, v) < share(&dark, v), "{v}");
+        }
+    }
+
+    #[test]
     fn the_window_is_drawn_on_the_theme_s_background_in_its_foreground() {
         let p = preset("Nightfox");
         let w = window(&p);
@@ -178,7 +228,7 @@ mod tests {
             window(&preset("Nightfox")),
             window(&preset("Catppuccin Latte")),
         );
-        assert!(alpha(&light) * 3.0 <= alpha(&dark), "{light:?}");
+        assert!(alpha(&light) * 6.0 <= alpha(&dark), "{light:?}");
         assert_eq!(var(&light, "--kbd-text"), var(&light, "--text-2"));
     }
 
