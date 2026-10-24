@@ -110,7 +110,7 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
                 return status_line::notice(
                     &mut state.chrome.status,
                     format!(
-                        "Profile `{profile}` is archived or no longer defined; choose another in the draft or under Settings → Agents → Profiles"
+                        "Profile `{profile}` is archived or no longer defined; choose another in the draft or under Settings → Agents"
                     ),
                 );
             };

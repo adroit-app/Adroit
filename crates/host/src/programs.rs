@@ -32,12 +32,12 @@ pub fn starting(
                 .find_profile(id)
                 .ok_or_else(|| {
                     format!(
-                        "profile `{id}` is not defined; choose another, or add it under Settings → Agents → Profiles"
+                        "profile `{id}` is not defined; choose another, or add it under Settings → Agents"
                     )
                 })?;
             if profile.archived {
                 return Err(format!(
-                    "profile `{id}` is archived and starts no new session; choose another, or unarchive it under Settings → Agents → Profiles"
+                    "profile `{id}` is archived and starts no new session; choose another, or unarchive it under Settings → Agents → Archived"
                 ));
             }
             if let Some(agent) = agent.filter(|a| *a != profile.agent()) {
@@ -71,7 +71,7 @@ pub fn ready(
         && let Err(e) = adroit_agents::connection::make_private(home)
     {
         return Err(format!(
-            "connection `{}` keeps its state in {}, which cannot be made: {e}; check that its volume is there, or move profile `{}` to another connection under {WHERE} → Profiles",
+            "account `{}` keeps its state in {}, which cannot be made: {e}; check that its volume is there, or choose another account for profile `{}` under {WHERE}",
             context.connection,
             home.display(),
             context.profile
@@ -95,7 +95,7 @@ pub fn ready(
     match adroit_term::runnable(&program, cwd, &env) {
         true => Ok(()),
         false => Err(format!(
-            "{}'s program `{program}` is not installed or not on the path; install it, or set profile `{}`'s launch command under {WHERE} → Profiles",
+            "{}'s program `{program}` is not installed or not on the path; install it, or set profile `{}`'s launch command under {WHERE}",
             agent.label(),
             context.profile
         )),
@@ -336,10 +336,7 @@ home = "/Users/me/claude-work"
         let s = settings();
         let refused = |agent, profile: &str| starting(&s, agent, Some(&id(profile))).unwrap_err();
         assert!(refused(None, "gone").starts_with("profile `gone` is not defined; choose another"));
-        assert!(
-            refused(None, "old")
-                .starts_with("profile `old` is archived and starts no new session; choose another")
-        );
+        assert!(refused(None, "old").ends_with("unarchive it under Settings → Agents → Archived"));
         assert_eq!(
             refused(Some(Agent::Claude), "codex-review"),
             "profile `codex-review` starts Codex, not Claude Code"
@@ -483,9 +480,10 @@ home = "/Users/me/claude-work"
         let error = ready(&in_work, cwd, &path).unwrap_err();
         assert!(error.contains("which cannot be made"), "{error}");
         assert!(
-            error.contains("move profile `claude` to another connection"),
+            error.contains("choose another account for profile `claude` under Settings → Agents"),
             "{error}"
         );
+        assert!(!error.contains("→ Profiles"), "{error}");
     }
 
     #[test]
