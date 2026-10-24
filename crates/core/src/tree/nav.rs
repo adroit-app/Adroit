@@ -34,17 +34,17 @@ pub enum Item {
 pub enum Heading {
     Files,
     Sessions,
-    Shells,
+    Terminals,
 }
 
 impl Heading {
-    pub const ALL: [Heading; 3] = [Heading::Files, Heading::Sessions, Heading::Shells];
+    pub const ALL: [Heading; 3] = [Heading::Files, Heading::Sessions, Heading::Terminals];
 
     pub fn name(self) -> &'static str {
         match self {
             Heading::Files => "Files",
             Heading::Sessions => "Sessions",
-            Heading::Shells => "Shells",
+            Heading::Terminals => "Terminals",
         }
     }
 }
@@ -207,7 +207,7 @@ fn files_in(
 /// row stands for.
 fn listed_under(terminal: &TerminalSession) -> Option<Heading> {
     (terminal.program != TerminalProgram::Neovim || terminal.file.is_none())
-        .then_some(Heading::Shells)
+        .then_some(Heading::Terminals)
 }
 
 /// What runs in a worktree, under one of its headings; Files holds no such
@@ -229,7 +229,7 @@ pub fn under(tree: &Tree, w: &WorktreeNode, heading: Heading) -> Vec<Item> {
             }
             rows
         }
-        Heading::Shells => runs(heading).collect(),
+        Heading::Terminals => runs(heading).collect(),
         Heading::Files => Vec::new(),
     }
 }
@@ -827,7 +827,7 @@ mod tests {
     }
 
     fn shells_of(path: &str) -> Item {
-        Item::Heading(path.into(), Heading::Shells)
+        Item::Heading(path.into(), Heading::Terminals)
     }
 
     fn files_of(path: &str) -> Item {
@@ -1560,7 +1560,7 @@ mod tests {
         let t = shelled().with_terminals(&[sh(2, "shell", DEV), nvim, on_file]);
         let w = t.worktrees().find(|w| w.worktree.path == Path::new(DEV));
         let w = w.unwrap();
-        assert_eq!(under(&t, w, Heading::Shells), [shell(2), shell(6)]);
+        assert_eq!(under(&t, w, Heading::Terminals), [shell(2), shell(6)]);
         let list = rows(&t, &[], &Folds::default());
         assert_eq!(row_above(&list, &shell(6)), Some(shell(2)));
         assert!(!list.contains(&shell(7)));
@@ -1594,7 +1594,7 @@ mod tests {
         let t = shelled().with_terminals(&[sh(2, "shell", DEV), claude]);
         let w = t.worktrees().find(|w| w.worktree.path == Path::new(DEV));
         let w = w.unwrap();
-        assert_eq!(under(&t, w, Heading::Shells), [shell(2), shell(7)]);
+        assert_eq!(under(&t, w, Heading::Terminals), [shell(2), shell(7)]);
         let list = rows(&t, &[], &Folds::default());
         assert_eq!(row_above(&list, &shell(7)), Some(shell(2)));
     }

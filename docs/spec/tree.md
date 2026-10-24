@@ -22,10 +22,12 @@ workspace where everything runs in its main checkout shows that checkout's
 contents straight under it, with no worktree row; one outside git always does.
 
 A worktree's files sit under its Files heading, and what runs in it under
-Sessions and Shells: Shells holds every program adroit runs in a terminal
-there, a Neovim marked as one, save a Neovim started on a file, which that
-file's row stands for. A heading folds, and the row of one for what runs counts what it holds. Shells and Neovim never sit straight under a workspace: where a
-workspace has no worktree row, the headings are its checkout's.
+Sessions and Terminals: Terminals holds every program adroit runs in a
+terminal there, shells and Neovim alike, each marked by what it runs, save a
+Neovim started on a file, which that file's row stands for. A heading folds,
+and the row of one for what runs counts what it holds. Terminals never sit
+straight under a workspace: where a workspace has no worktree row, the
+headings are its checkout's.
 
 Files starts folded. Unfolded, it lists the worktree's files as a
 [file tree](#file-trees). Hidden files once shown, and what git ignores, are
