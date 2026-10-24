@@ -68,6 +68,10 @@ pub struct SessionStart {
     pub images: Vec<PathBuf>,
     /// The conversation it continues, by its id.
     pub resume: Option<String>,
+    /// The connection that keeps the conversation it continues, which it
+    /// has to run in.
+    #[serde(default)]
+    pub connection: Option<adroit_model::profile::ConnectionId>,
     pub cols: u16,
     pub rows: u16,
 }

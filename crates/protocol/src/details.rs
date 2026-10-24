@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use adroit_model::links::Links;
+use adroit_model::profile::ConnectionId;
 use adroit_model::repository::{Listing, Revision, Spot};
 use adroit_model::usage::Limit;
 use adroit_model::{Agent, ConversationStats, Note, Process};
@@ -27,8 +28,8 @@ pub struct Sight {
     pub overview: bool,
     /// The worktree shown and what of its repository the panel lists.
     pub repository: Option<RepositorySight>,
-    /// The agent whose account usage the panel shows.
-    pub usage: Option<Agent>,
+    /// The account whose usage the panel shows.
+    pub usage: Option<Account>,
     /// What the tree lists.
     pub tree: TreeSight,
     /// The conversations the agents kept that are listed, while they are.
@@ -53,6 +54,13 @@ impl Sight {
     }
 }
 
+/// An agent's account: the one it is logged in as in a connection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Account {
+    pub agent: Agent,
+    pub connection: ConnectionId,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RepositorySight {
     pub worktree: PathBuf,
@@ -66,8 +74,8 @@ pub struct DetailsWork {
     pub sessions: BTreeMap<String, SessionRead>,
     /// By the worktree.
     pub repositories: BTreeMap<PathBuf, RepositoryRead>,
-    /// The account's usage limits, by the agent that told them.
-    pub usage: BTreeMap<Agent, Vec<Limit>>,
+    /// Each account's usage limits, by the connection it is logged in in.
+    pub usage: BTreeMap<ConnectionId, Vec<Limit>>,
     /// The whole machine's usage.
     pub system: Option<SystemUsage>,
 }
@@ -169,7 +177,7 @@ pub enum DetailsChange {
         worktree: PathBuf,
     },
     Usage {
-        agent: Agent,
+        account: Account,
         limits: Vec<Limit>,
     },
     System {
@@ -207,8 +215,8 @@ impl DetailsWork {
             DetailsChange::RepositoryLeft { worktree } => {
                 self.repositories.remove(&worktree).is_some()
             }
-            DetailsChange::Usage { agent, limits } => {
-                self.usage.insert(agent, limits.clone()) != Some(limits)
+            DetailsChange::Usage { account, limits } => {
+                self.usage.insert(account.connection, limits.clone()) != Some(limits)
             }
             DetailsChange::System { usage } => set(&mut self.system, Some(usage)),
         }
@@ -285,7 +293,10 @@ mod tests {
         assert!(work.apply(left()));
         assert!(!work.apply(left()));
         let usage = || DetailsChange::Usage {
-            agent: Agent::Claude,
+            account: Account {
+                agent: Agent::Claude,
+                connection: "claude".parse().unwrap(),
+            },
             limits: Vec::new(),
         };
         assert!(work.apply(usage()));

@@ -37,10 +37,20 @@ async fn read() -> Offers {
     // names is looked at: not on a runtime thread.
     let (recent, (ghq, ghq_roots), listed) = tokio::join!(
         tokio::task::spawn_blocking(move || {
-            places::recent(
-                &crate::programs::context(adroit_model::Agent::Claude),
-                &home,
-            )
+            // Every connection Claude Code runs in keeps its own.
+            let mut recent: Vec<PathBuf> = Vec::new();
+            let connections = crate::programs::connections(&crate::settings::current());
+            for context in connections
+                .iter()
+                .filter(|c| c.agent() == adroit_model::Agent::Claude)
+            {
+                for dir in places::recent(context, &home) {
+                    if !recent.contains(&dir) {
+                        recent.push(dir);
+                    }
+                }
+            }
+            recent
         }),
         async {
             if asked.ghq {

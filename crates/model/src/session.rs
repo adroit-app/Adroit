@@ -72,6 +72,10 @@ pub struct Session {
     /// The session that started this one; none for one the user started.
     pub parent: Option<SessionId>,
     pub agent: Agent,
+    /// The profile it started from, and the connection that runs in; the
+    /// agent's own for one started before sessions were.
+    pub profile: crate::profile::ProfileId,
+    pub connection: crate::profile::ConnectionId,
     /// Which session this is: the daemon's id.
     pub id: String,
     /// The conversation's id; empty until the conversation tells it.

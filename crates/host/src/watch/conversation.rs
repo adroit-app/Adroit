@@ -28,13 +28,17 @@ pub(super) async fn watch(mut watched: Watched) {
         held.retain(|(key, _)| shown.iter().any(|(s, _)| Key::of(s) == *key));
         for (s, overview) in shown {
             let key = Key::of(&s);
-            let reader = match held.iter().position(|(was, _)| *was == key) {
+            let at = held.iter().position(|(was, _)| *was == key);
+            let reader = match at {
                 Some(at) => Some(held.remove(at).1),
-                None => adroit_agents::adapter(s.agent).transcript(
-                    &crate::programs::context(s.agent),
-                    &crate::paths::home(),
-                    &s,
-                ),
+                None => match crate::programs::of_session(&s).await {
+                    Ok(started) => adroit_agents::adapter(s.agent).transcript(
+                        &started,
+                        &crate::paths::home(),
+                        &s,
+                    ),
+                    Err(_) => None,
+                },
             };
             let Some(reader) = reader else {
                 continue;

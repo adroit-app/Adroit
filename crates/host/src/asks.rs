@@ -133,6 +133,7 @@ async fn start_session(watched: &Watched, start: SessionStart) -> Result<Answer,
         prompt: start.prompt,
         images: start.images,
         resume: start.resume,
+        connection: start.connection,
         env: daemon::agent_env(),
         started_ms: now_ms(),
         ..Default::default()

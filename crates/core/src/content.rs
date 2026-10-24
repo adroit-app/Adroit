@@ -13,6 +13,7 @@ mod windows;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
 
+use adroit_model::profile::ConnectionId;
 use adroit_model::{Agent, TerminalProgram, Tree};
 use adroit_protocol::{Seq, WorkSnapshot};
 
@@ -126,6 +127,19 @@ pub fn agent_of(state: &crate::state::ViewState, tab: Option<&Tab>) -> Agent {
         .content
         .drafts
         .agent_of(tree, tab, state.config.settings.default_agent())
+}
+
+/// The connection the prompt of `tab` goes to: a session's own, else the one
+/// its agent's default profile runs in.
+pub fn connection_of(state: &crate::state::ViewState, tab: Option<&Tab>) -> ConnectionId {
+    let tree = crate::tree::listed(state.host.work.as_ref());
+    if let Some(Tab::Session(id)) = tab
+        && let Some((_, session)) = crate::tree::nav::find(tree, id)
+    {
+        return session.connection.clone();
+    }
+    let agent = agent_of(state, tab);
+    state.config.settings.profile_of(agent).connection.clone()
 }
 
 /// A border between windows being dragged: where the pointer was pressed,

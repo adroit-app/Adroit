@@ -12,13 +12,13 @@ use crate::work::HistoryAsk;
 pub(super) async fn watch(watched: Watched, mut asks: UnboundedReceiver<HistoryAsk>) {
     while let Some(ask) = asks.recv().await {
         let project = ask.project.clone();
+        let context = super::asked_in(&watched.seen(), ask.agent, &ask.connection).await;
         // An agent's history can run to megabytes: not on a runtime thread.
-        let sent = tokio::task::spawn_blocking(move || {
-            adroit_agents::adapter(ask.agent).history(
-                &crate::programs::context(ask.agent),
-                &crate::paths::home(),
-                &project,
-            )
+        let sent = tokio::task::spawn_blocking(move || match context {
+            Some(context) => {
+                adroit_agents::adapter(ask.agent).history(&context, &crate::paths::home(), &project)
+            }
+            None => Vec::new(),
         })
         .await
         .unwrap_or_default();

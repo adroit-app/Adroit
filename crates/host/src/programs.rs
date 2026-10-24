@@ -2,32 +2,19 @@
 //! account's login shell, and the agents' launches. What the settings say of
 //! each is `adroit_model::config`.
 
+use std::borrow::Cow;
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
+
 use adroit_agents::AgentContext;
-use adroit_model::Agent;
 use adroit_model::profile::{AgentProfile, ProfileId};
+use adroit_model::{Agent, SessionId};
 
 use crate::settings::Settings;
 
 /// The account's login shell, or `/bin/sh` when it cannot be told.
 pub fn login_shell() -> String {
     crate::env::login_shell().unwrap_or_else(|| "/bin/sh".into())
-}
-
-/// How `agent` starts as the settings say now: as its default profile says.
-pub fn context(agent: Agent) -> AgentContext {
-    context_of(&crate::settings::current(), agent)
-}
-
-/// How `agent` starts as `settings` say: as its default profile says, in
-/// the connection that profile names.
-pub fn context_of(settings: &Settings, agent: Agent) -> AgentContext {
-    let profile = settings.profile_of(agent);
-    let home = settings
-        .connections
-        .iter()
-        .find(|c| c.id == profile.connection)
-        .map(|c| c.home.clone());
-    AgentContext::new(&profile, home, settings.shell.program(&login_shell()))
 }
 
 /// The context a new session starts in, as `settings` say: `profile` when
@@ -72,6 +59,62 @@ pub fn recorded(launch: &Settings, profile: &ProfileId) -> Result<AgentContext, 
         format!("the session's profile `{profile}` is not in the settings it was started with")
     })?;
     in_connection(launch, &profile)
+}
+
+/// One context for each connection a profile not archived runs in, as
+/// `settings` say, asked through the agent's default profile where that runs
+/// there, else through the first profile that does: what is kept in the
+/// connections a new session can run in.
+pub fn connections(settings: &Settings) -> Vec<AgentContext> {
+    let defaults: Vec<Cow<'_, AgentProfile>> =
+        Agent::ALL.iter().map(|a| settings.profile_of(*a)).collect();
+    let others = settings.profiles.iter().filter(|p| !p.archived);
+    let mut out: Vec<AgentContext> = Vec::new();
+    for profile in defaults.iter().map(|p| p.as_ref()).chain(others) {
+        let taken = out
+            .iter()
+            .any(|c| c.agent() == profile.agent() && c.connection == profile.connection);
+        if !taken && let Ok(context) = in_connection(settings, profile) {
+            out.push(context);
+        }
+    }
+    out
+}
+
+/// The context `session` runs in, as it was started: from its record's
+/// settings, whatever the settings say now. A session without a record ran
+/// in its agent's own environment; one that names a connection of its own
+/// but has no record is refused rather than taken to any login.
+pub async fn of_session(session: &adroit_model::Session) -> Result<AgentContext, String> {
+    static KNOWN: LazyLock<Mutex<HashMap<SessionId, AgentContext>>> =
+        LazyLock::new(Default::default);
+    let Some(record) = session.delegation else {
+        return match session.connection.implicit_agent() {
+            Some(agent) if agent == session.agent => Ok(AgentContext::new(
+                &AgentProfile::builtin(agent),
+                None,
+                crate::settings::current().shell.program(&login_shell()),
+            )),
+            _ => Err(format!(
+                "session {} runs in connection `{}`, which no record of it names",
+                session.name, session.connection
+            )),
+        };
+    };
+    if let Some(known) = KNOWN.lock().expect("the contexts' lock").get(&record) {
+        return Ok(known.clone());
+    }
+    let launch = crate::delegation::app::launch_of(&crate::delegation::app::root(), record)
+        .await
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("session {} has no record of how it started", session.name))?;
+    let context = recorded(&launch, &session.profile)?;
+    // A record never changes, so neither does what it says.
+    KNOWN
+        .lock()
+        .expect("the contexts' lock")
+        .insert(record, context.clone());
+    Ok(context)
 }
 
 /// `profile` run in the connection it names, as `settings` define it.
@@ -225,6 +268,22 @@ home = "/Users/me/claude-work"
             let own = Settings::parse(&text.replace("connection = \"work\"\n", "")).unwrap();
             assert!(starting(&own, None, Some(&id("p"))).is_ok());
         }
+    }
+
+    #[test]
+    fn each_connection_is_asked_once_through_its_agent_s_default_profile_where_it_runs_there() {
+        let listed: Vec<(String, String)> = connections(&settings())
+            .iter()
+            .map(|c| (c.profile.to_string(), c.connection.to_string()))
+            .collect();
+        assert_eq!(
+            listed,
+            [
+                ("claude-work".into(), "work".into()),
+                ("codex-review".into(), "codex".into()),
+                ("claude".into(), "claude".into()),
+            ]
+        );
     }
 
     #[test]

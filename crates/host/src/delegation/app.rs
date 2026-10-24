@@ -100,6 +100,11 @@ pub async fn messages_of(root: &Path, id: SessionId) -> Result<Vec<Message>> {
     with_store(root, move |store| store.messages_of(id)).await
 }
 
+/// The settings `id` was started with, as Adroit recorded them.
+pub async fn launch_of(root: &Path, id: SessionId) -> Result<Option<Settings>> {
+    with_store(root, move |store| store.launch(id)).await
+}
+
 /// Every session Adroit keeps a record of, ended ones included.
 pub async fn sessions(root: &Path) -> Result<Vec<super::Session>> {
     with_store(root, |store| store.sessions()).await

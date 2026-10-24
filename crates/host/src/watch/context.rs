@@ -31,8 +31,11 @@ pub(super) async fn watch(watched: Watched) {
             let key = (s.id.clone(), s.session_id.clone());
             let mark = stats.tokens.map_or(0, |t| t.total());
             if asked.want(&key, mark, Instant::now()) {
+                let Ok(started) = crate::programs::of_session(&s).await else {
+                    continue;
+                };
                 let got = adroit_agents::adapter(s.agent)
-                    .context(crate::programs::context(s.agent), &s, stats.model)
+                    .context(started, &s, stats.model)
                     .await;
                 asked.settle(&key, Instant::now(), got);
             }

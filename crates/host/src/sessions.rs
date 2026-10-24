@@ -3,6 +3,7 @@
 
 use std::path::PathBuf;
 
+use adroit_model::profile::{ConnectionId, ProfileId};
 use adroit_model::{Session, State, TerminalProgram, TerminalSession};
 use adroit_term::tags;
 
@@ -27,6 +28,10 @@ const CONVERSATION: &str = "adroit.claude";
 const PID: &str = "adroit.pid";
 /// Present on a session started with adroit's editor as its external editor.
 const EDITOR: &str = "adroit.editor";
+/// The profile a session started from, and the connection it runs in; a
+/// session started before profiles carries neither and ran in its agent's own.
+const PROFILE: &str = "adroit.profile";
+const CONNECTION: &str = "adroit.connection";
 
 /// A session the daemon holds, as what it runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,6 +78,14 @@ pub fn read(session: &adroit_term::Session) -> Option<Kept> {
             delegation: tags::value(t, SESSION_TAG).and_then(|id| id.parse().ok()),
             parent: tags::value(t, PARENT_TAG).and_then(|id| id.parse().ok()),
             agent: adroit_model::Agent::parse(kind)?,
+            profile: match tags::value(t, PROFILE) {
+                Some(id) => id.parse().ok()?,
+                None => ProfileId::builtin(adroit_model::Agent::parse(kind)?),
+            },
+            connection: match tags::value(t, CONNECTION) {
+                Some(id) => id.parse().ok()?,
+                None => ConnectionId::implicit(adroit_model::Agent::parse(kind)?),
+            },
             id: hex(session.id),
             session_id: tags::value(t, CONVERSATION).unwrap_or_default(),
             pid: tags::value(t, PID).and_then(|p| p.parse().ok()),
@@ -157,6 +170,14 @@ pub fn agent_tags(
             && (!conversation.is_empty() || !t.starts_with("adroit.claude="))
     });
     out.extend(tags::tagged(KIND, agent.key()));
+    out
+}
+
+/// The tags naming the profile a session started from and the connection it
+/// runs in.
+pub fn profile_tags(profile: &ProfileId, connection: &ConnectionId) -> Vec<String> {
+    let mut out = tags::tagged(PROFILE, profile.as_str());
+    out.extend(tags::tagged(CONNECTION, connection.as_str()));
     out
 }
 
@@ -485,6 +506,25 @@ mod tests {
         assert_eq!(c.started_ms, Some(42));
         assert!(c.reads_only());
         assert_eq!(c.state, State::Waiting(Wait::Permission));
+    }
+
+    #[test]
+    fn a_session_is_read_back_with_its_profile_and_one_from_before_profiles_with_its_agent_s_own() {
+        let tags = fix_tags("uuid", &adroit_model::AgentPermissions::Default, 0);
+        let read_as = |tags: Vec<String>| match read(&kept(7, tags)) {
+            Some(Kept::Agent(c)) => (c.profile.to_string(), c.connection.to_string()),
+            _ => panic!("not a session"),
+        };
+        assert_eq!(read_as(tags.clone()), ("claude".into(), "claude".into()));
+        let started = profile_tags(&"claude-work".parse().unwrap(), &"work".parse().unwrap());
+        assert_eq!(
+            started,
+            ["adroit.profile=claude-work", "adroit.connection=work"]
+        );
+        assert_eq!(
+            read_as([tags, started].concat()),
+            ("claude-work".into(), "work".into())
+        );
     }
 
     #[test]

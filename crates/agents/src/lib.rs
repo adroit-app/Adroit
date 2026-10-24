@@ -30,6 +30,22 @@ pub(crate) fn quoted_pastes(images: &[PathBuf]) -> Vec<String> {
         .collect()
 }
 
+/// `pasts` as the conversations kept in `context`'s connection, which a
+/// resume starts from its profile.
+pub(crate) fn kept_in(
+    context: &AgentContext,
+    pasts: Vec<adroit_model::Past>,
+) -> Vec<adroit_model::Past> {
+    pasts
+        .into_iter()
+        .map(|past| adroit_model::Past {
+            connection: context.connection.clone(),
+            profile: context.profile.clone(),
+            ..past
+        })
+        .collect()
+}
+
 /// `program` as a shell reads it back as one word, for what tells an agent
 /// the command to run.
 pub fn shell_word(program: impl AsRef<Path>) -> String {

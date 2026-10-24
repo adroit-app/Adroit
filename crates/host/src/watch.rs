@@ -239,6 +239,28 @@ fn shown_sessions(seen: &[Seen], wants: impl Fn(&Sight) -> bool) -> Vec<(Session
     found
 }
 
+/// The context to ask `agent` in `connection` through: a shown session's, as
+/// it was started, when one runs there; else that of a profile the settings
+/// in force run there; none when no profile does.
+async fn asked_in(
+    seen: &[Seen],
+    agent: adroit_model::Agent,
+    connection: &adroit_model::profile::ConnectionId,
+) -> Option<adroit_agents::AgentContext> {
+    let shown = seen
+        .iter()
+        .filter_map(|s| s.session.as_ref())
+        .filter(|s| s.agent == agent && s.connection == *connection);
+    for session in shown {
+        if let Ok(context) = crate::programs::of_session(session).await {
+            return Some(context);
+        }
+    }
+    crate::programs::connections(&crate::settings::current())
+        .into_iter()
+        .find(|c| c.agent() == agent && c.connection == *connection)
+}
+
 fn lock(host: &Mutex<Host>) -> MutexGuard<'_, Host> {
     host.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }

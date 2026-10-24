@@ -71,7 +71,10 @@ mod tests {
                 worktree: "/w".into(),
                 spot: Spot::Files(Rev::Commit("abc".into())),
             }),
-            usage: Some(adroit_model::Agent::Codex),
+            usage: Some(crate::Account {
+                agent: adroit_model::Agent::Codex,
+                connection: "work".parse().unwrap(),
+            }),
             tree: TreeSight {
                 every_worktree: true,
                 marked: BTreeSet::from(["/w".into()]),
@@ -86,6 +89,7 @@ mod tests {
             place: Some(crate::HostPath::local("/w")),
             commands: Some(CommandsSight {
                 agent: adroit_model::Agent::Codex,
+                connection: "work".parse().unwrap(),
                 dir: "/w".into(),
             }),
             terminals: BTreeSet::from([u128::MAX, 7]),
@@ -101,6 +105,7 @@ mod tests {
         round_trips(Request::History {
             asked: 3,
             agent: adroit_model::Agent::Claude,
+            connection: "work".parse().unwrap(),
             project: "/w".into(),
         });
         round_trips(Request::CommandsWanted);
@@ -173,7 +178,7 @@ mod tests {
                         ..Default::default()
                     },
                 )]),
-                usage: BTreeMap::from([(adroit_model::Agent::Claude, Vec::new())]),
+                usage: BTreeMap::from([("work".parse().unwrap(), Vec::new())]),
                 system: Some(SystemUsage::default()),
                 ..Default::default()
             },
@@ -187,6 +192,7 @@ mod tests {
                         cwd: "/w".into(),
                         title: "review".into(),
                         at_ms: 1,
+                        ..Default::default()
                     }],
                 )),
             },
@@ -200,6 +206,7 @@ mod tests {
                 history: Some(HistoryRead::default()),
                 commands: Some(CommandsRead {
                     agent: adroit_model::Agent::Claude,
+                    connection: "claude".parse().unwrap(),
                     dir: "/w".into(),
                     commands: vec![adroit_model::Command {
                         name: "compact".into(),
@@ -261,7 +268,10 @@ mod tests {
                     },
                 }),
                 details(DetailsChange::Usage {
-                    agent: adroit_model::Agent::Claude,
+                    account: crate::Account {
+                        agent: adroit_model::Agent::Claude,
+                        connection: "work".parse().unwrap(),
+                    },
                     limits: vec![Limit {
                         window: Window::WeekOf("Opus".into()),
                         percent: 12.5,
@@ -360,6 +370,7 @@ mod tests {
                 Change::Prompt(PromptChange::Commands {
                     read: CommandsRead {
                         agent: adroit_model::Agent::Codex,
+                        connection: "codex".parse().unwrap(),
                         dir: "/w".into(),
                         commands: Vec::new(),
                     },

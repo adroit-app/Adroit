@@ -102,6 +102,7 @@ fn conversation(path: &Path, dir: Option<&Path>, names: &HashMap<String, String>
         id,
         cwd,
         at_ms,
+        ..Default::default()
     })
 }
 

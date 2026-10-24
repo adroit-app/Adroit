@@ -72,6 +72,7 @@ mod tests {
             cwd: "/r".into(),
             title: "fix".into(),
             at_ms: 1,
+            ..Default::default()
         }
     }
 

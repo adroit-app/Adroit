@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use adroit_model::profile::{AgentOptions, ProfileId};
+use adroit_model::profile::{AgentOptions, ConnectionId, ProfileId};
 use adroit_model::{
     Agent, AgentPermissions, CustomPermissions, TerminalProgram, TerminalResourceId,
     TerminalSession,
@@ -35,6 +35,9 @@ pub struct StartRequest {
     /// The conversation the session continues, by its id; a new one when
     /// none is given.
     pub resume: Option<String>,
+    /// The connection that keeps the conversation it continues, which it
+    /// has to run in.
+    pub connection: Option<ConnectionId>,
 }
 
 pub use adroit_model::ModelSource;
@@ -178,6 +181,16 @@ pub fn resolve(
 ) -> Result<ResolvedLaunch, String> {
     let (mut context, target) = configured(settings, &request)?;
     context.adroit = adroit_program.to_path_buf();
+    if let (Some(id), Some(kept)) = (&request.resume, &request.connection)
+        && *kept != context.connection
+    {
+        // Another connection's program does not know the conversation, and
+        // would run it under another login if it did.
+        return Err(format!(
+            "conversation {id} is kept in connection `{kept}`, which profile `{}` does not run in",
+            context.profile
+        ));
+    }
     let adapter = agents::adapter(request.agent);
     let conversation = request
         .resume
@@ -231,6 +244,10 @@ pub fn resolve(
         &request.permissions,
         started_ms,
     );
+    tags.extend(sessions::profile_tags(
+        &context.profile,
+        &context.connection,
+    ));
     tags.extend(sessions::editor_tags(&env));
     if let Some(delegation) = &request.delegation {
         tags.extend(delegation.tags());
@@ -350,16 +367,10 @@ pub use adroit_agents::{DeliveryFailure, DeliveryFuture};
 
 /// Submit to a native queue without touching the TUI's input buffer.
 pub fn deliver(
-    agent: Agent,
-    settings: Settings,
+    context: adroit_agents::AgentContext,
     cwd: PathBuf,
     conversation: String,
     envelope: String,
 ) -> DeliveryFuture {
-    agents::adapter(agent).deliver(
-        crate::programs::context_of(&settings, agent),
-        cwd,
-        conversation,
-        envelope,
-    )
+    agents::adapter(context.agent()).deliver(context, cwd, conversation, envelope)
 }

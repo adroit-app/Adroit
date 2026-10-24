@@ -21,6 +21,12 @@ model and permission profile too, and the next new session starts with
 what was chosen there. A session keeps its agent once it runs, whatever the default becomes. Both
 kinds can run in the same workspace.
 
+A session also keeps the profile it started from, and the connection that
+runs in ([settings](settings.md#profiles-and-connections)), whatever the
+settings say since, and after the work host starts again: messages are
+handed to it, its conversation, history and processes are read, and its
+starting dialogs are answered, as the settings it was started with say.
+
 Codex sessions use the embedded prompt and report their working and waiting
 states through the terminal, including permission and question prompts. Their
 output stays in the terminal scrollback for scrolling and reading in Neovim. A
@@ -144,7 +150,8 @@ console then says so, and it is listed no more.
 
 Claude Code and Codex keep each conversation after its session ends, and
 adroit lists only the sessions it runs. Resume Conversation in the Session
-menu, or `session.resume`, opens a list of the conversations both agents kept
+menu, or `session.resume`, opens a list of the conversations both agents kept,
+in every connection a profile runs in,
 for the directory the focused window works in, the newest first, each with its
 agent, its title or first prompt, its directory and when it was last talked
 in. `Ctrl+a` lists those of every directory instead, and pressed again only
@@ -154,7 +161,10 @@ and `Ctrl+p` (or the arrow keys, `Tab` and `Shift+Tab`) move, `Enter` chooses,
 and `Escape` closes the list.
 
 Choosing a conversation resumes it in a new session of its agent, in the
-directory it ran in, with the agent's own resume. Nothing running is stopped
+directory it ran in, with the agent's own resume, in the connection that
+keeps it and from a profile that runs there; when the settings no longer
+hold that profile in that connection, the resume is refused, naming why,
+and never runs under another login. Nothing running is stopped
 or changed. A conversation a session of this instance already holds is not
 resumed a second time: choosing it shows that session.
 

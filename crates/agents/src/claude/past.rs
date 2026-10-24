@@ -82,6 +82,7 @@ fn conversation(path: &Path) -> Option<Past> {
         cwd: seen.cwd?,
         title: title_of(seen.title.as_deref().unwrap_or(&prompt)),
         at_ms,
+        ..Default::default()
     })
 }
 

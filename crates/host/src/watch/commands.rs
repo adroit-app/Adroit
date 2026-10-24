@@ -8,12 +8,14 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
 use adroit_agents::claude::commands::Cache;
+use adroit_model::profile::ConnectionId;
 use adroit_model::{Agent, Command};
 use adroit_protocol::{CommandsRead, CommandsSight, PromptChange};
 
 use super::{Watched, distinct};
 
-type Caches = Arc<Mutex<HashMap<Agent, Cache>>>;
+/// What was found, by the agent and the connection it was asked in.
+type Caches = Arc<Mutex<HashMap<(Agent, ConnectionId), Cache>>>;
 
 pub(super) async fn watch(mut watched: Watched) {
     let caches = Caches::default();
@@ -38,7 +40,7 @@ fn offered(caches: &Caches, sight: &CommandsSight) -> PromptChange {
     let adapter = adroit_agents::adapter(sight.agent);
     let commands = if adapter.capabilities().command_probe {
         let found = lock(caches)
-            .get(&sight.agent)
+            .get(&(sight.agent, sight.connection.clone()))
             .map(|cache| cache.get(&sight.dir).to_vec())
             .unwrap_or_default();
         offer(adapter.builtin_commands(), found)
@@ -48,6 +50,7 @@ fn offered(caches: &Caches, sight: &CommandsSight) -> PromptChange {
     PromptChange::Commands {
         read: CommandsRead {
             agent: sight.agent,
+            connection: sight.connection.clone(),
             dir: sight.dir.clone(),
             commands,
         },
@@ -66,8 +69,9 @@ fn ask(watched: &Watched, caches: &Caches, sight: CommandsSight) {
     if !adapter.capabilities().command_probe {
         return;
     }
+    let key = (sight.agent, sight.connection.clone());
     let wanted = lock(caches)
-        .entry(sight.agent)
+        .entry(key.clone())
         .or_default()
         .want(&sight.dir, Instant::now());
     if !wanted {
@@ -75,18 +79,19 @@ fn ask(watched: &Watched, caches: &Caches, sight: CommandsSight) {
     }
     let (watched, caches) = (watched.clone(), caches.clone());
     tokio::spawn(async move {
-        let got = adapter
-            .commands(crate::programs::context(sight.agent), sight.dir.clone())
-            .await;
+        let got = match super::asked_in(&watched.seen(), sight.agent, &sight.connection).await {
+            Some(context) => adapter.commands(context, sight.dir.clone()).await,
+            None => None,
+        };
         lock(&caches)
-            .entry(sight.agent)
+            .entry(key)
             .or_default()
             .settle(&sight.dir, Instant::now(), got);
         watched.record([offered(&caches, &sight)]);
     });
 }
 
-fn lock(caches: &Caches) -> MutexGuard<'_, HashMap<Agent, Cache>> {
+fn lock(caches: &Caches) -> MutexGuard<'_, HashMap<(Agent, ConnectionId), Cache>> {
     caches
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -114,6 +119,7 @@ mod tests {
     fn before_anything_is_found_the_agent_s_own_commands_are_offered() {
         let sight = CommandsSight {
             agent: Agent::Codex,
+            connection: "codex".parse().unwrap(),
             dir: "/w".into(),
         };
         let PromptChange::Commands { read } = offered(&Caches::default(), &sight) else {

@@ -236,3 +236,79 @@ fn a_variable_of_a_family_a_connection_removes_reaches_it_from_neither_the_shell
         assert!(has(&work, &format!("{inherited}=unset")), "{work:?}");
     }
 }
+
+#[test]
+fn a_conversation_resumes_only_in_the_connection_that_keeps_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("w");
+    let s = settings(Agent::Codex, &agent_program(dir.path()), &home, None);
+    let thread = "019f7a4b-fee9-74d3-9977-5bc9bb134d11";
+    let resume = |profile: &str, kept: &str| {
+        resolve(
+            &s,
+            StartRequest {
+                agent: Agent::Codex,
+                profile: Some(profile.parse().unwrap()),
+                resume: Some(thread.into()),
+                connection: Some(kept.parse().unwrap()),
+                ..Default::default()
+            },
+            Path::new("/adroit"),
+        )
+    };
+
+    let resumed = resume("work", "work").unwrap();
+    let words = resumed.spawn.args.join(" ");
+    assert!(
+        words.contains(&format!("in-connection codex {}", home.display())),
+        "{words}"
+    );
+    assert!(words.contains(&format!("resume {thread}")), "{words}");
+    let error = resume("own", "work").unwrap_err();
+    assert_eq!(
+        error,
+        format!(
+            "conversation {thread} is kept in connection `work`, which profile `own` does not run in"
+        )
+    );
+    assert!(
+        resume("gone", "work")
+            .unwrap_err()
+            .contains("profile `gone` is not defined")
+    );
+}
+
+#[test]
+fn an_agent_the_settings_give_no_profile_starts_and_resumes_as_adroit_s_own_profile() {
+    let only_claude = Settings::parse(
+        "[[profiles]]\nid = \"claude\"\nagent = \"claude\"\n\n[[profiles]]\nid = \"claude-work\"\nagent = \"claude\"\n",
+    )
+    .unwrap();
+    let thread = "019f7a4b-fee9-74d3-9977-5bc9bb134d11";
+    let start = |profile: Option<&str>, resume: Option<&str>| {
+        resolve(
+            &only_claude,
+            StartRequest {
+                agent: Agent::Codex,
+                profile: profile.map(|p| p.parse().unwrap()),
+                resume: resume.map(String::from),
+                connection: resume.map(|_| "codex".parse().unwrap()),
+                ..Default::default()
+            },
+            Path::new("/adroit"),
+        )
+    };
+
+    let started = start(None, None).unwrap();
+    let recorded =
+        adroit_host::sessions::profile_tags(&"codex".parse().unwrap(), &"codex".parse().unwrap());
+    assert!(
+        recorded.iter().all(|t| started.spawn.tags.contains(t)),
+        "{:?}",
+        started.spawn.tags
+    );
+    assert!(start(Some("codex"), None).is_ok());
+    let resumed = start(Some("codex"), Some(thread)).unwrap();
+    let words = resumed.spawn.args.join(" ");
+    assert!(words.contains(&format!("resume {thread}")), "{words}");
+}

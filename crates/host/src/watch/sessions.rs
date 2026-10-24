@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use adroit_model::profile::ConnectionId;
 use adroit_model::{Session, TerminalSession, Worktree, build};
 use adroit_protocol::{Listed, TreeChange};
 use adroit_term::Daemon;
@@ -176,14 +177,27 @@ pub async fn read_sessions(
     }
     // Without Claude Code, or with a listing it cannot give, nothing is
     // learned; the sessions are listed all the same.
-    for agent in adroit_model::Agent::ALL {
+    // Each connection lists the sessions running in it alone, so each is
+    // asked as a session of it was started and read against those.
+    for (agent, connection, context) in
+        connections_of(
+            &own,
+            |s| async move { crate::programs::of_session(&s).await },
+        )
+        .await
+    {
         let adapter = adroit_agents::adapter(agent);
-        let listed = adapter
-            .list_sessions(crate::programs::context(agent))
-            .await
-            .unwrap_or_default();
-        let tags = adapter.follow(&mut own, listed);
+        let listed = adapter.list_sessions(context).await.unwrap_or_default();
+        let ours = |s: &Session| s.agent == agent && s.connection == connection;
+        let mut these: Vec<Session> = own.iter().filter(|s| ours(s)).cloned().collect();
+        let tags = adapter.follow(&mut these, listed);
         learned.extend(tags.into_iter().map(sessions::learned_tag));
+        let mut followed = these.into_iter();
+        for s in own.iter_mut().filter(|s| ours(s)) {
+            if let Some(next) = followed.next() {
+                *s = next;
+            }
+        }
     }
     // Kept on the session, so a window opened later follows it too; one not
     // kept is learned again on the next read.
@@ -198,4 +212,79 @@ pub async fn read_sessions(
             .await;
     }
     Ok((own, kept_shells))
+}
+
+/// Each agent and connection `own` has sessions in, with the context the
+/// first of those sessions `of` tells one for runs in, tried in turn; one whose sessions
+/// tell none is left out.
+async fn connections_of<F, Fut>(
+    own: &[Session],
+    of: F,
+) -> Vec<(
+    adroit_model::Agent,
+    ConnectionId,
+    adroit_agents::AgentContext,
+)>
+where
+    F: Fn(Session) -> Fut,
+    Fut: std::future::Future<Output = Result<adroit_agents::AgentContext, String>>,
+{
+    let mut out: Vec<(
+        adroit_model::Agent,
+        ConnectionId,
+        adroit_agents::AgentContext,
+    )> = Vec::new();
+    for s in own {
+        if out
+            .iter()
+            .any(|(agent, connection, _)| *agent == s.agent && *connection == s.connection)
+        {
+            continue;
+        }
+        if let Ok(context) = of(s.clone()).await {
+            out.push((s.agent, s.connection.clone(), context));
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use adroit_model::Agent;
+    use adroit_model::testing::session;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn a_connection_is_asked_through_the_first_of_its_sessions_whose_context_is_known() {
+        let own = [
+            session("lost").profile("claude-work", "work").build(),
+            session("kept").profile("claude-work", "work").build(),
+            session("other").profile("claude-work", "work").build(),
+            session("mine").build(),
+        ];
+        let of = |s: Session| async move {
+            match s.name != "lost" {
+                true => Ok(adroit_agents::AgentContext {
+                    shell: s.name,
+                    ..adroit_agents::AgentContext::builtin(Agent::Claude)
+                }),
+                false => Err("no record".to_string()),
+            }
+        };
+
+        let asked: Vec<(String, String)> = connections_of(&own, of)
+            .await
+            .into_iter()
+            .map(|(_, connection, context)| (connection.to_string(), context.shell))
+            .collect();
+
+        assert_eq!(
+            asked,
+            [
+                ("work".into(), "kept".into()),
+                ("claude".into(), "mine".into())
+            ]
+        );
+    }
 }

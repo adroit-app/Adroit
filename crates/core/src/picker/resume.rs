@@ -153,6 +153,7 @@ mod tests {
             cwd: cwd.into(),
             title: title.into(),
             at_ms: 0,
+            ..Default::default()
         }
     }
 

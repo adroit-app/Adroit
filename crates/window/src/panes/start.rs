@@ -180,6 +180,7 @@ impl Ui {
                 prompt: text,
                 images: taken.images.clone(),
                 resume: None,
+                connection: None,
                 cols: size.cols,
                 rows: size.rows,
             };
@@ -220,9 +221,11 @@ impl Ui {
             app.status(Some(format!("resuming {name}…")));
             let start = SessionStart {
                 agent: past.agent,
+                profile: Some(past.profile.clone()),
                 name: name.clone(),
                 cwd: HostPath::local(&past.cwd),
                 resume: Some(past.id.clone()),
+                connection: Some(past.connection.clone()),
                 cols: size.cols,
                 rows: size.rows,
                 ..Default::default()

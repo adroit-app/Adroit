@@ -5,9 +5,13 @@ use serde::{Deserialize, Serialize};
 use crate::Agent;
 
 /// A conversation an agent kept, which a new session can resume.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Past {
     pub agent: Agent,
+    /// The connection that keeps it, which it is resumed in alone, and the
+    /// profile it was listed through, which a resume starts from.
+    pub connection: crate::profile::ConnectionId,
+    pub profile: crate::profile::ProfileId,
     /// The conversation's id, which the agent resumes it by.
     pub id: String,
     /// The directory it ran in.
@@ -45,6 +49,7 @@ mod tests {
             cwd: "/r".into(),
             title: id.into(),
             at_ms,
+            ..Default::default()
         }
     }
 

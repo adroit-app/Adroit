@@ -283,7 +283,7 @@ impl AgentAdapter for Codex {
         home: &Path,
         dir: Option<&Path>,
     ) -> Vec<adroit_model::Past> {
-        past::read(&root(context, home), dir)
+        crate::kept_in(context, past::read(&root(context, home), dir))
     }
     fn resume_args(&self, context: &AgentContext, conversation: &str) -> Option<Vec<String>> {
         let mut args = vec!["resume".into(), conversation.into()];

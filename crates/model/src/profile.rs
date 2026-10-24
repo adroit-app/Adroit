@@ -102,6 +102,20 @@ impl ProfileId {
     }
 }
 
+/// The profile adroit comes with for the agent a session is when nothing says.
+impl Default for ProfileId {
+    fn default() -> Self {
+        Self::builtin(Agent::default())
+    }
+}
+
+/// The own environment of the agent a session is when nothing says.
+impl Default for ConnectionId {
+    fn default() -> Self {
+        Self::implicit(Agent::default())
+    }
+}
+
 impl ConnectionId {
     /// The connection every agent has without one being defined: the CLI's
     /// own environment, as it runs outside adroit.

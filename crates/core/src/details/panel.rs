@@ -7,9 +7,9 @@ use std::path::PathBuf;
 
 use adroit_model::links::{Kind as LinkKind, Link, Links};
 use adroit_model::repository::Spot;
-use adroit_model::{Agent, ConversationStats, Note, Process, Session};
+use adroit_model::{ConversationStats, Note, Process, Session};
 use adroit_protocol::{
-    AgentFacts, DetailsWork, RepositorySight, Seq, SessionRead, Sight, WorkSnapshot,
+    Account, AgentFacts, DetailsWork, RepositorySight, Seq, SessionRead, Sight, WorkSnapshot,
 };
 
 use super::{
@@ -31,9 +31,8 @@ pub struct Shown {
     pub worktree: Option<PathBuf>,
     /// Whether the details panel is open.
     pub open: bool,
-    /// The agent whose account usage the panel shows, when what is shown
-    /// has one.
-    pub usage: Option<Agent>,
+    /// The account whose usage the panel shows, when what is shown has one.
+    pub usage: Option<Account>,
     /// The images the shown session's console drew.
     pub drawn: Vec<Shot>,
     pub settings: DetailsSettings,
@@ -109,18 +108,18 @@ pub(crate) fn tell(details: &mut Details, told: Told) -> Vec<Effect> {
     Vec::new()
 }
 
-/// The panel shows the account usage of `agent`, the one the prompt of `tab`
-/// goes to, for a session or a draft whose agent the host says has usage
-/// limits; none otherwise.
+/// The panel shows the usage of `account`, the one the prompt of `tab` goes
+/// to, for a session or a draft whose agent the host says has usage limits;
+/// none otherwise.
 pub(crate) fn follow_usage(
     details: &mut Details,
     tab: Option<&Tab>,
-    agent: Agent,
+    account: Account,
     facts: Option<&AgentFacts>,
 ) {
     let shows = matches!(tab, Some(Tab::Session(_) | Tab::Draft { .. }))
         && facts.is_some_and(|f| f.usage_limits);
-    let usage = shows.then_some(agent);
+    let usage = shows.then_some(account);
     if details.shown.usage != usage {
         details.shown.usage = usage;
     }
@@ -530,11 +529,11 @@ pub fn stats(details: &Details, work: Option<&WorkSnapshot>) -> Option<Conversat
 /// The gauges at the panel's foot: how full the shown conversation's context
 /// is, then the account's limits at `now_ms`.
 pub fn usage(details: &Details, work: Option<&WorkSnapshot>, now_ms: u64) -> Vec<Gauge> {
-    let mut out = match (details.shown.usage, work) {
-        (Some(agent), Some(work)) => work
+    let mut out = match (&details.shown.usage, work) {
+        (Some(account), Some(work)) => work
             .details
             .usage
-            .get(&agent)
+            .get(&account.connection)
             .map(|limits| gauges(limits, now_ms))
             .unwrap_or_default(),
         _ => Vec::new(),
@@ -608,7 +607,7 @@ pub(crate) fn sight(details: &Details) -> Sight {
             .spot()
             .zip(shown.worktree.clone())
             .map(|(spot, worktree)| RepositorySight { worktree, spot }),
-        usage: shown.usage,
+        usage: shown.usage.clone(),
         ..Default::default()
     }
 }
@@ -652,7 +651,9 @@ mod tests {
     use std::collections::BTreeMap;
     use std::sync::Arc;
 
+    use adroit_model::Agent;
     use adroit_model::links::{Peer, Touch};
+    use adroit_model::profile::ConnectionId;
     use adroit_model::repository::{DiffKind, DiffLine, Listing as Read, Rev};
     use adroit_model::subagents::{Agent as Subagent, Standing};
     use adroit_model::testing::session;
@@ -1265,7 +1266,9 @@ mod tests {
                     ..Default::default()
                 },
             );
-            details.usage.insert(Agent::Claude, limits.clone());
+            details
+                .usage
+                .insert(ConnectionId::implicit(Agent::Claude), limits.clone());
             let run = Scenario::new()
                 .event(
                     work(details)
@@ -1286,9 +1289,13 @@ mod tests {
         for agent in [Agent::Claude, Agent::Codex] {
             let facts = with_usage(agent, true);
             let facts = facts.of(agent);
+            let account = Account {
+                agent,
+                connection: ConnectionId::implicit(agent),
+            };
             let usage = |tab: Option<&Tab>| {
                 let mut details = Details::default();
-                follow_usage(&mut details, tab, agent, facts);
+                follow_usage(&mut details, tab, account.clone(), facts);
                 details.shown.usage
             };
             for tab in [
@@ -1298,14 +1305,18 @@ mod tests {
                     id: Default::default(),
                 },
             ] {
-                assert_eq!(usage(Some(&tab)), Some(agent));
+                assert_eq!(usage(Some(&tab)), Some(account.clone()));
             }
             assert_eq!(usage(Some(&Tab::Terminal(1))), None);
             assert_eq!(usage(None), None);
         }
         let mut details = Details::default();
         let draft = Tab::draft("/project");
-        follow_usage(&mut details, Some(&draft), Agent::Codex, None);
+        let codex = Account {
+            agent: Agent::Codex,
+            connection: ConnectionId::implicit(Agent::Codex),
+        };
+        follow_usage(&mut details, Some(&draft), codex, None);
         assert_eq!(details.shown.usage, None, "nothing told of the agent");
     }
 }

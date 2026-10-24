@@ -228,8 +228,12 @@ fn details_told(state: &mut ViewState, _: &mut Vec<Effect>) {
 fn details_usage(state: &mut ViewState, _: &mut Vec<Effect>) {
     let tab = state.content.active().cloned();
     let agent = content::agent_of(state, tab.as_ref());
+    let account = adroit_protocol::Account {
+        agent,
+        connection: content::connection_of(state, tab.as_ref()),
+    };
     let facts = state.host.work.as_ref().and_then(|w| w.agents.of(agent));
-    details::follow_usage(&mut state.details, tab.as_ref(), agent, facts);
+    details::follow_usage(&mut state.details, tab.as_ref(), account, facts);
 }
 
 /// What the host read again for the spot the details panel shows moves its

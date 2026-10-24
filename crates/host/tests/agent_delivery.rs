@@ -23,8 +23,7 @@ async fn codex_delivery_targets_a_uuid_and_passes_the_envelope_as_one_argument()
         .insert("CODEX_HOME".into(), "/custom/account".into());
     let thread = "123e4567-e89b-12d3-a456-426614174000";
     deliver(
-        Agent::Codex,
-        settings.clone(),
+        adroit_host::programs::starting(&settings, Some(Agent::Codex), None).unwrap(),
         Path::new("/tmp").into(),
         thread.into(),
         "Review $(touch never); exact message".into(),
@@ -40,8 +39,7 @@ async fn codex_delivery_targets_a_uuid_and_passes_the_envelope_as_one_argument()
     std::fs::remove_file(&captured).unwrap();
     assert!(
         deliver(
-            Agent::Codex,
-            settings,
+            adroit_host::programs::starting(&settings, Some(Agent::Codex), None).unwrap(),
             dir.path().into(),
             "ambiguous-session-name".into(),
             "Review".into()
@@ -58,8 +56,7 @@ async fn a_failed_queue_command_never_reports_transport_acceptance() {
     settings.profile_of_mut(Agent::Codex).launch.command = vec!["/usr/bin/false".into()];
     assert!(
         deliver(
-            Agent::Codex,
-            settings,
+            adroit_host::programs::starting(&settings, Some(Agent::Codex), None).unwrap(),
             "/tmp".into(),
             "123e4567-e89b-12d3-a456-426614174000".into(),
             "Report".into()

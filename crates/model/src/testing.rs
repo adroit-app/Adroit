@@ -53,8 +53,18 @@ impl SessionBuilder {
         self.state(State::Waiting(wait))
     }
 
+    /// The agent it runs, started from the profile adroit comes with for it.
     pub fn agent(mut self, agent: Agent) -> Self {
         self.0.agent = agent;
+        self.0.profile = crate::profile::ProfileId::builtin(agent);
+        self.0.connection = crate::profile::ConnectionId::implicit(agent);
+        self
+    }
+
+    /// The profile it started from, by id, and the connection that runs in.
+    pub fn profile(mut self, profile: &str, connection: &str) -> Self {
+        self.0.profile = profile.parse().expect("a valid profile id");
+        self.0.connection = connection.parse().expect("a valid connection id");
         self
     }
 

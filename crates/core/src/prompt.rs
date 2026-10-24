@@ -107,6 +107,7 @@ pub(crate) fn recall(state: &mut ViewState, back: bool, agent: Agent) -> Vec<Eff
             sent: Vec::new(),
         }];
     };
+    let connection = crate::content::connection_of(state, tab.as_ref());
     let view = &mut state.prompt;
     view.asked += 1;
     view.recall = Some(Recall {
@@ -117,6 +118,7 @@ pub(crate) fn recall(state: &mut ViewState, back: bool, agent: Agent) -> Vec<Eff
     vec![Effect::Host(Request::History {
         asked: view.asked,
         agent,
+        connection,
         project,
     })]
 }
@@ -268,7 +270,12 @@ pub(crate) fn commands_sight(state: &ViewState) -> Option<CommandsSight> {
     let tree = tree::listed(state.host.work.as_ref());
     let dir = commands_dir(tree, tab, state.content.place.as_ref())?;
     let agent = crate::content::agent_of(state, tab);
-    Some(CommandsSight { agent, dir })
+    let connection = crate::content::connection_of(state, tab);
+    Some(CommandsSight {
+        agent,
+        connection,
+        dir,
+    })
 }
 
 /// The prompt's Neovim is offered after `/` what the host read for what is

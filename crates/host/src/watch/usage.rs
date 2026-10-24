@@ -6,32 +6,42 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use adroit_agents::claude::usage::Fresh;
+use adroit_model::profile::ConnectionId;
 use adroit_protocol::DetailsChange;
 
 use super::{Watched, distinct};
 
 pub(super) async fn watch(mut watched: Watched) {
-    let mut fresh = HashMap::<adroit_model::Agent, Fresh>::new();
+    // By the connection, which is the account the limits are of.
+    let mut fresh = HashMap::<ConnectionId, Fresh>::new();
     loop {
-        for agent in distinct(&watched.sights(), |s| s.usage.filter(|_| s.details)) {
-            let held = fresh.entry(agent).or_default();
+        let shown = distinct(&watched.sights(), |s| s.usage.clone().filter(|_| s.details));
+        for account in shown {
+            let held = fresh.entry(account.connection.clone()).or_default();
             if held.want(Instant::now()) {
-                let got = adroit_agents::adapter(agent)
-                    .usage(crate::programs::context(agent), crate::paths::home())
-                    .await;
+                let got = match super::asked_in(&watched.seen(), account.agent, &account.connection)
+                    .await
+                {
+                    Some(context) => {
+                        adroit_agents::adapter(account.agent)
+                            .usage(context, crate::paths::home())
+                            .await
+                    }
+                    None => None,
+                };
                 held.settle(Instant::now(), got);
-                if let Some(limits) = held.get() {
-                    watched.record([DetailsChange::Usage {
-                        agent,
-                        limits: limits.to_vec(),
-                    }]);
-                }
+            }
+            if let Some(limits) = held.get() {
+                watched.record([DetailsChange::Usage {
+                    account,
+                    limits: limits.to_vec(),
+                }]);
             }
         }
         watched
             .wait(Duration::from_secs(30), |seen| {
                 seen.iter()
-                    .map(|s| (s.sight.details, s.sight.usage))
+                    .map(|s| (s.sight.details, s.sight.usage.clone()))
                     .collect::<Vec<_>>()
             })
             .await;

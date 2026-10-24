@@ -189,7 +189,10 @@ impl AgentAdapter for Claude {
         home: &Path,
         dir: Option<&Path>,
     ) -> Vec<adroit_model::Past> {
-        super::past::read(&super::places::projects(context, home), dir)
+        crate::kept_in(
+            context,
+            super::past::read(&super::places::projects(context, home), dir),
+        )
     }
     fn conversation(&self) -> String {
         super::new_session_id()

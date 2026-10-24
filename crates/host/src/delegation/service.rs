@@ -494,10 +494,10 @@ async fn watch_models(context: Context) {
             if next.get(&agent).is_none_or(|at| now >= *at) {
                 // Far ahead while asking, so a slow answer is not asked twice.
                 next.insert(agent, now + Duration::from_secs(600));
-                let asked = adroit_agents::adapter(agent).models(
-                    crate::programs::context_of(&settings, agent),
-                    crate::paths::home(),
-                );
+                let Ok(started) = crate::programs::starting(&settings, Some(agent), None) else {
+                    continue;
+                };
+                let asked = adroit_agents::adapter(agent).models(started, crate::paths::home());
                 asking.spawn(async move { (agent, asked.await) });
             }
         }
@@ -601,16 +601,12 @@ impl Watcher {
         screen: &[String],
     ) -> Result<()> {
         let answered = tags::value(&native.tags, CHANNEL_CONFIRMED).is_some();
-        let id = record.id;
+        let (id, profile) = (record.id, record.profile.clone());
         let allowed = context
             .call(move |store| store.launch(id))
             .await?
-            .is_some_and(|launch| {
-                launch
-                    .profile_of(Agent::Claude)
-                    .claude()
-                    .is_some_and(|options| options.confirm_channel_warning)
-            });
+            .and_then(|launch| crate::programs::recorded(&launch, &profile).ok())
+            .is_some_and(|started| started.claude().confirm_channel_warning);
         if let Some(keys) = channel_warning_keys(record.agent, allowed, answered, screen) {
             // Tagged before pressing: a lost reply must not lead to a second press.
             context
@@ -663,20 +659,15 @@ impl Watcher {
         }
         if adapter.conversation_title_needs_lookup(title) && self.looking.insert(id) {
             let (context, title, cwd) = (context.clone(), title.to_owned(), record.cwd.clone());
+            let profile = record.profile.clone();
             self.lookups.spawn(async move {
                 let Ok(Some(launch)) = context.call(move |store| store.launch(id)).await else {
                     return (id, None);
                 };
-                (
-                    id,
-                    adapter
-                        .resolve_conversation(
-                            crate::programs::context_of(&launch, Agent::Codex),
-                            cwd,
-                            title,
-                        )
-                        .await,
-                )
+                let Ok(started) = crate::programs::recorded(&launch, &profile) else {
+                    return (id, None);
+                };
+                (id, adapter.resolve_conversation(started, cwd, title).await)
             });
         }
     }
@@ -689,29 +680,18 @@ impl Watcher {
         if self.delivering.contains(&record.id) {
             return Ok(());
         }
-        let id = record.id;
+        let (id, profile) = (record.id, record.profile.clone());
         let next = context
-            .call(move |store| {
-                let Some(message) = store.next_undelivered(id)? else {
-                    return Ok(None);
-                };
-                let sender = match message.sender {
-                    Some(sender) => store.session(sender)?,
-                    None => None,
-                };
-                let launch = store.launch(id)?;
-                Ok(launch.map(|launch| (message, sender, launch)))
-            })
+            .call(move |store| next_delivery(store, id, &profile))
             .await?;
-        let Some((message, sender, launch)) = next else {
+        let Some((message, sender, started)) = next else {
             return Ok(());
         };
         self.delivering.insert(id);
         let text = envelope(&message, sender.as_ref());
         let (context, cwd) = (context.clone(), record.cwd.clone());
         self.deliveries.spawn(async move {
-            let handed =
-                crate::execution::deliver(Agent::Codex, launch, cwd, conversation, text).await;
+            let handed = crate::execution::deliver(started, cwd, conversation, text).await;
             if handed.is_ok() {
                 let message = message.id;
                 let _ = context.call(move |store| store.delivered(message)).await;
@@ -720,6 +700,30 @@ impl Watcher {
         });
         Ok(())
     }
+}
+
+/// The oldest message waiting for `id`, its sender, and the context it is
+/// handed over in: that of `profile`, the one `id` was recorded as started
+/// from, as the settings it was started with say, whatever they say now, as
+/// another connection's queue does not know the session.
+fn next_delivery(
+    store: &mut Store,
+    id: SessionId,
+    profile: &adroit_model::profile::ProfileId,
+) -> Result<Option<(Message, Option<Session>, adroit_agents::AgentContext)>> {
+    let Some(message) = store.next_undelivered(id)? else {
+        return Ok(None);
+    };
+    let sender = match message.sender {
+        Some(sender) => store.session(sender)?,
+        None => None,
+    };
+    let Some(launch) = store.launch(id)? else {
+        return Ok(None);
+    };
+    let started =
+        crate::programs::recorded(&launch, profile).map_err(|e| Error::new(Code::Storage, e))?;
+    Ok(Some((message, sender, started)))
 }
 
 /// How a starting session stands, from what its adapter read on its screen
@@ -897,5 +901,79 @@ mod tests {
         assert!(from_own_conversation(&fresh, Some("thread-b")).is_ok());
         let claude = record("review").conversation("x").build();
         assert!(from_own_conversation(&claude, Some("y")).is_ok());
+    }
+    #[test]
+    fn a_message_is_handed_over_in_the_connection_its_recipient_started_in_after_a_restart() {
+        use super::super::store::NewSession;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.sqlite3");
+        let launch = Settings::parse(
+            "[[profiles]]\nid = \"codex\"\nagent = \"codex\"\n\n[[profiles]]\nid = \"codex-work\"\nagent = \"codex\"\nconnection = \"work\"\n\n[[connections]]\nid = \"work\"\nagent = \"codex\"\nhome = \"/w/codex\"\n",
+        )
+        .unwrap();
+        let new = |profile: &str, connection: &str| NewSession {
+            parent: None,
+            agent: Agent::Codex,
+            profile: profile.parse().unwrap(),
+            connection: connection.parse().unwrap(),
+            name: profile.into(),
+            cwd: "/repo".into(),
+            launch: launch.clone(),
+            started_ms: 1,
+        };
+        let to = {
+            let mut store = Store::open(&path).unwrap();
+            let (from, _) = store.register(new("codex", "codex")).unwrap();
+            let (to, _) = store.register(new("codex-work", "work")).unwrap();
+            store.send(from, to, "review").unwrap();
+            to
+        };
+
+        // Read again as a work host started anew does, asking only what was
+        // recorded, never the settings in force.
+        let mut store = Store::open(&path).unwrap();
+        let (message, _, started) = next_delivery(&mut store, to, &"codex-work".parse().unwrap())
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(message.body, "review");
+        assert_eq!(started.connection.as_str(), "work");
+        assert_eq!(started.home, Some("/w/codex".into()));
+    }
+
+    #[test]
+    fn a_session_of_an_agent_its_settings_gave_no_profile_is_handed_its_messages() {
+        use super::super::store::NewSession;
+        let dir = tempfile::tempdir().unwrap();
+        let launch = Settings::parse(
+            "[[profiles]]\nid = \"claude\"\nagent = \"claude\"\n\n[[profiles]]\nid = \"claude-work\"\nagent = \"claude\"\n",
+        )
+        .unwrap();
+        let new = |agent: Agent| {
+            let started = crate::programs::starting(&launch, Some(agent), None).unwrap();
+            NewSession {
+                parent: None,
+                agent,
+                profile: started.profile,
+                connection: started.connection,
+                name: agent.key().into(),
+                cwd: "/repo".into(),
+                launch: launch.clone(),
+                started_ms: 1,
+            }
+        };
+        let mut store = Store::open(&dir.path().join("state.sqlite3")).unwrap();
+        let (from, _) = store.register(new(Agent::Claude)).unwrap();
+        let (to, _) = store.register(new(Agent::Codex)).unwrap();
+        store.send(from, to, "review").unwrap();
+        let profile = new(Agent::Codex).profile;
+
+        let (message, _, handed) = next_delivery(&mut store, to, &profile).unwrap().unwrap();
+
+        assert_eq!(message.body, "review");
+        assert_eq!(
+            (handed.agent(), handed.connection.as_str()),
+            (Agent::Codex, "codex")
+        );
     }
 }
