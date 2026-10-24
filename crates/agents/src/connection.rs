@@ -103,7 +103,7 @@ fn command(
 
 /// Makes `dir` and the directories above it that are missing, readable by
 /// the user alone.
-fn make_private(dir: &Path) -> std::io::Result<()> {
+pub fn make_private(dir: &Path) -> std::io::Result<()> {
     use std::os::unix::fs::DirBuilderExt;
     std::fs::DirBuilder::new()
         .recursive(true)

@@ -151,6 +151,50 @@ impl Ui {
         });
     }
 
+    /// Open a terminal that runs the CLI's own login in `connection`, as
+    /// `profile` starts it, shown with the keys, for the user to log in
+    /// there; whether it is logged in is asked again once it ends.
+    pub(crate) fn open_login(
+        &self,
+        connection: adroit_model::profile::ConnectionId,
+        profile: adroit_model::profile::ProfileId,
+    ) {
+        let (app, hub) = (self.app, self.hub.clone());
+        let size = *self.local.console_size.peek();
+        spawn(async move {
+            let asked = Ask::OpenLogin {
+                connection: connection.clone(),
+                profile: Some(profile.clone()),
+                cols: size.cols,
+                rows: size.rows,
+            };
+            let terminal = match app.ask(asked).await {
+                Answer::Terminal { terminal } => terminal,
+                Answer::Failed { text } => {
+                    app.status(Some(format!("cannot open the login terminal: {text}")));
+                    return;
+                }
+                answer => {
+                    app.status(Some(format!("cannot open the login terminal: {answer:?}")));
+                    return;
+                }
+            };
+            let id = terminal.id;
+            crate::logins::ask(app, profile, connection, Some(id));
+            if let Err(e) = attach_held(app, &hub, id, Tab::Terminal(id), size).await {
+                app.status(Some(format!("cannot open the login terminal: {e}")));
+                return;
+            }
+            app.dispatch(Msg::TerminalOpened(terminal));
+            app.dispatch(Msg::Show {
+                thing: Tab::Terminal(id),
+                place: None,
+                how: None,
+            });
+            app.dispatch(Msg::Focus(Area::Console));
+        });
+    }
+
     /// Start a session from a draft with its first prompt, in the draft's
     /// place, where the host makes a folder of its own for a scratch draft
     /// only now: a draft left unsent leaves no empty directory behind.

@@ -190,22 +190,28 @@ impl Daemon {
 /// Whether `spawn`'s program is one that can run, looked up on the `PATH`
 /// it is started with.
 fn found(spawn: &Spawn) -> bool {
+    runnable(&spawn.program, &spawn.cwd, &spawn.env)
+}
+
+/// Whether `program` is one that can run when started in `cwd` with `env`:
+/// one written with a `/` taken from `cwd`, any other looked up on the last
+/// `PATH` `env` sets, else on this process's own.
+pub fn runnable(program: &str, cwd: &std::path::Path, env: &[(String, String)]) -> bool {
     use std::os::unix::fs::PermissionsExt;
     let runs = |p: &std::path::Path| {
         std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
     };
-    if spawn.program.contains('/') {
-        return runs(&spawn.cwd.join(&spawn.program));
+    if program.contains('/') {
+        return runs(&cwd.join(program));
     }
-    let path = spawn
-        .env
+    let path = env
         .iter()
         .rev()
         .find(|(k, _)| k == "PATH")
         .map(|(_, v)| v.clone())
         .or_else(|| std::env::var("PATH").ok())
         .unwrap_or_default();
-    std::env::split_paths(&path).any(|dir| runs(&dir.join(&spawn.program)))
+    std::env::split_paths(&path).any(|dir| runs(&dir.join(program)))
 }
 
 pub(crate) fn dark(palette: &Palette) -> bool {

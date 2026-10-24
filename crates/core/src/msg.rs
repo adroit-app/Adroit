@@ -154,6 +154,12 @@ pub enum Msg {
         tab: Option<Tab>,
         agent: Agent,
     },
+    /// Open a terminal running the CLI's own login in this connection, as
+    /// this profile starts it.
+    OpenLogin {
+        connection: adroit_model::profile::ConnectionId,
+        profile: adroit_model::profile::ProfileId,
+    },
     /// The profile chosen for this draft, or for the next one.
     DraftProfile {
         tab: Option<Tab>,

@@ -121,6 +121,9 @@ pub async fn prepare(
     // Refused before anything is recorded or asked of the agent, so a start
     // that cannot run leaves nothing behind.
     crate::execution::resolve(settings, request.clone(), program)?;
+    let context =
+        crate::programs::starting(settings, Some(request.agent), request.profile.as_ref())?;
+    crate::programs::ready(&context, &request.cwd, &request.env)?;
     let recorded = record(root, settings, &mut request, parent).await?;
     match crate::execution::resolve(settings, request, program) {
         Ok(resolved) => Ok((resolved, recorded)),

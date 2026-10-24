@@ -15,7 +15,7 @@ pub use daemon::{
 };
 pub use input::{Input, Key};
 pub use palette::{Palette, Rgb};
-pub use pane::{Drawn, Pane, Picture, Size};
+pub use pane::{Drawn, Pane, Picture, Size, runnable};
 pub use presence::Presence;
 pub use screen::{Cursor, CursorShape, Line, Part, Run, Screen, Style, block, set_apart};
 

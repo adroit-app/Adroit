@@ -4,16 +4,21 @@
 
 use std::path::PathBuf;
 
-use adroit_model::profile::ProfileId;
+use adroit_core::msg::Msg;
+use adroit_model::profile::{ConnectionId, LoginStanding, ProfileId};
 use adroit_model::{Agent, AgentPermissions};
+use std::time::Instant;
+
 use dioxus::prelude::*;
 
 use super::super::short;
 use crate::actions::Action;
+use crate::bridge::AppCtx;
 use crate::components::{Button, EmptyState, Keys, Legend, LegendRow};
 use crate::content::DraftOptions;
 use crate::icons::{Icon, IconView};
 use crate::keymap::{Context, Keymap};
+use crate::logins::Login;
 
 /// A draft in a window that is not focused: what it is and where.
 #[component]
@@ -171,6 +176,8 @@ fn AgentChoices(current: Agent, keys: Option<String>, onchoose: EventHandler<Age
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ProfileChoice {
     pub id: ProfileId,
+    pub agent: Agent,
+    pub connection: ConnectionId,
     /// What it is offered as; see [`adroit_core::profiles::offered_as`].
     pub label: String,
 }
@@ -182,6 +189,7 @@ fn ProfileChoices(
     keys: Option<String>,
     onchoose: EventHandler<ProfileId>,
 ) -> Element {
+    let chosen = profiles.iter().find(|p| p.id == current).cloned();
     rsx! {
         label { class: "launch-form-label", r#for: "launch-profile", "Profile" }
         div {
@@ -203,6 +211,69 @@ fn ProfileChoices(
             if let Some(keys) = keys {
                 span { class: "launch-form-keys", title: "Switches the profile", Keys { keys } }
             }
+        }
+        if let Some(chosen) = chosen {
+            LoginNotice {
+                key: "{chosen.id}",
+                profile: chosen.id.clone(),
+                connection: chosen.connection.clone(),
+                agent: chosen.agent,
+            }
+        }
+    }
+}
+
+/// What to do before the session can start when the CLI `profile` starts
+/// in its connection says it is not logged in, or cannot be found; nothing
+/// otherwise. Asked as the draft shows the profile, unless the window asked
+/// a short while ago, and again once a login terminal opened here ends.
+#[component]
+fn LoginNotice(profile: ProfileId, connection: ConnectionId, agent: Agent) -> Element {
+    let app = use_context::<AppCtx>();
+    let ask = {
+        let (profile, connection) = (profile.clone(), connection.clone());
+        move || crate::logins::ask(app, profile.clone(), connection.clone(), None)
+    };
+    {
+        let (profile, ask) = (profile.clone(), ask.clone());
+        use_hook(move || {
+            if crate::logins::stale(app.logins.peek().get(&profile), Instant::now()) {
+                ask();
+            }
+        });
+    }
+    let standing = match app.logins.read().get(&profile) {
+        Some(Login::Is(standing, _)) => Some(*standing),
+        _ => None,
+    };
+    rsx! {
+        match standing {
+            Some(LoginStanding::LoggedOut) => rsx! {
+                div { class: "launch-form-label", "Login" }
+                div { class: "launch-form-agent", role: "status",
+                    span { class: "launch-form-where", "Not logged in" }
+                    Button {
+                        kind: "primary",
+                        onclick: move |_| {
+                            app.dispatch(Msg::OpenLogin {
+                                connection: connection.clone(),
+                                profile: profile.clone(),
+                            });
+                        },
+                        "Open login terminal"
+                    }
+                }
+            },
+            Some(LoginStanding::Missing) => rsx! {
+                div { class: "launch-form-label", "Login" }
+                div { class: "launch-form-agent", role: "status",
+                    span { class: "launch-form-where",
+                        "{agent.label()}'s CLI is not found: install it, or set the profile's launch command in Settings"
+                    }
+                    Button { onclick: move |_| ask.clone()(), "Check again" }
+                }
+            },
+            _ => rsx! {},
         }
     }
 }

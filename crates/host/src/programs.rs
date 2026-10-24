@@ -30,10 +30,14 @@ pub fn starting(
         (Some(id), agent) => {
             let profile = settings
                 .find_profile(id)
-                .ok_or_else(|| format!("profile `{id}` is not defined"))?;
+                .ok_or_else(|| {
+                    format!(
+                        "profile `{id}` is not defined; choose another, or add it under Settings → Agents → Profiles"
+                    )
+                })?;
             if profile.archived {
                 return Err(format!(
-                    "profile `{id}` is archived and starts no new session"
+                    "profile `{id}` is archived and starts no new session; choose another, or unarchive it under Settings → Agents → Profiles"
                 ));
             }
             if let Some(agent) = agent.filter(|a| *a != profile.agent()) {
@@ -49,6 +53,53 @@ pub fn starting(
         (None, None) => settings.profile_of(settings.default_agent()),
     };
     in_connection(settings, &chosen)
+}
+
+/// Whether a session of `context` can be started at all, in `cwd` with
+/// `env` set: its connection's state directory made or there, and its
+/// program found, as the terminal host would find it with the profile's own
+/// variables set over `env`, when it is started without a shell, whose
+/// startup files could still put it on the path. Why not, with what to do
+/// about it.
+pub fn ready(
+    context: &AgentContext,
+    cwd: &std::path::Path,
+    env: &[(String, String)],
+) -> Result<(), String> {
+    const WHERE: &str = "Settings → Agents";
+    if let Some(home) = &context.home
+        && let Err(e) = adroit_agents::connection::make_private(home)
+    {
+        return Err(format!(
+            "connection `{}` keeps its state in {}, which cannot be made: {e}; check that its volume is there, or move profile `{}` to another connection under {WHERE} → Profiles",
+            context.connection,
+            home.display(),
+            context.profile
+        ));
+    }
+    if context.launch.via_shell {
+        return Ok(());
+    }
+    let agent = context.agent();
+    let program = context
+        .launch
+        .command
+        .first()
+        .cloned()
+        .unwrap_or_else(|| adroit_agents::adapter(agent).program());
+    let env: Vec<(String, String)> = env
+        .iter()
+        .cloned()
+        .chain(context.launch.env.clone())
+        .collect();
+    match adroit_term::runnable(&program, cwd, &env) {
+        true => Ok(()),
+        false => Err(format!(
+            "{}'s program `{program}` is not installed or not on the path; install it, or set profile `{}`'s launch command under {WHERE} → Profiles",
+            agent.label(),
+            context.profile
+        )),
+    }
 }
 
 /// The context a session recorded as started from `profile` runs in, as
@@ -223,6 +274,8 @@ fn in_connection(settings: &Settings, profile: &AgentProfile) -> Result<AgentCon
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
 
     const PROFILES: &str = r#"profile = "claude-work"
@@ -282,10 +335,10 @@ home = "/Users/me/claude-work"
     fn a_profile_that_is_not_defined_is_archived_or_starts_another_agent_is_refused() {
         let s = settings();
         let refused = |agent, profile: &str| starting(&s, agent, Some(&id(profile))).unwrap_err();
-        assert_eq!(refused(None, "gone"), "profile `gone` is not defined");
-        assert_eq!(
-            refused(None, "old"),
-            "profile `old` is archived and starts no new session"
+        assert!(refused(None, "gone").starts_with("profile `gone` is not defined; choose another"));
+        assert!(
+            refused(None, "old")
+                .starts_with("profile `old` is archived and starts no new session; choose another")
         );
         assert_eq!(
             refused(Some(Agent::Claude), "codex-review"),
@@ -315,9 +368,10 @@ home = "/Users/me/claude-work"
             id("codex")
         );
         // An agent with a profile of its own is started from that alone.
-        assert_eq!(
-            starting(&settings(), None, Some(&id("codex"))).unwrap_err(),
-            "profile `codex` is not defined"
+        assert!(
+            starting(&settings(), None, Some(&id("codex")))
+                .unwrap_err()
+                .starts_with("profile `codex` is not defined")
         );
     }
 
@@ -375,6 +429,82 @@ home = "/Users/me/claude-work"
                 ("claude".into(), "claude".into()),
             ]
         );
+    }
+
+    #[test]
+    fn a_start_whose_program_cannot_be_found_or_state_made_says_what_to_do() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        let program = |path: &Path, mode| {
+            std::fs::write(path, "").unwrap();
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+        };
+        program(&bin.join("claude"), 0o755);
+        let cwd = dir.path();
+        let path = vec![("PATH".to_string(), format!("/nowhere:{}", bin.display()))];
+        let own = AgentContext::builtin(Agent::Claude);
+        assert_eq!(ready(&own, cwd, &path), Ok(()));
+        let codex = AgentContext::builtin(Agent::Codex);
+        let missing = ready(&codex, cwd, &path).unwrap_err();
+        assert!(
+            missing.starts_with("Codex's program `codex` is not installed or not on the path; install it, or set profile `codex`'s launch command under Settings"),
+            "{missing}"
+        );
+        // A shell's startup files may still put it on the path.
+        let mut shelled = codex.clone();
+        shelled.launch.via_shell = true;
+        assert_eq!(ready(&shelled, cwd, &path), Ok(()));
+        let mut named = codex.clone();
+        named.launch.command = vec![bin.join("claude").display().to_string()];
+        assert_eq!(ready(&named, cwd, &[]), Ok(()));
+        named.launch.command = vec!["/nowhere/codex".into()];
+        assert!(ready(&named, cwd, &[]).is_err());
+        // A command with a `/` is taken from the session's directory.
+        named.launch.command = vec!["bin/claude".into()];
+        assert_eq!(ready(&named, cwd, &[]), Ok(()));
+        assert!(ready(&named, &bin, &[]).is_err());
+        // A file that cannot be run is no program.
+        program(&bin.join("codex"), 0o644);
+        assert!(ready(&codex, cwd, &path).is_err());
+
+        let home = dir.path().join("work");
+        let mut in_work = AgentContext {
+            home: Some(home.clone()),
+            ..own.clone()
+        };
+        assert_eq!(ready(&in_work, cwd, &path), Ok(()));
+        assert!(home.is_dir());
+        // A file where the directory would go keeps it from being made.
+        let blocked = dir.path().join("file");
+        std::fs::write(&blocked, "").unwrap();
+        in_work.home = Some(blocked.join("work"));
+        let error = ready(&in_work, cwd, &path).unwrap_err();
+        assert!(error.contains("which cannot be made"), "{error}");
+        assert!(
+            error.contains("move profile `claude` to another connection"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_program_is_looked_up_on_the_path_its_profile_sets_before_the_one_it_is_started_with() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("codex"), "").unwrap();
+        std::fs::set_permissions(
+            dir.path().join("codex"),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+        let mut codex = AgentContext::builtin(Agent::Codex);
+        codex
+            .launch
+            .env
+            .insert("PATH".into(), dir.path().display().to_string());
+        let elsewhere = [("PATH".to_string(), "/nowhere".to_string())];
+        assert_eq!(ready(&codex, Path::new("/"), &elsewhere), Ok(()));
     }
 
     #[test]

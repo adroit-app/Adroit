@@ -112,6 +112,8 @@ pub(crate) struct AppCtx {
     pub(crate) overlays: Signal<Overlays>,
     pub(crate) console: Signal<ConsoleView>,
     pub(crate) prompt: Signal<PromptView>,
+    /// What the window knows of each profile's login.
+    pub(crate) logins: Signal<crate::logins::Logins>,
     /// The effects whose state `App` still holds, and what runs them.
     handed: CopyValue<Handoff>,
     /// What runs an action where the keys are now, which `App` still does.
@@ -172,6 +174,7 @@ pub(crate) fn use_app() -> AppCtx {
             overlays: Signal::new(view.overlays.clone()),
             console: Signal::new(view.console.clone()),
             prompt: Signal::new(view.prompt.clone()),
+            logins: Signal::new(Default::default()),
             handed: CopyValue::new(Handoff::default()),
             performer: CopyValue::new(None),
             scope: current_scope_id(),
@@ -226,6 +229,13 @@ impl AppCtx {
     pub(crate) fn open_settings(&self) {
         let link = (**self.link.read()).clone();
         crate::settings_window::open(self.agents(), link);
+    }
+
+    /// Run `task` for as long as the window, whatever component started it.
+    pub(crate) fn keep(&self, task: impl std::future::Future<Output = ()> + 'static) {
+        as_from(self.scope, || {
+            spawn(task);
+        });
     }
 
     /// Ask the host `ask`, and what came of it.
@@ -339,6 +349,7 @@ impl AppCtx {
             | Effect::Palette(_)
             | Effect::PromptRoot(_)
             | Effect::StartTerminal(_)
+            | Effect::OpenLogin { .. }
             | Effect::PromptClose(_)
             | Effect::StartWriting
             | Effect::KeepPanes { .. }

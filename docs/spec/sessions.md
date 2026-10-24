@@ -29,6 +29,17 @@ those of the connection its profile runs in. A session keeps its agent and
 profile once it runs, whatever the default becomes. Both kinds can run in
 the same workspace.
 
+A draft whose profile's program says, in the profile's connection, that it
+is not logged in offers to open the login terminal
+([settings](settings.md#profiles-in-the-settings-window)), which runs that
+program, and asks again once that terminal ends; one whose program cannot be
+found says so. However it is started, from a
+draft, `adroit session start` or another session, a session is refused
+before anything is recorded or runs when its profile is not defined or is
+archived, when its connection's folder cannot be made, or when its agent's
+program is not found where it is started without a shell; the refusal says
+what to do about it.
+
 A session also keeps the profile it started from, and the connection that
 runs in ([settings](settings.md#profiles-and-connections)), whatever the
 settings say since, and after the work host starts again: messages are

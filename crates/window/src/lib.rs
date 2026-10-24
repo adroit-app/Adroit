@@ -32,6 +32,7 @@ mod keys_help_view;
 mod keys_pane;
 mod layout;
 mod link;
+mod logins;
 pub mod menu_bar;
 mod picker;
 pub use adroit_core::tree::nav;

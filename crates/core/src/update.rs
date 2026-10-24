@@ -92,6 +92,13 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
                 None => Vec::new(),
             }
         }
+        Msg::OpenLogin {
+            connection,
+            profile,
+        } => vec![Effect::OpenLogin {
+            connection,
+            profile,
+        }],
         Msg::DraftProfile { tab, profile } => {
             let found = state
                 .config

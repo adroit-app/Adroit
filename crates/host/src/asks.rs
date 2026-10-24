@@ -279,6 +279,9 @@ async fn open_login(
         .await
         .map_err(|e| e.to_string())?;
     held::hold(id).await;
+    // Settings, which opens it too, shows no terminal to wait for; the
+    // host's own presence has told the program the theme already.
+    held::release(id).await;
     let terminal = TerminalSession { id, ..terminal };
     watched.terminal_opened(terminal.clone());
     Ok(Answer::Terminal { terminal })

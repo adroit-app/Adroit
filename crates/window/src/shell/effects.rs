@@ -28,6 +28,10 @@ impl Ui {
             Effect::Resume(past) => self.resume(past),
             Effect::RestartDaemon => self.restart_daemon(),
             Effect::StartTerminal(ask) => self.start_terminal(ask),
+            Effect::OpenLogin {
+                connection,
+                profile,
+            } => self.open_login(connection, profile),
             Effect::StartDraft(start) => self.start_draft(*start),
             Effect::TypeInto { tab, typing } => self.type_into_tab(tab, typing),
             Effect::ShowShot { shot, session } => self.show_shot(&shot, &session),

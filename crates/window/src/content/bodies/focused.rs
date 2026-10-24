@@ -54,6 +54,8 @@ pub(crate) fn FocusedBody() -> Element {
             .iter()
             .map(|p| ProfileChoice {
                 id: p.id.clone(),
+                agent: p.agent(),
+                connection: p.connection.clone(),
                 label: adroit_core::profiles::offered_as(settings, p),
             })
             .collect();
