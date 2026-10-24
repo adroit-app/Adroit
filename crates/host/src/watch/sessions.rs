@@ -179,7 +179,7 @@ pub async fn read_sessions(
     for agent in adroit_model::Agent::ALL {
         let adapter = adroit_agents::adapter(agent);
         let listed = adapter
-            .list_sessions(crate::programs::agents())
+            .list_sessions(crate::programs::context(agent))
             .await
             .unwrap_or_default();
         let tags = adapter.follow(&mut own, listed);

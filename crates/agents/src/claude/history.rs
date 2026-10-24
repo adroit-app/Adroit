@@ -3,11 +3,13 @@
 
 use std::path::{Path, PathBuf};
 
-/// Where Claude Code keeps the prompts sent: under `$CLAUDE_CONFIG_DIR`,
-/// else under `.claude/` in the home directory.
-fn history_path(home: &Path) -> PathBuf {
-    match std::env::var_os("CLAUDE_CONFIG_DIR") {
-        Some(dir) => PathBuf::from(dir).join("history.jsonl"),
+use crate::AgentContext;
+
+/// Where Claude Code, started as `context` says, keeps the prompts sent:
+/// under its state directory, else under `.claude/` in the home directory.
+pub(crate) fn history_path(context: &AgentContext, home: &Path) -> PathBuf {
+    match super::places::config_dir(context) {
+        Some(dir) => dir.join("history.jsonl"),
         None => home.join(".claude").join("history.jsonl"),
     }
 }
@@ -60,13 +62,11 @@ fn put_back<'a>(display: &str, content: impl Fn(&str) -> Option<&'a str>) -> Str
     out
 }
 
-/// The prompts sent in `project`, oldest first; none when Claude Code has
+/// The prompts sent in `project`, oldest first, as Claude Code started as
+/// `context` says keeps them, `home` being the user's home; none when it has
 /// kept none or they cannot be read.
-pub fn read(project: &Path) -> Vec<String> {
-    let Some(home) = std::env::var_os("HOME") else {
-        return Vec::new();
-    };
-    std::fs::read_to_string(history_path(Path::new(&home)))
+pub fn read(context: &AgentContext, home: &Path, project: &Path) -> Vec<String> {
+    std::fs::read_to_string(history_path(context, home))
         .map(|text| parse(&text, project))
         .unwrap_or_default()
 }

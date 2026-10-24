@@ -14,10 +14,13 @@ pub(super) async fn watch(mut watched: Watched) {
         for sight in distinct(&watched.sights(), |s| s.past.clone()) {
             let dir = sight.dir.clone();
             let read = tokio::task::spawn_blocking(move || {
-                let (settings, home) = (crate::programs::agents(), crate::paths::home());
+                let (settings, home) = (crate::settings::current(), crate::paths::home());
                 let pasts = Agent::ALL
                     .iter()
-                    .flat_map(|a| adroit_agents::adapter(*a).past(&settings, &home, dir.as_deref()))
+                    .flat_map(|a| {
+                        let context = crate::programs::context_of(&settings, *a);
+                        adroit_agents::adapter(*a).past(&context, &home, dir.as_deref())
+                    })
                     .collect();
                 newest_first(pasts)
             })

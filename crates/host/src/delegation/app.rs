@@ -64,7 +64,10 @@ pub async fn record(
 ) -> std::result::Result<Recorded, String> {
     if request.agent == Agent::Codex {
         request.developer_instructions = adroit_agents::adapter(request.agent)
-            .developer_instructions(crate::programs::agents_of(settings), request.cwd.clone())
+            .developer_instructions(
+                crate::programs::context_of(settings, request.agent),
+                request.cwd.clone(),
+            )
             .await?;
     }
     let profile = settings.profile_of(request.agent);

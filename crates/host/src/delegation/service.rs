@@ -490,8 +490,10 @@ async fn watch_models(context: Context) {
             if next.get(&agent).is_none_or(|at| now >= *at) {
                 // Far ahead while asking, so a slow answer is not asked twice.
                 next.insert(agent, now + Duration::from_secs(600));
-                let asked = adroit_agents::adapter(agent)
-                    .models(crate::programs::agents_of(&settings), crate::paths::home());
+                let asked = adroit_agents::adapter(agent).models(
+                    crate::programs::context_of(&settings, agent),
+                    crate::paths::home(),
+                );
                 asking.spawn(async move { (agent, asked.await) });
             }
         }
@@ -664,7 +666,11 @@ impl Watcher {
                 (
                     id,
                     adapter
-                        .resolve_conversation(crate::programs::agents_of(&launch), cwd, title)
+                        .resolve_conversation(
+                            crate::programs::context_of(&launch, Agent::Codex),
+                            cwd,
+                            title,
+                        )
                         .await,
                 )
             });

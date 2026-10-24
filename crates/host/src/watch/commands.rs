@@ -76,7 +76,7 @@ fn ask(watched: &Watched, caches: &Caches, sight: CommandsSight) {
     let (watched, caches) = (watched.clone(), caches.clone());
     tokio::spawn(async move {
         let got = adapter
-            .commands(crate::programs::agents(), sight.dir.clone())
+            .commands(crate::programs::context(sight.agent), sight.dir.clone())
             .await;
         lock(&caches)
             .entry(sight.agent)

@@ -32,7 +32,7 @@ pub(super) async fn watch(watched: Watched) {
             let mark = stats.tokens.map_or(0, |t| t.total());
             if asked.want(&key, mark, Instant::now()) {
                 let got = adroit_agents::adapter(s.agent)
-                    .context(crate::programs::agents(), &s, stats.model)
+                    .context(crate::programs::context(s.agent), &s, stats.model)
                     .await;
                 asked.settle(&key, Instant::now(), got);
             }

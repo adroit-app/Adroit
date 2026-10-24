@@ -39,25 +39,16 @@ impl AgentAdapter for Codex {
 
     fn resolve_conversation(
         &self,
-        settings: AgentSettings,
+        context: AgentContext,
         cwd: PathBuf,
         title: String,
     ) -> ConversationLookup {
-        Box::pin(identity::resolve(settings, cwd, title))
+        Box::pin(identity::resolve(context, cwd, title))
     }
 
-    fn developer_instructions(
-        &self,
-        settings: AgentSettings,
-        cwd: PathBuf,
-    ) -> DeveloperInstructions {
+    fn developer_instructions(&self, context: AgentContext, cwd: PathBuf) -> DeveloperInstructions {
         Box::pin(async move {
-            let start = launch_with_settings(
-                &settings,
-                Agent::Codex,
-                vec!["app-server".into()],
-                Vec::new(),
-            );
+            let start = launch_in(&context, vec!["app-server".into()], Vec::new());
             let result = rpc::request(
                 start,
                 &cwd,
@@ -95,13 +86,13 @@ impl AgentAdapter for Codex {
 
     fn deliver(
         &self,
-        settings: AgentSettings,
+        context: AgentContext,
         cwd: PathBuf,
         conversation: String,
         envelope: String,
     ) -> DeliveryFuture {
         Box::pin(crate::delivery::codex_queue(
-            settings,
+            context,
             cwd,
             conversation,
             envelope,
@@ -152,7 +143,7 @@ impl AgentAdapter for Codex {
     }
     fn transcript(
         &self,
-        settings: &AgentSettings,
+        context: &AgentContext,
         home: &Path,
         session: &adroit_model::Session,
     ) -> Option<Box<dyn ConversationReader>> {
@@ -160,7 +151,7 @@ impl AgentAdapter for Codex {
             return None;
         }
         Some(Box::new(transcript::Transcript::open(
-            root(settings, home),
+            root(context, home),
             session.session_id.clone(),
             &session.cwd,
             home,
@@ -168,17 +159,12 @@ impl AgentAdapter for Codex {
     }
     fn commands(
         &self,
-        settings: AgentSettings,
+        context: AgentContext,
         dir: PathBuf,
     ) -> Probe<crate::claude::commands::Command> {
         Box::pin(async move {
             commands::probe(
-                launch_with_settings(
-                    &settings,
-                    Agent::Codex,
-                    vec!["app-server".into()],
-                    Vec::new(),
-                ),
+                launch_in(&context, vec!["app-server".into()], Vec::new()),
                 &dir,
                 crate::claude::commands::PROBE_TIMEOUT,
             )
@@ -188,30 +174,20 @@ impl AgentAdapter for Codex {
     fn builtin_commands(&self) -> Vec<crate::claude::commands::Command> {
         commands::builtins()
     }
-    fn models(&self, settings: AgentSettings, dir: PathBuf) -> Probe<adroit_model::ProviderModel> {
+    fn models(&self, context: AgentContext, dir: PathBuf) -> Probe<adroit_model::ProviderModel> {
         Box::pin(async move {
             models::probe(
-                launch_with_settings(
-                    &settings,
-                    Agent::Codex,
-                    vec!["app-server".into()],
-                    Vec::new(),
-                ),
+                launch_in(&context, vec!["app-server".into()], Vec::new()),
                 &dir,
                 crate::claude::commands::PROBE_TIMEOUT,
             )
             .await
         })
     }
-    fn usage(&self, settings: AgentSettings, home: PathBuf) -> Probe<crate::claude::usage::Limit> {
+    fn usage(&self, context: AgentContext, home: PathBuf) -> Probe<crate::claude::usage::Limit> {
         Box::pin(async move {
             usage::probe(
-                launch_with_settings(
-                    &settings,
-                    Agent::Codex,
-                    vec!["app-server".into()],
-                    Vec::new(),
-                ),
+                launch_in(&context, vec!["app-server".into()], Vec::new()),
                 &home,
                 crate::claude::usage::PROBE_TIMEOUT,
             )
@@ -290,47 +266,47 @@ impl AgentAdapter for Codex {
     }
     fn past(
         &self,
-        settings: &AgentSettings,
+        context: &AgentContext,
         home: &Path,
         dir: Option<&Path>,
     ) -> Vec<adroit_model::Past> {
-        past::read(&root(settings, home), dir)
+        past::read(&root(context, home), dir)
     }
-    fn resume_args(&self, settings: &AgentSettings, conversation: &str) -> Option<Vec<String>> {
+    fn resume_args(&self, context: &AgentContext, conversation: &str) -> Option<Vec<String>> {
         let mut args = vec!["resume".into(), conversation.into()];
-        args.extend(options(settings));
+        args.extend(options(context));
         Some(args)
     }
     fn start_args(
         &self,
-        settings: &AgentSettings,
+        context: &AgentContext,
         _name: &str,
         _conversation: &str,
         prompt: &str,
     ) -> Vec<String> {
-        let mut args = options(settings);
+        let mut args = options(context);
         args.extend(["--".into(), prompt.into()]);
         args
     }
 }
 
-/// Where Codex keeps its state: `CODEX_HOME` as the settings or the
-/// environment set it, else `.codex` in `home`.
-fn root(settings: &AgentSettings, home: &Path) -> PathBuf {
-    settings
-        .codex
-        .env
-        .get("CODEX_HOME")
-        .map(PathBuf::from)
+/// Where Codex, started as `context` says, keeps its state: the connection's
+/// directory, else `CODEX_HOME` as the launch or adroit's own environment
+/// sets it, else `.codex` in `home`.
+fn root(context: &AgentContext, home: &Path) -> PathBuf {
+    context
+        .home
+        .clone()
+        .or_else(|| context.launch.env.get("CODEX_HOME").map(PathBuf::from))
         .or_else(|| std::env::var_os("CODEX_HOME").map(PathBuf::from))
         .unwrap_or_else(|| home.join(".codex"))
 }
 
-/// How a session runs, as `settings` say: what Codex is given ahead of a
+/// How a session runs, as `context` says: what Codex is given ahead of a
 /// prompt, whether it starts a conversation or resumes one.
-fn options(settings: &AgentSettings) -> Vec<String> {
+fn options(context: &AgentContext) -> Vec<String> {
     let mut args = vec!["--no-alt-screen".into()];
-    let options = &settings.codex_sessions;
+    let options = context.codex();
     let model = options.model.trim();
     if !model.is_empty() {
         args.extend(["--model".into(), model.into()]);
@@ -415,11 +391,11 @@ mod tests {
 
     #[test]
     fn a_conversation_resumes_by_its_id_run_as_a_new_session_would_be() {
-        let mut settings = AgentSettings::default();
-        settings.codex_sessions.model = "codex-model".into();
-        settings.codex_sessions.sandbox_mode = "read-only".into();
+        let mut context = AgentContext::builtin(Agent::Codex);
+        context.codex_mut().unwrap().model = "codex-model".into();
+        context.codex_mut().unwrap().sandbox_mode = "read-only".into();
         assert_eq!(
-            Codex.resume_args(&settings, ID),
+            Codex.resume_args(&context, ID),
             Some(
                 [
                     "resume",
@@ -440,7 +416,7 @@ mod tests {
 
     #[test]
     fn sessions_keep_their_output_in_terminal_scrollback() {
-        let args = Codex.start_args(&AgentSettings::default(), "fix", "", "hello");
+        let args = Codex.start_args(&AgentContext::builtin(Agent::Codex), "fix", "", "hello");
         let options = args.split(|arg| arg == "--").next().unwrap();
         assert!(options.iter().any(|arg| arg == "--no-alt-screen"));
     }
@@ -545,15 +521,15 @@ IFS= read -r query
 printf '%s' "$query" > "$ADROIT_TEST_CAPTURE"
 printf '%s\n' '{"id":"adroit-query","result":{"data":[{"id":"01a15b64-d462-7570-8a72-28a490123456"}],"nextCursor":null}}'
 "#).unwrap();
-        let mut settings = AgentSettings::default();
-        settings.codex.command = vec!["/bin/sh".into(), program.to_string_lossy().into_owned()];
-        settings.codex.env.insert(
+        let mut context = AgentContext::builtin(Agent::Codex);
+        context.launch.command = vec!["/bin/sh".into(), program.to_string_lossy().into_owned()];
+        context.launch.env.insert(
             "ADROIT_TEST_CAPTURE".into(),
             capture.to_string_lossy().into_owned(),
         );
         let got = Codex
             .resolve_conversation(
-                settings,
+                context,
                 dir.path().into(),
                 "codex | 01a15b64-d462-7570-8a72-28a49...".into(),
             )
@@ -583,21 +559,21 @@ printf '%s\n' "$ADROIT_TEST_PAGE"
 "#,
         )
         .unwrap();
-        let mut settings = AgentSettings::default();
-        settings.codex.command = vec!["/bin/sh".into(), program.to_string_lossy().into_owned()];
+        let mut context = AgentContext::builtin(Agent::Codex);
+        context.launch.command = vec!["/bin/sh".into(), program.to_string_lossy().into_owned()];
         for page in [
             serde_json::json!({"data":[],"nextCursor":null}),
             serde_json::json!({"data":[{"id":"01a15b64-d462-7570-8a72-28a490123456"},{"id":"01a15b64-d462-7570-8a72-28a49abcdef0"}],"nextCursor":null}),
             serde_json::json!({"data":[{"id":"01a15b64-d462-7570-8a72-28a490123456"}],"nextCursor":"repeated"}),
         ] {
-            settings.codex.env.insert(
+            context.launch.env.insert(
                 "ADROIT_TEST_PAGE".into(),
                 serde_json::json!({"id":"adroit-query","result":page}).to_string(),
             );
             assert_eq!(
                 Codex
                     .resolve_conversation(
-                        settings.clone(),
+                        context.clone(),
                         dir.path().into(),
                         "codex | 01a15b64-d462-7570-8a72-28a49...".into()
                     )

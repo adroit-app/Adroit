@@ -3,7 +3,7 @@ use std::{fmt, path::PathBuf, pin::Pin, process::Stdio, time::Duration};
 
 use tokio::io::AsyncReadExt;
 
-use crate::AgentSettings;
+use crate::{AgentContext, launch_in};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeliveryFailure {
@@ -27,7 +27,7 @@ pub type DeliveryFuture =
     Pin<Box<dyn std::future::Future<Output = Result<(), DeliveryFailure>> + Send>>;
 
 pub(super) async fn codex_queue(
-    settings: AgentSettings,
+    context: AgentContext,
     cwd: PathBuf,
     conversation: String,
     envelope: String,
@@ -38,9 +38,8 @@ pub(super) async fn codex_queue(
             "Codex delivery requires a conversation UUID, not a session name".into(),
         ));
     }
-    let (program, args, env) = super::launch_with_settings(
-        &settings,
-        adroit_model::Agent::Codex,
+    let (program, args, env) = launch_in(
+        &context,
         vec![
             "queue".into(),
             "--thread".into(),

@@ -36,7 +36,12 @@ async fn read() -> Offers {
     // Claude Code's state file can run to megabytes, and every directory it
     // names is looked at: not on a runtime thread.
     let (recent, (ghq, ghq_roots), listed) = tokio::join!(
-        tokio::task::spawn_blocking(move || places::recent(&home)),
+        tokio::task::spawn_blocking(move || {
+            places::recent(
+                &crate::programs::context(adroit_model::Agent::Claude),
+                &home,
+            )
+        }),
         async {
             if asked.ghq {
                 tokio::join!(ghq::list(), ghq::roots())

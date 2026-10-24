@@ -4,14 +4,30 @@
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-/// Where Claude Code keeps its state: `$CLAUDE_CONFIG_DIR`, else the home
+use crate::AgentContext;
+
+/// The directory Claude Code keeps its state in as `context` starts it: the
+/// connection's, else `CLAUDE_CONFIG_DIR` as the launch or adroit's own
+/// environment sets it; none for the home directory's.
+pub(crate) fn config_dir(context: &AgentContext) -> Option<PathBuf> {
+    context
+        .home
+        .clone()
+        .or_else(|| {
+            context
+                .launch
+                .env
+                .get("CLAUDE_CONFIG_DIR")
+                .map(PathBuf::from)
+        })
+        .or_else(|| std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from))
+}
+
+/// Where Claude Code keeps its state: in `config`, else in the home
 /// directory, which holds `.claude.json` and `.claude/` side by side.
-fn claude_home(home: &Path) -> (PathBuf, PathBuf) {
-    match std::env::var_os("CLAUDE_CONFIG_DIR") {
-        Some(dir) => {
-            let dir = PathBuf::from(dir);
-            (dir.join(".claude.json"), dir.join("projects"))
-        }
+fn claude_home(config: Option<&Path>, home: &Path) -> (PathBuf, PathBuf) {
+    match config {
+        Some(dir) => (dir.join(".claude.json"), dir.join("projects")),
         None => (
             home.join(".claude.json"),
             home.join(".claude").join("projects"),
@@ -19,9 +35,10 @@ fn claude_home(home: &Path) -> (PathBuf, PathBuf) {
     }
 }
 
-/// Where Claude Code keeps the conversations of every directory.
-pub(crate) fn projects(home: &Path) -> PathBuf {
-    claude_home(home).1
+/// Where Claude Code, started as `context` says, keeps the conversations of
+/// every directory.
+pub(crate) fn projects(context: &AgentContext, home: &Path) -> PathBuf {
+    claude_home(config_dir(context).as_deref(), home).1
 }
 
 /// The directories Claude Code's own state names as used.
@@ -51,10 +68,10 @@ pub fn transcripts_name(dir: &Path) -> String {
         .collect()
 }
 
-/// Where Claude Code writes the conversation `session_id` of a session
-/// started in `cwd`.
-pub fn transcript(home: &Path, cwd: &Path, session_id: &str) -> PathBuf {
-    transcript_in(&claude_home(home).1, cwd, session_id)
+/// Where Claude Code, started as `context` says, writes the conversation
+/// `session_id` of a session started in `cwd`.
+pub fn transcript(context: &AgentContext, home: &Path, cwd: &Path, session_id: &str) -> PathBuf {
+    transcript_in(&projects(context, home), cwd, session_id)
 }
 
 fn transcript_in(projects: &Path, cwd: &Path, session_id: &str) -> PathBuf {
@@ -78,10 +95,10 @@ pub fn by_recency(
     dated.into_iter().map(|(_, _, d)| d).collect()
 }
 
-/// The directories Claude Code has been used in that still exist, the most
-/// recently used first.
-pub fn recent(home: &Path) -> Vec<PathBuf> {
-    let (state, transcripts) = claude_home(home);
+/// The directories Claude Code, started as `context` says, has been used in
+/// that still exist, the most recently used first.
+pub fn recent(context: &AgentContext, home: &Path) -> Vec<PathBuf> {
+    let (state, transcripts) = claude_home(config_dir(context).as_deref(), home);
     let known = std::fs::read_to_string(state)
         .map(|t| parse_known(&t))
         .unwrap_or_default();
@@ -104,7 +121,32 @@ fn last_written(dir: &Path) -> Option<SystemTime> {
 mod tests {
     use std::time::Duration;
 
+    use adroit_model::Agent;
+
     use super::*;
+
+    #[test]
+    fn a_connection_s_conversations_are_read_in_its_own_directory_whatever_the_launch_sets() {
+        let home = Path::new("/h");
+        let mut context = AgentContext::builtin(Agent::Claude);
+        context
+            .launch
+            .env
+            .insert("CLAUDE_CONFIG_DIR".into(), "/launch".into());
+        assert_eq!(
+            transcript(&context, home, Path::new("/src"), "id"),
+            PathBuf::from("/launch/projects/-src/id.jsonl")
+        );
+        context.home = Some("/work".into());
+        assert_eq!(
+            transcript(&context, home, Path::new("/src"), "id"),
+            PathBuf::from("/work/projects/-src/id.jsonl")
+        );
+        assert_eq!(
+            crate::claude::history::history_path(&context, home),
+            PathBuf::from("/work/history.jsonl")
+        );
+    }
 
     #[test]
     fn the_directories_used_are_the_keys_of_claude_code_s_projects() {

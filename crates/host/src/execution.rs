@@ -2,6 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
+use adroit_model::profile::AgentOptions;
 use adroit_model::{
     Agent, AgentPermissions, CustomPermissions, TerminalProgram, TerminalResourceId,
     TerminalSession,
@@ -181,7 +182,7 @@ pub fn resolve(
             profile.id, profile.connection
         ));
     }
-    let (agent_settings, target) = configured(settings, &request)?;
+    let (context, target) = configured(settings, &request)?;
     let adapter = agents::adapter(request.agent);
     let conversation = request
         .resume
@@ -201,21 +202,20 @@ pub fn resolve(
     match &request.resume {
         Some(id) => args.extend(
             adapter
-                .resume_args(&agent_settings, id)
+                .resume_args(&context, id)
                 .ok_or_else(|| format!("{} cannot resume a conversation", request.agent.label()))?,
         ),
         None => {
             args.extend(adapter.image_args(&request.images));
             args.extend(adapter.start_args(
-                &agent_settings,
+                &context,
                 &request.name,
                 &conversation,
                 &adapter.image_prompt(&request.prompt, &request.images),
             ));
         }
     }
-    let (program, args, mut env) =
-        agents::launch_with_settings(&agent_settings, request.agent, args, request.env);
+    let (program, args, mut env) = agents::launch_in(&context, args, request.env);
     if let Some(delegation) = &request.delegation {
         env.retain(|(name, _)| !crate::env::reserved_delegation(name));
         env.extend(delegation.environment());
@@ -260,19 +260,23 @@ pub fn resolve(
 fn configured(
     settings: &Settings,
     request: &StartRequest,
-) -> Result<(adroit_agents::AgentSettings, adroit_model::TargetSelection), String> {
-    let mut settings = crate::programs::agents_of(settings);
+) -> Result<(adroit_agents::AgentContext, adroit_model::TargetSelection), String> {
+    let mut context = crate::programs::context_of(settings, request.agent);
     match (&request.permissions, request.agent) {
         (AgentPermissions::Default, _) => {}
         (AgentPermissions::ReadOnly, Agent::Codex) => {
-            settings.codex_sessions.sandbox_mode = "read-only".into();
+            if let Some(options) = context.codex_mut() {
+                options.sandbox_mode = "read-only".into();
+            }
         }
         (AgentPermissions::ReadOnly, Agent::Claude) => {
-            settings.sessions.read_only = Some(
-                adroit_agents::claude::ReadOnly::for_dir(&request.cwd)
-                    .protected()
-                    .to_vec(),
-            );
+            if let Some(options) = context.claude_mut() {
+                options.read_only = Some(
+                    adroit_agents::claude::ReadOnly::for_dir(&request.cwd)
+                        .protected()
+                        .to_vec(),
+                );
+            }
         }
         (AgentPermissions::Custom(profile), agent) => match (profile.as_ref(), agent) {
             (
@@ -282,8 +286,10 @@ fn configured(
                 },
                 Agent::Claude,
             ) => {
-                settings.sessions.permission_mode = permission_mode.clone();
-                settings.sessions.disallowed_tools = disallowed_tools.clone();
+                if let Some(options) = context.claude_mut() {
+                    options.permission_mode = permission_mode.clone();
+                    options.disallowed_tools = disallowed_tools.clone();
+                }
             }
             (
                 CustomPermissions::Codex {
@@ -292,15 +298,17 @@ fn configured(
                 },
                 Agent::Codex,
             ) => {
-                settings.codex_sessions.approval_policy = approval_policy.clone();
-                settings.codex_sessions.sandbox_mode = sandbox_mode.clone();
+                if let Some(options) = context.codex_mut() {
+                    options.approval_policy = approval_policy.clone();
+                    options.sandbox_mode = sandbox_mode.clone();
+                }
             }
             _ => return Err("custom permissions belong to another agent".into()),
         },
     }
-    let model = match request.agent {
-        Agent::Claude => &mut settings.sessions.model,
-        Agent::Codex => &mut settings.codex_sessions.model,
+    let model = match &mut context.options {
+        AgentOptions::Claude(options) => &mut options.model,
+        AgentOptions::Codex(options) => &mut options.model,
     };
     let source = match &request.model {
         Some(given) => {
@@ -321,7 +329,7 @@ fn configured(
         model_source: source,
         permissions: request.permissions.clone(),
     };
-    Ok((settings, target))
+    Ok((context, target))
 }
 
 pub fn select_target(
@@ -353,7 +361,7 @@ pub fn deliver(
     envelope: String,
 ) -> DeliveryFuture {
     agents::adapter(agent).deliver(
-        crate::programs::agents_of(&settings),
+        crate::programs::context_of(&settings, agent),
         cwd,
         conversation,
         envelope,

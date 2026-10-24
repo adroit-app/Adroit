@@ -93,30 +93,30 @@ impl AgentAdapter for Claude {
     fn usage_url(&self) -> Option<&'static str> {
         Some("https://claude.ai/settings/usage")
     }
-    fn commands(&self, settings: AgentSettings, dir: PathBuf) -> Probe<super::commands::Command> {
+    fn commands(&self, context: AgentContext, dir: PathBuf) -> Probe<super::commands::Command> {
         Box::pin(async move {
             super::commands::probe(
-                |args| asked(&settings, args),
+                |args| asked(&context, args),
                 &dir,
                 super::commands::PROBE_TIMEOUT,
             )
             .await
         })
     }
-    fn models(&self, settings: AgentSettings, dir: PathBuf) -> Probe<adroit_model::ProviderModel> {
+    fn models(&self, context: AgentContext, dir: PathBuf) -> Probe<adroit_model::ProviderModel> {
         Box::pin(async move {
             super::models::probe(
-                |args| launch_with_settings(&settings, Agent::Claude, args, Vec::new()),
+                |args| launch_in(&context, args, Vec::new()),
                 &dir,
                 super::commands::PROBE_TIMEOUT,
             )
             .await
         })
     }
-    fn usage(&self, settings: AgentSettings, home: PathBuf) -> Probe<super::usage::Limit> {
+    fn usage(&self, context: AgentContext, home: PathBuf) -> Probe<super::usage::Limit> {
         Box::pin(async move {
             super::usage::probe(
-                |args| asked(&settings, args),
+                |args| asked(&context, args),
                 &home,
                 super::usage::PROBE_TIMEOUT,
             )
@@ -125,7 +125,7 @@ impl AgentAdapter for Claude {
     }
     fn context(
         &self,
-        settings: AgentSettings,
+        context: AgentContext,
         session: &adroit_model::Session,
         model: Option<String>,
     ) -> ContextProbe {
@@ -135,7 +135,7 @@ impl AgentAdapter for Claude {
                 return None;
             }
             super::context::probe(
-                |args| asked(&settings, args),
+                |args| asked(&context, args),
                 &dir,
                 &id,
                 model.as_deref(),
@@ -146,20 +146,20 @@ impl AgentAdapter for Claude {
     }
     fn transcript(
         &self,
-        _settings: &AgentSettings,
+        context: &AgentContext,
         home: &Path,
         session: &adroit_model::Session,
     ) -> Option<Box<dyn ConversationReader>> {
-        let path = super::places::transcript(home, &session.cwd, &session.session_id);
+        let path = super::places::transcript(context, home, &session.cwd, &session.session_id);
         Some(Box::new(ClaudeConversation(super::links::Transcript::new(
             path,
             &session.cwd,
             home.to_path_buf(),
         ))))
     }
-    fn list_sessions(&self, settings: AgentSettings) -> Listing {
+    fn list_sessions(&self, context: AgentContext) -> Listing {
         Box::pin(async move {
-            super::list_sessions(|args| asked(&settings, args))
+            super::list_sessions(|args| asked(&context, args))
                 .await
                 .map_err(|e| e.to_string())
         })
@@ -171,31 +171,31 @@ impl AgentAdapter for Claude {
     ) -> Vec<(u128, Learned)> {
         follow(own, listed)
     }
-    fn resume_args(&self, settings: &AgentSettings, conversation: &str) -> Option<Vec<String>> {
+    fn resume_args(&self, context: &AgentContext, conversation: &str) -> Option<Vec<String>> {
         Some(super::resume_args(
             conversation,
-            &options(&settings.sessions),
+            &options(&context.claude()),
         ))
     }
     fn past(
         &self,
-        _settings: &AgentSettings,
+        context: &AgentContext,
         home: &Path,
         dir: Option<&Path>,
     ) -> Vec<adroit_model::Past> {
-        super::past::read(&super::places::projects(home), dir)
+        super::past::read(&super::places::projects(context, home), dir)
     }
     fn conversation(&self) -> String {
         super::new_session_id()
     }
     fn start_args(
         &self,
-        settings: &AgentSettings,
+        context: &AgentContext,
         name: &str,
         conversation: &str,
         prompt: &str,
     ) -> Vec<String> {
-        let options = options(&settings.sessions);
+        let options = options(&context.claude());
         super::start_args(name, conversation, &options, prompt)
     }
     fn integration_args(&self, program: &Path, state: &Path) -> Vec<String> {
@@ -207,8 +207,8 @@ impl AgentAdapter for Claude {
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect()
     }
-    fn history(&self, project: &Path) -> Vec<String> {
-        super::history::read(project)
+    fn history(&self, context: &AgentContext, home: &Path, project: &Path) -> Vec<String> {
+        super::history::read(context, home, project)
     }
     fn dialog_open(&self, screen: &[String]) -> bool {
         super::dialog::dialog_open(screen)
@@ -250,17 +250,17 @@ fn options(sessions: &SessionOptions) -> super::Options {
 }
 
 /// What starts Claude Code with `args` to ask it something outside a console,
-/// as `settings` start a session: the program, its arguments, and the
-/// variables the settings add.
-fn asked(settings: &AgentSettings, args: Vec<String>) -> Started {
+/// as `context` starts a session: the program, its arguments, and the
+/// variables its launch adds.
+fn asked(context: &AgentContext, args: Vec<String>) -> Started {
     let (program, args) =
-        settings
-            .claude
-            .command_line(&super::claude_program(), &args, &settings.shell);
+        context
+            .launch
+            .command_line(&super::claude_program(), &args, &context.shell);
     (
         program,
         args,
-        settings.claude.env.clone().into_iter().collect(),
+        context.launch.env.clone().into_iter().collect(),
     )
 }
 

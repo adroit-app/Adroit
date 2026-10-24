@@ -10,6 +10,7 @@ pub use delivery::{DeliveryFailure, DeliveryFuture};
 
 use adroit_model::Agent;
 use adroit_model::config::{CodexOptions, Launch, SessionOptions};
+use adroit_model::profile::{AgentOptions, AgentProfile, ConnectionId, ProfileId};
 use std::path::{Path, PathBuf};
 
 /// A command that starts an agent: the program, its arguments and the
@@ -42,24 +43,72 @@ pub fn shell_word(program: impl AsRef<Path>) -> String {
     }
 }
 
-/// What the settings say of how agents start: an adapter is handed these
-/// rather than reading the settings itself.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct AgentSettings {
+/// What an adapter is handed to start its agent, or ask it something, rather
+/// than reading the context itself: one profile, resolved against the
+/// connection it runs in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentContext {
+    pub profile: ProfileId,
+    pub connection: ConnectionId,
+    /// The connection's state directory, exactly as the context write it;
+    /// none in the agent's own environment.
+    pub home: Option<PathBuf>,
     /// The shell a program started through the shell runs in.
     pub shell: String,
-    pub claude: Launch,
-    pub codex: Launch,
-    /// How Claude Code sessions run.
-    pub sessions: SessionOptions,
-    pub codex_sessions: CodexOptions,
+    pub launch: Launch,
+    pub options: AgentOptions,
 }
 
-impl AgentSettings {
-    pub fn launch(&self, agent: Agent) -> &Launch {
-        match agent {
-            Agent::Claude => &self.claude,
-            Agent::Codex => &self.codex,
+impl AgentContext {
+    /// `profile` run in the connection whose state directory is `home`, none
+    /// for the agent's own environment, through `shell`.
+    pub fn new(profile: &AgentProfile, home: Option<PathBuf>, shell: impl Into<String>) -> Self {
+        Self {
+            profile: profile.id.clone(),
+            connection: profile.connection.clone(),
+            home,
+            shell: shell.into(),
+            launch: profile.launch.clone(),
+            options: profile.options.clone(),
+        }
+    }
+
+    /// The profile adroit comes with for `agent`, in its own environment.
+    pub fn builtin(agent: Agent) -> Self {
+        Self::new(&AgentProfile::builtin(agent), None, "")
+    }
+
+    pub fn agent(&self) -> Agent {
+        self.options.agent()
+    }
+
+    /// Claude Code's options; nothing chosen for a profile of another agent.
+    pub fn claude(&self) -> SessionOptions {
+        match &self.options {
+            AgentOptions::Claude(options) => options.clone(),
+            AgentOptions::Codex(_) => SessionOptions::default(),
+        }
+    }
+
+    pub fn claude_mut(&mut self) -> Option<&mut SessionOptions> {
+        match &mut self.options {
+            AgentOptions::Claude(options) => Some(options),
+            AgentOptions::Codex(_) => None,
+        }
+    }
+
+    /// Codex's options; nothing chosen for a profile of another agent.
+    pub fn codex(&self) -> CodexOptions {
+        match &self.options {
+            AgentOptions::Codex(options) => options.clone(),
+            AgentOptions::Claude(_) => CodexOptions::default(),
+        }
+    }
+
+    pub fn codex_mut(&mut self) -> Option<&mut CodexOptions> {
+        match &mut self.options {
+            AgentOptions::Codex(options) => Some(options),
+            AgentOptions::Claude(_) => None,
         }
     }
 }
@@ -117,7 +166,7 @@ pub trait AgentAdapter: Sync {
 
     fn resolve_conversation(
         &self,
-        _settings: AgentSettings,
+        _context: AgentContext,
         _cwd: PathBuf,
         _title: String,
     ) -> ConversationLookup {
@@ -126,7 +175,7 @@ pub trait AgentAdapter: Sync {
 
     fn developer_instructions(
         &self,
-        _settings: AgentSettings,
+        _context: AgentContext,
         _cwd: PathBuf,
     ) -> DeveloperInstructions {
         Box::pin(async { Ok(None) })
@@ -137,7 +186,7 @@ pub trait AgentAdapter: Sync {
 
     fn deliver(
         &self,
-        _settings: AgentSettings,
+        _context: AgentContext,
         _cwd: PathBuf,
         _conversation: String,
         _envelope: String,
@@ -159,17 +208,17 @@ pub trait AgentAdapter: Sync {
         Vec::new()
     }
     fn program(&self) -> String;
-    /// What starts the agent with `args` as `launch` says, `shell` being the
-    /// shell it may be started through: the program, its arguments, and `env`
-    /// with the agent's own variables and then the launch's.
+    /// What starts the agent with `args` as `context` says: the program,
+    /// its arguments, and `env` with the agent's own variables and then the
+    /// launch's.
     fn launch(
         &self,
-        launch: &Launch,
-        shell: &str,
+        context: &AgentContext,
         args: Vec<String>,
         env: Vec<(String, String)>,
     ) -> crate::Started {
-        let (program, args) = launch.command_line(&self.program(), &args, shell);
+        let launch = &context.launch;
+        let (program, args) = launch.command_line(&self.program(), &args, &context.shell);
         let env = env
             .into_iter()
             .chain(self.environment())
@@ -186,31 +235,23 @@ pub trait AgentAdapter: Sync {
     }
     fn commands(
         &self,
-        _settings: AgentSettings,
+        _context: AgentContext,
         _dir: PathBuf,
     ) -> Probe<crate::claude::commands::Command> {
         Box::pin(async { None })
     }
-    /// The models the provider accepts, asked of it in `dir` as `settings` start it.
-    fn models(
-        &self,
-        _settings: AgentSettings,
-        _dir: PathBuf,
-    ) -> Probe<adroit_model::ProviderModel> {
+    /// The models the provider accepts, asked of it in `dir` as `context` starts it.
+    fn models(&self, _context: AgentContext, _dir: PathBuf) -> Probe<adroit_model::ProviderModel> {
         Box::pin(async { None })
     }
-    fn usage(
-        &self,
-        _settings: AgentSettings,
-        _home: PathBuf,
-    ) -> Probe<crate::claude::usage::Limit> {
+    fn usage(&self, _context: AgentContext, _home: PathBuf) -> Probe<crate::claude::usage::Limit> {
         Box::pin(async { None })
     }
     /// How full the context of `session`'s conversation, run on `model`, is,
     /// for an agent whose transcript does not say.
     fn context(
         &self,
-        _settings: AgentSettings,
+        _context: AgentContext,
         _session: &adroit_model::Session,
         _model: Option<String>,
     ) -> ContextProbe {
@@ -218,13 +259,13 @@ pub trait AgentAdapter: Sync {
     }
     fn transcript(
         &self,
-        _settings: &AgentSettings,
+        _context: &AgentContext,
         _home: &Path,
         _session: &adroit_model::Session,
     ) -> Option<Box<dyn ConversationReader>> {
         None
     }
-    fn list_sessions(&self, _settings: AgentSettings) -> Listing {
+    fn list_sessions(&self, _context: AgentContext) -> Listing {
         Box::pin(async { Ok(Vec::new()) })
     }
     fn follow(
@@ -235,15 +276,15 @@ pub trait AgentAdapter: Sync {
         Vec::new()
     }
     /// The arguments that continue the conversation `conversation` in a new
-    /// session, run as `settings` say; none for an agent that cannot.
-    fn resume_args(&self, _settings: &AgentSettings, _conversation: &str) -> Option<Vec<String>> {
+    /// session, run as `context` says; none for an agent that cannot.
+    fn resume_args(&self, _context: &AgentContext, _conversation: &str) -> Option<Vec<String>> {
         None
     }
     /// The conversations the agent kept that ran in `dir`, or in any
     /// directory when none is given, `home` being the user's home.
     fn past(
         &self,
-        _settings: &AgentSettings,
+        _context: &AgentContext,
         _home: &Path,
         _dir: Option<&Path>,
     ) -> Vec<adroit_model::Past> {
@@ -257,7 +298,7 @@ pub trait AgentAdapter: Sync {
     }
     fn start_args(
         &self,
-        settings: &AgentSettings,
+        context: &AgentContext,
         name: &str,
         conversation: &str,
         prompt: &str,
@@ -271,7 +312,9 @@ pub trait AgentAdapter: Sync {
     fn environment(&self) -> Vec<(String, String)> {
         Vec::new()
     }
-    fn history(&self, _project: &Path) -> Vec<String> {
+    /// The prompts sent in `project` that the agent keeps to recall, as
+    /// `context`'s connection keeps them, `home` being the user's home.
+    fn history(&self, _context: &AgentContext, _home: &Path, _project: &Path) -> Vec<String> {
         Vec::new()
     }
     fn dialog_open(&self, _screen: &[String]) -> bool {
@@ -295,13 +338,13 @@ pub fn adapter(agent: Agent) -> &'static dyn AgentAdapter {
     }
 }
 
-pub fn launch_with_settings(
-    settings: &AgentSettings,
-    agent: Agent,
+/// What starts the agent of `context` with `args`, as `context` says.
+pub fn launch_in(
+    context: &AgentContext,
     args: Vec<String>,
     env: Vec<(String, String)>,
 ) -> crate::Started {
-    adapter(agent).launch(settings.launch(agent), &settings.shell, args, env)
+    adapter(context.agent()).launch(context, args, env)
 }
 
 #[cfg(test)]
@@ -340,24 +383,25 @@ mod tests {
 
     #[test]
     fn each_agent_starts_as_its_own_launch_says_its_variables_under_the_launch_s() {
-        let settings = AgentSettings {
-            codex: Launch {
+        let context = AgentContext {
+            launch: Launch {
                 command: vec!["/opt/codex".into()],
                 env: [("CODEX_HOME".to_string(), "/c".to_string())].into(),
                 ..Launch::default()
             },
-            ..AgentSettings::default()
+            ..AgentContext::builtin(Agent::Codex)
         };
-        let (program, args, env) =
-            launch_with_settings(&settings, Agent::Codex, vec!["exec".into()], Vec::new());
+        let (program, args, env) = launch_in(&context, vec!["exec".into()], Vec::new());
         assert_eq!(
             (program.as_str(), args),
             ("/opt/codex", vec!["exec".to_string()])
         );
         assert_eq!(env, [("CODEX_HOME".to_string(), "/c".to_string())]);
         let (program, _, env) = adapter(Agent::Claude).launch(
-            settings.launch(Agent::Claude),
-            "/bin/zsh",
+            &AgentContext {
+                shell: "/bin/zsh".into(),
+                ..AgentContext::builtin(Agent::Claude)
+            },
             Vec::new(),
             vec![("A".into(), "1".into())],
         );
@@ -379,16 +423,15 @@ mod tests {
     }
     #[test]
     fn codex_receives_only_its_own_options_and_preserves_flag_like_prompts() {
-        let mut settings = AgentSettings::default();
-        settings.sessions.model = "claude-model".into();
-        settings.codex_sessions.model = "codex-model".into();
+        let mut context = AgentContext::builtin(Agent::Codex);
+        context.codex_mut().unwrap().model = "codex-model".into();
         let a = adapter(Agent::Codex);
         assert_eq!(
-            a.start_args(&settings, "fix", "", "--help"),
+            a.start_args(&context, "fix", "", "--help"),
             ["--no-alt-screen", "--model", "codex-model", "--", "--help"]
         );
         assert_eq!(
-            a.start_args(&AgentSettings::default(), "fix", "", "read"),
+            a.start_args(&AgentContext::builtin(Agent::Codex), "fix", "", "read"),
             ["--no-alt-screen", "--", "read"]
         );
         assert!(a.conversation().is_empty());
@@ -404,16 +447,23 @@ mod tests {
                 .is_empty()
         );
         assert!(a.environment().is_empty());
-        assert!(a.history(Path::new("/unused")).is_empty());
         assert!(
-            a.list_sessions(AgentSettings::default())
+            a.history(
+                &AgentContext::builtin(Agent::Codex),
+                Path::new("/unused"),
+                Path::new("/unused")
+            )
+            .is_empty()
+        );
+        assert!(
+            a.list_sessions(AgentContext::builtin(Agent::Codex))
                 .await
                 .unwrap()
                 .is_empty()
         );
         assert!(
             a.transcript(
-                &AgentSettings::default(),
+                &AgentContext::builtin(Agent::Codex),
                 Path::new("/unused"),
                 &Default::default()
             )
@@ -426,7 +476,7 @@ mod tests {
     fn claude_keeps_its_conversation_options_and_integrations() {
         let a = adapter(Agent::Claude);
         assert_eq!(
-            a.start_args(&AgentSettings::default(), "fix", "uuid", "read"),
+            a.start_args(&AgentContext::builtin(Agent::Claude), "fix", "uuid", "read"),
             ["--name", "fix", "--session-id", "uuid", "--", "read"]
         );
         assert!(!a.conversation().is_empty());

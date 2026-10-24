@@ -31,7 +31,7 @@ pub(super) async fn watch(mut watched: Watched) {
             let reader = match held.iter().position(|(was, _)| *was == key) {
                 Some(at) => Some(held.remove(at).1),
                 None => adroit_agents::adapter(s.agent).transcript(
-                    &crate::programs::agents(),
+                    &crate::programs::context(s.agent),
                     &crate::paths::home(),
                     &s,
                 ),

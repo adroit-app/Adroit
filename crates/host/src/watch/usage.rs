@@ -17,7 +17,7 @@ pub(super) async fn watch(mut watched: Watched) {
             let held = fresh.entry(agent).or_default();
             if held.want(Instant::now()) {
                 let got = adroit_agents::adapter(agent)
-                    .usage(crate::programs::agents(), crate::paths::home())
+                    .usage(crate::programs::context(agent), crate::paths::home())
                     .await;
                 held.settle(Instant::now(), got);
                 if let Some(limits) = held.get() {
