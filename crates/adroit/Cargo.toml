@@ -13,5 +13,7 @@ adroit-window.workspace = true
 
 [dev-dependencies]
 adroit-model.workspace = true
+adroit-term.workspace = true
+serde_json.workspace = true
 tempfile.workspace = true
 tokio.workspace = true

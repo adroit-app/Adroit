@@ -30,6 +30,8 @@ printf 'CLAUDE_CODE_USE_NEWCLOUD=%s\n' "${CLAUDE_CODE_USE_NEWCLOUD-unset}"
 printf 'ANTHROPIC_VERTEX_REGION=%s\n' "${ANTHROPIC_VERTEX_REGION-unset}"
 printf 'OPENAI_EXTRA=%s\n' "${OPENAI_EXTRA-unset}"
 printf 'CODEX_EXTRA=%s\n' "${CODEX_EXTRA-unset}"
+printf 'PI_CODING_AGENT_DIR=%s\n' "${PI_CODING_AGENT_DIR-unset}"
+printf 'AWS_PROFILE=%s\n' "${AWS_PROFILE-unset}"
 printf '%s\n' "$@"
 } > "$ADROIT_TEST_OUT"
 "#,
@@ -44,7 +46,7 @@ fn meddling_shell(dir: &Path) -> PathBuf {
     let path = dir.join("shell");
     std::fs::write(
         &path,
-        "#!/bin/sh\nexport ANTHROPIC_API_KEY=from-rc OPENAI_API_KEY=from-rc CODEX_ACCESS_TOKEN=from-rc\nexport CLAUDE_CODE_USE_NEWCLOUD=from-rc OPENAI_EXTRA=from-rc\nexport CLAUDE_CONFIG_DIR=/from-rc CODEX_HOME=/from-rc\nshift 5\nexec \"$@\"\n",
+        "#!/bin/sh\nexport ANTHROPIC_API_KEY=from-rc OPENAI_API_KEY=from-rc CODEX_ACCESS_TOKEN=from-rc\nexport CLAUDE_CODE_USE_NEWCLOUD=from-rc OPENAI_EXTRA=from-rc\nexport CLAUDE_CONFIG_DIR=/from-rc CODEX_HOME=/from-rc PI_CODING_AGENT_DIR=/from-rc\nshift 5\nexec \"$@\"\n",
     )
     .unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -97,8 +99,10 @@ fn started(settings: &Settings, agent: Agent, profile: &str, out: &Path) -> Vec<
         .env("CODEX_ACCESS_TOKEN", "inherited")
         .env("ANTHROPIC_VERTEX_REGION", "inherited")
         .env("CODEX_EXTRA", "inherited")
+        .env("AWS_PROFILE", "inherited")
         .env_remove("CLAUDE_CONFIG_DIR")
         .env_remove("CODEX_HOME")
+        .env_remove("PI_CODING_AGENT_DIR")
         .status()
         .unwrap();
     assert!(status.success());
@@ -168,6 +172,7 @@ fn what_a_shell_s_startup_files_set_again_does_not_reach_a_connection_of_its_own
     for (agent, state, key) in [
         (Agent::Claude, "CLAUDE_CONFIG_DIR", "ANTHROPIC_API_KEY"),
         (Agent::Codex, "CODEX_HOME", "OPENAI_API_KEY"),
+        (Agent::Pi, "PI_CODING_AGENT_DIR", "OPENAI_API_KEY"),
     ] {
         let home = dir.path().join(format!("{}-work", agent.key()));
         let s = settings(agent, &program, &home, Some(&shell));
@@ -224,6 +229,7 @@ fn a_variable_of_a_family_a_connection_removes_reaches_it_from_neither_the_shell
             "ANTHROPIC_VERTEX_REGION",
         ),
         (Agent::Codex, "OPENAI_EXTRA", "CODEX_EXTRA"),
+        (Agent::Pi, "OPENAI_EXTRA", "AWS_PROFILE"),
     ] {
         let home = dir.path().join(format!("{}-work", agent.key()));
         let s = settings(agent, &program, &home, Some(&shell));
@@ -414,4 +420,90 @@ async fn two_codex_profiles_list_the_models_of_their_own_logins_and_a_late_answe
     );
     assert_eq!(catalog.check(&own, Some("own-model")), Ok(()));
     assert!(catalog.check(&own, Some("work-model")).is_err());
+}
+
+#[test]
+fn two_pi_profiles_start_side_by_side_each_with_its_own_logins_sessions_and_skills() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("pi-work");
+    let s = settings(Agent::Pi, &agent_program(dir.path()), &home, None);
+
+    let own = started(&s, Agent::Pi, "own", &dir.path().join("own"));
+    let work = started(&s, Agent::Pi, "work", &dir.path().join("work"));
+
+    assert!(has(&own, "PI_CODING_AGENT_DIR=unset"), "{own:?}");
+    assert!(has(&own, "OPENAI_API_KEY=inherited"), "{own:?}");
+    assert!(has(&own, "AWS_PROFILE=inherited"), "{own:?}");
+    assert!(
+        !has(&own, "--no-skills") && !has(&own, "--session-dir"),
+        "{own:?}"
+    );
+    assert!(
+        has(&work, &format!("PI_CODING_AGENT_DIR={}", home.display())),
+        "{work:?}"
+    );
+    for key in ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "AWS_PROFILE"] {
+        assert!(has(&work, &format!("{key}=unset")), "{key} {work:?}");
+    }
+    assert!(has(&work, "--no-skills"), "{work:?}");
+    let sessions = work.iter().position(|l| l == "--session-dir").unwrap();
+    assert_eq!(
+        work[sessions + 1],
+        home.join("sessions").display().to_string()
+    );
+    // Both load adroit's extension and run Pi's own interface.
+    for lines in [&own, &work] {
+        assert!(has(lines, "-e") && has(lines, "regular"), "{lines:?}");
+    }
+}
+
+/// A program standing in for Pi's RPC mode, which lists one model named after
+/// the login it was started in: its state directory's last component.
+fn pi_model_listing(dir: &Path) -> PathBuf {
+    let path = dir.join("pi-rpc.sh");
+    std::fs::write(
+        &path,
+        r#"IFS= read -r command
+login=$(basename "${PI_CODING_AGENT_DIR:-/own}")
+printf '{"type":"response","id":"adroit","command":"get_available_models","success":true,"data":{"models":[{"provider":"fake","id":"%s-model"}]}}\n' "$login"
+"#,
+    )
+    .unwrap();
+    path
+}
+
+#[tokio::test]
+async fn two_pi_profiles_list_the_models_their_own_logins_can_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = settings(
+        Agent::Pi,
+        &pi_model_listing(dir.path()),
+        &dir.path().join("work"),
+        None,
+    );
+    let mut listed = Vec::new();
+    for context in adroit_host::programs::profiles(&s)
+        .into_iter()
+        .filter(|c| c.agent() == Agent::Pi)
+    {
+        let context = adroit_agents::AgentContext {
+            adroit: ADROIT.into(),
+            ..context
+        };
+        let models = adroit_agents::adapter(Agent::Pi)
+            .models_within(context.clone(), dir.path().into(), Duration::from_secs(60))
+            .await
+            .unwrap();
+        listed.push((
+            context.profile.to_string(),
+            models.into_iter().map(|m| m.id).collect::<Vec<_>>(),
+        ));
+    }
+    assert_eq!(
+        listed,
+        [
+            ("own".to_string(), vec!["fake/own-model".to_string()]),
+            ("work".to_string(), vec!["fake/work-model".to_string()]),
+        ]
+    );
 }

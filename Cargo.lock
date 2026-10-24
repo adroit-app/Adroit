@@ -15,7 +15,9 @@ dependencies = [
  "adroit-agents",
  "adroit-host",
  "adroit-model",
+ "adroit-term",
  "adroit-window",
+ "serde_json",
  "tempfile",
  "tokio",
 ]
