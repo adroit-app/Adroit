@@ -86,6 +86,8 @@
 [draft]
 "Ctrl+g a" = "session.agent_next"
 "Ctrl+g A" = "session.agent_prev"
+"Ctrl+g p" = "session.profile_next"
+"Ctrl+g P" = "session.profile_prev"
 
 [tree]
 "j" = "cursor.down"

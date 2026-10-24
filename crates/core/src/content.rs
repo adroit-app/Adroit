@@ -13,7 +13,7 @@ mod windows;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
 
-use adroit_model::profile::ConnectionId;
+use adroit_model::profile::{AgentProfile, ConnectionId, ProfileId};
 use adroit_model::{Agent, TerminalProgram, Tree};
 use adroit_protocol::{Seq, WorkSnapshot};
 
@@ -102,12 +102,13 @@ impl Default for ContentView {
 }
 
 /// The options chosen for each draft shown, those chosen with nothing open
-/// for the next draft, and the agent last chosen.
+/// for the next draft, and the agent and profile last chosen.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Drafts {
     pub options: HashMap<Tab, DraftOptions>,
     pub next: Option<DraftOptions>,
     pub last_agent: Option<Agent>,
+    pub last_profile: Option<ProfileId>,
 }
 
 impl Drafts {
@@ -116,6 +117,32 @@ impl Drafts {
     /// `default`.
     pub fn agent_of(&self, tree: &Tree, tab: Option<&Tab>, default: Agent) -> Agent {
         draft::for_tab(tree, tab, &self.options, self.last_agent.unwrap_or(default))
+    }
+
+    /// The profile the prompt written for `tab` goes to, as `settings` say: a
+    /// session's own; for a draft, or with nothing open, the one chosen for
+    /// it, else the one last chosen, while either starts its agent, else its
+    /// agent's default profile.
+    pub fn profile_of(
+        &self,
+        tree: &Tree,
+        tab: Option<&Tab>,
+        settings: &crate::settings::Settings,
+    ) -> ProfileId {
+        if let Some(Tab::Session(id)) = tab
+            && let Some((_, session)) = crate::tree::nav::find(tree, id)
+        {
+            return session.profile.clone();
+        }
+        let chosen = match tab {
+            Some(draft @ Tab::Draft { .. }) => self.options.get(draft),
+            None => self.next.as_ref(),
+            Some(_) => None,
+        }
+        .and_then(|options| options.profile.clone())
+        .or_else(|| self.last_profile.clone());
+        let agent = self.agent_of(tree, tab, settings.default_agent());
+        draft::profile_for(settings, agent, chosen.as_ref())
     }
 }
 
@@ -129,8 +156,17 @@ pub fn agent_of(state: &crate::state::ViewState, tab: Option<&Tab>) -> Agent {
         .agent_of(tree, tab, state.config.settings.default_agent())
 }
 
+/// The profile the prompt of `tab` goes to; see [`Drafts::profile_of`].
+pub fn profile_of(state: &crate::state::ViewState, tab: Option<&Tab>) -> ProfileId {
+    let tree = crate::tree::listed(state.host.work.as_ref());
+    state
+        .content
+        .drafts
+        .profile_of(tree, tab, &state.config.settings)
+}
+
 /// The connection the prompt of `tab` goes to: a session's own, else the one
-/// its agent's default profile runs in.
+/// the profile it would start from runs in.
 pub fn connection_of(state: &crate::state::ViewState, tab: Option<&Tab>) -> ConnectionId {
     let tree = crate::tree::listed(state.host.work.as_ref());
     if let Some(Tab::Session(id)) = tab
@@ -139,7 +175,11 @@ pub fn connection_of(state: &crate::state::ViewState, tab: Option<&Tab>) -> Conn
         return session.connection.clone();
     }
     let agent = agent_of(state, tab);
-    state.config.settings.profile_of(agent).connection.clone()
+    state
+        .config
+        .settings
+        .find_profile(&profile_of(state, tab))
+        .map_or_else(|| ConnectionId::implicit(agent), |p| p.connection.clone())
 }
 
 /// A border between windows being dragged: where the pointer was pressed,
@@ -373,11 +413,75 @@ pub(crate) fn drag_end(view: &mut ContentView) -> Vec<Effect> {
     Vec::new()
 }
 
-/// The agent chosen for the draft `tab`, or for the next draft with none.
-pub(crate) fn choose_agent(view: &mut ContentView, tab: Option<Tab>, agent: Agent) -> Vec<Effect> {
+/// The options chosen for the draft `tab`, or for the next draft with none.
+fn options_of(view: &ContentView, tab: Option<&Tab>) -> DraftOptions {
+    match tab {
+        Some(tab) => view.drafts.options.get(tab).cloned(),
+        None => view.drafts.next.clone(),
+    }
+    .unwrap_or_default()
+}
+
+/// The agent chosen for the draft `tab`, or for the next draft with none,
+/// which ran `from`: it starts from the agent's default profile. What to
+/// tell of the options that do not carry over.
+pub(crate) fn choose_agent(
+    view: &mut ContentView,
+    tab: Option<Tab>,
+    agent: Agent,
+    from: Agent,
+) -> Option<String> {
+    if !draft::can_choose(tab.as_ref()) {
+        return None;
+    }
+    let (options, told) =
+        draft::carried(&options_of(view, tab.as_ref()), from, agent, agent.label());
+    choose_options(
+        view,
+        tab.clone(),
+        DraftOptions {
+            profile: None,
+            ..options
+        },
+    );
     let drafts = &mut view.drafts;
     draft::choose(&mut drafts.options, tab, agent, &mut drafts.last_agent);
-    Vec::new()
+    drafts.last_profile = None;
+    told
+}
+
+/// The profile `profile` chosen for the draft `tab`, or for the next draft
+/// with none, which ran `from`; it is the one later drafts start from while
+/// the window is open. What to tell of the options that do not carry over
+/// to its agent.
+pub(crate) fn choose_profile(
+    view: &mut ContentView,
+    tab: Option<Tab>,
+    profile: &AgentProfile,
+    from: Agent,
+) -> Option<String> {
+    if !draft::can_choose(tab.as_ref()) {
+        return None;
+    }
+    let agent = profile.agent();
+    let (options, told) = draft::carried(
+        &options_of(view, tab.as_ref()),
+        from,
+        agent,
+        profile.label(),
+    );
+    choose_options(
+        view,
+        tab,
+        DraftOptions {
+            agent: Some(agent),
+            profile: Some(profile.id.clone()),
+            ..options
+        },
+    );
+    view.drafts.last_agent = Some(agent);
+    view.drafts.last_profile = Some(profile.id.clone());
+    told
 }
 
 /// The options chosen for the draft `tab`, or for the next draft with none.

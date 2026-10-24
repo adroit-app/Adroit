@@ -154,6 +154,11 @@ pub enum Msg {
         tab: Option<Tab>,
         agent: Agent,
     },
+    /// The profile chosen for this draft, or for the next one.
+    DraftProfile {
+        tab: Option<Tab>,
+        profile: adroit_model::profile::ProfileId,
+    },
     /// The options chosen for this draft, or for the next one.
     DraftOptions {
         tab: Option<Tab>,

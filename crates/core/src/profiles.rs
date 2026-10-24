@@ -269,6 +269,19 @@ pub fn connection_name(settings: &Settings, id: &ConnectionId) -> String {
         .map_or_else(|| id.to_string(), |c| connection_label(c).to_string())
 }
 
+/// What a conversation kept is listed as: its agent and the profile it ran
+/// from, and the connection that keeps it when that is one of its own.
+pub fn resumed_as(settings: &Settings, past: &adroit_model::Past) -> String {
+    let started = settings.started_as(past.agent, &past.profile);
+    match past.connection.implicit_agent() {
+        Some(_) => started,
+        None => format!(
+            "{started} · {}",
+            connection_name(settings, &past.connection)
+        ),
+    }
+}
+
 /// `path` written without `.`, `..` or a `/` doubled or at its end, when it
 /// is absolute.
 fn plain(path: &Path) -> Option<PathBuf> {
@@ -417,6 +430,40 @@ pub fn profile_rows(settings: &Settings) -> Vec<ProfileRow> {
     open.into_iter().chain(archived).map(row).collect()
 }
 
+/// Every profile a new session can start from, in the order Settings lists
+/// them: those not archived, and adroit's own for an agent that has none.
+pub fn startable(settings: &Settings) -> Vec<AgentProfile> {
+    let own = Agent::ALL
+        .into_iter()
+        .filter(|a| {
+            !settings
+                .profiles
+                .iter()
+                .any(|p| p.agent() == *a && !p.archived)
+        })
+        .map(|a| settings.profile_of(a).into_owned());
+    settings
+        .profiles
+        .iter()
+        .filter(|p| !p.archived)
+        .cloned()
+        .chain(own)
+        .collect()
+}
+
+/// What a draft offers `profile` as, its agent being chosen beside it: its
+/// name, and the connection it runs in when that is one of its own.
+pub fn offered_as(settings: &Settings, profile: &AgentProfile) -> String {
+    match profile.connection.implicit_agent() {
+        Some(_) => profile.label().to_string(),
+        None => format!(
+            "{} · {}",
+            profile.label(),
+            connection_name(settings, &profile.connection)
+        ),
+    }
+}
+
 /// The connections a profile of `agent` running in `now` can be moved to:
 /// the agent's own environment, then its connections not archived, and `now`
 /// itself, archived or not.
@@ -491,7 +538,17 @@ mod tests {
             let found = s.find_profile(&offered.id).map(|p| p.into_owned());
             assert_eq!(found.as_ref(), Some(&offered), "{agent:?}");
             assert!(!offered.archived && offered.agent() == agent, "{offered:?}");
+            assert!(startable(s).contains(&offered), "{agent:?}");
         }
+        let offered = startable(s);
+        for p in &offered {
+            assert_eq!(
+                s.find_profile(&p.id).map(|f| f.into_owned()).as_ref(),
+                Some(p)
+            );
+        }
+        let ids: std::collections::HashSet<_> = offered.iter().map(|p| &p.id).collect();
+        assert_eq!(ids.len(), offered.len(), "{offered:?}");
     }
 
     fn none(_: &Path) -> Option<PathBuf> {
@@ -784,6 +841,48 @@ mod tests {
                 ("Claude Work", "Work", false, true),
             ]
         );
+    }
+
+    #[test]
+    fn a_draft_offers_a_profile_by_its_name_and_a_connection_of_its_own() {
+        let s = settings();
+        let offered: Vec<String> = startable(&s).iter().map(|p| offered_as(&s, p)).collect();
+        assert_eq!(offered, ["Claude Personal", "Claude Work · Work", "codex"]);
+    }
+
+    #[test]
+    fn a_kept_conversation_is_listed_with_its_profile_and_a_connection_of_its_own() {
+        let s = settings();
+        let past = |profile: &str, connection: &str| adroit_model::Past {
+            agent: Agent::Claude,
+            connection: cid(connection),
+            profile: id(profile),
+            id: "c".into(),
+            cwd: "/r".into(),
+            title: "t".into(),
+            at_ms: 0,
+        };
+        assert_eq!(
+            resumed_as(&s, &past("claude-work", "work")),
+            "Claude Code · Claude Work · Work"
+        );
+        assert_eq!(
+            resumed_as(&s, &past("claude", "claude")),
+            "Claude Code · Claude Personal"
+        );
+    }
+
+    #[test]
+    fn a_session_starts_from_a_profile_not_archived_or_adroit_s_own_for_an_agent_with_none() {
+        let mut s = settings();
+        archive_profile(&mut s, &id("claude-work")).unwrap();
+        let ids = |s: &Settings| -> Vec<String> {
+            startable(s).iter().map(|p| p.id.to_string()).collect()
+        };
+        assert_eq!(ids(&s), ["claude", "codex"]);
+        s.profiles.retain(|p| p.agent() == Agent::Claude);
+        assert_eq!(ids(&s), ["claude", "codex"]);
+        assert_eq!(startable(&s)[1], AgentProfile::builtin(Agent::Codex));
     }
 
     #[test]

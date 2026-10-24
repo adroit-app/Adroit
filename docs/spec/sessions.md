@@ -9,17 +9,25 @@ closed, if that still runs.
 ## Agents
 
 A session runs Claude Code or Codex CLI in its own terminal interface. Each
-session is given its agent while it is still a draft, before its first prompt
-is sent. The empty window and drafts offer the agent choices, and
-`session.agent_next` and `session.agent_prev` switch between them. Choosing an agent, by button or key, also makes it the default
-for new sessions while the window is open. Reopening the app starts with the
-default in Settings under General: the agent of the default profile in
-[settings.toml](settings.md#profiles-and-connections).
-The draft also offers a model and permission profile for that launch; changing
-these choices keeps its prompt and attachments. The empty window offers the
-model and permission profile too, and the next new session starts with
-what was chosen there. A session keeps its agent once it runs, whatever the default becomes. Both
-kinds can run in the same workspace.
+session is given its profile, and with it its agent and connection
+([settings](settings.md#profiles-and-connections)), while it is still a
+draft, before its first prompt is sent. The empty window and drafts offer
+the agents and every profile not archived, each named with the connection
+it runs in when that is not its agent's own environment. `session.agent_next` and `session.agent_prev` switch the agent,
+which starts from its default profile, and `session.profile_next` and
+`session.profile_prev` switch the profile. What is chosen, by the form or by
+key, is what new sessions start with while the window is open. Reopening the
+app starts with the default profile, which Settings sets under General.
+
+The draft also offers a model and permissions for that launch. Changing the
+profile or the agent keeps its prompt and attachments, and keeps the model
+and permissions while the agent stays the same; to another agent they go
+back to the defaults of the profile chosen, and the status line says so. The
+empty window offers them too, and the next new session starts with what was
+chosen there. The usage, the `/` commands and the history a draft offers are
+those of the connection its profile runs in. A session keeps its agent and
+profile once it runs, whatever the default becomes. Both kinds can run in
+the same workspace.
 
 A session also keeps the profile it started from, and the connection that
 runs in ([settings](settings.md#profiles-and-connections)), whatever the
@@ -27,7 +35,8 @@ settings say since, and after the work host starts again: messages are
 handed to it, its conversation, history and processes are read, and its
 starting dialogs are answered, as the settings it was started with say. The
 tree and the strip of a window showing it name the session's agent and,
-when it is called otherwise, its profile.
+when it is called otherwise, its profile; the details name its profile and
+its connection.
 
 Codex sessions use the embedded prompt and report their working and waiting
 states through the terminal, including permission and question prompts. Their
@@ -155,8 +164,9 @@ adroit lists only the sessions it runs. Resume Conversation in the Session
 menu, or `session.resume`, opens a list of the conversations both agents kept,
 in every connection a profile runs in,
 for the directory the focused window works in, the newest first, each with its
-agent, its title or first prompt, its directory and when it was last talked
-in. `Ctrl+a` lists those of every directory instead, and pressed again only
+agent and profile, the connection that keeps it when that is not the agent's
+own environment, its title or first prompt, its directory and when it was
+last talked in. `Ctrl+a` lists those of every directory instead, and pressed again only
 the directory's; with nothing open, every directory's are listed. Typing
 narrows the list by a fuzzy match on the title and the directory. `Ctrl+n`
 and `Ctrl+p` (or the arrow keys, `Tab` and `Shift+Tab`) move, `Enter` chooses,

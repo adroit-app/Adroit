@@ -49,7 +49,12 @@ pub(super) fn Overview(
     let session = shown_session(&details, work).cloned();
     let facts = session.as_ref().map(|s| {
         let stats = stats(&details, work).unwrap_or_default();
-        overview_facts(s, &stats, s.last_input_ms.max(live_input_ms), now_ms)
+        let mut facts = overview_facts(s, &stats, s.last_input_ms.max(live_input_ms), now_ms);
+        facts.extend(adroit_core::details::started_from_facts(
+            s,
+            &app.config.read().settings,
+        ));
+        facts
     });
     let listing = overview_listing(&details, work);
     let selected = listing.as_ref().and_then(|l| details.drill.selected(l));

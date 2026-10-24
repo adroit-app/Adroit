@@ -73,6 +73,24 @@ pub fn overview_facts(
     out
 }
 
+/// What the overview says of what the session `s` started from, as
+/// `settings` name it: its profile, with its agent, and the connection it
+/// runs in.
+pub fn started_from_facts(s: &Session, settings: &crate::settings::Settings) -> Vec<Fact> {
+    let plain = |label, value| Fact {
+        label,
+        value,
+        tone: None,
+    };
+    vec![
+        plain("Profile", settings.started_as(s.agent, &s.profile)),
+        plain(
+            "Connection",
+            crate::profiles::connection_name(settings, &s.connection),
+        ),
+    ]
+}
+
 /// Conversation facts omit fields the provider has not reported.
 fn conversation_facts(
     stats: &adroit_model::ConversationStats,
@@ -1285,6 +1303,36 @@ mod tests {
             .build();
         let got = overview_facts(&s, &adroit_model::ConversationStats::default(), None, 0);
         assert_eq!(labels(&got), ["State"]);
+    }
+
+    #[test]
+    fn the_overview_names_the_profile_and_the_connection_a_session_started_from() {
+        let settings = crate::settings::Settings::parse(
+            "[[profiles]]\nid = \"claude\"\nagent = \"claude\"\n[[profiles]]\nid = \"claude-work\"\nname = \"Claude Work\"\nagent = \"claude\"\nconnection = \"work\"\n[[connections]]\nid = \"work\"\nname = \"Work\"\nagent = \"claude\"\nhome = \"/w\"\n",
+        )
+        .unwrap();
+        let shown = |s: &Session| -> Vec<(&str, String)> {
+            started_from_facts(s, &settings)
+                .into_iter()
+                .map(|f| (f.label, f.value))
+                .collect()
+        };
+        let work = session("s").profile("claude-work", "work").build();
+        assert_eq!(
+            shown(&work),
+            [
+                ("Profile", "Claude Code · Claude Work".to_string()),
+                ("Connection", "Work".to_string())
+            ]
+        );
+        let own = session("s").build();
+        assert_eq!(
+            shown(&own),
+            [
+                ("Profile", "Claude Code · claude".to_string()),
+                ("Connection", "Claude Code's own environment".to_string())
+            ]
+        );
     }
 
     fn limit(window: Window, percent: f64, resets_ms: Option<u64>) -> Limit {

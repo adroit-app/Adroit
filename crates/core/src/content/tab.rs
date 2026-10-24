@@ -2,6 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
+use adroit_model::profile::ProfileId;
 use adroit_model::{Agent, AgentPermissions, DraftId};
 
 use super::{Kept, KeptNode, KeptTab};
@@ -29,6 +30,9 @@ pub fn shows_prompt(tab: Option<&Tab>) -> bool {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DraftOptions {
     pub agent: Option<Agent>,
+    /// The profile chosen, which starts `agent`; that agent's default profile
+    /// when none is.
+    pub profile: Option<ProfileId>,
     pub model: Option<String>,
     pub permissions: AgentPermissions,
 }
@@ -224,6 +228,7 @@ mod tests {
     fn options_chosen_with_nothing_open_go_to_the_next_draft_only() {
         let chosen = DraftOptions {
             agent: None,
+            profile: None,
             model: Some("opus".into()),
             permissions: AgentPermissions::ReadOnly,
         };

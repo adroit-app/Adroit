@@ -160,6 +160,7 @@ impl Ui {
             let size = *ui.local.console_size.peek();
             let Start {
                 draft,
+                profile,
                 name,
                 text,
                 options,
@@ -171,7 +172,7 @@ impl Ui {
             };
             let start = SessionStart {
                 agent: taken.agent,
-                profile: None,
+                profile: Some(profile),
                 name: name.clone(),
                 cwd: HostPath::local(worktree),
                 draft: true,

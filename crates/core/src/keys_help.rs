@@ -263,7 +263,9 @@ mod tests {
 
     #[test]
     fn an_area_that_binds_nothing_is_left_out() {
-        let map = Keymap::with_user("[draft]\n\"Ctrl+g a\" = \"none\"\n\"Ctrl+g A\" = \"none\"\n")
+        let map = Keymap::with_user(
+            "[draft]\n\"Ctrl+g a\" = \"none\"\n\"Ctrl+g A\" = \"none\"\n\"Ctrl+g p\" = \"none\"\n\"Ctrl+g P\" = \"none\"\n",
+        )
             .unwrap();
         assert!(!contexts(&groups(&map, &[])).contains(&Context::Draft));
     }

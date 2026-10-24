@@ -204,9 +204,11 @@ fn go(state: &mut ViewState, taken: Taken) -> Vec<Effect> {
                 .get(&draft)
                 .cloned()
                 .unwrap_or_default();
+            let profile = crate::content::profile_of(state, Some(&draft));
             state.prompt.sending = Some(Sending::Handed(taken.clone()));
             vec![Effect::StartDraft(Box::new(Start {
                 draft,
+                profile,
                 name,
                 text,
                 options,
@@ -224,6 +226,8 @@ fn go(state: &mut ViewState, taken: Taken) -> Vec<Effect> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Start {
     pub draft: Tab,
+    /// The profile it starts from.
+    pub profile: adroit_model::profile::ProfileId,
     /// Its name: the one given above the prompt, or one made from it.
     pub name: String,
     /// The prompt, without the name given above it.

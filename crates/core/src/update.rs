@@ -85,7 +85,34 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         }
         Msg::WindowDragMove(pos) => content::drag_move(&mut state.content, pos),
         Msg::WindowDragEnd => content::drag_end(&mut state.content),
-        Msg::DraftAgent { tab, agent } => content::choose_agent(&mut state.content, tab, agent),
+        Msg::DraftAgent { tab, agent } => {
+            let from = content::agent_of(state, tab.as_ref());
+            match content::choose_agent(&mut state.content, tab, agent, from) {
+                Some(told) => status_line::notice(&mut state.chrome.status, told),
+                None => Vec::new(),
+            }
+        }
+        Msg::DraftProfile { tab, profile } => {
+            let found = state
+                .config
+                .settings
+                .find_profile(&profile)
+                .filter(|p| !p.archived)
+                .map(std::borrow::Cow::into_owned);
+            let Some(chosen) = found else {
+                return status_line::notice(
+                    &mut state.chrome.status,
+                    format!(
+                        "Profile `{profile}` is archived or no longer defined; choose another in the draft or under Settings → Agents → Profiles"
+                    ),
+                );
+            };
+            let from = content::agent_of(state, tab.as_ref());
+            match content::choose_profile(&mut state.content, tab, &chosen, from) {
+                Some(told) => status_line::notice(&mut state.chrome.status, told),
+                None => Vec::new(),
+            }
+        }
         Msg::DraftOptions { tab, options } => {
             content::choose_options(&mut state.content, tab, options)
         }

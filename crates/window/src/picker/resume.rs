@@ -3,7 +3,6 @@
 use adroit_core::msg::Msg;
 use adroit_core::picker::resume::{Resume as List, rows};
 use adroit_core::picker::short;
-use adroit_model::Agent;
 use adroit_model::time::{ago, now_ms};
 use dioxus::prelude::*;
 
@@ -12,17 +11,11 @@ use crate::bridge::AppCtx;
 use crate::components::{Button, Dialog, ListRow, PlaceMark};
 use crate::icons::Icon;
 
-fn agent_label(agent: Agent) -> &'static str {
-    match agent {
-        Agent::Claude => "Claude Code",
-        Agent::Codex => "Codex",
-    }
-}
-
 #[component]
 pub(super) fn Resume(list: List) -> Element {
     let app = use_context::<AppCtx>();
     let home = app.picker.read().home.clone();
+    let settings = app.config.read().settings.clone();
     let host = app.host.read();
     let rows = rows(&list, &home, host.work.as_ref());
     let now = now_ms();
@@ -68,7 +61,7 @@ pub(super) fn Resume(list: List) -> Element {
                                 }
                                 span { class: "list-row-meta",
                                     if row.session.is_some() { "open · " }
-                                    "{agent_label(row.past.agent)} · {ago(now.saturating_sub(row.past.at_ms))}"
+                                    "{adroit_core::profiles::resumed_as(&settings, &row.past)} · {ago(now.saturating_sub(row.past.at_ms))}"
                                 }
                             }
                         }

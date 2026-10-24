@@ -4,6 +4,7 @@
 
 use std::path::PathBuf;
 
+use adroit_model::profile::ProfileId;
 use adroit_model::{Agent, AgentPermissions};
 use dioxus::prelude::*;
 
@@ -30,12 +31,16 @@ pub(crate) fn DraftHead(worktree: PathBuf) -> Element {
 pub(crate) fn DraftForm(
     worktree: PathBuf,
     agent: Agent,
+    profile: ProfileId,
+    profiles: Vec<ProfileChoice>,
     options: DraftOptions,
     keymap: Keymap,
     onagent: EventHandler<Agent>,
+    onprofile: EventHandler<ProfileId>,
     onoptions: EventHandler<DraftOptions>,
 ) -> Element {
     let k_agent = keymap.keys_for(Context::Draft, &Action::SessionAgentNext);
+    let k_profile = keymap.keys_for(Context::Draft, &Action::SessionProfileNext);
     let k_send = keymap.keys_for(Context::Prompt, &Action::PromptSend);
     rsx! {
         EmptyState {
@@ -46,6 +51,7 @@ pub(crate) fn DraftForm(
             }
             div { class: "launch-form",
                 AgentChoices { current: agent, keys: k_agent, onchoose: onagent }
+                ProfileChoices { current: profile, profiles, keys: k_profile, onchoose: onprofile }
                 DraftLaunchOptions { options, onchange: onoptions }
             }
             Legend {
@@ -64,14 +70,18 @@ pub(crate) fn DraftForm(
 #[component]
 pub(crate) fn NothingOpen(
     agent: Agent,
+    profile: ProfileId,
+    profiles: Vec<ProfileChoice>,
     options: DraftOptions,
     keymap: Keymap,
     onpick: EventHandler<()>,
     onagent: EventHandler<Agent>,
+    onprofile: EventHandler<ProfileId>,
     onoptions: EventHandler<DraftOptions>,
 ) -> Element {
     let km = keymap;
     let k_agent = km.keys_for(Context::Draft, &Action::SessionAgentNext);
+    let k_profile = km.keys_for(Context::Draft, &Action::SessionProfileNext);
     // The button is pressed from wherever the focus is.
     let k_pick = km
         .keys_for(Context::Global, &Action::SessionPick)
@@ -101,6 +111,7 @@ pub(crate) fn NothingOpen(
                 div { class: "launch-form-label", "Starts in" }
                 div { class: "launch-form-where", "A scratch session" }
                 AgentChoices { current: agent, keys: k_agent, onchoose: onagent }
+                ProfileChoices { current: profile, profiles, keys: k_profile, onchoose: onprofile }
                 DraftLaunchOptions { options, onchange: onoptions }
             }
             Legend {
@@ -151,6 +162,46 @@ fn AgentChoices(current: Agent, keys: Option<String>, onchoose: EventHandler<Age
             }
             if let Some(keys) = keys {
                 span { class: "launch-form-keys", title: "Switches the agent", Keys { keys } }
+            }
+        }
+    }
+}
+
+/// A profile a new session can start from, as the draft offers it.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ProfileChoice {
+    pub id: ProfileId,
+    /// What it is offered as; see [`adroit_core::profiles::offered_as`].
+    pub label: String,
+}
+
+#[component]
+fn ProfileChoices(
+    current: ProfileId,
+    profiles: Vec<ProfileChoice>,
+    keys: Option<String>,
+    onchoose: EventHandler<ProfileId>,
+) -> Element {
+    rsx! {
+        label { class: "launch-form-label", r#for: "launch-profile", "Profile" }
+        div {
+            class: "launch-form-agent",
+            onmousedown: move |event| event.stop_propagation(),
+            onkeydown: move |event| event.stop_propagation(),
+            select {
+                id: "launch-profile",
+                aria_label: "Session profile",
+                onchange: move |event| {
+                    if let Ok(id) = event.value().parse::<ProfileId>() {
+                        onchoose.call(id);
+                    }
+                },
+                for p in profiles {
+                    option { key: "{p.id}", value: "{p.id}", selected: p.id == current, "{p.label}" }
+                }
+            }
+            if let Some(keys) = keys {
+                span { class: "launch-form-keys", title: "Switches the profile", Keys { keys } }
             }
         }
     }

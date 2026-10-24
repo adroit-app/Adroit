@@ -376,3 +376,70 @@ fn looking_at_a_row_that_folds_goes_into_it_rather_than_folding_it() {
     assert!(run.state().tree.folds.is_open(&heading));
     assert_eq!(run.state().tree.selected, Some(Item::Session("a".into())));
 }
+
+#[test]
+fn a_draft_switches_its_profile_keeping_options_within_an_agent_and_resetting_them_across() {
+    const PROFILES: &str = "profile = \"claude\"\n[[profiles]]\nid = \"claude\"\nagent = \"claude\"\n[[profiles]]\nid = \"work\"\nname = \"Work\"\nagent = \"claude\"\nconnection = \"work\"\n[[profiles]]\nid = \"old\"\nagent = \"claude\"\narchived = true\n[[profiles]]\nid = \"review\"\nname = \"Review\"\nagent = \"codex\"\n[[connections]]\nid = \"work\"\nagent = \"claude\"\nhome = \"/w\"\n";
+    let draft = Tab::draft("/r/a");
+    let chosen = content::DraftOptions {
+        model: Some("opus".into()),
+        permissions: adroit_model::AgentPermissions::ReadOnly,
+        ..Default::default()
+    };
+    let next = || perform(Action::SessionProfileNext, None, Probe::default());
+    let run =
+        Scenario::new()
+            .event(listing().with(|w| {
+                w.config.settings = Some(crate::config::testing::settings_file(PROFILES))
+            }))
+            .send(show(draft.clone()))
+            .send(Msg::DraftOptions {
+                tab: Some(draft.clone()),
+                options: chosen.clone(),
+            });
+    let at = |run: &Scenario| {
+        (
+            content::profile_of(run.state(), Some(&draft)).to_string(),
+            content::connection_of(run.state(), Some(&draft)).to_string(),
+            content::agent_of(run.state(), Some(&draft)),
+        )
+    };
+    assert_eq!(at(&run), ("claude".into(), "claude".into(), Agent::Claude));
+
+    let run = run.send(next());
+    assert_eq!(at(&run), ("work".into(), "work".into(), Agent::Claude));
+    let options = run.state().content.drafts.options[&draft].clone();
+    assert_eq!(options.model, chosen.model, "kept within an agent");
+    assert_eq!(options.permissions, chosen.permissions);
+
+    // The archived profile is passed over.
+    let run = run.send(next());
+    assert_eq!(at(&run), ("review".into(), "codex".into(), Agent::Codex));
+    let options = run.state().content.drafts.options[&draft].clone();
+    assert_eq!(options.model, None);
+    assert_eq!(
+        options.permissions,
+        adroit_model::AgentPermissions::default()
+    );
+    let told = run.state().chrome.status.line.clone().unwrap_or_default();
+    assert!(told.contains("back to Review's defaults"), "{told}");
+
+    let run = run.send(perform(Action::SessionProfilePrev, None, Probe::default()));
+    assert_eq!(at(&run).0, "work");
+    // A new draft starts from the profile last chosen.
+    let other = Tab::draft("/r/b");
+    let run = run.send(show(other.clone()));
+    assert_eq!(
+        content::profile_of(run.state(), Some(&other)).as_str(),
+        "work"
+    );
+}
+
+#[test]
+fn only_a_draft_changes_its_profile() {
+    let run = showing(Area::Console).send(perform(Action::SessionProfileNext, None, with_pane()));
+    assert_eq!(
+        run.state().chrome.status.line.as_deref(),
+        Some("Only a session not started yet can change its profile")
+    );
+}
