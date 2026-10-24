@@ -23,12 +23,13 @@ h1 { font-size: 18px; font-weight: 600; margin: 0 0 16px; }
 h2 { font-size: 12px; font-weight: 500; color: var(--text-2); margin: 0 0 4px; padding: 0 14px; }
 .settings-group { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 6px 0; margin-bottom: 18px; }
 .settings-group h2 { padding-top: 8px; }
-.settings-row { display: flex; align-items: center; gap: 16px; padding: 10px 14px; }
+.settings-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 10px 14px; }
 .settings-row + .settings-row { border-top: 1px solid var(--line); }
-.settings-row-label { flex: 1; min-width: 0; }
+/* A wide control wraps below the label instead of squeezing it into a column a few letters wide. */
+.settings-row-label { flex: 1 1 220px; min-width: 0; }
 .settings-hint { color: var(--text-3); font-size: 12px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; }
 .settings-mono { font-family: var(--mono); font-size: 12px; }
-.settings-row-control { flex: none; display: flex; gap: 8px; align-items: center; }
+.settings-row-control { flex: none; display: flex; gap: 8px; align-items: center; margin-left: auto; }
 select, input, button, textarea { font: inherit; font-size: 13px; color: var(--text); background: var(--ground);
   border: 1px solid var(--line-strong); border-radius: 6px; padding: 4px 8px; outline: none; }
 input[type=number] { width: 72px; }
