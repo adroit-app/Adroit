@@ -501,6 +501,7 @@ fn run(effects: Vec<Effect>, link: &dyn HostLink, mut local: impl FnMut(Effect))
 mod tests {
     use adroit_core::host::Link;
     use adroit_core::zoom::Step;
+    use adroit_protocol::testing::snapshot;
     use adroit_protocol::{ConfigFile, ConfigWork, FileText, SPOKEN, WorkSnapshot, agree};
     use tokio::sync::mpsc::UnboundedSender;
 
@@ -543,15 +544,11 @@ mod tests {
                         text: settings.into(),
                     },
                 }),
-                keys: None,
-                configured: None,
+                ..ConfigWork::default()
             };
             let (sent, events) = tokio::sync::mpsc::unbounded_channel();
             let link = Answering {
-                work: WorkSnapshot {
-                    config,
-                    ..Default::default()
-                },
+                work: snapshot().with(|w| w.config = config).build(),
                 events: sent,
             };
             let mut window = Self {
