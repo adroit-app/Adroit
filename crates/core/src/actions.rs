@@ -243,7 +243,7 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::CursorUp, "cursor.up", "move the selection in the tree to the previous row; in the details panel, in the list it shows, or scroll what else it shows").says("Select the previous row"),
     S::new(A::CursorFirst, "cursor.first", "move the selection in the tree to the first row; in the details panel, in the list it shows, or scroll what else it shows").says("Select the first row"),
     S::new(A::CursorLast, "cursor.last", "move the selection in the tree to the last row; in the details panel, in the list it shows, or scroll what else it shows").says("Select the last row"),
-    S::new(A::CursorGo, "cursor.go", "open the selected session, shell, worktree or file: go to a window showing it, in any tab, keeping the preview tab when that shows it, or else open it in a new tab after the one shown, and move to it, or to the prompt of a session not started yet; on a folded row, a worktree or a session holding others too, unfold it instead; fold or unfold a workspace, a heading or a directory; in the details panel, open the selected row")
+    S::new(A::CursorGo, "cursor.go", "open the selected session, shell, worktree or file: go to a window showing it, in any tab, keeping the preview when that shows it, or else open it in a new tab after the one shown, and move to it, or to the prompt of a session not started yet; on a folded row, a worktree or a session holding others too, unfold it instead; fold or unfold a workspace, a heading or a directory; in the details panel, open the selected row")
         .says("Open it")
         .icon(Icon::ArrowRight)
         .row("Open", Go),
@@ -256,8 +256,8 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::CursorTab, "cursor.tab", "open the selected session, shell, worktree or file as `cursor.go` does, in a new tab after the one shown, though a window shows it already")
         .icon(Icon::BrowserPlus)
         .row("Open in a new tab", Go),
-    S::new(A::CursorShow, "cursor.show", "look at the selected session, shell, worktree or file: show the tab already showing it, or else show it in the preview tab, with the keys staying in the tree; on a folded row, unfold it instead; fold or unfold a workspace, a heading or a directory; in the details panel, open the selected row")
-        .says("Look at it in the preview tab")
+    S::new(A::CursorShow, "cursor.show", "look at the selected session, shell, worktree or file: show the tab already showing it and close the preview, or else show it in the preview, with the keys staying in the tree; on a folded row, unfold it instead; fold or unfold a workspace, a heading or a directory; in the details panel, open the selected row")
+        .says("Look at it in the preview")
         .icon(Icon::Eye)
         .row("Preview", Go),
     S::new(A::CursorFold, "cursor.fold", "fold the selected node, or on a row that is not unfolded go up to the row it sits under; in the details panel, go back out to the list what it shows was opened from").says("Fold, or go back"),
@@ -270,11 +270,11 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::CursorReveal, "cursor.reveal", "in the details panel, show the selected file of the overview in the Finder")
         .icon(Icon::FolderSearch)
         .row("Reveal in Finder", Go),
-    S::new(A::WaitingNext, "waiting.next", "look at the next session waiting on you in the preview tab, with the keys in its console").bar("Next Waiting", Icon::BellDown),
-    S::new(A::WaitingPrev, "waiting.prev", "look at the previous session waiting on you in the preview tab, with the keys in its console").bar("Previous Waiting", Icon::BellUp),
-    S::new(A::SessionNext, "session.next", "look at the session after the one shown, in the tree's order over every session, folded away or filtered out too, going round at the end, in the preview tab; the keys stay in the area they are in").bar("Next Session", Icon::MessageDown),
-    S::new(A::SessionPrev, "session.prev", "look at the session before the one shown, in the tree's order over every session, folded away or filtered out too, going round at the start, in the preview tab; the keys stay in the area they are in").bar("Previous Session", Icon::MessageUp),
-    S::new(A::WorkspaceNext, "workspace.next", "look at a session of the workspace after the one shown, in the tree's order over every workspace holding a session, folded away or filtered out too, going round at the end: the session last shown there since the window opened, or else its first, in the preview tab; the keys stay in the area they are in").bar("Next Workspace", Icon::FolderDown),
+    S::new(A::WaitingNext, "waiting.next", "look at the next session waiting on you in the preview, with the keys in its console").bar("Next Waiting", Icon::BellDown),
+    S::new(A::WaitingPrev, "waiting.prev", "look at the previous session waiting on you in the preview, with the keys in its console").bar("Previous Waiting", Icon::BellUp),
+    S::new(A::SessionNext, "session.next", "look at the session after the one shown, in the tree's order over every session, folded away or filtered out too, going round at the end, in the preview; the keys stay in the area they are in").bar("Next Session", Icon::MessageDown),
+    S::new(A::SessionPrev, "session.prev", "look at the session before the one shown, in the tree's order over every session, folded away or filtered out too, going round at the start, in the preview; the keys stay in the area they are in").bar("Previous Session", Icon::MessageUp),
+    S::new(A::WorkspaceNext, "workspace.next", "look at a session of the workspace after the one shown, in the tree's order over every workspace holding a session, folded away or filtered out too, going round at the end: the session last shown there since the window opened, or else its first, in the preview; the keys stay in the area they are in").bar("Next Workspace", Icon::FolderDown),
     S::new(A::WorkspacePrev, "workspace.prev", "look at a session of the workspace before the one shown, as `workspace.next` does, going round at the start").bar("Previous Workspace", Icon::FolderUp),
     S::new(A::SessionPick, "session.pick", "open the picker, to go to a session or choose where a new one works ([details](tree.md#going-to-a-session-or-starting-one))").bar("Go to or Start Session…", Icon::Search),
     S::new(A::SessionNew, "session.new", "start a session, with the prompt ready to write its first message: in the selected row's worktree or directory from the tree, in the one the focused window shows from elsewhere")

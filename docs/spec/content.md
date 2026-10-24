@@ -12,10 +12,11 @@ its focused window shows, with how many windows it holds, and keeps its own
 focused window while another tab is shown. A tab holds whatever was opened in
 it, from any worktree. Closing a tab closes every window in it.
 
-At most one tab is a **preview**, drawn apart from the others with its name
-in italics. It shows what was looked at last without being opened, and the
-next thing looked at takes its place. It becomes a tab like any other once
-what it shows is opened, once it is split, once keys are sent to what it
+Besides the tabs there may be one **preview**. It comes after every tab,
+without a number, and is drawn apart from them, as is its window, so it is
+not taken for a tab. It shows what was looked at last without being opened,
+and the next thing looked at takes its place. It becomes a tab like any other
+once what it shows is opened, once it is split, once keys are sent to what it
 shows, or once the prompt takes the keys to write to it.
 
 ## Windows
@@ -45,9 +46,9 @@ moves the focus to a window of any tab already showing it, and turns that tab
 into an ordinary one when it is the preview; when no window shows it, it opens
 in a new tab after the one shown.
 
-Looking at something shows the tab already showing it, or else shows it in
-the preview. Going to the next or previous session, workspace or waiting
-session looks at it.
+Looking at something shows the tab already showing it, and closes the
+preview, or else shows it in the preview. Going to the next or previous
+session, workspace or waiting session looks at it.
 
 From the tree, the key says how a row opens and the row says what: opened,
 looked at with the keys staying in the tree, in a new window split below or beside the focused one, or in a new

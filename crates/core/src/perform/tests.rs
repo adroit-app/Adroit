@@ -360,7 +360,8 @@ fn going_to_the_next_session_looks_at_it_in_the_preview() {
         .send(Msg::ShowSession("a".into()))
         .send(Msg::Window(Action::SessionNext));
     assert_eq!(previewing(&run), [false, true]);
+    // Back on a session a tab shows, the preview goes.
     let run = run.send(Msg::Window(Action::SessionNext));
-    assert_eq!(previewing(&run), [false, true]);
-    assert_eq!(run.state().content.windows.current_index(), 0);
+    assert_eq!(previewing(&run), [false]);
+    assert_eq!(run.state().content.active(), Some(&session_tab("a")));
 }

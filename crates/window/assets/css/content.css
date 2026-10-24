@@ -5,8 +5,12 @@
 .tab { white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 12px; border-radius: 7px; color: var(--text-2); cursor: default; }
 .tab.active { background: var(--select); color: var(--text); font-weight: 500; }
 .tab.active .shell-mark, .tab.active .place-mark { color: var(--text-2); }
-.tab.preview { font-style: italic; color: var(--text-3); }
-.tab.preview.active { color: var(--text-2); }
+/* The preview is no tab yet: after a rule, unnumbered, outlined in dashes, never filled. */
+.tab.preview { position: relative; margin-left: 9px; gap: 6px; border: 1px dashed var(--line-strong); color: var(--text-3); padding: 0 10px; }
+.tab.preview::before { content: ""; position: absolute; left: -9px; top: 6px; bottom: 6px; width: 1px; background: var(--line-strong); }
+.tab.preview.active { background: transparent; border-color: var(--focus-border); color: var(--text-2); font-weight: 400; }
+.tab-preview-label { font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; }
+.tab-preview-name { font-style: italic; }
 .tab.shell { font-family: var(--mono); font-size: 12px; }
 .tabs-where { color: var(--text-3); font-size: 11.5px; margin-right: 6px; font-family: var(--mono); }
 .tab-number { color: var(--text-3); font-family: var(--mono); font-size: 11px; font-weight: 400; }
@@ -16,6 +20,9 @@
 .content-windows > .console { position: absolute; inset: 0; }
 .win { position: absolute; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .win.focused { border-color: var(--focus-border); }
+.win.preview { border-style: dashed; }
+.win.preview .win-name { font-style: italic; }
+.win-preview { display: inline-flex; align-items: center; gap: 4px; color: var(--text-3); font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; }
 .win-viewer { flex: 1; min-height: 0; display: flex; }
 .win-bar { flex: none; display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 10px; border-bottom: 1px solid var(--line); color: var(--text-2); font-size: 12px; white-space: nowrap; overflow: hidden; }
 .win.focused .win-bar { color: var(--text); background: var(--raised); }

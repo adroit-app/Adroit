@@ -43,6 +43,7 @@ pub(crate) fn ContentPanel(
     let windows_el: Vec<Element> = match windows.current() {
         None => vec![rsx! { FocusedBody {} }],
         Some(tab) => {
+            let preview = tab.is_preview();
             let host = app.host.read();
             let work = host.work.as_ref();
             let (t, terms) = (tree_view::listed(work), tree_view::terminals(work));
@@ -73,7 +74,7 @@ pub(crate) fn ContentPanel(
                     }
                 };
                 out.push(rsx! {
-                    ContentWindow { key: "{id}", id, r, focused, strip, body }
+                    ContentWindow { key: "{id}", id, r, focused, preview, strip, body }
                 });
             }
             for b in tab.borders() {

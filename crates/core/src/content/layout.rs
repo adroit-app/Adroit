@@ -447,12 +447,12 @@ impl<T: Clone + PartialEq> Content<T> {
     }
 
     /// The numbers, counted from 1, of the tabs with a window showing
-    /// `thing`.
+    /// `thing`; the preview has no number.
     pub fn tabs_showing(&self, thing: &T) -> Vec<usize> {
         self.tabs
             .iter()
             .enumerate()
-            .filter(|(_, t)| t.windows().iter().any(|w| w.shows == *thing))
+            .filter(|(_, t)| !t.preview && t.windows().iter().any(|w| w.shows == *thing))
             .map(|(at, _)| at + 1)
             .collect()
     }
@@ -463,6 +463,11 @@ impl<T: Clone + PartialEq> Content<T> {
         Window { id, shows }
     }
 
+    /// How many tabs are not the preview, which always comes after them.
+    fn ordinary(&self) -> usize {
+        self.tabs.iter().filter(|t| !t.preview).count()
+    }
+
     fn set_current(&mut self, at: usize) {
         if at != self.current && at < self.tabs.len() {
             self.last = self.current().map(|t| t.id);
@@ -470,7 +475,8 @@ impl<T: Clone + PartialEq> Content<T> {
         }
     }
 
-    /// Show `thing` in a new tab after the one shown.
+    /// Show `thing` in a new tab after the one shown, or before the preview
+    /// when that is shown.
     pub fn open_tab(&mut self, thing: T) {
         let w = self.window(thing);
         let tab = ContentTab {
@@ -483,7 +489,7 @@ impl<T: Clone + PartialEq> Content<T> {
         let at = if self.tabs.is_empty() {
             0
         } else {
-            self.current + 1
+            (self.current + 1).min(self.ordinary())
         };
         self.tabs.insert(at, tab);
         if self.tabs.len() == 1 {
@@ -499,8 +505,9 @@ impl<T: Clone + PartialEq> Content<T> {
         self.open_in(thing, Opening::Existing);
     }
 
-    /// Look at `thing`: go to a window of any tab showing it, or else show it
-    /// in the preview, made after the shown tab when there is none.
+    /// Look at `thing`: go to a window of any tab showing it, closing the
+    /// preview unless that shows it, or else show it in the preview, made
+    /// after every tab when there is none.
     pub fn look(&mut self, thing: T) {
         self.open_in(thing, Opening::Preview);
     }
@@ -517,6 +524,9 @@ impl<T: Clone + PartialEq> Content<T> {
             }
             Opening::Preview => {
                 if self.reveal(&thing) {
+                    if !self.current().is_some_and(|t| t.preview) {
+                        self.close_preview();
+                    }
                     return;
                 }
                 match self.tabs.iter().position(|t| t.preview) {
@@ -528,15 +538,38 @@ impl<T: Clone + PartialEq> Content<T> {
                         self.set_current(at);
                     }
                     None => {
-                        self.open_tab(thing);
-                        if let Some(tab) = self.current_mut() {
-                            tab.preview = true;
+                        let w = self.window(thing);
+                        self.tabs.push(ContentTab {
+                            id: w.id,
+                            focus: w.id,
+                            root: Node::Window(w),
+                            previous: None,
+                            preview: true,
+                        });
+                        if self.tabs.len() == 1 {
+                            self.current = 0;
+                        } else {
+                            self.set_current(self.tabs.len() - 1);
                         }
                     }
                 }
             }
             Opening::Split(axis) => self.split(axis, thing),
             Opening::Tab => self.open_tab(thing),
+        }
+    }
+
+    /// Close the preview, when there is one and another tab is shown.
+    fn close_preview(&mut self) {
+        let Some(at) = self.tabs.iter().position(|t| t.preview) else {
+            return;
+        };
+        if at != self.current {
+            self.tabs.remove(at);
+            if self.current > at {
+                self.current -= 1;
+            }
+            self.keep_last();
         }
     }
 
@@ -789,7 +822,7 @@ impl<T: Clone + PartialEq> Content<T> {
         };
         let tab_id = self.next;
         self.next += 1;
-        let at = self.current + 1;
+        let at = (self.current + 1).min(self.ordinary());
         self.tabs.insert(
             at,
             ContentTab {
@@ -811,11 +844,12 @@ impl<T: Clone + PartialEq> Content<T> {
         }
     }
 
-    /// Show the tab at `at`, counted from 0, or the last tab when there are
-    /// not that many.
+    /// Show the tab at `at`, counted from 0, or the last tab before the
+    /// preview when there are not that many.
     pub fn go_to_tab(&mut self, at: usize) {
         if !self.tabs.is_empty() {
-            self.set_current(at.min(self.tabs.len() - 1));
+            let last = self.ordinary().max(1) - 1;
+            self.set_current(at.min(last));
         }
     }
 
@@ -1034,15 +1068,40 @@ mod tests {
     }
 
     #[test]
-    fn looking_shows_the_thing_in_a_preview_tab_after_the_shown_one() {
+    fn looking_shows_the_thing_in_a_preview_after_every_tab() {
         let mut c = one("a");
         c.open_tab("z");
         c.go_to_tab(0);
         c.look("b");
-        assert_eq!((c.tabs().len(), c.current_index()), (3, 1));
+        assert_eq!((c.tabs().len(), c.current_index()), (3, 2));
         assert_eq!(drawn(&c), "b");
-        assert!(c.tabs()[1].is_preview());
+        assert!(c.tabs()[2].is_preview());
         assert!(!c.tabs()[0].is_preview());
+    }
+
+    #[test]
+    fn a_tab_opened_comes_before_the_preview() {
+        let mut c = one("a");
+        c.look("b");
+        c.open("c");
+        assert_eq!(c.tabs().len(), 3);
+        assert_eq!((c.current_index(), c.focused()), (1, Some(&"c")));
+        assert!(c.tabs()[2].is_preview());
+        c.go_to_tab(2);
+        c.split(Axis::Row, "d");
+        c.go_to_tab(0);
+        c.look("e");
+        c.to_new_tab();
+        assert!(c.tabs().last().is_some_and(|t| t.is_preview()));
+    }
+
+    #[test]
+    fn the_preview_is_not_counted_among_the_tabs_showing_a_thing() {
+        let mut c = one("a");
+        c.look("b");
+        assert_eq!(c.tabs_showing(&"b"), Vec::<usize>::new());
+        c.go_to_tab(9);
+        assert_eq!(c.current_index(), 0);
     }
 
     #[test]
@@ -1057,15 +1116,25 @@ mod tests {
     }
 
     #[test]
-    fn looking_at_what_a_tab_shows_goes_there_and_leaves_the_preview_alone() {
+    fn looking_at_what_a_tab_shows_goes_there_and_closes_the_preview() {
         let mut c = one("a");
         c.split(Axis::Row, "b");
+        c.open_tab("z");
         c.look("c");
         c.look("a");
         assert_eq!((c.current_index(), c.focused()), (0, Some(&"a")));
         assert_eq!(c.tabs().len(), 2);
-        c.go_to_tab(1);
-        assert_eq!(drawn(&c), "c");
+        assert!(c.tabs().iter().all(|t| !t.is_preview()));
+    }
+
+    #[test]
+    fn looking_at_what_the_preview_shows_stays_there() {
+        let mut c = one("a");
+        c.look("b");
+        c.go_to_tab(0);
+        c.look("b");
+        assert_eq!((c.tabs().len(), c.current_index()), (2, 1));
+        assert!(c.tabs()[1].is_preview());
     }
 
     #[test]

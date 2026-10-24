@@ -101,18 +101,46 @@ pub(super) fn TabsBar(
                     .flatten()
                     .collect::<Vec<_>>()
                     .join(" ");
-                    let tip = if preview { "Preview: what is looked at next takes its place" } else { "" };
                     let glyph_class = state.as_ref().map(glyph);
                     let target = Target::Tab(tab.clone());
                     let closing = Target::Tab(tab.clone());
                     let has_draft = drafted.read().contains(&tab);
                     let number = at + 1;
                     let windows = if count == 1 { "1 window".to_string() } else { format!("{count} windows") };
+                    // The preview is no tab of its own yet: unnumbered, after
+                    // a rule, and named as what it only shows.
+                    if preview {
+                        return rsx! {
+                            span {
+                                key: "{at}",
+                                class: "{class}",
+                                title: "Preview: what is looked at next takes its place; open it to keep it",
+                                onclick: move |_| app.dispatch(Msg::TabShow(at)),
+                                oncontextmenu: menu_opener(app, target),
+                                IconView { icon: Icon::Eye, size: 13 }
+                                span { class: "tab-preview-label", "Preview" }
+                                if let Some((g, icon, tip)) = glyph_class {
+                                    StateGlyph { class: g, icon, size: 13, title: tip }
+                                }
+                                if let Some(runs) = shell { TerminalMark { runs } }
+                                span { class: "tab-preview-name", "{name}" }
+                                span {
+                                    class: "tab-close",
+                                    title: "Close the preview; what it shows runs on",
+                                    onclick: move |e: Event<MouseData>| {
+                                        e.stop_propagation();
+                                        app.dispatch(Msg::TabShow(at));
+                                        onclose.call(closing.clone());
+                                    },
+                                    IconView { icon: Icon::X, size: 12 }
+                                }
+                            }
+                        };
+                    }
                     rsx! {
                         span {
                             key: "{at}",
                             class: "{class}",
-                            title: "{tip}",
                             onclick: move |_| app.dispatch(Msg::TabShow(at)),
                             oncontextmenu: menu_opener(app, target),
                             span { class: "tab-number", "{number}" }
