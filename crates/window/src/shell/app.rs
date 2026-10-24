@@ -97,7 +97,12 @@ fn RootStyle() -> Element {
 /// Keep what is selected in the sidebar in view, and the tab the console
 /// shows along the one line of tabs, after each is drawn.
 fn use_scroll_into_view(app: AppCtx) {
-    let selected = use_memo(move || app.tree.read().selected.clone());
+    // The rows too: a row gone into is selected once its directory is read,
+    // and rows unfolded above it push it down.
+    let selected = use_memo(move || {
+        let tree = app.tree.read();
+        (tree.selected.clone(), tree.rows.clone())
+    });
     use_effect(move || {
         let _ = selected();
         document::eval(

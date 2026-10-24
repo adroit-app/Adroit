@@ -16,8 +16,9 @@ mod resume;
 pub(crate) fn Picker() -> Element {
     let app = use_context::<AppCtx>();
     let open = app.picker.read().open.clone();
-    // The row the cursor is on is kept in view, after it is drawn.
-    let cursor = use_memo(move || app.picker.read().open.as_ref().map(Picking::cursor));
+    // The row the cursor is on is kept in view, after it is drawn: the
+    // list's, and the file tree's, whose cursor is not the list's.
+    let cursor = use_memo(move || app.picker.read().open.clone());
     use_effect(move || {
         let _ = cursor();
         document::eval(
