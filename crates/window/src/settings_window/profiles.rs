@@ -854,11 +854,11 @@ fn LoginRow(
         _ => String::new(),
     };
     let hint = match &now {
-        Some(Probed::Is(_, profile)) if asking.as_ref() != Some(profile) => {
-            let name = settings
-                .find_profile(profile)
-                .map_or_else(|| profile.to_string(), |p| p.label().to_string());
-            format!("{said} Checked with {name}.").trim().to_string()
+        Some(Probed::Is(_, profile)) => {
+            match profiles::checked_with(&settings, profile, asking.as_ref()) {
+                Some(name) => format!("{said} Checked with {name}.").trim().to_string(),
+                None => said,
+            }
         }
         _ => said,
     };

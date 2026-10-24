@@ -271,6 +271,20 @@ pub fn connection_name(settings: &Settings, id: &ConnectionId) -> String {
         .map_or_else(|| id.to_string(), |c| connection_label(c).to_string())
 }
 
+/// The profile a login was checked with, `answered`, as named beside the
+/// answer on the page of the profile `page`: not at all when it is that one.
+pub fn checked_with(
+    settings: &Settings,
+    answered: &ProfileId,
+    page: Option<&ProfileId>,
+) -> Option<String> {
+    (page != Some(answered)).then(|| {
+        settings
+            .find_profile(answered)
+            .map_or_else(|| answered.to_string(), |p| p.label().to_string())
+    })
+}
+
 /// What a conversation kept is listed as: its agent and the profile it ran
 /// from, and the connection that keeps it when that is one of its own.
 pub fn resumed_as(settings: &Settings, past: &adroit_model::Past) -> String {
@@ -544,6 +558,22 @@ mod tests {
 
     fn cid(text: &str) -> ConnectionId {
         text.parse().unwrap()
+    }
+
+    #[test]
+    fn a_login_is_said_to_be_checked_with_a_profile_only_when_it_is_another() {
+        let s = settings();
+        let work = id("claude-work");
+        assert_eq!(checked_with(&s, &work, Some(&work)), None);
+        assert_eq!(
+            checked_with(&s, &work, Some(&id("claude"))).as_deref(),
+            Some("Claude Work")
+        );
+        assert_eq!(
+            checked_with(&s, &work, None).as_deref(),
+            Some("Claude Work")
+        );
+        assert_eq!(checked_with(&s, &id("gone"), None).as_deref(), Some("gone"));
     }
 
     /// Whether `s` would be read back as they are written, with every agent

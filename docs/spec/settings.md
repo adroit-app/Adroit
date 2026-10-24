@@ -65,11 +65,12 @@ its folder as it is.
 An account is shown, on its page and on the page of each profile that uses
 it, as logged in, not logged in, unknown, or with its agent's program not
 found, as the program says when asked in that account, naming the profile
-whose program was asked; adroit takes no login for granted. It is asked when
-the account is first shown, when asked again, and when its login terminal
-ends, never over and over. Open login terminal starts a terminal, listed in
-the tree as any other, that runs the program's own login in the account, the
-way a session there is started; the user logs in in it. The account shared
+whose program was asked unless it is the page's own; adroit takes no login
+for granted. It is asked when the account is first shown, when asked again,
+and when its login terminal ends, never over and over. Open login terminal
+starts a terminal, listed in the tree as any other, that runs the program's
+own login in the account, the way a session there is started; the user logs
+in in it. The account shared
 with the terminal is the program as it runs outside adroit, so logging in or
 out of it there changes it here too.
 
