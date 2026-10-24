@@ -211,12 +211,18 @@ impl Keymap {
         self.resolve_exactly(contexts, &loosened)
     }
 
-    /// Whether `key` begins a `global` sequence held with Ctrl, as the
-    /// window commands' prefix does.
+    /// Whether `key` is held with Ctrl and begins a `global` binding: the
+    /// window commands' prefix, or a key that is no character bound alone,
+    /// as `Ctrl+Tab` is. Ctrl with a character bound alone stays out of
+    /// Neovim's insert mode, which uses those keys itself.
     fn prefix(&self, key: &Key) -> bool {
+        let character = key.key.chars().count() == 1;
         key.ctrl
             && self.bindings.iter().any(|(c, seq, a)| {
-                *c == Context::Global && seq.len() > 1 && *a != Action::None && seq[0].matches(key)
+                *c == Context::Global
+                    && *a != Action::None
+                    && (seq.len() > 1 || !character)
+                    && seq[0].matches(key)
             })
     }
 
@@ -391,14 +397,15 @@ mod tests {
     fn the_window_s_own_mod_keys_are_global_bindings() {
         let map = Keymap::defaults();
         for (key, action) in [
-            ("Mod+]", Action::TabNext),
-            ("Mod+[", Action::TabPrev),
             ("Mod+w", Action::TabClose),
             ("Mod+p", Action::SessionPick),
-            ("Mod+n", Action::SessionNew),
+            ("Mod+t", Action::SessionNew),
+            ("Mod+n", Action::WindowOpen),
+            ("Mod+o", Action::SessionResume),
+            ("Mod+j", Action::WaitingNext),
+            ("Mod+k", Action::WaitingPrev),
             ("Mod+s", Action::ShellOpen),
             ("Mod+e", Action::NeovimOpen),
-            ("Mod+t", Action::SessionResume),
             ("Mod+Backspace", Action::SessionStop),
             ("Mod+f", Action::Filter),
             ("Mod+r", Action::Refresh),
@@ -436,7 +443,14 @@ mod tests {
     fn the_keys_the_menu_alone_offers_now_have_no_default() {
         let map = Keymap::defaults();
         for areas in [&[Context::Tree, Context::Global][..], &[Context::Global]] {
-            for key in ["Cmd+Alt+n", "Cmd+}", "Cmd+{", "Cmd+Alt+e", "Cmd+Alt+b"] {
+            for key in [
+                "Cmd+Alt+n",
+                "Cmd+N",
+                "Mod+]",
+                "Mod+[",
+                "Cmd+Alt+e",
+                "Cmd+Alt+b",
+            ] {
                 assert_eq!(step(&map, areas, &[], key), Step::Nothing, "{key}");
             }
         }
@@ -517,7 +531,7 @@ mod tests {
     }
 
     #[test]
-    fn the_tabs_are_switched_by_the_same_keys_in_every_area() {
+    fn the_tabs_are_switched_by_the_keys_each_platform_and_vim_switch_tabs_with() {
         let map = Keymap::defaults();
         for ctx in [
             Context::Tree,
@@ -526,9 +540,40 @@ mod tests {
             Context::Prompt,
         ] {
             let areas = [ctx, Context::Global];
-            assert_eq!(step(&map, &areas, &[], "Mod+]"), Step::Run(Action::TabNext));
-            assert_eq!(step(&map, &areas, &[], "Mod+["), Step::Run(Action::TabPrev));
+            for (pending, key, action) in [
+                (&[][..], "Ctrl+Tab", Action::TabNext),
+                (&[], "Ctrl+Shift+Tab", Action::TabPrev),
+                (&[], "Ctrl+PageDown", Action::TabNext),
+                (&[], "Ctrl+PageUp", Action::TabPrev),
+                (&[], "Cmd+}", Action::TabNext),
+                (&[], "Cmd+{", Action::TabPrev),
+                (&["Ctrl+q", "g"], "t", Action::TabNext),
+                (&["Ctrl+q", "g"], "T", Action::TabPrev),
+            ] {
+                assert_eq!(
+                    step(&map, &areas, pending, key),
+                    Step::Run(action),
+                    "{} {pending:?} {key}",
+                    ctx.name()
+                );
+            }
         }
+    }
+
+    #[test]
+    fn a_ctrl_key_bound_alone_everywhere_reaches_the_window_from_the_prompt_s_insert_mode() {
+        let map = Keymap::defaults();
+        let inserting = [Context::Prompt];
+        assert_eq!(
+            step(&map, &inserting, &[], "Ctrl+Tab"),
+            Step::Run(Action::TabNext)
+        );
+        assert_eq!(
+            step(&map, &inserting, &[], "Ctrl+PageUp"),
+            Step::Run(Action::TabPrev)
+        );
+        // Other Ctrl keys stay Neovim's.
+        assert_eq!(step(&map, &inserting, &[], "Ctrl+w"), Step::Nothing);
     }
 
     #[test]
@@ -545,13 +590,14 @@ mod tests {
                 step(&map, &areas, &[], "Mod+p"),
                 Step::Run(Action::SessionPick)
             );
-            assert_eq!(
-                step(&map, &areas, &["Ctrl+q"], "N"),
-                Step::Run(Action::SessionNext)
-            );
-            assert_eq!(
-                step(&map, &areas, &["Ctrl+q"], "P"),
-                Step::Run(Action::SessionPrev)
+        }
+        // Stepping through every session one by one is left to be bound.
+        for action in [Action::SessionNext, Action::SessionPrev] {
+            assert!(
+                Context::ALL
+                    .iter()
+                    .all(|&c| map.keys_for(c, &action).is_none()),
+                "{action}"
             );
         }
         // Command with Shift and a bracket arrives as the brace it types.
@@ -597,19 +643,37 @@ mod tests {
     }
 
     #[test]
-    fn each_sheet_of_the_details_panel_has_a_key_of_its_own_everywhere() {
+    fn each_sheet_of_the_details_panel_has_a_digit_of_its_own_there() {
         let map = Keymap::defaults();
+        let details = [Context::Details, Context::Tree, Context::Global];
         for (digit, action) in [
             ("1", Action::DetailsOverview),
             ("2", Action::DetailsChanges),
             ("3", Action::DetailsLog),
         ] {
-            let key = press(&format!("Mod+{digit}"));
-            for ctx in [Context::Tree, Context::Console, Context::Prompt] {
+            assert_eq!(
+                step(&map, &details, &[], digit),
+                Step::Run(action),
+                "{digit}"
+            );
+        }
+    }
+
+    #[test]
+    fn mod_and_a_digit_shows_the_tab_of_that_number_as_browsers_do() {
+        let map = Keymap::defaults();
+        for ctx in [
+            Context::Tree,
+            Context::Details,
+            Context::Console,
+            Context::Prompt,
+        ] {
+            for n in 1..=9 {
                 assert_eq!(
-                    map.resolve(&[ctx], &[], &key),
-                    Step::Run(action.clone()),
-                    "{digit}"
+                    map.resolve(&[ctx], &[], &press(&format!("Mod+{n}"))),
+                    Step::Run(Action::TabGo(n)),
+                    "{} {n}",
+                    ctx.name()
                 );
             }
         }
@@ -622,10 +686,10 @@ mod tests {
              [global]\n\"Cmd+4\" = \"details.files\"\n\"Cmd+5\" = \"details.diff\"\n",
         )
         .unwrap();
-        for digit in ["4", "5"] {
+        for (digit, n) in [("4", 4), ("5", 5)] {
             assert_eq!(
                 map.resolve(&[Context::Global], &[], &Key::new(digit).meta()),
-                Step::Nothing,
+                Step::Run(Action::TabGo(n)),
                 "{digit}"
             );
         }
@@ -752,14 +816,17 @@ mod tests {
     }
 
     #[test]
-    fn w_in_the_sidebar_opens_the_one_picker_and_cmd_o_is_free() {
+    fn w_in_the_sidebar_opens_the_one_picker_and_cmd_o_opens_a_past_conversation() {
         let map = Keymap::defaults();
         assert_eq!(
             step(&map, &[Context::Tree, Context::Global], &[], "w"),
             Step::Run(Action::SessionPick)
         );
         let o = Key::new("o").meta();
-        assert_eq!(map.resolve(&[Context::Global], &[], &o), Step::Nothing);
+        assert_eq!(
+            map.resolve(&[Context::Global], &[], &o),
+            Step::Run(Action::SessionResume)
+        );
     }
 
     #[test]
@@ -778,8 +845,8 @@ mod tests {
     fn the_keys_of_an_action_read_as_written_for_the_window_to_show() {
         let map = Keymap::defaults();
         assert_eq!(
-            map.keys_for(Context::Tree, &Action::WaitingNext),
-            Some("] w".into())
+            map.keys_for(Context::Tree, &Action::CursorFirst),
+            Some("g g".into())
         );
         assert_eq!(
             map.keys_for(Context::Tree, &Action::SessionStop),
@@ -799,12 +866,12 @@ mod tests {
         let sidebar = [Context::Tree, Context::Global];
         let console = [Context::Console, Context::Global];
         assert_eq!(
-            map.keys_in(&sidebar, &Action::WaitingNext),
-            Some("] w".into())
+            map.keys_in(&sidebar, &Action::WorkspaceNext),
+            Some("}".into())
         );
         assert_eq!(
-            map.keys_in(&console, &Action::WaitingNext),
-            Some("Ctrl+q ]".into())
+            map.keys_in(&console, &Action::WorkspaceNext),
+            Some("Ctrl+q }".into())
         );
         assert_eq!(map.keys_in(&console, &Action::CursorDown), None);
         let map = Keymap::with_user("[global]\n\"Ctrl+q j\" = \"cursor.down\"\n").unwrap();
@@ -958,12 +1025,17 @@ mod tests {
         let answering = [Context::Global];
         let map = Keymap::defaults();
         assert_eq!(
-            step(&map, &answering, &["Ctrl+q"], "]"),
+            step(&map, &answering, &[], "Mod+j"),
             Step::Run(Action::WaitingNext)
         );
         assert_eq!(
-            step(&map, &answering, &["Ctrl+q"], "["),
+            step(&map, &answering, &[], "Mod+k"),
             Step::Run(Action::WaitingPrev)
+        );
+        // From the prompt's insert mode too.
+        assert_eq!(
+            step(&map, &[Context::Prompt], &[], "Mod+j"),
+            Step::Run(Action::WaitingNext)
         );
     }
 
@@ -1159,22 +1231,27 @@ mod tests {
                 ("ArrowUp", Action::WindowUp),
                 ("l", Action::WindowRight),
                 ("ArrowRight", Action::WindowRight),
-                ("w", Action::WindowNext),
+                ("q", Action::WindowNext),
                 ("Ctrl+q", Action::WindowNext),
-                ("W", Action::WindowPrev),
+                ("Q", Action::WindowPrev),
                 ("t", Action::WindowTop),
                 ("b", Action::WindowBottom),
                 ("p", Action::WindowBack),
-                ("Tab", Action::TabNext),
-                ("Shift+Tab", Action::TabPrev),
-                ("]", Action::WaitingNext),
-                ("[", Action::WaitingPrev),
-                ("N", Action::SessionNext),
-                ("P", Action::SessionPrev),
             ] {
                 assert_eq!(
                     step(&map, &areas, &["Ctrl+q"], key),
                     Step::Run(action),
+                    "{} {key}",
+                    ctx.name()
+                );
+            }
+            // Keys left for the user's own: `w`, as `q` goes to the next
+            // window with Ctrl held or not, and those Vim's Ctrl-w leaves
+            // alone.
+            for key in ["w", "W", "Tab", "Shift+Tab", "]", "[", "N", "P"] {
+                assert_eq!(
+                    step(&map, &areas, &["Ctrl+q"], key),
+                    Step::Nothing,
                     "{} {key}",
                     ctx.name()
                 );
@@ -1197,7 +1274,6 @@ mod tests {
                 ("s", Action::WindowSplit),
                 ("n", Action::WindowNew),
                 ("c", Action::WindowQuit),
-                ("q", Action::WindowQuit),
                 ("o", Action::WindowOnly),
                 ("H", Action::WindowMoveLeft),
                 ("J", Action::WindowMoveDown),
@@ -1248,9 +1324,9 @@ mod tests {
         for (key, action) in [
             ("Ctrl+h", Action::WindowLeft),
             ("Ctrl+l", Action::WindowRight),
-            ("Ctrl+]", Action::WaitingNext),
-            ("Ctrl+w", Action::WindowNext),
-            ("Ctrl+N", Action::SessionNext),
+            ("Ctrl+}", Action::WorkspaceNext),
+            ("Ctrl+c", Action::WindowQuit),
+            ("Ctrl+Q", Action::WindowPrev),
         ] {
             assert_eq!(
                 step(&map, &areas, &["Ctrl+q"], key),

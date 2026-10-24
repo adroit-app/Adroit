@@ -357,7 +357,7 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::ViewerForward, "viewer.forward", "in a viewer, seek a movie forward").says("Forward"),
     S::new(A::ViewerCopyPath, "viewer.copy_path", "in a viewer, copy the path of the file it shows").says("Copy the path"),
     S::new(A::ConsoleSend(None), "console.send", "send the key pressed to the session; with a key named after it, as in `console.send Escape`, send that key instead").says("Send the key to the console"),
-    S::new(A::TabGo(1), "tab.go", "show the content's tab numbered `n`, from 1 to 9, or the last when there are fewer").says("Go to tab"),
+    S::new(A::TabGo(1), "tab.go", "show the content's tab numbered `n`, from 1 to 8, or the last when there are fewer; 9 shows the last however many there are").says("Go to tab"),
 ];
 
 impl Action {

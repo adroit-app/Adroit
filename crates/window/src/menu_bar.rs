@@ -482,7 +482,10 @@ mod tests {
     #[test]
     fn an_entry_shows_the_mod_key_bound_to_its_action_everywhere() {
         let map = Keymap::defaults();
-        assert_eq!(shown(&map, Action::SessionNew), written("Mod+n"));
+        assert_eq!(shown(&map, Action::SessionNew), written("Mod+t"));
+        assert_eq!(shown(&map, Action::WindowOpen), written("Mod+n"));
+        assert_eq!(shown(&map, Action::SessionResume), written("Mod+o"));
+        assert_eq!(shown(&map, Action::WaitingNext), written("Mod+j"));
         assert_eq!(shown(&map, Action::SessionPick), written("Mod+p"));
         assert_eq!(shown(&map, Action::DetailsToggle), written("Mod+d"));
         assert_eq!(shown(&map, Action::SessionStop), written("Mod+Backspace"));
@@ -501,7 +504,7 @@ mod tests {
     #[test]
     fn a_sequence_shows_no_shortcut_in_the_menu() {
         let map = Keymap::defaults();
-        assert_eq!(shown(&map, Action::WaitingNext), None);
+        assert_eq!(shown(&map, Action::WorkspaceNext), None);
         assert_eq!(shown(&map, Action::WindowLeft), None);
     }
 
@@ -619,7 +622,7 @@ mod tests {
     fn the_keys_left_to_the_menu_follow_the_bindings_in_force() {
         let held = left_to_menu(
             &Keymap::with_user(
-                "[global]\n\"Cmd+n\" = \"none\"\n\"Cmd+j\" = \"session.new\"\n\"Cmd+Ctrl+f\" = \"filter\"\n",
+                "[global]\n\"Cmd+n\" = \"none\"\n\"Cmd+j\" = \"session.scratch\"\n\"Cmd+Ctrl+f\" = \"filter\"\n",
             )
             .unwrap(),
         );

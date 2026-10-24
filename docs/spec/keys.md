@@ -174,7 +174,9 @@ another, the complete one runs.
 
 A key held with Ctrl that begins a `global` sequence, as `Ctrl+q` does, is a
 prefix: it reaches the `global` bindings wherever the keys are, as a Command
-key does. In a sequence begun with Ctrl held, a later key held with Ctrl too
+key does. So does Ctrl with a key that is no character, such as `Ctrl+Tab`,
+bound alone in `global`; Ctrl with a character bound alone is Neovim's in
+the prompt's insert mode. In a sequence begun with Ctrl held, a later key held with Ctrl too
 means what it means without, as after Vim's `Ctrl-w`, unless the sequence is
 bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 `Ctrl+q Ctrl+Tab` is nothing.

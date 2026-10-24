@@ -138,7 +138,7 @@ pub(crate) fn act(state: &mut ViewState, action: Action) -> Vec<Effect> {
         Action::WindowMaximizeWidth => edit(view, &|c| c.maximize(Axis::Row)),
         Action::WindowMaximizeHeight => edit(view, &|c| c.maximize(Axis::Column)),
         Action::WindowToTab => edit(view, &Content::to_new_tab),
-        Action::TabGo(n) => edit(view, &|c| c.go_to_tab(usize::from(n).saturating_sub(1))),
+        Action::TabGo(n) => edit(view, &|c| c.go_to_numbered_tab(n)),
         Action::TabLast => edit(view, &Content::go_to_last_tab),
         // The tabs of the area the keys are in: the details panel's sheets
         // there, the content's tabs elsewhere.
