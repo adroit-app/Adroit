@@ -1,5 +1,17 @@
 fn main() {
     use adroit_host::cli::{Command, USAGE, command, settle_instance};
+    // Run from inside an agent's account, such as by its MCP server or a
+    // command its session runs, adroit finds its instance where it is
+    // outside the account, not where the account moved the agent's folders.
+    for (name, value) in adroit_agents::connection::outside(std::env::vars_os()) {
+        // SAFETY: no other thread exists yet.
+        unsafe {
+            match value {
+                Some(value) => std::env::set_var(&name, value),
+                None => std::env::remove_var(&name),
+            }
+        }
+    }
     let args: Vec<String> = std::env::args().skip(1).collect();
     let asked = command(&args);
     // Ahead of settling the instance: the agent's program is handed the

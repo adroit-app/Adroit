@@ -6,6 +6,7 @@ mod codex;
 pub mod connection;
 mod delivery;
 pub mod login;
+pub mod opencode;
 pub mod pi;
 #[cfg(test)]
 mod testing;
@@ -13,7 +14,7 @@ pub use connection::conflict;
 pub use delivery::{DeliveryFailure, DeliveryFuture};
 
 use adroit_model::Agent;
-use adroit_model::config::{CodexOptions, Launch, PiOptions, SessionOptions};
+use adroit_model::config::{CodexOptions, Launch, OpenCodeOptions, PiOptions, SessionOptions};
 use adroit_model::profile::{AgentOptions, AgentProfile, ConnectionId, ProfileId};
 use std::path::{Path, PathBuf};
 
@@ -151,6 +152,21 @@ impl AgentContext {
             _ => None,
         }
     }
+
+    /// OpenCode's options; nothing chosen for a profile of another agent.
+    pub fn opencode(&self) -> OpenCodeOptions {
+        match &self.options {
+            AgentOptions::OpenCode(options) => options.clone(),
+            _ => OpenCodeOptions::default(),
+        }
+    }
+
+    pub fn opencode_mut(&mut self) -> Option<&mut OpenCodeOptions> {
+        match &mut self.options {
+            AgentOptions::OpenCode(options) => Some(options),
+            _ => None,
+        }
+    }
 }
 
 /// What a session learned from its agent's listing, kept on the session so a
@@ -193,6 +209,9 @@ type DeveloperInstructions =
 
 type ConversationLookup =
     std::pin::Pin<Box<dyn std::future::Future<Output = Option<String>> + Send>>;
+
+/// Why a session cannot start, as its agent's program tells of itself.
+type Refusal = std::pin::Pin<Box<dyn std::future::Future<Output = Option<String>> + Send>>;
 
 /// A terminal agent owns its arguments, environment and optional integrations.
 pub trait AgentAdapter: Sync {
@@ -255,6 +274,26 @@ pub trait AgentAdapter: Sync {
     /// carry a login or to move the agent's state, or one of their families,
     /// even when a shell's startup files set it again.
     fn denies(&self, name: &str) -> bool;
+    /// What a connection of its own in `home` sets last, which the profile's
+    /// launch cannot set: the state variable naming `home`, unless the agent
+    /// keeps its state in more than one place.
+    fn connection_variables(&self, home: &Path) -> Vec<(String, String)> {
+        vec![(self.state_variable().into(), home.display().to_string())]
+    }
+    /// Whether a connection of its own removes `name` from what the agent
+    /// inherits, unless the profile's launch sets it: those it
+    /// [denies](AgentAdapter::denies), unless the agent reads credentials
+    /// from more variables than a list of them could keep up with, and only
+    /// those known to be harmless are left.
+    fn removes(&self, name: &str) -> bool {
+        self.denies(name)
+    }
+    /// The variables a connection of its own sets whose values from outside
+    /// it are kept as well, under [`connection::OUTSIDE`], for what the agent
+    /// runs to be given back.
+    fn kept_outside(&self) -> &'static [&'static str] {
+        &[]
+    }
     /// What starts the CLI's own login, which the user goes through in a
     /// terminal.
     fn login_args(&self) -> Vec<String>;
@@ -265,6 +304,12 @@ pub trait AgentAdapter: Sync {
     /// with the exit status `code` and `out` on its output.
     fn standing(&self, code: Option<i32>, _out: &str) -> adroit_model::profile::LoginStanding {
         login::by_status(code)
+    }
+    /// Why a session of `context` cannot start in `dir`, as the agent's
+    /// program, asked as the session would start it, tells of itself; none
+    /// when it can, or tells nothing adroit can read.
+    fn refusal(&self, _context: AgentContext, _dir: PathBuf) -> Refusal {
+        Box::pin(async { None })
     }
     /// What a connection of its own starts the program with, ahead of
     /// adroit's arguments.
@@ -402,6 +447,7 @@ pub fn adapter(agent: Agent) -> &'static dyn AgentAdapter {
         Agent::Claude => &claude::Claude,
         Agent::Codex => &codex::Codex,
         Agent::Pi => &pi::Pi,
+        Agent::OpenCode => &opencode::OpenCode,
     }
 }
 

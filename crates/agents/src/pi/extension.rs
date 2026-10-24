@@ -49,7 +49,7 @@ pub(super) fn running_dir() -> PathBuf {
 /// already. It is written beside and moved over, so a Pi loading it at that
 /// moment reads the old file or the new one whole, and whatever stood at
 /// `path`, a link included, is replaced rather than written through.
-fn write_whole(path: &Path, contents: &str) -> std::io::Result<()> {
+pub(crate) fn write_whole(path: &Path, contents: &str) -> std::io::Result<()> {
     use std::os::unix::fs::OpenOptionsExt;
     if std::fs::symlink_metadata(path).is_ok_and(|m| m.is_file())
         && std::fs::read(path).is_ok_and(|kept| kept == contents.as_bytes())

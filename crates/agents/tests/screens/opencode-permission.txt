@@ -1,0 +1,39 @@
+ ! Hello from the slow fake mode +
+  ┃
+  ┃  say hello
+  ┃
+
+     Hello from the slow fake model.
+
+     Build · Slow fake · 2.5s · 2.4 tok/s
+
+  ┃
+  ┃  please use the shell
+  ┃
+
+  ┃
+  ┃  $ echo adroit-probe
+  ┃
+  ┃  adroit-probe
+  ┃
+
+     Hello from the slow fake model.
+
+     Build · Slow fake · 2.9s · 2.1 tok/s
+
+  ┃
+  ┃  please use the shell
+  ┃
+
+  ┃
+  ┃  ⠋ echo adroit-probe
+  ┃
+
+  ┃
+  ┃  △ Permission required
+  ┃
+  ┃  $ echo adroit-probe
+  ┃
+  ┃
+  ┃   Allow once   Always allow   Reject                                 ctrl+f fullscreen  ⇆ select  enter confirm
+  ┃

@@ -5,7 +5,7 @@
 use super::*;
 
 mod commands;
-mod extension;
+pub(crate) mod extension;
 mod rpc;
 mod screen;
 mod sessions;
