@@ -45,6 +45,19 @@ pub(crate) fn use_ui(app: AppCtx, hub: Hub, local: Local) -> Ui {
     );
     let prompts = use_hook(|| prompts::keeper(nvim, app));
     let reader = use_reader(app, &hub, local.frame, local.console_size);
+    // Each Neovim, as it starts and as the theme changes, is told whether
+    // the theme is light, or its text keeps the colours of its dark default.
+    use_effect({
+        let (palette, read) = (hub.palette, reader.reader);
+        move || {
+            let light = !palette.read().is_dark();
+            for nv in [nvim(), read()].into_iter().flatten() {
+                spawn(async move {
+                    let _ = nv.set_light(light).await;
+                });
+            }
+        }
+    });
     let scroll_reader = use_callback({
         let reader = reader.clone();
         move |lines: i32| reader.scroll(lines)

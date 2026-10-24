@@ -74,7 +74,9 @@ configuration or plugins, and each keeps its history and swap files to
 itself. The prompt's configuration is `prompt/nvim/init.lua` beside
 `settings.toml`, and the reader's `console/nvim/init.lua`, each read when
 it starts; their other files are kept in `adroit/prompt/nvim` and
-`adroit/console/nvim` under Neovim's data and state folders.
+`adroit/console/nvim` under Neovim's data and state folders. Each has its
+`'background'` set to the theme's, light or dark, as it starts and whenever
+the theme changes, so its colour scheme draws text that shows on the theme.
 
 Either Neovim that quits is started again; the console read when its
 reader quits is shown live. One that quits as it starts, as a

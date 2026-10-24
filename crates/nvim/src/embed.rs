@@ -550,6 +550,17 @@ impl Embedded {
         self.set_var("adroit_root", Value::from(root)).await
     }
 
+    /// Tell Neovim whether the window's theme is light, so its colour
+    /// scheme draws text that shows on the window's background.
+    pub async fn set_light(&self, light: bool) -> Result<(), Error> {
+        let background = Value::from(if light { "light" } else { "dark" });
+        self.exec(
+            "if vim.o.background ~= ... then vim.o.background = ... end",
+            vec![background],
+        )
+        .await
+    }
+
     /// The prompt's text.
     pub async fn text(&self) -> Result<String, Error> {
         Ok(self
@@ -628,6 +639,19 @@ mod tests {
             let path = e.stdpath(kind).await;
             assert!(path.ends_with("adroit/prompt/nvim"), "{kind}: {path}");
         }
+    }
+
+    #[tokio::test]
+    async fn a_light_theme_draws_the_text_dark() {
+        let (e, mut rx) = start().await;
+        e.input("hello").await.unwrap();
+        wait(&mut rx, |_| e.state().screen().text()[0] == "hello").await;
+        let lum = |c: adroit_term::Rgb| c.r as u32 + c.g as u32 + c.b as u32;
+        let fg = |e: &Embedded| e.state().screen().lines[0].runs[0].style.fg;
+        e.set_light(true).await.unwrap();
+        wait(&mut rx, |_| lum(fg(&e)) < 3 * 128).await;
+        e.set_light(false).await.unwrap();
+        wait(&mut rx, |_| lum(fg(&e)) >= 3 * 128).await;
     }
 
     #[tokio::test]
