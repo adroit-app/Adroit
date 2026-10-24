@@ -30,7 +30,7 @@ The state directories profiles can run their agent's CLI in, each `[[connections
 
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
-| `connections.agent` | one of `claude`, `codex` |  | The agent whose CLI keeps its state there, `claude` or `codex`. |
+| `connections.agent` | one of `claude`, `codex`, `pi` |  | The agent whose CLI keeps its state there, `claude`, `codex` or `pi`. |
 | `connections.archived` | boolean |  | Whether it is kept only for the profiles and sessions that used it. |
 | `connections.home` | string |  | The state directory, as an absolute path without `~`, `.` or `..` and with no `/` doubled or at its end; it is fixed when the connection is made, since the CLIs tell logins apart by it as it is written. |
 | `connections.id` | string |  | The connection's id, kept when it is renamed: lowercase letters, digits and `-`, and none of the agents' keys, which name their own environments. |
@@ -89,7 +89,7 @@ The profiles sessions start from, each `[[profiles]]` table one of them ([settin
 
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
-| `profiles.agent` | one of `claude`, `codex` |  | The agent it starts, `claude` or `codex`. |
+| `profiles.agent` | one of `claude`, `codex`, `pi` |  | The agent it starts, `claude`, `codex` or `pi`. |
 | `profiles.archived` | boolean |  | Whether it is kept only for the sessions that ran from it, and offered for no new one. |
 | `profiles.connection` | string |  | The connection it runs in, by id; left out for the agent's own environment, which the agent's key also names. |
 | `profiles.id` | string |  | The profile's id, kept when it is renamed: lowercase letters, digits and `-`. |
@@ -127,6 +127,16 @@ How its agent is started; an empty command runs the agent's own program.
 | `profiles.launch.env` | table of strings | `{}` | Variables set for it. |
 | `profiles.launch.via_shell` | boolean | `false` | Whether your shell starts it, as an interactive login shell, so that what its startup files set reaches it. |
 
+### `[profiles.pi]`
+
+Pi's model as `provider/id`, thinking level and tools, for a `pi` profile; empty values leave Pi's own settings in effect.
+
+| Setting | Type | Default | Description |
+| --- | --- | --- | --- |
+| `profiles.pi.model` | string | `""` | Pi's model as `provider/id`; empty for its own choice. |
+| `profiles.pi.thinking` | string | `""` | Its thinking level: `off`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`, as the model supports; empty for its own choice. |
+| `profiles.pi.tools` | array of strings | `[]` | The tools it may use, by Pi's names, such as `read`, `bash`, `edit` and `write`; empty for Pi's own set. |
+
 When the file holds none, it holds these, as adroit writes them:
 
 ```toml
@@ -163,6 +173,22 @@ model = ""
 reasoning_effort = ""
 approval_policy = ""
 sandbox_mode = ""
+
+[[profiles]]
+id = "pi"
+name = "Pi"
+agent = "pi"
+
+[profiles.launch]
+command = []
+via_shell = false
+
+[profiles.launch.env]
+
+[profiles.pi]
+model = ""
+thinking = ""
+tools = []
 ```
 
 ## `[shell]`

@@ -345,7 +345,10 @@ impl TryFrom<SettingsFile> for Settings {
                 let profile = file
                     .profile
                     .unwrap_or_else(|| ProfileId::builtin(file.agent.unwrap_or_default()));
-                (profile, vec![claude, codex])
+                (
+                    profile,
+                    vec![claude, codex, AgentProfile::builtin(Agent::Pi)],
+                )
             }
         };
         adroit_model::profile::check(&profile, &profiles, &file.connections)?;

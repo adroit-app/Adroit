@@ -909,7 +909,10 @@ mod tests {
     fn a_draft_offers_a_profile_by_its_name_and_a_connection_of_its_own() {
         let s = settings();
         let offered: Vec<String> = startable(&s).iter().map(|p| offered_as(&s, p)).collect();
-        assert_eq!(offered, ["Claude Personal", "Claude Work · Work", "codex"]);
+        assert_eq!(
+            offered,
+            ["Claude Personal", "Claude Work · Work", "codex", "Pi"]
+        );
     }
 
     #[test]
@@ -941,9 +944,9 @@ mod tests {
         let ids = |s: &Settings| -> Vec<String> {
             startable(s).iter().map(|p| p.id.to_string()).collect()
         };
-        assert_eq!(ids(&s), ["claude", "codex"]);
+        assert_eq!(ids(&s), ["claude", "codex", "pi"]);
         s.profiles.retain(|p| p.agent() == Agent::Claude);
-        assert_eq!(ids(&s), ["claude", "codex"]);
+        assert_eq!(ids(&s), ["claude", "codex", "pi"]);
         assert_eq!(startable(&s)[1], AgentProfile::builtin(Agent::Codex));
     }
 

@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use adroit_model::profile::{AgentOptions, ConnectionId, ProfileId};
+use adroit_model::profile::{ConnectionId, ProfileId};
 use adroit_model::{
     Agent, AgentPermissions, CustomPermissions, TerminalProgram, TerminalResourceId,
     TerminalSession,
@@ -181,6 +181,14 @@ pub fn resolve(
 ) -> Result<ResolvedLaunch, String> {
     let (mut context, target) = configured(settings, &request)?;
     context.adroit = adroit_program.to_path_buf();
+    if request.delegation.is_some()
+        && let Some(options) = context.pi_mut()
+        && options.tools.iter().any(|tool| !tool.trim().is_empty())
+    {
+        // Pi leaves an MCP tool its list does not name inactive, so a session
+        // given its tools would lose those it reaches other sessions with.
+        options.tools.push(crate::delegation::launch::TOOLS.into());
+    }
     if let (Some(id), Some(kept)) = (&request.resume, &request.connection)
         && *kept != context.connection
     {
@@ -282,6 +290,13 @@ fn configured(
                 options.sandbox_mode = "read-only".into();
             }
         }
+        (AgentPermissions::ReadOnly, Agent::Pi) => {
+            if let Some(options) = context.pi_mut() {
+                options.tools = adroit_agents::pi::READ_ONLY_TOOLS
+                    .map(String::from)
+                    .to_vec();
+            }
+        }
         (AgentPermissions::ReadOnly, Agent::Claude) => {
             if let Some(options) = context.claude_mut() {
                 options.read_only = Some(
@@ -316,13 +331,15 @@ fn configured(
                     options.sandbox_mode = sandbox_mode.clone();
                 }
             }
+            (CustomPermissions::Pi { tools }, Agent::Pi) => {
+                if let Some(options) = context.pi_mut() {
+                    options.tools = tools.clone();
+                }
+            }
             _ => return Err("custom permissions belong to another agent".into()),
         },
     }
-    let model = match &mut context.options {
-        AgentOptions::Claude(options) => &mut options.model,
-        AgentOptions::Codex(options) => &mut options.model,
-    };
+    let model = context.options.model_mut();
     let source = match &request.model {
         Some(given) => {
             if given.trim().is_empty() {

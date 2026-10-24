@@ -14,6 +14,9 @@ pub const CLAUDE_CHANNEL: &str = "server:adroit";
 pub const TOKEN_ENV: &str = "ADROIT_DELEGATION_TOKEN";
 pub const ROOT_ENV: &str = "ADROIT_DELEGATION_ROOT";
 
+/// The tools of adroit's MCP server, as an agent's tool lists name them.
+pub const TOOLS: &str = "mcp__adroit__*";
+
 /// The session tag holding the session's own identity.
 pub const SESSION_TAG: &str = "adroit.session";
 /// The session tag holding the identity of the session that started it.
@@ -64,8 +67,11 @@ impl Delegation {
                 "--dangerously-load-development-channels".into(),
                 CLAUDE_CHANNEL.into(),
                 "--allowedTools".into(),
-                "mcp__adroit__*".into(),
+                TOOLS.into(),
             ],
+            // Pi has no flag for a server of one run; the extension adroit loads
+            // into it registers adroit's, for a session that carries its credential.
+            Agent::Pi => Vec::new(),
             Agent::Codex => {
                 let variables = [
                     TOKEN_ENV,

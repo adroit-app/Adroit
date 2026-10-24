@@ -275,7 +275,7 @@ fn recorded(parent: Option<SessionId>) -> Delegation {
 
 #[test]
 fn a_recorded_session_carries_its_credential_in_the_environment_alone() {
-    for agent in [Agent::Claude, Agent::Codex] {
+    for agent in Agent::ALL {
         let mut request = request(agent, None);
         request.delegation = Some(recorded(None));
         request
@@ -368,7 +368,7 @@ fn codex_reaches_adroit_through_its_mcp_server_and_keeps_its_own_instructions() 
 
 #[test]
 fn a_launch_adroit_keeps_no_record_of_carries_no_mcp_server() {
-    for agent in [Agent::Claude, Agent::Codex] {
+    for agent in Agent::ALL {
         let launch = resolve(
             &Settings::default(),
             request(agent, None),
@@ -384,4 +384,130 @@ fn a_launch_adroit_keeps_no_record_of_carries_no_mcp_server() {
                 .all(|(name, _)| !name.starts_with("ADROIT_DELEGATION"))
         );
     }
+}
+
+#[test]
+fn a_read_only_pi_session_is_given_only_the_tools_that_read() {
+    let mut settings = Settings::default();
+    settings.profile_of_mut(Agent::Pi).pi_mut().unwrap().tools =
+        vec!["read".into(), "bash".into(), "edit".into()];
+    let mut request = request(Agent::Pi, Some("fake/slow"));
+    request.permissions = AgentPermissions::ReadOnly;
+    let launch = resolve(&settings, request, Path::new("/adroit")).unwrap();
+    assert!(
+        launch
+            .spawn
+            .args
+            .windows(2)
+            .any(|a| a == ["--tools", "read,grep,find,ls"])
+    );
+    assert!(!launch.spawn.args.iter().any(|a| a.contains("bash")));
+    assert_eq!(launch.model.as_deref(), Some("fake/slow"));
+    assert!(
+        launch
+            .spawn
+            .args
+            .windows(2)
+            .any(|a| a == ["--model", "fake/slow"])
+    );
+}
+
+#[test]
+fn custom_pi_permissions_are_the_tools_it_is_given() {
+    let mut pi = request(Agent::Pi, None);
+    pi.permissions = AgentPermissions::Custom(Box::new(CustomPermissions::Pi {
+        tools: vec!["read".into(), "bash".into()],
+    }));
+    let launch = resolve(&Settings::default(), pi, Path::new("/adroit")).unwrap();
+    assert!(
+        launch
+            .spawn
+            .args
+            .windows(2)
+            .any(|a| a == ["--tools", "read,bash"])
+    );
+    let mut codex = request(Agent::Codex, None);
+    codex.permissions = AgentPermissions::Custom(Box::new(CustomPermissions::Pi {
+        tools: vec!["read".into()],
+    }));
+    assert!(resolve(&Settings::default(), codex, Path::new("/adroit")).is_err());
+}
+
+#[test]
+fn a_pi_session_given_its_tools_keeps_adroit_s_when_it_carries_a_credential() {
+    let tools = |permissions: AgentPermissions, delegated: bool| {
+        let mut request = request(Agent::Pi, None);
+        request.permissions = permissions;
+        request.delegation = delegated.then(|| recorded(None));
+        let launch = resolve(&Settings::default(), request, Path::new("/adroit")).unwrap();
+        launch
+            .spawn
+            .args
+            .windows(2)
+            .find(|pair| pair[0] == "--tools")
+            .map(|pair| pair[1].clone())
+    };
+    let custom = || {
+        AgentPermissions::Custom(Box::new(CustomPermissions::Pi {
+            tools: vec!["read".into(), "bash".into()],
+        }))
+    };
+    assert_eq!(
+        tools(AgentPermissions::ReadOnly, true).as_deref(),
+        Some("read,grep,find,ls,mcp__adroit__*")
+    );
+    assert_eq!(
+        tools(custom(), true).as_deref(),
+        Some("read,bash,mcp__adroit__*")
+    );
+    assert_eq!(tools(custom(), false).as_deref(), Some("read,bash"));
+    assert_eq!(tools(AgentPermissions::Default, true), None);
+
+    let mut settings = Settings::default();
+    settings.profile_of_mut(Agent::Pi).pi_mut().unwrap().tools = vec!["read".into()];
+    let mut request = request(Agent::Pi, None);
+    request.delegation = Some(recorded(None));
+    let launch = resolve(&settings, request, Path::new("/adroit")).unwrap();
+    assert!(
+        launch
+            .spawn
+            .args
+            .windows(2)
+            .any(|pair| pair == ["--tools", "read,mcp__adroit__*"])
+    );
+}
+
+#[test]
+fn pi_reaches_adroit_through_the_extension_adroit_writes_for_it() {
+    let mut request = request(Agent::Pi, None);
+    request.delegation = Some(recorded(None));
+    let launch = resolve(&Settings::default(), request, Path::new("/bin/adroit")).unwrap();
+    let args = &launch.spawn.args;
+    let extension = args.windows(2).find(|pair| pair[0] == "-e").unwrap();
+    let script = std::fs::read_to_string(&extension[1]).unwrap();
+    // The other tests here write the same file at once, naming adroits of
+    // their own; which adroit it names is the adapter's tests' to pin.
+    assert!(
+        script.contains("const ADROIT = ") && script.contains("registerMcpServer"),
+        "{script}"
+    );
+    assert!(args.iter().any(|arg| arg == "--skill"));
+    let told = args
+        .windows(2)
+        .find(|pair| pair[0] == "--append-system-prompt")
+        .unwrap();
+    assert!(told[1].contains("start_session"), "{}", told[1]);
+    assert!(
+        launch
+            .spawn
+            .env
+            .iter()
+            .any(|(name, _)| name == "ADROIT_DELEGATION_TOKEN")
+    );
+    let prompt = args.iter().position(|arg| arg == "--").unwrap();
+    assert_eq!(args[prompt + 1..], ["Review the changes"]);
+    assert!(
+        args.windows(2)
+            .any(|pair| pair == ["--session-id", launch.conversation.as_str()])
+    );
 }

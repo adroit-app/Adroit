@@ -372,7 +372,7 @@ mod tests {
         );
         assert!(s.contains("| `profile` | string | `\"claude\"` |"), "{s}");
         assert!(
-            s.contains("| `profiles.agent` | one of `claude`, `codex` |  |"),
+            s.contains("| `profiles.agent` | one of `claude`, `codex`, `pi` |  |"),
             "{s}"
         );
         assert!(

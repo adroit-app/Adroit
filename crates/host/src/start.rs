@@ -12,7 +12,7 @@ use crate::content::{fresh_name, label_from, label_of};
 use crate::scratch::{self, Moment};
 use crate::sessions::{self, Kept};
 
-const USAGE: &str = "usage: adroit session start [--dir <path>] [--worktree [--base <rev>]] [--name <name>] [--permissions <default|read_only> | --permissions-file <path>] [--agent <claude|codex>] [--profile <id>] [--model <model>] [-- <prompt>]";
+const USAGE: &str = "usage: adroit session start [--dir <path>] [--worktree [--base <rev>]] [--name <name>] [--permissions <default|read_only> | --permissions-file <path>] [--agent <claude|codex|pi>] [--profile <id>] [--model <model>] [-- <prompt>]";
 
 /// The size a session starts at, until a window shows it at its own.
 const COLS: u16 = 120;
@@ -395,6 +395,10 @@ mod tests {
         assert_eq!(
             parse(&args(&["--agent", "claude"])).unwrap().agent,
             Some(adroit_model::Agent::Claude)
+        );
+        assert_eq!(
+            parse(&args(&["--agent", "pi"])).unwrap().agent,
+            Some(adroit_model::Agent::Pi)
         );
         assert_eq!(parse(&args(&["--agent", "other"])), None);
         assert_eq!(parse(&args(&["--agent"])), None);

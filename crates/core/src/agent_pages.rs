@@ -189,6 +189,8 @@ mod tests {
                 row("Codex", false, 2, true),
                 row("Shared", false, 2, false),
                 row("ci", false, 2, false),
+                row("Pi", false, 2, true),
+                row("Shared", false, 2, false),
                 row("Archived", false, 1, false),
             ]
         );
@@ -212,6 +214,8 @@ mod tests {
                 None,
                 Some(AgentPage::Account(ConnectionId::implicit(Agent::Codex))),
                 Some(AgentPage::Account(cid("ci"))),
+                None,
+                Some(AgentPage::Account(ConnectionId::implicit(Agent::Pi))),
                 Some(AgentPage::Archived),
             ]
         );

@@ -74,7 +74,7 @@ pub struct Start {
     /// The revision the new worktree starts from; your current change or commit when omitted.
     #[serde(default)]
     pub base: Option<String>,
-    /// `claude` or `codex`; the agent of `profile`, else of the default profile, when omitted.
+    /// `claude`, `codex` or `pi`; the agent of `profile`, else of the default profile, when omitted.
     #[serde(default)]
     pub agent: Option<Agent>,
     /// The profile it starts from, by id (see `models`); the agent's default profile when omitted, never your own.
