@@ -471,7 +471,7 @@ impl PickerSettings {
 }
 
 /// `path` with a leading `~` standing for `home`.
-fn expand(path: &str, home: &std::path::Path) -> PathBuf {
+pub(crate) fn expand(path: &str, home: &std::path::Path) -> PathBuf {
     match path.strip_prefix('~') {
         Some(rest) => home.join(rest.trim_start_matches('/')),
         None => PathBuf::from(path),

@@ -25,6 +25,7 @@ pub mod overlay;
 pub mod palette;
 pub mod perform;
 pub mod picker;
+pub mod profiles;
 pub mod prompt;
 pub mod reference;
 pub mod scenario;

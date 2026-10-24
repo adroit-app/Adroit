@@ -335,4 +335,33 @@ home = "/Users/me/claude-work"
                 .contains("`claude-work` is not in the settings it was started with")
         );
     }
+
+    #[test]
+    fn every_agent_starts_from_the_profile_offered_whatever_settings_archive_or_move() {
+        use adroit_core::profiles::{archive_profile, change_agent};
+        let s = settings();
+        let mut archived = s.clone();
+        archive_profile(&mut archived, &id("codex-review")).unwrap();
+        archive_profile(&mut archived, &id("old")).unwrap();
+        let mut moved = s.clone();
+        moved.profile = id("claude");
+        archive_profile(&mut moved, &id("claude-work")).unwrap();
+        change_agent(&mut moved, &id("claude"), Agent::Codex).unwrap();
+        // Codex's key itself held by an archived profile, too.
+        let mut keyed = Settings::parse(
+            "[[profiles]]\nid = \"claude\"\nagent = \"claude\"\n[[profiles]]\nid = \"codex\"\nagent = \"codex\"\n",
+        )
+        .unwrap();
+        archive_profile(&mut keyed, &id("codex")).unwrap();
+        for s in [archived, moved, keyed] {
+            for agent in Agent::ALL {
+                let offered = s.profile_of(agent).id.clone();
+                let started = starting(&s, Some(agent), Some(&offered));
+                assert_eq!(
+                    started.map(|c| (c.agent(), c.profile)),
+                    Ok((agent, offered))
+                );
+            }
+        }
+    }
 }
