@@ -85,7 +85,7 @@ pub fn started_from_facts(s: &Session, settings: &crate::settings::Settings) -> 
     vec![
         plain("Profile", settings.started_as(s.agent, &s.profile)),
         plain(
-            "Connection",
+            "Account",
             crate::profiles::connection_name(settings, &s.connection),
         ),
     ]
@@ -1322,7 +1322,7 @@ mod tests {
             shown(&work),
             [
                 ("Profile", "Claude Code · Claude Work".to_string()),
-                ("Connection", "Work".to_string())
+                ("Account", "Work".to_string())
             ]
         );
         let own = session("s").build();
@@ -1330,7 +1330,7 @@ mod tests {
             shown(&own),
             [
                 ("Profile", "Claude Code · claude".to_string()),
-                ("Connection", "Claude Code's own environment".to_string())
+                ("Account", "Shared with your terminal".to_string())
             ]
         );
     }

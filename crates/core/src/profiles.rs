@@ -143,7 +143,7 @@ pub fn rename_profile(settings: &mut Settings, id: &ProfileId, name: &str) -> Re
 pub fn archive_profile(settings: &mut Settings, id: &ProfileId) -> Result<(), String> {
     if &settings.profile == id {
         return Err(format!(
-            "{} is the default profile; make another profile the default before archiving it",
+            "{} is used for new sessions; use another profile for new sessions before archiving it",
             settings.profiles[position(settings, id)?].label()
         ));
     }
@@ -161,7 +161,7 @@ pub fn unarchive_profile(settings: &mut Settings, id: &ProfileId) -> Result<(), 
         .find(|c| c.id == connection && c.archived)
     {
         return Err(format!(
-            "its connection {} is archived; unarchive the connection first",
+            "its account {} is archived; unarchive the account first",
             connection_label(c)
         ));
     }
@@ -174,7 +174,7 @@ pub fn make_default(settings: &mut Settings, id: &ProfileId) -> Result<(), Strin
     let at = position(settings, id)?;
     if settings.profiles[at].archived {
         return Err(format!(
-            "{} is archived; unarchive it before making it the default",
+            "{} is archived; unarchive it before using it for new sessions",
             settings.profiles[at].label()
         ));
     }
@@ -199,11 +199,9 @@ pub fn change_agent(
     profile.connection = ConnectionId::implicit(agent);
     profile.launch.command.clear();
     Ok(Some(format!(
-        "{} now starts {}: its model and {}'s options, its connection and its command were reset to {}'s own.",
+        "{} now starts {}; its model, options, account and command were reset.",
         profile.label(),
         agent.label(),
-        from.label(),
-        agent.label()
     )))
 }
 
@@ -218,7 +216,7 @@ pub fn set_connection(
         Some(own) if own == agent => {}
         Some(own) => {
             return Err(format!(
-                "a {} profile cannot run in {}'s own environment",
+                "a {} profile cannot use {}'s shared account",
                 agent.label(),
                 own.label()
             ));
@@ -228,10 +226,10 @@ pub fn set_connection(
                 .connections
                 .iter()
                 .find(|c| &c.id == connection)
-                .ok_or_else(|| format!("connection `{connection}` is not defined"))?;
+                .ok_or_else(|| format!("account `{connection}` is not defined"))?;
             if c.agent != agent {
                 return Err(format!(
-                    "connection {} belongs to {}, not {}",
+                    "account {} is for {}, not {}",
                     connection_label(c),
                     c.agent.label(),
                     agent.label()
@@ -239,7 +237,7 @@ pub fn set_connection(
             }
             if c.archived {
                 return Err(format!(
-                    "connection {} is archived; unarchive it first",
+                    "account {} is archived; unarchive it first",
                     connection_label(c)
                 ));
             }
@@ -256,11 +254,15 @@ fn connection_label(c: &AgentConnection) -> &str {
     }
 }
 
+/// What users are shown an agent's own environment as: the account the CLI
+/// has outside adroit as well.
+pub const SHARED: &str = "Shared with your terminal";
+
 /// What the connection `id` is called: its name, its id when it has none,
-/// or for an agent's own environment, that.
+/// or [`SHARED`] for an agent's own environment.
 pub fn connection_name(settings: &Settings, id: &ConnectionId) -> String {
-    if let Some(agent) = id.implicit_agent() {
-        return format!("{}'s own environment", agent.label());
+    if id.implicit_agent().is_some() {
+        return SHARED.to_string();
     }
     settings
         .connections
@@ -329,7 +331,7 @@ pub fn add_connection(
     home: NewHome,
     canonical: impl Fn(&Path) -> Option<PathBuf>,
 ) -> Result<ConnectionId, String> {
-    let name = named(name, "A connection")?;
+    let name = named(name, "An account")?;
     let taken = |id: &str| {
         Agent::parse(id).is_some() || settings.connections.iter().any(|c| c.id.as_str() == id)
     };
@@ -339,7 +341,7 @@ pub fn add_connection(
     let written = match home {
         NewHome::Own { data } => data.join("adroit").join("connections").join(id.as_str()),
         NewHome::Chosen { path, home } => match path.trim() {
-            "" => return Err("A connection needs a folder to keep its state in".into()),
+            "" => return Err("An account needs a folder".into()),
             path => crate::settings::expand(path, &home),
         },
     };
@@ -349,7 +351,7 @@ pub fn add_connection(
         .ok_or_else(|| format!("{} is not an absolute path", written.display()))?;
     if let Some(c) = settings.connections.iter().find(|c| c.home == home) {
         return Err(format!(
-            "connection {} already keeps its state in {}; a connection needs a folder of its own",
+            "account {} already uses {}; each account needs a folder of its own",
             connection_label(c),
             home.display()
         ));
@@ -387,7 +389,7 @@ fn connection_mut<'a>(
         .connections
         .iter_mut()
         .find(|c| &c.id == id)
-        .ok_or_else(|| format!("connection `{id}` is not defined"))
+        .ok_or_else(|| format!("account `{id}` is not defined"))
 }
 
 /// The connection `id` called `name`; its id and its home stay.
@@ -396,7 +398,7 @@ pub fn rename_connection(
     id: &ConnectionId,
     name: &str,
 ) -> Result<(), String> {
-    let name = named(name, "A connection")?;
+    let name = named(name, "An account")?;
     connection_mut(settings, id)?.name = name;
     Ok(())
 }
@@ -417,7 +419,7 @@ pub fn archive_connection(settings: &mut Settings, id: &ConnectionId) -> Result<
     if !using.is_empty() {
         let name = connection_name(settings, id);
         return Err(format!(
-            "{name} is still used by {}; move them to another connection or archive them first",
+            "{name} is still used by {}; move them to another account or archive them first",
             using.join(", ")
         ));
     }
@@ -657,11 +659,11 @@ mod tests {
         holds(&s);
         assert_eq!(
             archive_profile(&mut s, &id("claude")).unwrap_err(),
-            "Claude Personal is the default profile; make another profile the default before archiving it"
+            "Claude Personal is used for new sessions; use another profile for new sessions before archiving it"
         );
         assert_eq!(
             make_default(&mut s, &id("claude-work")).unwrap_err(),
-            "Claude Work is archived; unarchive it before making it the default"
+            "Claude Work is archived; unarchive it before using it for new sessions"
         );
         unarchive_profile(&mut s, &id("claude-work")).unwrap();
         make_default(&mut s, &id("claude-work")).unwrap();
@@ -682,7 +684,10 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(told.contains("Claude Work now starts Codex"), "{told}");
-        assert!(told.contains("reset"), "{told}");
+        assert_eq!(
+            told,
+            "Claude Work now starts Codex; its model, options, account and command were reset."
+        );
         let p = &s.profiles[1];
         assert_eq!(p.options, AgentOptions::of(Agent::Codex));
         assert_eq!(p.connection, ConnectionId::implicit(Agent::Codex));
@@ -724,7 +729,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             set_connection(&mut s, &id("codex"), &cid("work")).unwrap_err(),
-            "connection Work belongs to Claude Code, not Codex"
+            "account Work is for Claude Code, not Codex"
         );
         assert!(
             set_connection(&mut s, &id("codex"), &ConnectionId::implicit(Agent::Claude)).is_err()
@@ -732,7 +737,7 @@ mod tests {
         s.connections[0].archived = true;
         assert_eq!(
             set_connection(&mut s, &id("claude"), &cid("work")).unwrap_err(),
-            "connection Work is archived; unarchive it first"
+            "account Work is archived; unarchive it first"
         );
     }
 
@@ -801,7 +806,7 @@ mod tests {
         assert_eq!(
             add_connection(&mut s, "C", Agent::Claude, chosen("/Users/me/work/"), none)
                 .unwrap_err(),
-            "connection Work already keeps its state in /Users/me/work; a connection needs a folder of its own"
+            "account Work already uses /Users/me/work; each account needs a folder of its own"
         );
     }
 
@@ -828,7 +833,7 @@ mod tests {
         duplicate_profile(&mut s, &id("claude-work")).unwrap();
         assert_eq!(
             archive_connection(&mut s, &cid("work")).unwrap_err(),
-            "Work is still used by Claude Work, Claude Work copy; move them to another connection or archive them first"
+            "Work is still used by Claude Work, Claude Work copy; move them to another account or archive them first"
         );
         archive_profile(&mut s, &id("claude-work")).unwrap();
         archive_profile(&mut s, &id("claude-work-copy")).unwrap();
@@ -838,7 +843,7 @@ mod tests {
         holds(&s);
         assert_eq!(
             unarchive_profile(&mut s, &id("claude-work")).unwrap_err(),
-            "its connection Work is archived; unarchive the connection first"
+            "its account Work is archived; unarchive the account first"
         );
         unarchive_connection(&mut s, &cid("work")).unwrap();
         unarchive_profile(&mut s, &id("claude-work")).unwrap();
@@ -863,13 +868,8 @@ mod tests {
         assert_eq!(
             listed,
             [
-                (
-                    "Claude Personal",
-                    "Claude Code's own environment",
-                    true,
-                    false
-                ),
-                ("codex", "Codex's own environment", false, false),
+                ("Claude Personal", "Shared with your terminal", true, false),
+                ("codex", "Shared with your terminal", false, false),
                 ("Claude Work", "Work", false, true),
             ]
         );
@@ -928,20 +928,20 @@ mod tests {
         };
         assert_eq!(
             names(&s, Agent::Claude, "claude"),
-            ["Claude Code's own environment", "Work"]
+            ["Shared with your terminal", "Work"]
         );
         assert_eq!(
             names(&s, Agent::Codex, "codex"),
-            ["Codex's own environment"]
+            ["Shared with your terminal"]
         );
         s.connections[0].archived = true;
         assert_eq!(
             names(&s, Agent::Claude, "claude"),
-            ["Claude Code's own environment"]
+            ["Shared with your terminal"]
         );
         assert_eq!(
             names(&s, Agent::Claude, "work"),
-            ["Claude Code's own environment", "Work"]
+            ["Shared with your terminal", "Work"]
         );
     }
 }
