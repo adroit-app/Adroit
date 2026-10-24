@@ -30,6 +30,8 @@ pub mod settings;
 pub mod settle;
 pub mod state;
 pub mod status;
+#[cfg(test)]
+pub mod testing;
 pub mod tree;
 pub mod update;
 pub mod viewers;

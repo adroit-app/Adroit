@@ -1,6 +1,5 @@
-use adroit_model::testing::worktree as wt;
-use adroit_model::{Key, Session, State, TerminalSession, Wait, build};
-use adroit_protocol::{Change, Event, Listed, Seq, TreeChange, TreeWork, WorkPatch, WorkSnapshot};
+use adroit_model::{Key, Wait};
+use adroit_protocol::{ConsoleChange, Dialog, Event};
 
 use super::*;
 use crate::actions::Action;
@@ -9,70 +8,28 @@ use crate::effect::Effect;
 use crate::keymap::Context;
 use crate::msg::Msg;
 use crate::scenario::Scenario;
+use crate::testing::{
+    ListedBuilder, SessionBuilder, listed, patch, session, shell, show, snapshot,
+};
 
-fn session(id: &str) -> Session {
-    Session {
-        id: id.into(),
-        name: format!("{id}-name"),
-        cwd: format!("/r/{id}").into(),
-        adroit_editor: true,
-        ..Default::default()
-    }
-}
-
-fn placed(sessions: Vec<Session>) -> Listed {
-    let terminals = vec![TerminalSession {
-        id: 1,
-        name: "shell".into(),
-        cwd: "/r/a".into(),
-        ..Default::default()
-    }];
-    let found = sessions
-        .iter()
-        .map(|s| s.cwd.clone())
-        .chain(Some("/r/a".into()))
-        .map(|cwd| (cwd.clone(), Some(wt(cwd, "/r", "main"))))
-        .collect();
-    let tree = build(&sessions, &terminals, &found, &[], None);
-    Listed {
-        sessions,
-        terminals,
-        tree,
-    }
-}
-
-fn listing(sessions: Vec<Session>) -> Event {
-    Event::Snapshot(Box::new(WorkSnapshot {
-        seq: Seq(1),
-        tree: TreeWork {
-            listed: Some(Box::new(placed(sessions))),
-            ..Default::default()
-        },
-        ..Default::default()
-    }))
-}
-
-fn relisted(seq: u64, sessions: Vec<Session>) -> Event {
-    Event::Patch(WorkPatch {
-        seq: Seq(seq),
-        changes: vec![Change::Tree(TreeChange::Listed {
-            listed: Box::new(placed(sessions)),
-        })],
-    })
+/// The sessions listed with a shell in `a`'s worktree, each able to hand
+/// its input back.
+fn listing(sessions: impl IntoIterator<Item = SessionBuilder>) -> ListedBuilder {
+    listed()
+        .sessions(sessions.into_iter().map(|s| s.adroit_editor(true)))
+        .terminal(shell(1, "/r/a"))
 }
 
 /// The host's `seq`th word: whether `session`'s screen shows a dialog.
 fn dialog(seq: u64, session: &str, open: bool) -> Event {
-    use adroit_protocol::{ConsoleChange, Dialog};
-    Event::Patch(WorkPatch {
-        seq: Seq(seq),
-        changes: vec![Change::Console(ConsoleChange::Dialog {
+    patch(seq)
+        .change(ConsoleChange::Dialog {
             dialog: Dialog {
                 session: session.into(),
                 open,
             },
-        })],
-    })
+        })
+        .into()
 }
 
 fn tab(id: &str) -> Tab {
@@ -83,7 +40,7 @@ fn tab(id: &str) -> Tab {
 /// having the keys.
 fn window() -> Scenario {
     Scenario::new()
-        .event(listing(vec![session("a"), session("b")]))
+        .event(snapshot().listed(listing([session("a"), session("b")])))
         .send(Msg::ShowSession("a".into()))
         .send(Msg::Focus(Area::Console))
 }
@@ -172,7 +129,7 @@ fn text_pasted_into_the_session_is_asked_for_once_the_keys_leave_it() {
 fn passing_every_key_stops_when_the_session_they_went_to_ends() {
     let run = window()
         .send_all([Msg::ConsolePassEveryKey, key("x")])
-        .event(relisted(2, vec![session("b")]));
+        .event(patch(2).listed(listing([session("b")])));
     assert_ne!(run.state().content.active(), Some(&tab("a")));
     assert_eq!(run.state().content.focus, Area::Console);
     assert!(!run.state().console.direct);
@@ -313,11 +270,7 @@ fn another_tab_shown_is_shown_live() {
 
 #[test]
 fn a_shell_takes_every_key_and_the_prompt_takes_those_it_does_not_bind() {
-    let shell = window().send(Msg::Show {
-        thing: Tab::Terminal(1),
-        place: None,
-        how: None,
-    });
+    let shell = window().send(show(Tab::Terminal(1)));
     let run = shell.send(key("i"));
     assert_eq!(run.last_effects(), [Effect::PaneKey(Key::new("i"))]);
     let prompt = window().send_all([Msg::Focus(Area::Prompt), key("x")]);
@@ -369,16 +322,14 @@ fn a_session_is_asked_for_its_input_only_when_it_can_hand_it_back() {
     let unread = window().send_all([Msg::PromptRuns(true), Msg::EditorAnswers, Msg::AskInput]);
     assert!(unread.last_effects().is_empty());
     let own_editor = asking()
-        .event(relisted(
-            2,
-            vec![
-                Session {
-                    adroit_editor: false,
-                    ..session("a")
-                },
-                session("b"),
-            ],
-        ))
+        .event(
+            patch(2).listed(
+                listed()
+                    .session(session("a"))
+                    .session(session("b").adroit_editor(true))
+                    .terminal(shell(1, "/r/a")),
+            ),
+        )
         .send(Msg::AskInput);
     assert!(own_editor.last_effects().is_empty());
 }
@@ -401,16 +352,13 @@ fn a_request_lapses_unless_a_later_one_was_made() {
 
 #[test]
 fn a_session_that_stops_taking_every_key_is_asked_for_its_input_a_moment_later() {
-    let waiting = Session {
-        state: State::Waiting(Wait::Permission),
-        ..session("a")
-    };
-    let run = asking().event(relisted(2, vec![waiting, session("b")]));
+    let waiting = session("a").waiting(Wait::Permission);
+    let run = asking().event(patch(2).listed(listing([waiting, session("b")])));
     assert!(
         !run.last_effects()
             .contains(&Effect::AskInputAfter(PULL_AFTER_FREE))
     );
-    let run = run.event(relisted(3, vec![session("a"), session("b")]));
+    let run = run.event(patch(3).listed(listing([session("a"), session("b")])));
     assert!(
         run.last_effects()
             .contains(&Effect::AskInputAfter(PULL_AFTER_FREE))
@@ -419,14 +367,11 @@ fn a_session_that_stops_taking_every_key_is_asked_for_its_input_a_moment_later()
 
 #[test]
 fn keys_and_text_that_answer_a_waiting_session_leave_its_input_alone() {
-    let waiting = Session {
-        state: State::Waiting(Wait::Permission),
-        ..session("a")
-    };
+    let waiting = session("a").waiting(Wait::Permission);
     let answering = |area| {
         window()
             .send_all([Msg::PromptRuns(true), Msg::EditorAnswers])
-            .event(relisted(2, vec![waiting.clone(), session("b")]))
+            .event(patch(2).listed(listing([waiting.clone(), session("b")])))
             .send(Msg::Focus(area))
     };
     for area in [Area::Console, Area::Prompt] {
@@ -440,7 +385,7 @@ fn keys_and_text_that_answer_a_waiting_session_leave_its_input_alone() {
         assert!(run.state().console.stale.is_empty(), "{area:?}");
         // Answered, the session goes back to work with nothing to take back.
         let run = run
-            .event(relisted(3, vec![session("a"), session("b")]))
+            .event(patch(3).listed(listing([session("a"), session("b")])))
             .send(Msg::AskInput);
         assert!(run.last_effects().is_empty(), "{area:?}");
     }
@@ -448,11 +393,8 @@ fn keys_and_text_that_answer_a_waiting_session_leave_its_input_alone() {
 
 #[test]
 fn a_working_session_is_asked_for_its_input_only_once_it_stops_working() {
-    let working = Session {
-        state: State::Working,
-        ..session("a")
-    };
-    let run = asking().event(relisted(2, vec![working, session("b")]));
+    let working = session("a").working();
+    let run = asking().event(patch(2).listed(listing([working, session("b")])));
     assert!(
         !run.last_effects()
             .contains(&Effect::AskInputAfter(PULL_AFTER_FREE))
@@ -460,7 +402,7 @@ fn a_working_session_is_asked_for_its_input_only_once_it_stops_working() {
     let entered = run.send(Msg::Focus(Area::Prompt));
     assert_eq!(entered.last_effects(), [Effect::ConsoleLive]);
     assert!(entered.state().console.stale.contains(&tab("a")));
-    let idle = entered.event(relisted(3, vec![session("a"), session("b")]));
+    let idle = entered.event(patch(3).listed(listing([session("a"), session("b")])));
     assert!(
         idle.last_effects()
             .contains(&Effect::AskInputAfter(PULL_AFTER_FREE))
@@ -472,7 +414,7 @@ fn a_working_session_is_asked_for_its_input_only_once_it_stops_working() {
 #[test]
 fn a_session_no_longer_listed_has_no_input_kept() {
     let run = asking().send(Msg::InputMayHold(tab("b")));
-    let run = run.event(relisted(2, vec![session("a")]));
+    let run = run.event(patch(2).listed(listing([session("a")])));
     assert!(run.state().console.stale.contains(&tab("a")));
     assert!(!run.state().console.stale.contains(&tab("b")));
 }
