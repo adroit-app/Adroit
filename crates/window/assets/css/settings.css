@@ -76,3 +76,35 @@ button:disabled { opacity: 0.45; }
 .binding-note.bad { color: var(--fail); }
 .binding-actions { display: flex; gap: 8px; align-items: center; }
 .binding-actions-spacer { flex: 1; }
+.keys-bar { align-items: center; }
+.keys-lead { color: var(--text-3); font-size: 12px; line-height: 1.5; margin: 0 2px 14px; }
+.binding-name { color: var(--text-3); margin-left: 8px; font-size: 11px; }
+.action-row { padding: 8px 14px; border-top: 1px solid var(--line); }
+.action-row.open { background: var(--raised); }
+.action-row .binding-form { border-top: 0; background: transparent; padding: 10px 0 2px; }
+.action-row-main { display: flex; align-items: center; gap: 16px; }
+.action-row-text { flex: 1; min-width: 0; }
+.action-row-text .settings-hint { white-space: nowrap; }
+.action-row-label { display: flex; align-items: center; gap: 8px; color: var(--text); }
+.action-keys { flex: 0 1 auto; max-width: 55%; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; }
+.key-chip { display: inline-flex; align-items: stretch; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--ground); overflow: hidden; }
+.key-chip.partial { border-style: dashed; }
+.key-chip button { background: transparent; border: 0; border-radius: 0; padding: 2px 6px; display: inline-flex; align-items: center; gap: 4px; }
+.key-chip button:hover { background: var(--select); }
+.key-chip kbd { margin-right: 0; }
+.chip-where { font-size: 10.5px; color: var(--text-3); }
+.chip-remove { color: var(--text-3); border-left: 1px solid var(--line) !important; }
+.chip-remove:hover { color: var(--fail); }
+button.chip-add { display: inline-flex; align-items: center; padding: 3px 6px; background: transparent; border: 1px dashed var(--line-strong); color: var(--text-3); }
+button.chip-add:hover { color: var(--text); background: var(--select); }
+.action-none { color: var(--text-3); font-size: 12px; }
+.binding-areas { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; font-size: 12px; }
+.binding-areas-label { color: var(--text-3); }
+.binding-area { display: inline-flex; align-items: center; gap: 5px; }
+.binding-fields button { display: inline-flex; align-items: center; gap: 5px; }
+.binding-action-select { flex: 1 1 auto; max-width: 100%; }
+.segmented { flex: none; display: inline-flex; padding: 2px; gap: 2px; background: var(--raised); border: 1px solid var(--line-strong); border-radius: 7px; }
+.segmented button { height: 24px; padding: 0 12px; border: 0; border-radius: 5px; background: transparent; color: var(--text-2); }
+.segmented button:hover { background: transparent; color: var(--text); }
+.segmented button.on { background: var(--wait-tint); color: var(--wait); font-weight: 500; }
+.action-row-label button.settings-link { font-size: 12px; padding: 0 2px; }

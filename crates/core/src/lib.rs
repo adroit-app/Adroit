@@ -16,6 +16,7 @@ pub mod graph;
 pub mod host;
 pub mod icons;
 pub mod keymap;
+pub mod keys_by_action;
 pub mod keys_edit;
 pub mod keys_help;
 pub mod layout;

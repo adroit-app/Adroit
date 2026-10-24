@@ -70,13 +70,24 @@ of the window, and the bindings in force stay as they were.
 
 ## Changing them in the Settings window
 
-The Settings window lists the bindings in force, area by area, marking those
-the file changed, added or took away. A binding is changed, added or deleted
-there, its keys typed or recorded as they are pressed, and keys it would
-collide with are pointed out. One put back, or every one at once, is the
-default again. Each change is written into the file at once, its comments and
-the rest of it left as they were; a file with a mistake in it is not changed
-there until it is fixed.
+The Settings window lists the bindings in force in two ways, either filtered
+by keys, by an action's name or by what it does.
+
+By action, every action is listed under a heading, by what it does, with the
+keys that run it. Keys added to an action run it in every area it works in,
+or in those chosen; keys taken away or changed are so wherever they ran it. A
+key running it in only some of those areas says where. An action whose keys
+the file changed is marked, and goes back to adroit's own keys alone.
+
+By area, the bindings are listed area by area, marking those the file
+changed, added or took away, and each is changed, added or deleted there.
+
+Either way, keys are typed or recorded as they are pressed, and keys they
+would collide with are pointed out, as is a key that types or moves bound in
+`global`. One binding put back, or every one at once, is the default again.
+Each change is written into the file at once, its comments and the rest of it
+left as they were; a file with a mistake in it is not changed there until it
+is fixed.
 
 ## Format
 
