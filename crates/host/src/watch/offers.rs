@@ -9,18 +9,22 @@ use adroit_protocol::{Offers, PickChange};
 use adroit_vcs::ghq;
 
 use super::Watched;
+use crate::work::Seen;
 
 pub(super) async fn watch(mut watched: Watched) {
     loop {
-        if watched.sight().pick.is_some() {
+        if picking(&watched.seen()) {
             watched.record([PickChange::Offers {
                 offers: read().await,
             }]);
         }
-        watched
-            .wait(Duration::from_secs(300), |s| s.sight.pick.is_some())
-            .await;
+        watched.wait(Duration::from_secs(300), picking).await;
     }
+}
+
+/// Whether a window shows the picker.
+fn picking(seen: &[Seen]) -> bool {
+    seen.iter().any(|s| s.sight.pick.is_some())
 }
 
 /// Where an agent was used, ghq's repositories and roots, and the folders

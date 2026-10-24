@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use adroit_model::time::now_ms;
-use adroit_protocol::{Answer, Ask, ConfigFile, FileText, Request, SessionStart, TerminalStart};
+use adroit_protocol::{Answer, Ask, ConfigFile, FileText, SessionStart, TerminalStart};
 use tokio::sync::watch;
 
 use crate::delegation::app as delegation;
@@ -162,9 +162,7 @@ async fn start_terminal(watched: &Watched, start: TerminalStart) -> Result<Answe
         .map_err(|e| e.to_string())?;
     held::hold(id);
     resolved.terminal.id = id;
-    watched.apply(Request::TerminalOpened {
-        terminal: resolved.terminal.clone(),
-    });
+    watched.terminal_opened(resolved.terminal.clone());
     Ok(Answer::Terminal {
         terminal: resolved.terminal,
     })

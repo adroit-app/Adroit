@@ -11,18 +11,24 @@ use adroit_agents::claude::commands::Cache;
 use adroit_model::{Agent, Command};
 use adroit_protocol::{CommandsRead, CommandsSight, PromptChange};
 
-use super::Watched;
+use super::{Watched, distinct};
 
 type Caches = Arc<Mutex<HashMap<Agent, Cache>>>;
 
 pub(super) async fn watch(mut watched: Watched) {
     let caches = Caches::default();
     loop {
-        if let Some(sight) = watched.sight().commands {
+        for sight in distinct(&watched.sights(), |s| s.commands.clone()) {
             watched.record([offered(&caches, &sight)]);
             ask(&watched, &caches, sight);
         }
-        watched.wait_commands(|s| s.sight.commands.clone()).await;
+        watched
+            .wait_commands(|seen| {
+                seen.iter()
+                    .map(|s| s.sight.commands.clone())
+                    .collect::<Vec<_>>()
+            })
+            .await;
     }
 }
 

@@ -1,44 +1,46 @@
-//! The live processes of the session shown, for its overview.
+//! The live processes of each session shown, for its overview.
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 use adroit_protocol::DetailsChange;
 
-use super::Watched;
+use super::{Watched, shown_sessions};
 use crate::processes::Sampler;
 
 pub(super) async fn watch(mut watched: Watched) {
-    let mut sampler = Sampler::default();
+    // One for each session, as a sampler measures from its last sample.
+    let mut samplers: HashMap<String, Sampler> = HashMap::new();
     loop {
-        let seen = watched.seen();
-        let shown = seen
-            .session
-            .filter(|_| seen.sight.details && seen.sight.overview);
-        if let Some(session) = shown {
+        let shown = shown_sessions(&watched.seen(), |s| s.details && s.overview);
+        samplers.retain(|id, _| shown.iter().any(|(s, _)| s.id == *id));
+        for (session, _) in shown {
             let id = session.id.clone();
-            match tokio::task::spawn_blocking(move || {
+            let mut sampler = samplers.remove(&id).unwrap_or_default();
+            if let Ok((next, processes)) = tokio::task::spawn_blocking(move || {
                 let rows = sampler.sample(&session);
                 (sampler, rows)
             })
             .await
             {
-                Ok((next, processes)) => {
-                    sampler = next;
-                    watched.record([DetailsChange::Processes {
-                        session: id,
-                        processes,
-                    }]);
-                }
-                Err(_) => sampler = Sampler::default(),
+                samplers.insert(id.clone(), next);
+                watched.record([DetailsChange::Processes {
+                    session: id,
+                    processes,
+                }]);
             }
         }
         watched
-            .wait(Duration::from_secs(2), |s| {
-                (
-                    s.session.as_ref().map(|s| s.id.clone()),
-                    s.sight.overview,
-                    s.sight.details,
-                )
+            .wait(Duration::from_secs(2), |seen| {
+                seen.iter()
+                    .map(|s| {
+                        (
+                            s.session.as_ref().map(|s| s.id.clone()),
+                            s.sight.overview,
+                            s.sight.details,
+                        )
+                    })
+                    .collect::<Vec<_>>()
             })
             .await;
     }

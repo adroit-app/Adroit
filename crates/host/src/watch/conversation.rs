@@ -1,4 +1,4 @@
-//! What the conversation of the session shown says: its stats, read on every
+//! What the conversation of each session shown says: its stats, read on every
 //! sheet for the usage at the panel's foot, and, while the overview is shown,
 //! its links, the small copies of its images, and what it told other
 //! sessions through Adroit.
@@ -11,62 +11,66 @@ use adroit_model::links::Links;
 use adroit_model::{ConversationStats, Session};
 use adroit_protocol::{ConversationRead, DetailsChange};
 
-use super::Watched;
+use super::{Watched, shown_sessions};
 use crate::pictures::{self, Thumbs};
 
 type Reader = Box<dyn ConversationReader>;
 
 pub(super) async fn watch(mut watched: Watched) {
-    let mut held: Option<(Key, Reader)> = None;
+    // A reader for each conversation shown, kept while it is.
+    let mut held: Vec<(Key, Reader)> = Vec::new();
     let mut thumbs = Thumbs::new();
     loop {
-        let seen = watched.seen();
-        match seen.session.filter(has_transcript) {
-            Some(s) => {
-                let key = Key::of(&s);
-                let reader = match held.take() {
-                    Some((was, reader)) if was == key => Some(reader),
-                    _ => adroit_agents::adapter(s.agent).transcript(
-                        &crate::programs::agents(),
-                        &crate::paths::home(),
-                        &s,
-                    ),
-                };
-                if let Some(reader) = reader {
-                    let overview = seen.sight.overview;
-                    let mut kept = std::mem::take(&mut thumbs);
-                    let read = tokio::task::spawn_blocking(move || {
-                        let mut reader = reader;
-                        let (links, stats) = sample_conversation(&mut *reader, overview);
-                        let links = links.map(|mut links| {
-                            pictures::refresh_thumbs(&mut links.images, &mut kept);
-                            links
-                        });
-                        (reader, links, stats, kept)
-                    })
-                    .await;
-                    if let Ok((reader, links, stats, kept)) = read {
-                        thumbs = kept;
-                        held = Some((key, reader));
-                        let mut changes = vec![DetailsChange::Conversation {
-                            session: s.id.clone(),
-                            conversation: ConversationRead {
-                                id: s.session_id.clone(),
-                                stats,
-                            },
-                        }];
-                        if let Some(links) = links {
-                            changes.extend(overview_changes(&s, links, &thumbs).await);
-                        }
-                        watched.record(changes);
-                    }
+        let shown: Vec<(Session, bool)> = shown_sessions(&watched.seen(), |_| true)
+            .into_iter()
+            .filter(|(s, _)| has_transcript(s))
+            .collect();
+        held.retain(|(key, _)| shown.iter().any(|(s, _)| Key::of(s) == *key));
+        for (s, overview) in shown {
+            let key = Key::of(&s);
+            let reader = match held.iter().position(|(was, _)| *was == key) {
+                Some(at) => Some(held.remove(at).1),
+                None => adroit_agents::adapter(s.agent).transcript(
+                    &crate::programs::agents(),
+                    &crate::paths::home(),
+                    &s,
+                ),
+            };
+            let Some(reader) = reader else {
+                continue;
+            };
+            let mut kept = std::mem::take(&mut thumbs);
+            let read = tokio::task::spawn_blocking(move || {
+                let mut reader = reader;
+                let (links, stats) = sample_conversation(&mut *reader, overview);
+                let links = links.map(|mut links| {
+                    pictures::refresh_thumbs(&mut links.images, &mut kept);
+                    links
+                });
+                (reader, links, stats, kept)
+            })
+            .await;
+            if let Ok((reader, links, stats, kept)) = read {
+                thumbs = kept;
+                held.push((key, reader));
+                let mut changes = vec![DetailsChange::Conversation {
+                    session: s.id.clone(),
+                    conversation: ConversationRead {
+                        id: s.session_id.clone(),
+                        stats,
+                    },
+                }];
+                if let Some(links) = links {
+                    changes.extend(overview_changes(&s, links, &thumbs).await);
                 }
+                watched.record(changes);
             }
-            None => held = None,
         }
         watched
-            .wait(Duration::from_secs(2), |s| {
-                (s.session.as_ref().map(Key::of), s.sight.overview)
+            .wait(Duration::from_secs(2), |seen| {
+                seen.iter()
+                    .map(|s| (s.session.as_ref().map(Key::of), s.sight.overview))
+                    .collect::<Vec<_>>()
             })
             .await;
     }

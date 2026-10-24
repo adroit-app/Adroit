@@ -1,4 +1,4 @@
-//! How full the shown conversation's context is, for an agent whose
+//! How full each shown conversation's context is, for an agent whose
 //! transcript does not say: asked again as the conversation moves on.
 
 use std::time::{Duration, Instant};
@@ -6,30 +6,28 @@ use std::time::{Duration, Instant};
 use adroit_agents::claude::context::Fresh;
 use adroit_protocol::{ContextRead, DetailsChange};
 
-use super::Watched;
+use super::{Watched, shown_sessions};
 
 pub(super) async fn watch(watched: Watched) {
     let mut asked = Fresh::<(String, String)>::default();
     loop {
-        let seen = watched.seen();
-        let shown = seen.session.filter(|s| {
-            seen.sight.details && adroit_agents::adapter(s.agent).capabilities().usage_limits
-        });
-        let reading = shown.and_then(|s| {
+        let shown = shown_sessions(&watched.seen(), |s| s.details)
+            .into_iter()
+            .map(|(s, _)| s)
+            .filter(|s| adroit_agents::adapter(s.agent).capabilities().usage_limits);
+        for s in shown {
             let stats = watched
                 .host()
                 .work()
                 .details()
                 .sessions
-                .get(&s.id)?
-                .conversation
-                .as_ref()
-                .filter(|c| c.id == s.session_id)?
-                .stats
-                .clone();
-            stats.context.is_none().then_some((s, stats))
-        });
-        if let Some((s, stats)) = reading {
+                .get(&s.id)
+                .and_then(|read| read.conversation.as_ref())
+                .filter(|c| c.id == s.session_id)
+                .map(|c| c.stats.clone());
+            let Some(stats) = stats.filter(|stats| stats.context.is_none()) else {
+                continue;
+            };
             let key = (s.id.clone(), s.session_id.clone());
             let mark = stats.tokens.map_or(0, |t| t.total());
             if asked.want(&key, mark, Instant::now()) {

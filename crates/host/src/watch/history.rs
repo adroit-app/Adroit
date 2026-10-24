@@ -1,12 +1,16 @@
-//! The prompts an agent kept as sent in a project, read each time the window
-//! steps back or forth through them, as they grow with every prompt sent.
+//! The prompts an agent kept as sent in a project, read each time a window
+//! steps back or forth through them, as they grow with every prompt sent,
+//! and told that window.
 
 use adroit_protocol::{HistoryRead, PromptChange};
 
-use super::Watched;
+use tokio::sync::mpsc::UnboundedReceiver;
 
-pub(super) async fn watch(mut watched: Watched) {
-    while let Some(ask) = watched.asked_history().await {
+use super::Watched;
+use crate::work::HistoryAsk;
+
+pub(super) async fn watch(watched: Watched, mut asks: UnboundedReceiver<HistoryAsk>) {
+    while let Some(ask) = asks.recv().await {
         let project = ask.project.clone();
         // An agent's history can run to megabytes: not on a runtime thread.
         let sent = tokio::task::spawn_blocking(move || {
@@ -14,12 +18,15 @@ pub(super) async fn watch(mut watched: Watched) {
         })
         .await
         .unwrap_or_default();
-        watched.record([PromptChange::History {
-            read: HistoryRead {
-                asked: ask.asked,
-                project: ask.project,
-                sent,
-            },
-        }]);
+        watched.record_for(
+            ask.window,
+            [PromptChange::History {
+                read: HistoryRead {
+                    asked: ask.asked,
+                    project: ask.project,
+                    sent,
+                },
+            }],
+        );
     }
 }

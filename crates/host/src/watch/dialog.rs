@@ -1,8 +1,8 @@
-//! Whether the session the window's console shows has a dialog of its
+//! Whether the session a window's console shows has a dialog of its
 //! agent's own open, such as the picker `/model` opens, which takes every key:
 //! judged by the agent's adapter from the session's screen, read again each
-//! time the window draws it anew. An agent reports no status for a dialog it
-//! opens itself, so only its screen tells.
+//! time that window draws it anew, and told that window. An agent reports
+//! no status for a dialog it opens itself, so only its screen tells.
 
 use std::time::Duration;
 
@@ -10,14 +10,22 @@ use adroit_model::Agent;
 use adroit_model::daemon::id_of;
 use adroit_protocol::{ConsoleChange, Dialog};
 
+use tokio::sync::mpsc::UnboundedReceiver;
+
 use super::Watched;
+use crate::work::Redrawn;
 
 /// How long the daemon is given to show a screen.
 const VISIBLE_WAIT: Duration = Duration::from_millis(300);
 
-pub(super) async fn watch(mut watched: Watched) {
+pub(super) async fn watch(watched: Watched, mut redraws: UnboundedReceiver<Redrawn>) {
     let daemon = crate::daemon::daemon();
-    while let Some((session, agent)) = watched.redrawn().await {
+    while let Some(Redrawn {
+        window,
+        session,
+        agent,
+    }) = redraws.recv().await
+    {
         let Some(id) = id_of(&session) else {
             continue;
         };
@@ -25,9 +33,12 @@ pub(super) async fn watch(mut watched: Watched) {
             continue;
         };
         let open = dialog_open(agent, &lines);
-        watched.record([ConsoleChange::Dialog {
-            dialog: Dialog { session, open },
-        }]);
+        watched.record_for(
+            window,
+            [ConsoleChange::Dialog {
+                dialog: Dialog { session, open },
+            }],
+        );
     }
 }
 

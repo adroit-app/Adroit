@@ -7,11 +7,11 @@ use std::time::Duration;
 use adroit_protocol::{PlaceChange, PlaceRead};
 use adroit_vcs::Repo;
 
-use super::Watched;
+use super::{Watched, distinct};
 
 pub(super) async fn watch(mut watched: Watched) {
     loop {
-        if let Some(worktree) = watched.sight().place {
+        for worktree in distinct(&watched.sights(), |s| s.place.clone()) {
             let repo = Repo::open(&worktree);
             let read = PlaceRead {
                 files: repo.files().await.unwrap_or_default(),
@@ -21,7 +21,11 @@ pub(super) async fn watch(mut watched: Watched) {
             watched.record([PlaceChange::Read { read }]);
         }
         watched
-            .wait(Duration::from_secs(300), |s| s.sight.place.clone())
+            .wait(Duration::from_secs(300), |seen| {
+                seen.iter()
+                    .map(|s| s.sight.place.clone())
+                    .collect::<Vec<_>>()
+            })
             .await;
     }
 }

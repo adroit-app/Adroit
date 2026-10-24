@@ -1,35 +1,38 @@
 //! The work host's side of a connection to its socket: it says hello, and
-//! then answers what it is asked. A window that says hello in a version both
-//! speak is sent the whole work and, from then on, every change to it in the
-//! order the host made them; what is asked and waited for is answered to the
-//! one that asked alone.
+//! then answers what it is asked. Each connection is a window of its own: a
+//! window that says hello in a version both speak is sent the whole work as
+//! it shows it and, from then on, every change to that in the order the
+//! host made them; what one window asks, and what is asked and waited for,
+//! is answered to the one that asked alone.
 
+use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use adroit_protocol::{Answer, Ask, Event, Hello, Request, decode, encode};
 use serde::Deserialize;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::mpsc;
 
 use crate::watch::Watched;
-use crate::work::Host;
-
-/// How many events a window may fall behind before it misses some, and asks
-/// for the whole work again.
-const BEHIND: usize = 4096;
+use crate::work::{Host, WindowId};
 
 /// What answers an ask.
 pub type Asks = Arc<dyn Fn(Ask) -> Pin<Box<dyn Future<Output = Answer> + Send>> + Send + Sync>;
 
-/// The host every connection reaches, the events every window is sent, and
+/// Where each window that said hello is sent its events, by its number.
+type Windows = Arc<Mutex<HashMap<WindowId, mpsc::UnboundedSender<String>>>>;
+
+/// The host every connection reaches, the windows it sends events to, and
 /// what answers the asks.
 #[derive(Clone)]
 pub struct Served {
     host: Arc<Mutex<Host>>,
-    events: broadcast::Sender<Event>,
+    windows: Windows,
+    next: Arc<AtomicU64>,
     asks: Asks,
 }
 
@@ -46,20 +49,29 @@ impl Served {
     /// the host and the windows.
     pub fn new(host: Host, asks: impl FnOnce(Watched) -> Asks) -> Self {
         let host = Arc::new(Mutex::new(host));
-        let events = broadcast::channel(BEHIND).0;
-        let asks = asks(Watched::new(host.clone(), outbox(&events)));
-        Self { host, events, asks }
+        let windows = Windows::default();
+        let asks = asks(Watched::new(host.clone(), outbox(&windows)));
+        Self {
+            host,
+            windows,
+            next: Arc::new(AtomicU64::new(1)),
+            asks,
+        }
     }
 
     /// The way to the host and the windows, for what keeps the work read.
     pub fn watched(&self) -> Watched {
-        Watched::new(self.host.clone(), outbox(&self.events))
+        Watched::new(self.host.clone(), outbox(&self.windows))
     }
 
     fn lock(&self) -> MutexGuard<'_, Host> {
         self.host
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn windows(&self) -> MutexGuard<'_, HashMap<WindowId, mpsc::UnboundedSender<String>>> {
+        lock_windows(&self.windows)
     }
 
     /// Answer `stream` until it hangs up, or until it asks the host to stop,
@@ -70,6 +82,7 @@ impl Served {
         hello: &Hello,
         stop: mpsc::Sender<()>,
     ) {
+        let window = WindowId(self.next.fetch_add(1, Ordering::Relaxed));
         let (read, mut write) = stream.into_split();
         let (out, mut outgoing) = mpsc::unbounded_channel::<String>();
         // One who asks without waiting for hello may have hung up already;
@@ -82,7 +95,6 @@ impl Served {
                 }
             }
         });
-        let mut following = None;
         let mut lines = BufReader::new(read).lines();
         while let Ok(Some(line)) = lines.next_line().await {
             if let Ok(Op::Stop) = serde_json::from_str(&line) {
@@ -94,20 +106,6 @@ impl Served {
                 continue;
             };
             match request {
-                Request::Hello { .. } => {
-                    let host = &mut *self.lock();
-                    let answer = host.handle(request);
-                    let welcomed = answer.iter().any(|e| matches!(e, Event::Welcome { .. }));
-                    // Taken while the host is held, so the window is sent
-                    // each change after the snapshot, and none before it.
-                    let events = (welcomed && following.is_none()).then(|| self.events.subscribe());
-                    for event in answer {
-                        let _ = out.send(encode(&event));
-                    }
-                    if let Some(events) = events {
-                        following = Some(tokio::spawn(follow(events, out.clone())));
-                    }
-                }
                 Request::Ask { asked, ask } => {
                     let (asks, out) = (self.asks.clone(), out.clone());
                     tokio::spawn(async move {
@@ -116,50 +114,54 @@ impl Served {
                     });
                 }
                 request => {
+                    // Sent while the host is held, so each window is sent
+                    // the changes in the order they were made, and one
+                    // welcomed is sent each change after its snapshot and
+                    // none before it.
                     let host = &mut *self.lock();
-                    for event in host.handle(request) {
-                        match event {
-                            // Every window is told a change, in order.
-                            Event::Patch(_) => {
-                                let _ = self.events.send(event);
-                            }
-                            event => {
-                                let _ = out.send(encode(&event));
-                            }
+                    let sent = host.handle(window, request);
+                    let welcomed = sent
+                        .iter()
+                        .any(|(to, e)| *to == window && matches!(e, Event::Welcome { .. }));
+                    let mut windows = self.windows();
+                    for (to, event) in sent {
+                        if to == window {
+                            let _ = out.send(encode(&event));
+                        } else if let Some(other) = windows.get(&to) {
+                            let _ = other.send(encode(&event));
                         }
+                    }
+                    if welcomed {
+                        windows.insert(window, out.clone());
                     }
                 }
             }
         }
-        if let Some(following) = following {
-            following.abort();
+        {
+            let mut host = self.lock();
+            self.windows().remove(&window);
+            host.leave(window);
         }
         drop(out);
         let _ = writer.await;
     }
 }
 
-/// What tells every window an event, in the order it is told.
-fn outbox(events: &broadcast::Sender<Event>) -> crate::watch::Outbox {
-    let events = events.clone();
-    Arc::new(move |event| {
-        // With no window to tell, nothing is owed.
-        let _ = events.send(event);
-    })
+fn lock_windows(
+    windows: &Windows,
+) -> MutexGuard<'_, HashMap<WindowId, mpsc::UnboundedSender<String>>> {
+    windows
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// Send the window each event every window is told. One that fell behind
-/// misses some, finds a patch past a gap, and asks for the whole work again.
-async fn follow(mut events: broadcast::Receiver<Event>, out: mpsc::UnboundedSender<String>) {
-    loop {
-        match events.recv().await {
-            Ok(event) => {
-                if out.send(encode(&event)).is_err() {
-                    return;
-                }
-            }
-            Err(broadcast::error::RecvError::Lagged(_)) => {}
-            Err(broadcast::error::RecvError::Closed) => return,
+/// What tells a window that said hello an event, in the order it is told.
+fn outbox(windows: &Windows) -> crate::watch::Outbox {
+    let windows = windows.clone();
+    Arc::new(move |window, event| {
+        // A window gone, or not yet welcomed, is owed nothing.
+        if let Some(out) = lock_windows(&windows).get(&window) {
+            let _ = out.send(encode(&event));
         }
-    }
+    })
 }

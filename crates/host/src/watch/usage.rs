@@ -8,13 +8,12 @@ use std::time::{Duration, Instant};
 use adroit_agents::claude::usage::Fresh;
 use adroit_protocol::DetailsChange;
 
-use super::Watched;
+use super::{Watched, distinct};
 
 pub(super) async fn watch(mut watched: Watched) {
     let mut fresh = HashMap::<adroit_model::Agent, Fresh>::new();
     loop {
-        let sight = watched.sight();
-        if let Some(agent) = sight.usage.filter(|_| sight.details) {
+        for agent in distinct(&watched.sights(), |s| s.usage.filter(|_| s.details)) {
             let held = fresh.entry(agent).or_default();
             if held.want(Instant::now()) {
                 let got = adroit_agents::adapter(agent)
@@ -30,8 +29,10 @@ pub(super) async fn watch(mut watched: Watched) {
             }
         }
         watched
-            .wait(Duration::from_secs(30), |s| {
-                (s.sight.details, s.sight.usage)
+            .wait(Duration::from_secs(30), |seen| {
+                seen.iter()
+                    .map(|s| (s.sight.details, s.sight.usage))
+                    .collect::<Vec<_>>()
             })
             .await;
     }

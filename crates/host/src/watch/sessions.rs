@@ -1,5 +1,5 @@
 //! The sessions and terminals there are, placed by what git says of where
-//! each runs, listed every two seconds or as soon as the window asks.
+//! each runs, listed every two seconds or as soon as a window asks.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
@@ -11,6 +11,7 @@ use adroit_term::Daemon;
 
 use super::Watched;
 use crate::sessions::{self, Kept};
+use crate::work::Seen;
 
 /// How long what git said about a worktree is trusted before asking again.
 const WORKTREE_TTL: Duration = Duration::from_secs(15);
@@ -24,30 +25,28 @@ pub(super) async fn watch(mut watched: Watched) {
     loop {
         match read_sessions(&daemon, &watched.inputs()).await {
             Ok((sessions, terminals)) => {
-                let every = watched.sight().tree.every_worktree;
                 let found = inspect(&sessions, &terminals, &mut cache).await;
-                let listed = if every {
-                    worktrees(&found, &mut lists).await
-                } else {
-                    Vec::new()
-                };
                 let scratch = crate::paths::scratch_dir();
-                let tree = build(&sessions, &terminals, &found, &listed, Some(&scratch));
-                watched.record([
-                    TreeChange::Failing { error: None },
-                    TreeChange::Listed {
-                        listed: Box::new(Listed {
-                            sessions,
-                            terminals,
-                            tree,
-                        }),
-                    },
-                ]);
+                let listing = |listed: &[Worktree]| TreeChange::Listed {
+                    listed: Box::new(Listed {
+                        tree: build(&sessions, &terminals, &found, listed, Some(&scratch)),
+                        sessions: sessions.clone(),
+                        terminals: terminals.clone(),
+                    }),
+                };
+                watched.record([TreeChange::Failing { error: None }]);
+                // Each window lists every worktree git knows, or only those
+                // where something runs, as it asks.
+                watched.record_to([listing(&[])], |s| !s.tree.every_worktree);
+                if every_worktree(&watched.seen()) {
+                    let listed = worktrees(&found, &mut lists).await;
+                    watched.record_to([listing(&listed)], |s| s.tree.every_worktree);
+                }
             }
             Err(error) => watched.record([TreeChange::Failing { error: Some(error) }]),
         }
         let asked = watched
-            .wait_listing(Duration::from_secs(2), |s| s.sight.tree.every_worktree)
+            .wait_listing(Duration::from_secs(2), every_worktree)
             .await;
         // Asked for by hand: look at every worktree again too.
         if asked {
@@ -55,6 +54,11 @@ pub(super) async fn watch(mut watched: Watched) {
             lists.clear();
         }
     }
+}
+
+/// Whether a window lists every worktree git knows.
+fn every_worktree(seen: &[Seen]) -> bool {
+    seen.iter().any(|s| s.sight.tree.every_worktree)
 }
 
 /// What git says of each directory a session or a terminal runs in, asked

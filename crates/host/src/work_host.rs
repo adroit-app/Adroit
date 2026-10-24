@@ -593,10 +593,55 @@ mod tests {
             gone.ask(&greeting()).await;
             gone.told().await;
         }
-        watched.record(composed(1));
+        watched.record([adroit_protocol::TreeChange::Failing {
+            error: Some("no daemon".into()),
+        }]);
         let mut window = Peer::to(&socket).await;
         window.ask(&Request::Snapshot).await;
         assert!(matches!(window.told().await, Event::Snapshot(s) if s.seq == Seq(1)));
+    }
+
+    #[tokio::test]
+    async fn each_window_is_sent_what_it_shows_and_every_window_what_all_are() {
+        use adroit_protocol::{DetailsChange, Sight, TreeChange};
+        let served = served();
+        let watched = served.watched();
+        let (_dir, socket) = serving(served).await;
+        let mut windows = Vec::new();
+        for session in ["a", "b"] {
+            let mut window = Peer::to(&socket).await;
+            window.ask(&greeting()).await;
+            window.told().await;
+            window.told().await;
+            window
+                .ask(&Request::Watch(Box::new(Sight {
+                    session: Some(session.into()),
+                    ..Default::default()
+                })))
+                .await;
+            // Answered once the watch is taken, as it comes after it.
+            window.ask(&Request::Snapshot).await;
+            window.told().await;
+            windows.push(window);
+        }
+        let links = DetailsChange::Links {
+            session: "a".into(),
+            links: Default::default(),
+        };
+        let failing = TreeChange::Failing {
+            error: Some("no daemon".into()),
+        };
+        watched.record([links.clone()]);
+        watched.record([failing.clone()]);
+        let patch = |seq, change: adroit_protocol::Change| {
+            Event::Patch(WorkPatch {
+                seq: Seq(seq),
+                changes: vec![change],
+            })
+        };
+        assert_eq!(windows[0].told().await, patch(1, links.into()));
+        assert_eq!(windows[0].told().await, patch(2, failing.clone().into()));
+        assert_eq!(windows[1].told().await, patch(1, failing.into()));
     }
 
     #[tokio::test]

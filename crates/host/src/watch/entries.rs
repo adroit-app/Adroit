@@ -1,18 +1,20 @@
 //! What each directory the tree or the picker lists holds, read again every two seconds
 //! so files made or removed meanwhile show.
 
+use std::collections::BTreeSet;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use adroit_model::files::{Entry, sorted};
 use adroit_protocol::TreeChange;
 
 use super::Watched;
+use crate::work::Seen;
 
 pub(super) async fn watch(mut watched: Watched) {
     loop {
-        let dirs = watched.sight().listed_dirs();
+        let dirs = listed_dirs(&watched.seen());
         let read = tokio::task::spawn_blocking(move || {
             dirs.into_iter()
                 .map(|dir| {
@@ -25,10 +27,13 @@ pub(super) async fn watch(mut watched: Watched) {
         if let Ok(read) = read {
             watched.record(read);
         }
-        watched
-            .wait(Duration::from_secs(2), |s| s.sight.listed_dirs())
-            .await;
+        watched.wait(Duration::from_secs(2), listed_dirs).await;
     }
+}
+
+/// Every directory a window lists, in its tree or its picker.
+fn listed_dirs(seen: &[Seen]) -> BTreeSet<PathBuf> {
+    seen.iter().flat_map(|s| s.sight.listed_dirs()).collect()
 }
 
 /// The entries directly inside `dir`, as [`sorted`] orders them. A link to

@@ -11,7 +11,7 @@ pub(super) async fn watch(watched: Watched) {
     let mut sampler = Sampler::default();
     loop {
         let settings = crate::settings::current().usage;
-        if watched.sight().details && settings.any() {
+        if watched.sights().iter().any(|s| s.details) && settings.any() {
             let sampled = tokio::task::spawn_blocking(move || {
                 let usage = sampler.sample(settings);
                 (sampler, usage)

@@ -6,11 +6,11 @@ use std::time::Duration;
 
 use adroit_protocol::DetailsChange;
 
-use super::Watched;
+use super::{Watched, distinct};
 
 pub(super) async fn watch(mut watched: Watched) {
     loop {
-        if let Some(shown) = watched.sight().repository {
+        for shown in distinct(&watched.sights(), |s| s.repository.clone()) {
             let read = crate::details::load(shown.spot, &shown.worktree).await;
             watched.record([DetailsChange::Repository {
                 worktree: shown.worktree,
@@ -18,7 +18,11 @@ pub(super) async fn watch(mut watched: Watched) {
             }]);
         }
         watched
-            .wait(Duration::from_secs(2), |s| s.sight.repository.clone())
+            .wait(Duration::from_secs(2), |seen| {
+                seen.iter()
+                    .map(|s| s.sight.repository.clone())
+                    .collect::<Vec<_>>()
+            })
             .await;
     }
 }
