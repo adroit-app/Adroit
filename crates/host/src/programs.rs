@@ -381,6 +381,8 @@ home = "/Users/me/claude-work"
             ("codex", "OPENAI_API_KEY"),
             ("pi", "PI_CODING_AGENT_DIR"),
             ("pi", "AWS_PROFILE"),
+            ("opencode", "XDG_DATA_HOME"),
+            ("opencode", "OPENCODE_AUTH_CONTENT"),
         ] {
             let text = format!(
                 "[[profiles]]\nid = \"p\"\nagent = \"{agent}\"\nconnection = \"work\"\n[profiles.launch.env]\n{name} = \"x\"\n\n[[connections]]\nid = \"work\"\nagent = \"{agent}\"\nhome = \"/w\"\n"
@@ -404,14 +406,17 @@ home = "/Users/me/claude-work"
             .iter()
             .map(|c| c.profile.to_string())
             .collect();
-        assert_eq!(listed, ["claude", "claude-work", "codex-review", "pi"]);
+        assert_eq!(
+            listed,
+            ["claude", "claude-work", "codex-review", "pi", "opencode"]
+        );
         let only_claude =
             Settings::parse("[[profiles]]\nid = \"mine\"\nagent = \"claude\"\n").unwrap();
         let listed: Vec<String> = profiles(&only_claude)
             .iter()
             .map(|c| c.profile.to_string())
             .collect();
-        assert_eq!(listed, ["mine", "codex", "pi"]);
+        assert_eq!(listed, ["mine", "codex", "pi", "opencode"]);
     }
 
     #[test]
@@ -426,6 +431,7 @@ home = "/Users/me/claude-work"
                 ("claude-work".into(), "work".into()),
                 ("codex-review".into(), "codex".into()),
                 ("pi".into(), "pi".into()),
+                ("opencode".into(), "opencode".into()),
                 ("claude".into(), "claude".into()),
             ]
         );

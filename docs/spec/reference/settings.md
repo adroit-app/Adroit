@@ -30,7 +30,7 @@ The state directories profiles can run their agent's CLI in, each `[[connections
 
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
-| `connections.agent` | one of `claude`, `codex`, `pi` |  | The agent whose CLI keeps its state there, `claude`, `codex` or `pi`. |
+| `connections.agent` | one of `claude`, `codex`, `pi`, `opencode` |  | The agent whose CLI keeps its state there, `claude`, `codex`, `pi` or `opencode`. |
 | `connections.archived` | boolean |  | Whether it is kept only for the profiles and sessions that used it. |
 | `connections.home` | string |  | The state directory, as an absolute path without `~`, `.` or `..` and with no `/` doubled or at its end; it is fixed when the connection is made, since the CLIs tell logins apart by it as it is written. |
 | `connections.id` | string |  | The connection's id, kept when it is renamed: lowercase letters, digits and `-`, and none of the agents' keys, which name their own environments. |
@@ -89,7 +89,7 @@ The profiles sessions start from, each `[[profiles]]` table one of them ([settin
 
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
-| `profiles.agent` | one of `claude`, `codex`, `pi` |  | The agent it starts, `claude`, `codex` or `pi`. |
+| `profiles.agent` | one of `claude`, `codex`, `pi`, `opencode` |  | The agent it starts, `claude`, `codex`, `pi` or `opencode`. |
 | `profiles.archived` | boolean |  | Whether it is kept only for the sessions that ran from it, and offered for no new one. |
 | `profiles.connection` | string |  | The connection it runs in, by id; left out for the agent's own environment, which the agent's key also names. |
 | `profiles.id` | string |  | The profile's id, kept when it is renamed: lowercase letters, digits and `-`. |
@@ -126,6 +126,26 @@ How its agent is started; an empty command runs the agent's own program.
 | `profiles.launch.command` | array of strings | `[]` | The program and the arguments it always gets, ahead of adroit's own; empty for the program it starts: the profile's agent's, or Neovim. |
 | `profiles.launch.env` | table of strings | `{}` | Variables set for it. |
 | `profiles.launch.via_shell` | boolean | `false` | Whether your shell starts it, as an interactive login shell, so that what its startup files set reaches it. |
+
+### `[profiles.opencode]`
+
+OpenCode's model as `provider/model`, the agent it starts as, its permission rules and whether it approves on its own, for an `opencode` profile; empty values leave OpenCode's own settings in effect.
+
+| Setting | Type | Default | Description |
+| --- | --- | --- | --- |
+| `profiles.opencode.agent` | string | `""` | The primary agent it starts as, such as `build` or `plan`; empty for its own default. |
+| `profiles.opencode.auto` | boolean | `false` | Whether every tool call no rule denies is allowed without asking, as OpenCode's `--auto` does. |
+| `profiles.opencode.model` | string | `""` | OpenCode's model as `provider/model`, with `#variant` for one of its variants; empty for its own choice. |
+
+### `[[profiles.opencode.permissions]]`
+
+Permission rules put after the account's own, the last that matches a tool call deciding whether it is allowed, asked about or denied.
+
+| Setting | Type | Default | Description |
+| --- | --- | --- | --- |
+| `profiles.opencode.permissions.action` | string | `""` | What a tool does, such as `edit`, `shell` or `webfetch`, or `*` for anything. |
+| `profiles.opencode.permissions.effect` | string | `""` | `allow`, `ask` or `deny`. |
+| `profiles.opencode.permissions.resource` | string | `""` | What it does it to, as a pattern: a path, a command, or `*`. |
 
 ### `[profiles.pi]`
 
@@ -189,6 +209,23 @@ via_shell = false
 model = ""
 thinking = ""
 tools = []
+
+[[profiles]]
+id = "opencode"
+name = "OpenCode"
+agent = "opencode"
+
+[profiles.launch]
+command = []
+via_shell = false
+
+[profiles.launch.env]
+
+[profiles.opencode]
+model = ""
+agent = ""
+permissions = []
+auto = false
 ```
 
 ## `[shell]`

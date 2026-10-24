@@ -75,6 +75,10 @@ fn a_profile_s_model_agent_and_rules_are_opencode_s_configuration_and_auto_its_f
             "model": "ollama/qwen3:8b",
             "default_agent": "plan",
             "permissions": [{"action":"shell", "resource":"git *", "effect":"allow"}],
+            "agents": {
+                "plan": {"permissions": [{"action":"shell", "resource":"git *", "effect":"allow"}]},
+                "build": {"permissions": [{"action":"shell", "resource":"git *", "effect":"allow"}]},
+            },
         }))
     );
 }
@@ -106,14 +110,16 @@ fn every_fragment_of_configuration_is_merged_into_one_and_the_launch_s_own_kept_
     .concat();
     let (args, config) = launched(&context, args);
     assert_eq!(args, ["--standalone"]);
+    let rules = json!([
+        {"action":"*","resource":"*","effect":"ask"},
+        {"action":"adroit_*","resource":"*","effect":"allow"}
+    ]);
     assert_eq!(
         config,
         Some(json!({
             "providers": {"ollama": {"settings": {"baseURL": "http://h/v1"}}},
-            "permissions": [
-                {"action":"*","resource":"*","effect":"ask"},
-                {"action":"adroit_*","resource":"*","effect":"allow"}
-            ],
+            "permissions": rules,
+            "agents": {"build": {"permissions": rules}},
             "model": "ours/m",
             "plugins": ["/p", "/q"],
         }))
@@ -379,14 +385,125 @@ fn opencode_offers_no_account_usage_and_runs_shell_lines_typed_after_a_bang() {
     assert_eq!(OpenCode.rename_command("fix"), None);
 }
 
-#[test]
-fn a_read_only_session_may_change_no_file_and_run_no_command() {
-    assert_eq!(
-        read_only_rules(),
-        ["edit", "shell"].map(|action| OpenCodeRule {
-            action: action.into(),
-            resource: "*".into(),
-            effect: "deny".into(),
+/// Whether OpenCode lets `agent` do `action` to `resource`, its rules taken
+/// from `documents` in the order it loads them as it takes them: every
+/// document's rules for all agents, then every document's for `agent`, the
+/// last that matches deciding.
+fn decided<'a>(documents: &'a [Value], agent: &str, action: &str, resource: &str) -> &'a str {
+    let all = documents.iter().map(|d| &d["permissions"]);
+    let own = documents.iter().map(|d| &d["agents"][agent]["permissions"]);
+    all.chain(own)
+        .flat_map(|rules| rules.as_array().into_iter().flatten())
+        .rfind(|rule| {
+            matched(rule["action"].as_str().unwrap(), action)
+                && matched(rule["resource"].as_str().unwrap(), resource)
         })
-    );
+        .map_or("ask", |rule| rule["effect"].as_str().unwrap())
+}
+
+/// Whether `pattern`, where `*` stands for anything, matches `text`.
+fn matched(pattern: &str, text: &str) -> bool {
+    match pattern.split_once('*') {
+        None => pattern == text,
+        Some((head, rest)) => {
+            text.starts_with(head)
+                && (0..=text.len() - head.len()).any(|at| matched(rest, &text[head.len() + at..]))
+        }
+    }
+}
+
+/// A document of a repository's or an account's own that gives every agent
+/// and `agent` leave for everything.
+fn allowing_everything(agent: &str) -> Value {
+    let all = json!([{"action":"*", "resource":"*", "effect":"allow"}]);
+    json!({"permissions": all, "agents": {agent: {"permissions": all}}})
+}
+
+#[test]
+fn a_read_only_session_may_read_but_change_no_file_and_run_no_command_whatever_else_allows_it() {
+    let mut context = with(OpenCodeOptions {
+        agent: "build".into(),
+        auto: true,
+        permissions: vec![OpenCodeRule {
+            action: "shell".into(),
+            resource: "*".into(),
+            effect: "allow".into(),
+        }],
+        ..OpenCodeOptions::default()
+    });
+    read_only(&mut context);
+    let start = [
+        OpenCode.start_args(&context, "", "ses_x", ""),
+        config_args(json!({"permissions": [{"action":TOOLS, "resource":"*", "effect":"allow"}]})),
+    ]
+    .concat();
+    let (_, args, env) = OpenCode.launch(&context, start, Vec::new());
+    assert!(!args.contains(&"--auto".to_string()), "{args:?}");
+    // No configuration of the repository's is read.
+    assert!(env.contains(&(NO_PROJECT.into(), "1".into())), "{env:?}");
+    let ours: Value = env
+        .iter()
+        .find(|(name, _)| name == CONFIG)
+        .map(|(_, value)| serde_json::from_str(value).unwrap())
+        .unwrap();
+    assert_eq!(ours["default_agent"], "plan");
+    // Were a repository's read, or as the account's own says, ours load last;
+    // started with a prompt, OpenCode runs it as its own default agent.
+    for agent in ["plan", DEFAULT_AGENT] {
+        let documents = [allowing_everything(agent), ours.clone()];
+        for (action, resource, effect) in [
+            ("shell", "rm -rf /", "deny"),
+            ("edit", "src/main.rs", "deny"),
+            ("subagent", "general", "deny"),
+            ("read", "src/main.rs", "allow"),
+            ("grep", "*", "allow"),
+            ("external_directory", "/elsewhere/*", "allow"),
+            ("adroit_send", "*", "allow"),
+        ] {
+            assert_eq!(
+                decided(&documents, agent, action, resource),
+                effect,
+                "{agent}: {action} {resource}"
+            );
+        }
+    }
+}
+
+#[test]
+fn adroit_s_tools_and_the_profile_s_rules_beat_any_document_s_rules_for_the_agent_run() {
+    for (agent, run) in [("", DEFAULT_AGENT), ("review", "review")] {
+        let context = with(OpenCodeOptions {
+            agent: agent.into(),
+            permissions: vec![
+                OpenCodeRule {
+                    action: "*".into(),
+                    resource: "*".into(),
+                    effect: "ask".into(),
+                },
+                OpenCodeRule {
+                    action: "shell".into(),
+                    resource: "git *".into(),
+                    effect: "allow".into(),
+                },
+            ],
+            ..OpenCodeOptions::default()
+        });
+        let args = [
+            OpenCode.start_args(&context, "", "ses_x", ""),
+            config_args(
+                json!({"permissions": [{"action":TOOLS, "resource":"*", "effect":"allow"}]}),
+            ),
+        ]
+        .concat();
+        let (_, ours) = launched(&context, args);
+        for run in [run, DEFAULT_AGENT] {
+            let denying = json!({"agents": {run: {"permissions": [
+                {"action":"*", "resource":"*", "effect":"deny"},
+            ]}}});
+            let documents = [denying, ours.clone().unwrap()];
+            assert_eq!(decided(&documents, run, "adroit_send", "*"), "allow");
+            assert_eq!(decided(&documents, run, "shell", "git status"), "allow");
+            assert_eq!(decided(&documents, run, "edit", "a.rs"), "ask");
+        }
+    }
 }

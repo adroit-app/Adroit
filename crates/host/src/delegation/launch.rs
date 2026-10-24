@@ -72,6 +72,16 @@ impl Delegation {
             // Pi has no flag for a server of one run; the extension adroit loads
             // into it registers adroit's, for a session that carries its credential.
             Agent::Pi => Vec::new(),
+            // OpenCode takes a server for one run only through its configuration;
+            // it inherits the session's credential from the server it runs under.
+            Agent::OpenCode => adroit_agents::opencode::config_args(json!({
+                "mcp": {"servers": {"adroit": {
+                    "type": "local", "command": [program, "mcp"], "codemode": false,
+                }}},
+                "permissions": [{
+                    "action": adroit_agents::opencode::TOOLS, "resource": "*", "effect": "allow",
+                }],
+            })),
             Agent::Codex => {
                 let variables = [
                     TOKEN_ENV,

@@ -48,17 +48,51 @@ pub fn config_args(fragment: Value) -> Vec<String> {
     vec![FRAGMENT.into(), fragment.to_string()]
 }
 
-/// The rules a read-only session runs under, after any other: it may change
-/// no file and run no command. OpenCode has no sandbox, so this is all that
-/// keeps it to reading.
-pub fn read_only_rules() -> Vec<adroit_model::config::OpenCodeRule> {
-    ["edit", "shell"]
-        .map(|action| adroit_model::config::OpenCodeRule {
-            action: action.into(),
-            resource: "*".into(),
-            effect: "deny".into(),
-        })
-        .to_vec()
+/// The agent OpenCode starts as when nothing names one.
+const DEFAULT_AGENT: &str = "build";
+
+/// The variable that keeps OpenCode from reading the configuration of the
+/// directory it runs in and of every directory above it.
+const NO_PROJECT: &str = "OPENCODE_DISABLE_PROJECT_CONFIG";
+
+/// The tools a read-only session may use, as OpenCode's rules name what they
+/// do: those that read files, the web and the user, and keep its list.
+const READS: [&str; 9] = [
+    "read",
+    "grep",
+    "glob",
+    "external_directory",
+    "webfetch",
+    "websearch",
+    "question",
+    "todowrite",
+    "skill",
+];
+
+/// `context` made read-only. OpenCode has no sandbox, so the session runs as
+/// its plan agent, approves nothing on its own, and runs under rules after
+/// any other that deny every tool but those that read. The configuration of
+/// the directory it runs in is not read: a repository's could give its
+/// agent rules of its own, and add MCP servers and plugins, which run
+/// whatever the rules say.
+pub fn read_only(context: &mut AgentContext) {
+    context.launch.env.insert(NO_PROJECT.into(), "1".into());
+    if let Some(options) = context.opencode_mut() {
+        options.agent = "plan".into();
+        options.auto = false;
+        options.permissions.extend(read_only_rules());
+    }
+}
+
+fn read_only_rules() -> Vec<adroit_model::config::OpenCodeRule> {
+    let rule = |action: &str, effect: &str| adroit_model::config::OpenCodeRule {
+        action: action.into(),
+        resource: "*".into(),
+        effect: effect.into(),
+    };
+    std::iter::once(rule("*", "deny"))
+        .chain(READS.map(|action| rule(action, "allow")))
+        .collect()
 }
 
 /// Whether an account of its own lets `name` reach OpenCode from the
@@ -235,6 +269,27 @@ impl AgentAdapter for OpenCode {
         {
             let ours = std::mem::replace(&mut config, own);
             merge(&mut config, ours);
+        }
+        // The last rule that matches decides: adroit's tools stay allowed
+        // whatever the profile's or the account's rules say of every tool.
+        if let Some(rules) = config.get_mut("permissions").and_then(Value::as_array_mut) {
+            let (ours, others): (Vec<Value>, Vec<Value>) =
+                rules.drain(..).partition(|rule| rule["action"] == TOOLS);
+            rules.extend(others.into_iter().chain(ours));
+            // OpenCode puts every document's rules for all agents before any
+            // document's rules for one, so a rule for the agent run in an
+            // earlier document would still beat these. Its interface sends a
+            // first prompt it is started with before it knows the agent
+            // configured, as its own default, so that one runs too.
+            let rules = rules.clone();
+            let mut agents = serde_json::Map::new();
+            for agent in [config["default_agent"].as_str(), Some(DEFAULT_AGENT)]
+                .into_iter()
+                .flatten()
+            {
+                agents.insert(agent.into(), json!({ "permissions": rules }));
+            }
+            merge(&mut config, json!({ "agents": agents }));
         }
         let mut env: Vec<(String, String)> = env.into_iter().chain(self.environment()).collect();
         if config.as_object().is_some_and(|c| !c.is_empty()) {

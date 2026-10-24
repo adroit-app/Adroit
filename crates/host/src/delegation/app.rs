@@ -124,6 +124,12 @@ pub async fn prepare(
     let context =
         crate::programs::starting(settings, Some(request.agent), request.profile.as_ref())?;
     crate::programs::ready(&context, &request.cwd, &request.env)?;
+    if let Some(refused) = adroit_agents::adapter(request.agent)
+        .refusal(context, request.cwd.clone())
+        .await
+    {
+        return Err(refused);
+    }
     let recorded = record(root, settings, &mut request, parent).await?;
     match crate::execution::resolve(settings, request, program) {
         Ok(resolved) => Ok((resolved, recorded)),

@@ -192,19 +192,15 @@ fn section(
         .as_object()
         .unwrap()
         .iter()
-        .partition(|(_, f)| table(f, defs).is_some());
+        .partition(|(_, f)| table(f, defs).is_some() || entries(f, defs).is_some());
     rows(out, &format!("{path}."), leaves, defs);
     for (name, f) in inner {
         let path = format!("{path}.{name}");
-        section(
-            out,
-            "###",
-            &format!("[{path}]"),
-            &path,
-            f,
-            table(f, defs).unwrap(),
-            defs,
-        );
+        let (heading, def) = match table(f, defs) {
+            Some(def) => (format!("[{path}]"), def),
+            None => (format!("[[{path}]]"), entries(f, defs).unwrap()),
+        };
+        section(out, "###", &heading, &path, f, def, defs);
     }
 }
 
@@ -372,11 +368,17 @@ mod tests {
         );
         assert!(s.contains("| `profile` | string | `\"claude\"` |"), "{s}");
         assert!(
-            s.contains("| `profiles.agent` | one of `claude`, `codex`, `pi` |  |"),
+            s.contains("| `profiles.agent` | one of `claude`, `codex`, `pi`, `opencode` |  |"),
             "{s}"
         );
         assert!(
             s.contains("| `profiles.launch.command` | array of strings | `[]` |"),
+            "{s}"
+        );
+        // An array of tables within a table has a heading of its own too.
+        assert!(s.contains("### `[[profiles.opencode.permissions]]`"), "{s}");
+        assert!(
+            s.contains("| `profiles.opencode.permissions.effect` | string | `\"\"` | `allow`, `ask` or `deny`. |"),
             "{s}"
         );
         assert!(
@@ -436,12 +438,12 @@ mod tests {
         let mut found = Vec::new();
         leaves("", &written, &mut found);
         for (name, value) in found {
-            // An array of tables written empty is a heading of its own.
+            // An array of tables written empty is a heading of its own, as is
+            // one in an entry of another.
             if value
                 .as_ref()
-                .and_then(toml::Value::as_array)
-                .is_some_and(Vec::is_empty)
-                && reference.contains(&format!("\n## `[[{name}]]`\n"))
+                .is_none_or(|v| v.as_array().is_some_and(Vec::is_empty))
+                && reference.contains(&format!(" `[[{name}]]`\n"))
             {
                 continue;
             }

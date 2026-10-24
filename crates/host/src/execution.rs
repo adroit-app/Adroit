@@ -297,6 +297,9 @@ fn configured(
                     .to_vec();
             }
         }
+        (AgentPermissions::ReadOnly, Agent::OpenCode) => {
+            adroit_agents::opencode::read_only(&mut context);
+        }
         (AgentPermissions::ReadOnly, Agent::Claude) => {
             if let Some(options) = context.claude_mut() {
                 options.read_only = Some(
@@ -334,6 +337,20 @@ fn configured(
             (CustomPermissions::Pi { tools }, Agent::Pi) => {
                 if let Some(options) = context.pi_mut() {
                     options.tools = tools.clone();
+                }
+            }
+            (
+                CustomPermissions::OpenCode {
+                    primary,
+                    permissions,
+                    auto,
+                },
+                Agent::OpenCode,
+            ) => {
+                if let Some(options) = context.opencode_mut() {
+                    options.agent = primary.clone();
+                    options.permissions = permissions.clone();
+                    options.auto = *auto;
                 }
             }
             _ => return Err("custom permissions belong to another agent".into()),

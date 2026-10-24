@@ -172,7 +172,7 @@ pub struct OpenCodeOptions {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct OpenCodeRule {
-    /// What a tool does, such as `edit`, `bash` or `webfetch`, or `*` for
+    /// What a tool does, such as `edit`, `shell` or `webfetch`, or `*` for
     /// anything.
     pub action: String,
     /// What it does it to, as a pattern: a path, a command, or `*`.

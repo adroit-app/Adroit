@@ -511,3 +511,142 @@ fn pi_reaches_adroit_through_the_extension_adroit_writes_for_it() {
             .any(|pair| pair == ["--session-id", launch.conversation.as_str()])
     );
 }
+
+/// The configuration an OpenCode launch hands OpenCode for the run.
+fn opencode_config(launch: &adroit_host::execution::ResolvedLaunch) -> serde_json::Value {
+    let (_, content) = launch
+        .spawn
+        .env
+        .iter()
+        .find(|(name, _)| name == "OPENCODE_CONFIG_CONTENT")
+        .expect("configuration for the run");
+    serde_json::from_str(content).unwrap()
+}
+
+#[test]
+fn a_read_only_opencode_session_plans_reads_no_project_configuration_and_its_denies_win() {
+    let mut settings = Settings::default();
+    let options = settings
+        .profile_of_mut(Agent::OpenCode)
+        .opencode_mut()
+        .unwrap();
+    options.auto = true;
+    options.model = "fake/slow".into();
+    let mut request = request(Agent::OpenCode, None);
+    request.permissions = AgentPermissions::ReadOnly;
+    let launch = resolve(&settings, request, Path::new("/adroit")).unwrap();
+    assert!(!launch.spawn.args.iter().any(|a| a == "--auto"));
+    assert_eq!(launch.model.as_deref(), Some("fake/slow"));
+    assert!(
+        launch
+            .spawn
+            .env
+            .contains(&("OPENCODE_DISABLE_PROJECT_CONFIG".into(), "1".into())),
+        "{:?}",
+        launch.spawn.env
+    );
+    let config = opencode_config(&launch);
+    assert_eq!(config["default_agent"], "plan");
+    assert_eq!(config["model"], "fake/slow");
+    // OpenCode takes every document's rules for all agents, then every
+    // document's for the agent run, the last that matches deciding; adroit's
+    // document loads last, after one that allows the agent everything. Started
+    // with a prompt, OpenCode runs as build, its own default.
+    let allowing = serde_json::json!([{"action": "*", "resource": "*", "effect": "allow"}]);
+    for agent in ["plan", "build"] {
+        let rules: Vec<&serde_json::Value> = [&allowing, &config["permissions"]]
+            .into_iter()
+            .chain([&allowing, &config["agents"][agent]["permissions"]])
+            .flat_map(|rules| rules.as_array().unwrap())
+            .collect();
+        let decided = |action: &str| {
+            rules
+                .iter()
+                .rfind(|rule| rule["action"] == "*" || rule["action"] == action)
+                .map(|rule| rule["effect"].as_str().unwrap())
+        };
+        assert_eq!(decided("edit"), Some("deny"), "{agent}");
+        assert_eq!(decided("shell"), Some("deny"), "{agent}");
+        assert_eq!(decided("read"), Some("allow"), "{agent}");
+    }
+}
+
+#[test]
+fn custom_opencode_permissions_are_its_agent_rules_and_auto_approval() {
+    let rule = adroit_model::config::OpenCodeRule {
+        action: "shell".into(),
+        resource: "git *".into(),
+        effect: "allow".into(),
+    };
+    let mut opencode = request(Agent::OpenCode, None);
+    opencode.permissions = AgentPermissions::Custom(Box::new(CustomPermissions::OpenCode {
+        primary: "review".into(),
+        permissions: vec![rule.clone()],
+        auto: true,
+    }));
+    let launch = resolve(&Settings::default(), opencode, Path::new("/adroit")).unwrap();
+    assert!(launch.spawn.args.iter().any(|a| a == "--auto"));
+    let config = opencode_config(&launch);
+    assert_eq!(config["default_agent"], "review");
+    assert_eq!(config["permissions"], serde_json::json!([rule]));
+    let mut pi = request(Agent::Pi, None);
+    pi.permissions = AgentPermissions::Custom(Box::new(CustomPermissions::OpenCode {
+        primary: String::new(),
+        permissions: Vec::new(),
+        auto: false,
+    }));
+    assert!(resolve(&Settings::default(), pi, Path::new("/adroit")).is_err());
+}
+
+#[test]
+fn opencode_reaches_adroit_through_its_server_and_the_plugin_adroit_writes_for_it() {
+    let mut settings = Settings::default();
+    settings
+        .profile_of_mut(Agent::OpenCode)
+        .opencode_mut()
+        .unwrap()
+        .permissions = vec![adroit_model::config::OpenCodeRule {
+        action: "*".into(),
+        resource: "*".into(),
+        effect: "ask".into(),
+    }];
+    let mut request = request(Agent::OpenCode, None);
+    request.delegation = Some(recorded(None));
+    let launch = resolve(&settings, request, Path::new("/bin/adroit")).unwrap();
+    let config = opencode_config(&launch);
+    assert_eq!(
+        config["mcp"]["servers"]["adroit"],
+        serde_json::json!({"type": "local", "command": ["/bin/adroit", "mcp"], "codemode": false})
+    );
+    // Asked of every tool, adroit's are still allowed: the last rule wins.
+    assert_eq!(
+        config["permissions"].as_array().unwrap().last(),
+        Some(&serde_json::json!({"action": "adroit_*", "resource": "*", "effect": "allow"}))
+    );
+    let plugin = config["plugins"][0].as_str().unwrap();
+    let script = std::fs::read_to_string(Path::new(plugin).join("index.js")).unwrap();
+    assert!(script.contains("const ADROIT = "), "{script}");
+    let told = std::fs::read_to_string(config["instructions"][0].as_str().unwrap()).unwrap();
+    assert!(told.contains("start_session"), "{told}");
+    let args = &launch.spawn.args;
+    assert!(args.iter().any(|a| a == "--standalone"));
+    assert!(
+        args.windows(2)
+            .any(|pair| pair == ["--session", launch.conversation.as_str()])
+    );
+    assert_eq!(
+        args.last().map(String::as_str),
+        Some("--prompt=Review the changes")
+    );
+    assert!(
+        launch
+            .spawn
+            .env
+            .iter()
+            .any(|(name, _)| name == "ADROIT_DELEGATION_TOKEN")
+    );
+    assert!(
+        !args.iter().any(|a| a.contains("adroit-config")),
+        "{args:?}"
+    );
+}

@@ -347,7 +347,12 @@ impl TryFrom<SettingsFile> for Settings {
                     .unwrap_or_else(|| ProfileId::builtin(file.agent.unwrap_or_default()));
                 (
                     profile,
-                    vec![claude, codex, AgentProfile::builtin(Agent::Pi)],
+                    vec![
+                        claude,
+                        codex,
+                        AgentProfile::builtin(Agent::Pi),
+                        AgentProfile::builtin(Agent::OpenCode),
+                    ],
                 )
             }
         };
