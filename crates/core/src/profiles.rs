@@ -398,12 +398,18 @@ pub fn startable(settings: &Settings) -> Vec<AgentProfile> {
     settings.profiles.iter().cloned().chain(own).collect()
 }
 
-/// What a draft offers `profile` as, its agent being chosen beside it: its
-/// name, and that it has a login of its own when it has.
+/// What a draft offers `profile` as, the profile being all it chooses: its
+/// agent, its name when that is not the agent's own, as a running session's
+/// details name it, and that it has a login of its own when it has.
 pub fn offered_as(profile: &AgentProfile) -> String {
+    let agent = profile.agent().label();
+    let named = match profile.label() {
+        name if name == agent => agent.to_string(),
+        name => format!("{agent} · {name}"),
+    };
     match profile.home {
-        None => profile.label().to_string(),
-        Some(_) => format!("{} · own login", profile.label()),
+        None => named,
+        Some(_) => format!("{named} · own login"),
     }
 }
 
@@ -788,15 +794,20 @@ mod tests {
     }
 
     #[test]
-    fn a_draft_offers_a_profile_by_its_name_and_says_when_it_has_a_login_of_its_own() {
-        let s = settings();
+    fn a_draft_offers_a_profile_by_its_agent_and_name_and_says_when_it_has_a_login_of_its_own() {
+        let mut s = settings();
+        s.profiles.push(AgentProfile {
+            name: "Codex".into(),
+            ..profile("codex-2", Agent::Codex).build()
+        });
         let offered: Vec<String> = startable(&s).iter().map(offered_as).collect();
         assert_eq!(
             offered,
             [
-                "Claude Personal",
-                "Claude Work · own login",
-                "codex",
+                "Claude Code · Claude Personal",
+                "Claude Code · Claude Work · own login",
+                "Codex · codex",
+                "Codex",
                 "Pi",
                 "OpenCode"
             ]

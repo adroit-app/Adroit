@@ -85,13 +85,6 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         }
         Msg::WindowDragMove(pos) => content::drag_move(&mut state.content, pos),
         Msg::WindowDragEnd => content::drag_end(&mut state.content),
-        Msg::DraftAgent { tab, agent } => {
-            let from = content::agent_of(state, tab.as_ref());
-            match content::choose_agent(&mut state.content, tab, agent, from) {
-                Some(told) => status_line::notice(&mut state.chrome.status, told),
-                None => Vec::new(),
-            }
-        }
         Msg::OpenLogin { profile } => vec![Effect::OpenLogin { profile }],
         Msg::DraftProfile { tab, profile } => {
             let found = state

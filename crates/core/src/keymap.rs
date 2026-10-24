@@ -122,6 +122,8 @@ const RETIRED: &[&str] = &[
     "details.files",
     "details.diff",
     "session.take_over",
+    "session.agent_next",
+    "session.agent_prev",
 ];
 
 /// What a key comes to.
@@ -1053,31 +1055,26 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_g_a_switches_the_draft_agent_forward_and_ctrl_g_capital_a_back() {
-        for area in [Context::Prompt, Context::Console, Context::Tree] {
-            let draft = [Context::Draft, area, Context::Global];
+    fn a_binding_to_switching_a_draft_s_agent_is_read_and_dropped_now_its_profile_names_it() {
+        let map = Keymap::with_user(
+            "[draft]\n\"Ctrl+g a\" = \"session.agent_next\"\n\"Ctrl+g A\" = \"session.agent_prev\"\n\"Ctrl+g p\" = \"session.profile_next\"\n",
+        )
+        .unwrap();
+        let draft = [Context::Draft, Context::Prompt, Context::Global];
+        for k in ["a", "A"] {
+            assert_eq!(step(&map, &draft, &["Ctrl+g"], k), Step::Nothing, "{k}");
+        }
+        assert_eq!(
+            step(&map, &draft, &["Ctrl+g"], "p"),
+            Step::Run(Action::SessionProfileNext)
+        );
+        for k in ["a", "A"] {
             assert_eq!(
-                step(&Keymap::defaults(), &draft, &["Ctrl+g"], "a"),
-                Step::Run(Action::SessionAgentNext),
-                "{area:?}"
-            );
-            assert_eq!(
-                step(&Keymap::defaults(), &draft, &["Ctrl+g"], "A"),
-                Step::Run(Action::SessionAgentPrev),
-                "{area:?}"
+                step(&Keymap::defaults(), &draft, &["Ctrl+g"], k),
+                Step::Nothing,
+                "{k}"
             );
         }
-        // Writing the draft's prompt, too.
-        assert_eq!(
-            step(
-                &Keymap::defaults(),
-                &[Context::Draft, Context::Prompt],
-                &["Ctrl+g"],
-                "a"
-            ),
-            Step::Run(Action::SessionAgentNext)
-        );
-        assert_eq!("session.agent_prev".parse(), Ok(Action::SessionAgentPrev));
     }
 
     #[test]

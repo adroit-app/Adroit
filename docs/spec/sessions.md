@@ -12,15 +12,16 @@ A session runs Claude Code, Codex CLI, Pi or OpenCode in its own terminal interf
 session is given its profile, and with it its agent and login
 ([settings](settings.md#profiles)), while it is still a
 draft, before its first prompt is sent. The empty window and drafts offer
-the agents and every profile, each named with a mark when it
-has a login of its own. `session.agent_next` and `session.agent_prev` switch the agent,
-which starts from its default profile, and `session.profile_next` and
+the profile alone, which decides the agent: every profile, and adroit's own
+for an agent that has none, so every agent can be started. Each is named by
+its agent and its name, as a running session's details name it, with a mark
+when it has a login of its own. `session.profile_next` and
 `session.profile_prev` switch the profile. What is chosen, by the form or by
 key, is what new sessions start with while the window is open. Reopening the
 app starts with the default profile, which Settings sets on the profile's page.
 
 The draft also offers a model and permissions for that launch. Changing the
-profile or the agent keeps its prompt and attachments, and keeps the model
+profile keeps its prompt and attachments, and keeps the model
 and permissions while the agent stays the same; to another agent they go
 back to the defaults of the profile chosen, and the status line says so. The
 empty window offers them too, and the next new session starts with what was

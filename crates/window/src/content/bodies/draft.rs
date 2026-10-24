@@ -1,6 +1,7 @@
 //! A window showing a session not started yet, and the window's one body
-//! while nothing is open: where it starts, its agent, model and
-//! permissions, and the keys that get it going.
+//! while nothing is open: where it starts, the profile it starts from, which
+//! names its agent, its model and permissions, and the keys that get it
+//! going.
 
 use std::path::PathBuf;
 
@@ -31,21 +32,18 @@ pub(crate) fn DraftHead(worktree: PathBuf) -> Element {
     }
 }
 
-/// The focused window's draft, in `worktree`: its agent, `agent` now, and
-/// the options chosen for it.
+/// The focused window's draft, in `worktree`: its profile, `profile` now,
+/// and the options chosen for it.
 #[component]
 pub(crate) fn DraftForm(
     worktree: PathBuf,
-    agent: Agent,
     profile: ProfileId,
     profiles: Vec<ProfileChoice>,
     options: DraftOptions,
     keymap: Keymap,
-    onagent: EventHandler<Agent>,
     onprofile: EventHandler<ProfileId>,
     onoptions: EventHandler<DraftOptions>,
 ) -> Element {
-    let k_agent = keymap.keys_for(Context::Draft, &Action::SessionAgentNext);
     let k_profile = keymap.keys_for(Context::Draft, &Action::SessionProfileNext);
     let k_send = keymap.keys_for(Context::Prompt, &Action::PromptSend);
     rsx! {
@@ -56,7 +54,6 @@ pub(crate) fn DraftForm(
                 div { class: "console-empty-path", "{short(&worktree)}" }
             }
             div { class: "launch-form",
-                AgentChoices { current: agent, keys: k_agent, onchoose: onagent }
                 ProfileChoices { current: profile, profiles, keys: k_profile, onchoose: onprofile }
                 DraftLaunchOptions { options, onchange: onoptions }
             }
@@ -71,22 +68,19 @@ pub(crate) fn DraftForm(
 }
 
 /// The window with nothing open: the button that picks where a session
-/// starts, the agent and options a scratch session starts with, and the
+/// starts, the profile and options a scratch session starts with, and the
 /// tree's keys.
 #[component]
 pub(crate) fn NothingOpen(
-    agent: Agent,
     profile: ProfileId,
     profiles: Vec<ProfileChoice>,
     options: DraftOptions,
     keymap: Keymap,
     onpick: EventHandler<()>,
-    onagent: EventHandler<Agent>,
     onprofile: EventHandler<ProfileId>,
     onoptions: EventHandler<DraftOptions>,
 ) -> Element {
     let km = keymap;
-    let k_agent = km.keys_for(Context::Draft, &Action::SessionAgentNext);
     let k_profile = km.keys_for(Context::Draft, &Action::SessionProfileNext);
     // The button is pressed from wherever the focus is.
     let k_pick = km
@@ -116,7 +110,6 @@ pub(crate) fn NothingOpen(
             div { class: "launch-form",
                 div { class: "launch-form-label", "Starts in" }
                 div { class: "launch-form-where", "A scratch session" }
-                AgentChoices { current: agent, keys: k_agent, onchoose: onagent }
                 ProfileChoices { current: profile, profiles, keys: k_profile, onchoose: onprofile }
                 DraftLaunchOptions { options, onchange: onoptions }
             }
@@ -143,31 +136,6 @@ pub(crate) fn NothingOpen(
                 if let Some(k) = k_shell {
                     LegendRow { does: "Open a shell on a workspace row", Keys { keys: k } }
                 }
-            }
-        }
-    }
-}
-
-#[component]
-fn AgentChoices(current: Agent, keys: Option<String>, onchoose: EventHandler<Agent>) -> Element {
-    rsx! {
-        div { class: "launch-form-label", "Agent" }
-        div { class: "launch-form-agent",
-            div { class: "segmented",
-                for agent in Agent::ALL {
-                    button {
-                        key: "{agent.key()}",
-                        class: if agent == current { "on" },
-                        onclick: move |e| {
-                            e.stop_propagation();
-                            onchoose.call(agent);
-                        },
-                        "{agent.label()}"
-                    }
-                }
-            }
-            if let Some(keys) = keys {
-                span { class: "launch-form-keys", title: "Switches the agent", Keys { keys } }
             }
         }
     }

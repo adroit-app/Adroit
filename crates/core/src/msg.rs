@@ -149,11 +149,6 @@ pub enum Msg {
     WindowDragMove(f64),
     /// The pointer let go, or left the window.
     WindowDragEnd,
-    /// The agent chosen for this draft, or for the next one.
-    DraftAgent {
-        tab: Option<Tab>,
-        agent: Agent,
-    },
     /// Open a terminal running the CLI's own login where this profile runs
     /// it.
     OpenLogin {

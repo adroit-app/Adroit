@@ -102,27 +102,38 @@ impl Default for ContentView {
 }
 
 /// The options chosen for each draft shown, those chosen with nothing open
-/// for the next draft, and the agent and profile last chosen.
+/// for the next draft, and the profile last chosen.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Drafts {
     pub options: HashMap<Tab, DraftOptions>,
     pub next: Option<DraftOptions>,
-    pub last_agent: Option<Agent>,
     pub last_profile: Option<ProfileId>,
 }
 
 impl Drafts {
-    /// The agent the prompt written for `tab` goes to: a session's own, the
-    /// one chosen for a draft, or else the one last chosen for a draft, or
-    /// `default`.
-    pub fn agent_of(&self, tree: &Tree, tab: Option<&Tab>, default: Agent) -> Agent {
-        draft::for_tab(tree, tab, &self.options, self.last_agent.unwrap_or(default))
+    /// The agent the prompt written for `tab` goes to, as `settings` say: a
+    /// session's own, else that of the profile it would start from.
+    pub fn agent_of(
+        &self,
+        tree: &Tree,
+        tab: Option<&Tab>,
+        settings: &crate::settings::Settings,
+    ) -> Agent {
+        if let Some(Tab::Session(id)) = tab
+            && let Some((_, session)) = crate::tree::nav::find(tree, id)
+        {
+            return session.agent;
+        }
+        let profile = self.profile_of(tree, tab, settings);
+        settings
+            .find_profile(&profile)
+            .map_or_else(|| settings.default_agent(), |p| p.agent())
     }
 
     /// The profile the prompt written for `tab` goes to, as `settings` say: a
     /// session's own; for a draft, or with nothing open, the one chosen for
-    /// it, else the one last chosen, while either starts its agent, else its
-    /// agent's default profile.
+    /// it, else the one last chosen, while a session can start from either,
+    /// else the default profile.
     pub fn profile_of(
         &self,
         tree: &Tree,
@@ -141,19 +152,17 @@ impl Drafts {
         }
         .and_then(|options| options.profile.clone())
         .or_else(|| self.last_profile.clone());
-        let agent = self.agent_of(tree, tab, settings.default_agent());
-        draft::profile_for(settings, agent, chosen.as_ref())
+        draft::profile_for(settings, chosen.as_ref())
     }
 }
 
-/// The agent the prompt of `tab` goes to, the settings' agent being the
-/// default.
+/// The agent the prompt of `tab` goes to; see [`Drafts::agent_of`].
 pub fn agent_of(state: &crate::state::ViewState, tab: Option<&Tab>) -> Agent {
     let tree = crate::tree::listed(state.host.work.as_ref());
     state
         .content
         .drafts
-        .agent_of(tree, tab, state.config.settings.default_agent())
+        .agent_of(tree, tab, &state.config.settings)
 }
 
 /// The profile the prompt of `tab` goes to; see [`Drafts::profile_of`].
@@ -422,34 +431,6 @@ fn options_of(view: &ContentView, tab: Option<&Tab>) -> DraftOptions {
     .unwrap_or_default()
 }
 
-/// The agent chosen for the draft `tab`, or for the next draft with none,
-/// which ran `from`: it starts from the agent's default profile. What to
-/// tell of the options that do not carry over.
-pub(crate) fn choose_agent(
-    view: &mut ContentView,
-    tab: Option<Tab>,
-    agent: Agent,
-    from: Agent,
-) -> Option<String> {
-    if !draft::can_choose(tab.as_ref()) {
-        return None;
-    }
-    let (options, told) =
-        draft::carried(&options_of(view, tab.as_ref()), from, agent, agent.label());
-    choose_options(
-        view,
-        tab.clone(),
-        DraftOptions {
-            profile: None,
-            ..options
-        },
-    );
-    let drafts = &mut view.drafts;
-    draft::choose(&mut drafts.options, tab, agent, &mut drafts.last_agent);
-    drafts.last_profile = None;
-    told
-}
-
 /// The profile `profile` chosen for the draft `tab`, or for the next draft
 /// with none, which ran `from`; it is the one later drafts start from while
 /// the window is open. What to tell of the options that do not carry over
@@ -474,12 +455,10 @@ pub(crate) fn choose_profile(
         view,
         tab,
         DraftOptions {
-            agent: Some(agent),
             profile: Some(profile.id.clone()),
             ..options
         },
     );
-    view.drafts.last_agent = Some(agent);
     view.drafts.last_profile = Some(profile.id.clone());
     told
 }

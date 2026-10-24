@@ -47,7 +47,7 @@ pub(crate) fn FocusedBody() -> Element {
     let host = app.host.read();
     let work = host.work.as_ref();
     let tree = tree_view::listed(work);
-    let (current_agent, current_profile, offered) = {
+    let (current_profile, offered) = {
         let config = app.config.read();
         let settings = &config.settings;
         let offered: Vec<ProfileChoice> = adroit_core::profiles::startable(settings)
@@ -59,9 +59,6 @@ pub(crate) fn FocusedBody() -> Element {
             })
             .collect();
         (
-            content
-                .drafts
-                .agent_of(tree, active_tab.as_ref(), settings.default_agent()),
             content
                 .drafts
                 .profile_of(tree, active_tab.as_ref(), settings),
@@ -137,7 +134,6 @@ pub(crate) fn FocusedBody() -> Element {
     let km = app.chrome.read().keymap.clone();
     let k_send = km.keys_for(Context::Prompt, &Action::PromptSend);
     let cw = cell_width();
-    let choose_agent = move |tab: Option<Tab>, agent| app.dispatch(Msg::DraftAgent { tab, agent });
     let choose_profile =
         move |tab: Option<Tab>, profile| app.dispatch(Msg::DraftProfile { tab, profile });
     rsx! {
@@ -162,14 +158,12 @@ pub(crate) fn FocusedBody() -> Element {
                 (Some(tab @ Tab::Draft { worktree, .. }), _) => rsx! {
                     DraftForm {
                         worktree: worktree.clone(),
-                        agent: current_agent,
                         profile: current_profile.clone(),
                         profiles: offered.clone(),
                         options: draft_options,
                         keymap: km.clone(),
-                        onprofile: move |p| choose_profile(app.active(), p),
-                        onagent: move |a| {
-                            choose_agent(app.active(), a);
+                        onprofile: move |p| {
+                            choose_profile(app.active(), p);
                             app.dispatch(Msg::Focus(Area::Prompt));
                             if !consoles.writing() {
                                 consoles.start_writing();
@@ -192,14 +186,12 @@ pub(crate) fn FocusedBody() -> Element {
                 },
                 (None, _) => rsx! {
                     NothingOpen {
-                        agent: current_agent,
                         profile: current_profile.clone(),
                         profiles: offered.clone(),
                         options: next_options,
                         keymap: km.clone(),
                         onprofile: move |p| choose_profile(None, p),
                         onpick: move |_| app.dispatch(Msg::PickerOpen),
-                        onagent: move |a| choose_agent(None, a),
                         onoptions: move |options| app.dispatch(Msg::DraftOptions { tab: None, options }),
                     }
                 },

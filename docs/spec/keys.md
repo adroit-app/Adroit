@@ -62,7 +62,8 @@ where each key goes.
 
 A missing file keeps adroit's own bindings. A binding to `coordinator.open`,
 `project.new`, `project.edit`, `workspace.pick`, `details.files`,
-`details.diff` or `session.take_over`, actions earlier versions had, is read and dropped. The area
+`details.diff`, `session.take_over`, `session.agent_next` or
+`session.agent_prev`, actions earlier versions had, is read and dropped. The area
 earlier versions called `sidebar` is read as `tree`, and `sidebar.toggle` as
 `tree.toggle`. The window
 reads the file again when it changes; a mistake in it is reported at the bottom

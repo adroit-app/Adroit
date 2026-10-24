@@ -1,6 +1,6 @@
 use adroit_core::content::{DraftOptions, Tab};
 use adroit_core::prompt::drafts::Drafts;
-use adroit_model::{Agent, AgentPermissions};
+use adroit_model::AgentPermissions;
 use std::collections::HashMap;
 
 #[test]
@@ -12,7 +12,7 @@ fn changing_launch_options_keeps_the_prompt_on_the_same_draft() {
     prompts.show(Some(second.clone()), "Keep this first prompt".into());
     let mut choices = HashMap::from([(first.clone(), DraftOptions::default())]);
     let options = choices.get_mut(&first).unwrap();
-    options.agent = Some(Agent::Codex);
+    options.profile = Some("codex".parse().unwrap());
     options.model = Some("review-model".into());
     options.permissions = AgentPermissions::ReadOnly;
 

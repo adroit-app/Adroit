@@ -75,8 +75,6 @@ pub fn sections() -> Vec<Section> {
             entries: vec![
                 Run(Action::SessionNew),
                 Run(Action::SessionScratch),
-                Run(Action::SessionAgentNext),
-                Run(Action::SessionAgentPrev),
                 Run(Action::SessionProfileNext),
                 Run(Action::SessionProfilePrev),
                 Run(Action::SessionPick),

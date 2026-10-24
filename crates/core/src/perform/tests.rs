@@ -257,24 +257,6 @@ fn the_window_s_own_actions_are_handed_to_it() {
 }
 
 #[test]
-fn only_a_draft_changes_its_agent() {
-    let run = showing(Area::Console).send(perform(Action::SessionAgentNext, None, with_pane()));
-    assert_eq!(
-        run.state().chrome.status.line.as_deref(),
-        Some("Only a session not started yet can change its agent")
-    );
-    let draft = Tab::draft("/r/a");
-    let run = Scenario::new()
-        .event(listing())
-        .send(show(draft.clone()))
-        .send(perform(Action::SessionAgentNext, None, Probe::default()));
-    assert_eq!(
-        content::agent_of(run.state(), Some(&draft)),
-        Agent::Claude.next()
-    );
-}
-
-#[test]
 fn copying_a_row_puts_its_path_on_the_clipboard() {
     let run = showing(Area::Sidebar)
         .send(Msg::TreeSelect(Some(Item::Terminal(7))))

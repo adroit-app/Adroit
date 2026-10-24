@@ -73,8 +73,6 @@ changes them ([keys](../keys.md)).
 | `session.resume` | Resume Conversation… | list the conversations Claude Code and Codex kept, to resume one in a new session ([details](../sessions.md#resuming-a-past-conversation)) | `global`: `Mod+o`<br>`tree`: `O` |
 | `session.stop` | End… | end a session adroit runs after asking; Claude Code keeps its conversation, for `/resume` in a session started later | `global`: `Mod+Backspace`<br>`tree`: `X`<br>`console`: `X` |
 | `session.rename` | Rename… | edit the name of a session adroit runs in place; the tree shows it, and the session is sent Claude Code's `/rename` so its own interface says it too | `tree`: `R` |
-| `session.agent_next` | Next Agent of New Session | while a session not started yet is shown, switch the agent it is to run to the next one ([details](../sessions.md#agents)) | `draft`: `Ctrl+g a` |
-| `session.agent_prev` | Previous Agent of New Session | while a session not started yet is shown, switch the agent it is to run to the previous one ([details](../sessions.md#agents)) | `draft`: `Ctrl+g A` |
 | `session.profile_next` | Next Profile of New Session | while a session not started yet is shown, switch the profile it is to start from to the next one ([details](../sessions.md#agents)) | `draft`: `Ctrl+g p` |
 | `session.profile_prev` | Previous Profile of New Session | while a session not started yet is shown, switch the profile it is to start from to the previous one ([details](../sessions.md#agents)) | `draft`: `Ctrl+g P` |
 | `shell.open` | Open Shell | open a shell in the worktree | `global`: `Mod+s`<br>`tree`: `$` |
@@ -213,8 +211,6 @@ changes them ([keys](../keys.md)).
 "F1" = "keys.help"
 
 [draft]
-"Ctrl+g a" = "session.agent_next"
-"Ctrl+g A" = "session.agent_prev"
 "Ctrl+g p" = "session.profile_next"
 "Ctrl+g P" = "session.profile_prev"
 

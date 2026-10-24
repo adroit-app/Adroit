@@ -508,8 +508,8 @@ impl AppCtx {
     pub(crate) fn agent_of(&self, tab: Option<&Tab>) -> adroit_model::Agent {
         let host = self.host.read();
         let tree = adroit_core::tree::listed(host.work.as_ref());
-        let default = self.config.read().settings.default_agent();
-        self.content.read().drafts.agent_of(tree, tab, default)
+        let settings = &self.config.read().settings;
+        self.content.read().drafts.agent_of(tree, tab, settings)
     }
 }
 

@@ -811,7 +811,7 @@ fn a_session_that_starts_waiting_is_not_told_of_when_the_settings_say_so() {
 }
 
 #[test]
-fn a_prompt_goes_to_the_session_s_agent_or_the_draft_s_or_the_last_chosen_or_the_settings() {
+fn a_prompt_goes_to_the_session_s_agent_or_that_of_the_profile_chosen_for_a_draft() {
     use adroit_model::Agent;
     let codex = session("c").cwd("/r").agent(Agent::Codex);
     let draft = |dir: &str| Tab::Draft {
@@ -819,7 +819,9 @@ fn a_prompt_goes_to_the_session_s_agent_or_the_draft_s_or_the_last_chosen_or_the
         id: Default::default(),
     };
     let run = Scenario::new()
-        .event(crate::config::testing::configured("agent = \"codex\"\n"))
+        .event(crate::config::testing::configured(
+            "profile = \"review\"\n[[profiles]]\nid = \"review\"\nagent = \"codex\"\n[[profiles]]\nid = \"work\"\nagent = \"claude\"\n",
+        ))
         .send(opened(None))
         .event(listing([codex]));
     let state = run.state();
@@ -829,13 +831,14 @@ fn a_prompt_goes_to_the_session_s_agent_or_the_draft_s_or_the_last_chosen_or_the
     );
     assert_eq!(agent_of(state, Some(&draft("/r"))), Agent::Codex);
     assert_eq!(agent_of(state, None), Agent::Codex);
-    let run = run.send(Msg::DraftAgent {
+    let run = run.send(Msg::DraftProfile {
         tab: Some(draft("/r")),
-        agent: Agent::Claude,
+        profile: "work".parse().unwrap(),
     });
     let state = run.state();
     assert_eq!(agent_of(state, Some(&draft("/r"))), Agent::Claude);
     assert_eq!(agent_of(state, Some(&draft("/other"))), Agent::Claude);
+    assert_eq!(agent_of(state, None), Agent::Claude);
     assert_eq!(
         agent_of(state, Some(&Tab::Session("c".into()))),
         Agent::Codex

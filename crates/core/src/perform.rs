@@ -182,8 +182,6 @@ pub(crate) fn perform(
             effects
         }
         Action::SessionResume => step(state, Msg::ResumeOpen),
-        Action::SessionAgentNext => switch_agent(state, true),
-        Action::SessionAgentPrev => switch_agent(state, false),
         Action::SessionProfileNext => switch_profile(state, true),
         Action::SessionProfilePrev => switch_profile(state, false),
         Action::SessionStop => step(state, Msg::ConfirmStop { selection: on_list }),
@@ -394,21 +392,6 @@ fn open(state: &mut ViewState, item: Item, how: Option<Opening>, take_keys: bool
         },
     ));
     effects
-}
-
-/// The agent after the one chosen, or before it: a session started already
-/// keeps its own.
-fn switch_agent(state: &mut ViewState, forward: bool) -> Vec<Effect> {
-    let tab = state.content.active().cloned();
-    if !content::draft::can_choose(tab.as_ref()) {
-        return step(
-            state,
-            Msg::Notice("Only a session not started yet can change its agent".into()),
-        );
-    }
-    let now = content::agent_of(state, tab.as_ref());
-    let agent = if forward { now.next() } else { now.prev() };
-    step(state, Msg::DraftAgent { tab, agent })
 }
 
 /// The profile a new session can start from after the one chosen, or
