@@ -268,7 +268,7 @@ fn LoginNotice(profile: ProfileId, connection: ConnectionId, agent: Agent) -> El
                 div { class: "launch-form-label", "Login" }
                 div { class: "launch-form-agent", role: "status",
                     span { class: "launch-form-where",
-                        "{agent.label()}'s CLI is not found: install it, or set the profile's launch command in Settings"
+                        "{agent.label()} isn't installed. Install it, or set this profile's launch command in Settings → Agents."
                     }
                     Button { onclick: move |_| ask.clone()(), "Check again" }
                 }

@@ -11,10 +11,13 @@ html, body { margin: 0; height: 100%; background: var(--ground); color: var(--te
 button.settings-nav-item { width: 100%; text-align: left; background: transparent; border: 0; flex: none; }
 button.settings-nav-item:hover { background: var(--raised); }
 button.settings-nav-item.on { background: var(--select); }
-.settings-agent { padding-left: 35px; font-size: 12px; }
-.settings-agent-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line-strong); padding-bottom: 8px; }
-.settings-agent-tabs button { background: transparent; color: var(--text-2); }
-.settings-agent-tabs button.on { background: var(--select); color: var(--text); }
+.settings-agent { padding-left: 35px; font-size: 12px; gap: 6px; }
+.settings-agent.deep { padding-left: 47px; }
+.settings-nav-label { flex: 0 0 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-nav-detail { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-3); font-size: 11px; }
+.settings-nav-mark { flex: none; display: inline-flex; margin-left: auto; color: var(--wait); }
+.settings-nav-item.on .settings-nav-mark .icon { color: var(--wait); }
+.settings-nav-mark .icon { color: var(--wait); }
 .settings-agent-note { color: var(--text-3); font-size: 12px; line-height: 1.5; margin: 12px 0 18px; }
 button:focus-visible { outline: 2px solid var(--run); outline-offset: 2px; }
 .settings-pane { flex: 1; min-width: 0; overflow-y: auto; padding: 20px 28px 28px; }
@@ -108,12 +111,18 @@ button.chip-add:hover { color: var(--text); background: var(--select); }
 .segmented button:hover { background: transparent; color: var(--text); }
 .segmented button.on { background: var(--wait-tint); color: var(--wait); font-weight: 500; }
 .action-row-label button.settings-link { font-size: 12px; padding: 0 2px; }
-.profile-row.on { background: var(--raised); }
-.profile-row .settings-row-label { display: flex; flex-wrap: wrap; align-items: center; column-gap: 8px; }
-.profile-row .settings-hint { flex-basis: 100%; }
-button.settings-link.profile-name { color: var(--text); padding: 0; font-weight: 500; }
 .settings-row-control button { display: inline-flex; align-items: center; gap: 4px; }
 .login-standing { font-size: 11px; color: var(--text-3); background: var(--raised); border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
 .login-standing.in { color: var(--done); }
 .login-standing.out { color: var(--wait); background: var(--wait-tint-soft); }
 .login-standing.missing { color: var(--fail); background: var(--fail-tint); }
+.settings-page-head { display: flex; align-items: center; gap: 10px; }
+.settings-page-head h1 { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-page-head + .settings-agent-note { margin-top: 6px; }
+.settings-page-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 18px; }
+.settings-page-actions button { display: inline-flex; align-items: center; gap: 4px; }
+.settings-used-by { display: flex; flex-wrap: wrap; gap: 2px 6px; margin-top: 2px; }
+.settings-used-by button.settings-link { padding: 0; font-size: 12px; }
+details.settings-advanced > summary { color: var(--text-2); font-size: 12px; padding: 2px 4px 10px; border-radius: 4px; }
+details.settings-advanced > summary:hover { color: var(--text); }
+details.settings-advanced > summary:focus-visible { outline: 2px solid var(--run); outline-offset: 2px; }

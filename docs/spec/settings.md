@@ -27,41 +27,51 @@ or your login shell, with the program and its arguments handed over as they
 are; a POSIX shell or fish can do so. The Settings window changes the same
 settings, a command written there as a shell would split it.
 
-Agents holds the [profiles and connections](#profiles-and-connections), and
-General the default profile. Programs holds the shell and Neovim options.
+Agents holds the [profiles and connections](#profiles-and-connections),
+which the window calls accounts. Programs holds the shell and Neovim options.
 
 ### Profiles in the Settings window
 
-Profiles lists every profile with its agent, its connection and which one is
-the default, those archived apart. A profile is added, duplicated, renamed,
-archived and unarchived there, and made the default. A new profile's id is
-made from its name and never changes; a duplicate runs in the same
-connection as the profile it copies. The profile chosen in the list is
-edited below it: its agent, its connection, the defaults for its sessions
-and its launch, only its agent's options being offered. Changing a profile's
-agent resets what it held for the agent before, its options, its connection
-and its command, and says so. The default profile cannot be archived, nor an
-archived one made the default. Changes reach new sessions only.
+Under Agents the sidebar lists every profile not archived, marking the one
+new sessions start from, then a new profile, then the accounts: each agent's
+account shared with the terminal, its own environment, and every connection
+not archived. What is archived is reached from an entry of its own. Each
+entry opens a page of its own, by pointer or keyboard; when what a page
+shows is archived or gone, the page of the default profile, or of the
+accounts, is shown instead.
 
-Connections lists each agent's own environment and every connection, with
-the profiles that run in it, and makes and archives connections. A new
-connection keeps its state in a folder of its own, named by its id, under
-`adroit/connections` in the data folder (`$XDG_DATA_HOME`, or
-`~/.local/share`), or in a folder chosen for it. Its `home` is written then,
-once, as an absolute path through the links of the folders that exist, and
-never rewritten; no two connections share one. A connection that profiles
-not archived run in is not archived, and the refusal names them. Archiving a
-connection logs nothing out and leaves its folder as it is.
+A profile's page holds all of it: its name, its agent, its account with that
+account's login, the options for its new sessions, only its agent's being
+offered, and, folded away, its launch. There it is chosen for new sessions,
+duplicated and archived. A new profile's id is made from its name and never
+changes; a duplicate runs in the same account as the profile it copies.
+Changing a profile's agent resets what it held for the agent before, its
+options, its account and its command, and says so. The profile new sessions
+start from cannot be archived, nor an archived one chosen for them. Changes
+reach new sessions only.
 
-Each connection is shown as logged in, not logged in, unknown, or with its
-agent's program not found, as the program says when asked in that
-connection, naming the profile whose program was asked; adroit takes no
-login for granted. It is asked when the connection is first shown, when
-asked again, and when its login terminal ends, never over and over. Open login terminal starts a terminal, listed in the tree as any
-other, that runs the program's own login in the connection, the way a
-session there is started; the user logs in in it. An agent's own environment
-is the program as it runs outside adroit, so logging in or out of it there
-changes it here too.
+A new account is made from a profile's page, where it is named and the
+profile is moved to it at once, or from the accounts' page, where its agent
+and folder can be chosen as well. It keeps its state in a folder of its own,
+named by its id, under `adroit/connections` in the data folder
+(`$XDG_DATA_HOME`, or `~/.local/share`), or in a folder chosen for it. Its
+`home` is written then, once, as an absolute path through the links of the
+folders that exist, and never rewritten; no two accounts share one. An
+account's page shows its folder and the profiles that use it, and renames
+and archives it. An account that profiles not archived use is not archived,
+and the refusal names them. Archiving an account logs nothing out and leaves
+its folder as it is.
+
+An account is shown, on its page and on the page of each profile that uses
+it, as logged in, not logged in, unknown, or with its agent's program not
+found, as the program says when asked in that account, naming the profile
+whose program was asked; adroit takes no login for granted. It is asked when
+the account is first shown, when asked again, and when its login terminal
+ends, never over and over. Open login terminal starts a terminal, listed in
+the tree as any other, that runs the program's own login in the account, the
+way a session there is started; the user logs in in it. The account shared
+with the terminal is the program as it runs outside adroit, so logging in or
+out of it there changes it here too.
 
 The Settings window offers the font among adroit's own, which is drawn when
 none is named, and the families installed whose letters and digits are all

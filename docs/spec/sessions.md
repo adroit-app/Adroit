@@ -17,7 +17,7 @@ it runs in when that is not its agent's own environment. `session.agent_next` an
 which starts from its default profile, and `session.profile_next` and
 `session.profile_prev` switch the profile. What is chosen, by the form or by
 key, is what new sessions start with while the window is open. Reopening the
-app starts with the default profile, which Settings sets under General.
+app starts with the default profile, which Settings sets on the profile's page.
 
 The draft also offers a model and permissions for that launch. Changing the
 profile or the agent keeps its prompt and attachments, and keeps the model
@@ -47,7 +47,7 @@ handed to it, its conversation, history and processes are read, and its
 starting dialogs are answered, as the settings it was started with say. The
 tree and the strip of a window showing it name the session's agent and,
 when it is called otherwise, its profile; the details name its profile and
-its connection.
+its account.
 
 Codex sessions use the embedded prompt and report their working and waiting
 states through the terminal, including permission and question prompts. Their

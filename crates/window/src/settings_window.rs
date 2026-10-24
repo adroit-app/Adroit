@@ -5,6 +5,7 @@ use std::cell::RefCell;
 use std::path::Path;
 use std::rc::{Rc, Weak};
 
+use adroit_core::agent_pages::{self, AgentPage};
 use adroit_model::config::{
     Launch, SessionOptions, format_command, format_env, parse_command, parse_env,
 };
@@ -24,7 +25,7 @@ use crate::icons::{Icon, IconView};
 use crate::keys_pane::KeysPane;
 use crate::link::Link;
 use crate::paths::home;
-use crate::settings::{Appearance, OptionAsAlt, ProfileId, Settings, ThemeKind};
+use crate::settings::{Appearance, OptionAsAlt, Settings, ThemeKind};
 use crate::style::SETTINGS_CSS;
 use crate::zoom::LEVELS;
 
@@ -127,24 +128,6 @@ impl Pane {
     }
 }
 
-/// The pages under Agents.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AgentsPage {
-    Profiles,
-    Connections,
-}
-
-impl AgentsPage {
-    const ALL: [Self; 2] = [Self::Profiles, Self::Connections];
-
-    fn title(self) -> &'static str {
-        match self {
-            Self::Profiles => "Profiles",
-            Self::Connections => "Connections",
-        }
-    }
-}
-
 /// Hand `path` to `open` with `how`: `-R` shows it in the Finder, `-t` opens
 /// it in the text editor. It is made from `starter` first when it does not
 /// exist yet, so there is something to show.
@@ -199,7 +182,7 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
     let config = use_config();
     let link = use_context::<Link>();
     let mut pane = use_signal(|| Pane::General);
-    let mut page = use_signal(|| AgentsPage::Profiles);
+    let mut chosen = use_signal(|| None::<AgentPage>);
     let mut now = use_signal(|| config.peek().settings.clone());
     let mut failed = use_signal(|| None::<String>);
     // Changes made elsewhere, such as in the file, show here as well.
@@ -227,6 +210,7 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
             });
         });
     };
+    let page = agent_pages::shown(&now.read(), chosen.read().as_ref());
     // The window in the theme's colours, as the main one is.
     let root_style = root_style(&config.read());
     rsx! {
@@ -244,14 +228,30 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
                         "{p.title()}"
                     }
                     if p == Pane::Agents && pane() == Pane::Agents {
-                        for choice in AgentsPage::ALL {
+                        for entry in agent_pages::entries(&now()) {
                             button {
-                                key: "{choice.title()}",
+                                key: "{entry.page:?}",
                                 r#type: "button",
-                                class: if page() == choice { "settings-nav-item settings-agent on" } else { "settings-nav-item settings-agent" },
-                                aria_current: if page() == choice { "page" } else { "false" },
-                                onclick: move |_| page.set(choice),
-                                "{choice.title()}"
+                                class: {
+                                    let depth = if entry.depth > 1 { " deep" } else { "" };
+                                    let on = if entry.page == page { " on" } else { "" };
+                                    format!("settings-nav-item settings-agent{depth}{on}")
+                                },
+                                aria_current: if entry.page == page { "page" } else { "false" },
+                                title: if entry.default { format!("{}, used for new sessions", entry.label) } else { entry.label.clone() },
+                                onclick: {
+                                    let to = entry.page.clone();
+                                    move |_| chosen.set(Some(to.clone()))
+                                },
+                                span { class: "settings-nav-label", "{entry.label}" }
+                                if !entry.detail.is_empty() {
+                                    span { class: "settings-nav-detail", "{entry.detail}" }
+                                }
+                                if entry.default {
+                                    span { class: "settings-nav-mark", aria_label: "Used for new sessions",
+                                        IconView { icon: Icon::Check, size: 12 }
+                                    }
+                                }
                             }
                         }
                     }
@@ -267,9 +267,14 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
                     Pane::Appearance => rsx! { AppearancePane { now: now(), change } },
                     Pane::Console => rsx! { ConsolePane { now: now(), change } },
                     Pane::Prompt => rsx! { PromptPane { now: now(), change } },
-                    Pane::Agents => match page() {
-                        AgentsPage::Profiles => rsx! { profiles::ProfilesPane { now: now(), agents: agents.clone(), change } },
-                        AgentsPage::Connections => rsx! { profiles::ConnectionsPane { now: now(), change } },
+                    Pane::Agents => rsx! {
+                        profiles::AgentsPane {
+                            page: page.clone(),
+                            now: now(),
+                            agents: agents.clone(),
+                            change,
+                            choose: move |to: AgentPage| chosen.set(Some(to)),
+                        }
                     },
                     Pane::Programs => rsx! { ProgramsPane { now: now(), change } },
                     Pane::Keys => rsx! { KeysPane {} },
@@ -319,23 +324,6 @@ fn General(now: Settings, change: Callback<Change>) -> Element {
                 Toggle {
                     checked: now.notify_waiting,
                     onchange: move |on| change(Box::new(move |s: &mut Settings| s.notify_waiting = on)),
-                }
-            }
-        }
-        SettingGroup { title: "Default profile",
-            SettingRow { label: "Profile", hint: "The profile a new session starts from; a draft can choose another before its first prompt. Sessions already running keep theirs.",
-                select {
-                    aria_label: "Default profile",
-                    onchange: move |e| {
-                        if let Ok(id) = e.value().parse::<ProfileId>() {
-                            change(Box::new(move |s: &mut Settings| {
-                                let _ = adroit_core::profiles::make_default(s, &id);
-                            }));
-                        }
-                    },
-                    for row in adroit_core::profiles::profile_rows(&now).into_iter().filter(|r| !r.archived) {
-                        option { key: "{row.id}", value: "{row.id}", selected: row.default, "{row.name} — {row.agent.label()}" }
-                    }
                 }
             }
         }
@@ -743,23 +731,6 @@ const MODES: [(&str, &str); 5] = [
 /// The models offered to choose from; another can be typed.
 const MODELS: [&str; 3] = ["opus", "sonnet", "haiku"];
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum AgentSection {
-    Sessions,
-    Launch,
-}
-
-impl AgentSection {
-    const ALL: [Self; 2] = [Self::Sessions, Self::Launch];
-
-    fn title(self) -> &'static str {
-        match self {
-            Self::Sessions => "Sessions",
-            Self::Launch => "Launch",
-        }
-    }
-}
-
 #[component]
 fn CodexGroup(
     title: String,
@@ -822,7 +793,7 @@ fn SessionGroup(title: String, options: SessionOptions, set: Callback<SessionOpt
         options.clone(),
         options.clone(),
     );
-    let list = format!("models-{title}");
+    let list = format!("models-{}", title.replace(' ', "-"));
     rsx! {
         SettingGroup { title: "{title}",
             SettingRow { label: "Model", hint: "The model they start with, as Claude Code's --model takes it; empty for Claude Code's own.",
