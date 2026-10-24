@@ -36,7 +36,7 @@ textarea.settings-env { width: 260px; height: 64px; resize: vertical; font-famil
 input[type=checkbox] { width: 16px; height: 16px; margin: 0; padding: 0; accent-color: var(--run); }
 select:focus, input:focus, textarea:focus { border-color: var(--run); }
 button { background: var(--select); border-color: transparent; padding: 5px 12px; }
-button:hover { background: #2d333b; }
+button:hover { background: var(--line-strong); }
 button.primary { background: var(--wait-tint); color: var(--wait); font-weight: 500; }
 .settings-error { color: var(--fail); margin-bottom: 12px; user-select: text; }
 @media (max-width: 760px) {

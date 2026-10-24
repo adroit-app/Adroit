@@ -43,6 +43,13 @@ pub fn window(p: &Palette) -> Window {
         ("--usage-gpu", p.ansi[5].hex()),
         ("--usage-memory", p.ansi[2].hex()),
         ("--usage-storage", mix(p.ansi[3], p.ansi[1], 0.25).hex()),
+        ("--kbd-text", toward(0.72)),
+        // A shadow as deep on a light ground as on a dark one reads as a
+        // smudge rather than as depth.
+        (
+            "--shadow",
+            format!("rgba(0,0,0,{})", if dark { 0.45 } else { 0.12 }),
+        ),
     ];
     vars.extend(
         ANSI.iter()
@@ -143,6 +150,25 @@ mod tests {
             }
             assert_eq!(w.dark, toward_text, "{name}");
         }
+    }
+
+    #[test]
+    fn a_light_theme_casts_fainter_shadows_and_its_key_caps_read_in_its_text() {
+        let alpha = |w: &Window| {
+            let s = var(w, "--shadow");
+            s.trim_end_matches(')')
+                .rsplit(',')
+                .next()
+                .unwrap()
+                .parse::<f64>()
+                .unwrap()
+        };
+        let (dark, light) = (
+            window(&preset("Nightfox")),
+            window(&preset("Catppuccin Latte")),
+        );
+        assert!(alpha(&light) * 3.0 <= alpha(&dark), "{light:?}");
+        assert_eq!(var(&light, "--kbd-text"), var(&light, "--text-2"));
     }
 
     #[test]
