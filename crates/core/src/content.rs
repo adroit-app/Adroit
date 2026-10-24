@@ -185,6 +185,9 @@ impl ContentView {
 pub(crate) fn opened(view: &mut ContentView, kept: Option<Tab>, scratch: PathBuf) -> Vec<Effect> {
     view.restore = kept;
     view.scratch = scratch;
+    // A host that lists the sessions already may have told them before the
+    // window opened; the listing is looked at again for the kept tab.
+    view.looked = None;
     Vec::new()
 }
 

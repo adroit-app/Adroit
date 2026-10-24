@@ -229,6 +229,17 @@ fn the_tab_kept_from_the_last_run_comes_back_once_listed() {
 }
 
 #[test]
+fn a_kept_tab_comes_back_when_the_sessions_were_listed_before_the_window_opened() {
+    let kept = [Tab::Session("a".into()), Tab::Terminal(7)];
+    for tab in kept {
+        let run = Scenario::new()
+            .event(listing(vec![session("a", "/r/a")], vec![shell(7, "/r/a")]))
+            .send(opened(Some(tab.clone())));
+        assert_eq!(active(&run), Some(tab.clone()), "{tab:?}");
+    }
+}
+
+#[test]
 fn a_kept_tab_not_listed_at_first_is_given_up() {
     let run = Scenario::new()
         .send(opened(Some(Tab::Session("a".into()))))
