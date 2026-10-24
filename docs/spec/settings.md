@@ -33,12 +33,12 @@ which the window calls accounts. Programs holds the shell and Neovim options.
 ### Profiles in the Settings window
 
 Under Agents the sidebar lists every profile not archived, marking the one
-new sessions start from, then a new profile, then the accounts: each agent's
-account shared with the terminal, its own environment, and every connection
-not archived. What is archived is reached from an entry of its own. Each
-entry opens a page of its own, by pointer or keyboard; when what a page
-shows is archived or gone, the page of the default profile, or of the
-accounts, is shown instead.
+new sessions start from, then a new profile, then the accounts under the
+agent they belong to: its account shared with the terminal, its own
+environment, and every connection not archived. What is archived is
+reached from an entry of its own. Each entry opens a page of its own, by
+pointer or keyboard; when what a page shows is archived or gone, the page
+of the default profile, or of the accounts, is shown instead.
 
 A profile's page holds all of it: its name, its agent, its account with that
 account's login, the options for its new sessions, only its agent's being

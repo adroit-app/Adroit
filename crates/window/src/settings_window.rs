@@ -229,29 +229,27 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
                     }
                     if p == Pane::Agents && pane() == Pane::Agents {
                         for entry in agent_pages::entries(&now()) {
+                            if let Some(to) = entry.page.clone() {
                             button {
-                                key: "{entry.page:?}",
+                                key: "{to:?}",
                                 r#type: "button",
                                 class: {
                                     let depth = if entry.depth > 1 { " deep" } else { "" };
-                                    let on = if entry.page == page { " on" } else { "" };
+                                    let on = if to == page { " on" } else { "" };
                                     format!("settings-nav-item settings-agent{depth}{on}")
                                 },
-                                aria_current: if entry.page == page { "page" } else { "false" },
+                                aria_current: if to == page { "page" } else { "false" },
                                 title: if entry.default { format!("{}, used for new sessions", entry.label) } else { entry.label.clone() },
-                                onclick: {
-                                    let to = entry.page.clone();
-                                    move |_| chosen.set(Some(to.clone()))
-                                },
+                                onclick: move |_| chosen.set(Some(to.clone())),
                                 span { class: "settings-nav-label", "{entry.label}" }
-                                if !entry.detail.is_empty() {
-                                    span { class: "settings-nav-detail", "{entry.detail}" }
-                                }
                                 if entry.default {
                                     span { class: "settings-nav-mark", aria_label: "Used for new sessions",
                                         IconView { icon: Icon::Check, size: 12 }
                                     }
                                 }
+                            }
+                            } else {
+                                div { key: "caption {entry.label}", class: "settings-nav-caption", "{entry.label}" }
                             }
                         }
                     }

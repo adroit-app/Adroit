@@ -13,8 +13,8 @@ button.settings-nav-item:hover { background: var(--raised); }
 button.settings-nav-item.on { background: var(--select); }
 .settings-agent { padding-left: 35px; font-size: 12px; gap: 6px; }
 .settings-agent.deep { padding-left: 47px; }
-.settings-nav-label { flex: 0 0 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.settings-nav-detail { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-3); font-size: 11px; }
+.settings-nav-label { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-nav-caption { flex: none; padding: 8px 10px 2px 47px; color: var(--text-3); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .settings-nav-mark { flex: none; display: inline-flex; margin-left: auto; color: var(--wait); }
 .settings-nav-item.on .settings-nav-mark .icon { color: var(--wait); }
 .settings-nav-mark .icon { color: var(--wait); }

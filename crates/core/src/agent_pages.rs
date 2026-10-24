@@ -24,10 +24,9 @@ pub enum AgentPage {
 /// One entry of the sidebar under Agents.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
-    pub page: AgentPage,
+    /// The page it opens; none for a caption over the entries after it.
+    pub page: Option<AgentPage>,
     pub label: String,
-    /// Shown after the label, quieter: an account's agent.
-    pub detail: String,
     /// Whether it is the profile new sessions start from.
     pub default: bool,
     /// How far it is set in: 1 under Agents, 2 under Accounts.
@@ -37,9 +36,15 @@ pub struct Entry {
 impl Entry {
     fn plain(page: AgentPage, label: &str, depth: u8) -> Self {
         Self {
-            page,
+            page: Some(page),
+            ..Self::caption(label, depth)
+        }
+    }
+
+    fn caption(label: &str, depth: u8) -> Self {
+        Self {
+            page: None,
             label: label.to_string(),
-            detail: String::new(),
             default: false,
             depth,
         }
@@ -47,8 +52,8 @@ impl Entry {
 }
 
 /// The sidebar under Agents, in order: every profile not archived, a new
-/// one, the accounts with each agent's shared one first, then what is
-/// archived when anything is.
+/// one, the accounts under a caption naming their agent with its shared
+/// one first, then what is archived when anything is.
 pub fn entries(settings: &Settings) -> Vec<Entry> {
     let profiles = settings
         .profiles
@@ -70,12 +75,10 @@ pub fn entries(settings: &Settings) -> Vec<Entry> {
                     crate::profiles::connection_name(settings, &c.id),
                 )
             });
-        std::iter::once(shared)
+        let listed = std::iter::once(shared)
             .chain(own)
-            .map(move |(id, label)| Entry {
-                detail: agent.label().to_string(),
-                ..Entry::plain(AgentPage::Account(id), &label, 2)
-            })
+            .map(|(id, label)| Entry::plain(AgentPage::Account(id), &label, 2));
+        std::iter::once(Entry::caption(agent.label(), 2)).chain(listed)
     });
     let archive = has_archived(settings).then(|| Entry::plain(AgentPage::Archived, "Archived", 1));
     profiles
@@ -164,47 +167,52 @@ mod tests {
     }
 
     #[test]
-    fn the_sidebar_lists_profiles_a_new_one_accounts_by_agent_and_the_archive() {
-        let listed: Vec<(String, String, bool, u8)> = entries(&settings())
+    fn the_sidebar_lists_profiles_a_new_one_accounts_under_their_agent_and_the_archive() {
+        let listed: Vec<(String, bool, u8, bool)> = entries(&settings())
             .into_iter()
-            .map(|e| (e.label, e.detail, e.default, e.depth))
+            .map(|e| (e.label, e.default, e.depth, e.page.is_none()))
             .collect();
-        let row = |label: &str, detail: &str, default: bool, depth: u8| {
-            (label.to_string(), detail.to_string(), default, depth)
+        let row = |label: &str, default: bool, depth: u8, caption: bool| {
+            (label.to_string(), default, depth, caption)
         };
         assert_eq!(
             listed,
             [
-                row("claude", "", false, 1),
-                row("Claude Work", "", true, 1),
-                row("codex", "", false, 1),
-                row("New profile", "", false, 1),
-                row("Accounts", "", false, 1),
-                row("Shared", "Claude Code", false, 2),
-                row("Work", "Claude Code", false, 2),
-                row("Shared", "Codex", false, 2),
-                row("ci", "Codex", false, 2),
-                row("Archived", "", false, 1),
+                row("claude", false, 1, false),
+                row("Claude Work", true, 1, false),
+                row("codex", false, 1, false),
+                row("New profile", false, 1, false),
+                row("Accounts", false, 1, false),
+                row("Claude Code", false, 2, true),
+                row("Shared", false, 2, false),
+                row("Work", false, 2, false),
+                row("Codex", false, 2, true),
+                row("Shared", false, 2, false),
+                row("ci", false, 2, false),
+                row("Archived", false, 1, false),
             ]
         );
     }
 
     #[test]
     fn each_entry_opens_the_page_of_what_it_names() {
-        let pages: Vec<AgentPage> = entries(&settings()).into_iter().map(|e| e.page).collect();
+        let pages: Vec<Option<AgentPage>> =
+            entries(&settings()).into_iter().map(|e| e.page).collect();
         assert_eq!(
             pages,
             [
-                AgentPage::Profile(pid("claude")),
-                AgentPage::Profile(pid("claude-work")),
-                AgentPage::Profile(pid("codex")),
-                AgentPage::NewProfile,
-                AgentPage::Accounts,
-                AgentPage::Account(ConnectionId::implicit(Agent::Claude)),
-                AgentPage::Account(cid("work")),
-                AgentPage::Account(ConnectionId::implicit(Agent::Codex)),
-                AgentPage::Account(cid("ci")),
-                AgentPage::Archived,
+                Some(AgentPage::Profile(pid("claude"))),
+                Some(AgentPage::Profile(pid("claude-work"))),
+                Some(AgentPage::Profile(pid("codex"))),
+                Some(AgentPage::NewProfile),
+                Some(AgentPage::Accounts),
+                None,
+                Some(AgentPage::Account(ConnectionId::implicit(Agent::Claude))),
+                Some(AgentPage::Account(cid("work"))),
+                None,
+                Some(AgentPage::Account(ConnectionId::implicit(Agent::Codex))),
+                Some(AgentPage::Account(cid("ci"))),
+                Some(AgentPage::Archived),
             ]
         );
     }
@@ -214,10 +222,18 @@ mod tests {
         let mut s = settings();
         s.profiles.retain(|p| !p.archived);
         s.connections.retain(|c| !c.archived);
-        assert!(!entries(&s).iter().any(|e| e.page == AgentPage::Archived));
+        assert!(
+            !entries(&s)
+                .iter()
+                .any(|e| e.page == Some(AgentPage::Archived))
+        );
         s.connections[0].archived = true;
         s.profiles[1].connection = ConnectionId::implicit(Agent::Claude);
-        assert!(entries(&s).iter().any(|e| e.page == AgentPage::Archived));
+        assert!(
+            entries(&s)
+                .iter()
+                .any(|e| e.page == Some(AgentPage::Archived))
+        );
     }
 
     #[test]
