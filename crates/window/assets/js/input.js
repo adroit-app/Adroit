@@ -17,6 +17,24 @@ if (window.adroitDebugKeys) {
   window.addEventListener('error', (e) => trace('error ' + e.message + ' at ' + e.lineno + ':' + e.colno));
   window.addEventListener('unhandledrejection', (e) => trace('rejection ' + e.reason));
 }
+// Whether an input method composes in the text area. WebKit ends a
+// composition whose text area turns read-only, is emptied or loses focus, and
+// brings its text back later: none of these is done to it until the
+// composition ends.
+let composing = false;
+const compose = (on) => {
+  composing = on;
+  if (current()) dioxus.send({ kind: 'composing', on });
+};
+// The window says in `data-takes-text` whether the text area takes text; it
+// is made read-only, or writable, once no composition is open.
+const settle = () => {
+  if (composing || !current()) return;
+  const takes = t.dataset.takesText !== 'no';
+  if (t.readOnly === takes) t.readOnly = !takes;
+};
+new MutationObserver(settle).observe(t, { attributes: true, attributeFilter: ['data-takes-text'] });
+settle();
 // Whether the menu holds Command with this key: one of macOS's letters,
 // whatever else is held, or a key an entry shows, written as the bindings
 // write it. Shift is in a letter's case and in a character such as `}`, but
@@ -175,6 +193,7 @@ document.body.appendChild(probe);
 const wide = /[ᄀ-ᅟ⺀-〾ぁ-㏿㐀-䶿一-鿿ꀀ-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦]|[\u{1F300}-\u{1F64F}\u{1F900}-\u{1F9FF}\u{20000}-\u{3FFFD}]/u;
 let cell = 0;
 t.addEventListener('compositionstart', () => {
+  compose(true);
   t.classList.add('composing');
   if (onGrid) {
     probe.textContent = 'M'.repeat(100);
@@ -233,7 +252,14 @@ t.addEventListener('compositionend', (e) => {
   shown.classList.remove('on');
   shown.replaceChildren();
   t.style.width = '';
+  compose(false);
   if (e.data) dioxus.send({ kind: 'text', text: e.data });
-  setTimeout(() => { t.value = ''; }, 0);
+  // A composition started meanwhile, as the key that commits one may start
+  // the next, leaves the text area to its own end.
+  setTimeout(() => {
+    if (composing) return;
+    t.value = '';
+    settle();
+  }, 0);
 });
 keep();

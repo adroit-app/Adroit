@@ -48,6 +48,11 @@ pub enum Message {
     Focused {
         on: bool,
     },
+    /// Whether an input method composes in the text area, told as a
+    /// composition starts and ends.
+    Composing {
+        on: bool,
+    },
 }
 
 /// What to do with what the script sent.
@@ -270,6 +275,14 @@ mod tests {
         assert_eq!(
             read(r#"{"kind":"focused","on":false}"#),
             Message::Focused { on: false }
+        );
+    }
+
+    #[test]
+    fn the_page_telling_whether_an_input_method_composes_is_read() {
+        assert_eq!(
+            read(r#"{"kind":"composing","on":true}"#),
+            Message::Composing { on: true }
         );
     }
 

@@ -131,11 +131,17 @@ pub(crate) fn use_input(ui: &Ui) {
         }
     });
     use_menu_bar(ui);
+    // Whether the page has the keys, and whether an input method composes
+    // there, as it last told.
+    let page_focused = use_hook(|| Rc::new(Cell::new(true)));
+    let composing = use_hook(|| Rc::new(Cell::new(false)));
     // The window made key again gives the keys to its page, whatever in the
     // window took them meanwhile: AppKit sends them to the first responder,
-    // and with anything but the page there no key reaches the window.
+    // and with anything but the page there no key reaches the window. Not
+    // while a composition is open, which a new first responder ends.
     dioxus::desktop::use_wry_event_handler({
         let desktop = dioxus::desktop::window();
+        let composing = composing.clone();
         move |event, _| {
             use dioxus::desktop::tao::event::Event;
             if let Event::WindowEvent {
@@ -146,20 +152,18 @@ pub(crate) fn use_input(ui: &Ui) {
                 && *window_id == desktop.window.id()
             {
                 app.dispatch(Msg::WindowFocused(*on));
-                if *on {
+                if *on && !composing.get() {
                     keys::trace(|| "window made key: the page takes the keys");
                     let _ = desktop.webview.focus();
                 }
             }
         }
     });
-    // Whether the page has the keys, as it last told.
-    let page_focused = use_hook(|| Rc::new(Cell::new(true)));
     use_hook({
         let ui = ui.clone();
         let page_focused = page_focused.clone();
         move || {
-            spawn(listen(ui, page_focused));
+            spawn(listen(ui, page_focused, composing));
         }
     });
     // A window that has the keys while its page has not, past a moment, gives
@@ -184,7 +188,7 @@ pub(crate) fn use_input(ui: &Ui) {
 /// Keys, text, pastes and input-method commits from the hidden text area.
 /// Keys with a modifier and keys that type nothing come as keys; plain
 /// characters come as text.
-async fn listen(ui: Ui, page_focused: Rc<Cell<bool>>) {
+async fn listen(ui: Ui, page_focused: Rc<Cell<bool>>, composing: Rc<Cell<bool>>) {
     let app = ui.app;
     let run = || {
         document::eval(&format!(
@@ -217,6 +221,7 @@ async fn listen(ui: Ui, page_focused: Rc<Cell<bool>>) {
         match message {
             keys::Message::Trace { text } => keys::trace(|| format!("js {text}")),
             keys::Message::Focused { on } => page_focused.set(on),
+            keys::Message::Composing { on } => composing.set(on),
             keys::Message::Paste { text } => {
                 keys::trace(|| format!("text {text:?} pasted=true"));
                 app.dispatch(Msg::Text { text, pasted: true });
@@ -349,6 +354,11 @@ pub(crate) fn KeysField() -> Element {
         Area::Sidebar | Area::Details => false,
     };
     rsx! {
-        textarea { id: "adroit-keys", autofocus: true, readonly: !takes_text }
+        // The script makes it read-only, once no composition is open.
+        textarea {
+            id: "adroit-keys",
+            autofocus: true,
+            "data-takes-text": if takes_text { "yes" } else { "no" },
+        }
     }
 }
