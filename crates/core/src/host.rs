@@ -106,25 +106,21 @@ fn apply(work: &mut WorkSnapshot, patch: WorkPatch) {
 
 #[cfg(test)]
 mod tests {
-    use adroit_protocol::{Event, Request, Seq, Version, WorkPatch, WorkSnapshot};
+    use adroit_protocol::{Event, Request, Version};
 
     use super::Link;
     use crate::effect::Effect;
     use crate::msg::Msg;
     use crate::scenario::Scenario;
+    use crate::testing;
 
+    // Events rather than builders, so one case can mix patches and snapshots.
     fn patch(seq: u64) -> Event {
-        Event::Patch(WorkPatch {
-            seq: Seq(seq),
-            changes: vec![],
-        })
+        testing::patch(seq).into()
     }
 
     fn snapshot(seq: u64) -> Event {
-        Event::Snapshot(Box::new(WorkSnapshot {
-            seq: Seq(seq),
-            ..Default::default()
-        }))
+        testing::snapshot().seq(seq).into()
     }
 
     #[test]

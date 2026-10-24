@@ -26,23 +26,23 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
     use std::path::Path;
 
+    use adroit_model::Past;
     use adroit_model::files::Entry;
     use adroit_model::links::Links;
     use adroit_model::repository::Marks;
     use adroit_model::repository::{Listing, Rev, Spot};
+    use adroit_model::testing::{session, shell};
     use adroit_model::usage::{Limit, Severity, Window};
-    use adroit_model::{
-        Past, Session, TerminalSession, Tree, WorkspaceNode, Worktree, WorktreeNode,
-    };
 
+    use crate::testing::{listed, patch, snapshot};
     use crate::{
         AgentFacts, AgentsWork, Change, Colours, CommandsRead, CommandsSight, Composed,
         ConfigChange, ConfigFile, ConfigWork, Configured, ConsoleChange, ConsoleWork,
-        ConversationRead, DetailsChange, DetailsWork, Dialog, Event, FileText, HistoryRead, Listed,
-        Offers, PastChange, PastSight, PastWork, PickChange, PickSight, PickWork, PlaceChange,
-        PlaceRead, PlaceWork, PromptChange, PromptWork, RepositoryRead, RepositorySight, Request,
-        Seq, SessionRead, Sight, SystemUsage, ThemeRead, Told, TreeChange, TreeSight, Typing,
-        Version, WorkPatch, WorkSnapshot,
+        ConversationRead, DetailsChange, DetailsWork, Dialog, Event, FileText, HistoryRead, Offers,
+        PastChange, PastSight, PastWork, PickChange, PickSight, PickWork, PlaceChange, PlaceRead,
+        PlaceWork, PromptChange, PromptWork, RepositoryRead, RepositorySight, Request, Seq,
+        SessionRead, Sight, SystemUsage, ThemeRead, Told, TreeChange, TreeSight, Typing, Version,
+        WorkSnapshot,
     };
 
     fn round_trips<T>(message: T)
@@ -94,12 +94,7 @@ mod tests {
             inputs: BTreeMap::from([(u128::MAX, 1_700_000_000_000)]),
         });
         round_trips(Request::TerminalOpened {
-            terminal: TerminalSession {
-                id: u128::MAX - 1,
-                name: "zsh".into(),
-                cwd: "/w".into(),
-                ..Default::default()
-            },
+            terminal: shell(u128::MAX - 1, "/w"),
         });
         round_trips(Request::TerminalClosed { id: u128::MAX });
         round_trips(Request::History {
@@ -112,11 +107,7 @@ mod tests {
             session: "0a".into(),
             agent: adroit_model::Agent::Codex,
         });
-        let session = Box::new(adroit_model::Session {
-            id: "0a".into(),
-            name: "fix".into(),
-            ..Default::default()
-        });
+        let session = Box::new(session("0a").name("fix").build());
         round_trips(Request::Stop {
             session: session.clone(),
         });
@@ -161,18 +152,7 @@ mod tests {
                 text: "/rename fixer".into(),
             }],
         });
-        round_trips(Event::Snapshot(Box::new(WorkSnapshot {
-            seq: Seq(7),
-            agents: Default::default(),
-            details: DetailsWork::default(),
-            tree: Default::default(),
-            past: Default::default(),
-            pick: Default::default(),
-            place: Default::default(),
-            prompt: Default::default(),
-            config: Default::default(),
-            console: Default::default(),
-        })));
+        round_trips(Event::from(snapshot().seq(7)));
         round_trips(Event::Snapshot(Box::new(WorkSnapshot {
             seq: Seq(7),
             agents: AgentsWork {
@@ -251,20 +231,10 @@ mod tests {
                 }),
             },
         })));
-        round_trips(Event::Patch(WorkPatch {
-            seq: Seq(8),
-            changes: vec![],
-        }));
+        round_trips(Event::from(patch(8)));
         let details = |change| Change::Details(change);
-        let shell = TerminalSession {
-            id: u128::MAX,
-            name: "zsh".into(),
-            cwd: "/w/src".into(),
-            ..Default::default()
-        };
-        round_trips(Event::Patch(WorkPatch {
-            seq: Seq(9),
-            changes: vec![
+        round_trips(Event::from(
+            patch(9).changes([
                 details(DetailsChange::Conversation {
                     session: "s".into(),
                     conversation: ConversationRead::default(),
@@ -298,26 +268,12 @@ mod tests {
                     session: "s".into(),
                 }),
                 Change::Tree(TreeChange::Listed {
-                    listed: Box::new(Listed {
-                        sessions: vec![Session {
-                            id: "s".into(),
-                            ..Default::default()
-                        }],
-                        terminals: vec![shell.clone()],
-                        tree: Tree {
-                            workspaces: vec![WorkspaceNode {
-                                root: "/w".into(),
-                                name: "w".into(),
-                                git: true,
-                                scratch: false,
-                                worktrees: vec![WorktreeNode {
-                                    worktree: Worktree::plain("/w"),
-                                    sessions: Vec::new(),
-                                    terminals: vec![shell.clone()],
-                                }],
-                            }],
-                        },
-                    }),
+                    listed: Box::new(
+                        listed()
+                            .session(session("s").cwd("/w"))
+                            .terminal(shell(u128::MAX, "/w/src"))
+                            .build(),
+                    ),
                 }),
                 Change::Tree(TreeChange::Failing {
                     error: Some("no daemon".into()),
@@ -424,8 +380,8 @@ mod tests {
                         ],
                     },
                 }),
-            ],
-        }));
+            ]),
+        ));
     }
 
     #[test]

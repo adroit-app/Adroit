@@ -43,6 +43,7 @@ pub(super) async fn probe(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::{app_server, program, started};
     use serde_json::json;
 
     #[test]
@@ -83,29 +84,17 @@ mod tests {
 
     #[tokio::test]
     async fn the_probe_asks_for_the_model_list() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = tempfile::tempdir().unwrap();
-        let program = dir.path().join("codex");
-        std::fs::write(
-            &program,
-            r#"#!/bin/sh
-test "$1" = app-server || exit 1
-read line
-echo '{"id":"adroit-init","result":{}}'
-read line
-IFS= read -r line
-printf '%s\n' "$line" > request
-echo '{"id":"adroit-query","result":{"data":[{"id":"gpt-6-sol"}],"nextCursor":null}}'
-exec sleep 30
-"#,
-        )
-        .unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let start = (
-            program.to_str().unwrap().into(),
-            vec!["app-server".into()],
-            vec![],
+        let (dir, codex) = program(
+            "codex",
+            &format!(
+                "test \"$1\" = app-server || exit 1\n{}",
+                app_server(
+                    "request",
+                    r#"{"id":"adroit-query","result":{"data":[{"id":"gpt-6-sol"}],"nextCursor":null}}"#
+                )
+            ),
         );
+        let start = started(&codex, &["app-server"]);
 
         let got = probe(start, dir.path(), Duration::from_secs(5)).await;
 
@@ -120,7 +109,7 @@ exec sleep 30
     #[ignore = "needs Codex installed and logged in"]
     async fn installed_codex_answers_with_the_models_it_accepts() {
         let got = probe(
-            ("codex".into(), vec!["app-server".into()], vec![]),
+            started(Path::new("codex"), &["app-server"]),
             &std::env::temp_dir(),
             Duration::from_secs(15),
         )

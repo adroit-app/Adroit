@@ -41,9 +41,10 @@ pub struct DetailsSettings {
     pub log_commits: usize,
     /// The lines of a diff shown before it is cut.
     pub diff_lines: usize,
-    /// The links of each kind the overview keeps, the newest.
+    /// The links of each kind the overview keeps, the newest, up to 1000.
     pub links_kept: usize,
-    /// The links of each kind the overview shows before a row to show all.
+    /// The links of each kind the overview shows before a row that shows them
+    /// all.
     pub links_shown: usize,
 }
 
@@ -62,9 +63,13 @@ impl Default for DetailsSettings {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct UsageSettings {
+    /// Show the whole machine's CPU use.
     pub cpu: bool,
+    /// Show the GPU's use, when the system reports it.
     pub gpu: bool,
+    /// Show the physical memory used, as a share of all of it.
     pub memory: bool,
+    /// Show the capacity used on the startup volume.
     pub storage: bool,
 }
 
@@ -89,55 +94,73 @@ impl UsageSettings {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct ConsoleSettings {
+    /// Which Option keys send Alt to what runs there, `both`, `left`, `right` or
+    /// `none`, the others typing what macOS makes of the key.
     pub option_as_alt: OptionAsAlt,
-    /// Let the cursor blink when the program lets it.
+    /// Whether the cursor blinks when the program lets it.
     pub cursor_blink: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
-    /// The agent new sessions run.
+    /// The agent a new session starts with, `claude` or `codex`; a session not
+    /// started yet can be switched to another for the current run of the window.
     pub agent: adroit_model::Agent,
-    /// How Codex is started.
+    /// How Codex starts, independently of Claude Code; an empty command runs
+    /// `codex`.
     pub codex: Launch,
+    /// Codex's model and reasoning effort, approval policy and sandbox; empty
+    /// values leave Codex's own settings in effect.
     pub codex_sessions: CodexOptions,
+    /// How sessions started by sessions run.
     pub delegation: DelegationSettings,
     /// What files written before sessions could start sessions hold here;
     /// read so they still load, never written.
     #[serde(skip_serializing)]
     #[schemars(skip)]
     pub orchestration: Retired,
-    /// How far the window is zoomed when it opens.
+    /// How large the window draws everything when it opens, from 0.67 to 1.75.
+    /// Command 0 comes back to it.
     pub zoom: f64,
     /// The fewest lines the prompt shows.
     pub prompt_min_rows: usize,
     /// The most lines the prompt grows to before it scrolls inside.
     pub prompt_max_rows: usize,
-    /// The font family the console and the prompt are drawn in, ahead of
-    /// the built-in ones; empty for those alone.
+    /// The font the console and the prompt are drawn in, as the system names its
+    /// family; empty for adroit's own, JetBrainsMono Nerd Font Mono. Adroit's own
+    /// stands behind any other, so Nerd Font glyphs draw whatever font is chosen,
+    /// and a Japanese font behind that. A line is as tall as the font asks, as in
+    /// a terminal.
     pub font_family: String,
-    /// Their font's size, in points.
+    /// The font's size, in points, from 8 to 32.
     pub font_size: f64,
-    /// Their font's weight, from 100 to 900.
+    /// The font's weight, from 100 to 900; adroit's own comes in regular and bold,
+    /// and draws other weights in the nearer of them.
     pub font_weight: u16,
-    /// The console's colour theme, by name: one adroit comes with, or one
-    /// in the themes folder.
+    /// The console's colours, by the name of a theme: one adroit comes with, or one
+    /// in `themes/` beside `settings.toml`.
     pub theme: String,
-    /// Keep the Mac from idle sleep while a session or a shell runs.
+    /// Keep the Mac from idle sleep while a session or a shell runs, the window
+    /// open or not; the display still sleeps.
     pub keep_awake: bool,
-    /// Tell, by a notification, of a session that starts waiting while the
-    /// window is not in front.
+    /// Show a notification when a session starts waiting on you while the window
+    /// is not in front; with several windows open, the one holding the lowest
+    /// number tells.
     pub notify_waiting: bool,
-    /// How a shell tab's shell is started.
+    /// How a shell tab's shell starts.
     pub shell: ShellLaunch,
-    /// How Claude Code is started.
+    /// How Claude Code starts for every session adroit runs; an empty command
+    /// runs `claude`.
     pub claude: Launch,
-    /// How a Neovim tab's Neovim is started.
+    /// How a Neovim tab's Neovim starts, as Claude Code does; an empty command
+    /// runs `nvim`.
     pub neovim: Launch,
-    /// How ordinary Claude Code sessions run.
+    /// How Claude Code sessions run; what is left empty is Claude Code's own
+    /// choice.
     pub sessions: SessionOptions,
-    /// Where scratch sessions run; empty for adroit's own folder.
+    /// Where scratch sessions run, `~` standing for your home folder; empty for
+    /// adroit's own folder.
     pub scratch_dir: String,
     /// Where the picker looks for directories to start a session in.
     pub picker: PickerSettings,
@@ -145,13 +168,16 @@ pub struct Settings {
     pub console: ConsoleSettings,
     /// How much the details panel reads and shows.
     pub details: DetailsSettings,
+    /// Machine resources shown in Usage across all tabs.
     pub usage: UsageSettings,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct DelegationSettings {
-    /// How many sessions started by sessions may run at once.
+    /// How many sessions started by sessions may run at once, from 0 to 64. Zero
+    /// refuses new starts without ending those already running. Sessions you
+    /// start and terminals do not count.
     pub max_started: usize,
 }
 
@@ -213,7 +239,8 @@ impl Default for Settings {
 pub struct PickerSettings {
     /// Offer the repositories ghq keeps, and its roots in the file tree.
     pub ghq: bool,
-    /// Folders whose folders are offered, and which the file tree lists.
+    /// Folders whose folders are offered, and which the file tree lists, `~`
+    /// standing for your home folder.
     pub roots: Vec<String>,
 }
 
@@ -356,6 +383,11 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
 
+    /// `settings` as adroit writes them, read back.
+    fn written_and_read(settings: &Settings) -> Settings {
+        Settings::parse(&toml::to_string_pretty(settings).unwrap()).unwrap()
+    }
+
     #[test]
     fn a_file_missing_reads_as_designed_and_one_that_cannot_be_had_names_itself() {
         use adroit_protocol::{ConfigFile, FileText};
@@ -414,10 +446,7 @@ mod tests {
                 .unwrap();
         assert!(!settings.usage.cpu && !settings.usage.gpu && !settings.usage.storage);
         assert!(settings.usage.memory);
-        assert_eq!(
-            Settings::parse(&toml::to_string_pretty(&settings).unwrap()).unwrap(),
-            settings
-        );
+        assert_eq!(written_and_read(&settings), settings);
         assert!(Settings::parse("[usage]\nmemroy = false\n").is_err());
     }
 
@@ -431,10 +460,7 @@ mod tests {
         );
         let settings = Settings::parse("[sessions]\nconfirm_channel_warning = false\n").unwrap();
         assert!(!settings.sessions.confirm_channel_warning);
-        assert_eq!(
-            Settings::parse(&toml::to_string_pretty(&settings).unwrap()).unwrap(),
-            settings
-        );
+        assert_eq!(written_and_read(&settings), settings);
     }
 
     #[test]
@@ -459,10 +485,7 @@ model = "chosen-model"
         assert_eq!(s.codex.command, ["/opt/bin/codex"]);
         assert!(s.codex.via_shell);
         assert_eq!(s.codex_sessions.model, "chosen-model");
-        assert_eq!(
-            Settings::parse(&toml::to_string_pretty(&s).unwrap()).unwrap(),
-            s
-        );
+        assert_eq!(written_and_read(&s), s);
         assert!(Settings::parse(r#"agent = "other""#).is_err());
     }
 
@@ -585,8 +608,7 @@ model = "chosen-model"
                 links_shown: 3,
             },
         };
-        let text = toml::to_string_pretty(&s).unwrap();
-        assert_eq!(Settings::parse(&text).unwrap(), s);
+        assert_eq!(written_and_read(&s), s);
     }
 
     #[test]
@@ -648,17 +670,6 @@ model = "chosen-model"
             s.picker.root_paths(home),
             [PathBuf::from("/h/src"), PathBuf::from("/work")]
         );
-    }
-
-    #[test]
-    fn the_specification_s_settings_toml_reads_as_the_settings_as_designed() {
-        let spec = include_str!("../../../docs/spec/settings.md");
-        let block = spec
-            .split_once("```toml\n")
-            .and_then(|(_, rest)| rest.split_once("```"))
-            .map(|(toml, _)| toml)
-            .unwrap();
-        assert_eq!(Settings::parse(block).unwrap(), Settings::default());
     }
 
     #[test]

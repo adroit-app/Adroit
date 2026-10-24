@@ -10,10 +10,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct ShellLaunch {
-    /// The shell and its arguments; empty for the account's login shell,
+    /// The shell and its arguments; empty for your account's login shell,
     /// started as a login shell.
     pub command: Vec<String>,
-    /// Variables set for it over adroit's environment.
+    /// Variables set for it.
     pub env: BTreeMap<String, String>,
 }
 
@@ -38,12 +38,12 @@ impl ShellLaunch {
 #[serde(default, deny_unknown_fields)]
 pub struct Launch {
     /// The program and the arguments it always gets, ahead of adroit's own;
-    /// empty for adroit's choice of program.
+    /// empty for the program its table names.
     pub command: Vec<String>,
-    /// Start it through the shell, as an interactive login shell, so what
-    /// the user's startup files set reaches it.
+    /// Whether your shell starts it, as an interactive login shell, so that what
+    /// its startup files set reaches it.
     pub via_shell: bool,
-    /// Variables set for it over adroit's environment.
+    /// Variables set for it.
     pub env: BTreeMap<String, String>,
 }
 
@@ -87,15 +87,21 @@ impl Launch {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct SessionOptions {
+    /// The model it starts with, as Claude Code's `--model` takes it.
     pub model: String,
+    /// Its permission mode, one of `default`, `acceptEdits`, `plan` and
+    /// `bypassPermissions`.
     pub permission_mode: String,
+    /// The tools denied it.
     pub disallowed_tools: Vec<String>,
     /// The directories a read-only session is kept from writing to; set for
     /// one launch from its permission profile, never from the file.
     #[serde(skip)]
     pub read_only: Option<Vec<PathBuf>>,
-    /// Confirm Claude Code's warning about loading development channels for
-    /// the user when it names Adroit's own channel alone.
+    /// Whether Adroit confirms, once a launch, Claude Code's warning about loading
+    /// development channels when it names Adroit's own channel and nothing else;
+    /// every other dialog is left to you. It applies to sessions launched while it
+    /// is on.
     pub confirm_channel_warning: bool,
 }
 
@@ -115,9 +121,15 @@ impl Default for SessionOptions {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct CodexOptions {
+    /// Codex's model; empty for its own choice.
     pub model: String,
+    /// Its reasoning effort, one the selected model and Codex version support;
+    /// empty for its own choice.
     pub reasoning_effort: String,
+    /// When Codex asks before running a command: empty, `on-request` or `never`.
     pub approval_policy: String,
+    /// Where its commands can write: empty, `read-only`, `workspace-write` or
+    /// `danger-full-access`.
     pub sandbox_mode: String,
 }
 

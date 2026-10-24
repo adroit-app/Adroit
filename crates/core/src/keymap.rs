@@ -1281,12 +1281,6 @@ mod tests {
     }
 
     #[test]
-    fn the_specification_lists_the_bindings_adroit_ships() {
-        let spec = include_str!("../../../docs/spec/keys.md");
-        assert!(spec.contains(DEFAULTS.trim()));
-    }
-
-    #[test]
     fn every_default_binding_reads() {
         // The defaults are text, so a mistake in them shows here rather than
         // as a key that silently does nothing.

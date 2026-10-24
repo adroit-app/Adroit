@@ -301,6 +301,7 @@ async fn start(socket: &Path, program: &Path, args: &[String]) -> Result<(), Str
 
 #[cfg(test)]
 mod tests {
+    use adroit_protocol::testing::snapshot;
     use adroit_protocol::{Hello, Sight, decode, encode};
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     use tokio::net::UnixListener;
@@ -416,8 +417,8 @@ mod tests {
         });
         link.send(Request::Snapshot);
         assert_eq!(host.asked().await, Request::Snapshot);
-        host.tell(&Event::Snapshot(Box::default())).await;
-        assert_eq!(told(&mut events).await, Event::Snapshot(Box::default()));
+        host.tell(&Event::from(snapshot())).await;
+        assert_eq!(told(&mut events).await, Event::from(snapshot()));
         first
             .recv_timeout(Duration::from_secs(5))
             .expect("not told of the first snapshot");
@@ -441,7 +442,7 @@ mod tests {
         let mut again = Accepted::from(&listener).await;
         assert!(matches!(again.asked().await, Request::Hello { .. }));
         assert_eq!(again.asked().await, watch("b"));
-        let snapshot = Event::Snapshot(Box::default());
+        let snapshot = Event::from(snapshot());
         again.tell(&snapshot).await;
         assert_eq!(told(&mut events).await, snapshot);
     }

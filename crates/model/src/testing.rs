@@ -9,7 +9,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::{
-    Agent, AgentPermissions, Session, SessionId, State, TerminalSession, Tree, Worktree, build,
+    Agent, AgentPermissions, Session, SessionId, State, TerminalSession, Tree, Wait, Worktree,
+    build,
 };
 
 /// A session adroit runs, with `id` as its id and its name.
@@ -41,6 +42,14 @@ impl SessionBuilder {
     pub fn state(mut self, state: State) -> Self {
         self.0.state = state;
         self
+    }
+
+    pub fn working(self) -> Self {
+        self.state(State::Working)
+    }
+
+    pub fn waiting(self, wait: Wait) -> Self {
+        self.state(State::Waiting(wait))
     }
 
     pub fn agent(mut self, agent: Agent) -> Self {

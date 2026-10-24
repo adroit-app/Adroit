@@ -1069,6 +1069,7 @@ mod tests {
 
     use adroit_model::repository::DiffKind;
 
+    use adroit_model::testing::{SessionBuilder, session};
     use adroit_model::{Session, State, Wait};
 
     #[test]
@@ -1229,12 +1230,11 @@ mod tests {
 
     #[test]
     fn the_overview_leads_with_the_model_then_the_state_as_a_badge() {
-        let s = Session {
-            name: "demo/fix-x".into(),
-            state: State::Working,
-            started_ms: Some(1_000_000),
-            ..Default::default()
-        };
+        let s = session("s")
+            .name("demo/fix-x")
+            .working()
+            .started_ms(1_000_000)
+            .build();
         let now = 1_000_000 + 12 * 60_000 + 5_000;
         let got = overview_facts(&s, &stats(), Some(now - 12_000), now);
         assert_eq!(
@@ -1258,10 +1258,7 @@ mod tests {
     #[test]
     fn the_state_badge_is_coloured_by_how_the_session_stands() {
         let tone = |state: State| {
-            let s = Session {
-                state,
-                ..Default::default()
-            };
+            let s = session("s").state(state).build();
             let got = overview_facts(&s, &adroit_model::ConversationStats::default(), None, 0);
             (got[0].value.clone(), got[0].tone)
         };
@@ -1281,12 +1278,11 @@ mod tests {
 
     #[test]
     fn an_unknown_model_and_start_are_left_out() {
-        let s = Session {
-            name: "demo/look".into(),
-            permissions: adroit_model::AgentPermissions::ReadOnly,
-            state: State::Idle,
-            ..Default::default()
-        };
+        let s = session("s")
+            .name("demo/look")
+            .permissions(adroit_model::AgentPermissions::ReadOnly)
+            .state(State::Idle)
+            .build();
         let got = overview_facts(&s, &adroit_model::ConversationStats::default(), None, 0);
         assert_eq!(labels(&got), ["State"]);
     }
@@ -1694,13 +1690,12 @@ mod tests {
 
     /// A session `id` whose record is `own`, started by the one whose record is `from`.
     fn running(id: &str, name: &str, own: &str, from: &str) -> Session {
-        Session {
-            id: id.into(),
-            name: name.into(),
-            delegation: record(own),
-            parent: record(from),
-            ..Default::default()
-        }
+        let s = session(id).name(name);
+        let s = record(own).into_iter().fold(s, SessionBuilder::delegation);
+        record(from)
+            .into_iter()
+            .fold(s, SessionBuilder::parent)
+            .build()
     }
 
     fn peer(name: &str, sent: bool, received: bool) -> Peer {

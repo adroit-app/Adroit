@@ -177,20 +177,22 @@ impl Fresh {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    use crate::testing::{control_error, control_success, launching, program};
 
     /// Cut down from what Claude Code 2.1.303 answers for a Max account.
-    const ANSWER: &str = r#"{"type":"control_response","response":{"subtype":"success","request_id":"adroit","response":{"subscription_type":"max","rate_limits_available":true,"rate_limits":{"five_hour":{"utilization":3,"resets_at":"2026-10-19T19:19:59.661431+00:00"},"limits":[{"kind":"session","group":"session","percent":3,"severity":"normal","resets_at":"2026-10-19T19:19:59.661431+00:00","scope":null,"is_active":false},{"kind":"weekly_all","group":"weekly","percent":86,"severity":"warning","resets_at":"2026-10-22T13:59:59.661454+00:00","scope":null,"is_active":true},{"kind":"weekly_scoped","group":"weekly","percent":0,"severity":"normal","resets_at":"2026-10-22T14:00:00+00:00","scope":{"model":{"id":null,"display_name":"Fable"},"surface":null},"is_active":false}]}}}}"#;
+    fn answer() -> String {
+        control_success(
+            r#"{"subscription_type":"max","rate_limits_available":true,"rate_limits":{"five_hour":{"utilization":3,"resets_at":"2026-10-19T19:19:59.661431+00:00"},"limits":[{"kind":"session","group":"session","percent":3,"severity":"normal","resets_at":"2026-10-19T19:19:59.661431+00:00","scope":null,"is_active":false},{"kind":"weekly_all","group":"weekly","percent":86,"severity":"warning","resets_at":"2026-10-22T13:59:59.661454+00:00","scope":null,"is_active":true},{"kind":"weekly_scoped","group":"weekly","percent":0,"severity":"normal","resets_at":"2026-10-22T14:00:00+00:00","scope":{"model":{"id":null,"display_name":"Fable"},"surface":null},"is_active":false}]}}"#,
+        )
+    }
 
     fn answer_with(limits: &str) -> String {
-        format!(
-            r#"{{"type":"control_response","response":{{"subtype":"success","request_id":"adroit","response":{{"rate_limits":{{"limits":{limits}}}}}}}}}"#
-        )
+        control_success(&format!(r#"{{"rate_limits":{{"limits":{limits}}}}}"#))
     }
 
     #[test]
     fn the_answer_lists_the_limits_usage_shows_in_its_order() {
-        let Reply::Limits(got) = reply(ANSWER) else {
+        let Reply::Limits(got) = reply(&answer()) else {
             panic!("no limits");
         };
         assert_eq!(
@@ -263,14 +265,16 @@ mod tests {
 
     #[test]
     fn an_account_without_limits_has_none() {
-        let line = r#"{"type":"control_response","response":{"subtype":"success","request_id":"adroit","response":{"subscription_type":null,"rate_limits_available":false,"rate_limits":null}}}"#;
-        assert_eq!(reply(line), Reply::Limits(Vec::new()));
+        let line = control_success(
+            r#"{"subscription_type":null,"rate_limits_available":false,"rate_limits":null}"#,
+        );
+        assert_eq!(reply(&line), Reply::Limits(Vec::new()));
     }
 
     #[test]
     fn an_error_answer_is_a_refusal() {
-        let line = r#"{"type":"control_response","response":{"subtype":"error","request_id":"adroit","error":"Unknown subtype"}}"#;
-        assert_eq!(reply(line), Reply::Refused);
+        let line = control_error("Unknown subtype");
+        assert_eq!(reply(&line), Reply::Refused);
     }
 
     #[test]
@@ -362,35 +366,17 @@ mod tests {
         assert!(fresh.want(later + USAGE_TTL));
     }
 
-    /// A stand-in for Claude Code running `body`, a shell script, in a
-    /// directory of its own; the program's path.
-    fn fake(name: &str, body: &str) -> PathBuf {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("adroit-usage-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let program = dir.join("claude");
-        std::fs::write(&program, format!("#!/bin/sh\n{body}\n")).unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
-        program
-    }
-
-    /// Claude Code started as `program` with nothing else.
-    fn started(program: &Path) -> impl FnOnce(Vec<String>) -> Started {
-        let program = program.to_str().unwrap().to_string();
-        move |args| (program, args, Vec::new())
-    }
-
     #[tokio::test]
     async fn the_probe_writes_the_usage_request_and_reads_the_answer() {
-        let p = fake(
-            "answer",
+        let answer = answer();
+        let (_dir, p) = program(
+            "claude",
             &format!(
-                "IFS= read -r line\nprintf '%s\\n' \"$line\" > \"$(dirname \"$0\")/stdin\"\necho '{{\"type\":\"system\"}}'\necho '{ANSWER}'\nexec sleep 30"
+                "IFS= read -r line\nprintf '%s\\n' \"$line\" > \"$(dirname \"$0\")/stdin\"\necho '{{\"type\":\"system\"}}'\necho '{answer}'\nexec sleep 30"
             ),
         );
         let dir = p.parent().unwrap();
-        let got = probe(started(&p), dir, Duration::from_secs(5))
+        let got = probe(launching(&p), dir, Duration::from_secs(5))
             .await
             .unwrap();
         assert_eq!(got.len(), 3);
@@ -400,13 +386,12 @@ mod tests {
 
     #[tokio::test]
     async fn a_refusal_leaves_the_limits_unknown() {
-        let p = fake(
-            "refused",
-            r#"read line
-echo '{"type":"control_response","response":{"subtype":"error","request_id":"adroit","error":"Unknown subtype"}}'
-exec sleep 30"#,
+        let refusal = control_error("Unknown subtype");
+        let (_dir, p) = program(
+            "claude",
+            &format!("read line\necho '{refusal}'\nexec sleep 30"),
         );
-        let got = probe(started(&p), p.parent().unwrap(), Duration::from_secs(5)).await;
+        let got = probe(launching(&p), p.parent().unwrap(), Duration::from_secs(5)).await;
         assert_eq!(got, None);
     }
 
@@ -416,7 +401,7 @@ exec sleep 30"#,
     #[ignore = "needs Claude Code installed and logged in to a plan with limits"]
     async fn claude_code_answers_with_the_session_limit() {
         let got = probe(
-            started(Path::new("claude")),
+            launching(Path::new("claude")),
             &std::env::temp_dir(),
             PROBE_TIMEOUT,
         )

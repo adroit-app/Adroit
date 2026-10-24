@@ -736,10 +736,12 @@ pub fn scenario(work: Work, requests: impl IntoIterator<Item = Request>) -> (Wor
 mod tests {
     use adroit_model::links::Links;
     use adroit_model::repository::{Listing, Spot};
+    use adroit_model::testing::{session, shell};
     use adroit_model::{Agent, Past, Session};
+    use adroit_protocol::testing::{listed, snapshot};
     use adroit_protocol::{
         Event, Offers, PastChange, PastSight, PastWork, PickSight, RepositoryRead, RepositorySight,
-        Request, SPOKEN, Seq, Version, WorkSnapshot,
+        Request, SPOKEN, Seq, Version,
     };
 
     use super::*;
@@ -843,7 +845,7 @@ mod tests {
         let sent = host.handle(
             B,
             Request::TerminalOpened {
-                terminal: terminal(7, "/w"),
+                terminal: shell(7, "/w"),
             },
         );
         assert_eq!(tree_changes(to(A, sent.clone())).len(), 1);
@@ -1070,10 +1072,7 @@ mod tests {
                     Event::Welcome {
                         version: Version(1),
                     },
-                    Event::Snapshot(Box::new(WorkSnapshot {
-                        seq: Seq(4),
-                        ..Default::default()
-                    })),
+                    snapshot().seq(4).into(),
                 ],
             ),
             (
@@ -1104,13 +1103,7 @@ mod tests {
             },
             [Request::Snapshot],
         );
-        assert_eq!(
-            events,
-            vec![Event::Snapshot(Box::new(WorkSnapshot {
-                seq: Seq(9),
-                ..Default::default()
-            }))]
-        );
+        assert_eq!(events, vec![snapshot().seq(9).into()]);
         assert_eq!(
             work,
             Work {
@@ -1371,39 +1364,19 @@ mod tests {
         assert!(host.work().tree().entries.is_empty());
     }
 
-    fn terminal(id: u128, cwd: &str) -> TerminalSession {
-        TerminalSession {
-            id,
-            name: format!("shell {id}"),
-            cwd: cwd.into(),
-            ..Default::default()
-        }
-    }
-
     #[test]
     fn a_terminal_the_window_opens_or_closes_is_placed_at_once() {
         let mut host = Host::default();
-        let session = Session {
-            id: "a".into(),
-            cwd: "/w".into(),
-            ..Default::default()
-        };
-        let tree = adroit_model::build(
-            std::slice::from_ref(&session),
-            &[],
-            &Default::default(),
-            &[],
-            None,
-        );
         host.read([TreeChange::Listed {
-            listed: Box::new(adroit_protocol::Listed {
-                sessions: vec![session],
-                terminals: Vec::new(),
-                tree,
-            }),
+            listed: Box::new(
+                listed()
+                    .session(session("a").cwd("/w"))
+                    .outside_git()
+                    .build(),
+            ),
         }]);
         let opened = host.on(Request::TerminalOpened {
-            terminal: terminal(7, "/w"),
+            terminal: shell(7, "/w"),
         });
         assert_eq!(tree_changes(opened).len(), 1);
         let ids = |host: &Host| {
@@ -1417,7 +1390,7 @@ mod tests {
         assert_eq!(ids(&host), [7]);
         assert_eq!(host.work().tree().terminals().len(), 1);
         let again = host.on(Request::TerminalOpened {
-            terminal: terminal(7, "/w"),
+            terminal: shell(7, "/w"),
         });
         assert!(
             again.is_empty(),
@@ -1451,14 +1424,11 @@ mod tests {
         let mut host = Host::default();
         let seen = host.seen();
         let listing = |session_id: &str| TreeChange::Listed {
-            listed: Box::new(adroit_protocol::Listed {
-                sessions: vec![Session {
-                    id: "a".into(),
-                    session_id: session_id.into(),
-                    ..Default::default()
-                }],
-                ..Default::default()
-            }),
+            listed: Box::new(
+                listed()
+                    .session(session("a").session_id(session_id))
+                    .build(),
+            ),
         };
         host.on(watch(Some("a"), None));
         assert_eq!(seen.borrow()[0].session, None, "not listed yet");

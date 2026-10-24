@@ -217,34 +217,16 @@ pub async fn notes_at(root: &Path, record: SessionId) -> Vec<crate::details::Not
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::delegation::{MessageId, MessageKind, Readiness};
+    use crate::testing::record;
 
+    /// Adroit's record of a session called `name` that has ended.
     fn session(name: &str) -> super::super::Session {
-        super::super::Session {
-            id: SessionId::new(),
-            parent: None,
-            agent: Agent::Claude,
-            name: name.into(),
-            cwd: "/repo".into(),
-            terminal: None,
-            conversation: None,
-            readiness: Readiness::Ready,
-            started_ms: 0,
-            reported: false,
-            ended: true,
-        }
+        record(name).ended().build()
     }
 
+    /// A message delivered from `from` to `to`.
     fn message(from: Option<SessionId>, to: SessionId) -> Message {
-        Message {
-            id: MessageId::new(),
-            sender: from,
-            recipient: to,
-            kind: MessageKind::Message,
-            body: "x".into(),
-            sent_ms: 0,
-            delivered: true,
-        }
+        crate::testing::message(from, to).delivered().build()
     }
 
     #[test]

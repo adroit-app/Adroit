@@ -112,9 +112,9 @@ fn keymap(file: &ConfigFile, home: &std::path::Path) -> Result<Keymap, String> {
 
 #[cfg(test)]
 pub(crate) mod testing {
-    use adroit_protocol::{
-        Change, ConfigChange, ConfigFile, ConfigWork, Event, FileText, Seq, WorkPatch, WorkSnapshot,
-    };
+    use adroit_protocol::{ConfigChange, ConfigFile, Event, FileText};
+
+    use crate::testing::{patch, snapshot};
 
     pub(crate) fn settings_file(text: &str) -> ConfigFile {
         ConfigFile {
@@ -130,24 +130,18 @@ pub(crate) mod testing {
         }
     }
 
-    /// The work as the host first describes it, with these settings.
+    /// The work as the host first describes it, with these settings, before
+    /// any change.
     pub(crate) fn configured(settings: &str) -> Event {
-        Event::Snapshot(Box::new(WorkSnapshot {
-            config: ConfigWork {
-                settings: Some(settings_file(settings)),
-                keys: None,
-                configured: None,
-            },
-            ..Default::default()
-        }))
+        snapshot()
+            .seq(0)
+            .with(|w| w.config.settings = Some(settings_file(settings)))
+            .into()
     }
 
     /// The patch numbered `seq` that changes the configuration so.
     pub(crate) fn reconfigured(seq: u64, change: ConfigChange) -> Event {
-        Event::Patch(WorkPatch {
-            seq: Seq(seq),
-            changes: vec![Change::Config(change)],
-        })
+        patch(seq).change(change).into()
     }
 }
 
@@ -155,7 +149,7 @@ pub(crate) mod testing {
 mod tests {
     use adroit_protocol::{Colours, ConfigChange, ConfigFile, Configured, FileText, ThemeRead};
 
-    use super::testing::{configured, keys_file, reconfigured, settings_file};
+    use super::testing::{configured, keys_file, settings_file};
     use crate::effect::Effect;
     use crate::keymap::Keymap;
     use crate::msg::Msg;
@@ -179,63 +173,47 @@ mod tests {
 
     #[test]
     fn settings_that_cannot_be_had_leave_those_in_force_and_say_why_until_fixed() {
-        let settings = |seq, text: FileText| {
-            reconfigured(
-                seq,
-                ConfigChange::Settings {
-                    file: ConfigFile {
-                        path: "/c/settings.toml".into(),
-                        text,
-                    },
-                },
-            )
+        let settings = |text: FileText| ConfigChange::Settings {
+            file: ConfigFile {
+                path: "/c/settings.toml".into(),
+                text,
+            },
         };
         let run = Scenario::new()
             .event(configured("zoom = 1.25\n"))
-            .event(settings(
-                1,
-                FileText::Read {
-                    text: "zoom = ".into(),
-                },
-            ));
+            .tell(settings(FileText::Read {
+                text: "zoom = ".into(),
+            }));
         assert_eq!(run.state().config.settings.zoom, 1.25);
         let error = run.state().config.settings_error.clone().unwrap();
         assert!(
             error.starts_with("Cannot load /c/settings.toml: "),
             "{error}"
         );
-        let run = run.event(settings(
-            2,
-            FileText::Unreadable {
-                error: "denied".into(),
-            },
-        ));
+        let run = run.tell(settings(FileText::Unreadable {
+            error: "denied".into(),
+        }));
         assert_eq!(
             run.state().config.settings_error.as_deref(),
             Some("Cannot read /c/settings.toml: denied")
         );
-        let run = run.event(settings(3, FileText::Missing));
+        let run = run.tell(settings(FileText::Missing));
         assert_eq!(run.state().config.settings, Default::default());
         assert_eq!(run.state().config.settings_error, None);
     }
 
     #[test]
     fn the_key_bindings_read_go_over_the_defaults_and_a_broken_file_is_told_until_it_reads() {
-        let keys = |seq, text: &str| {
-            reconfigured(
-                seq,
-                ConfigChange::Keys {
-                    file: keys_file(text),
-                },
-            )
+        let keys = |text: &str| ConfigChange::Keys {
+            file: keys_file(text),
         };
         let user = "[global]\n\"Ctrl+h\" = \"keys.help\"\n";
         let run = Scenario::new()
             .send(home())
             .event(configured(""))
-            .event(keys(1, user));
+            .tell(keys(user));
         assert_eq!(run.state().chrome.keymap, Keymap::with_user(user).unwrap());
-        let run = run.event(keys(2, "[global]\n\"Ctrl+h\" = \"no.such\"\n"));
+        let run = run.tell(keys("[global]\n\"Ctrl+h\" = \"no.such\"\n"));
         assert_eq!(
             run.state().chrome.keymap,
             Keymap::with_user(user).unwrap(),
@@ -243,7 +221,7 @@ mod tests {
         );
         let told = run.state().chrome.status.line.clone().unwrap();
         assert!(told.starts_with("~/.config/adroit/keys.toml: "), "{told}");
-        let run = run.event(keys(3, ""));
+        let run = run.tell(keys(""));
         assert_eq!(run.state().chrome.keymap, Keymap::defaults());
         assert_eq!(run.state().chrome.status.line, None);
     }
@@ -258,21 +236,15 @@ mod tests {
         ] {
             let run = Scenario::new()
                 .event(configured(""))
-                .event(reconfigured(
-                    1,
-                    ConfigChange::Keys {
-                        file: keys_file("[global]\n\"Ctrl+h\" = \"keys.help\"\n"),
+                .tell(ConfigChange::Keys {
+                    file: keys_file("[global]\n\"Ctrl+h\" = \"keys.help\"\n"),
+                })
+                .tell(ConfigChange::Keys {
+                    file: ConfigFile {
+                        text: text.clone(),
+                        ..keys_file("")
                     },
-                ))
-                .event(reconfigured(
-                    2,
-                    ConfigChange::Keys {
-                        file: ConfigFile {
-                            text: text.clone(),
-                            ..keys_file("")
-                        },
-                    },
-                ));
+                });
             assert_eq!(run.state().chrome.keymap, Keymap::defaults(), "{text:?}");
             assert_eq!(run.state().chrome.status.line, None, "{text:?}");
         }
@@ -283,12 +255,9 @@ mod tests {
         let run = Scenario::new()
             .event(configured("zoom = 1.25\n"))
             .send(Msg::Zoom(crate::zoom::Step::In))
-            .event(reconfigured(
-                1,
-                ConfigChange::Settings {
-                    file: settings_file("zoom = 1.25\n"),
-                },
-            ));
+            .tell(ConfigChange::Settings {
+                file: settings_file("zoom = 1.25\n"),
+            });
         assert!(
             !run.last_effects()
                 .iter()
@@ -296,20 +265,17 @@ mod tests {
         );
     }
 
-    fn made(seq: u64, scratch: &str, theme: &str, colours: Colours) -> adroit_protocol::Event {
-        reconfigured(
-            seq,
-            ConfigChange::Configured {
-                configured: Configured {
-                    scratch: scratch.into(),
-                    theme: ThemeRead {
-                        name: theme.into(),
-                        colours,
-                    },
-                    ..Default::default()
+    fn made(scratch: &str, theme: &str, colours: Colours) -> ConfigChange {
+        ConfigChange::Configured {
+            configured: Configured {
+                scratch: scratch.into(),
+                theme: ThemeRead {
+                    name: theme.into(),
+                    colours,
                 },
+                ..Default::default()
             },
-        )
+        }
     }
 
     fn palettes(run: &Scenario) -> Vec<Colours> {
@@ -329,9 +295,9 @@ mod tests {
         };
         let run = Scenario::new()
             .event(configured(""))
-            .event(made(1, "/s", "Nord", nord()))
-            .event(made(2, "/t", "Nord", nord()))
-            .event(made(3, "/t", "Adroit", Colours::Own));
+            .tell(made("/s", "Nord", nord()))
+            .tell(made("/t", "Nord", nord()))
+            .tell(made("/t", "Adroit", Colours::Own));
         assert_eq!(palettes(&run), [nord(), Colours::Own]);
         assert_eq!(run.state().config.scratch, std::path::PathBuf::from("/t"));
     }
@@ -339,15 +305,14 @@ mod tests {
     #[test]
     fn a_theme_that_cannot_be_had_says_why_but_the_first_leaves_adroit_s_own() {
         let cannot = |why: &str| Colours::Unreadable { error: why.into() };
-        let run = Scenario::new().event(configured("")).event(made(
-            1,
+        let run = Scenario::new().event(configured("")).tell(made(
             "/s",
             "Gone",
             cannot("no theme named \"Gone\""),
         ));
         assert_eq!(palettes(&run), [Colours::Own]);
         assert_eq!(run.state().chrome.status.line, None);
-        let run = run.event(made(2, "/s", "Lost", cannot("no theme named \"Lost\"")));
+        let run = run.tell(made("/s", "Lost", cannot("no theme named \"Lost\"")));
         assert_eq!(palettes(&run), [Colours::Own]);
         assert_eq!(
             run.state().chrome.status.line.as_deref(),

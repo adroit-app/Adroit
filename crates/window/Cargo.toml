@@ -31,6 +31,7 @@ objc2-pdf-kit.workspace = true
 
 [dev-dependencies]
 adroit-model = { workspace = true, features = ["testing"] }
+adroit-protocol = { workspace = true, features = ["testing"] }
 base64.workspace = true
 libc.workspace = true
 tempfile.workspace = true

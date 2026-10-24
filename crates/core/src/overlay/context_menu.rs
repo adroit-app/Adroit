@@ -168,10 +168,7 @@ mod tests {
             grouped(Target::Tab(Tab::Terminal(1)), None),
             [vec![Action::TabClose, Action::TerminalStop]]
         );
-        let draft = Tab::Draft {
-            worktree: "/a".into(),
-            id: Default::default(),
-        };
+        let draft = Tab::draft("/a");
         assert!(grouped(Target::Tab(draft), None).is_empty());
     }
 
@@ -185,10 +182,7 @@ mod tests {
     ];
 
     fn session() -> Session {
-        Session {
-            id: "a".into(),
-            ..Default::default()
-        }
+        adroit_model::testing::session("a").build()
     }
 
     fn actions(target: Target, s: Option<&Session>) -> Vec<Action> {

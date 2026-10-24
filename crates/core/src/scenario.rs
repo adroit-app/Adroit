@@ -1,7 +1,7 @@
 //! A window run without a window: messages and scripted host events in,
 //! state and effects out, for tests to read.
 
-use adroit_protocol::{Event, Request};
+use adroit_protocol::{Change, Event, Request, Seq, WorkPatch};
 
 use crate::effect::Effect;
 use crate::msg::Msg;
@@ -61,12 +61,22 @@ impl Scenario {
     }
 
     /// The host told the window `event` of its own accord.
-    pub fn event(self, event: Event) -> Self {
-        self.send(Msg::Host(event))
+    pub fn event(self, event: impl Into<Event>) -> Self {
+        self.send(Msg::Host(event.into()))
     }
 
-    pub fn events(self, events: impl IntoIterator<Item = Event>) -> Self {
+    pub fn events<E: Into<Event>>(self, events: impl IntoIterator<Item = E>) -> Self {
         events.into_iter().fold(self, Self::event)
+    }
+
+    /// The host told the window `change` as the patch after the last word
+    /// it heard.
+    pub fn tell(self, change: impl Into<Change>) -> Self {
+        let seq = self.state.host.work.as_ref().map_or(Seq(0), |w| w.seq);
+        self.event(Event::Patch(WorkPatch {
+            seq: seq.next(),
+            changes: vec![change.into()],
+        }))
     }
 
     pub fn state(&self) -> &ViewState {
@@ -87,10 +97,11 @@ impl Scenario {
 
 #[cfg(test)]
 mod tests {
-    use adroit_protocol::{Event, Request, Seq, Version, WorkSnapshot};
+    use adroit_protocol::{Event, Request, Seq, Version};
 
     use super::*;
     use crate::host::Link;
+    use crate::testing::snapshot;
 
     #[test]
     fn a_scripted_host_answers_the_hello_and_the_window_holds_the_work() {
@@ -99,10 +110,7 @@ mod tests {
                 Event::Welcome {
                     version: Version(1),
                 },
-                Event::Snapshot(Box::new(WorkSnapshot {
-                    seq: Seq(2),
-                    ..Default::default()
-                })),
+                snapshot().seq(2).into(),
             ],
             _ => vec![],
         })

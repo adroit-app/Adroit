@@ -31,17 +31,9 @@ mod tests {
     #[test]
     fn lists_only_waiting_sessions_with_their_workspace() {
         let tree = tree()
-            .session(session("busy").cwd("/api").state(State::Working))
-            .session(
-                session("asks")
-                    .cwd("/api")
-                    .state(State::Waiting(Wait::Permission)),
-            )
-            .session(
-                session("other")
-                    .cwd("/notes")
-                    .state(State::Waiting(Wait::Input)),
-            )
+            .session(session("busy").cwd("/api").working())
+            .session(session("asks").cwd("/api").waiting(Wait::Permission))
+            .session(session("other").cwd("/notes").waiting(Wait::Input))
             .build();
         let items = inbox(&tree);
         assert_eq!(items.len(), 2);

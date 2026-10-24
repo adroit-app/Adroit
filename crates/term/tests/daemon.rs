@@ -1,9 +1,12 @@
 //! Sessions run in a felis daemon served from the test itself.
 
-use std::path::PathBuf;
+use std::path::Path;
 use std::time::Duration;
 
 use adroit_term::{Daemon, Input, Key, Palette, Pane, Size, Spawn, tags};
+
+mod support;
+use support::{sh, socket_dir};
 
 /// A daemon on a socket of its own, served until the test ends.
 async fn daemon() -> (Daemon, tempfile::TempDir) {
@@ -14,16 +17,7 @@ async fn daemon() -> (Daemon, tempfile::TempDir) {
 async fn daemon_telling(
     running: impl FnMut(usize) + Send + 'static,
 ) -> (Daemon, tempfile::TempDir) {
-    // A socket path has to be short, so not under the usual temp folder.
-    let dir = tempfile::Builder::new()
-        .prefix("adroit-")
-        .tempdir_in("/tmp")
-        .unwrap();
-    // The daemon listens only in a folder open to no one else.
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
-    }
+    let dir = socket_dir();
     let socket = dir.path().join("d.sock");
     let serving = socket.clone();
     let served =
@@ -45,14 +39,22 @@ async fn daemon_telling(
     panic!("the daemon did not answer: {last:?}");
 }
 
-fn sh(script: &str) -> Spawn {
+/// `script` run as [`sh`] does, told `marker` as `$ADROIT_RELEASE_PROOF` to
+/// write once it runs.
+fn proving(script: &str, marker: &Path) -> Spawn {
+    let mut spawn = sh(script);
+    spawn.env.push((
+        "ADROIT_RELEASE_PROOF".into(),
+        marker.to_string_lossy().into_owned(),
+    ));
+    spawn
+}
+
+/// A program adroit cannot find.
+fn missing() -> Spawn {
     Spawn {
-        program: "/bin/sh".into(),
-        args: vec!["-c".into(), script.into()],
-        cwd: PathBuf::from("/tmp"),
-        cols: 40,
-        rows: 6,
-        ..Spawn::default()
+        program: "/no/such/program".into(),
+        ..sh("")
     }
 }
 
@@ -69,9 +71,12 @@ async fn until(pane: &Pane, ok: impl Fn(&[String]) -> bool) -> Vec<String> {
 }
 
 async fn attach(d: &Daemon, id: u128) -> Pane {
-    Pane::attach(d, id, Size::new(40, 6), &Palette::default(), || {})
-        .await
-        .unwrap()
+    attach_as(d, id, Size::new(40, 6), &Palette::default()).await
+}
+
+/// [`attach`], at `size` in `palette`.
+async fn attach_as(d: &Daemon, id: u128, size: Size, palette: &Palette) -> Pane {
+    Pane::attach(d, id, size, palette, || {}).await.unwrap()
 }
 
 #[tokio::test]
@@ -87,12 +92,10 @@ async fn a_headless_start_is_released_before_its_command_runtime_exits() {
     let (daemon, dir) = daemon().await;
     for round in 0..20 {
         let marker = dir.path().join(format!("released-{round}"));
-        let mut spawn =
-            sh(r#"printf headless > "$ADROIT_RELEASE_PROOF"; printf headless; sleep 5"#);
-        spawn.env.push((
-            "ADROIT_RELEASE_PROOF".into(),
-            marker.to_string_lossy().into_owned(),
-        ));
+        let spawn = proving(
+            r#"printf headless > "$ADROIT_RELEASE_PROOF"; printf headless; sleep 5"#,
+            &marker,
+        );
         let starting = daemon.clone();
         let id = tokio::task::spawn_blocking(move || {
             let runtime = tokio::runtime::Builder::new_current_thread()
@@ -479,9 +482,7 @@ async fn an_image_given_only_its_width_keeps_its_shape_in_cells_taller_than_wide
         cell_height: 16.0,
         ..Size::new(40, 6)
     };
-    let pane = Pane::attach(&d, id, size, &Palette::default(), || {})
-        .await
-        .unwrap();
+    let pane = attach_as(&d, id, size, &Palette::default()).await;
     for _ in 0..200 {
         if let Some(p) = pane.pictures().first() {
             assert_eq!(p.dst, [0.0, 0.0, 4.0, 2.0]);
@@ -507,9 +508,7 @@ async fn an_image_stays_within_the_rows_the_program_was_moved_past() {
         cell_height: 17.0,
         ..Size::new(40, 6)
     };
-    let pane = Pane::attach(&d, id, size, &Palette::default(), || {})
-        .await
-        .unwrap();
+    let pane = attach_as(&d, id, size, &Palette::default()).await;
     let text = until(&pane, |t| t.iter().any(|l| l == "after")).await;
     let after = text.iter().position(|l| l == "after").unwrap() as f32;
     let p = pane.pictures().into_iter().next().expect("no image drawn");
@@ -624,10 +623,7 @@ async fn a_program_started_in_a_pane_is_told_a_new_theme_once_it_changes() {
 #[tokio::test]
 async fn a_program_that_cannot_be_found_is_not_started() {
     let (d, _dir) = daemon().await;
-    let spawn = Spawn {
-        program: "/no/such/program".into(),
-        ..sh("")
-    };
+    let spawn = missing();
     let started = Pane::start(&d, spawn, Size::new(40, 6), &Palette::default(), |_| || {}).await;
     assert!(started.is_err());
     assert!(d.sessions().await.unwrap().is_empty());
@@ -660,11 +656,7 @@ async fn only_input_sent_to_the_program_updates_the_last_input_time() {
 async fn session_ownership_is_prepared_before_its_program_can_edit() {
     let (daemon, dir) = daemon().await;
     let marker = dir.path().join("released-after-ownership");
-    let mut spawn = sh("printf ready > \"$ADROIT_RELEASE_PROOF\"; sleep 5");
-    spawn.env.push((
-        "ADROIT_RELEASE_PROOF".into(),
-        marker.to_string_lossy().into_owned(),
-    ));
+    let spawn = proving("printf ready > \"$ADROIT_RELEASE_PROOF\"; sleep 5", &marker);
     let marker_check = marker.clone();
     let pane = Pane::start_prepared(
         &daemon,
@@ -696,11 +688,7 @@ async fn session_ownership_is_prepared_before_its_program_can_edit() {
 async fn refused_startup_preparation_never_releases_the_program_or_keeps_its_session() {
     let (daemon, dir) = daemon().await;
     let marker = dir.path().join("must-not-run");
-    let mut spawn = sh("printf bad > \"$ADROIT_RELEASE_PROOF\"; sleep 5");
-    spawn.env.push((
-        "ADROIT_RELEASE_PROOF".into(),
-        marker.to_string_lossy().into_owned(),
-    ));
+    let spawn = proving("printf bad > \"$ADROIT_RELEASE_PROOF\"; sleep 5", &marker);
     let result = Pane::start_prepared(
         &daemon,
         spawn,
@@ -725,9 +713,7 @@ async fn a_held_program_runs_once_released_and_is_told_the_theme_of_the_pane_att
         .await
         .unwrap();
     let palette = themed(adroit_term::Rgb::new(0x12, 0x34, 0x56));
-    let pane = Pane::attach(&d, id, Size::new(40, 6), &palette, || {})
-        .await
-        .unwrap();
+    let pane = attach_as(&d, id, Size::new(40, 6), &palette).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(
         pane.screen().text().iter().all(|l| !l.contains("rgb:")),
@@ -745,10 +731,7 @@ async fn a_held_program_runs_once_released_and_is_told_the_theme_of_the_pane_att
 #[tokio::test]
 async fn a_held_program_that_cannot_be_found_is_not_started() {
     let (d, _dir) = daemon().await;
-    let spawn = Spawn {
-        program: "/no/such/program".into(),
-        ..sh("")
-    };
+    let spawn = missing();
     assert!(d.spawn_held(spawn).await.is_err());
     assert!(d.sessions().await.unwrap().is_empty());
 }

@@ -16,6 +16,8 @@ mod past;
 mod pick;
 mod place;
 mod prompt;
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;
 mod tree;
 mod version;
 mod wire;

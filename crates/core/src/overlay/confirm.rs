@@ -67,11 +67,9 @@ mod tests {
 
     #[test]
     fn killing_an_overview_process_requires_a_confirmation_bound_to_its_session_and_identity() {
-        let session = Session {
-            id: "session-one".into(),
-            name: "work".into(),
-            ..Default::default()
-        };
+        let session = adroit_model::testing::session("session-one")
+            .name("work")
+            .build();
         let mut process = Process {
             pid: 123,
             started_secs: 456,

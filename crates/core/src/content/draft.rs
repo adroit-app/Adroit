@@ -53,24 +53,11 @@ mod tests {
     #[test]
     fn a_running_session_keeps_its_adapter_when_the_default_changes() {
         use crate::content::Tab;
-        use adroit_model::{Session, Tree, WorkspaceNode, Worktree, WorktreeNode};
-        let tree = Tree {
-            workspaces: vec![WorkspaceNode {
-                root: "/api".into(),
-                name: "api".into(),
-                git: false,
-                scratch: false,
-                worktrees: vec![WorktreeNode {
-                    worktree: Worktree::plain("/api"),
-                    terminals: vec![],
-                    sessions: vec![Session {
-                        id: "codex-session".into(),
-                        agent: Agent::Codex,
-                        ..Default::default()
-                    }],
-                }],
-            }],
-        };
+        use adroit_model::testing::{session, tree};
+        let tree = tree()
+            .found("/api", None)
+            .session(session("codex-session").cwd("/api").agent(Agent::Codex))
+            .build();
         assert_eq!(
             for_tab(
                 &tree,

@@ -31,6 +31,10 @@ test:
     trap 'rm -rf "$task_root"' EXIT
     XDG_STATE_HOME="$task_root/state" XDG_CONFIG_HOME="$task_root/config" XDG_DATA_HOME="$task_root/data" cargo test --workspace
 
+# Write the references in docs/spec/reference/ from the code.
+references:
+    cargo run -q -p adroit-core --example references
+
 # Everything CI runs.
 ci: fmt-check lint test
 

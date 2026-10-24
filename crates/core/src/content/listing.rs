@@ -158,24 +158,16 @@ pub(crate) fn listed(state: &mut ViewState) -> Vec<Effect> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
-    use adroit_model::{Session, State, Tree, Wait, build};
+    use adroit_model::{State, Tree, Wait};
 
     use super::*;
+    use crate::testing::session;
 
     fn tree(states: &[(&str, State)]) -> Tree {
-        let sessions: Vec<Session> = states
+        let sessions = states
             .iter()
-            .map(|(id, state)| Session {
-                id: id.to_string(),
-                name: format!("{id}-name"),
-                cwd: "/tmp".into(),
-                state: state.clone(),
-                ..Default::default()
-            })
-            .collect();
-        build(&sessions, &[], &HashMap::new(), &[], None)
+            .map(|(id, state)| session(id).cwd("/tmp").state(state.clone()));
+        adroit_model::testing::tree().sessions(sessions).build()
     }
 
     #[test]

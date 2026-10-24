@@ -153,20 +153,15 @@ fn set<T: PartialEq>(slot: &mut T, value: T) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use adroit_model::testing::session;
 
-    fn listed(names: &[&str]) -> TreeChange {
+    use super::*;
+    use crate::testing::listed;
+
+    /// The sessions `ids` listed anew.
+    fn listing(ids: &[&str]) -> TreeChange {
         TreeChange::Listed {
-            listed: Box::new(Listed {
-                sessions: names
-                    .iter()
-                    .map(|n| Session {
-                        id: (*n).into(),
-                        ..Default::default()
-                    })
-                    .collect(),
-                ..Default::default()
-            }),
+            listed: Box::new(listed().sessions(ids.iter().copied().map(session)).build()),
         }
     }
 
@@ -188,9 +183,9 @@ mod tests {
         let mut work = TreeWork::default();
         // (change, whether it changed the work)
         let cases = [
-            (listed(&["a"]), true),
-            (listed(&["a"]), false),
-            (listed(&[]), true),
+            (listing(&["a"]), true),
+            (listing(&["a"]), false),
+            (listing(&[]), true),
             (TreeChange::Failing { error: None }, false),
             (
                 TreeChange::Failing {
@@ -227,7 +222,7 @@ mod tests {
         let mut work = TreeWork::default();
         assert_eq!(work.tree(), &Tree::default());
         assert!(work.sessions().is_empty());
-        work.apply(listed(&["a", "b"]));
+        work.apply(listing(&["a", "b"]));
         let ids: Vec<_> = work.sessions().iter().map(|s| s.id.as_str()).collect();
         assert_eq!(ids, ["a", "b"]);
     }

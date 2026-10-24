@@ -4,6 +4,8 @@
 pub mod claude;
 mod codex;
 mod delivery;
+#[cfg(test)]
+mod testing;
 pub use delivery::{DeliveryFailure, DeliveryFuture};
 
 use adroit_model::Agent;
@@ -275,6 +277,7 @@ pub fn launch_with_settings(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::{recorded, screen};
     use adroit_model::Agent;
     #[test]
     fn images_are_prepared_for_the_receiving_agent_only_when_sent() {
@@ -402,7 +405,6 @@ mod tests {
     fn claude_startup_classification_requires_a_live_prompt_or_human_decision() {
         use adroit_model::StartupReadiness::*;
         let claude = adapter(Agent::Claude);
-        let screen = |text: &str| text.lines().map(str::to_owned).collect::<Vec<_>>();
         assert_eq!(
             claude.startup_readiness(&screen("Trust this project?\n1. Yes\n2. No")),
             Some(AwaitingTrust)
@@ -425,25 +427,16 @@ mod tests {
         );
     }
 
-    fn claude_screen(name: &str) -> Vec<String> {
-        let path = format!("{}/tests/screens/{name}.txt", env!("CARGO_MANIFEST_DIR"));
-        std::fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("{path}: {e}"))
-            .lines()
-            .map(String::from)
-            .collect()
-    }
-
     #[test]
     fn a_claude_dialog_open_at_startup_awaits_the_user_s_input() {
         use adroit_model::StartupReadiness::*;
         let claude = adapter(Agent::Claude);
         assert_eq!(
-            claude.startup_readiness(&claude_screen("dev-channels")),
+            claude.startup_readiness(&recorded("dev-channels")),
             Some(AwaitingInput)
         );
         assert_eq!(
-            claude.startup_readiness(&claude_screen("model")),
+            claude.startup_readiness(&recorded("model")),
             Some(AwaitingInput)
         );
     }
@@ -453,11 +446,11 @@ mod tests {
         use adroit_model::StartupReadiness::*;
         let claude = adapter(Agent::Claude);
         assert_eq!(
-            claude.startup_readiness(&claude_screen("working-named")),
+            claude.startup_readiness(&recorded("working-named")),
             Some(Ready)
         );
         assert_eq!(
-            claude.startup_readiness(&claude_screen("model-while-working-named")),
+            claude.startup_readiness(&recorded("model-while-working-named")),
             Some(AwaitingInput)
         );
     }
@@ -466,7 +459,7 @@ mod tests {
     fn claude_is_ready_once_the_development_channels_warning_is_confirmed() {
         let claude = adapter(Agent::Claude);
         assert_eq!(
-            claude.startup_readiness(&claude_screen("dev-channels-confirmed")),
+            claude.startup_readiness(&recorded("dev-channels-confirmed")),
             Some(adroit_model::StartupReadiness::Ready)
         );
     }

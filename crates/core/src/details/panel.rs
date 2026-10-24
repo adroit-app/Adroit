@@ -655,44 +655,27 @@ mod tests {
     use adroit_model::links::{Peer, Touch};
     use adroit_model::repository::{DiffKind, DiffLine, Listing as Read, Rev};
     use adroit_model::subagents::{Agent as Subagent, Standing};
+    use adroit_model::testing::session;
     use adroit_model::usage::{Limit, Severity, Window};
     use adroit_protocol::{
-        AgentsWork, Change, ContextRead, ConversationRead, DetailsChange, Event, Listed,
-        RepositoryRead, Request, TreeWork, WorkPatch,
+        AgentsWork, ContextRead, ConversationRead, DetailsChange, RepositoryRead, Request,
     };
 
     use super::*;
     use crate::msg::Msg;
     use crate::scenario::Scenario;
+    use crate::testing::{ListedBuilder, SnapshotBuilder, listed, patch, snapshot};
     use crate::tree::nav::Place;
 
-    fn session(id: &str) -> Session {
-        Session {
-            id: id.into(),
-            name: id.into(),
-            session_id: format!("{id}-conversation"),
-            ..Default::default()
-        }
-    }
-
-    /// The tree the host lists, holding every session these tests show.
-    fn listed() -> TreeWork {
-        let sessions: Vec<Session> = ["a", "b", "s1", "s2", "session-one", "session-two"]
-            .into_iter()
-            .map(|id| Session {
-                cwd: "/w".into(),
-                ..session(id)
-            })
-            .collect();
-        let tree = adroit_model::build(&sessions, &[], &Default::default(), &[], None);
-        TreeWork {
-            listed: Some(Box::new(Listed {
-                sessions,
-                terminals: Vec::new(),
-                tree,
-            })),
-            ..Default::default()
-        }
+    /// The sessions the host lists, every one these tests show, outside git
+    /// in `/w`.
+    fn listing() -> ListedBuilder {
+        let ids = ["a", "b", "s1", "s2", "session-one", "session-two"];
+        listed().outside_git().sessions(ids.map(|id| {
+            session(id)
+                .cwd("/w")
+                .session_id(format!("{id}-conversation"))
+        }))
     }
 
     /// The focused window showing the session `id`, or nothing once it closes,
@@ -733,20 +716,9 @@ mod tests {
         }
     }
 
-    fn snapshot(details: DetailsWork) -> Event {
-        Event::Snapshot(Box::new(WorkSnapshot {
-            seq: Seq(1),
-            details,
-            tree: listed(),
-            ..Default::default()
-        }))
-    }
-
-    fn patch(seq: u64, changes: Vec<DetailsChange>) -> Event {
-        Event::Patch(WorkPatch {
-            seq: Seq(seq),
-            changes: changes.into_iter().map(Change::Details).collect(),
-        })
+    /// The host's first word: the sessions listed, and what was read of them.
+    fn work(details: DetailsWork) -> SnapshotBuilder {
+        snapshot().listed(listing()).details(details)
     }
 
     fn read(id: &str, read: SessionRead) -> DetailsWork {
@@ -825,19 +797,16 @@ mod tests {
             revision: None,
         };
         let opened = Scenario::new()
-            .event(snapshot(DetailsWork::default()))
+            .event(work(DetailsWork::default()))
             .send_all([
                 shown(Some("a"), Some("/w")),
                 shown(None, Some("/w")),
                 Msg::DetailsSheet(Sheet::Log),
             ])
-            .event(patch(
-                2,
-                vec![DetailsChange::Repository {
-                    worktree: "/w".into(),
-                    read: log,
-                }],
-            ))
+            .event(patch(2).change(DetailsChange::Repository {
+                worktree: "/w".into(),
+                read: log,
+            }))
             .send(Msg::DetailsKey(Key::Open));
         assert_eq!(
             opened.state().details.drill.spot(),
@@ -904,7 +873,7 @@ mod tests {
         ];
         for (keys, want) in cases {
             let run = Scenario::new()
-                .event(snapshot(read("a", with_links(links.clone()))))
+                .event(work(read("a", with_links(links.clone()))))
                 .send(shown(Some("a"), None))
                 .send_all(keys.iter().copied().map(Msg::DetailsKey));
             assert_eq!(local(&run), want, "{keys:?}");
@@ -922,12 +891,12 @@ mod tests {
             ..Default::default()
         };
         let running = Scenario::new()
-            .event(snapshot(read("a", with_links(peers("b")))))
+            .event(work(read("a", with_links(peers("b")))))
             .send(shown(Some("a"), None))
             .send_all([Msg::DetailsKey(Key::Down), Msg::DetailsKey(Key::Open)]);
         assert_eq!(local(&running), [Effect::ShowSession("b".into())]);
         let gone = Scenario::new()
-            .event(snapshot(read("a", with_links(peers("gone")))))
+            .event(work(read("a", with_links(peers("gone")))))
             .send(shown(Some("a"), None))
             .send(Msg::DetailsClick(1));
         assert_eq!(local(&gone), [Effect::Notice("gone is not running".into())]);
@@ -945,7 +914,7 @@ mod tests {
             ..Default::default()
         };
         let run = Scenario::new()
-            .event(snapshot(read("a", with_links(links))))
+            .event(work(read("a", with_links(links))))
             .send(shown(Some("a"), None))
             .send_all([Msg::DetailsKey(Key::Down), Msg::DetailsKey(Key::Fold)]);
         let d = &run.state().details;
@@ -981,7 +950,7 @@ mod tests {
             .event(crate::config::testing::configured(
                 "[details]\nlinks_shown = 2\n",
             ))
-            .event(snapshot(read("a", with_links(links))))
+            .event(work(read("a", with_links(links))))
             .send(shown(Some("a"), None));
         // Rows: heading, two files, the row to show all.
         let all = run.send(Msg::DetailsClick(3));
@@ -1007,7 +976,7 @@ mod tests {
             ..Default::default()
         };
         let run = Scenario::new()
-            .event(snapshot(read("session-one", processes)))
+            .event(work(read("session-one", processes)))
             .send(shown(Some("session-one"), None));
         let Some(Listing::Links(entries)) = overview_of(&run) else {
             panic!("processes without transcript links")
@@ -1028,7 +997,7 @@ mod tests {
             ..Default::default()
         };
         let run = Scenario::new()
-            .event(snapshot(read("s1", with_links(links))))
+            .event(work(read("s1", with_links(links))))
             .send_all([
                 shown(Some("s1"), None),
                 told(Told {
@@ -1117,9 +1086,9 @@ mod tests {
             urls: vec![link(LinkKind::Url, "https://a.dev")],
             ..Default::default()
         };
-        let run = Scenario::new().event(snapshot(read("s1", with_links(links))));
+        let run = Scenario::new().event(work(read("s1", with_links(links))));
         assert!(overview_of(&run.send(shown(Some("s1"), None))).is_some());
-        let run = Scenario::new().event(snapshot(read(
+        let run = Scenario::new().event(work(read(
             "s1",
             with_links(Links {
                 urls: vec![link(LinkKind::Url, "https://a.dev")],
@@ -1127,7 +1096,7 @@ mod tests {
             }),
         )));
         assert!(overview_of(&run.send(shown(Some("s2"), None))).is_none());
-        let run = Scenario::new().event(snapshot(read("s1", SessionRead::default())));
+        let run = Scenario::new().event(work(read("s1", SessionRead::default())));
         assert!(overview_of(&run.send(shown(None, None))).is_none());
     }
 
@@ -1152,31 +1121,25 @@ mod tests {
             },
         };
         let opened = Scenario::new()
-            .event(snapshot(DetailsWork::default()))
+            .event(work(DetailsWork::default()))
             .send_all([
                 shown(Some("a"), Some("/w")),
                 shown(None, Some("/w")),
                 Msg::DetailsSheet(Sheet::Changes),
             ])
-            .event(patch(
-                2,
-                vec![DetailsChange::Repository {
-                    worktree: "/w".into(),
-                    read: files,
-                }],
-            ))
+            .event(patch(2).change(DetailsChange::Repository {
+                worktree: "/w".into(),
+                read: files,
+            }))
             .send(Msg::DetailsOpenRow(0));
         let diffing = Some(Spot::Diff(Rev::WorkingCopy, file.clone()));
         assert_eq!(opened.state().details.drill.spot(), diffing);
-        let changed = opened.event(patch(
-            3,
-            vec![diff(vec![DiffLine {
-                kind: DiffKind::Added,
-                text: "+x".into(),
-            }])],
-        ));
+        let changed = opened.event(patch(3).change(diff(vec![DiffLine {
+            kind: DiffKind::Added,
+            text: "+x".into(),
+        }])));
         assert_eq!(changed.state().details.drill.spot(), diffing);
-        let unchanged = changed.event(patch(4, vec![diff(vec![])]));
+        let unchanged = changed.event(patch(4).change(diff(vec![])));
         assert_eq!(
             unchanged.state().details.drill.spot(),
             Some(Spot::Files(Rev::WorkingCopy))
@@ -1202,20 +1165,17 @@ mod tests {
             ..Default::default()
         };
         let opened = Scenario::new()
-            .event(snapshot(read("a", with_links(links))))
+            .event(work(read("a", with_links(links))))
             .send(shown(Some("a"), None))
             .send_all([Msg::DetailsKey(Key::Down), Msg::DetailsKey(Key::Open)]);
         assert_eq!(opened.state().details.drill.agent(), Some("toolu_1"));
         assert!(opened_agent(&opened.state().details, opened.state().host.work.as_ref()).is_some());
         let scrolled = opened.send(Msg::DetailsKey(Key::Down));
         assert_eq!(local(&scrolled), [Effect::ScrollDetails(Scroll::Down)]);
-        let gone = scrolled.event(patch(
-            2,
-            vec![DetailsChange::Links {
-                session: "a".into(),
-                links: Links::default(),
-            }],
-        ));
+        let gone = scrolled.event(patch(2).change(DetailsChange::Links {
+            session: "a".into(),
+            links: Links::default(),
+        }));
         assert_eq!(gone.state().details.drill.agent(), None);
     }
 
@@ -1230,7 +1190,7 @@ mod tests {
             sent_ms: 0,
         };
         let opened = Scenario::new()
-            .event(snapshot(read(
+            .event(work(read(
                 "a",
                 SessionRead {
                     links: Some(Links::default()),
@@ -1297,7 +1257,7 @@ mod tests {
             ("a-conversation", "a-conversation", None, 1, true),
         ];
         for (read_id, asked_id, usage_of, count, context) in cases {
-            let mut work = read(
+            let mut details = read(
                 "a",
                 SessionRead {
                     conversation: Some(conversation(read_id)),
@@ -1305,15 +1265,12 @@ mod tests {
                     ..Default::default()
                 },
             );
-            work.usage.insert(Agent::Claude, limits.clone());
+            details.usage.insert(Agent::Claude, limits.clone());
             let run = Scenario::new()
-                .event(Event::Snapshot(Box::new(WorkSnapshot {
-                    seq: Seq(1),
-                    details: work,
-                    tree: listed(),
-                    agents: with_usage(Agent::Claude, usage_of.is_some()),
-                    ..Default::default()
-                })))
+                .event(
+                    work(details)
+                        .with(|w| w.agents = with_usage(Agent::Claude, usage_of.is_some())),
+                )
                 .send(shown(Some("a"), None));
             let got = usage(&run.state().details, run.state().host.work.as_ref(), 0);
             assert_eq!(

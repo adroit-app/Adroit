@@ -369,9 +369,8 @@ pub(crate) fn WaitingRow(waiting: InboxItem, on: RowEvents) -> Element {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
-    use adroit_model::{Session, TerminalProgram, build};
+    use adroit_model::TerminalProgram;
+    use adroit_model::testing::{session, tree};
 
     use super::*;
     use crate::shell::status_bar::mode_tip;
@@ -400,14 +399,13 @@ mod tests {
     fn sidebar_session_badges_identify_the_agent_even_when_names_match() {
         use adroit_model::Agent;
 
-        let sessions = [Agent::Claude, Agent::Codex].map(|agent| Session {
-            id: agent.key().into(),
-            agent,
-            name: "Review".into(),
-            cwd: "/project".into(),
-            ..Session::default()
+        let sessions = [Agent::Claude, Agent::Codex].map(|agent| {
+            session(agent.key())
+                .agent(agent)
+                .name("Review")
+                .cwd("/project")
         });
-        let tree = build(&sessions, &[], &HashMap::new(), &[], None);
+        let tree = tree().sessions(sessions).build();
         for (id, label) in [("claude", "Claude Code"), ("codex", "Codex")] {
             assert_eq!(row_badge(&tree, &Item::Session(id.into())), Some(label));
             assert_eq!(row_badge(&tree, &Item::Waiting(id.into())), Some(label));

@@ -54,13 +54,18 @@ pub async fn probe(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::{control_error, control_success, launching, program};
 
-    const ANSWER: &str = r#"{"type":"control_response","response":{"subtype":"success","request_id":"adroit","response":{"commands":[],"models":[{"value":"default","resolvedModel":"claude-opus-5-5","displayName":"Default (recommended)","description":"Opus 5.5"},{"value":"claude-sonnet-4-6","resolvedModel":"claude-sonnet-4-6","displayName":"Sonnet 4.6","description":"Efficient"},{"value":""},{"displayName":"no value"}]}}}"#;
+    fn answer() -> String {
+        control_success(
+            r#"{"commands":[],"models":[{"value":"default","resolvedModel":"claude-opus-5-5","displayName":"Default (recommended)","description":"Opus 5.5"},{"value":"claude-sonnet-4-6","resolvedModel":"claude-sonnet-4-6","displayName":"Sonnet 4.6","description":"Efficient"},{"value":""},{"displayName":"no value"}]}"#,
+        )
+    }
 
     #[test]
     fn the_answer_to_initialize_lists_the_models_with_what_they_resolve_to() {
         assert_eq!(
-            reply(ANSWER),
+            reply(&answer()),
             Some(Some(vec![
                 ProviderModel {
                     id: "default".into(),
@@ -80,10 +85,10 @@ mod tests {
 
     #[test]
     fn an_answer_without_models_or_an_error_lists_none() {
-        let without = r#"{"type":"control_response","response":{"subtype":"success","request_id":"adroit","response":{"commands":[]}}}"#;
-        assert_eq!(reply(without), Some(None));
-        let error = r#"{"type":"control_response","response":{"subtype":"error","request_id":"adroit","error":"nope"}}"#;
-        assert_eq!(reply(error), Some(None));
+        let without = control_success(r#"{"commands":[]}"#);
+        assert_eq!(reply(&without), Some(None));
+        let error = control_error("nope");
+        assert_eq!(reply(&error), Some(None));
     }
 
     #[test]
@@ -94,23 +99,13 @@ mod tests {
 
     #[tokio::test]
     async fn the_probe_reads_the_models_from_claude_code() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = tempfile::tempdir().unwrap();
-        let program = dir.path().join("claude");
-        std::fs::write(
-            &program,
-            format!("#!/bin/sh\nread line\necho '{ANSWER}'\nexec sleep 30\n"),
-        )
-        .unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let program = program.to_str().unwrap().to_string();
+        let answer = answer();
+        let (dir, claude) = program(
+            "claude",
+            &format!("read line\necho '{answer}'\nexec sleep 30"),
+        );
 
-        let got = probe(
-            |args| (program, args, Vec::new()),
-            dir.path(),
-            Duration::from_secs(5),
-        )
-        .await;
+        let got = probe(launching(&claude), dir.path(), Duration::from_secs(5)).await;
 
         assert_eq!(got.map(|m| m.len()), Some(2));
     }
@@ -119,17 +114,20 @@ mod tests {
     #[tokio::test]
     #[ignore = "needs Claude Code installed and logged in"]
     async fn claude_code_answers_with_the_models_it_accepts() {
-        let start = |args| ("claude".to_string(), args, Vec::new());
-        let got = probe(start, &std::env::temp_dir(), commands::PROBE_TIMEOUT)
-            .await
-            .expect("an answer");
+        let got = probe(
+            launching(Path::new("claude")),
+            &std::env::temp_dir(),
+            commands::PROBE_TIMEOUT,
+        )
+        .await
+        .expect("an answer");
         assert!(got.iter().any(|m| m.id == "opus"), "{got:?}");
     }
 
     #[tokio::test]
     async fn a_missing_program_lists_nothing() {
         let got = probe(
-            |args| ("/nonexistent/claude".to_string(), args, Vec::new()),
+            launching(Path::new("/nonexistent/claude")),
             Path::new("/"),
             Duration::from_secs(1),
         )

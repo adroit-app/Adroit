@@ -86,12 +86,17 @@ mod tests {
         .to_string()
     }
 
+    /// A prompt sent in `project` with nothing pasted.
+    fn prompt(display: &str, project: &str) -> String {
+        line(display, project, serde_json::json!({}))
+    }
+
     #[test]
     fn only_the_prompts_sent_in_the_project_are_recalled_oldest_first() {
         let text = [
-            line("first", "/p", serde_json::json!({})),
-            line("elsewhere", "/q", serde_json::json!({})),
-            line("second", "/p", serde_json::json!({})),
+            prompt("first", "/p"),
+            prompt("elsewhere", "/q"),
+            prompt("second", "/p"),
         ]
         .join("\n");
         assert_eq!(parse(&text, Path::new("/p")), ["first", "second"]);
@@ -154,12 +159,7 @@ mod tests {
 
     #[test]
     fn lines_that_are_not_prompts_are_passed_over() {
-        let text = [
-            "not json",
-            &line("", "/p", serde_json::json!({})),
-            &line("kept", "/p", serde_json::json!({})),
-        ]
-        .join("\n");
+        let text = ["not json", &prompt("", "/p"), &prompt("kept", "/p")].join("\n");
         assert_eq!(parse(&text, Path::new("/p")), ["kept"]);
     }
 }

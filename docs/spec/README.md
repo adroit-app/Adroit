@@ -58,3 +58,13 @@ Before committing, ask both questions of every line once more.
 A spec is rewritten in place, in the same change as the behaviour it
 describes. It never carries "to be updated" notes, and it does not say why —
 the reasons live in `docs/adr/`.
+
+## Generated references
+
+`reference/` holds what the code lists in full: every action with its default
+keys (`keys.md`) and every setting with its type and default (`settings.md`).
+They are written from the code by `just references`, and a test fails when the
+files checked in differ from what it writes. Change what they say in the code —
+an action's description in its row of `ACTIONS`, a setting's in its doc
+comment — and write them again; a spec links to them rather than repeating
+them.

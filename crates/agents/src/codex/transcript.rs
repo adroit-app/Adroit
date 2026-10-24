@@ -344,8 +344,8 @@ impl ConversationReader for Transcript {
 mod tests {
     use super::*;
     use crate::claude::links::{Kind, Touch};
+    use crate::testing::append;
     use serde_json::{Value, json};
-    use std::io::Write;
 
     fn record(kind: &str, payload: Value) -> String {
         format!(
@@ -362,14 +362,20 @@ mod tests {
         )
     }
 
+    /// A reader of `records`, written as a rollout in `dir`.
+    fn rollout(dir: &Path, records: &[String]) -> Transcript {
+        let path = dir.join("rollout.jsonl");
+        std::fs::write(&path, records.concat()).unwrap();
+        Transcript::new(path, dir, dir)
+    }
+
     #[test]
     fn replies_supply_artifacts_links_and_existing_files_but_instructions_do_not() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("rollout.jsonl");
         std::fs::write(dir.path().join("report.md"), "report").unwrap();
-        std::fs::write(
-            &path,
-            [
+        let mut reader = rollout(
+            dir.path(),
+            &[
                 message("developer", "https://instructions.example"),
                 record(
                     "response_item",
@@ -380,11 +386,8 @@ mod tests {
                     "assistant",
                     "[Report](report.md:3) https://docs.example https://claude.ai/artifact/example",
                 ),
-            ]
-            .concat(),
-        )
-        .unwrap();
-        let mut reader = Transcript::new(path, dir.path(), dir.path());
+            ],
+        );
         let links = reader.read();
         assert_eq!(links.artifacts.len(), 1);
         assert_eq!(
@@ -403,10 +406,9 @@ mod tests {
     #[test]
     fn completed_tools_supply_images_reads_and_edits_without_indexing_file_contents() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("rollout.jsonl");
-        std::fs::write(
-            &path,
-            [
+        let mut reader = rollout(
+            dir.path(),
+            &[
                 record(
                     "event_msg",
                     json!({"type":"exec_command_end", "exit_code":0,
@@ -440,11 +442,8 @@ mod tests {
                 "type":"FileChange", "status":"completed",
                 "changes":{"old.rs":{"type":"update", "move_path":"new.rs"}}}}),
                 ),
-            ]
-            .concat(),
-        )
-        .unwrap();
-        let mut reader = Transcript::new(path, dir.path(), dir.path());
+            ],
+        );
         let links = reader.read();
         assert!(links.urls.is_empty());
         assert_eq!(links.images.len(), 1);
@@ -484,20 +483,10 @@ mod tests {
         reader.read();
         assert_eq!(reader.stats().tokens.unwrap().total(), 12);
         let next = usage(20);
-        std::fs::OpenOptions::new()
-            .append(true)
-            .open(&path)
-            .unwrap()
-            .write_all(next.trim_end().as_bytes())
-            .unwrap();
+        append(&path, next.trim_end());
         reader.read();
         assert_eq!(reader.stats().tokens.unwrap().total(), 12);
-        std::fs::OpenOptions::new()
-            .append(true)
-            .open(&path)
-            .unwrap()
-            .write_all(b"\n")
-            .unwrap();
+        append(&path, "\n");
         reader.read();
         assert_eq!(reader.stats().tokens.unwrap().total(), 22);
         let replacement = dir.path().join("new.jsonl");
@@ -519,15 +508,10 @@ mod tests {
         let first = message("assistant", "https://first.example");
         std::fs::write(&path, first.trim_end()).unwrap();
         assert!(reader.read().is_empty());
-        let mut file = std::fs::OpenOptions::new()
-            .append(true)
-            .open(&path)
-            .unwrap();
-        writeln!(file).unwrap();
+        append(&path, "\n");
         assert_eq!(reader.read().urls.len(), 1);
         assert_eq!(reader.read().urls.len(), 1);
-        file.write_all(message("assistant", "https://second.example").as_bytes())
-            .unwrap();
+        append(&path, &message("assistant", "https://second.example"));
         assert_eq!(reader.read().urls[0].target, "https://second.example");
         let replacement = dir.path().join("replacement");
         std::fs::write(
@@ -595,10 +579,9 @@ mod tests {
     #[test]
     fn web_tool_links_are_collected_but_shell_commands_and_their_output_are_not() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("rollout.jsonl");
-        std::fs::write(
-            &path,
-            [
+        let mut reader = rollout(
+            dir.path(),
+            &[
                 record(
                     "response_item",
                     json!({"type":"function_call", "name":"web.run", "call_id":"web",
@@ -619,11 +602,8 @@ mod tests {
                     json!({"type":"function_call_output", "call_id":"shell",
                 "output":"https://file-content.example"}),
                 ),
-            ]
-            .concat(),
-        )
-        .unwrap();
-        let mut reader = Transcript::new(path, dir.path(), dir.path());
+            ],
+        );
         assert_eq!(
             reader
                 .read()
@@ -638,16 +618,26 @@ mod tests {
     #[test]
     fn current_image_and_hosted_search_events_supply_their_outputs() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("rollout.jsonl");
-        std::fs::write(&path, [
-            record("event_msg", json!({"type":"item_completed", "item":{
-                "type":"ImageView", "path":format!("file://{}/view.png", dir.path().display())}})),
-            record("event_msg", json!({"type":"item_completed", "item":{
-                "type":"ImageGeneration", "status":"completed", "saved_path":dir.path().join("made.png")}})),
-            record("event_msg", json!({"type":"item_completed", "item":{
-                "type":"WebSearch", "action":{"type":"open_page", "url":"https://opened.example"}}})),
-        ].concat()).unwrap();
-        let mut reader = Transcript::new(path, dir.path(), dir.path());
+        let mut reader = rollout(
+            dir.path(),
+            &[
+                record(
+                    "event_msg",
+                    json!({"type":"item_completed", "item":{
+                "type":"ImageView", "path":format!("file://{}/view.png", dir.path().display())}}),
+                ),
+                record(
+                    "event_msg",
+                    json!({"type":"item_completed", "item":{
+                "type":"ImageGeneration", "status":"completed", "saved_path":dir.path().join("made.png")}}),
+                ),
+                record(
+                    "event_msg",
+                    json!({"type":"item_completed", "item":{
+                "type":"WebSearch", "action":{"type":"open_page", "url":"https://opened.example"}}}),
+                ),
+            ],
+        );
         let links = reader.read();
         assert_eq!(links.images.len(), 2);
         assert_eq!(links.images[0].touch, Touch::Edited);

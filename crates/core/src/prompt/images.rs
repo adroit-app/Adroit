@@ -189,10 +189,7 @@ mod tests {
     fn attachments_written_with_nothing_open_follow_the_next_draft() {
         let mut images = Attachments::default();
         images.add(vec!["/one.png".into()]);
-        images.show(Some(Tab::Draft {
-            worktree: "/src".into(),
-            id: Default::default(),
-        }));
+        images.show(Some(Tab::draft("/src")));
         assert_eq!(images.current(), &[PathBuf::from("/one.png")]);
         assert!(images.saved().is_empty());
         images.close(Some(Tab::Session("old".into())));
@@ -202,10 +199,7 @@ mod tests {
 
     #[test]
     fn removing_all_images_leaves_a_draft_free_to_receive_the_empty_window_s_attachments() {
-        let draft = Some(Tab::Draft {
-            worktree: "/src".into(),
-            id: Default::default(),
-        });
+        let draft = Some(Tab::draft("/src"));
         let mut images = Attachments::default();
         images.show(draft.clone());
         images.add(vec!["/old.png".into()]);
