@@ -203,8 +203,21 @@ fn opencode() -> String {
     std::env::var("ADROIT_TEST_OPENCODE").unwrap_or_else(|_| "opencode".into())
 }
 
-/// Until `check` holds of how the session `id` stands, as its screen shows,
-/// and its screen, or what they were when it gave up.
+/// How the session `id` stands as OpenCode reports it.
+async fn reported(daemon: &Daemon, id: u128) -> Option<State> {
+    daemon
+        .sessions()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|s| s.id == id)
+        .and_then(|s| s.status)
+        .map(|s| State::reported(&s.state, s.kind.as_deref()))
+}
+
+/// Until `check` holds of how the session `id` stands and its screen, or what
+/// they were when it gave up. It stands as OpenCode reports, else as its
+/// screen shows, as adroit reads it.
 async fn until(
     daemon: &Daemon,
     id: u128,
@@ -213,7 +226,10 @@ async fn until(
     let mut last = (None, Vec::new());
     for _ in 0..1200 {
         let screen = daemon.visible(id).await.unwrap_or_default();
-        let state = adroit_agents::adapter(Agent::OpenCode).screen_state(&screen);
+        let state = match reported(daemon, id).await {
+            Some(state) => Some(state),
+            None => adroit_agents::adapter(Agent::OpenCode).screen_state(&screen),
+        };
         if check(state.clone(), &screen) {
             return (state, screen);
         }
@@ -280,6 +296,7 @@ async fn opencode_starts_replies_settles_idle_and_resumes_its_conversation() {
         .await
         .unwrap();
     until(&daemon, id, |state, _| state == Some(State::Working)).await;
+    assert_eq!(reported(&daemon, id).await, Some(State::Working));
     until(&daemon, id, |state, screen| {
         state == Some(State::Idle) && replies(screen) == 2
     })

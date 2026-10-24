@@ -1,6 +1,6 @@
-//! What OpenCode's screen says of it, which reports no status of its own:
-//! the prompt box it waits at, the hint to interrupt a turn running, and the
-//! permission it asks for in the prompt's place.
+//! What OpenCode's screen says of it while it reports no status: the prompt
+//! box it waits at, the hint to interrupt a turn running, and the permission
+//! it asks for in the prompt's place.
 
 use adroit_model::{StartupReadiness, State, Wait};
 
