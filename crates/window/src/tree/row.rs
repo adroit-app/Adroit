@@ -116,7 +116,7 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
             dir: *dir,
             back,
             shown: !*dir && shows_file(shows.as_ref(), terminals, path),
-            editing: false,
+            editing: nav::edited(&it, terminals),
         };
         let status = marks
             .and_then(|m| m.get(worktree))

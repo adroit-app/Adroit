@@ -88,6 +88,7 @@ mod tests {
                 agent: adroit_model::Agent::Codex,
                 dir: "/w".into(),
             }),
+            terminals: BTreeSet::from([u128::MAX, 7]),
         })));
         round_trips(Request::Relist);
         round_trips(Request::Typed {

@@ -660,6 +660,34 @@ fn the_host_reads_the_worktree_in_the_middle_while_it_is_there() {
 }
 
 #[test]
+fn the_host_is_told_the_terminals_any_window_shows_so_it_can_quit_those_none_shows() {
+    let watched = |run: &Scenario| {
+        run.effects()
+            .iter()
+            .rev()
+            .find_map(|e| match e {
+                Effect::Host(Request::Watch(sight)) => Some(sight.terminals.clone()),
+                _ => None,
+            })
+            .unwrap_or_default()
+    };
+    let terminal = |id| Msg::Show {
+        thing: Tab::Terminal(id),
+        place: place("/r"),
+        how: Some(Opening::Tab),
+    };
+    let run = Scenario::new()
+        .send(terminal(1))
+        .send(terminal(2))
+        .send(show(session_tab("a")));
+    assert_eq!(watched(&run), BTreeSet::from([1, 2]));
+    let closed = run
+        .send(Msg::Window(Action::TabPrev))
+        .send(Msg::Window(Action::TabClose));
+    assert_eq!(watched(&closed), BTreeSet::from([1]));
+}
+
+#[test]
 fn a_session_that_starts_waiting_is_not_told_of_when_the_settings_say_so() {
     let waits = session("a").cwd("/r").waiting(Wait::Permission);
     let run = Scenario::new()

@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use adroit_model::{TerminalProgram, TerminalResourceId, TerminalSession};
-use adroit_term::{Daemon, Input};
+use adroit_term::{Daemon, Input, Key};
 
 use crate::execution::{TerminalStartRequest, resolve_terminal, spawn_headless};
 use crate::sessions::{self, Kept};
@@ -52,6 +52,29 @@ pub async fn input(
         .input(terminal.id, input)
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Ask the Neovim the terminal `id` runs to quit as `:qa` does, which it
+/// refuses while a buffer holds an unsaved change. It is typed in, as the
+/// user would: Neovims started before adroit could listen to them have no
+/// socket of adroit's, and a configured command may start one that never
+/// does.
+pub async fn quit_neovim(daemon: &Daemon, id: u128) -> Result<(), String> {
+    daemon
+        .input(id, &quit_keys())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// `Ctrl+\ Ctrl+n` leaves whatever mode Neovim is in for Normal mode, and
+/// drops a command line half typed, before `:qa` is typed.
+fn quit_keys() -> Vec<Input> {
+    vec![
+        Input::Key(Key::new("\\").ctrl()),
+        Input::Key(Key::new("n").ctrl()),
+        Input::Text(":qa".into()),
+        Input::Key(Key::new("Enter")),
+    ]
 }
 
 pub async fn stop(daemon: &Daemon, resource: TerminalResourceId) -> Result<(), String> {

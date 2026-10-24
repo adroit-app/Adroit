@@ -3,6 +3,7 @@
 
 use adroit_protocol::{HostPath, Request, Sight};
 
+use crate::content::Tab;
 use crate::effect::Effect;
 use crate::state::ViewState;
 use crate::{chrome, config, console, content, details, overlay, picker, prompt, tree};
@@ -278,6 +279,16 @@ pub(crate) fn sight(state: &ViewState) -> Sight {
             .as_ref()
             .map(|p| HostPath::local(&p.worktree)),
         commands: prompt::commands_sight(state),
+        terminals: state
+            .content
+            .windows
+            .shown()
+            .into_iter()
+            .filter_map(|tab| match tab {
+                Tab::Terminal(id) => Some(*id),
+                _ => None,
+            })
+            .collect(),
         ..details::sight(&state.details)
     }
 }

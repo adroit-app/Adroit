@@ -60,7 +60,10 @@ viewer or in Neovim ([viewers](#viewers)).
 
 Closing a window or a tab only hides what it shows: sessions and terminals run
 on, and the tree still reaches them. A viewer ends with the last window
-showing it. A session not started yet that no window shows any longer is
+showing it. A Neovim started on a file is asked to quit, as `:qa` would
+quit it, once no window of the instance shows it any longer; closing adroit's window
+itself leaves it running. One holding an unsaved change refuses and runs on,
+and opening the file's row shows it again. A session not started yet that no window shows any longer is
 given up.
 
 A terminal whose program exits or a session that ends closes every window
@@ -84,8 +87,9 @@ with the environment a shell gets, and is listed among the shells under the
 name of its program unless given another. The Neovims of the prompt and the
 console's reader are part of the window, not terminals.
 
-Closing a terminal's windows hides it and leaves its program running; its row
-in the tree opens it again, and closing the window leaves it running too. Stop
+Closing a terminal's windows hides it and leaves its program running, save a
+Neovim started on a file ([closing](#closing)); its row in the tree opens it
+again, and closing the window leaves it running too. Stop
 Terminal (`terminal.stop`) ends the selected or shown terminal, as its program
 quitting does.
 
@@ -142,8 +146,8 @@ A file that means nothing as text is shown by a viewer of its kind, drawn by
 the window itself: images, movies, HTML pages and PDFs. Every other file,
 including one of a kind adroit does not know, opens in Neovim.
 
-A file is opened or looked at from the tree as any row is: in its viewer, or in a Neovim started on it in its worktree, listed
-under Editors. A file already open in a Neovim started on it opens that Neovim
+A file is opened or looked at from the tree as any row is: in its viewer, or in a Neovim started on it in its worktree, which the file's row stands
+for in the tree. A file already open in a Neovim started on it opens that Neovim
 again. A viewer ends with the windows showing it; it keeps its zoom, page and
 playback while the focus moves between windows.
 

@@ -1,11 +1,11 @@
 //! The work host: the work it holds, and how it answers the requests of
 //! each window that shows it.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use std::path::PathBuf;
 
-use adroit_model::{Agent, Session, TerminalSession};
+use adroit_model::{Agent, Session, TerminalProgram, TerminalSession};
 use adroit_protocol::{
     AgentFacts, AgentsWork, Change, ConfigWork, ConsoleWork, DetailsChange, DetailsWork, Event,
     PastChange, PastWork, PickChange, PickWork, PlaceChange, PlaceWork, PromptChange, PromptWork,
@@ -200,6 +200,10 @@ pub struct Host {
     /// start.
     jobs: mpsc::UnboundedSender<(WindowId, Request)>,
     queued: Option<mpsc::UnboundedReceiver<(WindowId, Request)>>,
+    /// The terminals of the Neovims to ask to quit, and where they wait
+    /// until the host's watchers start.
+    quit: mpsc::UnboundedSender<u128>,
+    quits: Option<mpsc::UnboundedReceiver<u128>>,
 }
 
 impl Default for Host {
@@ -213,6 +217,7 @@ impl Host {
         let (jobs, queued) = mpsc::unbounded_channel();
         let (history, histories) = mpsc::unbounded_channel();
         let (redrawn, redraws) = mpsc::unbounded_channel();
+        let (quit, quits) = mpsc::unbounded_channel();
         Self {
             work,
             windows: BTreeMap::new(),
@@ -227,6 +232,8 @@ impl Host {
             redraws: Some(redraws),
             jobs,
             queued: Some(queued),
+            quit,
+            quits: Some(quits),
         }
     }
 
@@ -274,6 +281,11 @@ impl Host {
     /// The screens windows draw anew, taken once by what looks at them.
     pub(crate) fn take_redraws(&mut self) -> Option<mpsc::UnboundedReceiver<Redrawn>> {
         self.redraws.take()
+    }
+
+    /// The terminals of the Neovims to ask to quit, once.
+    pub(crate) fn take_quits(&mut self) -> Option<mpsc::UnboundedReceiver<u128>> {
+        self.quits.take()
     }
 
     /// List the sessions again now, as after one was ended or renamed.
@@ -405,14 +417,41 @@ impl Host {
     /// `window` shows `sight` now: what it no longer shows is dropped from
     /// its work, and from the host's once no window shows it.
     fn watch(&mut self, window: WindowId, sight: Sight) -> Vec<Sent> {
+        let before = self.terminals_shown();
         let session = self.listed(sight.session.as_deref());
         let shown = self.shown(window);
         shown.seen = Seen { sight, session };
         let left = left(&shown.work, &[&shown.seen.sight]);
         let sent = self.patch_window(window, left).into_iter().collect();
+        self.quit_unshown(&before);
         self.publish();
         self.prune();
         sent
+    }
+
+    /// The terminals any window shows.
+    fn terminals_shown(&self) -> BTreeSet<u128> {
+        self.windows
+            .values()
+            .flat_map(|s| s.seen.sight.terminals.iter().copied())
+            .collect()
+    }
+
+    /// Ask each Neovim started on a file that a window of `before` showed,
+    /// and none shows now, to quit. Neither a window going nor a Neovim
+    /// started on no file ends one: the user ends those.
+    fn quit_unshown(&self, before: &BTreeSet<u128>) {
+        let now = self.terminals_shown();
+        let on_file =
+            |id: &u128| {
+                self.work.tree.terminals().iter().any(|t| {
+                    t.id == *id && t.program == TerminalProgram::Neovim && t.file.is_some()
+                })
+            };
+        for id in before.difference(&now).filter(|id| on_file(id)) {
+            // None takes it once the watchers are gone with the host.
+            let _ = self.quit.send(*id);
+        }
     }
 
     /// Tell the watchers what every window shows now.
@@ -906,6 +945,43 @@ mod tests {
             },
         );
         assert_eq!(redraws.try_recv().ok().map(|r| r.window), Some(A));
+    }
+
+    #[test]
+    fn a_neovim_on_a_file_no_window_shows_any_longer_is_asked_to_quit_and_nothing_else() {
+        let mut host = two_windows("a", "b");
+        let mut quits = host.take_quits().expect("taken once");
+        let on_file = TerminalSession {
+            program: TerminalProgram::Neovim,
+            file: Some("/w/a.rs".into()),
+            ..shell(7, "/w")
+        };
+        let on_nothing = TerminalSession {
+            program: TerminalProgram::Neovim,
+            ..shell(8, "/w")
+        };
+        for terminal in [on_file, on_nothing, shell(9, "/w")] {
+            host.handle(A, Request::TerminalOpened { terminal });
+        }
+        let showing = |ids: &[u128]| {
+            Request::Watch(Box::new(Sight {
+                terminals: ids.iter().copied().collect(),
+                ..Sight::default()
+            }))
+        };
+        host.handle(A, showing(&[7, 8, 9]));
+        host.handle(B, showing(&[7]));
+        host.handle(A, showing(&[]));
+        assert!(quits.try_recv().is_err(), "another window shows it");
+        host.handle(B, showing(&[]));
+        assert_eq!(quits.try_recv().ok(), Some(7));
+        assert!(quits.try_recv().is_err());
+        host.handle(A, showing(&[7]));
+        host.leave(A);
+        assert!(
+            quits.try_recv().is_err(),
+            "a window gone shows nothing it hid"
+        );
     }
 
     #[test]
