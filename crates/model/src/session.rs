@@ -150,6 +150,7 @@ impl State {
             "blocked" => State::Waiting(match kind {
                 Some("permission") => Wait::Permission,
                 Some("question") => Wait::Input,
+                Some("auth") => Wait::Other("a login".into()),
                 Some(other) => Wait::Other(other.to_string()),
                 None => Wait::Other("an answer".into()),
             }),
@@ -276,7 +277,7 @@ mod tests {
         );
         assert_eq!(
             State::reported("blocked", Some("auth")),
-            State::Waiting(Wait::Other("auth".into()))
+            State::Waiting(Wait::Other("a login".into()))
         );
         assert_eq!(State::reported("done", None), State::Done);
         assert_eq!(State::reported("error", None), State::Failed);
