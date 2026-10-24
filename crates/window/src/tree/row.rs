@@ -265,6 +265,11 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
         } if shows_file(shows.as_ref(), terminals, path) => format!("{kind} shown"),
         _ => kind.to_string(),
     };
+    let kind = if nav::edited(&it, terminals) {
+        format!("{kind} editing")
+    } else {
+        kind
+    };
     let target = Target::Row(it.clone());
     // Where a session can start, a button starts one there.
     let starts = matches!(it, Item::Workspace(_) | Item::Worktree(_));

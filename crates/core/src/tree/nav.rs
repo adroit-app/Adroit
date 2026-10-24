@@ -35,23 +35,16 @@ pub enum Heading {
     Files,
     Sessions,
     Shells,
-    Editors,
 }
 
 impl Heading {
-    pub const ALL: [Heading; 4] = [
-        Heading::Files,
-        Heading::Sessions,
-        Heading::Shells,
-        Heading::Editors,
-    ];
+    pub const ALL: [Heading; 3] = [Heading::Files, Heading::Sessions, Heading::Shells];
 
     pub fn name(self) -> &'static str {
         match self {
             Heading::Files => "Files",
             Heading::Sessions => "Sessions",
             Heading::Shells => "Shells",
-            Heading::Editors => "Editors",
         }
     }
 }
@@ -209,13 +202,12 @@ fn files_in(
     }
 }
 
-/// The heading a terminal running `program` is listed under: a command
-/// beside the shells, as it would run in one.
-fn listed_under(program: TerminalProgram) -> Heading {
-    match program {
-        TerminalProgram::Shell | TerminalProgram::Command => Heading::Shells,
-        TerminalProgram::Neovim => Heading::Editors,
-    }
+/// The heading `terminal` is listed under: every program run in a terminal
+/// beside the shells, save a Neovim started on a file, which the file's own
+/// row stands for.
+fn listed_under(terminal: &TerminalSession) -> Option<Heading> {
+    (terminal.program != TerminalProgram::Neovim || terminal.file.is_none())
+        .then_some(Heading::Shells)
 }
 
 /// What runs in a worktree, under one of its headings; Files holds no such
@@ -225,7 +217,7 @@ pub fn under(tree: &Tree, w: &WorktreeNode, heading: Heading) -> Vec<Item> {
     let runs = |heading| {
         w.terminals
             .iter()
-            .filter(move |t| listed_under(t.program) == heading)
+            .filter(move |t| listed_under(t) == Some(heading))
             .map(|t| Item::Terminal(t.id))
     };
     match heading {
@@ -237,7 +229,7 @@ pub fn under(tree: &Tree, w: &WorktreeNode, heading: Heading) -> Vec<Item> {
             }
             rows
         }
-        Heading::Shells | Heading::Editors => runs(heading).collect(),
+        Heading::Shells => runs(heading).collect(),
         Heading::Files => Vec::new(),
     }
 }
@@ -551,21 +543,27 @@ pub fn tab_after_closing(tree: &Tree, place: &Place, terminals: &[u128]) -> Opti
         .or_else(|| terminals.first().map(|&id| Tab::Terminal(id)))
 }
 
-/// The row in `list` for what a tab shows: the session's, the shell's or the
-/// viewed file's own row, or else the nearest row above it still shown, its
-/// heading, worktree or workspace. `None` when none is listed.
+/// The row in `list` for what a tab shows: the session's or the shell's own
+/// row, the file's a viewer or a Neovim started on it shows, or else the
+/// nearest row above it still shown, its heading, worktree or workspace.
+/// `None` when none is listed.
 pub fn row_of(list: &[Item], tree: &Tree, shown: Option<&Tab>, place: &Place) -> Option<Item> {
-    let mut rows: Vec<Item> = match shown {
-        Some(Tab::Session(id)) => vec![Item::Session(id.clone())],
-        Some(Tab::Terminal(id)) => vec![Item::Terminal(*id)],
-        Some(Tab::Viewer(path)) => vec![
+    let file = match shown {
+        Some(Tab::Viewer(path)) => Some(path.clone()),
+        Some(Tab::Terminal(id)) => tree.terminal(*id).and_then(|(_, _, t)| t.file.clone()),
+        _ => None,
+    };
+    let mut rows: Vec<Item> = match (shown, file) {
+        (_, Some(path)) => vec![
             Item::File {
                 worktree: place.worktree.clone(),
-                path: path.clone(),
+                path,
                 dir: false,
             },
             Item::Heading(place.worktree.clone(), Heading::Files),
         ],
+        (Some(Tab::Session(id)), None) => vec![Item::Session(id.clone())],
+        (Some(Tab::Terminal(id)), None) => vec![Item::Terminal(*id)],
         _ => Vec::new(),
     };
     rows.extend(heading_of(tree, shown));
@@ -588,10 +586,7 @@ fn heading_of(tree: &Tree, shown: Option<&Tab>) -> Option<Item> {
         }
         Tab::Terminal(id) => {
             let (_, w, t) = tree.terminal(*id)?;
-            Some(Item::Heading(
-                w.worktree.path.clone(),
-                listed_under(t.program),
-            ))
+            Some(Item::Heading(w.worktree.path.clone(), listed_under(t)?))
         }
         _ => None,
     }
@@ -749,6 +744,17 @@ pub fn stands_for(item: &Item, terminals: &[TerminalSession]) -> Vec<Tab> {
     }
 }
 
+/// Whether `item` is a file a Neovim started on it has open, whether or not
+/// a window shows that Neovim.
+pub fn edited(item: &Item, terminals: &[TerminalSession]) -> bool {
+    match item {
+        Item::File {
+            path, dir: false, ..
+        } => terminals.iter().any(|t| t.file.as_ref() == Some(path)),
+        _ => false,
+    }
+}
+
 /// What copying a row gives.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Copied {
@@ -824,23 +830,17 @@ mod tests {
         Item::Heading(path.into(), Heading::Shells)
     }
 
-    fn editors_of(path: &str) -> Item {
-        Item::Heading(path.into(), Heading::Editors)
-    }
-
     fn files_of(path: &str) -> Item {
         Item::Heading(path.into(), Heading::Files)
     }
 
     /// A worktree's headings with the rows under each, its files folded.
-    fn group(path: &str, sessions: &[Item], shells: &[Item], editors: &[Item]) -> Vec<Item> {
+    fn group(path: &str, sessions: &[Item], shells: &[Item]) -> Vec<Item> {
         [
             &[files_of(path), sessions_of(path)][..],
             sessions,
             &[shells_of(path)],
             shells,
-            &[editors_of(path)],
-            editors,
         ]
         .concat()
     }
@@ -946,13 +946,13 @@ mod tests {
         let got = rows(&t, &inbox(&t), &Folds::default());
         let expected = [
             vec![ws("/api"), worktree("/api")],
-            group("/api", &[session("a"), session("b")], &[], &[]),
+            group("/api", &[session("a"), session("b")], &[]),
             vec![worktree(OAUTH)],
-            group(OAUTH, &[session("o")], &[], &[]),
+            group(OAUTH, &[session("o")], &[]),
             vec![ws("/tmp")],
-            group("/tmp", &[session("z")], &[], &[]),
+            group("/tmp", &[session("z")], &[]),
             vec![ws("/web")],
-            group("/web", &[session("c")], &[], &[]),
+            group("/web", &[session("c")], &[]),
             vec![Item::Waiting("b".into()), Item::Waiting("z".into())],
         ]
         .concat();
@@ -987,16 +987,11 @@ mod tests {
             rows(&t, &[], &Folds::default()),
             [
                 vec![ws("/api"), worktree("/api")],
-                group(
-                    "/api",
-                    &[session("a"), session("o"), session("w")],
-                    &[],
-                    &[]
-                ),
+                group("/api", &[session("a"), session("o"), session("w")], &[]),
                 vec![worktree(OAUTH)],
-                group(OAUTH, &[], &[], &[]),
+                group(OAUTH, &[], &[]),
                 vec![ws("/web")],
-                group("/web", &[], &[], &[]),
+                group("/web", &[], &[]),
             ]
             .concat()
         );
@@ -1013,11 +1008,11 @@ mod tests {
             rows(&t, &[], &folds),
             [
                 vec![ws("/api"), worktree("/api")],
-                group("/api", &[session("a")], &[], &[]),
+                group("/api", &[session("a")], &[]),
                 vec![worktree(OAUTH)],
-                group(OAUTH, &[], &[], &[]),
+                group(OAUTH, &[], &[]),
                 vec![ws("/web")],
-                group("/web", &[], &[], &[]),
+                group("/web", &[], &[]),
             ]
             .concat()
         );
@@ -1047,9 +1042,9 @@ mod tests {
             rows(&t, &[], &Folds::default()),
             [
                 vec![ws("/api"), worktree(OAUTH)],
-                group(OAUTH, &[session("o")], &[], &[]),
+                group(OAUTH, &[session("o")], &[]),
                 vec![ws("/web")],
-                group("/web", &[session("w")], &[], &[]),
+                group("/web", &[session("w")], &[]),
             ]
             .concat()
         );
@@ -1118,7 +1113,7 @@ mod tests {
             list,
             [
                 vec![ws("/api"), worktree(OAUTH)],
-                group(OAUTH, &[session("o")], &[], &[])
+                group(OAUTH, &[session("o")], &[])
             ]
             .concat()
         );
@@ -1137,7 +1132,7 @@ mod tests {
         let web = rows(&narrowed(&t, "web"), &[], &Folds::default());
         assert_eq!(
             web,
-            [vec![ws("/web")], group("/web", &[session("c")], &[], &[])].concat()
+            [vec![ws("/web")], group("/web", &[session("c")], &[])].concat()
         );
     }
 
@@ -1450,17 +1445,17 @@ mod tests {
             got,
             [
                 vec![ws("/api"), worktree("/api")],
-                group("/api", &[session("a"), session("b")], &[shell(1)], &[]),
+                group("/api", &[session("a"), session("b")], &[shell(1)]),
                 vec![worktree(DEV)],
-                group(DEV, &[], &[shell(2), shell(3)], &[]),
+                group(DEV, &[], &[shell(2), shell(3)]),
                 vec![worktree(OAUTH)],
-                group(OAUTH, &[session("o")], &[], &[]),
+                group(OAUTH, &[session("o")], &[]),
                 vec![ws("/notes")],
-                group("/notes", &[], &[shell(5)], &[]),
+                group("/notes", &[], &[shell(5)]),
                 vec![ws("/tmp")],
-                group("/tmp", &[session("z")], &[shell(4)], &[]),
+                group("/tmp", &[session("z")], &[shell(4)]),
                 vec![ws("/web")],
-                group("/web", &[session("c")], &[], &[]),
+                group("/web", &[session("c")], &[]),
             ]
             .concat()
         );
@@ -1484,7 +1479,7 @@ mod tests {
         let list = rows(&narrowed(&t, "LOG"), &[], &Folds::default());
         assert_eq!(
             list,
-            [vec![ws("/notes")], group("/notes", &[], &[shell(5)], &[])].concat()
+            [vec![ws("/notes")], group("/notes", &[], &[shell(5)])].concat()
         );
         // A worktree named by the filter keeps every shell in it.
         let dev = rows(&narrowed(&t, "dev"), &[], &Folds::default());
@@ -1492,7 +1487,7 @@ mod tests {
             dev,
             [
                 vec![ws("/api"), worktree(DEV)],
-                group(DEV, &[], &[shell(2), shell(3)], &[])
+                group(DEV, &[], &[shell(2), shell(3)])
             ]
             .concat()
         );
@@ -1501,7 +1496,7 @@ mod tests {
             named,
             [
                 vec![ws("/api"), worktree(DEV)],
-                group(DEV, &[], &[shell(3)], &[])
+                group(DEV, &[], &[shell(3)])
             ]
             .concat()
         );
@@ -1555,16 +1550,41 @@ mod tests {
     }
 
     #[test]
-    fn neovim_sits_under_editors_apart_from_the_shells() {
+    fn a_neovim_on_no_file_sits_under_shells_and_one_on_a_file_has_no_row_of_its_own() {
         let mut nvim = sh(6, "nvim", DEV);
         nvim.program = TerminalProgram::Neovim;
-        let t = shelled().with_terminals(&[sh(2, "shell", DEV), nvim]);
+        let on_file = TerminalSession {
+            cwd: DEV.into(),
+            ..editing(7, &format!("{DEV}/a.rs"))
+        };
+        let t = shelled().with_terminals(&[sh(2, "shell", DEV), nvim, on_file]);
         let w = t.worktrees().find(|w| w.worktree.path == Path::new(DEV));
         let w = w.unwrap();
-        assert_eq!(under(&t, w, Heading::Shells), [shell(2)]);
-        assert_eq!(under(&t, w, Heading::Editors), [shell(6)]);
+        assert_eq!(under(&t, w, Heading::Shells), [shell(2), shell(6)]);
         let list = rows(&t, &[], &Folds::default());
-        assert_eq!(row_above(&list, &shell(6)), Some(editors_of(DEV)));
+        assert_eq!(row_above(&list, &shell(6)), Some(shell(2)));
+        assert!(!list.contains(&shell(7)));
+    }
+
+    #[test]
+    fn a_neovim_on_a_file_selects_the_file_s_row_or_while_folded_away_the_files_heading() {
+        let t = tree().with_terminals(&[TerminalSession {
+            cwd: "/web".into(),
+            ..editing(9, "/web/README.md")
+        }]);
+        let nvim = Tab::Terminal(9);
+        let folded = items(&t, &[], &Folds::default(), &read_web);
+        assert_eq!(
+            row_of(&folded, &t, Some(&nvim), &at("/web")),
+            Some(files_of("/web"))
+        );
+        let mut folds = Folds::default();
+        folds.toggle(&files_of("/web"));
+        let open = items(&t, &[], &folds, &read_web);
+        assert_eq!(
+            row_of(&open, &t, Some(&nvim), &at("/web")),
+            Some(file("/web", "/web/README.md", false))
+        );
     }
 
     #[test]
@@ -1575,7 +1595,6 @@ mod tests {
         let w = t.worktrees().find(|w| w.worktree.path == Path::new(DEV));
         let w = w.unwrap();
         assert_eq!(under(&t, w, Heading::Shells), [shell(2), shell(7)]);
-        assert_eq!(under(&t, w, Heading::Editors), []);
         let list = rows(&t, &[], &Folds::default());
         assert_eq!(row_above(&list, &shell(7)), Some(shell(2)));
     }
@@ -1583,7 +1602,7 @@ mod tests {
     #[test]
     fn folding_a_heading_hides_its_rows_and_leaves_the_other_headings() {
         let list = rows(&shelled(), &[], &closed(&[shells_of(DEV)]));
-        assert!(list.contains(&shells_of(DEV)) && list.contains(&editors_of(DEV)));
+        assert!(list.contains(&shells_of(DEV)) && list.contains(&sessions_of(DEV)));
         assert!(!list.contains(&shell(2)));
     }
 
@@ -1785,6 +1804,17 @@ mod tests {
         );
         assert_eq!(stands_for(&Item::Terminal(3), &nvim), [Tab::Terminal(3)]);
         assert!(stands_for(&worktree("/api"), &nvim).is_empty());
+    }
+
+    #[test]
+    fn a_file_is_edited_while_a_neovim_started_on_it_runs_and_not_for_one_started_elsewhere() {
+        let mut elsewhere = sh(3, "nvim", "/api");
+        elsewhere.program = TerminalProgram::Neovim;
+        let running = [editing(9, "/api/a.rs"), elsewhere];
+        assert!(edited(&file("/api", "/api/a.rs", false), &running));
+        assert!(!edited(&file("/api", "/api/b.rs", false), &running));
+        assert!(!edited(&file("/api", "/api", true), &running));
+        assert!(!edited(&Item::Terminal(9), &running));
     }
 
     #[test]

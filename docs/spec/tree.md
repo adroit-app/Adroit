@@ -21,9 +21,10 @@ own; a worktree where only shells or Neovim run is listed for them. A
 workspace where everything runs in its main checkout shows that checkout's
 contents straight under it, with no worktree row; one outside git always does.
 
-A worktree's files sit under its Files heading, and what runs in it under a
-heading for each kind: Sessions, Shells, and Editors for Neovim. A heading
-folds, and the row of one for what runs counts what it holds. Shells and Neovim never sit straight under a workspace: where a
+A worktree's files sit under its Files heading, and what runs in it under
+Sessions and Shells: Shells holds every program adroit runs in a terminal
+there, a Neovim marked as one, save a Neovim started on a file, which that
+file's row stands for. A heading folds, and the row of one for what runs counts what it holds. Shells and Neovim never sit straight under a workspace: where a
 workspace has no worktree row, the headings are its checkout's.
 
 Files starts folded. Unfolded, it lists the worktree's files as a file tree,
@@ -38,6 +39,8 @@ an added one in a jj workspace with `A`, and a directory holding one with a
 dot. The marks and the listing follow the disk within seconds.
 Opening a file shows it in a viewer or in Neovim, by its kind
 ([viewers](content.md#viewers)), and its row shows the tabs it is shown in.
+A file a Neovim started on it has open is drawn brighter than the other
+files, whether a window shows that Neovim or not.
 
 A row of a session, a shell or a Neovim shows the numbers of the content's tabs
 it is shown in, and the row of what the focused window shows stands out.

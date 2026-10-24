@@ -142,8 +142,8 @@ A file that means nothing as text is shown by a viewer of its kind, drawn by
 the window itself: images, movies, HTML pages and PDFs. Every other file,
 including one of a kind adroit does not know, opens in Neovim.
 
-A file is opened or looked at from the tree as any row is: in its viewer, or in a Neovim started on it in its worktree, listed
-under Editors. A file already open in a Neovim started on it opens that Neovim
+A file is opened or looked at from the tree as any row is: in its viewer, or in a Neovim started on it in its worktree, which the file's row stands
+for in the tree. A file already open in a Neovim started on it opens that Neovim
 again. A viewer ends with the windows showing it; it keeps its zoom, page and
 playback while the focus moves between windows.
 
