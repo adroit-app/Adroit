@@ -5,6 +5,7 @@ pub mod claude;
 mod codex;
 pub mod connection;
 mod delivery;
+pub mod login;
 #[cfg(test)]
 mod testing;
 pub use connection::conflict;
@@ -238,6 +239,16 @@ pub trait AgentAdapter: Sync {
     /// carry a login or to move the agent's state, or one of their families,
     /// even when a shell's startup files set it again.
     fn denies(&self, name: &str) -> bool;
+    /// What starts the CLI's own login, which the user goes through in a
+    /// terminal.
+    fn login_args(&self) -> Vec<String>;
+    /// What asks the CLI whether it is logged in, without logging in or out.
+    fn status_args(&self) -> Vec<String>;
+    /// Whether the CLI is logged in, as it answered [`AgentAdapter::status_args`]
+    /// with the exit status `code` and `out` on its output.
+    fn standing(&self, code: Option<i32>, _out: &str) -> adroit_model::profile::LoginStanding {
+        login::by_status(code)
+    }
     /// What a connection of its own starts the program with, ahead of
     /// adroit's arguments.
     fn connection_args(&self) -> Vec<String> {

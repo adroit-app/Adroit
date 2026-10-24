@@ -102,6 +102,23 @@ mod tests {
             terminal: shell(u128::MAX - 1, "/w"),
         });
         round_trips(Request::TerminalClosed { id: u128::MAX });
+        round_trips(Request::Ask {
+            asked: 9,
+            ask: Box::new(crate::Ask::LoginStanding {
+                connection: "work".parse().unwrap(),
+                profile: Some("claude-work".parse().unwrap()),
+                after: Some(u128::MAX),
+            }),
+        });
+        round_trips(Request::Ask {
+            asked: 10,
+            ask: Box::new(crate::Ask::OpenLogin {
+                connection: "claude".parse().unwrap(),
+                profile: None,
+                cols: 80,
+                rows: 24,
+            }),
+        });
         round_trips(Request::History {
             asked: 3,
             agent: adroit_model::Agent::Claude,

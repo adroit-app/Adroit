@@ -15,7 +15,7 @@ use adroit_protocol::{Answer, Ask, Event, Hello, Request, decode, encode};
 use serde::Deserialize;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
 use crate::watch::Watched;
 use crate::work::{Host, WindowId};
@@ -95,6 +95,8 @@ impl Served {
                 }
             }
         });
+        // Dropped once the connection hangs up, which ends what waits.
+        let (hung_up, _) = watch::channel(());
         let mut lines = BufReader::new(read).lines();
         while let Ok(Some(line)) = lines.next_line().await {
             if let Ok(Op::Stop) = serde_json::from_str(&line) {
@@ -108,8 +110,17 @@ impl Served {
             match request {
                 Request::Ask { asked, ask } => {
                     let (asks, out) = (self.asks.clone(), out.clone());
+                    let waits = ask.waits();
+                    let mut gone = hung_up.subscribe();
                     tokio::spawn(async move {
-                        let answer = asks(*ask).await;
+                        let answering = asks(*ask);
+                        let answer = match waits {
+                            true => tokio::select! {
+                                answer = answering => answer,
+                                _ = gone.changed() => return,
+                            },
+                            false => answering.await,
+                        };
                         let _ = out.send(encode(&Event::Answer { asked, answer }));
                     });
                 }
@@ -137,6 +148,7 @@ impl Served {
                 }
             }
         }
+        drop(hung_up);
         {
             let mut host = self.lock();
             self.windows().remove(&window);

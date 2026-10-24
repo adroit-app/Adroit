@@ -678,4 +678,39 @@ mod tests {
         other.ask(&Request::Snapshot).await;
         assert!(matches!(other.told().await, Event::Snapshot(_)));
     }
+
+    #[tokio::test]
+    async fn a_wait_is_given_up_once_the_one_that_asked_hangs_up() {
+        let (waiting, given_up) = tokio::sync::oneshot::channel::<()>();
+        let waiting = std::sync::Mutex::new(Some(waiting));
+        let served = Served::new(crate::work::Host::default(), move |_| {
+            let waiting = std::sync::Arc::new(waiting);
+            std::sync::Arc::new(move |_| {
+                // Dropped with the answer that never comes.
+                let held = waiting.lock().unwrap().take();
+                Box::pin(async move {
+                    let _held = held;
+                    std::future::pending::<Answer>().await
+                })
+            })
+        });
+        let (_dir, socket) = serving(served).await;
+        let mut asker = Peer::to(&socket).await;
+        asker
+            .ask(&Request::Ask {
+                asked: 1,
+                ask: Box::new(Ask::LoginStanding {
+                    connection: "claude".parse().unwrap(),
+                    profile: None,
+                    after: Some(7),
+                }),
+            })
+            .await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        drop(asker);
+        tokio::time::timeout(Duration::from_secs(5), given_up)
+            .await
+            .expect("the host went on waiting for one who hung up")
+            .unwrap_err();
+    }
 }

@@ -87,6 +87,26 @@ impl AgentAdapter for Claude {
     fn denies(&self, name: &str) -> bool {
         super::denies(name)
     }
+    fn login_args(&self) -> Vec<String> {
+        vec!["auth".into(), "login".into()]
+    }
+    // Not `claude doctor`, which makes keychain items of its own as it looks.
+    fn status_args(&self) -> Vec<String> {
+        vec!["auth".into(), "status".into(), "--json".into()]
+    }
+    fn standing(&self, code: Option<i32>, out: &str) -> adroit_model::profile::LoginStanding {
+        use adroit_model::profile::LoginStanding;
+        let said = out
+            .match_indices('{')
+            .find_map(|(at, _)| serde_json::from_str::<serde_json::Value>(out[at..].trim()).ok())
+            .and_then(|v| v.get("loggedIn").and_then(serde_json::Value::as_bool));
+        match (code, said) {
+            (Some(0), Some(true)) => LoginStanding::LoggedIn,
+            (Some(0 | 1), Some(false)) => LoginStanding::LoggedOut,
+            (Some(126 | 127), _) => LoginStanding::Missing,
+            _ => LoginStanding::Unknown,
+        }
+    }
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             command_probe: true,

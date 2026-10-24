@@ -24,6 +24,23 @@ pub(crate) mod wide {
     }
 }
 
+/// A 128-bit id, when there is one, as a decimal string.
+pub(crate) mod wide_opt {
+    use super::*;
+
+    pub(crate) fn serialize<S: Serializer>(id: &Option<u128>, out: S) -> Result<S::Ok, S::Error> {
+        id.map(|id| id.to_string()).serialize(out)
+    }
+
+    pub(crate) fn deserialize<'de, D: Deserializer<'de>>(
+        input: D,
+    ) -> Result<Option<u128>, D::Error> {
+        Option::<String>::deserialize(input)?
+            .map(|id| id.parse().map_err(D::Error::custom))
+            .transpose()
+    }
+}
+
 /// A map keyed by 128-bit ids, each key a decimal string.
 pub(crate) mod wide_keys {
     use super::*;

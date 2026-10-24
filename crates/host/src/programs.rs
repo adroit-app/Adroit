@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 
 use adroit_agents::AgentContext;
-use adroit_model::profile::{AgentProfile, ProfileId};
+use adroit_model::profile::{AgentProfile, ConnectionId, ProfileId};
 use adroit_model::{Agent, SessionId};
 
 use crate::settings::Settings;
@@ -100,6 +100,60 @@ pub fn connections(settings: &Settings) -> Vec<AgentContext> {
         }
     }
     out
+}
+
+/// The context the connection `id` is logged in and asked about in, as
+/// `settings` say: through `profile` when one is named, which has to run
+/// there, so the CLI is the one that profile starts; else through its
+/// agent's default profile when that runs there, else the first profile
+/// that does, archived or not, else adroit's own profile of the agent.
+pub fn for_connection(
+    settings: &Settings,
+    id: &ConnectionId,
+    profile: Option<&ProfileId>,
+) -> Result<AgentContext, String> {
+    if let Some(named) = profile {
+        let found = settings
+            .find_profile(named)
+            .ok_or_else(|| format!("profile `{named}` is not defined"))?;
+        if found.connection != *id {
+            return Err(format!(
+                "profile `{named}` runs in connection `{}`, not `{id}`",
+                found.connection
+            ));
+        }
+        return in_connection(settings, &found);
+    }
+    let agent = match id.implicit_agent() {
+        Some(agent) => agent,
+        None => {
+            settings
+                .connections
+                .iter()
+                .find(|c| &c.id == id)
+                .ok_or_else(|| format!("connection `{id}` is not defined"))?
+                .agent
+        }
+    };
+    let default = settings.profile_of(agent);
+    let profile = match default.connection == *id {
+        true => default.into_owned(),
+        false => {
+            let open = settings
+                .profiles
+                .iter()
+                .filter(|p| &p.connection == id && p.agent() == agent);
+            let (open, archived): (Vec<_>, Vec<_>) = open.partition(|p| !p.archived);
+            match open.into_iter().chain(archived).next() {
+                Some(p) => p.clone(),
+                None => AgentProfile {
+                    connection: id.clone(),
+                    ..AgentProfile::builtin(agent)
+                },
+            }
+        }
+    };
+    in_connection(settings, &profile)
 }
 
 /// The context `session` runs in, as it was started: from its record's
@@ -320,6 +374,55 @@ home = "/Users/me/claude-work"
                 ("codex-review".into(), "codex".into()),
                 ("claude".into(), "claude".into()),
             ]
+        );
+    }
+
+    #[test]
+    fn a_connection_is_asked_about_through_a_profile_that_runs_there() {
+        let s = settings();
+        let cid = |text: &str| text.parse::<ConnectionId>().unwrap();
+        let work = for_connection(&s, &cid("work"), None).unwrap();
+        assert_eq!(work.profile, id("claude-work"));
+        assert_eq!(work.home, Some("/Users/me/claude-work".into()));
+        let own = for_connection(&s, &cid("claude"), None).unwrap();
+        assert_eq!((own.profile, own.home), (id("claude"), None));
+        let codex = for_connection(&s, &cid("codex"), None).unwrap();
+        assert_eq!(codex.profile, id("codex-review"));
+        // A connection no profile runs in is asked as adroit's own profile.
+        let mut unused = settings();
+        unused.profiles.retain(|p| p.connection.as_str() != "work");
+        unused.profile = id("claude");
+        let alone = for_connection(&unused, &cid("work"), None).unwrap();
+        assert_eq!(alone.profile, id("claude"));
+        assert_eq!(alone.connection, cid("work"));
+        assert_eq!(alone.home, Some("/Users/me/claude-work".into()));
+        assert_eq!(
+            for_connection(&s, &cid("gone"), None).unwrap_err(),
+            "connection `gone` is not defined"
+        );
+    }
+
+    #[test]
+    fn a_connection_is_asked_about_through_the_profile_named_with_its_own_launch() {
+        let mut s = settings();
+        let mut copy = s.profiles[1].clone();
+        copy.id = id("claude-work-cli");
+        copy.launch.command = vec!["/opt/claude".into()];
+        copy.launch.via_shell = true;
+        s.profiles.push(copy);
+        let cid = |text: &str| text.parse::<ConnectionId>().unwrap();
+        let named = for_connection(&s, &cid("work"), Some(&id("claude-work-cli"))).unwrap();
+        assert_eq!(named.profile, id("claude-work-cli"));
+        assert_eq!(named.launch.command, ["/opt/claude"]);
+        assert!(named.launch.via_shell);
+        assert_eq!(named.home, Some("/Users/me/claude-work".into()));
+        assert_eq!(
+            for_connection(&s, &cid("claude"), Some(&id("claude-work-cli"))).unwrap_err(),
+            "profile `claude-work-cli` runs in connection `work`, not `claude`"
+        );
+        assert_eq!(
+            for_connection(&s, &cid("work"), Some(&id("gone"))).unwrap_err(),
+            "profile `gone` is not defined"
         );
     }
 

@@ -334,6 +334,30 @@ pub struct AgentConnection {
     pub archived: bool,
 }
 
+/// Whether a connection's CLI says it is logged in, as it answered when
+/// asked; adroit never takes a login for granted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LoginStanding {
+    LoggedIn,
+    LoggedOut,
+    /// The CLI answered in a way that tells neither.
+    Unknown,
+    /// The CLI is not installed where it is started from.
+    Missing,
+}
+
+impl LoginStanding {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::LoggedIn => "Logged in",
+            Self::LoggedOut => "Not logged in",
+            Self::Unknown => "Unknown",
+            Self::Missing => "CLI not found",
+        }
+    }
+}
+
 /// Whether `profiles` and `connections` hold together, with `default`
 /// naming the profile a session starts from when nothing else is named; why
 /// not otherwise.

@@ -6,8 +6,11 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use adroit_model::profile::{ConnectionId, ProfileId};
 use adroit_model::time::now_ms;
+use adroit_model::{TerminalProgram, TerminalResourceId, TerminalSession};
 use adroit_protocol::{Answer, Ask, ConfigFile, FileText, HostPath, SessionStart, TerminalStart};
+use adroit_term::Spawn;
 use tokio::sync::watch;
 
 use crate::delegation::app as delegation;
@@ -69,6 +72,22 @@ async fn answer(watched: &Watched, judged: &watch::Sender<Judged>, ask: Ask) -> 
         }
         Ask::Picture { path, whole } => Ok(picture(path, whole).await),
         Ask::Run { args, cwd, input } => Ok(run(&args, &cwd, input).await),
+        Ask::LoginStanding {
+            connection,
+            profile,
+            after,
+        } => {
+            if let Some(terminal) = after {
+                ended(terminal).await;
+            }
+            login_standing(&connection, profile.as_ref()).await
+        }
+        Ask::OpenLogin {
+            connection,
+            profile,
+            cols,
+            rows,
+        } => open_login(watched, &connection, profile.as_ref(), cols, rows).await,
     };
     answered.unwrap_or_else(|text| Answer::Failed { text })
 }
@@ -204,6 +223,83 @@ async fn start_terminal(watched: &Watched, start: TerminalStart) -> Result<Answe
     Ok(Answer::Terminal {
         terminal: resolved.terminal,
     })
+}
+
+/// Whether the connection `id` is logged in, as the CLI `profile` starts
+/// there says when asked in the user's home.
+async fn login_standing(id: &ConnectionId, profile: Option<&ProfileId>) -> Result<Answer, String> {
+    let context = programs::for_connection(&settings::current(), id, profile)?;
+    let standing = adroit_agents::login::standing(&context, &crate::paths::home()).await;
+    Ok(Answer::LoginStanding {
+        standing,
+        profile: context.profile,
+    })
+}
+
+/// Start a terminal, listed in the tree as any other, that runs the CLI's
+/// own login in the connection `id`, as `profile` starts it, in the user's
+/// home.
+async fn open_login(
+    watched: &Watched,
+    id: &ConnectionId,
+    profile: Option<&ProfileId>,
+    cols: u16,
+    rows: u16,
+) -> Result<Answer, String> {
+    let settings = settings::current();
+    let context = programs::for_connection(&settings, id, profile)?;
+    let (program, args, env) = adroit_agents::login::login(&context);
+    let cwd = crate::paths::home();
+    let terminal = TerminalSession {
+        resource_id: TerminalResourceId::new(),
+        id: 0,
+        name: format!(
+            "log in · {}",
+            adroit_core::profiles::connection_name(&settings, id)
+        ),
+        cwd: cwd.clone(),
+        program: TerminalProgram::Command,
+        file: None,
+        command: std::iter::once(program.clone())
+            .chain(args.clone())
+            .collect(),
+    };
+    let (cols, rows) = size(cols, rows);
+    let spawn = Spawn {
+        tags: sessions::terminal_tags(&terminal),
+        program,
+        args,
+        cwd,
+        env: daemon::terminal_env().into_iter().chain(env).collect(),
+        cols,
+        rows,
+    };
+    let id = daemon::daemon()
+        .spawn_held(spawn)
+        .await
+        .map_err(|e| e.to_string())?;
+    held::hold(id).await;
+    let terminal = TerminalSession { id, ..terminal };
+    watched.terminal_opened(terminal.clone());
+    Ok(Answer::Terminal { terminal })
+}
+
+/// Once the terminal `id` has ended: its program exited, or it is gone; or
+/// once a login left open has been waited for long enough. The terminal
+/// host tells no one when a program exits, so it is looked at until then.
+async fn ended(id: u128) {
+    const LONGEST: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+    let until = tokio::time::Instant::now() + LONGEST;
+    while tokio::time::Instant::now() < until {
+        let gone = match daemon::daemon().sessions().await {
+            Ok(sessions) => !sessions.iter().any(|s| s.id == id && !s.exited),
+            Err(_) => true,
+        };
+        if gone {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
 }
 
 fn size(cols: u16, rows: u16) -> (u16, u16) {

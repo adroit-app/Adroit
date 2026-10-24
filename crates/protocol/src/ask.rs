@@ -39,6 +39,26 @@ pub enum Ask {
     /// The image file at `path` as a `data:` URL: whole, or as the small copy
     /// a list draws.
     Picture { path: PathBuf, whole: bool },
+    /// Whether the connection `connection` is logged in, as its CLI says,
+    /// asked once the terminal `after`, when one is named, has ended. The
+    /// CLI is the one `profile` starts, when one is named, else the one a
+    /// profile that runs there starts.
+    LoginStanding {
+        connection: adroit_model::profile::ConnectionId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        profile: Option<adroit_model::profile::ProfileId>,
+        #[serde(default, with = "crate::wire::wide_opt")]
+        after: Option<u128>,
+    },
+    /// Start a terminal that runs the CLI's own login in the connection
+    /// `connection`, the CLI chosen as for [`Ask::LoginStanding`].
+    OpenLogin {
+        connection: adroit_model::profile::ConnectionId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        profile: Option<adroit_model::profile::ProfileId>,
+        cols: u16,
+        rows: u16,
+    },
     /// Run the command `adroit <args>` as run in `cwd`, with `input` on its
     /// standard input.
     Run {
@@ -101,6 +121,15 @@ pub enum TerminalHostStanding {
     Old { build: Option<String> },
 }
 
+impl Ask {
+    /// Whether answering it waits on something that may take as long as the
+    /// user likes, so the answer is worth nothing once the one who asked has
+    /// hung up; every other ask is answered whether or not it is waited for.
+    pub fn waits(&self) -> bool {
+        matches!(self, Self::LoginStanding { after: Some(_), .. })
+    }
+}
+
 /// What came of an ask.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -130,6 +159,12 @@ pub enum Answer {
         stdout: String,
         stderr: String,
         code: i32,
+    },
+    /// Whether a connection is logged in, as the CLI the profile `profile`
+    /// starts there said.
+    LoginStanding {
+        standing: adroit_model::profile::LoginStanding,
+        profile: adroit_model::profile::ProfileId,
     },
     /// What is written in the prompts, as kept.
     Drafts(Box<Drafts>),
