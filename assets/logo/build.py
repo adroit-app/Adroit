@@ -1,106 +1,47 @@
-"""Build flattened SVG files for the adroit crest (three bound arrows in a ring).
+"""Build flattened SVG files for the Adroit workbench mark.
 
 Every shape is merged with polygon boolean operations into a single path, so
 no renderer can show seams between abutting shapes or mask edges.
 """
 
+from io import BytesIO
 import os
 import sys
+
+import uharfbuzz as hb
 
 from fontTools.pens.boundsPen import BoundsPen
 from fontTools.pens.svgPathPen import SVGPathPen
 from fontTools.pens.transformPen import TransformPen
 from fontTools.ttLib import TTFont
+from fontTools.varLib.instancer import instantiateVariableFont
 from shapely import affinity
-from shapely.geometry import LineString, Point, Polygon, box
+from shapely.geometry import Polygon, box
 from shapely.ops import unary_union
 
-INK = "#1a1a1a"
-PAPER = "#f3eee2"
-SEG = 32
+INK = "#3b3d38"
+PAPER = "#f1ede2"
 
 
-def cubic(p0, p1, p2, p3, n=SEG):
-    pts = []
-    for i in range(1, n + 1):
-        t = i / n
-        u = 1 - t
-        x = u**3 * p0[0] + 3 * u * u * t * p1[0] + 3 * u * t * t * p2[0] + t**3 * p3[0]
-        y = u**3 * p0[1] + 3 * u * u * t * p1[1] + 3 * u * t * t * p2[1] + t**3 * p3[1]
-        pts.append((x, y))
-    return pts
-
-
-def mirror(poly):
-    return affinity.scale(poly, xfact=-1, yfact=1, origin=(0, 0))
-
-
-def rounded_rect(x, y, w, h, r):
-    return box(x + r, y + r, x + w - r, y + h - r).buffer(r, quad_segs=16)
-
-
-def annulus(cx, cy, r, width):
-    outer = Point(cx, cy).buffer(r + width / 2, quad_segs=96)
-    inner = Point(cx, cy).buffer(r - width / 2, quad_segs=96)
-    return outer.difference(inner)
-
-
-def detailed_arrow():
-    """Arrow pointing up in local units: barbed head, shaft and two plain vanes.
-
-    The vanes carry no stripes or nock: at logo sizes those details read as
-    spikes rather than feathers.
-    """
-    vane_r = Polygon(
-        [(0, 20)] + cubic((0, 20), (2.5, 22), (5.2, 25), (6.4, 30)) + [(6.9, 44), (0, 38)]
-    )
-    vanes = unary_union([vane_r, mirror(vane_r)])
-    shaft = Polygon(
-        [(0, -41), (6.8, -26.5), (1.9, -29.38), (1.9, 40), (-1.9, 40), (-1.9, -29.38), (-6.8, -26.5)]
-    )
-    return unary_union([vanes, shaft])
-
-
-def small_arrow():
-    """Thicker arrow for 32 px: no stripe, no nock."""
-    vane_r = Polygon(
-        [(0, 22)] + cubic((0, 22), (3, 24), (6.5, 27), (8, 32)) + [(8.6, 44), (0, 38)]
-    )
-    shaft = Polygon(
-        [(0, -43), (10.5, -23), (3.6, -25.63), (3.6, 44), (-3.6, 44), (-3.6, -25.63), (-10.5, -23)]
-    )
-    return unary_union([vane_r, mirror(vane_r), shaft])
-
-
-def tiny_arrow():
-    """Head and shaft only, for 16 px."""
-    return Polygon([(0, -44), (14, -20), (5, -20), (5, 40), (-5, 40), (-5, -20), (-14, -20)])
-
-
-def place(arrow, angle, scale, cx, cy, shift):
-    g = affinity.translate(arrow, 0, shift)
-    g = affinity.rotate(g, angle, origin=(0, 0))
-    g = affinity.scale(g, scale, scale, origin=(0, 0))
-    return affinity.translate(g, cx, cy)
-
-
-def crest(arrow, *, ring_r, ring_w, scale, angle, shift=-6, knock=None, band=None, band_gap=None):
-    cx, cy = 50, 52
-    center = place(arrow, 0, scale, cx, cy, shift)
-    sides = unary_union([
-        place(arrow, -angle, scale, cx, cy, shift),
-        place(arrow, angle, scale, cx, cy, shift),
+def workbench():
+    """An A-shaped frame and its shared work surface."""
+    frame = Polygon([
+        (12, 80), (12, 45), (44, 17), (56, 17), (88, 45),
+        (88, 80), (74, 80), (74, 51), (50, 30), (26, 51), (26, 80),
     ])
-    if knock:
-        sides = sides.difference(center.buffer(knock, quad_segs=8))
-    arrows = unary_union([sides, center])
-    parts = [annulus(50, 50, ring_r, ring_w)]
-    if band_gap:
-        arrows = arrows.difference(rounded_rect(*band_gap))
-    parts.append(arrows)
-    if band:
-        parts.append(rounded_rect(*band))
-    return unary_union(parts)
+    # A small corner radius echoes the lettering without changing the silhouette.
+    return unary_union([frame, box(34, 53, 66, 65)]).buffer(-1, quad_segs=4).buffer(1, quad_segs=4)
+
+
+def small_workbench(size):
+    """Align upright edges and the work surface to the small output grid."""
+    if size == 16:
+        frame = Polygon([(2, 13), (2, 7), (7, 3), (9, 3), (14, 7),
+                         (14, 13), (12, 13), (12, 8), (8, 5), (4, 8), (4, 13)])
+        return unary_union([frame, box(5, 8, 11, 10)])
+    frame = Polygon([(4, 26), (4, 14.5), (14, 5.5), (18, 5.5), (28, 14.5),
+                     (28, 26), (23.5, 26), (23.5, 16.5), (16, 9.75), (8.5, 16.5), (8.5, 26)])
+    return unary_union([frame, box(11, 17, 21, 21)])
 
 
 def geom_to_d(geom):
@@ -128,92 +69,109 @@ def path(d, fill):
 
 
 class Wordmark:
-    def __init__(self, font_path):
+    def __init__(self, font_path, weight=600):
         self.font = TTFont(font_path)
+        if "fvar" in self.font and any(axis.axisTag == "wght" for axis in self.font["fvar"].axes):
+            self.font = instantiateVariableFont(self.font, {"wght": weight}, inplace=True)
         self.glyphs = self.font.getGlyphSet()
-        self.cmap = self.font.getBestCmap()
         self.upm = self.font["head"].unitsPerEm
+        self.order = self.font.getGlyphOrder()
+        data = BytesIO()
+        self.font.save(data)
+        self.shaping_font = hb.Font(hb.Face(data.getvalue()))
+        self.shaping_font.scale = (self.upm, self.upm)
+        hb.ot_font_set_funcs(self.shaping_font)
 
     def layout(self, text, size, spacing_em):
         """Return (svg path d, width, ymin, ymax) with the baseline at y = 0."""
         sc = size / self.upm
-        pen = SVGPathPen(self.glyphs, ntos=lambda v: f"{v:.2f}")
+        buffer = hb.Buffer()
+        buffer.add_str(text)
+        buffer.guess_segment_properties()
+        hb.shape(self.shaping_font, buffer, {"kern": True, "liga": False})
         x = 0.0
-        ymin, ymax = 0.0, 0.0
-        for i, ch in enumerate(text):
-            name = self.cmap[ord(ch)]
+        placed = []
+        bounds = []
+        for info, position in zip(buffer.glyph_infos, buffer.glyph_positions):
+            name = self.order[info.codepoint]
             glyph = self.glyphs[name]
-            glyph.draw(TransformPen(pen, (sc, 0, 0, -sc, x, 0)))
+            px, py = x + position.x_offset*sc, -position.y_offset*sc
+            placed.append((glyph, px, py))
             bp = BoundsPen(self.glyphs)
             glyph.draw(bp)
             if bp.bounds:
-                ymin = min(ymin, -bp.bounds[3] * sc)
-                ymax = max(ymax, -bp.bounds[1] * sc)
-            x += glyph.width * sc
-            if i < len(text) - 1:
-                x += spacing_em * size
-        return pen.getCommands(), x, ymin, ymax
+                x0, y0, x1, y1 = bp.bounds
+                bounds.append((px+x0*sc, py-y1*sc, px+x1*sc, py-y0*sc))
+            x += position.x_advance*sc + spacing_em*size
+        xmin = min(b[0] for b in bounds)
+        xmax = max(b[2] for b in bounds)
+        ymin = min(b[1] for b in bounds)
+        ymax = max(b[3] for b in bounds)
+        pen = SVGPathPen(self.glyphs, ntos=lambda v: f"{v:.2f}")
+        for glyph, px, py in placed:
+            glyph.draw(TransformPen(pen, (sc, 0, 0, -sc, px-xmin, py)))
+        return pen.getCommands(), xmax-xmin, ymin, ymax
 
 
 def main(out_dir, font_path):
     os.makedirs(out_dir, exist_ok=True)
-    arrow = detailed_arrow()
-    mark = crest(
-        arrow, ring_r=44, ring_w=6, scale=0.76, angle=32,
-        knock=4.6 * 0.76 / 2,
-        band=(40, 49.25, 20, 5.5, 1), band_gap=(38.2, 47.45, 23.6, 9.1, 1.6),
-    )
+    mark = workbench()
     mark_d = geom_to_d(mark)
-    icon_mark = crest(
-        arrow, ring_r=37, ring_w=5, scale=0.62, angle=32,
-        knock=5 * 0.62 / 2,
-        band=(42, 49.55, 16, 4.5, 0.8), band_gap=(40.6, 48.15, 18.8, 7.3, 1.3),
-    )
-    small = crest(small_arrow(), ring_r=43, ring_w=9, scale=0.72, angle=32, knock=2.4)
-    tiny = crest(tiny_arrow(), ring_r=42, ring_w=12, scale=0.74, angle=28, shift=-2)
 
     files = {
-        "adroit-mark.svg": svg(100, 100, path(mark_d, INK), "adroit"),
-        "adroit-mark-light.svg": svg(100, 100, path(mark_d, PAPER), "adroit"),
+        "adroit-mark.svg": svg(100, 100, path(mark_d, INK), "Adroit"),
+        "adroit-mark-light.svg": svg(100, 100, path(mark_d, PAPER), "Adroit"),
         "adroit-icon.svg": svg(
             100, 100,
-            f'<rect width="100" height="100" rx="23" fill="{INK}"/>\n' + path(geom_to_d(icon_mark), PAPER),
-            "adroit",
+            f'<rect width="100" height="100" rx="23" fill="{INK}"/>\n' + path(mark_d, PAPER),
+            "Adroit",
         ),
-        "adroit-mark-32.svg": svg(100, 100, path(geom_to_d(small), INK), "adroit"),
-        "adroit-mark-16.svg": svg(100, 100, path(geom_to_d(tiny), INK), "adroit"),
     }
+    for size in (16, 32):
+        small_d = geom_to_d(small_workbench(size))
+        files[f"adroit-mark-{size}.svg"] = svg(size, size, path(small_d, INK), "Adroit")
+        files[f"adroit-mark-{size}-light.svg"] = svg(size, size, path(small_d, PAPER), "Adroit")
 
     wm = Wordmark(font_path)
 
-    # Horizontal lockup: proportions follow the canvas (crest 170, text 84, gap 28, tracking 0.12em).
-    size = 84 / 170 * 100
-    gap = 28 / 170 * 100
-    d, w, ymin, ymax = wm.layout("adroit", size, 0.12)
-    ty = 50 - (ymin + ymax) / 2
+    # Keep the lettering size and visible gap from the proportion studies.
+    size = 52
+    gap = 16
+    d, w, ymin, ymax = wm.layout("Adroit", size, 0)
+    horizontal_mark = affinity.scale(mark, .6, .6, origin=(0, 0))
+    x0, y0, x1, y1 = horizontal_mark.bounds
+    hh = max(y1-y0, ymax-ymin) + 16
+    ty = hh/2 - (ymin + ymax) / 2
+    horizontal_mark = affinity.translate(horizontal_mark, 12-x0, hh/2-(y0+y1)/2)
+    text_x = horizontal_mark.bounds[2] + gap
     body = lambda fill: (
-        path(mark_d, fill) + "\n"
-        + f'<path fill="{fill}" transform="translate({100 + gap:.2f} {ty:.2f})" d="{d}"/>'
+        path(geom_to_d(horizontal_mark), fill) + "\n"
+        + f'<path fill="{fill}" transform="translate({text_x:.2f} {ty:.2f})" d="{d}"/>'
     )
-    hw = 100 + gap + w
-    files["adroit-logo-horizontal.svg"] = svg(hw, 100, body(INK), "adroit")
-    files["adroit-logo-horizontal-light.svg"] = svg(hw, 100, body(PAPER), "adroit")
+    hw = text_x + w + 12
+    files["adroit-logo-horizontal.svg"] = svg(hw, hh, body(INK), "Adroit")
+    files["adroit-logo-horizontal-light.svg"] = svg(hw, hh, body(PAPER), "Adroit")
 
-    # Vertical lockup: crest 150, text 40, gap 20, tracking 0.24em.
-    size = 40 / 150 * 100
-    gap = 20 / 150 * 100
-    d, w, ymin, ymax = wm.layout("adroit", size, 0.24)
-    vw = max(100.0, w)
-    mx = (vw - 100) / 2
+    # Center the 130% mark in its own square, then separate the lettering below.
+    square = 130
+    gap = 10
+    _, unit_width, _, _ = wm.layout("Adroit", 1, 0.015)
+    size = square * .84 / unit_width
+    d, w, ymin, ymax = wm.layout("Adroit", size, 0.015)
+    vertical_mark = affinity.scale(mark, 1.3, 1.3, origin=(0, 0))
+    x0, y0, x1, y1 = vertical_mark.bounds
+    vertical_mark = affinity.translate(vertical_mark, square/2-(x0+x1)/2, square/2-(y0+y1)/2)
+    vw = max(square, w)
+    mx = (vw - square) / 2
     tx = (vw - w) / 2
-    ty = 100 + gap - ymin
-    vh = 100 + gap + (ymax - ymin)
+    ty = square + gap - ymin
+    vh = square + gap + (ymax - ymin) + 12
     body = lambda fill: (
-        f'<g transform="translate({mx:.2f} 0)">' + path(mark_d, fill) + "</g>\n"
+        f'<g transform="translate({mx:.2f} 0)">' + path(geom_to_d(vertical_mark), fill) + "</g>\n"
         + f'<path fill="{fill}" transform="translate({tx:.2f} {ty:.2f})" d="{d}"/>'
     )
-    files["adroit-logo-vertical.svg"] = svg(vw, vh, body(INK), "adroit")
-    files["adroit-logo-vertical-light.svg"] = svg(vw, vh, body(PAPER), "adroit")
+    files["adroit-logo-vertical.svg"] = svg(vw, vh, body(INK), "Adroit")
+    files["adroit-logo-vertical-light.svg"] = svg(vw, vh, body(PAPER), "Adroit")
 
     for name, content in files.items():
         with open(os.path.join(out_dir, name), "w") as f:
@@ -222,4 +180,5 @@ def main(out_dir, font_path):
 
 
 if __name__ == "__main__":
+    # The typeface lives in the brand's repository, not here, so it is named.
     main(sys.argv[1], sys.argv[2])
