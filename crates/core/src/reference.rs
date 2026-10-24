@@ -108,8 +108,20 @@ fn usage(spec: &ActionSpec) -> &'static str {
 /// table, with its type, its default and what it does, as the settings'
 /// schema and doc comments say.
 pub fn settings() -> String {
-    let schema = serde_json::to_value(schemars::schema_for!(Settings)).unwrap();
+    // The schema of the settings as adroit writes them: what it reads only
+    // from earlier files is left out.
+    let schema = serde_json::to_value(
+        schemars::generate::SchemaSettings::default()
+            .for_serialize()
+            .into_generator()
+            .into_root_schema_for::<Settings>(),
+    )
+    .unwrap();
     let defs = schema["$defs"].as_object().cloned().unwrap_or_default();
+    let written: toml::Table = toml::to_string(&Settings::default())
+        .unwrap()
+        .parse()
+        .unwrap();
     let mut out = String::new();
     writeln!(out, "# Settings reference\n\n{GENERATED}\n").unwrap();
     out.push_str(
@@ -118,21 +130,82 @@ pub fn settings() -> String {
          ([settings](../settings.md)).\n\n",
     );
     let properties = schema["properties"].as_object().unwrap();
-    let (tables, top): (Vec<_>, Vec<_>) = properties
+    let (nested, top): (Vec<_>, Vec<_>) = properties
         .iter()
-        .partition(|(_, field)| table(field, &defs).is_some());
+        .partition(|(_, field)| table(field, &defs).is_some() || entries(field, &defs).is_some());
     out.push_str("## The top level\n\n");
     rows(&mut out, "", top, &defs);
-    for (name, field) in tables {
-        let def = table(field, &defs).unwrap();
-        writeln!(out, "\n## `[{name}]`\n").unwrap();
-        if let Some(about) = description(field).or_else(|| description(def)) {
-            writeln!(out, "{about}\n").unwrap();
+    for (name, field) in nested {
+        if let Some(def) = table(field, &defs) {
+            section(
+                &mut out,
+                "##",
+                &format!("[{name}]"),
+                name,
+                field,
+                def,
+                &defs,
+            );
+            continue;
         }
-        let fields = def["properties"].as_object().unwrap().iter().collect();
-        rows(&mut out, &format!("{name}."), fields, &defs);
+        let def = entries(field, &defs).unwrap();
+        section(
+            &mut out,
+            "##",
+            &format!("[[{name}]]"),
+            name,
+            field,
+            def,
+            &defs,
+        );
+        if let Some(entries) = written
+            .get(name)
+            .filter(|e| e.as_array().is_some_and(|e| !e.is_empty()))
+        {
+            let file = toml::Table::from_iter([(name.clone(), entries.clone())]);
+            writeln!(
+                out,
+                "\nWhen the file holds none, it holds these, as adroit writes them:\n\n```toml\n{}```",
+                toml::to_string_pretty(&file).unwrap()
+            )
+            .unwrap();
+        }
     }
     out
+}
+
+/// A table's rows, then each table within it under a heading of its own.
+fn section(
+    out: &mut String,
+    level: &str,
+    heading: &str,
+    path: &str,
+    field: &Value,
+    def: &Value,
+    defs: &Map<String, Value>,
+) {
+    writeln!(out, "\n{level} `{heading}`\n").unwrap();
+    if let Some(about) = description(field).or_else(|| description(def)) {
+        writeln!(out, "{about}\n").unwrap();
+    }
+    let (inner, leaves): (Vec<_>, Vec<_>) = def["properties"]
+        .as_object()
+        .unwrap()
+        .iter()
+        .partition(|(_, f)| table(f, defs).is_some());
+    rows(out, &format!("{path}."), leaves, defs);
+    for (name, f) in inner {
+        let path = format!("{path}.{name}");
+        section(
+            out,
+            "###",
+            &format!("[{path}]"),
+            &path,
+            f,
+            table(f, defs).unwrap(),
+            defs,
+        );
+    }
 }
 
 fn rows(out: &mut String, prefix: &str, fields: Vec<(&String, &Value)>, defs: &Map<String, Value>) {
@@ -158,8 +231,13 @@ fn rows(out: &mut String, prefix: &str, fields: Vec<(&String, &Value)>, defs: &M
     }
 }
 
-/// The definition a field's `$ref` names, or the field itself.
+/// The definition a field's `$ref` names, through an optional one, or the
+/// field itself.
 fn resolve<'a>(field: &'a Value, defs: &'a Map<String, Value>) -> &'a Value {
+    let field = field["anyOf"]
+        .as_array()
+        .and_then(|any| any.iter().find(|f| f["type"] != "null"))
+        .unwrap_or(field);
     field["$ref"]
         .as_str()
         .and_then(|r| r.strip_prefix("#/$defs/"))
@@ -171,6 +249,14 @@ fn resolve<'a>(field: &'a Value, defs: &'a Map<String, Value>) -> &'a Value {
 fn table<'a>(field: &'a Value, defs: &'a Map<String, Value>) -> Option<&'a Value> {
     let def = resolve(field, defs);
     def.get("properties").is_some().then_some(def)
+}
+
+/// The definition of each entry of a field that is an array of tables.
+fn entries<'a>(field: &'a Value, defs: &'a Map<String, Value>) -> Option<&'a Value> {
+    let def = resolve(field, defs);
+    (def["type"] == "array")
+        .then(|| table(&def["items"], defs))
+        .flatten()
 }
 
 fn type_of(schema: &Value) -> String {
@@ -197,7 +283,9 @@ fn type_of(schema: &Value) -> String {
 /// A doc comment as one line.
 fn description(schema: &Value) -> Option<String> {
     let text = schema["description"].as_str()?;
-    Some(text.split_whitespace().collect::<Vec<_>>().join(" "))
+    Some(rebase_links(
+        &text.split_whitespace().collect::<Vec<_>>().join(" "),
+    ))
 }
 
 /// A value as `settings.toml` writes it.
@@ -282,23 +370,33 @@ mod tests {
             s.contains("| `zoom` | number | `1.0` | How large the window draws everything"),
             "{s}"
         );
+        assert!(s.contains("| `profile` | string | `\"claude\"` |"), "{s}");
         assert!(
-            s.contains("| `agent` | one of `claude`, `codex` | `\"claude\"` |"),
+            s.contains("| `profiles.agent` | one of `claude`, `codex` |  |"),
             "{s}"
         );
         assert!(
-            s.contains("| `claude.command` | array of strings | `[]` |"),
+            s.contains("| `profiles.launch.command` | array of strings | `[]` |"),
             "{s}"
         );
         assert!(
-            s.contains("| `claude.env` | table of strings | `{}` | Variables set for it. |"),
+            s.contains(
+                "| `profiles.launch.env` | table of strings | `{}` | Variables set for it. |"
+            ),
             "{s}"
         );
         assert!(
             s.contains("| `delegation.max_started` | integer | `4` |"),
             "{s}"
         );
-        assert!(s.contains("## `[claude]`\n\nHow Claude Code starts"), "{s}");
+        assert!(
+            s.contains("## `[[profiles]]`\n\nThe profiles sessions"),
+            "{s}"
+        );
+        assert!(
+            s.contains("### `[profiles.claude]`\n\nClaude Code's model"),
+            "{s}"
+        );
     }
 
     #[test]
@@ -315,22 +413,44 @@ mod tests {
             .unwrap()
             .parse()
             .unwrap();
-        let mut leaves = Vec::new();
-        for (name, value) in &written {
-            match value.as_table() {
-                Some(t) if name != "env" => {
-                    for (field, v) in t {
-                        leaves.push((format!("{name}.{field}"), v.clone()));
+        // An entry of an array of tables is no default of its fields, so only
+        // its fields are looked for.
+        fn leaves(prefix: &str, table: &toml::Table, out: &mut Vec<(String, Option<toml::Value>)>) {
+            for (name, value) in table {
+                let path = format!("{prefix}{name}");
+                match value {
+                    toml::Value::Table(t) if name != "env" => leaves(&format!("{path}."), t, out),
+                    toml::Value::Array(entries)
+                        if entries.iter().all(toml::Value::is_table) && !entries.is_empty() =>
+                    {
+                        let mut fields = Vec::new();
+                        for entry in entries {
+                            leaves(&format!("{path}."), entry.as_table().unwrap(), &mut fields);
+                        }
+                        out.extend(fields.into_iter().map(|(name, _)| (name, None)));
                     }
+                    _ => out.push((path, Some(value.clone()))),
                 }
-                _ => leaves.push((name.clone(), value.clone())),
             }
         }
-        for (name, value) in leaves {
+        let mut found = Vec::new();
+        leaves("", &written, &mut found);
+        for (name, value) in found {
+            // An array of tables written empty is a heading of its own.
+            if value
+                .as_ref()
+                .and_then(toml::Value::as_array)
+                .is_some_and(Vec::is_empty)
+                && reference.contains(&format!("\n## `[[{name}]]`\n"))
+            {
+                continue;
+            }
             let row = format!("| `{name}` |");
             let line = reference.lines().find(|l| l.starts_with(&row));
             let line = line.unwrap_or_else(|| panic!("{name} is not in the reference"));
-            assert!(line.contains(&format!("| `{value}` |")), "{line}");
+            if let Some(value) = value {
+                assert!(line.contains(&format!("| `{value}` |")), "{line}");
+            }
         }
     }
 

@@ -334,7 +334,7 @@ async fn start(context: &Context, caller: &Session, start: protocol::Start) -> R
     }
     let agent = {
         let models = context.models.lock().expect("the models' lock");
-        let agent = start.agent.unwrap_or(settings.agent);
+        let agent = start.agent.unwrap_or(settings.default_agent());
         models
             .check(Some(agent), start.model.as_deref())
             .map_err(|error| Error::new(Code::Invalid, error))?;
@@ -484,7 +484,7 @@ async fn watch_models(context: Context) {
             .models
             .lock()
             .expect("the models' lock")
-            .set_default_agent(settings.agent);
+            .set_default_agent(settings.default_agent());
         let now = tokio::time::Instant::now();
         for agent in Agent::ALL {
             if next.get(&agent).is_none_or(|at| now >= *at) {
@@ -599,7 +599,12 @@ impl Watcher {
         let allowed = context
             .call(move |store| store.launch(id))
             .await?
-            .is_some_and(|launch| launch.sessions.confirm_channel_warning);
+            .is_some_and(|launch| {
+                launch
+                    .profile_of(Agent::Claude)
+                    .claude()
+                    .is_some_and(|options| options.confirm_channel_warning)
+            });
         if let Some(keys) = channel_warning_keys(record.agent, allowed, answered, screen) {
             // Tagged before pressing: a lost reply must not lead to a second press.
             context

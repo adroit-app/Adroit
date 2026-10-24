@@ -172,8 +172,16 @@ pub fn resolve(
     request: StartRequest,
     adroit_program: &Path,
 ) -> Result<ResolvedLaunch, String> {
-    let (settings, target) = configured(settings, &request)?;
-    let agent_settings = crate::programs::agents_of(&settings);
+    let profile = settings.profile_of(request.agent);
+    if profile.connection.implicit_agent().is_none() {
+        // Started without its state directory, the agent would run as the
+        // CLI's own login rather than the connection's.
+        return Err(format!(
+            "profile `{}` runs in connection `{}`, which adroit does not start sessions in",
+            profile.id, profile.connection
+        ));
+    }
+    let (agent_settings, target) = configured(settings, &request)?;
     let adapter = agents::adapter(request.agent);
     let conversation = request
         .resume
@@ -252,8 +260,8 @@ pub fn resolve(
 fn configured(
     settings: &Settings,
     request: &StartRequest,
-) -> Result<(Settings, adroit_model::TargetSelection), String> {
-    let mut settings = settings.clone();
+) -> Result<(adroit_agents::AgentSettings, adroit_model::TargetSelection), String> {
+    let mut settings = crate::programs::agents_of(settings);
     match (&request.permissions, request.agent) {
         (AgentPermissions::Default, _) => {}
         (AgentPermissions::ReadOnly, Agent::Codex) => {

@@ -1,14 +1,19 @@
 //! The window's settings as `settings.toml` writes them: what each one is,
 //! what it is when the file does not say, and what is brought within reason.
 
+use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 pub use adroit_protocol::ThemeKind;
 
+pub use adroit_model::Agent;
 pub use adroit_model::config::CodexOptions;
 pub use adroit_model::config::{Launch, SessionOptions, ShellLaunch};
+pub use adroit_model::profile::{
+    AgentConnection, AgentOptions, AgentProfile, ConnectionId, ProfileId,
+};
 
 /// Which Option keys count as Alt, sending Meta, in a console; the others type
 /// what macOS makes of the key with Option, as `Option-2` typing `™`.
@@ -131,25 +136,28 @@ pub struct ConsoleSettings {
     pub cursor_blink: bool,
 }
 
+// Read through `SettingsFile`, so a file and a launch the work host kept
+// are read, and checked, the one way; `default` stays for the reference,
+// which takes each setting's default from it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default, try_from = "SettingsFile")]
 pub struct Settings {
-    /// The agent a new session starts with, `claude` or `codex`; a session not
-    /// started yet can be switched to another for the current run of the window.
-    pub agent: adroit_model::Agent,
-    /// How Codex starts, independently of Claude Code; an empty command runs
-    /// `codex`.
-    pub codex: Launch,
-    /// Codex's model and reasoning effort, approval policy and sandbox; empty
-    /// values leave Codex's own settings in effect.
-    pub codex_sessions: CodexOptions,
+    /// The profile a new session starts from, by id, when it names neither a
+    /// profile nor an agent; left out, the first profile not archived. A
+    /// session not started yet can be switched to another agent for the
+    /// current run of the window.
+    pub profile: ProfileId,
+    /// The profiles sessions start from, each `[[profiles]]` table one of them
+    /// ([settings](settings.md#profiles-and-connections)). An agent's default
+    /// profile is the default profile when that starts the agent, else the
+    /// agent's first profile not archived.
+    pub profiles: Vec<AgentProfile>,
+    /// The state directories profiles can run their agent's CLI in, each
+    /// `[[connections]]` table one of them; every agent also runs in its own
+    /// environment, which needs none.
+    pub connections: Vec<AgentConnection>,
     /// How sessions started by sessions run.
     pub delegation: DelegationSettings,
-    /// What files written before sessions could start sessions hold here;
-    /// read so they still load, never written.
-    #[serde(skip_serializing)]
-    #[schemars(skip)]
-    pub orchestration: Retired,
     /// How large the window draws everything when it opens, from 0.67 to 1.75.
     /// Command 0 comes back to it.
     pub zoom: f64,
@@ -191,15 +199,9 @@ pub struct Settings {
     pub notify_waiting: bool,
     /// How a shell tab's shell starts.
     pub shell: ShellLaunch,
-    /// How Claude Code starts for every session adroit runs; an empty command
-    /// runs `claude`.
-    pub claude: Launch,
-    /// How a Neovim tab's Neovim starts, as Claude Code does; an empty command
+    /// How a Neovim tab's Neovim starts, as an agent does; an empty command
     /// runs `nvim`.
     pub neovim: Launch,
-    /// How Claude Code sessions run; what is left empty is Claude Code's own
-    /// choice.
-    pub sessions: SessionOptions,
     /// Where scratch sessions run, `~` standing for your home folder; empty for
     /// adroit's own folder.
     pub scratch_dir: String,
@@ -211,6 +213,168 @@ pub struct Settings {
     pub details: DetailsSettings,
     /// Machine resources shown in Usage across all tabs.
     pub usage: UsageSettings,
+}
+
+/// `settings.toml` as it is read: the settings, and what files written
+/// before profiles hold in their place.
+// Its schema is never written: the reference describes the settings as they
+// are written, which is `Settings`.
+#[derive(Deserialize, schemars::JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+struct SettingsFile {
+    profile: Option<ProfileId>,
+    profiles: Option<Vec<AgentProfile>>,
+    connections: Vec<AgentConnection>,
+    agent: Option<Agent>,
+    claude: Option<Launch>,
+    sessions: Option<SessionOptions>,
+    codex: Option<Launch>,
+    codex_sessions: Option<CodexOptions>,
+    delegation: DelegationSettings,
+    #[schemars(skip)]
+    orchestration: Retired,
+    zoom: f64,
+    prompt_min_rows: usize,
+    prompt_max_rows: usize,
+    font_family: String,
+    font_size: f64,
+    font_weight: u16,
+    appearance: Appearance,
+    light_theme: String,
+    dark_theme: String,
+    theme: Option<String>,
+    keep_awake: bool,
+    notify_waiting: bool,
+    shell: ShellLaunch,
+    neovim: Launch,
+    scratch_dir: String,
+    picker: PickerSettings,
+    console: ConsoleSettings,
+    details: DetailsSettings,
+    usage: UsageSettings,
+}
+
+impl Default for SettingsFile {
+    fn default() -> Self {
+        let s = Settings::default();
+        Self {
+            profile: None,
+            profiles: None,
+            connections: s.connections,
+            agent: None,
+            claude: None,
+            sessions: None,
+            codex: None,
+            codex_sessions: None,
+            delegation: s.delegation,
+            orchestration: Retired,
+            zoom: s.zoom,
+            prompt_min_rows: s.prompt_min_rows,
+            prompt_max_rows: s.prompt_max_rows,
+            font_family: s.font_family,
+            font_size: s.font_size,
+            font_weight: s.font_weight,
+            appearance: s.appearance,
+            light_theme: s.light_theme,
+            dark_theme: s.dark_theme,
+            theme: s.theme,
+            keep_awake: s.keep_awake,
+            notify_waiting: s.notify_waiting,
+            shell: s.shell,
+            neovim: s.neovim,
+            scratch_dir: s.scratch_dir,
+            picker: s.picker,
+            console: s.console,
+            details: s.details,
+            usage: s.usage,
+        }
+    }
+}
+
+impl TryFrom<SettingsFile> for Settings {
+    type Error = String;
+
+    fn try_from(file: SettingsFile) -> Result<Self, Self::Error> {
+        let earlier: Vec<&str> = [
+            ("agent", file.agent.is_some()),
+            ("claude", file.claude.is_some()),
+            ("sessions", file.sessions.is_some()),
+            ("codex", file.codex.is_some()),
+            ("codex_sessions", file.codex_sessions.is_some()),
+        ]
+        .into_iter()
+        .filter_map(|(key, named)| named.then_some(key))
+        .collect();
+        let mixed = |profile_key: &str| {
+            let keys: Vec<String> = earlier.iter().map(|k| format!("`{k}`")).collect();
+            format!(
+                "`{profile_key}` cannot be named beside {}, which only settings written before profiles hold; move what they say into a profile",
+                keys.join(", ")
+            )
+        };
+        let (profile, profiles) = match file.profiles {
+            Some(_) if !earlier.is_empty() => return Err(mixed("profiles")),
+            Some(profiles) => {
+                let profile = match file.profile {
+                    Some(profile) => profile,
+                    None => profiles
+                        .iter()
+                        .find(|p| !p.archived)
+                        .map(|p| p.id.clone())
+                        .ok_or("the settings hold no profile that is not archived")?,
+                };
+                (profile, profiles)
+            }
+            None if file.profile.is_some() && !earlier.is_empty() => {
+                return Err(mixed("profile"));
+            }
+            None if !file.connections.is_empty() && !earlier.is_empty() => {
+                return Err(mixed("connections"));
+            }
+            None => {
+                let claude = AgentProfile {
+                    launch: file.claude.unwrap_or_default(),
+                    options: AgentOptions::Claude(file.sessions.unwrap_or_default()),
+                    ..AgentProfile::builtin(Agent::Claude)
+                };
+                let codex = AgentProfile {
+                    launch: file.codex.unwrap_or_default(),
+                    options: AgentOptions::Codex(file.codex_sessions.unwrap_or_default()),
+                    ..AgentProfile::builtin(Agent::Codex)
+                };
+                let profile = file
+                    .profile
+                    .unwrap_or_else(|| ProfileId::builtin(file.agent.unwrap_or_default()));
+                (profile, vec![claude, codex])
+            }
+        };
+        adroit_model::profile::check(&profile, &profiles, &file.connections)?;
+        Ok(Self {
+            profile,
+            profiles,
+            connections: file.connections,
+            delegation: file.delegation,
+            zoom: file.zoom,
+            prompt_min_rows: file.prompt_min_rows,
+            prompt_max_rows: file.prompt_max_rows,
+            font_family: file.font_family,
+            font_size: file.font_size,
+            font_weight: file.font_weight,
+            appearance: file.appearance,
+            light_theme: file.light_theme,
+            dark_theme: file.dark_theme,
+            theme: file.theme,
+            keep_awake: file.keep_awake,
+            notify_waiting: file.notify_waiting,
+            shell: file.shell,
+            neovim: file.neovim,
+            scratch_dir: file.scratch_dir,
+            picker: file.picker,
+            console: file.console,
+            details: file.details,
+            usage: file.usage,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -246,11 +410,10 @@ pub const MONO: &str = r#""JetBrainsMono Nerd Font Mono", "SF Mono", Menlo, ui-m
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            agent: adroit_model::Agent::Claude,
-            codex: Launch::default(),
-            codex_sessions: CodexOptions::default(),
+            profile: ProfileId::builtin(Agent::Claude),
+            profiles: Agent::ALL.map(AgentProfile::builtin).to_vec(),
+            connections: Vec::new(),
             delegation: DelegationSettings::default(),
-            orchestration: Retired,
             zoom: 1.0,
             prompt_min_rows: 3,
             prompt_max_rows: 12,
@@ -264,9 +427,7 @@ impl Default for Settings {
             keep_awake: true,
             notify_waiting: false,
             shell: ShellLaunch::default(),
-            claude: Launch::default(),
             neovim: Launch::default(),
-            sessions: SessionOptions::default(),
             scratch_dir: String::new(),
             picker: PickerSettings::default(),
             console: ConsoleSettings::default(),
@@ -322,19 +483,92 @@ fn expand(path: &str, home: &std::path::Path) -> PathBuf {
 const RETIRED: &[&str] = &["naming_model", "projects_dir"];
 
 impl Settings {
-    /// How `agent` is started.
-    pub fn launch(&self, agent: adroit_model::Agent) -> &Launch {
-        match agent {
-            adroit_model::Agent::Claude => &self.claude,
-            adroit_model::Agent::Codex => &self.codex,
+    /// The agent of the profile a new session starts from.
+    pub fn default_agent(&self) -> Agent {
+        self.profiles
+            .iter()
+            .find(|p| p.id == self.profile)
+            .map_or_else(Agent::default, AgentProfile::agent)
+    }
+
+    /// The profile a session of `agent` starts from when it names none: the
+    /// default profile when that starts `agent`, else `agent`'s first profile
+    /// not archived, else the one adroit comes with for it.
+    pub fn profile_of(&self, agent: Agent) -> Cow<'_, AgentProfile> {
+        match self.position_of(agent) {
+            Some(at) => Cow::Borrowed(&self.profiles[at]),
+            None => Cow::Owned(self.own(agent)),
         }
     }
 
-    pub fn launch_mut(&mut self, agent: adroit_model::Agent) -> &mut Launch {
-        match agent {
-            adroit_model::Agent::Claude => &mut self.claude,
-            adroit_model::Agent::Codex => &mut self.codex,
+    /// The profile whose id is `id`: one of the profiles, archived or not, or
+    /// the one adroit comes with for an agent that has none not archived, as
+    /// [`Settings::profile_of`] starts it.
+    pub fn find_profile(&self, id: &ProfileId) -> Option<Cow<'_, AgentProfile>> {
+        if let Some(profile) = self.profiles.iter().find(|p| &p.id == id) {
+            return Some(Cow::Borrowed(profile));
         }
+        Agent::ALL
+            .into_iter()
+            .filter(|a| self.position_of(*a).is_none())
+            .map(|a| self.own(a))
+            .find(|p| &p.id == id)
+            .map(Cow::Owned)
+    }
+
+    /// The profile [`Settings::profile_of`] names, added to the profiles when
+    /// `agent` has none.
+    pub fn profile_of_mut(&mut self, agent: Agent) -> &mut AgentProfile {
+        let at = match self.position_of(agent) {
+            Some(at) => at,
+            None => {
+                self.profiles.push(self.own(agent));
+                self.profiles.len() - 1
+            }
+        };
+        &mut self.profiles[at]
+    }
+
+    /// The profile adroit comes with for `agent`, under the agent's key, or
+    /// numbered after it while a profile holds that: an id shared with an
+    /// archived profile or one of another agent would find that one instead.
+    fn own(&self, agent: Agent) -> AgentProfile {
+        let taken = |id: &ProfileId| self.profiles.iter().any(|p| &p.id == id);
+        let id = std::iter::once(agent.key().to_string())
+            .chain((2..).map(|n| format!("{}-{n}", agent.key())))
+            .filter_map(|id| id.parse::<ProfileId>().ok())
+            .find(|id| !taken(id))
+            .expect("some numbered id is free");
+        AgentProfile {
+            id,
+            ..AgentProfile::builtin(agent)
+        }
+    }
+
+    /// Makes a profile of `agent` the default: `earlier`, a default it had
+    /// before, while that is still one of `agent`'s profiles not archived,
+    /// else `agent`'s default profile. The default it replaces, which
+    /// switching back takes as `earlier`.
+    pub fn default_to(&mut self, agent: Agent, earlier: Option<&ProfileId>) -> ProfileId {
+        let replaced = self.profile.clone();
+        let kept = earlier.filter(|id| {
+            self.profiles
+                .iter()
+                .any(|p| &p.id == *id && p.agent() == agent && !p.archived)
+        });
+        self.profile = match kept {
+            Some(id) => id.clone(),
+            None => self.profile_of_mut(agent).id.clone(),
+        };
+        replaced
+    }
+
+    fn position_of(&self, agent: Agent) -> Option<usize> {
+        let open = |p: &AgentProfile| p.agent() == agent && !p.archived;
+        self.profiles
+            .iter()
+            .position(|p| p.id == self.profile && open(p))
+            .or_else(|| self.profiles.iter().position(open))
     }
 
     /// The settings made sensible: rows of at least one and the most no fewer
@@ -374,8 +608,9 @@ impl Settings {
                 .collect()
         };
         self.shell.command = words(self.shell.command);
-        self.claude.command = words(self.claude.command);
-        self.codex.command = words(self.codex.command);
+        for profile in &mut self.profiles {
+            profile.launch.command = words(std::mem::take(&mut profile.launch.command));
+        }
         self.neovim.command = words(self.neovim.command);
         let d = &mut self.details;
         d.log_commits = d.log_commits.clamp(1, 1000);
@@ -508,12 +743,12 @@ mod tests {
     }
 
     #[test]
-    fn each_agent_s_launch_is_the_one_written_under_its_name() {
+    fn each_agent_s_profile_is_edited_as_its_default_profile() {
         let mut s = Settings::parse("[codex]\ncommand = [\"/opt/codex\"]\n").unwrap();
-        assert_eq!(s.launch(adroit_model::Agent::Codex).command, ["/opt/codex"]);
-        assert_eq!(s.launch(adroit_model::Agent::Claude), &Launch::default());
-        s.launch_mut(adroit_model::Agent::Claude).via_shell = true;
-        assert!(s.claude.via_shell);
+        assert_eq!(s.profile_of(Agent::Codex).launch.command, ["/opt/codex"]);
+        assert_eq!(s.profile_of(Agent::Claude).launch, Launch::default());
+        s.profile_of_mut(Agent::Claude).launch.via_shell = true;
+        assert!(s.profiles[0].launch.via_shell);
     }
 
     #[test]
@@ -540,23 +775,16 @@ mod tests {
 
     #[test]
     fn confirming_adroit_s_channel_warning_is_on_unless_the_user_turns_it_off() {
-        assert!(
-            Settings::parse("")
-                .unwrap()
-                .sessions
-                .confirm_channel_warning
-        );
+        let claude = |s: &Settings| s.profile_of(Agent::Claude).claude().cloned().unwrap();
+        assert!(claude(&Settings::parse("").unwrap()).confirm_channel_warning);
         let settings = Settings::parse("[sessions]\nconfirm_channel_warning = false\n").unwrap();
-        assert!(!settings.sessions.confirm_channel_warning);
+        assert!(!claude(&settings).confirm_channel_warning);
         assert_eq!(written_and_read(&settings), settings);
     }
 
     #[test]
-    fn codex_has_its_own_launch_and_model_and_claude_remains_the_default() {
-        assert_eq!(
-            Settings::parse("").unwrap().agent,
-            adroit_model::Agent::Claude
-        );
+    fn a_file_written_before_profiles_that_chose_codex_starts_from_the_codex_profile() {
+        assert_eq!(Settings::parse("").unwrap().default_agent(), Agent::Claude);
         let s = Settings::parse(
             r#"agent = "codex"
 [codex]
@@ -569,10 +797,19 @@ model = "chosen-model"
 "#,
         )
         .unwrap();
-        assert_eq!(s.agent, adroit_model::Agent::Codex);
-        assert_eq!(s.codex.command, ["/opt/bin/codex"]);
-        assert!(s.codex.via_shell);
-        assert_eq!(s.codex_sessions.model, "chosen-model");
+        assert_eq!(s.profile.as_str(), "codex");
+        assert_eq!(s.default_agent(), Agent::Codex);
+        let codex = s.profile_of(Agent::Codex);
+        assert_eq!(codex.id.as_str(), "codex");
+        assert_eq!(codex.connection, ConnectionId::implicit(Agent::Codex));
+        assert_eq!(codex.launch.command, ["/opt/bin/codex"]);
+        assert!(codex.launch.via_shell);
+        assert_eq!(codex.launch.env.get("FOO").map(String::as_str), Some("bar"));
+        assert_eq!(codex.codex().unwrap().model, "chosen-model");
+        assert_eq!(
+            s.profile_of(Agent::Claude).into_owned(),
+            AgentProfile::builtin(Agent::Claude)
+        );
         assert_eq!(written_and_read(&s), s);
         assert!(Settings::parse(r#"agent = "other""#).is_err());
     }
@@ -738,11 +975,41 @@ model = "chosen-model"
     #[test]
     fn settings_written_read_back_the_same() {
         let s = Settings {
-            agent: adroit_model::Agent::Claude,
-            codex: Launch::default(),
-            codex_sessions: CodexOptions::default(),
+            profile: "codex-review".parse().unwrap(),
+            profiles: vec![
+                AgentProfile {
+                    launch: Launch {
+                        command: vec!["claude".into(), "--model".into(), "opus".into()],
+                        via_shell: true,
+                        env: BTreeMap::from([("FOO".into(), "1".into())]),
+                    },
+                    options: AgentOptions::Claude(SessionOptions {
+                        model: "opus".into(),
+                        ..SessionOptions::default()
+                    }),
+                    connection: "work".parse().unwrap(),
+                    ..AgentProfile::builtin(Agent::Claude)
+                },
+                AgentProfile {
+                    id: "codex-review".parse().unwrap(),
+                    name: "Review".into(),
+                    archived: false,
+                    ..AgentProfile::builtin(Agent::Codex)
+                },
+                AgentProfile {
+                    id: "old".parse().unwrap(),
+                    archived: true,
+                    ..AgentProfile::builtin(Agent::Codex)
+                },
+            ],
+            connections: vec![AgentConnection {
+                id: "work".parse().unwrap(),
+                name: "Work".into(),
+                agent: Agent::Claude,
+                home: "/Users/me/claude-work".into(),
+                archived: false,
+            }],
             delegation: DelegationSettings { max_started: 8 },
-            orchestration: Retired,
             zoom: 1.1,
             prompt_min_rows: 2,
             prompt_max_rows: 20,
@@ -759,19 +1026,10 @@ model = "chosen-model"
                 command: vec!["/bin/bash".into(), "-l".into()],
                 env: BTreeMap::from([("LANG".into(), "C".into())]),
             },
-            claude: Launch {
-                command: vec!["claude".into(), "--model".into(), "opus".into()],
-                via_shell: true,
-                env: BTreeMap::from([("FOO".into(), "1".into())]),
-            },
             neovim: Launch {
                 command: vec!["nvim".into(), "--listen".into(), "/tmp/n".into()],
                 via_shell: false,
                 env: BTreeMap::new(),
-            },
-            sessions: SessionOptions {
-                model: "opus".into(),
-                ..SessionOptions::default()
             },
             scratch_dir: "~/notes".into(),
             picker: PickerSettings {
@@ -800,9 +1058,16 @@ model = "chosen-model"
         )
         .unwrap();
         assert_eq!(s.shell.command, ["/bin/bash", "-l"]);
-        assert!(s.claude.via_shell);
-        assert_eq!(s.claude.env.get("FOO").map(String::as_str), Some("1"));
-        assert_eq!(Settings::parse("").unwrap().claude, Launch::default());
+        let claude = s.profile_of(Agent::Claude);
+        assert!(claude.launch.via_shell);
+        assert_eq!(claude.launch.env.get("FOO").map(String::as_str), Some("1"));
+        assert_eq!(
+            Settings::parse("")
+                .unwrap()
+                .profile_of(Agent::Claude)
+                .launch,
+            Launch::default()
+        );
         let s = Settings::parse("[neovim]\ncommand = [\"/opt/nvim/bin/nvim\"]\nvia_shell = true\n")
             .unwrap();
         assert_eq!(s.neovim.command, ["/opt/nvim/bin/nvim"]);
@@ -812,20 +1077,17 @@ model = "chosen-model"
 
     #[test]
     fn a_command_keeps_no_empty_words() {
-        let s = Settings {
+        let mut s = Settings {
             shell: ShellLaunch {
                 command: vec!["  ".into(), " /bin/zsh ".into(), "".into()],
                 ..ShellLaunch::default()
             },
-            claude: Launch {
-                command: vec![" ".into()],
-                ..Launch::default()
-            },
             ..Settings::default()
-        }
-        .sane();
+        };
+        s.profile_of_mut(Agent::Claude).launch.command = vec![" ".into()];
+        let s = s.sane();
         assert_eq!(s.shell.command, ["/bin/zsh"]);
-        assert!(s.claude.command.is_empty());
+        assert!(s.profile_of(Agent::Claude).launch.command.is_empty());
     }
 
     #[test]
@@ -906,5 +1168,376 @@ model = "chosen-model"
             ),
             (1, 9, 1000)
         );
+    }
+
+    const PROFILES: &str = r#"profile = "claude-work"
+
+[[profiles]]
+id = "claude"
+name = "Claude Personal"
+agent = "claude"
+
+[[profiles]]
+id = "claude-work"
+name = "Claude Work"
+agent = "claude"
+connection = "work"
+
+[profiles.launch]
+via_shell = true
+
+[profiles.claude]
+model = "opus"
+
+[[profiles]]
+id = "codex-review"
+name = "Codex Review"
+agent = "codex"
+
+[profiles.codex]
+sandbox_mode = "read-only"
+
+[[connections]]
+id = "work"
+name = "Work"
+agent = "claude"
+home = "/Users/me/.adroit-claude-work"
+"#;
+
+    #[test]
+    fn profiles_and_connections_are_read_as_settings_toml_names_them() {
+        let s = Settings::parse(PROFILES).unwrap();
+        let ids: Vec<&str> = s.profiles.iter().map(|p| p.id.as_str()).collect();
+        assert_eq!(ids, ["claude", "claude-work", "codex-review"]);
+        assert_eq!(s.profile.as_str(), "claude-work");
+        let work = &s.profiles[1];
+        assert_eq!(work.label(), "Claude Work");
+        assert_eq!(work.connection.as_str(), "work");
+        assert!(work.launch.via_shell);
+        assert_eq!(work.claude().unwrap().model, "opus");
+        assert_eq!(
+            s.profiles[0].connection,
+            ConnectionId::implicit(Agent::Claude)
+        );
+        assert_eq!(s.profiles[2].codex().unwrap().sandbox_mode, "read-only");
+        assert_eq!(s.connections.len(), 1);
+        assert_eq!(
+            s.connections[0].home,
+            PathBuf::from("/Users/me/.adroit-claude-work")
+        );
+        assert_eq!(written_and_read(&s), s);
+    }
+
+    #[test]
+    fn a_file_without_profiles_reads_as_the_profiles_adroit_comes_with() {
+        let s = Settings::parse("").unwrap();
+        assert_eq!(s, Settings::default());
+        assert_eq!(s.profile, ProfileId::builtin(Agent::Claude));
+        assert_eq!(s.profiles, Agent::ALL.map(AgentProfile::builtin));
+        assert!(s.connections.is_empty());
+    }
+
+    #[test]
+    fn a_file_written_before_profiles_reads_its_claude_tables_as_the_claude_profile() {
+        let s = Settings::parse(
+            r#"[claude]
+command = ["/opt/claude", "--verbose"]
+via_shell = true
+[claude.env]
+FOO = "1"
+[sessions]
+model = "opus"
+permission_mode = "plan"
+"#,
+        )
+        .unwrap();
+        assert_eq!(s.profile.as_str(), "claude");
+        let claude = s.profile_of(Agent::Claude);
+        assert_eq!(claude.id.as_str(), "claude");
+        assert_eq!(claude.connection, ConnectionId::implicit(Agent::Claude));
+        assert_eq!(claude.launch.command, ["/opt/claude", "--verbose"]);
+        assert!(claude.launch.via_shell);
+        assert_eq!(claude.launch.env.get("FOO").map(String::as_str), Some("1"));
+        let options = claude.claude().unwrap();
+        assert_eq!(
+            (options.model.as_str(), options.permission_mode.as_str()),
+            ("opus", "plan")
+        );
+        assert_eq!(
+            s.profile_of(Agent::Codex).into_owned(),
+            AgentProfile::builtin(Agent::Codex)
+        );
+    }
+
+    #[test]
+    fn a_file_written_before_profiles_is_written_with_profiles_and_reads_back_the_same() {
+        let earlier = Settings::parse(
+            "agent = \"codex\"\n[claude]\nvia_shell = true\n[codex_sessions]\nmodel = \"m\"\n",
+        )
+        .unwrap();
+        let written = toml::to_string_pretty(&earlier).unwrap();
+        let table: toml::Table = written.parse().unwrap();
+        for key in ["agent", "claude", "sessions", "codex", "codex_sessions"] {
+            assert!(!table.contains_key(key), "{key} written:\n{written}");
+        }
+        assert!(table.contains_key("profiles"), "{written}");
+        let again = Settings::parse(&written).unwrap();
+        assert_eq!(again, earlier);
+        assert_eq!(again.profile, earlier.profile);
+        // Written once more, the file stays as it is.
+        assert_eq!(toml::to_string_pretty(&again).unwrap(), written);
+    }
+
+    #[test]
+    fn a_file_naming_profiles_beside_the_earlier_agent_tables_is_refused_naming_them() {
+        let error = Settings::parse(&format!("{PROFILES}\n[sessions]\nmodel = \"opus\"\n"))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("`profiles` cannot be named beside `sessions`"),
+            "{error}"
+        );
+        let error =
+            Settings::parse("profile = \"codex\"\nagent = \"codex\"\n[codex]\nvia_shell = true\n")
+                .unwrap_err()
+                .to_string();
+        assert!(
+            error.contains("`profile` cannot be named beside `agent`, `codex`"),
+            "{error}"
+        );
+        let error = Settings::parse(
+            "[claude]\nvia_shell = true\n[[connections]]\nid = \"work\"\nagent = \"claude\"\nhome = \"/w\"\n",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("`connections` cannot be named beside `claude`"),
+            "{error}"
+        );
+        // The profile alone picks among the profiles adroit comes with.
+        let s = Settings::parse("profile = \"codex\"\n").unwrap();
+        assert_eq!(s.default_agent(), Agent::Codex);
+    }
+
+    #[test]
+    fn settings_whose_profiles_and_connections_do_not_hold_together_are_refused() {
+        let profile = |id: &str, agent: &str, rest: &str| {
+            format!("[[profiles]]\nid = \"{id}\"\nagent = \"{agent}\"\n{rest}\n")
+        };
+        let connection = |id: &str, agent: &str, home: &str| {
+            format!("[[connections]]\nid = \"{id}\"\nagent = \"{agent}\"\nhome = \"{home}\"\n")
+        };
+        let cases = [
+            (
+                profile("claude", "claude", "") + &profile("claude", "claude", ""),
+                "profile `claude` is defined twice",
+            ),
+            (
+                profile("Claude Work", "claude", ""),
+                "`Claude Work` is not a valid id",
+            ),
+            (
+                profile("claude", "claude", "connection = \"gone\""),
+                "profile `claude` names connection `gone`, which is not defined",
+            ),
+            (
+                profile("claude", "claude", "connection = \"work\"")
+                    + &connection("work", "codex", "/w"),
+                "profile `claude` starts Claude Code but connection `work` belongs to Codex",
+            ),
+            (
+                profile("claude", "claude", "[profiles.codex]\nmodel = \"m\""),
+                "profile `claude` starts Claude Code and cannot hold options for Codex",
+            ),
+            (
+                profile("claude", "claude", "") + &connection("claude", "claude", "/w"),
+                "connection id `claude` is reserved for Claude Code's own environment",
+            ),
+            (
+                profile("claude", "claude", "") + &connection("work", "claude", "w"),
+                "connection `work` needs an absolute path as its home",
+            ),
+            (
+                profile("claude", "claude", "")
+                    + &connection("work", "claude", "/w")
+                    + &connection("work", "claude", "/v"),
+                "connection `work` is defined twice",
+            ),
+            (
+                format!("profile = \"other\"\n{}", profile("claude", "claude", "")),
+                "profile `other` is not defined",
+            ),
+            (
+                format!(
+                    "profile = \"old\"\n{}{}",
+                    profile("claude", "claude", ""),
+                    profile("old", "claude", "archived = true")
+                ),
+                "profile `old` is archived and cannot be the default",
+            ),
+            (
+                profile("old", "claude", "archived = true"),
+                "the settings hold no profile that is not archived",
+            ),
+        ];
+        for (text, why) in cases {
+            let error = Settings::parse(&text).unwrap_err().to_string();
+            assert!(error.contains(why), "{text}\n{error}\ndoes not say {why}");
+        }
+    }
+
+    #[test]
+    fn with_no_profile_named_the_first_profile_not_archived_is_the_default() {
+        let s = Settings::parse(
+            "[[profiles]]\nid = \"old\"\nagent = \"claude\"\narchived = true\n[[profiles]]\nid = \"review\"\nagent = \"codex\"\n",
+        )
+        .unwrap();
+        assert_eq!(s.profile.as_str(), "review");
+        assert_eq!(s.default_agent(), Agent::Codex);
+    }
+
+    #[test]
+    fn an_agent_starts_from_the_default_profile_when_that_is_its_own_else_from_its_first_not_archived()
+     {
+        let s = Settings::parse(PROFILES).unwrap();
+        assert_eq!(s.profile_of(Agent::Claude).id.as_str(), "claude-work");
+        assert_eq!(s.profile_of(Agent::Codex).id.as_str(), "codex-review");
+        let s = Settings {
+            profile: "codex-review".parse().unwrap(),
+            ..s
+        };
+        assert_eq!(s.profile_of(Agent::Claude).id.as_str(), "claude");
+        let mut s = s;
+        s.profiles[0].archived = true;
+        assert_eq!(s.profile_of(Agent::Claude).id.as_str(), "claude-work");
+    }
+
+    #[test]
+    fn a_profile_is_found_by_its_id_and_adroit_s_own_stands_for_an_agent_given_none() {
+        let s = Settings::parse(
+            "[[profiles]]\nid = \"claude\"\nagent = \"claude\"\n[[profiles]]\nid = \"claude-work\"\nagent = \"claude\"\n",
+        )
+        .unwrap();
+        let found =
+            |s: &Settings, id: &str| s.find_profile(&id.parse().unwrap()).map(Cow::into_owned);
+        assert_eq!(found(&s, "claude-work").unwrap().id.as_str(), "claude-work");
+        assert_eq!(
+            found(&s, "codex"),
+            Some(AgentProfile::builtin(Agent::Codex))
+        );
+        assert_eq!(
+            found(&s, "codex"),
+            Some(s.profile_of(Agent::Codex).into_owned())
+        );
+        assert_eq!(found(&s, "gone"), None);
+        // Once the agent has a profile of its own, adroit's stands for none.
+        let s = Settings::parse(
+            "[[profiles]]\nid = \"claude\"\nagent = \"claude\"\n[[profiles]]\nid = \"codex-review\"\nagent = \"codex\"\n",
+        )
+        .unwrap();
+        assert_eq!(found(&s, "codex"), None);
+        let s = Settings::parse(
+            "[[profiles]]\nid = \"claude\"\nagent = \"claude\"\narchived = true\n[[profiles]]\nid = \"mine\"\nagent = \"claude\"\n",
+        )
+        .unwrap();
+        assert!(found(&s, "claude").unwrap().archived);
+    }
+
+    #[test]
+    fn adroit_s_own_profile_takes_an_id_no_profile_holds_so_it_is_found_as_offered() {
+        let found = |s: &Settings, id: &ProfileId| s.find_profile(id).map(Cow::into_owned).unwrap();
+        // The agent's key held by its own profile archived, or by a profile
+        // of another agent.
+        for text in [
+            "[[profiles]]\nid = \"claude\"\nagent = \"claude\"\n[[profiles]]\nid = \"codex\"\nagent = \"codex\"\narchived = true\n",
+            "[[profiles]]\nid = \"claude\"\nagent = \"claude\"\n[[profiles]]\nid = \"codex\"\nagent = \"claude\"\n",
+        ] {
+            let s = Settings::parse(text).unwrap();
+            let offered = s.profile_of(Agent::Codex).into_owned();
+            assert_eq!(offered.id.as_str(), "codex-2", "{text}");
+            assert_eq!(found(&s, &offered.id), offered);
+            assert_eq!(
+                found(&s, &"codex".parse().unwrap()).id.as_str(),
+                "codex",
+                "the profile that holds the key is still found by it"
+            );
+        }
+    }
+
+    #[test]
+    fn switching_the_default_agent_back_restores_the_profile_it_had_while_that_still_holds() {
+        let mut s = Settings::parse(PROFILES).unwrap();
+        let earlier = s.default_to(Agent::Codex, None);
+        assert_eq!(earlier.as_str(), "claude-work");
+        assert_eq!(s.profile.as_str(), "codex-review");
+        let back = s.default_to(Agent::Claude, Some(&earlier));
+        assert_eq!(s.profile.as_str(), "claude-work");
+        assert_eq!(back.as_str(), "codex-review");
+        // One archived or of another agent since is not taken back.
+        s.default_to(Agent::Codex, None);
+        s.profiles[1].archived = true;
+        s.default_to(Agent::Claude, Some(&"claude-work".parse().unwrap()));
+        assert_eq!(s.profile.as_str(), "claude");
+        s.default_to(Agent::Claude, Some(&"codex-review".parse().unwrap()));
+        assert_eq!(s.profile.as_str(), "claude");
+    }
+
+    #[test]
+    fn an_agent_without_a_profile_starts_as_adroit_s_own_and_is_given_one_when_edited() {
+        let mut s = Settings::parse("[[profiles]]\nid = \"codex\"\nagent = \"claude\"\n").unwrap();
+        assert_eq!(
+            s.profile_of(Agent::Codex).into_owned().launch,
+            Launch::default()
+        );
+        assert_eq!(s.profile_of(Agent::Codex).agent(), Agent::Codex);
+        s.profile_of_mut(Agent::Codex).launch.via_shell = true;
+        let added = s.profiles.last().unwrap();
+        // The agent's key is taken, so the profile adroit adds is numbered.
+        assert_eq!(
+            (added.id.as_str(), added.agent()),
+            ("codex-2", Agent::Codex)
+        );
+        assert!(
+            written_and_read(&s)
+                .profile_of(Agent::Codex)
+                .launch
+                .via_shell
+        );
+    }
+
+    #[test]
+    fn a_launch_kept_as_json_is_read_and_checked_as_the_file_is() {
+        let s = Settings::parse(PROFILES).unwrap();
+        let kept = serde_json::to_string(&s).unwrap();
+        assert_eq!(serde_json::from_str::<Settings>(&kept).unwrap(), s);
+        let mut broken: serde_json::Value = serde_json::from_str(&kept).unwrap();
+        broken["profile"] = "gone".into();
+        let error = serde_json::from_value::<Settings>(broken)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("profile `gone` is not defined"), "{error}");
+    }
+
+    #[test]
+    fn a_launch_kept_as_json_before_profiles_reads_as_the_profiles_built_from_it() {
+        let kept = r#"{"agent":"codex","codex":{"command":["/opt/codex"],"via_shell":false,"env":{}},
+            "codex_sessions":{"model":"m","reasoning_effort":"","approval_policy":"","sandbox_mode":""},
+            "delegation":{"max_started":4},"zoom":1.0,"prompt_min_rows":3,"prompt_max_rows":12,
+            "font_family":"","font_size":13.0,"font_weight":400,"appearance":"system",
+            "light_theme":"Dawnfox","dark_theme":"Nightfox","keep_awake":true,"notify_waiting":false,
+            "shell":{"command":[],"env":{}},"claude":{"command":[],"via_shell":true,"env":{}},
+            "neovim":{"command":[],"via_shell":false,"env":{}},
+            "sessions":{"model":"opus","permission_mode":"","disallowed_tools":[],"confirm_channel_warning":false},
+            "scratch_dir":"","picker":{"ghq":true,"roots":[]},
+            "console":{"option_as_alt":"both","cursor_blink":false},
+            "details":{"log_commits":50,"diff_lines":2000,"links_kept":100,"links_shown":5},
+            "usage":{"cpu":true,"gpu":true,"memory":true,"storage":true}}"#;
+        let s: Settings = serde_json::from_str(kept).unwrap();
+        assert_eq!(s.default_agent(), Agent::Codex);
+        assert_eq!(s.profile_of(Agent::Codex).launch.command, ["/opt/codex"]);
+        assert_eq!(s.profile_of(Agent::Codex).codex().unwrap().model, "m");
+        let claude = s.profile_of(Agent::Claude);
+        assert!(claude.launch.via_shell);
+        assert!(!claude.claude().unwrap().confirm_channel_warning);
     }
 }

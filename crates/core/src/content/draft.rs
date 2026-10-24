@@ -160,25 +160,40 @@ mod tests {
         let mut last = None;
 
         choose(&mut chosen, Some(api.clone()), Agent::Codex, &mut last);
-        assert_eq!(settings.agent, Agent::Claude);
+        assert_eq!(settings.default_agent(), Agent::Claude);
         assert_eq!(last, Some(Agent::Codex));
         assert_eq!(
-            for_tab(&tree, Some(&api), &chosen, last.unwrap_or(settings.agent)),
+            for_tab(
+                &tree,
+                Some(&api),
+                &chosen,
+                last.unwrap_or(settings.default_agent())
+            ),
             Agent::Codex
         );
         assert_eq!(
-            for_tab(&tree, Some(&web), &chosen, last.unwrap_or(settings.agent)),
+            for_tab(
+                &tree,
+                Some(&web),
+                &chosen,
+                last.unwrap_or(settings.default_agent())
+            ),
             Agent::Codex
         );
         assert_eq!(
-            for_tab(&tree, Some(&web), &HashMap::new(), settings.agent),
+            for_tab(&tree, Some(&web), &HashMap::new(), settings.default_agent()),
             Agent::Claude
         );
 
         choose(&mut chosen, Some(web.clone()), Agent::Claude, &mut last);
         assert_eq!(last, Some(Agent::Claude));
         assert_eq!(
-            for_tab(&tree, Some(&api), &chosen, last.unwrap_or(settings.agent)),
+            for_tab(
+                &tree,
+                Some(&api),
+                &chosen,
+                last.unwrap_or(settings.default_agent())
+            ),
             Agent::Codex
         );
         assert_eq!(
@@ -186,7 +201,7 @@ mod tests {
                 &tree,
                 Some(&draft("/other")),
                 &chosen,
-                last.unwrap_or(settings.agent)
+                last.unwrap_or(settings.default_agent())
             ),
             Agent::Claude
         );

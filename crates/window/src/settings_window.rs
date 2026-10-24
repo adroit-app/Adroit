@@ -24,7 +24,7 @@ use crate::icons::{Icon, IconView};
 use crate::keys_pane::KeysPane;
 use crate::link::Link;
 use crate::paths::home;
-use crate::settings::{Appearance, OptionAsAlt, Settings, ThemeKind};
+use crate::settings::{AgentOptions, Appearance, OptionAsAlt, ProfileId, Settings, ThemeKind};
 use crate::style::SETTINGS_CSS;
 use crate::zoom::LEVELS;
 
@@ -179,9 +179,12 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
     let config = use_config();
     let link = use_context::<Link>();
     let mut pane = use_signal(|| Pane::General);
-    let mut agent = use_signal(|| config.peek().settings.agent);
+    let mut agent = use_signal(|| config.peek().settings.default_agent());
     let mut now = use_signal(|| config.peek().settings.clone());
     let mut failed = use_signal(|| None::<String>);
+    // The profile each agent had as the default before General switched away
+    // from it, taken back when it is switched back to.
+    let earlier = use_signal(std::collections::HashMap::<adroit_model::Agent, ProfileId>::new);
     // Changes made elsewhere, such as in the file, show here as well.
     use_effect(move || now.set(config.read().settings.clone()));
     let change = move |f: Change| {
@@ -239,7 +242,7 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
                     SettingsError { "Could not keep the settings: {e}" }
                 }
                 match pane() {
-                    Pane::General => rsx! { General { now: now(), change } },
+                    Pane::General => rsx! { General { now: now(), change, earlier } },
                     Pane::Appearance => rsx! { AppearancePane { now: now(), change } },
                     Pane::Console => rsx! { ConsolePane { now: now(), change } },
                     Pane::Prompt => rsx! { PromptPane { now: now(), change } },
@@ -262,7 +265,11 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
 type Change = Box<dyn FnOnce(&mut Settings)>;
 
 #[component]
-fn General(now: Settings, change: Callback<Change>) -> Element {
+fn General(
+    now: Settings,
+    change: Callback<Change>,
+    earlier: Signal<std::collections::HashMap<adroit_model::Agent, ProfileId>>,
+) -> Element {
     let config = use_config();
     let files = {
         let files = config.read();
@@ -307,10 +314,18 @@ fn General(now: Settings, change: Callback<Change>) -> Element {
                 select {
                     onchange: move |e| {
                         if let Some(agent) = adroit_model::Agent::parse(&e.value()) {
-                            change(Box::new(move |s: &mut Settings| s.agent = agent));
+                            let mut earlier = earlier;
+                            let kept = earlier.peek().get(&agent).cloned();
+                            change(Box::new(move |s: &mut Settings| {
+                                let from = s.default_agent();
+                                let replaced = s.default_to(agent, kept.as_ref());
+                                if from != agent {
+                                    earlier.write().insert(from, replaced);
+                                }
+                            }));
                         }
                     },
-                    for c in agent_choices(now.agent) {
+                    for c in agent_choices(now.default_agent()) {
                         option { key: "{c.agent.key()}", value: "{c.agent.key()}", selected: c.selected, "{c.label}" }
                     }
                 }
@@ -791,8 +806,8 @@ fn AgentsPane(
                 title: "Launch",
                 hint: "The program and its arguments; empty for the agent's own command.",
                 placeholder: program.clone(),
-                launch: now.launch(agent).clone(),
-                set: move |launch: Launch| change(Box::new(move |s: &mut Settings| *s.launch_mut(agent) = launch)),
+                launch: now.profile_of(agent).launch.clone(),
+                set: move |launch: Launch| change(Box::new(move |s: &mut Settings| s.profile_of_mut(agent).launch = launch)),
             }
         } else {
             match agent {
@@ -800,9 +815,9 @@ fn AgentsPane(
                     SessionGroup {
                         key: "claude-{agent.key()}",
                         title: section().title(),
-                        options: now.sessions.clone(),
+                        options: now.profile_of(agent).claude().cloned().unwrap_or_default(),
                         set: move |options: SessionOptions| change(Box::new(move |s: &mut Settings| {
-                            s.sessions = options;
+                            s.profile_of_mut(agent).options = AgentOptions::Claude(options);
                         })),
                     }
                 },
@@ -810,9 +825,9 @@ fn AgentsPane(
                     CodexGroup {
                         key: "codex-{agent.key()}",
                         title: section().title(),
-                        options: now.codex_sessions.clone(),
+                        options: now.profile_of(agent).codex().cloned().unwrap_or_default(),
                         set: move |options: adroit_model::config::CodexOptions| change(Box::new(move |s: &mut Settings| {
-                            s.codex_sessions = options;
+                            s.profile_of_mut(agent).options = AgentOptions::Codex(options);
                         })),
                     }
                 },

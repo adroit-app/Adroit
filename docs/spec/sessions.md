@@ -13,7 +13,8 @@ session is given its agent while it is still a draft, before its first prompt
 is sent. The empty window and drafts offer the agent choices, and
 `session.agent_next` and `session.agent_prev` switch between them. Choosing an agent, by button or key, also makes it the default
 for new sessions while the window is open. Reopening the app starts with the
-default in Settings under General, or `agent` in [settings.toml](settings.md).
+default in Settings under General: the agent of the default profile in
+[settings.toml](settings.md#profiles-and-connections).
 The draft also offers a model and permission profile for that launch; changing
 these choices keeps its prompt and attachments. The empty window offers the
 model and permission profile too, and the next new session starts with

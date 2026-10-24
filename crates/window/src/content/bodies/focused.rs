@@ -47,10 +47,11 @@ pub(crate) fn FocusedBody() -> Element {
     let host = app.host.read();
     let work = host.work.as_ref();
     let tree = tree_view::listed(work);
-    let current_agent =
-        content
-            .drafts
-            .agent_of(tree, active_tab.as_ref(), app.config.read().settings.agent);
+    let current_agent = content.drafts.agent_of(
+        tree,
+        active_tab.as_ref(),
+        app.config.read().settings.default_agent(),
+    );
     let pane = active_tab
         .as_ref()
         .and_then(|tab| hub.panes.borrow().get(tab).cloned());

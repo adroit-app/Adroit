@@ -125,7 +125,7 @@ pub fn agent_of(state: &crate::state::ViewState, tab: Option<&Tab>) -> Agent {
     state
         .content
         .drafts
-        .agent_of(tree, tab, state.config.settings.agent)
+        .agent_of(tree, tab, state.config.settings.default_agent())
 }
 
 /// A border between windows being dragged: where the pointer was pressed,

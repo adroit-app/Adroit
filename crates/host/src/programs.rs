@@ -12,14 +12,18 @@ pub fn agents() -> adroit_agents::AgentSettings {
     agents_of(&crate::settings::current())
 }
 
-/// What `settings` say of how agents start.
+/// What `settings` say of how agents start: as each agent's default profile
+/// says.
 pub fn agents_of(settings: &crate::settings::Settings) -> adroit_agents::AgentSettings {
+    use adroit_model::Agent;
+    let claude = settings.profile_of(Agent::Claude);
+    let codex = settings.profile_of(Agent::Codex);
     adroit_agents::AgentSettings {
         shell: settings.shell.program(&login_shell()),
-        claude: settings.claude.clone(),
-        codex: settings.codex.clone(),
-        sessions: settings.sessions.clone(),
-        codex_sessions: settings.codex_sessions.clone(),
+        claude: claude.launch.clone(),
+        codex: codex.launch.clone(),
+        sessions: claude.claude().cloned().unwrap_or_default(),
+        codex_sessions: codex.codex().cloned().unwrap_or_default(),
     }
 }
 

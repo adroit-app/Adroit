@@ -10,13 +10,15 @@ async fn codex_delivery_targets_a_uuid_and_passes_the_envelope_as_one_argument()
     let captured = dir.path().join("args");
     std::fs::write(&script, "printf '%s\\n' \"$CODEX_HOME\" > \"$ADROIT_QUEUE_ARGS\"\nprintf '%s\\n' \"$@\" >> \"$ADROIT_QUEUE_ARGS\"\n").unwrap();
     let mut settings = Settings::default();
-    settings.codex.command = vec!["/bin/sh".into(), script.to_string_lossy().into_owned()];
-    settings.codex.env.insert(
+    settings.profile_of_mut(Agent::Codex).launch.command =
+        vec!["/bin/sh".into(), script.to_string_lossy().into_owned()];
+    settings.profile_of_mut(Agent::Codex).launch.env.insert(
         "ADROIT_QUEUE_ARGS".into(),
         captured.to_string_lossy().into_owned(),
     );
     settings
-        .codex
+        .profile_of_mut(Agent::Codex)
+        .launch
         .env
         .insert("CODEX_HOME".into(), "/custom/account".into());
     let thread = "123e4567-e89b-12d3-a456-426614174000";
@@ -53,7 +55,7 @@ async fn codex_delivery_targets_a_uuid_and_passes_the_envelope_as_one_argument()
 #[tokio::test]
 async fn a_failed_queue_command_never_reports_transport_acceptance() {
     let mut settings = Settings::default();
-    settings.codex.command = vec!["/usr/bin/false".into()];
+    settings.profile_of_mut(Agent::Codex).launch.command = vec!["/usr/bin/false".into()];
     assert!(
         deliver(
             Agent::Codex,

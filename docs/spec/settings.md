@@ -28,9 +28,13 @@ are; a POSIX shell or fish can do so. The Settings window changes the same
 settings, a command written there as a shell would split it.
 
 Choose an agent under Agents to change its launch options and the defaults
-for its sessions. Only that agent's options are offered; changes
-do not affect other agents or sessions already running. General sets the
-agent new sessions start with. Programs holds the shell and Neovim options.
+for its sessions: those of the agent's default profile, which is added when
+the agent has none. Only that agent's options are offered; changes do not
+affect other agents or sessions already running. General sets the agent new
+sessions start with, by making that agent's default profile the default;
+switched back to while Settings stays open, an agent gets back the profile
+that was the default before.
+Programs holds the shell and Neovim options.
 
 The Settings window offers the font among adroit's own, which is drawn when
 none is named, and the families installed whose letters and digits are all
@@ -67,6 +71,95 @@ wrote, are read and dropped. `theme`, the one theme earlier versions named, is
 read as the light or the dark theme by its kind, with the appearance kept to
 that kind, so the look stays as it was; it is dropped the next time the file is
 written.
+
+## Profiles and connections
+
+A session starts from a profile, which names the agent it starts, the
+connection the agent runs in, how the agent is launched and the agent's own
+options for its sessions. Each `[[profiles]]` table is one profile, and
+`profile` names the default profile, the one a new session starts from when
+it names neither a profile nor an agent. A file that names no `profile`
+takes its first profile not archived as the default.
+
+```toml
+profile = "claude-work"
+
+[[profiles]]
+id = "claude"
+name = "Claude Personal"
+agent = "claude"
+
+[[profiles]]
+id = "claude-work"
+name = "Claude Work"
+agent = "claude"
+connection = "work"
+
+[profiles.launch]
+via_shell = true
+
+[profiles.claude]
+model = "opus"
+
+[[profiles]]
+id = "codex-review"
+name = "Codex Review"
+agent = "codex"
+
+[profiles.codex]
+sandbox_mode = "read-only"
+
+[[connections]]
+id = "work"
+name = "Work"
+agent = "claude"
+home = "/Users/me/.adroit/claude-work"
+```
+
+A profile's `id` is how everything else refers to it, and it is kept when
+the profile is renamed: renaming changes `name` alone. An id is lowercase
+letters, digits and `-`, starts with a letter or a digit, and is at most 64
+characters long; no two profiles share one. `agent` is `claude` or `codex`,
+and the profile holds options for that agent alone: `[profiles.claude]` for
+Claude Code, `[profiles.codex]` for Codex, either left out for the agent's
+options with nothing chosen. `[profiles.launch]` says how the agent is
+started, as `[neovim]` does for Neovim. An archived profile is kept, and is
+offered for no new session; it cannot be the default.
+
+Each agent has a default profile of its own: the default profile when it
+starts that agent, else the agent's first profile not archived, in the order
+the file lists them. A session that names an agent but no profile starts from
+that agent's default profile; an agent with no profile starts as the profile
+adroit comes with for it.
+
+A connection is a state directory of one agent's program, which keeps its
+login, history and settings there apart from every other. Each
+`[[connections]]` table is one: its `id`, kept as a profile's is and never
+one of the agents' names, its `name`, the `agent` whose program keeps its
+state there, and its `home`, an absolute path fixed when the connection is
+made. The agent's program logs in and keeps its credentials in that
+directory itself; adroit keeps none. Every agent also runs in its own
+environment, the program as it runs outside adroit, for which adroit sets no
+state directory: a profile runs there when its `connection` is left out or
+names the agent, as `claude`. A profile runs only in a connection of its own
+agent. Adroit starts no session from a profile in a connection of its own.
+
+A file that names no `profiles` holds the profiles adroit comes with, one
+for each agent, named after the agent, which start it in its own environment
+as its program's own settings say, with `claude` as the default profile
+unless `profile` names another of them.
+
+### Files written before profiles
+
+Earlier versions kept one launch and one set of options for each agent, in
+`claude`, `sessions`, `codex` and `codex_sessions`, and the agent new
+sessions started with in `agent`. A file that names no `profiles` reads
+them as the profiles adroit comes with, each in its agent's own environment,
+`claude` from `claude` and `sessions` and `codex` from `codex` and
+`codex_sessions`, with the profile of the agent `agent` names as the
+default; sessions start as they did. The next time adroit writes the file,
+it writes profiles in their place. A file that names `profiles`, `profile`
+or `connections` beside any of them is refused, naming them.
 
 ## Neovim
 

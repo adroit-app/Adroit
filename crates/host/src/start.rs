@@ -112,7 +112,7 @@ async fn start(
     };
     let settings = crate::settings::current();
     let request = crate::execution::StartRequest {
-        agent: asked.agent.unwrap_or(settings.agent),
+        agent: asked.agent.unwrap_or(settings.default_agent()),
         model: asked.model.clone(),
         name: name.clone(),
         cwd,

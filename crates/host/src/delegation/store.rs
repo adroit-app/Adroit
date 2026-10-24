@@ -785,7 +785,11 @@ mod tests {
     fn a_session_keeps_the_settings_it_was_launched_with() {
         let (_dir, mut store) = store();
         let mut launch = Settings::default();
-        launch.sessions.model = "opus".into();
+        launch
+            .profile_of_mut(Agent::Claude)
+            .claude_mut()
+            .unwrap()
+            .model = "opus".into();
         let (id, _) = store
             .register(NewSession {
                 launch,
@@ -793,7 +797,11 @@ mod tests {
             })
             .unwrap();
 
-        assert_eq!(store.launch(id).unwrap().unwrap().sessions.model, "opus");
+        let kept = store.launch(id).unwrap().unwrap();
+        assert_eq!(
+            kept.profile_of(Agent::Claude).claude().unwrap().model,
+            "opus"
+        );
     }
 
     #[test]

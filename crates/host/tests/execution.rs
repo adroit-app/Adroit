@@ -54,7 +54,11 @@ fn automatic_agent_launches_record_the_current_time_and_preserve_explicit_start_
 #[test]
 fn a_task_model_overrides_only_the_target_session() {
     let mut settings = Settings::default();
-    settings.sessions.model = "opus".into();
+    settings
+        .profile_of_mut(Agent::Claude)
+        .claude_mut()
+        .unwrap()
+        .model = "opus".into();
     let before = settings.clone();
     let first = resolve(
         &settings,
@@ -79,7 +83,11 @@ fn a_task_model_overrides_only_the_target_session() {
 #[test]
 fn switching_agent_does_not_inherit_the_parent_model() {
     let mut settings = Settings::default();
-    settings.sessions.model = "opus".into();
+    settings
+        .profile_of_mut(Agent::Claude)
+        .claude_mut()
+        .unwrap()
+        .model = "opus".into();
     let launch = resolve(&settings, request(Agent::Codex, None), Path::new("/adroit")).unwrap();
 
     assert_eq!(launch.agent, Agent::Codex);
@@ -91,7 +99,7 @@ fn switching_agent_does_not_inherit_the_parent_model() {
 #[test]
 fn a_model_value_is_not_split_by_the_shell() {
     let mut settings = Settings::default();
-    settings.codex.via_shell = true;
+    settings.profile_of_mut(Agent::Codex).launch.via_shell = true;
     let model = "custom model; $(touch never)";
     let launch = resolve(
         &settings,
@@ -126,12 +134,17 @@ fn an_empty_explicit_model_is_rejected_instead_of_using_a_default() {
 #[test]
 fn all_launch_arguments_and_environment_use_the_given_settings_snapshot() {
     let mut settings = Settings::default();
-    settings.codex.command = vec!["/custom/codex".into()];
+    settings.profile_of_mut(Agent::Codex).launch.command = vec!["/custom/codex".into()];
     settings
-        .codex
+        .profile_of_mut(Agent::Codex)
+        .launch
         .env
         .insert("CODEX_HOME".into(), "/custom/home".into());
-    settings.codex_sessions.model = "chosen-model".into();
+    settings
+        .profile_of_mut(Agent::Codex)
+        .codex_mut()
+        .unwrap()
+        .model = "chosen-model".into();
     let launch = resolve(&settings, request(Agent::Codex, None), Path::new("/adroit")).unwrap();
 
     assert_eq!(launch.spawn.program, "/custom/codex");
@@ -153,7 +166,11 @@ fn all_launch_arguments_and_environment_use_the_given_settings_snapshot() {
 #[test]
 fn a_read_only_session_keeps_its_permissions_when_its_model_changes() {
     let mut settings = Settings::default();
-    settings.codex_sessions.sandbox_mode = "danger-full-access".into();
+    settings
+        .profile_of_mut(Agent::Codex)
+        .codex_mut()
+        .unwrap()
+        .sandbox_mode = "danger-full-access".into();
     let mut request = request(Agent::Codex, Some("review-model"));
     request.permissions = AgentPermissions::ReadOnly;
     let launch = resolve(&settings, request, Path::new("/adroit")).unwrap();
@@ -177,8 +194,16 @@ fn removed_reader_settings_are_rejected_instead_of_reinterpreted() {
 #[test]
 fn a_read_only_claude_session_is_denied_editing_tools_and_writes_to_its_directory() {
     let mut settings = Settings::default();
-    settings.sessions.permission_mode = "bypassPermissions".into();
-    settings.sessions.disallowed_tools = vec!["WebFetch".into()];
+    settings
+        .profile_of_mut(Agent::Claude)
+        .claude_mut()
+        .unwrap()
+        .permission_mode = "bypassPermissions".into();
+    settings
+        .profile_of_mut(Agent::Claude)
+        .claude_mut()
+        .unwrap()
+        .disallowed_tools = vec!["WebFetch".into()];
     let mut request = request(Agent::Claude, Some("review-model"));
     request.permissions = AgentPermissions::ReadOnly;
     let launch = resolve(&settings, request, Path::new("/adroit")).unwrap();
@@ -257,7 +282,7 @@ fn a_recorded_session_carries_its_credential_in_the_environment_alone() {
             .env
             .push(("ADROIT_DELEGATION_TOKEN".into(), "outer-token".into()));
         let mut settings = Settings::default();
-        for launch in [&mut settings.claude, &mut settings.codex] {
+        for launch in settings.profiles.iter_mut().map(|p| &mut p.launch) {
             launch
                 .env
                 .insert("ADROIT_DELEGATION_TOKEN".into(), "configured-token".into());
@@ -359,4 +384,33 @@ fn a_launch_adroit_keeps_no_record_of_carries_no_mcp_server() {
                 .all(|(name, _)| !name.starts_with("ADROIT_DELEGATION"))
         );
     }
+}
+
+#[test]
+fn no_session_starts_from_a_profile_in_a_connection_of_its_own() {
+    let settings = Settings::parse(
+        r#"[[profiles]]
+id = "claude-work"
+agent = "claude"
+connection = "work"
+
+[[connections]]
+id = "work"
+agent = "claude"
+home = "/Users/me/claude-work"
+"#,
+    )
+    .unwrap();
+    let error = resolve(
+        &settings,
+        request(Agent::Claude, None),
+        Path::new("/adroit"),
+    )
+    .unwrap_err();
+    assert!(
+        error.contains("profile `claude-work` runs in connection `work`"),
+        "{error}"
+    );
+    // The agent's own environment still starts.
+    assert!(resolve(&settings, request(Agent::Codex, None), Path::new("/adroit")).is_ok());
 }
