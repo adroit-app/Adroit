@@ -284,7 +284,7 @@ fn a_session_waiting_on_an_answer_is_answered_before_it_is_renamed() {
 fn a_name_being_typed_goes_with_the_row_or_the_tab_it_is_typed_in() {
     let tab = window().send(renaming("a", RenamePlace::Tab));
     assert!(tab.state().overlays.rename.is_some());
-    let gone = tab.send(Msg::ShowSession("b".into()));
+    let gone = tab.send(Msg::Window(Action::TabClose));
     assert_eq!(gone.state().overlays.rename, None);
 
     let row = window().send(renaming("a", RenamePlace::Sidebar));

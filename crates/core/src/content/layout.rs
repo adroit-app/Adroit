@@ -7,10 +7,11 @@ use super::Dir;
 /// Where something opened from the tree goes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Opening {
-    /// To a window already showing it, in any tab, or else as [`Opening::Here`].
+    /// To a window already showing it, in any tab, which it keeps when that
+    /// is the preview, or else to a new tab after the one shown.
     Existing,
-    /// In the focused window, in place of what it shows.
-    Here,
+    /// To a window already showing it, in any tab, or else to the preview.
+    Preview,
     /// In a new window split off the focused one along the axis.
     Split(Axis),
     /// In a new tab after the one shown.
@@ -259,9 +260,16 @@ pub struct ContentTab<T> {
     root: Node<T>,
     focus: WindowId,
     previous: Option<WindowId>,
+    preview: bool,
 }
 
 impl<T: Clone + PartialEq> ContentTab<T> {
+    /// Whether the tab is the preview, whose window the next thing looked at
+    /// shows instead.
+    pub fn is_preview(&self) -> bool {
+        self.preview
+    }
+
     pub fn root(&self) -> &Node<T> {
         &self.root
     }
@@ -470,6 +478,7 @@ impl<T: Clone + PartialEq> Content<T> {
             focus: w.id,
             root: Node::Window(w),
             previous: None,
+            preview: false,
         };
         let at = if self.tabs.is_empty() {
             0
@@ -484,43 +493,57 @@ impl<T: Clone + PartialEq> Content<T> {
         }
     }
 
-    /// Show `thing` where the user is: in the window of the shown tab that
-    /// already shows it, or else in the focused window in place of what it
-    /// shows.
+    /// Open `thing`: go to a window of any tab showing it, keeping the
+    /// preview when that shows it, or else show it in a new tab.
     pub fn open(&mut self, thing: T) {
-        let Some(tab) = self.current_mut() else {
-            return self.open_tab(thing);
-        };
-        let already = tab
-            .windows()
-            .iter()
-            .find(|w| w.shows == thing)
-            .map(|w| w.id);
-        match already {
-            Some(id) => tab.focus_on(id),
-            None => self.open_in(thing, Opening::Here),
-        }
+        self.open_in(thing, Opening::Existing);
+    }
+
+    /// Look at `thing`: go to a window of any tab showing it, or else show it
+    /// in the preview, made after the shown tab when there is none.
+    pub fn look(&mut self, thing: T) {
+        self.open_in(thing, Opening::Preview);
     }
 
     /// Show `thing` where `how` says; in a new tab when nothing is open.
     pub fn open_in(&mut self, thing: T, how: Opening) {
         match how {
             Opening::Existing => {
-                if !self.reveal(&thing) {
-                    self.open_in(thing, Opening::Here);
+                if self.reveal(&thing) {
+                    self.keep();
+                } else {
+                    self.open_tab(thing);
                 }
             }
-            Opening::Here => {
-                let Some(tab) = self.current_mut() else {
-                    return self.open_tab(thing);
-                };
-                let path = tab.root.path(tab.focus).expect("the focus is in the tab");
-                if let Node::Window(w) = tab.root.at_mut(&path) {
-                    w.shows = thing;
+            Opening::Preview => {
+                if self.reveal(&thing) {
+                    return;
+                }
+                match self.tabs.iter().position(|t| t.preview) {
+                    Some(at) => {
+                        let tab = &mut self.tabs[at];
+                        if let Node::Window(w) = &mut tab.root {
+                            w.shows = thing;
+                        }
+                        self.set_current(at);
+                    }
+                    None => {
+                        self.open_tab(thing);
+                        if let Some(tab) = self.current_mut() {
+                            tab.preview = true;
+                        }
+                    }
                 }
             }
             Opening::Split(axis) => self.split(axis, thing),
             Opening::Tab => self.open_tab(thing),
+        }
+    }
+
+    /// Keep the shown tab as an ordinary one when it is the preview.
+    pub fn keep(&mut self) {
+        if let Some(tab) = self.current_mut() {
+            tab.preview = false;
         }
     }
 
@@ -533,6 +556,7 @@ impl<T: Clone + PartialEq> Content<T> {
         let w = self.window(thing);
         if let Some(tab) = self.current_mut() {
             tab.insert_beside(axis, w);
+            tab.preview = false;
         }
     }
 
@@ -773,6 +797,7 @@ impl<T: Clone + PartialEq> Content<T> {
                 root: Node::Window(w),
                 focus: id,
                 previous: None,
+                preview: false,
             },
         );
         self.set_current(at);
@@ -977,12 +1002,16 @@ mod tests {
     }
 
     #[test]
-    fn opening_shows_the_thing_in_the_focused_window_in_place_of_what_it_showed() {
+    fn opening_what_no_window_shows_adds_a_tab_after_the_shown_one() {
         let mut c = one("a");
         c.split(Axis::Row, "b");
+        c.open_tab("z");
+        c.go_to_tab(0);
         c.open("c");
-        assert_eq!(drawn(&c), "(a | c)");
-        assert_eq!(c.focused(), Some(&"c"));
+        assert_eq!((c.tabs().len(), c.current_index()), (3, 1));
+        assert_eq!(drawn(&c), "c");
+        c.go_to_tab(0);
+        assert_eq!(drawn(&c), "(a | b)");
     }
 
     #[test]
@@ -995,13 +1024,80 @@ mod tests {
     }
 
     #[test]
-    fn opening_what_only_another_tab_shows_shows_it_here_too() {
+    fn opening_what_only_another_tab_shows_goes_to_that_tab() {
         let mut c = one("a");
         c.open_tab("b");
         c.open("a");
         assert_eq!(c.tabs().len(), 2);
-        assert_eq!(c.current_index(), 1);
+        assert_eq!(c.current_index(), 0);
         assert_eq!(drawn(&c), "a");
+    }
+
+    #[test]
+    fn looking_shows_the_thing_in_a_preview_tab_after_the_shown_one() {
+        let mut c = one("a");
+        c.open_tab("z");
+        c.go_to_tab(0);
+        c.look("b");
+        assert_eq!((c.tabs().len(), c.current_index()), (3, 1));
+        assert_eq!(drawn(&c), "b");
+        assert!(c.tabs()[1].is_preview());
+        assert!(!c.tabs()[0].is_preview());
+    }
+
+    #[test]
+    fn looking_again_shows_the_new_thing_in_the_one_preview_tab() {
+        let mut c = one("a");
+        c.look("b");
+        c.go_to_tab(0);
+        c.look("c");
+        assert_eq!(c.tabs().len(), 2);
+        assert_eq!((c.current_index(), c.focused()), (1, Some(&"c")));
+        assert_eq!(c.tabs().iter().filter(|t| t.is_preview()).count(), 1);
+    }
+
+    #[test]
+    fn looking_at_what_a_tab_shows_goes_there_and_leaves_the_preview_alone() {
+        let mut c = one("a");
+        c.split(Axis::Row, "b");
+        c.look("c");
+        c.look("a");
+        assert_eq!((c.current_index(), c.focused()), (0, Some(&"a")));
+        assert_eq!(c.tabs().len(), 2);
+        c.go_to_tab(1);
+        assert_eq!(drawn(&c), "c");
+    }
+
+    #[test]
+    fn opening_what_the_preview_shows_keeps_it_as_an_ordinary_tab() {
+        let mut c = one("a");
+        c.look("b");
+        c.go_to_tab(0);
+        c.open("b");
+        assert_eq!((c.tabs().len(), c.current_index()), (2, 1));
+        assert!(!c.tabs()[1].is_preview());
+        c.look("c");
+        assert_eq!(c.tabs().len(), 3);
+    }
+
+    #[test]
+    fn a_preview_split_or_kept_becomes_an_ordinary_tab() {
+        let mut c = one("a");
+        c.look("b");
+        c.split(Axis::Row, "c");
+        assert!(!c.tabs()[1].is_preview());
+        c.look("d");
+        c.keep();
+        assert!(c.tabs().iter().all(|t| !t.is_preview()));
+    }
+
+    #[test]
+    fn keeping_an_ordinary_tab_leaves_the_preview_one() {
+        let mut c = one("a");
+        c.look("b");
+        c.go_to_tab(0);
+        c.keep();
+        assert!(c.tabs()[1].is_preview());
     }
 
     #[test]
@@ -1447,19 +1543,13 @@ mod tests {
     }
 
     #[test]
-    fn opening_where_it_is_shows_it_in_the_focused_window_when_none_shows_it() {
-        let mut c = one("a");
-        c.open_in("z", Opening::Existing);
-        assert_eq!(drawn(&c), "z");
-    }
-
-    #[test]
-    fn opening_here_replaces_what_the_focused_window_shows_though_another_shows_it() {
-        let mut c = one("a");
-        c.split(Axis::Row, "b");
-        c.open_in("a", Opening::Here);
-        assert_eq!(drawn(&c), "(a | a)");
-        assert_eq!(c.focused(), Some(&"a"));
+    fn opening_or_looking_names_open_or_look() {
+        let (mut by_name, mut by_how) = (one("a"), one("a"));
+        by_name.look("b");
+        by_name.open("c");
+        by_how.open_in("b", Opening::Preview);
+        by_how.open_in("c", Opening::Existing);
+        assert_eq!(by_name, by_how);
     }
 
     #[test]
@@ -1486,7 +1576,7 @@ mod tests {
     fn opening_anyhow_with_nothing_open_opens_a_tab() {
         for how in [
             Opening::Existing,
-            Opening::Here,
+            Opening::Preview,
             Opening::Split(Axis::Row),
             Opening::Tab,
         ] {

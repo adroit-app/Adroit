@@ -12,6 +12,12 @@ its focused window shows, with how many windows it holds, and keeps its own
 focused window while another tab is shown. A tab holds whatever was opened in
 it, from any worktree. Closing a tab closes every window in it.
 
+At most one tab is a **preview**, drawn apart from the others with its name
+in italics. It shows what was looked at last without being opened, and the
+next thing looked at takes its place. It becomes a tab like any other once
+what it shows is opened, once it is split, once keys are sent to what it
+shows, or once the prompt takes the keys to write to it.
+
 ## Windows
 
 A window is split side by side or one above the other; the new window lies
@@ -25,7 +31,8 @@ several windows runs at one size, the focused window's when it is one of them.
 
 Each window has a strip on top that tells what it shows: its state, its name,
 its agent, and the worktree it is in; a file's window shows the file's icon
-and name. The focused window is marked as the prompt is when it has the keys.
+and name, and a `×` at its right end closes the window. The focused window is
+marked as the prompt is when it has the keys.
 A session's window shows the agent's interface; the focused one shows the
 prompt below it as well ([prompt](prompt.md)). A terminal's window takes every
 key but the window commands' prefix and `Mod` keys. A viewer's window has no
@@ -33,17 +40,20 @@ prompt and takes the `viewer` area's keys.
 
 ## Opening
 
-Opening something, from the picker, the next waiting session or anywhere else
-but the tree, moves the focus to the window of the shown tab that already
-shows it. When none does, it is shown in the focused window, in place of what
-that window showed, or in a new tab when nothing is open.
+Nothing opened takes the place of what a window shows. Opening something
+moves the focus to a window of any tab already showing it, and turns that tab
+into an ordinary one when it is the preview; when no window shows it, it opens
+in a new tab after the one shown.
 
-From the tree, the key says where a row opens and the row says what: in a
-window of any tab already showing it, or else in the focused window; in the
-focused window, though another shows it too; in a new window split below or
-beside the focused one; or in a new tab ([keys](reference/keys.md#actions)). A
-row clicked opens as `cursor.go` opens it. A file opened from the tree opens
-by its kind, in a viewer or in Neovim ([viewers](#viewers)).
+Looking at something shows the tab already showing it, or else shows it in
+the preview. Going to the next or previous session, workspace or waiting
+session looks at it.
+
+From the tree, the key says how a row opens and the row says what: opened,
+looked at with the keys staying in the tree, in a new window split below or beside the focused one, or in a new
+tab though a window shows it already ([keys](reference/keys.md#actions)). A
+row clicked is opened. A file opened from the tree opens by its kind, in a
+viewer or in Neovim ([viewers](#viewers)).
 
 ## Closing
 
@@ -131,8 +141,7 @@ A file that means nothing as text is shown by a viewer of its kind, drawn by
 the window itself: images, movies, HTML pages and PDFs. Every other file,
 including one of a kind adroit does not know, opens in Neovim.
 
-Opening a file from the tree shows it in the focused window, as opening any
-row does: in its viewer, or in a Neovim started on it in its worktree, listed
+A file is opened or looked at from the tree as any row is: in its viewer, or in a Neovim started on it in its worktree, listed
 under Editors. A file already open in a Neovim started on it opens that Neovim
 again. A viewer ends with the windows showing it; it keeps its zoom, page and
 playback while the focus moves between windows.

@@ -180,7 +180,7 @@ pub(crate) fn act(state: &mut ViewState, action: Action) -> Vec<Effect> {
                     place,
                     runs,
                     file: None,
-                    opening: Opening::Here,
+                    opening: Opening::Existing,
                     focus: true,
                 })],
                 None => Vec::new(),
@@ -194,7 +194,7 @@ pub(crate) fn act(state: &mut ViewState, action: Action) -> Vec<Effect> {
                 action == Action::SessionNext,
             );
             match next {
-                Some(id) => show_session(state, id),
+                Some(id) => look_at_session(state, id),
                 None => Vec::new(),
             }
         }
@@ -207,7 +207,7 @@ pub(crate) fn act(state: &mut ViewState, action: Action) -> Vec<Effect> {
                 action == Action::WorkspaceNext,
             );
             match next {
-                Some(id) => show_session(state, id),
+                Some(id) => look_at_session(state, id),
                 None => Vec::new(),
             }
         }
@@ -227,9 +227,18 @@ fn place_here(state: &ViewState, on_list: bool) -> Option<Place> {
         .or_else(|| state.content.place.clone())
 }
 
-/// Show a session wherever it runs, as opening its row does, and select its
+/// Open a session wherever it runs, as opening its row does, and select its
 /// row, but leave the keys where they are.
 pub(crate) fn show_session(state: &mut ViewState, id: String) -> Vec<Effect> {
+    show_session_in(state, id, Opening::Existing)
+}
+
+/// Look at a session as [`show_session`] opens it, in the preview tab.
+fn look_at_session(state: &mut ViewState, id: String) -> Vec<Effect> {
+    show_session_in(state, id, Opening::Preview)
+}
+
+fn show_session_in(state: &mut ViewState, id: String, how: Opening) -> Vec<Effect> {
     let work = state.host.work.as_ref();
     let Some((p, _)) = nav::find(tree::listed(work), &id) else {
         return Vec::new();
@@ -239,12 +248,12 @@ pub(crate) fn show_session(state: &mut ViewState, id: String) -> Vec<Effect> {
         state.tree.selected = Some(row);
     }
     state.content.place = Some(p);
-    state.content.windows.open(tab);
+    state.content.windows.open_in(tab, how);
     Vec::new()
 }
 
 /// Open a row where `how` says, or as anything else opens a thing when it
-/// says nothing. Only the keys that open in place fold a row, and on a
+/// says nothing. Only the keys that open or look rather than split fold a row, and on a
 /// folded one they unfold it first. With `take_keys`, the keys go to what
 /// opened: the prompt of a draft, or the console.
 pub(crate) fn open_row(
@@ -257,7 +266,7 @@ pub(crate) fn open_row(
     let terminals = tree::terminals(work);
     let view = &mut state.tree;
     view.selected = Some(item.clone());
-    let in_place = matches!(how, None | Some(Opening::Existing | Opening::Here));
+    let in_place = matches!(how, None | Some(Opening::Existing | Opening::Preview));
     let unfolds = nav::unfolds(&item, &view.narrowed, &view.folds);
     if in_place && unfolds {
         view.folds.set(&item, true);
@@ -284,7 +293,7 @@ pub(crate) fn open_row(
             place: Place { worktree },
             runs: TerminalProgram::Neovim,
             file: Some(file),
-            opening: how.unwrap_or(Opening::Here),
+            opening: how.unwrap_or(Opening::Existing),
             // A Neovim still starting takes the keys once it has.
             focus: take_keys,
         })),

@@ -85,7 +85,7 @@ pub fn entries(target: &Target, session: Option<&Session>) -> Vec<(Action, &'sta
         Target::Tab(Tab::Terminal(_)) => vec![close_tab, stop_terminal],
         Target::Tab(Tab::Draft { .. }) => Vec::new(),
         Target::Tab(Tab::Viewer(_)) => vec![close_tab],
-        Target::Link { file, .. } => [Action::CursorOpen, Action::CursorCopy]
+        Target::Link { file, .. } => [Action::CursorGo, Action::CursorCopy]
             .map(offer)
             .into_iter()
             .chain(file.then(|| offer(Action::CursorReveal)))
@@ -145,11 +145,11 @@ mod tests {
     fn a_link_of_the_overview_is_opened_or_copied_and_a_file_revealed_too() {
         assert_eq!(
             actions(Target::Link { at: 2, file: false }, None),
-            [Action::CursorOpen, Action::CursorCopy]
+            [Action::CursorGo, Action::CursorCopy]
         );
         assert_eq!(
             actions(Target::Link { at: 2, file: true }, None),
-            [Action::CursorOpen, Action::CursorCopy, Action::CursorReveal]
+            [Action::CursorGo, Action::CursorCopy, Action::CursorReveal]
         );
     }
 

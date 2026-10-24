@@ -120,10 +120,9 @@ or the Session menu.
 | In the tree | |
 | --- | --- |
 | `j` `k`, `gg` `G` | move |
-| `Enter` | go to where a session, worktree or file is already shown, in any tab, or else open it as `o` does |
-| `o` `l` | open a session, worktree or file in the focused window, a file in Neovim or in a viewer by its kind; fold or unfold a workspace, a heading or a directory |
-| `s` `v` `t` | open it in a new split below or beside the focused window, or in a new tab |
-| `L` `Shift-Enter` `Ctrl-Enter` | open it as `o` does, with the keys staying in the tree |
+| `Enter` `o` | open a session, worktree or file: go to where it is already shown, in any tab, or else open it in a new tab, a file in Neovim or in a viewer by its kind; fold or unfold a workspace, a heading or a directory |
+| `l` `Shift-Enter` `Ctrl-Enter` | look at it in the preview tab, with the keys staying in the tree |
+| `s` `v` `t` | open it in a new split below or beside the focused window, or in a new tab though it is shown already |
 | `h` | fold, or go up to the row above |
 | `]w` `[w` | the next or previous session waiting on you, with the console ready to answer it; `Ctrl-q ]` `Ctrl-q [` from anywhere |
 | `w` | choose where a new session works |

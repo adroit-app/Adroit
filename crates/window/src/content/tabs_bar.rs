@@ -60,7 +60,14 @@ pub(super) fn TabsBar(
                     Tab::Terminal(_) | Tab::Viewer(_) => (None, None),
                 };
                 let name = thing_name(t, terms, &shows);
-                (shows, name, state, mark, tab.windows().len())
+                (
+                    shows,
+                    name,
+                    state,
+                    mark,
+                    tab.windows().len(),
+                    tab.is_preview(),
+                )
             })
             .collect::<Vec<_>>()
     });
@@ -77,19 +84,24 @@ pub(super) fn TabsBar(
                     "{p.worktree.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| short(&p.worktree))}"
                 }
             }
-            for (at , (tab , name , state , mark , count)) in tabs().into_iter().enumerate() {
+            for (at , (tab , name , state , mark , count , preview)) in tabs().into_iter().enumerate() {
                 {
                     let is_active = at == shown_at;
                     let shell = match &tab {
                         Tab::Terminal(id) => Some(runs_of(terminals, *id)),
                         _ => None,
                     };
-                    let class = match (is_active, shell.is_some()) {
-                        (true, true) => "tab active shell",
-                        (true, false) => "tab active",
-                        (false, true) => "tab shell",
-                        (false, false) => "tab",
-                    };
+                    let class = [
+                        Some("tab"),
+                        is_active.then_some("active"),
+                        shell.is_some().then_some("shell"),
+                        preview.then_some("preview"),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                    let tip = if preview { "Preview: what is looked at next takes its place" } else { "" };
                     let glyph_class = state.as_ref().map(glyph);
                     let target = Target::Tab(tab.clone());
                     let closing = Target::Tab(tab.clone());
@@ -100,6 +112,7 @@ pub(super) fn TabsBar(
                         span {
                             key: "{at}",
                             class: "{class}",
+                            title: "{tip}",
                             onclick: move |_| app.dispatch(Msg::TabShow(at)),
                             oncontextmenu: menu_opener(app, target),
                             span { class: "tab-number", "{number}" }

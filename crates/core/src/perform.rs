@@ -220,7 +220,6 @@ pub(crate) fn perform(
         | Action::CursorVsplit
         | Action::CursorTab
         | Action::CursorClose
-        | Action::CursorOpen
         | Action::CursorShow
         | Action::CursorFold
         | Action::CursorCopy
@@ -234,9 +233,7 @@ pub(crate) fn perform(
                 Action::CursorUp => Some(details::Key::Up),
                 Action::CursorFirst => Some(details::Key::First),
                 Action::CursorLast => Some(details::Key::Last),
-                Action::CursorGo | Action::CursorOpen | Action::CursorShow => {
-                    Some(details::Key::Open)
-                }
+                Action::CursorGo | Action::CursorShow => Some(details::Key::Open),
                 Action::CursorFold => Some(details::Key::Fold),
                 Action::CursorCopy => Some(details::Key::Copy),
                 Action::CursorReveal => Some(details::Key::Reveal),
@@ -251,25 +248,20 @@ pub(crate) fn perform(
         Action::CursorUp => step(state, Msg::TreeKey(TreeKey::Up)),
         Action::CursorFirst => step(state, Msg::TreeKey(TreeKey::First)),
         Action::CursorLast => step(state, Msg::TreeKey(TreeKey::Last)),
-        Action::CursorGo
-        | Action::CursorOpen
-        | Action::CursorSplit
-        | Action::CursorVsplit
-        | Action::CursorTab => {
+        Action::CursorGo | Action::CursorSplit | Action::CursorVsplit | Action::CursorTab => {
             let Some(item) = cur else {
                 return Vec::new();
             };
             let how = match action {
-                Action::CursorGo => Opening::Existing,
                 Action::CursorSplit => Opening::Split(Axis::Column),
                 Action::CursorVsplit => Opening::Split(Axis::Row),
                 Action::CursorTab => Opening::Tab,
-                _ => Opening::Here,
+                _ => Opening::Existing,
             };
             open(state, item, Some(how), true)
         }
         Action::CursorShow => match cur {
-            Some(item) => open(state, item, Some(Opening::Here), false),
+            Some(item) => open(state, item, Some(Opening::Preview), false),
             None => Vec::new(),
         },
         Action::CursorFold => step(state, Msg::TreeKey(TreeKey::Fold)),
@@ -298,7 +290,7 @@ pub(crate) fn perform(
             let Some(id) = nav::next_waiting(&state.tree.waiting, current, forward) else {
                 return Vec::new();
             };
-            let mut effects = open(state, Item::Waiting(id), None, false);
+            let mut effects = open(state, Item::Waiting(id), Some(Opening::Preview), false);
             // It waits on an answer, given in the console.
             effects.extend(step(state, Msg::Focus(Area::Console)));
             effects

@@ -196,6 +196,25 @@ pub(crate) fn focus(view: &mut ContentView, area: Area) -> Vec<Effect> {
     Vec::new()
 }
 
+/// Keep the preview as an ordinary tab once what it shows is worked in: keys
+/// or text sent to its program, or the prompt taking the keys. The keys only
+/// moving into its console keep nothing, so a waiting session looked at is
+/// still ready to be answered.
+pub(crate) fn keep_worked_in(view: &mut ContentView, effects: &[Effect]) {
+    let typed = effects.iter().any(|e| {
+        matches!(
+            e,
+            Effect::PaneKey(_)
+                | Effect::PaneText { .. }
+                | Effect::PromptKey(_)
+                | Effect::StartWriting
+        )
+    });
+    if typed || view.focus == Area::Prompt {
+        view.windows.keep();
+    }
+}
+
 /// Show `thing` where the user is, or as `how` says, in the worktree
 /// `place` when one is given.
 pub(crate) fn show(

@@ -5,6 +5,8 @@
 .tab { white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 12px; border-radius: 7px; color: var(--text-2); cursor: default; }
 .tab.active { background: var(--select); color: var(--text); font-weight: 500; }
 .tab.active .shell-mark, .tab.active .place-mark { color: var(--text-2); }
+.tab.preview { font-style: italic; color: var(--text-3); }
+.tab.preview.active { color: var(--text-2); }
 .tab.shell { font-family: var(--mono); font-size: 12px; }
 .tabs-where { color: var(--text-3); font-size: 11.5px; margin-right: 6px; font-family: var(--mono); }
 .tab-number { color: var(--text-3); font-family: var(--mono); font-size: 11px; font-weight: 400; }

@@ -17,6 +17,8 @@
 .sidebar-tool.on { background: var(--select); color: var(--text); }
 .tab-close { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; color: var(--text-3); border-radius: 4px; margin-right: -6px; }
 .tab-close:hover { background: var(--line-strong); color: var(--text); }
+.win-close { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 18px; height: 18px; color: var(--text-3); border-radius: 4px; margin-right: -4px; }
+.win-close:hover { background: var(--line-strong); color: var(--text); }
 .context-menu-shade { position: fixed; inset: 0; z-index: 30; }
 .context-menu { position: fixed; min-width: 220px; padding: 4px; border-radius: 8px; background: var(--raised);
   border: 1px solid var(--line-strong); box-shadow: 0 8px 24px rgba(0,0,0,0.4);

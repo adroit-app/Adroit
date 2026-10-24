@@ -491,7 +491,7 @@ mod tests {
             ("ArrowUp", Action::CursorUp),
             ("G", Action::CursorLast),
             ("Enter", Action::CursorGo),
-            ("l", Action::CursorOpen),
+            ("l", Action::CursorShow),
             ("Shift+Enter", Action::CursorShow),
             ("h", Action::CursorFold),
             ("Escape", Action::CursorFold),
@@ -847,10 +847,10 @@ mod tests {
     }
 
     #[test]
-    fn in_the_sidebar_capital_l_and_enter_with_shift_or_ctrl_show_the_row_and_keep_the_keys() {
+    fn in_the_sidebar_l_and_enter_with_shift_or_ctrl_look_at_the_row_and_keep_the_keys() {
         let map = Keymap::defaults();
         let sidebar = [Context::Tree, Context::Global];
-        for k in ["L", "Shift+Enter", "Ctrl+Enter"] {
+        for k in ["l", "L", "Shift+Enter", "Ctrl+Enter"] {
             assert_eq!(
                 step(&map, &sidebar, &[], k),
                 Step::Run(Action::CursorShow),
@@ -874,8 +874,8 @@ mod tests {
         let tree = [Context::Tree, Context::Global];
         for (key, action) in [
             ("Enter", Action::CursorGo),
-            ("o", Action::CursorOpen),
-            ("l", Action::CursorOpen),
+            ("o", Action::CursorGo),
+            ("l", Action::CursorShow),
             ("s", Action::CursorSplit),
             ("v", Action::CursorVsplit),
             ("t", Action::CursorTab),

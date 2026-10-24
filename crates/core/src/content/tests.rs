@@ -492,7 +492,7 @@ fn a_new_session_or_shell_starts_in_the_selected_row_s_worktree_from_the_tree() 
                 place: place(at).unwrap(),
                 runs: TerminalProgram::Shell,
                 file: None,
-                opening: Opening::Here,
+                opening: Opening::Existing,
                 focus: true,
             })],
             "{area:?}"

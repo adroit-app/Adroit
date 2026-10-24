@@ -13,8 +13,9 @@ use crate::bridge::AppCtx;
 use crate::components::{AgentBadge, FileGlyph, Spacer, StateGlyph, TerminalMark, glyph, runs_of};
 use crate::content::{Axis, Border, Rect, Tab, WindowId, thing_name};
 use crate::file_icons;
-use crate::icons::Icon;
+use crate::icons::{Icon, IconView};
 use crate::nav;
+use adroit_core::actions::Action;
 use adroit_core::msg::Msg;
 
 /// What a window's strip says of what it shows.
@@ -71,9 +72,10 @@ pub(super) fn window_strip(
 }
 
 /// The strip on top of a window: what it shows, by its state, name and
-/// agent, and the worktree it is in.
+/// agent, the worktree it is in, and a button that closes the window `id`.
 #[component]
-fn WindowStrip(strip: Strip) -> Element {
+fn WindowStrip(id: WindowId, strip: Strip) -> Element {
+    let app = use_context::<AppCtx>();
     let (g, icon, tip) = match &strip.mark {
         StripMark::State(state) => glyph(state),
         StripMark::Terminal(_) => ("", Icon::Terminal2, ""),
@@ -97,6 +99,16 @@ fn WindowStrip(strip: Strip) -> Element {
                 span { class: "win-where", title: "{short(w)}",
                     "{w.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| short(w))}"
                 }
+            }
+            span {
+                class: "win-close",
+                title: "Close the window; what it shows runs on",
+                onclick: move |e: Event<MouseData>| {
+                    e.stop_propagation();
+                    app.dispatch(Msg::WindowFocus(id));
+                    app.dispatch(Msg::Window(Action::WindowQuit));
+                },
+                IconView { icon: Icon::X, size: 12 }
             }
         }
     }
@@ -125,7 +137,7 @@ pub(super) fn ContentWindow(
             class: if focused { "win focused" } else { "win" },
             style: "{style}",
             onmousedown: move |_| app.dispatch(Msg::WindowFocus(id)),
-            WindowStrip { strip }
+            WindowStrip { id, strip }
             {body}
         }
     }
