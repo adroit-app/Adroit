@@ -61,7 +61,7 @@ async fn an_opencode_of_the_first_line_is_refused_before_anything_is_recorded() 
         &opencode.display().to_string(),
     );
     let root = dir.path().join("delegation");
-    let refused = adroit_host::delegation::app::prepare(
+    let Err(refused) = adroit_host::delegation::app::prepare(
         &root,
         &settings,
         request(&work, "go", None),
@@ -69,8 +69,9 @@ async fn an_opencode_of_the_first_line_is_refused_before_anything_is_recorded() 
         Path::new(ADROIT),
     )
     .await
-    .err()
-    .expect("refused");
+    else {
+        panic!("started");
+    };
     assert!(refused.contains("OpenCode 1.19.4"), "{refused}");
     assert!(refused.contains("npm i -g @opencode/cli"), "{refused}");
     let recorded = adroit_host::delegation::app::sessions(&root)
