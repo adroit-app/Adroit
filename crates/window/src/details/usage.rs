@@ -6,6 +6,7 @@ use adroit_model::Agent;
 use adroit_model::usage::Severity;
 use dioxus::prelude::*;
 
+use crate::components::LinkButton;
 use crate::icons::{Icon, IconView};
 
 /// The account's gauges, with a button to the agent's usage page while
@@ -26,13 +27,13 @@ pub(super) fn Usage(
                 div { class: "usage-header",
                     span { class: "details-label", "Usage" }
                     if let Some(url) = usage_url.filter(|_| account) {
-                        button { class: "usage-web",
+                        LinkButton {
+                            icon: Icon::Link,
                             title: "Open {agent.label()} usage settings in your browser",
-                            onclick: move |ev| {
+                            onclick: move |ev: MouseEvent| {
                                 ev.stop_propagation();
                                 crate::bridge::open([url.clone()]);
                             },
-                            IconView { icon: Icon::Link, size: 12 }
                             "Web"
                         }
                     }

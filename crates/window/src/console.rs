@@ -14,7 +14,7 @@ use dioxus::html::geometry::WheelDelta;
 use dioxus::prelude::*;
 use tokio::sync::mpsc;
 
-use crate::components::{EmptyState, KeyHint};
+use crate::components::{EmptyState, Hint, KeyHint, Spacer};
 use crate::content::Tab;
 use crate::icons::{Icon, IconView};
 use crate::style::use_cell_height;
@@ -494,10 +494,10 @@ pub fn Composer(
                 if let Some((_, _, _, Some(msg))) = &prompt {
                     span { class: "prompt-foot-message", "{msg}" }
                 }
-                span { class: "flex-spacer" }
+                Spacer {}
                 if !images.is_empty() {
                     if selected_image.is_some() {
-                        span { class: "kbd-list", "← → select · Delete remove · Esc return" }
+                        Hint { "← → select · Delete remove · Esc return" }
                     } else if let Some(k) = image_keys {
                         KeyHint { keys: k, does: "images" }
                     }

@@ -10,7 +10,6 @@ use super::log::LogRows;
 use crate::bridge::AppCtx;
 use crate::components::{Breadcrumbs, ListRow};
 use crate::details::{Drill, Listing, View};
-use crate::icons::{Icon, IconView};
 
 fn diff_class(kind: DiffKind) -> &'static str {
     match kind {
@@ -47,16 +46,10 @@ pub(super) fn Repository(
     rsx! {
         div { class: "list-rows details-git",
             if !crumbs.is_empty() {
-                div { class: "details-crumbs",
+                Breadcrumbs {
                     title: "Back to the list ({back_keys})",
-                    onclick: move |_| app.dispatch(Msg::DetailsBack),
-                    span { class: "details-crumb-back", IconView { icon: Icon::ChevronLeft } }
-                    for (i , c) in crumbs.iter().enumerate() {
-                        if i > 0 {
-                            span { class: "details-crumb-sep", IconView { icon: Icon::ChevronRight, size: 12 } }
-                        }
-                        span { class: "details-crumb", "{c}" }
-                    }
+                    crumbs,
+                    onback: move |_| app.dispatch(Msg::DetailsBack),
                 }
             }
             if let Some(revision) = &revision {
@@ -73,15 +66,16 @@ pub(super) fn Repository(
                 }
             }
             match (worktree, listing) {
-                (Worktree::None, _) => rsx! { div { class: "list-row dim", "Open a worktree to see it here" } },
-                (Worktree::OutsideGit, _) => rsx! { div { class: "list-row dim", "Not a git or jj repository" } },
-                (_, None) => rsx! { div { class: "list-row dim", "Reading…" } },
+                (Worktree::None, _) => rsx! { ListRow { kind: "dim", "Open a worktree to see it here" } },
+                (Worktree::OutsideGit, _) => rsx! { ListRow { kind: "dim", "Not a git or jj repository" } },
+                (_, None) => rsx! { ListRow { kind: "dim", "Reading…" } },
                 (_, Some(Listing::Error(e))) => rsx! { div { class: "git-error", "{e}" } },
-                (_, Some(Listing::Files(files))) if files.is_empty() => rsx! { div { class: "list-row dim", "No changes" } },
+                (_, Some(Listing::Files(files))) if files.is_empty() => rsx! { ListRow { kind: "dim", "No changes" } },
                 (_, Some(Listing::Files(files))) => rsx! {
                     for (i , f) in files.iter().enumerate() {
-                        div { key: "{f.path}",
-                            class: if selected == Some(i) { "list-row mono selected" } else { "list-row mono" },
+                        ListRow { key: "{f.path}",
+                            kind: "mono",
+                            selected: selected == Some(i),
                             onclick: move |_| app.dispatch(Msg::DetailsOpenRow(i)),
                             span { class: "details-file-status", "{f.status}" }
                             span { class: "list-row-name", "{f.shown()}" }
@@ -89,7 +83,7 @@ pub(super) fn Repository(
                     }
                 },
                 (_, Some(Listing::Log(commits))) => rsx! { LogRows { commits, selected } },
-                (_, Some(Listing::Diff(lines))) if lines.is_empty() => rsx! { div { class: "list-row dim", "No changes" } },
+                (_, Some(Listing::Diff(lines))) if lines.is_empty() => rsx! { ListRow { kind: "dim", "No changes" } },
                 (_, Some(Listing::Diff(lines))) => rsx! {
                     div { class: "diff",
                         for (i , d) in lines.iter().enumerate() {

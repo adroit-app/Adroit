@@ -5,9 +5,9 @@ use adroit_core::picker::fuzzy::Query;
 use adroit_core::picker::{self, Mark, Mode, Picker, go_rows, short, tree_rows};
 use dioxus::prelude::*;
 
-use super::QueryField;
+use super::{PickerKeys, QueryField};
 use crate::bridge::AppCtx;
-use crate::components::{Dialog, KeyHint, ListRow};
+use crate::components::{Dialog, ListRow, PlaceMark};
 use crate::icons::{Icon, IconView};
 
 /// `text` with what `query` marked in it drawn as matched.
@@ -69,7 +69,7 @@ pub(super) fn Go(picker: Picker) -> Element {
                                         kind: if line.mark == Mark::Directory { "mono" } else { "" },
                                         selected: i == picker.cursor,
                                         onclick: move |_| app.dispatch(Msg::PickerChoose(i)),
-                                        span { class: "place-mark", IconView { icon: match line.mark { Mark::Scratch => Icon::Notes, Mark::Session => Icon::Message, Mark::Directory => Icon::Folder } } }
+                                        PlaceMark { icon: match line.mark { Mark::Scratch => Icon::Notes, Mark::Session => Icon::Message, Mark::Directory => Icon::Folder } }
                                         span { class: "list-row-name",
                                             {marked(&query, &line.name)}
                                             if let Some(place) = &line.place {
@@ -110,11 +110,7 @@ pub(super) fn Go(picker: Picker) -> Element {
                     }
                 },
             }
-            div { class: "picker-keys",
-                for (k, what) in keys.iter() {
-                    KeyHint { key: "{k}", keys: "{k}", does: "{what}" }
-                }
-            }
+            PickerKeys { keys }
         }
     }
 }

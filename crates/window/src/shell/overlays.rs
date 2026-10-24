@@ -9,7 +9,7 @@ use dioxus::prelude::*;
 
 use crate::actions::Action;
 use crate::bridge::AppCtx;
-use crate::components::Keys;
+use crate::components::{Button, Dialog, Keys, Spacer};
 use crate::icons::{Icon, IconView};
 use crate::keymap::Context;
 use crate::keys_help;
@@ -121,6 +121,20 @@ pub(crate) fn ContextMenu() -> Element {
     }
 }
 
+/// What a right click on a row or a tab does: open the menu of `target`
+/// where the pointer is, in place of the page's own.
+pub(crate) fn menu_opener(app: AppCtx, target: Target) -> EventHandler<MouseEvent> {
+    EventHandler::new(move |e: MouseEvent| {
+        e.prevent_default();
+        let at = e.client_coordinates();
+        app.dispatch(Msg::MenuOpen {
+            x: at.x,
+            y: at.y,
+            target: target.clone(),
+        });
+    })
+}
+
 /// Where a menu opened at `x`, `y` is drawn: there, or moved back by as
 /// much of its own size as would pass the window's right or bottom edge.
 /// Its size is known only once it is laid out, so the move is a translate,
@@ -140,18 +154,15 @@ pub(crate) fn ConfirmDialog() -> Element {
     };
     let (icon, title, body, act) = ask.dialog();
     rsx! {
-        div { class: "dialog-scrim",
-            div { class: "dialog",
-                div { class: "dialog-title", IconView { icon, size: 16 } "{title}" }
-                div { "{body}" }
-                div { class: "dialog-actions",
-                    button { class: "button", onclick: move |_| app.dispatch(Msg::ConfirmAnswer(false)),
-                        kbd { "n" } "Cancel"
-                    }
-                    button { class: if ask.destroys() { "button danger" } else { "button primary" },
-                        onclick: move |_| app.dispatch(Msg::ConfirmAnswer(true)),
-                        kbd { "y" } "{act}"
-                    }
+        Dialog { icon, title,
+            div { "{body}" }
+            div { class: "dialog-actions",
+                Button { onclick: move |_| app.dispatch(Msg::ConfirmAnswer(false)),
+                    kbd { "n" } "Cancel"
+                }
+                Button { kind: if ask.destroys() { "danger" } else { "primary" },
+                    onclick: move |_| app.dispatch(Msg::ConfirmAnswer(true)),
+                    kbd { "y" } "{act}"
                 }
             }
         }
@@ -170,9 +181,9 @@ pub(crate) fn DaemonBanner() -> Element {
             IconView { icon: Icon::ServerBolt }
             span { class: "daemon-banner-title", "This window cannot work with the sessions' daemon" }
             span { class: "daemon-banner-note", title: "{note}", "{note} Restarting it ends every session it holds." }
-            span { class: "flex-spacer" }
-            button { class: "button", onclick: move |_| app.dispatch(Msg::BannerClose), "Later" }
-            button { class: "button danger",
+            Spacer {}
+            Button { onclick: move |_| app.dispatch(Msg::BannerClose), "Later" }
+            Button { kind: "danger",
                 onclick: move |_| app.dispatch(Msg::Confirm(Box::new(adroit_core::overlay::confirm::Ask::RestartDaemon))),
                 "Restart…"
             }

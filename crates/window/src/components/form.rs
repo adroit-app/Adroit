@@ -13,6 +13,14 @@ pub fn SettingGroup(#[props(default)] title: Option<String>, children: Element) 
     }
 }
 
+/// Why something on the settings could not be done or read, in `children`.
+#[component]
+pub fn SettingsError(children: Element) -> Element {
+    rsx! {
+        div { class: "settings-error", {children} }
+    }
+}
+
 /// One setting: what it is called and says on the left, its control on the
 /// right.
 #[component]
@@ -46,7 +54,6 @@ pub fn Toggle(checked: bool, onchange: EventHandler<bool>) -> Element {
 #[component]
 pub fn TextField(
     value: String,
-    #[props(default)] class: Option<String>,
     #[props(default)] placeholder: Option<String>,
     /// The `datalist` offering what to type.
     #[props(default)]
@@ -56,7 +63,7 @@ pub fn TextField(
 ) -> Element {
     rsx! {
         input {
-            class,
+            class: "settings-command",
             r#type: "text",
             list,
             aria_label,

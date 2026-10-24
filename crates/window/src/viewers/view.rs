@@ -44,7 +44,7 @@ pub fn Viewer(
         None => rsx! {
             div { class: "viewer",
                 style { {CSS} }
-                div { class: "viewer-empty", "No viewer shows this file" }
+                ViewerEmpty { "No viewer shows this file" }
             }
         },
     }
@@ -306,7 +306,7 @@ fn ViewerOf(
                     }
                 }
                 None => rsx! {
-                    div { class: "viewer-empty", "This PDF cannot be shown" }
+                    ViewerEmpty { "This PDF cannot be shown" }
                 },
             }
         }
@@ -345,7 +345,7 @@ fn ViewerOf(
         }
         ViewerState::Html(_) if page.read().is_none() => rsx! {},
         ViewerState::Html(_) if page.read().as_ref().is_some_and(Option::is_none) => rsx! {
-            div { class: "viewer-empty", "This page cannot be read" }
+            ViewerEmpty { "This page cannot be read" }
         },
         ViewerState::Html(s) => {
             let (media_id, relay_id, box_id) = (media_id.clone(), media_id.clone(), box_id.clone());
@@ -389,6 +389,14 @@ fn ViewerOf(
                 span { "{detail}" }
             }
         }
+    }
+}
+
+/// What a viewer says in place of a file it cannot show.
+#[component]
+fn ViewerEmpty(children: Element) -> Element {
+    rsx! {
+        div { class: "viewer-empty", {children} }
     }
 }
 

@@ -13,15 +13,12 @@ use crate::components::{Button, EmptyState, Keys, Legend, LegendRow};
 use crate::content::DraftOptions;
 use crate::icons::{Icon, IconView};
 use crate::keymap::{Context, Keymap};
-use crate::view::Keys;
 
 /// A draft in a window that is not focused: what it is and where.
 #[component]
 pub(crate) fn DraftHead(worktree: PathBuf) -> Element {
     rsx! {
-        div { class: "console-empty",
-            IconView { icon: Icon::MessagePlus, size: 28 }
-            div { class: "console-empty-title", "New session" }
+        EmptyState { icon: Icon::MessagePlus, title: "New session",
             div { class: "console-empty-path", "{short(&worktree)}" }
         }
     }
@@ -41,7 +38,7 @@ pub(crate) fn DraftForm(
     let k_agent = keymap.keys_for(Context::Draft, &Action::SessionAgentNext);
     let k_send = keymap.keys_for(Context::Prompt, &Action::PromptSend);
     rsx! {
-        div { class: "console-empty",
+        EmptyState {
             div { class: "console-empty-head",
                 IconView { icon: Icon::MessagePlus, size: 28 }
                 div { class: "console-empty-title", "New session" }
@@ -51,13 +48,11 @@ pub(crate) fn DraftForm(
                 AgentChoices { current: agent, keys: k_agent, onchoose: onagent }
                 DraftLaunchOptions { options, onchange: onoptions }
             }
-            div { class: "console-legend",
+            Legend {
                 if let Some(k) = k_send {
-                    div { class: "console-legend-keys", Keys { keys: k } }
-                    div { "Send the prompt written below" }
+                    LegendRow { does: "Send the prompt written below", Keys { keys: k } }
                 }
-                div { class: "console-legend-keys", kbd { "name: …" } }
-                div { "As its first line, names the session" }
+                LegendRow { does: "As its first line, names the session", kbd { "name: …" } }
             }
         }
     }
@@ -92,12 +87,10 @@ pub(crate) fn NothingOpen(
     let k_new = km.keys_for(Context::Tree, &Action::SessionNew);
     let k_shell = km.keys_for(Context::Tree, &Action::ShellOpen);
     rsx! {
-        div { class: "console-empty",
-            IconView { icon: Icon::LayoutDashboard, size: 28 }
-            div { class: "console-empty-title", "Nothing open" }
+        EmptyState { icon: Icon::LayoutDashboard, title: "Nothing open",
             div { class: "console-empty-start",
-                button {
-                    class: "button primary",
+                Button {
+                    kind: "primary",
                     onclick: move |_| onpick.call(()),
                     if let Some(k) = k_pick { Keys { keys: k } }
                     "Start a session"
@@ -110,33 +103,28 @@ pub(crate) fn NothingOpen(
                 AgentChoices { current: agent, keys: k_agent, onchoose: onagent }
                 DraftLaunchOptions { options, onchange: onoptions }
             }
-            div { class: "console-legend",
+            Legend {
                 div { class: "console-legend-head",
                     "In the tree"
                     if let Some(k) = k_sidebar { span { class: "console-legend-reach", Keys { keys: k } " goes there" } }
                 }
                 if k_down.is_some() || k_up.is_some() {
-                    div { class: "console-legend-keys",
+                    LegendRow { does: "Move through the list",
                         if let Some(k) = k_down { Keys { keys: k } }
                         if let Some(k) = k_up { Keys { keys: k } }
                     }
-                    div { "Move through the list" }
                 }
                 if let Some(k) = k_open {
-                    div { class: "console-legend-keys", Keys { keys: k } }
-                    div { "Open the selected row" }
+                    LegendRow { does: "Open the selected row", Keys { keys: k } }
                 }
                 if let Some(k) = k_open_beside {
-                    div { class: "console-legend-keys", Keys { keys: k } }
-                    div { "Open it in a split below, beside, or a new tab" }
+                    LegendRow { does: "Open it in a split below, beside, or a new tab", Keys { keys: k } }
                 }
                 if let Some(k) = k_new {
-                    div { class: "console-legend-keys", Keys { keys: k } }
-                    div { "Start a session on a workspace row" }
+                    LegendRow { does: "Start a session on a workspace row", Keys { keys: k } }
                 }
                 if let Some(k) = k_shell {
-                    div { class: "console-legend-keys", Keys { keys: k } }
-                    div { "Open a shell on a workspace row" }
+                    LegendRow { does: "Open a shell on a workspace row", Keys { keys: k } }
                 }
             }
         }

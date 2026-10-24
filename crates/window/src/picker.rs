@@ -6,6 +6,7 @@ use adroit_core::picker::Picking;
 use dioxus::prelude::*;
 
 use crate::bridge::AppCtx;
+use crate::components::KeyHint;
 use crate::keys;
 
 mod go;
@@ -62,6 +63,18 @@ fn QueryField(query: String, #[props(default)] placeholder: String) -> Element {
                     app.dispatch(Msg::PickerKey(k));
                 }
             },
+        }
+    }
+}
+
+/// The keys a picker takes, each with what it does, along its foot.
+#[component]
+fn PickerKeys(keys: &'static [(&'static str, &'static str)]) -> Element {
+    rsx! {
+        div { class: "picker-keys",
+            for (k, what) in keys.iter() {
+                KeyHint { key: "{k}", keys: "{k}", does: "{what}" }
+            }
         }
     }
 }

@@ -7,10 +7,10 @@ use adroit_model::Agent;
 use adroit_model::time::{ago, now_ms};
 use dioxus::prelude::*;
 
-use super::QueryField;
+use super::{PickerKeys, QueryField};
 use crate::bridge::AppCtx;
-use crate::components::{Dialog, KeyHint, ListRow};
-use crate::icons::{Icon, IconView};
+use crate::components::{Button, Dialog, ListRow, PlaceMark};
+use crate::icons::Icon;
 
 fn agent_label(agent: Agent) -> &'static str {
     match agent {
@@ -41,7 +41,7 @@ pub(super) fn Resume(list: List) -> Element {
             div { class: "filter-field",
                 QueryField { query: list.query.clone(), placeholder: "Conversations of {scope}" }
                 if list.dir.is_some() {
-                    button { class: "button",
+                    Button {
                         onclick: move |_| app.dispatch(Msg::PickerEvery),
                         if list.every { "Every directory" } else { "{scope}" }
                     }
@@ -61,9 +61,7 @@ pub(super) fn Resume(list: List) -> Element {
                                 key: "{row.past.agent:?}:{row.past.id}",
                                 selected: i == list.cursor,
                                 onclick: move |_| app.dispatch(Msg::PickerChoose(i)),
-                                span { class: "place-mark",
-                                    IconView { icon: if row.session.is_some() { Icon::Message } else { Icon::TransferIn } }
-                                }
+                                PlaceMark { icon: if row.session.is_some() { Icon::Message } else { Icon::TransferIn } }
                                 span { class: "list-row-name",
                                     "{row.past.title}"
                                     span { class: "picker-place", "{short(&row.past.cwd, &home)}" }
@@ -77,11 +75,7 @@ pub(super) fn Resume(list: List) -> Element {
                     },
                 }
             }
-            div { class: "picker-keys",
-                for (k, what) in keys.iter() {
-                    KeyHint { key: "{k}", keys: "{k}", does: "{what}" }
-                }
-            }
+            PickerKeys { keys }
         }
     }
 }

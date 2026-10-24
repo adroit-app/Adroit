@@ -4,7 +4,6 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use adroit_core::msg::Msg;
 use adroit_core::overlay::context_menu::Target;
 use adroit_core::tree;
 use adroit_model::{InboxItem, TerminalSession, Tree};
@@ -12,13 +11,17 @@ use dioxus::prelude::*;
 
 use crate::bridge::AppCtx;
 use crate::completion::Completions;
-use crate::components::{SessionMark, TerminalMark, glyph, runs_of, session_mark};
+use crate::components::{
+    AgentBadge, DraftMark, FileGlyph, ListRow, PlaceMark, SessionMark, StateGlyph, TerminalMark,
+    glyph, runs_of, session_mark,
+};
 use crate::content::Tab;
 use crate::file_icons;
 use crate::files;
 use crate::icons::{Icon, IconView};
 use crate::nav::{self, Item};
 use crate::rename::{Place as RenamePlace, SessionName};
+use crate::shell::overlays::menu_opener;
 
 /// What a sidebar row is, told when the pointer rests on it.
 pub(crate) fn row_tip(item: &Item) -> &'static str {
@@ -103,13 +106,13 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
         Item::Session(id) => nav::find(t, id).and_then(|(_, s)| session_mark(s.reads_only())),
         _ => None,
     };
-    let (class, text, meta, glyph_class) = match &it {
+    let (kind, text, meta, glyph_class) = match &it {
         Item::Workspace(root) => {
             let name = t
                 .workspace_of(root)
                 .map(|w| w.name.clone())
                 .unwrap_or_else(|| short(root));
-            ("list-row head", name, String::new(), None)
+            ("head", name, String::new(), None)
         }
         Item::Worktree(path) => {
             let node = t.worktrees().find(|w| &w.worktree.path == path);
@@ -119,11 +122,7 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
                 .unwrap_or_else(|| short(path));
             let empty = node.is_none_or(|w| w.sessions.is_empty() && w.terminals.is_empty());
             (
-                if empty {
-                    "list-row dim mono vacant"
-                } else {
-                    "list-row dim mono"
-                },
+                if empty { "dim mono vacant" } else { "dim mono" },
                 label,
                 String::new(),
                 None,
@@ -140,7 +139,7 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
             } else {
                 String::new()
             };
-            ("list-row group", heading.name().to_string(), count, None)
+            ("group", heading.name().to_string(), count, None)
         }
         Item::Session(id) => {
             let s = nav::find(t, id).map(|(_, s)| s.clone());
@@ -149,7 +148,7 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
                 .and_then(|s| nav::runs_at(t, s))
                 .unwrap_or_default();
             (
-                "list-row",
+                "",
                 s.as_ref()
                     .map(|s| s.name.clone())
                     .unwrap_or_else(|| id.clone()),
@@ -162,7 +161,7 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
                 .terminal(*id)
                 .map(|(_, _, s)| s.name.clone())
                 .unwrap_or_default();
-            ("list-row", name, String::new(), None)
+            ("", name, String::new(), None)
         }
         Item::File {
             worktree,
@@ -178,20 +177,20 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
                 || marks
                     .and_then(|m| m.get(worktree))
                     .is_some_and(|m| m.ignores(path));
-            let class = match (*dir, back) {
-                (true, true) => "list-row file dir back",
-                (true, false) => "list-row file dir",
-                (false, true) => "list-row file back",
-                (false, false) => "list-row file",
+            let kind = match (*dir, back) {
+                (true, true) => "file dir back",
+                (true, false) => "file dir",
+                (false, true) => "file back",
+                (false, false) => "file",
             };
             (
-                class,
+                kind,
                 if *dir { format!("{name}/") } else { name },
                 String::new(),
                 None,
             )
         }
-        Item::Waiting(_) => ("list-row", String::new(), String::new(), None),
+        Item::Waiting(_) => ("", String::new(), String::new(), None),
     };
     // The rows are of the narrowed tree, where a workspace can be flat that
     // is not in full.
@@ -257,19 +256,14 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
         Item::Heading(..) => Some(Icon::ChevronRight),
         _ => None,
     };
-    let class = if is_sel {
-        format!("{class} selected")
-    } else {
-        class.to_string()
-    };
     // What the console shows stands out wherever the selection is.
-    let class = match &it {
-        Item::Session(id) if shows == Some(Tab::Session(id.clone())) => format!("{class} shown"),
-        Item::Terminal(id) if shows == Some(Tab::Terminal(*id)) => format!("{class} shown"),
+    let kind = match &it {
+        Item::Session(id) if shows == Some(Tab::Session(id.clone())) => format!("{kind} shown"),
+        Item::Terminal(id) if shows == Some(Tab::Terminal(*id)) => format!("{kind} shown"),
         Item::File {
             path, dir: false, ..
-        } if shows_file(shows.as_ref(), terminals, path) => format!("{class} shown"),
-        _ => class,
+        } if shows_file(shows.as_ref(), terminals, path) => format!("{kind} shown"),
+        _ => kind.to_string(),
     };
     let target = Target::Row(it.clone());
     // Where a session can start, a button starts one there.
@@ -284,24 +278,21 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
     let here = it.clone();
     let start = it.clone();
     rsx! {
-        div {
-            class: "{class}",
+        ListRow {
+            kind,
+            selected: is_sel,
             style: "padding-left:{8 + indent}px",
-            title: "{row_title}",
+            title: row_title,
             onclick: move |_| on.onopen.call(here.clone()),
-            oncontextmenu: move |e: Event<MouseData>| {
-                e.prevent_default();
-                let at = e.client_coordinates();
-                app.dispatch(Msg::MenuOpen { x: at.x, y: at.y, target: target.clone() });
-            },
+            oncontextmenu: menu_opener(app, target),
             if let Some((g, icon, tip)) = glyph_class {
-                span { class: "{g}", title: "{tip}", IconView { icon, size: 13 } }
+                StateGlyph { class: g, icon, size: 13, title: tip }
             }
             if let Some(icon) = place_icon {
-                span { class: "place-mark", IconView { icon } }
+                PlaceMark { icon }
             }
-            if let Some((glyph, colour)) = &file_glyph {
-                span { class: "nf", style: "{colour}", "aria-hidden": "true", "{glyph}" }
+            if let Some((glyph, colour)) = file_glyph {
+                FileGlyph { glyph, style: colour }
             }
             if let Some(runs) = terminal { TerminalMark { runs } }
             span { class: "list-row-name",
@@ -313,7 +304,7 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
             }
             SessionMark { mark }
             if has_draft {
-                span { class: "draft-mark", title: "Something is written for it in the prompt", "✎" }
+                DraftMark {}
             }
             span { class: "list-row-meta", "{meta}" }
             if !chips.is_empty() {
@@ -323,7 +314,7 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
                 span { class: if mark == 'A' { "file-status added" } else { "file-status" }, "{mark}" }
             }
             if let Some(label) = badge {
-                span { class: "agent-badge", title: "Session agent", "{label}" }
+                AgentBadge { label }
             }
             if starts {
                 span {
@@ -354,19 +345,11 @@ pub(crate) fn WaitingRow(waiting: InboxItem, on: RowEvents) -> Element {
     let sub = format!("{} · {}", waiting.workspace, waiting.wait);
     let target = Target::Row(item.clone());
     rsx! {
-        div {
-            class: match (is_sel, shown) {
-                (true, true) => "list-row selected shown",
-                (true, false) => "list-row selected",
-                (false, true) => "list-row shown",
-                (false, false) => "list-row",
-            },
+        ListRow {
+            kind: if shown { "shown" } else { "" },
+            selected: is_sel,
             onclick: move |_| on.onopen.call(item.clone()),
-            oncontextmenu: move |e: Event<MouseData>| {
-                e.prevent_default();
-                let at = e.client_coordinates();
-                app.dispatch(Msg::MenuOpen { x: at.x, y: at.y, target: target.clone() });
-            },
+            oncontextmenu: menu_opener(app, target),
             span { class: "state-glyph wait", title: "waiting", style: "margin-top:2px",
                 IconView { icon: Icon::Bell, size: 13 }
             }
@@ -378,7 +361,7 @@ pub(crate) fn WaitingRow(waiting: InboxItem, on: RowEvents) -> Element {
                 span { class: "sidebar-inbox-sub", "{sub}" }
             }
             if let Some(label) = badge {
-                span { class: "agent-badge", title: "Session agent", "{label}" }
+                AgentBadge { label }
             }
         }
     }

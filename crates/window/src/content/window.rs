@@ -10,10 +10,10 @@ use dioxus::prelude::*;
 
 use super::short;
 use crate::bridge::AppCtx;
-use crate::components::{TerminalMark, glyph, runs_of};
+use crate::components::{AgentBadge, FileGlyph, Spacer, StateGlyph, TerminalMark, glyph, runs_of};
 use crate::content::{Axis, Border, Rect, Tab, WindowId, thing_name};
 use crate::file_icons;
-use crate::icons::{Icon, IconView};
+use crate::icons::Icon;
 use crate::nav;
 use adroit_core::msg::Msg;
 
@@ -85,14 +85,14 @@ fn WindowStrip(strip: Strip) -> Element {
         div { class: if shell { "win-bar shell" } else { "win-bar" },
             match strip.mark {
                 StripMark::Terminal(runs) => rsx! { TerminalMark { runs } },
-                StripMark::File(glyph, colour) => rsx! { span { class: "nf", style: "{colour}", "aria-hidden": "true", "{glyph}" } },
-                _ => rsx! { span { class: "{g}", title: "{tip}", IconView { icon, size: 13 } } },
+                StripMark::File(glyph, colour) => rsx! { FileGlyph { glyph, style: colour } },
+                _ => rsx! { StateGlyph { class: g, icon, size: 13, title: tip } },
             }
             span { class: "win-name", "{strip.name}" }
             if let Some(label) = strip.agent {
-                span { class: "agent-badge", title: "Session agent", "{label}" }
+                AgentBadge { label }
             }
-            span { class: "flex-spacer" }
+            Spacer {}
             if let Some(w) = &strip.worktree {
                 span { class: "win-where", title: "{short(w)}",
                     "{w.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| short(w))}"

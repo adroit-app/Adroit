@@ -13,7 +13,6 @@ use crate::bridge::AppCtx;
 use crate::components::{Hint, Keys, ListRow};
 use crate::icons::{Icon, IconView};
 use crate::nav::Item;
-use crate::view::Keys;
 
 /// The panel, drawn `focused` while it has the keys. `waiting_keys` are the
 /// keys that go to the previous and the next session waiting.
@@ -73,7 +72,7 @@ pub(crate) fn TreePanel(
             }
             div { class: "list-rows", style: "flex:1",
                 if empty {
-                    div { class: "list-row dim", "No sessions yet" }
+                    ListRow { kind: "dim", "No sessions yet" }
                 }
                 for item in rows.into_iter().filter(|i| !matches!(i, Item::Waiting(_))) {
                     TreeRow { key: "{item:?}", item, context, on }
@@ -83,7 +82,7 @@ pub(crate) fn TreePanel(
                 div { class: "sidebar-divider" }
                 div { class: "sidebar-title",
                     span { "Waiting on you" }
-                    span { class: "kbd-list",
+                    Hint {
                         if let Some(k) = waiting_prev { Keys { keys: k } }
                         if let Some(k) = waiting_next { Keys { keys: k } }
                     }

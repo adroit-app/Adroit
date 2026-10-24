@@ -37,6 +37,38 @@ pub(crate) fn SessionMark(mark: Option<(Icon, &'static str)>) -> Element {
     }
 }
 
+/// The agent a session runs, by name.
+#[component]
+pub(crate) fn AgentBadge(label: String) -> Element {
+    rsx! {
+        span { class: "agent-badge", title: "Session agent", "{label}" }
+    }
+}
+
+/// The mark of a session the prompt holds something written for.
+#[component]
+pub(crate) fn DraftMark() -> Element {
+    rsx! {
+        span { class: "draft-mark", title: "Something is written for it in the prompt", "✎" }
+    }
+}
+
+/// The mark of a place: a workspace, a folder, a session not started yet.
+#[component]
+pub(crate) fn PlaceMark(icon: Icon, #[props(default = 14)] size: u32) -> Element {
+    rsx! {
+        span { class: "place-mark", IconView { icon, size } }
+    }
+}
+
+/// A file's icon, `glyph` of the Nerd Font, in the colour `style` gives it.
+#[component]
+pub(crate) fn FileGlyph(glyph: String, style: String) -> Element {
+    rsx! {
+        span { class: "nf", style: "{style}", "aria-hidden": "true", "{glyph}" }
+    }
+}
+
 /// What the shell `id` runs; a shell when it is not among `terminals`.
 pub(crate) fn runs_of(terminals: &[TerminalSession], id: u128) -> TerminalProgram {
     terminals

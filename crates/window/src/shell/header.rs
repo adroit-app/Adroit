@@ -5,6 +5,7 @@ use adroit_core::tree;
 use dioxus::prelude::*;
 
 use crate::bridge::AppCtx;
+use crate::components::{Spacer, StateGlyph};
 use crate::icons::{Icon, IconView};
 use crate::layout::Side;
 
@@ -43,12 +44,12 @@ pub(crate) fn Header(ontoggle: EventHandler<Side>) -> Element {
                     span { "{c.target}" }
                 }
             }
-            div { class: "flex-spacer" }
+            Spacer {}
             if waiting > 0 {
-                span { class: "header-chip wait", span { class: "state-glyph wait", IconView { icon: Icon::Bell, size: 12 } } "{waiting} waiting" }
+                span { class: "header-chip wait", StateGlyph { class: "state-glyph wait", icon: Icon::Bell, size: 12 } "{waiting} waiting" }
             }
             if working > 0 {
-                span { class: "header-chip", span { class: "state-glyph run", IconView { icon: Icon::Loader, size: 12 } } "{working} working" }
+                span { class: "header-chip", StateGlyph { class: "state-glyph run", icon: Icon::Loader, size: 12 } "{working} working" }
             }
             span {
                 class: if layout.show_details { "pane-toggle on" } else { "pane-toggle" },

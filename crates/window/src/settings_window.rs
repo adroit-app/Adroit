@@ -16,7 +16,7 @@ use dioxus::desktop::{
 use dioxus::prelude::*;
 
 use crate::components::{
-    NumberField, Select, SettingGroup, SettingRow, TextArea, TextField, Toggle,
+    NumberField, Select, SettingGroup, SettingRow, SettingsError, TextArea, TextField, Toggle,
 };
 use crate::feed::{root_style, use_config};
 use crate::fonts;
@@ -232,7 +232,7 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
             main { class: "settings-pane",
                 SettingsFileError {}
                 if let Some(e) = failed() {
-                    div { class: "settings-error", "Could not keep the settings: {e}" }
+                    SettingsError { "Could not keep the settings: {e}" }
                 }
                 match pane() {
                     Pane::General => rsx! { General { now: now(), change } },
@@ -314,7 +314,6 @@ fn General(now: Settings, change: Callback<Change>) -> Element {
         SettingGroup { title: "Starting sessions",
             SettingRow { label: "Scratch folder", hint: "Where scratch sessions run, each in a folder of its own; empty for adroit's own.",
                 TextField {
-                    class: "settings-command",
                     value: "{now.scratch_dir}",
                     placeholder: "~/.local/share/adroit/scratch",
                     onchange: move |value: String| {
@@ -578,7 +577,6 @@ fn ProgramsPane(now: Settings, change: Callback<Change>) -> Element {
         SettingGroup { title: "Shell",
             SettingRow { label: "Command", hint: "The shell a shell tab runs, with its arguments; empty for your login shell, started as a login shell.",
                 TextField {
-                    class: "settings-command",
                     value: "{format_command(&now.shell.command)}",
                     placeholder: "{login} -l",
                     onchange: move |value: String| {
@@ -624,7 +622,6 @@ fn LaunchGroup(
         SettingGroup { title: "{title}",
             SettingRow { label: "Command", hint,
                 TextField {
-                    class: "settings-command",
                     value: "{format_command(&launch.command)}",
                     placeholder,
                     onchange: move |value: String| {
@@ -780,7 +777,6 @@ fn CodexGroup(
         SettingGroup { title: "{title}",
             SettingRow { label: "Model", hint: "Empty to use Codex's own model.",
                 TextField {
-                    class: "settings-command",
                     value: options.model,
                     aria_label: "Model",
                     placeholder: "Codex's own",
@@ -789,7 +785,6 @@ fn CodexGroup(
             }
             SettingRow { label: "Reasoning effort", hint: "Use a level supported by the selected model, or leave empty for Codex's own.",
                 TextField {
-                    class: "settings-command",
                     list: "codex-efforts",
                     aria_label: "Reasoning effort",
                     value: options.reasoning_effort,
@@ -833,7 +828,6 @@ fn SessionGroup(title: String, options: SessionOptions, set: Callback<SessionOpt
         SettingGroup { title: "{title}",
             SettingRow { label: "Model", hint: "The model they start with, as Claude Code's --model takes it; empty for Claude Code's own.",
                 TextField {
-                    class: "settings-command",
                     list: "{list}",
                     value: "{options.model}",
                     placeholder: "Claude Code's own",
@@ -855,7 +849,6 @@ fn SessionGroup(title: String, options: SessionOptions, set: Callback<SessionOpt
             }
             SettingRow { label: "Tools denied", hint: "Tools they may not use, separated by commas.",
                 TextField {
-                    class: "settings-command",
                     value: "{options.disallowed_tools.join(\", \")}",
                     placeholder: "Edit, Write",
                     onchange: move |value: String| {

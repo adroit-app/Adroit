@@ -81,31 +81,29 @@ pub(super) fn Overview(
     };
     rsx! {
         if let (Some(s), Some(facts)) = (&session, facts) {
-            div { class: "details-block",
-                span { class: "details-label", "{s.name}" }
-                div { class: "details-facts",
+            Section { label: "{s.name}",
+                Facts {
                     for fact in facts {
-                        span { class: "details-facts-key", "{fact.label}" }
-                        if let Some(tone) = fact.tone {
-                            span { class: "details-facts-value",
-                                span { class: "state-badge {tone}", "{fact.value}" }
+                        Fact { label: "{fact.label}",
+                            if let Some(tone) = fact.tone {
+                                span { class: "details-facts-value",
+                                    span { class: "state-badge {tone}", "{fact.value}" }
+                                }
+                            } else {
+                                span { class: "details-facts-value", title: "{fact.value}", "{fact.value}" }
                             }
-                        } else {
-                            span { class: "details-facts-value", title: "{fact.value}", "{fact.value}" }
                         }
                     }
                 }
             }
         }
         if let Some(root) = &workspace_root {
-            div { class: "details-block",
-                span { class: "details-label", "Workspace" }
+            Section { label: "Workspace",
                 span { class: "details-path", "{root.display()}" }
             }
         }
         if let Some(w) = &worktree {
-            div { class: "details-block",
-                span { class: "details-label", "Worktree" }
+            Section { label: "Worktree",
                 span { class: "details-path", "{w.display()}" }
             }
         }
@@ -145,8 +143,9 @@ pub(super) fn Overview(
                 {
                     let at = section.at;
                     rsx! {
-                        div {
-                            class: if selected == Some(at) { "list-row details-link-heading selected" } else { "list-row details-link-heading" },
+                        ListRow {
+                            kind: "details-link-heading",
+                            selected: selected == Some(at),
                             onclick: move |_| app.dispatch(Msg::DetailsClick(at)),
                             IconView { icon: if section.folded { Icon::ChevronRight } else { Icon::ChevronDown }, size: 12 }
                             span { class: "details-label", "{section.group.title()}" }
@@ -160,15 +159,11 @@ pub(super) fn Overview(
                     {
                         let (at, file) = (r.at, r.file);
                         let kill = killable(at);
-                        let class = match (selected == Some(at), r.thumb.is_some()) {
-                            (true, true) => "list-row details-link details-image selected",
-                            (true, false) => "list-row details-link selected",
-                            (false, true) => "list-row details-link details-image",
-                            (false, false) => "list-row details-link",
-                        };
+                        let kind = if r.thumb.is_some() { "details-link details-image" } else { "details-link" };
                         rsx! {
-                            div { key: "{r.target}",
-                                class,
+                            ListRow { key: "{r.target}",
+                                kind,
+                                selected: selected == Some(at),
                                 title: "{r.target}",
                                 onclick: move |_| app.dispatch(Msg::DetailsClick(at)),
                                 oncontextmenu: move |e: Event<MouseData>| {
@@ -209,8 +204,9 @@ pub(super) fn Overview(
                     }
                 }
                 if let Some((at, hidden)) = section.more {
-                    div { key: "more-{at}",
-                        class: if selected == Some(at) { "list-row details-link details-more selected" } else { "list-row details-link details-more" },
+                    ListRow { key: "more-{at}",
+                        kind: "details-link details-more",
+                        selected: selected == Some(at),
                         onclick: move |_| app.dispatch(Msg::DetailsClick(at)),
                         IconView { icon: Icon::Dots, size: 13 }
                         span { class: "list-row-name", "Show all" }

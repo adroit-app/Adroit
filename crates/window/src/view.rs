@@ -4,8 +4,6 @@
 use adroit_term::{CursorShape, Picture, Screen};
 use dioxus::prelude::*;
 
-// Where the screen and the keys panes still take it from.
-pub use crate::components::Keys;
 use crate::style::use_cell_height;
 
 /// One screen, each cell exactly `cell_width` wide, so wide characters and the

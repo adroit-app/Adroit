@@ -10,11 +10,11 @@ use adroit_core::config::Config;
 use adroit_protocol::{Answer, Ask, FileText};
 
 use crate::actions::Action;
+use crate::components::{Keys, SettingsError};
 use crate::feed::use_config;
 use crate::keymap::{Chord, Context, Keymap};
 use crate::keys_edit;
 use crate::link::Link;
-use crate::view::Keys;
 
 /// How long recording keys waits for another before it ends.
 const RECORD_WAIT: Duration = Duration::from_secs(2);
@@ -112,11 +112,11 @@ pub fn KeysPane() -> Element {
             }
         }
         if let Some(e) = failed() {
-            div { class: "settings-error", "{e}" }
+            SettingsError { "{e}" }
         }
         match map {
             Err(e) => rsx! {
-                div { class: "settings-error", "keys.toml cannot be read, so it cannot be changed here until it is fixed: {e}" }
+                SettingsError { "keys.toml cannot be read, so it cannot be changed here until it is fixed: {e}" }
             },
             Ok(map) => rsx! {
                 for ctx in Context::ALL {

@@ -11,7 +11,6 @@ use super::Ui;
 use super::status_bar::StatusBar;
 use crate::components::{Hint, KeyHint};
 use crate::input::{Answering, answering};
-use crate::view::Keys;
 
 #[component]
 pub(crate) fn Footer() -> Element {
@@ -70,52 +69,52 @@ pub(crate) fn Footer() -> Element {
     rsx! {
         StatusBar { mode, class, dialog: in_dialog,
             if let Some(k) = k_moves {
-                span { class: "kbd-list", Keys { keys: k } " move" }
+                KeyHint { keys: k, does: "move" }
             }
             if let Some(k) = k_waiting_next {
-                span { class: "kbd-list", Keys { keys: k } " next waiting" }
+                KeyHint { keys: k, does: "next waiting" }
             }
             if area == Area::Sidebar && app.tree.read().filtering {
-                span { class: "kbd-list", kbd { "Enter" } " keep the filter" }
-                span { class: "kbd-list", kbd { "Esc" } " clear it" }
+                KeyHint { keys: "Enter", does: "keep the filter" }
+                KeyHint { keys: "Esc", does: "clear it" }
             }
             if area == Area::Prompt && in_dialog {
-                span { class: "kbd-list", "every key goes to the session's dialog" }
-                span { class: "kbd-list", "the prompt is back once it closes" }
+                Hint { "every key goes to the session's dialog" }
+                Hint { "the prompt is back once it closes" }
             } else if area == Area::Console && in_dialog && !passing {
-                span { class: "kbd-list", "every key goes to the session's dialog" }
-                span { class: "kbd-list", "the window's moves leave" }
+                Hint { "every key goes to the session's dialog" }
+                Hint { "the window's moves leave" }
             } else if area == Area::Prompt && answering {
-                span { class: "kbd-list", "every key answers the session" }
-                span { class: "kbd-list", "the prompt is back once it is answered" }
+                Hint { "every key answers the session" }
+                Hint { "the prompt is back once it is answered" }
             } else if area == Area::Console && answering && !passing {
-                span { class: "kbd-list", "every key answers the session" }
-                span { class: "kbd-list", "the window's moves leave" }
+                Hint { "every key answers the session" }
+                Hint { "the window's moves leave" }
             } else if area == Area::Console && passing {
-                span { class: "kbd-list", kbd { "Esc" } " stop passing keys" }
-                span { class: "kbd-list", kbd { "Ctrl-c" } " send Esc" }
+                KeyHint { keys: "Esc", does: "stop passing keys" }
+                KeyHint { keys: "Ctrl-c", does: "send Esc" }
             } else if area == Area::Console && session_shown && reading {
-                span { class: "kbd-list", kbd { "v" } kbd { "V" } " select" }
-                span { class: "kbd-list", kbd { "y" } " copy" }
-                span { class: "kbd-list", kbd { "/" } " search" }
-                span { class: "kbd-list", kbd { "q" } " live" }
+                KeyHint { keys: "v V", does: "select" }
+                KeyHint { keys: "y", does: "copy" }
+                KeyHint { keys: "/", does: "search" }
+                KeyHint { keys: "q", does: "live" }
                 if let Some(k) = k_write.clone() {
-                    span { class: "kbd-list", Keys { keys: k } " write" }
+                    KeyHint { keys: k, does: "write" }
                 }
             } else if area == Area::Console && session_shown {
-                span { class: "kbd-list", kbd { "j" } kbd { "k" } " read" }
+                KeyHint { keys: "j k", does: "read" }
                 if let Some(k) = k_write.clone() {
-                    span { class: "kbd-list", Keys { keys: k } " write" }
+                    KeyHint { keys: k, does: "write" }
                 }
                 if let Some(k) = k_escape {
-                    span { class: "kbd-list", Keys { keys: k } " send Esc" }
+                    KeyHint { keys: k, does: "send Esc" }
                 }
                 if let Some(k) = k_every {
-                    span { class: "kbd-list", Keys { keys: k } " pass every key" }
+                    KeyHint { keys: k, does: "pass every key" }
                 }
             } else if area == Area::Console {
                 if let Some(k) = k_ctrl_q {
-                    span { class: "kbd-list", Keys { keys: k } " send Ctrl-q" }
+                    KeyHint { keys: k, does: "send Ctrl-q" }
                 }
             }
         }

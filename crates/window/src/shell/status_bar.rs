@@ -4,6 +4,7 @@
 use dioxus::prelude::*;
 
 use crate::bridge::AppCtx;
+use crate::components::Spacer;
 
 /// The bar with the mode chip, worded `mode` and styled by `class`, over the
 /// status line the chrome holds; `children` are the keys it lists, at its
@@ -23,7 +24,7 @@ pub(crate) fn StatusBar(
             if let Some(msg) = line {
                 span { class: "footer-status", title: "{msg}", "{msg}" }
             }
-            span { class: "flex-spacer" }
+            Spacer {}
             {children}
         }
     }

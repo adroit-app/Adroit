@@ -11,11 +11,14 @@ use dioxus::prelude::*;
 
 use super::short;
 use crate::bridge::AppCtx;
-use crate::components::{SessionMark, TerminalMark, glyph, runs_of, session_mark};
+use crate::components::{
+    DraftMark, PlaceMark, SessionMark, StateGlyph, TerminalMark, glyph, runs_of, session_mark,
+};
 use crate::content::{Tab, thing_name};
 use crate::icons::{Icon, IconView};
 use crate::nav;
 use crate::rename::{Place as RenamePlace, SessionName};
+use crate::shell::overlays::menu_opener;
 use adroit_core::overlay::context_menu::Target;
 
 /// The bar. `drafted` are the tabs with something written for them kept
@@ -98,17 +101,13 @@ pub(super) fn TabsBar(
                             key: "{at}",
                             class: "{class}",
                             onclick: move |_| app.dispatch(Msg::TabShow(at)),
-                            oncontextmenu: move |e: Event<MouseData>| {
-                                e.prevent_default();
-                                let at = e.client_coordinates();
-                                app.dispatch(Msg::MenuOpen { x: at.x, y: at.y, target: target.clone() });
-                            },
+                            oncontextmenu: menu_opener(app, target),
                             span { class: "tab-number", "{number}" }
                             if let Some((g, icon, tip)) = glyph_class {
-                                span { class: "{g}", title: "{tip}", IconView { icon, size: 13 } }
+                                StateGlyph { class: g, icon, size: 13, title: tip }
                             }
                             if let Some(runs) = shell { TerminalMark { runs } }
-                            if matches!(tab, Tab::Draft { .. }) { span { class: "place-mark", IconView { icon: Icon::MessagePlus, size: 13 } } }
+                            if matches!(tab, Tab::Draft { .. }) { PlaceMark { icon: Icon::MessagePlus, size: 13 } }
                             if let (Tab::Session(id), true) = (&tab, is_active) {
                                 SessionName {
                                     id: id.clone(), name: name.clone(), place: RenamePlace::Tab,
@@ -117,7 +116,7 @@ pub(super) fn TabsBar(
                             SessionMark { mark }
                             span { class: "tab-count", title: "{windows}", "{count}" }
                             if has_draft {
-                                span { class: "draft-mark", title: "Something is written for it in the prompt", "✎" }
+                                DraftMark {}
                             }
                             span {
                                 class: "tab-close",
