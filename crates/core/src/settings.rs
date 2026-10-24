@@ -563,6 +563,25 @@ impl Settings {
         replaced
     }
 
+    /// What a session of `agent` started from the profile `profile` is shown
+    /// as: its agent, and the profile's name when it is not the agent's own
+    /// name, as for the profile adroit comes with; a profile these settings
+    /// no longer hold, by its id.
+    pub fn started_as(&self, agent: Agent, profile: &ProfileId) -> String {
+        let label = match self.profiles.iter().find(|p| &p.id == profile) {
+            Some(p) => p.label().to_string(),
+            None if *profile == ProfileId::builtin(agent) || self.own(agent).id == *profile => {
+                agent.label().to_string()
+            }
+            None => profile.to_string(),
+        };
+        if label == agent.label() {
+            label
+        } else {
+            format!("{} · {label}", agent.label())
+        }
+    }
+
     fn position_of(&self, agent: Agent) -> Option<usize> {
         let open = |p: &AgentProfile| p.agent() == agent && !p.archived;
         self.profiles
@@ -1480,6 +1499,41 @@ permission_mode = "plan"
         assert_eq!(s.profile.as_str(), "claude");
         s.default_to(Agent::Claude, Some(&"codex-review".parse().unwrap()));
         assert_eq!(s.profile.as_str(), "claude");
+    }
+
+    #[test]
+    fn a_session_is_shown_by_its_agent_and_a_profile_of_another_name_by_that_too() {
+        let s = Settings::parse(PROFILES).unwrap();
+        let shown = |agent, profile: &str| s.started_as(agent, &profile.parse().unwrap());
+        assert_eq!(
+            shown(Agent::Claude, "claude-work"),
+            "Claude Code · Claude Work"
+        );
+        assert_eq!(
+            shown(Agent::Claude, "claude"),
+            "Claude Code · Claude Personal"
+        );
+        assert_eq!(shown(Agent::Codex, "gone"), "Codex · gone");
+        let own = Settings::default();
+        assert_eq!(
+            own.started_as(Agent::Codex, &"codex".parse().unwrap()),
+            "Codex"
+        );
+        // One started before profiles, from a profile since removed.
+        let none = Settings::parse("[[profiles]]\nid = \"mine\"\nagent = \"claude\"\n").unwrap();
+        assert_eq!(
+            none.started_as(Agent::Codex, &"codex".parse().unwrap()),
+            "Codex"
+        );
+        // Adroit's own, numbered past an archived profile that holds the key.
+        let archived = Settings::parse(
+            "[[profiles]]\nid = \"claude\"\nagent = \"claude\"\n[[profiles]]\nid = \"codex\"\nname = \"Old\"\nagent = \"codex\"\narchived = true\n",
+        )
+        .unwrap();
+        assert_eq!(
+            archived.started_as(Agent::Codex, &"codex-2".parse().unwrap()),
+            "Codex"
+        );
     }
 
     #[test]

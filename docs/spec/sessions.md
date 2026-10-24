@@ -25,7 +25,9 @@ A session also keeps the profile it started from, and the connection that
 runs in ([settings](settings.md#profiles-and-connections)), whatever the
 settings say since, and after the work host starts again: messages are
 handed to it, its conversation, history and processes are read, and its
-starting dialogs are answered, as the settings it was started with say.
+starting dialogs are answered, as the settings it was started with say. The
+tree and the strip of a window showing it name the session's agent and,
+when it is called otherwise, its profile.
 
 Codex sessions use the embedded prompt and report their working and waiting
 states through the terminal, including permission and question prompts. Their

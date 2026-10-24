@@ -5,6 +5,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use adroit_core::overlay::context_menu::Target;
+use adroit_core::settings::Settings;
 use adroit_core::tree;
 use adroit_model::{InboxItem, TerminalSession, Tree};
 use dioxus::prelude::*;
@@ -45,10 +46,13 @@ pub(crate) fn row_tip(item: &Item) -> &'static str {
     }
 }
 
-/// The label of the agent a session's row runs.
-pub(crate) fn row_badge(tree: &Tree, item: &Item) -> Option<&'static str> {
+/// The label of the agent a session's row runs, and the profile it started
+/// from as `settings` name it.
+pub(crate) fn row_badge(tree: &Tree, settings: &Settings, item: &Item) -> Option<String> {
     match item {
-        Item::Session(id) | Item::Waiting(id) => nav::find(tree, id).map(|(_, s)| s.agent.label()),
+        Item::Session(id) | Item::Waiting(id) => {
+            nav::find(tree, id).map(|(_, s)| settings.started_as(s.agent, &s.profile))
+        }
         _ => None,
     }
 }
@@ -264,7 +268,7 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
         }
         _ => false,
     };
-    let badge = row_badge(t, &it);
+    let badge = row_badge(t, &app.config.read().settings, &it);
     let here = it.clone();
     let start = it.clone();
     rsx! {
@@ -324,7 +328,11 @@ pub(crate) fn WaitingRow(waiting: InboxItem, on: RowEvents) -> Element {
     let shown = app.content.read().active() == Some(&Tab::Session(waiting.session.id.clone()));
     let badge = {
         let host = app.host.read();
-        row_badge(tree::listed(host.work.as_ref()), &item)
+        row_badge(
+            tree::listed(host.work.as_ref()),
+            &app.config.read().settings,
+            &item,
+        )
     };
     let sub = format!("{} · {}", waiting.workspace, waiting.wait);
     let target = Target::Row(item.clone());
@@ -390,9 +398,11 @@ mod tests {
                 .cwd("/project")
         });
         let tree = tree().sessions(sessions).build();
+        let settings = Settings::default();
         for (id, label) in [("claude", "Claude Code"), ("codex", "Codex")] {
-            assert_eq!(row_badge(&tree, &Item::Session(id.into())), Some(label));
-            assert_eq!(row_badge(&tree, &Item::Waiting(id.into())), Some(label));
+            let badge = |item| row_badge(&tree, &settings, &item);
+            assert_eq!(badge(Item::Session(id.into())).as_deref(), Some(label));
+            assert_eq!(badge(Item::Waiting(id.into())).as_deref(), Some(label));
         }
         for item in [
             Item::Workspace("/project".into()),
@@ -400,7 +410,7 @@ mod tests {
             Item::Terminal(1),
             Item::Session("missing".into()),
         ] {
-            assert_eq!(row_badge(&tree, &item), None);
+            assert_eq!(row_badge(&tree, &settings, &item), None);
         }
     }
 

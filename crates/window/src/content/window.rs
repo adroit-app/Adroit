@@ -23,7 +23,7 @@ use adroit_core::msg::Msg;
 pub(super) struct Strip {
     mark: StripMark,
     name: String,
-    agent: Option<&'static str>,
+    agent: Option<String>,
     worktree: Option<PathBuf>,
 }
 
@@ -40,6 +40,7 @@ pub(super) fn window_strip(
     tree: &Tree,
     terminals: &[TerminalSession],
     completions: &Completions,
+    settings: &adroit_core::settings::Settings,
     shows: &Tab,
 ) -> Strip {
     let session = match shows {
@@ -66,7 +67,7 @@ pub(super) fn window_strip(
     Strip {
         mark,
         name: thing_name(tree, terminals, shows),
-        agent: session.map(|s| s.agent.label()),
+        agent: session.map(|s| settings.started_as(s.agent, &s.profile)),
         worktree: tree_view::place_of_tab(tree, terminals, shows).map(|p| p.worktree),
     }
 }
