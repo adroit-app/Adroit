@@ -1,52 +1,20 @@
-use adroit_model::testing::worktree as wt;
-use adroit_model::{Agent, Key, Session, TerminalSession, build};
-use adroit_protocol::{Event, Listed, Request, Seq, TreeWork, WorkSnapshot};
+use adroit_model::{Agent, Key};
+use adroit_protocol::Request;
 
 use super::*;
 use crate::keymap::Chord;
 use crate::scenario::Scenario;
+use crate::testing::{SnapshotBuilder, listed, session, session_tab, shell, show, snapshot};
 
-fn session(id: &str) -> Session {
-    Session {
-        id: id.into(),
-        name: format!("{id}-name"),
-        cwd: format!("/r/{id}").into(),
-        ..Default::default()
-    }
-}
-
-fn listing(sessions: Vec<Session>) -> Event {
-    let terminals = vec![TerminalSession {
-        id: 7,
-        name: "shell".into(),
-        cwd: "/r/a".into(),
-        ..Default::default()
-    }];
-    let found = sessions
-        .iter()
-        .map(|s| s.cwd.clone())
-        .chain(Some("/r/a".into()))
-        .map(|cwd| (cwd.clone(), Some(wt(cwd, "/r", "main"))))
-        .collect();
-    let tree = build(&sessions, &terminals, &found, &[], None);
-    Event::Snapshot(Box::new(WorkSnapshot {
-        seq: Seq(1),
-        tree: TreeWork {
-            listed: Some(Box::new(Listed {
-                sessions,
-                terminals,
-                tree,
-            })),
-            ..Default::default()
-        },
-        ..Default::default()
-    }))
+/// The session `a` listed, with the shell 7 in its worktree.
+fn listing() -> SnapshotBuilder {
+    snapshot().listed(listed().session(session("a")).terminal(shell(7, "/r/a")))
 }
 
 /// A window showing the session `a`, the keys in `area`.
 fn showing(area: Area) -> Scenario {
     Scenario::new()
-        .event(listing(vec![session("a")]))
+        .event(listing())
         .send(Msg::ShowSession("a".into()))
         .send(Msg::Focus(area))
 }
@@ -183,12 +151,8 @@ fn the_prompt_s_actions_do_nothing_where_no_prompt_is_shown() {
         Action::HistoryPrev,
     ] {
         let run = Scenario::new()
-            .event(listing(vec![session("a")]))
-            .send(Msg::Show {
-                thing: Tab::Terminal(7),
-                place: None,
-                how: None,
-            })
+            .event(listing())
+            .send(show(Tab::Terminal(7)))
             .send(Msg::Focus(Area::Console))
             .send(perform(action.clone(), Some("i"), with_pane()));
         assert!(run.last_effects().is_empty(), "{action:?}");
@@ -263,7 +227,7 @@ fn tab_in_the_prompt_is_handed_to_the_window_with_what_decides_where_it_goes() {
             session: true,
             hands_back: false,
             no_images: true,
-            tab: Some(Tab::Session("a".into())),
+            tab: Some(session_tab("a")),
         }]
     );
     let run = showing(Area::Prompt).send(perform(Action::PromptTakeSuggestion, None, with_pane()));
@@ -301,12 +265,8 @@ fn only_a_draft_changes_its_agent() {
     );
     let draft = Tab::draft("/r/a");
     let run = Scenario::new()
-        .event(listing(vec![session("a")]))
-        .send(Msg::Show {
-            thing: draft.clone(),
-            place: None,
-            how: None,
-        })
+        .event(listing())
+        .send(show(draft.clone()))
         .send(perform(Action::SessionAgentNext, None, Probe::default()));
     assert_eq!(
         content::agent_of(run.state(), Some(&draft)),
@@ -328,11 +288,7 @@ fn copying_a_row_puts_its_path_on_the_clipboard() {
 #[test]
 fn a_viewer_shown_takes_the_viewer_s_actions() {
     let run = Scenario::new()
-        .send(Msg::Show {
-            thing: Tab::Viewer("/r/a/shot.png".into()),
-            place: None,
-            how: None,
-        })
+        .send(show(Tab::Viewer("/r/a/shot.png".into())))
         .send(Msg::Focus(Area::Console))
         .send(perform(Action::ViewerZoomIn, None, Probe::default()));
     assert!(matches!(

@@ -121,13 +121,13 @@ pub(super) fn choose(state: &mut ViewState, at: usize) -> Vec<Effect> {
 
 #[cfg(test)]
 mod tests {
-    use adroit_model::testing::worktree as wt;
-    use adroit_model::{Agent, Key, Session, build};
-    use adroit_protocol::{Change, Event, Listed, PastChange, Request, Seq, TreeWork, WorkPatch};
+    use adroit_model::{Agent, Key};
+    use adroit_protocol::{PastChange, Request};
 
     use super::*;
     use crate::msg::Msg;
     use crate::scenario::Scenario;
+    use crate::testing::{listing, session, session_tab};
 
     const HOME: &str = "/Users/me";
 
@@ -146,16 +146,6 @@ mod tests {
         }
     }
 
-    fn session(id: &str, cwd: &str, conversation: &str) -> Session {
-        Session {
-            id: id.into(),
-            name: format!("{id}-name"),
-            cwd: cwd.into(),
-            session_id: conversation.into(),
-            ..Default::default()
-        }
-    }
-
     fn past(agent: Agent, id: &str, cwd: &str, title: &str) -> Past {
         Past {
             agent,
@@ -166,36 +156,14 @@ mod tests {
         }
     }
 
-    fn listing(sessions: Vec<Session>) -> Event {
-        let found = sessions
-            .iter()
-            .map(|s| (s.cwd.clone(), Some(wt(s.cwd.clone(), "/r", "main"))))
-            .collect();
-        let tree = build(&sessions, &[], &found, &[], None);
-        Event::Snapshot(Box::new(WorkSnapshot {
-            seq: Seq(1),
-            tree: TreeWork {
-                listed: Some(Box::new(Listed {
-                    sessions,
-                    terminals: Vec::new(),
-                    tree,
-                })),
-                ..Default::default()
+    /// The conversations read for `dir`, or for every directory.
+    fn pasts(dir: Option<&str>, conversations: Vec<Past>) -> PastChange {
+        PastChange::Listed {
+            sight: PastSight {
+                dir: dir.map(Into::into),
             },
-            ..Default::default()
-        }))
-    }
-
-    fn pasts(dir: Option<&str>, conversations: Vec<Past>) -> Event {
-        Event::Patch(WorkPatch {
-            seq: Seq(2),
-            changes: vec![Change::Past(PastChange::Listed {
-                sight: PastSight {
-                    dir: dir.map(Into::into),
-                },
-                conversations,
-            })],
-        })
+            conversations,
+        }
     }
 
     fn watched(run: &Scenario) -> Option<Option<PastSight>> {
@@ -236,7 +204,7 @@ mod tests {
     /// A window showing the session `a`, which runs in `/r/src`.
     fn showing_a() -> Scenario {
         window()
-            .event(listing(vec![session("a", "/r/src", "conv-a")]))
+            .event(listing([session("a").cwd("/r/src").session_id("conv-a")]))
             .send(Msg::ShowSession("a".into()))
     }
 
@@ -276,7 +244,7 @@ mod tests {
     fn nothing_is_drawn_until_the_list_asked_for_is_read() {
         let run = showing_a()
             .send(Msg::ResumeOpen)
-            .event(pasts(None, vec![past(Agent::Claude, "x", "/q", "other")]));
+            .tell(pasts(None, vec![past(Agent::Claude, "x", "/q", "other")]));
         assert_eq!(drawn(&run), None);
     }
 
@@ -298,7 +266,7 @@ mod tests {
         for (typed, want) in cases {
             let run = showing_a()
                 .send(Msg::ResumeOpen)
-                .event(pasts(Some("/r/src"), listed.clone()))
+                .tell(pasts(Some("/r/src"), listed.clone()))
                 .send(Msg::PickerQuery(typed.into()));
             assert_eq!(titles(&run), want, "{typed}");
         }
@@ -314,7 +282,7 @@ mod tests {
         for (typed, want) in cases {
             let run = showing_a()
                 .send(Msg::ResumeOpen)
-                .event(pasts(Some("/r/src"), listed.clone()))
+                .tell(pasts(Some("/r/src"), listed.clone()))
                 .send(Msg::PickerQuery(typed.into()));
             assert_eq!(titles(&run), want, "{typed}");
         }
@@ -325,7 +293,7 @@ mod tests {
         let chosen = past(Agent::Codex, "019f", "/r/src", "review the API");
         let run = showing_a()
             .send(Msg::ResumeOpen)
-            .event(pasts(
+            .tell(pasts(
                 Some("/r/src"),
                 vec![past(Agent::Claude, "1", "/r/src", "fix"), chosen.clone()],
             ))
@@ -338,13 +306,13 @@ mod tests {
     #[test]
     fn choosing_a_conversation_a_session_here_holds_shows_that_session() {
         let run = window()
-            .event(listing(vec![
-                session("a", "/r/src", "conv-a"),
-                session("b", "/r/src", "conv-b"),
+            .event(listing([
+                session("a").cwd("/r/src").session_id("conv-a"),
+                session("b").cwd("/r/src").session_id("conv-b"),
             ]))
             .send(Msg::ShowSession("a".into()))
             .send(Msg::ResumeOpen)
-            .event(pasts(
+            .tell(pasts(
                 Some("/r/src"),
                 vec![past(Agent::Claude, "conv-b", "/r/src", "the other")],
             ));
@@ -356,15 +324,12 @@ mod tests {
                 .iter()
                 .any(|e| matches!(e, Effect::Resume(_)))
         );
-        assert_eq!(
-            run.state().content.showing().tab,
-            Some(Tab::Session("b".into()))
-        );
+        assert_eq!(run.state().content.showing().tab, Some(session_tab("b")));
     }
 
     #[test]
     fn the_same_id_from_another_agent_is_not_the_session_s() {
-        let run = showing_a().send(Msg::ResumeOpen).event(pasts(
+        let run = showing_a().send(Msg::ResumeOpen).tell(pasts(
             Some("/r/src"),
             vec![past(Agent::Codex, "conv-a", "/r/src", "codex")],
         ));
@@ -374,7 +339,7 @@ mod tests {
 
     #[test]
     fn the_cursor_goes_round_the_rows_and_a_row_past_them_chooses_nothing() {
-        let run = showing_a().send(Msg::ResumeOpen).event(pasts(
+        let run = showing_a().send(Msg::ResumeOpen).tell(pasts(
             Some("/r/src"),
             vec![
                 past(Agent::Claude, "1", "/r/src", "one"),

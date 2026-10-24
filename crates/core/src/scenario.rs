@@ -97,10 +97,11 @@ impl Scenario {
 
 #[cfg(test)]
 mod tests {
-    use adroit_protocol::{Event, Request, Seq, Version, WorkSnapshot};
+    use adroit_protocol::{Event, Request, Seq, Version};
 
     use super::*;
     use crate::host::Link;
+    use crate::testing::snapshot;
 
     #[test]
     fn a_scripted_host_answers_the_hello_and_the_window_holds_the_work() {
@@ -109,10 +110,7 @@ mod tests {
                 Event::Welcome {
                     version: Version(1),
                 },
-                Event::Snapshot(Box::new(WorkSnapshot {
-                    seq: Seq(2),
-                    ..Default::default()
-                })),
+                snapshot().seq(2).into(),
             ],
             _ => vec![],
         })

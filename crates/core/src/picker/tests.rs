@@ -1,60 +1,18 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
+use adroit_model::Key;
 use adroit_model::files::Entry;
-use adroit_model::testing::worktree as wt;
-use adroit_model::{Key, Session, build};
-use adroit_protocol::{
-    Change, Event, Listed, Offers, PickChange, PickSight, Request, Seq, TreeChange, TreeWork,
-    WorkPatch, WorkSnapshot,
-};
+use adroit_protocol::{Offers, PickChange, PickSight, Request, TreeChange};
 
 use super::*;
 use crate::content::{Area, Tab};
 use crate::effect::Effect;
 use crate::msg::Msg;
 use crate::scenario::Scenario;
+use crate::testing::{listing, session, session_tab};
 
 const HOME: &str = "/Users/me";
-
-fn session(id: &str, cwd: &str) -> Session {
-    Session {
-        id: id.into(),
-        name: format!("{id}-name"),
-        cwd: cwd.into(),
-        ..Default::default()
-    }
-}
-
-/// The sessions listed, each in a worktree of its own directory.
-fn listing(sessions: Vec<Session>) -> Event {
-    let found = sessions
-        .iter()
-        .map(|s| (s.cwd.clone(), Some(wt(s.cwd.clone(), "/r", "main"))))
-        .collect();
-    let tree = build(&sessions, &[], &found, &[], None);
-    Event::Snapshot(Box::new(WorkSnapshot {
-        seq: Seq(1),
-        tree: TreeWork {
-            listed: Some(Box::new(Listed {
-                sessions,
-                terminals: Vec::new(),
-                tree,
-            })),
-            ..Default::default()
-        },
-        ..Default::default()
-    }))
-}
-
-/// `run` told `change` as the host's next patch.
-fn told(run: Scenario, change: impl Into<Change>) -> Scenario {
-    let seq = run.state().host.work.as_ref().map_or(Seq(0), |w| w.seq);
-    run.event(Event::Patch(WorkPatch {
-        seq: seq.next(),
-        changes: vec![change.into()],
-    }))
-}
 
 fn dirs(dir: &str, children: &[&str]) -> TreeChange {
     TreeChange::Entries {
@@ -90,17 +48,14 @@ fn key(name: &str) -> Msg {
 }
 
 fn ctrl(name: &str) -> Msg {
-    Msg::PickerKey(Key {
-        ctrl: true,
-        ..Key::new(name)
-    })
+    Msg::PickerKey(Key::new(name).ctrl())
 }
 
 /// A window with a session `a` running in `/r/a`, the picker open on it.
 fn picking() -> Scenario {
     Scenario::new()
         .send(Msg::Opened { home: HOME.into() })
-        .event(listing(vec![session("a", "/r/a")]))
+        .event(listing([session("a")]))
         .send(Msg::PickerOpen)
 }
 
@@ -161,10 +116,7 @@ fn closing_the_picker_stops_the_host_listing_for_it() {
 
 #[test]
 fn the_offers_follow_the_running_directories_each_once() {
-    let run = told(
-        picking(),
-        offers(&["/r/a", "/Users/me/src/x"], &["/g/y"], &["/g"]),
-    );
+    let run = picking().tell(offers(&["/r/a", "/Users/me/src/x"], &["/g/y"], &["/g"]));
     assert_eq!(
         names(&run),
         ["New scratch session", "a-name", "/r/a", "~/src/x", "/g/y"]
@@ -178,7 +130,7 @@ fn the_cursor_stays_on_its_row_as_the_offers_come() {
     let run = run.send_all(std::iter::repeat_n(key("ArrowDown"), last));
     let on = names(&run)[picker(&run).cursor].clone();
     assert_eq!(on, "/r/a");
-    let run = told(run, offers(&["/a", "/Users/me/a"], &[], &[]));
+    let run = run.tell(offers(&["/a", "/Users/me/a"], &[], &[]));
     assert_eq!(names(&run).len(), last + 3);
     assert_eq!(names(&run)[picker(&run).cursor], on);
 }
@@ -194,13 +146,7 @@ fn the_list_s_keys_move_round_its_rows() {
         (vec![key("ArrowUp")], 2),
         (vec![ctrl("p")], 2),
         (vec![ctrl("k")], 2),
-        (
-            vec![Msg::PickerKey(Key {
-                shift: true,
-                ..Key::new("Tab")
-            })],
-            2,
-        ),
+        (vec![Msg::PickerKey(Key::new("Tab").shift())], 2),
         (
             vec![key("ArrowDown"), key("ArrowDown"), key("ArrowDown")],
             0,
@@ -252,10 +198,7 @@ fn choosing_a_directory_or_the_scratch_row_starts_a_draft_there_to_write_in() {
 fn choosing_a_session_shows_it() {
     let run = picking().send(Msg::PickerChoose(1));
     assert_eq!(run.state().picker.open, None);
-    assert_eq!(
-        run.state().content.showing().tab,
-        Some(Tab::Session("a".into()))
-    );
+    assert_eq!(run.state().content.showing().tab, Some(session_tab("a")));
 }
 
 #[test]
@@ -276,7 +219,7 @@ fn ctrl_f_turns_to_the_directory_tree_and_back() {
 /// The picker on its tree, the home directory listed.
 fn in_tree() -> Scenario {
     let run = picking().send(ctrl("f"));
-    told(run, dirs(HOME, &["src", ".config", "docs"]))
+    run.tell(dirs(HOME, &["src", ".config", "docs"]))
 }
 
 fn cursor(run: &Scenario) -> Option<PathBuf> {
@@ -287,7 +230,7 @@ fn cursor(run: &Scenario) -> Option<PathBuf> {
 fn the_tree_starts_inside_the_home_directory_once_it_is_listed() {
     let run = picking().send(ctrl("f"));
     assert_eq!(cursor(&run), Some(HOME.into()));
-    let run = told(run, dirs(HOME, &["src", "docs"]));
+    let run = run.tell(dirs(HOME, &["src", "docs"]));
     assert_eq!(cursor(&run), Some("/Users/me/docs".into()));
     let rows: Vec<_> = tree_rows(picker(&run), run.state().host.work.as_ref())
         .into_iter()
@@ -304,14 +247,14 @@ fn opening_a_directory_asks_for_it_and_moves_into_it_once_it_is_listed() {
     let run = in_tree().send(key("j")).send(key("l"));
     assert_eq!(cursor(&run), Some("/Users/me/src".into()));
     assert_eq!(asked(&run), listed(&[HOME, "/Users/me/src"]));
-    let run = told(run, dirs("/Users/me/src", &["adroit"]));
+    let run = run.tell(dirs("/Users/me/src", &["adroit"]));
     assert_eq!(cursor(&run), Some("/Users/me/src/adroit".into()));
 }
 
 #[test]
 fn a_directory_listed_after_the_cursor_left_it_does_not_take_the_cursor() {
     let run = in_tree().send(key("j")).send(key("l")).send(key("k"));
-    let run = told(run, dirs("/Users/me/src", &["adroit"]));
+    let run = run.tell(dirs("/Users/me/src", &["adroit"]));
     assert_eq!(cursor(&run), Some("/Users/me/docs".into()));
 }
 
@@ -336,7 +279,7 @@ fn the_tree_s_keys_move_close_and_show_the_hidden() {
 
 #[test]
 fn the_offers_add_their_roots_to_the_tree() {
-    let run = told(in_tree(), offers(&[], &[], &["/g", "/l"]));
+    let run = in_tree().tell(offers(&[], &[], &["/g", "/l"]));
     assert_eq!(
         picker(&run).filer.roots(),
         [HOME, "/g", "/l"].map(PathBuf::from)

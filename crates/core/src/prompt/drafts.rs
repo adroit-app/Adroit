@@ -228,10 +228,7 @@ mod tests {
 
     #[test]
     fn what_is_written_with_nothing_open_goes_to_the_draft_opened_next() {
-        let draft = Some(Tab::Draft {
-            worktree: "/src".into(),
-            id: Default::default(),
-        });
+        let draft = Some(Tab::draft("/src"));
         let mut d = Drafts::default();
         assert_eq!(
             d.show(draft.clone(), "add a readme".into()),
@@ -259,10 +256,7 @@ mod tests {
 
     #[test]
     fn a_draft_tab_s_text_is_not_kept_past_the_window_but_nothing_open_s_is() {
-        let draft = Some(Tab::Draft {
-            worktree: "/src".into(),
-            id: Default::default(),
-        });
+        let draft = Some(Tab::draft("/src"));
         let mut d = Drafts::default();
         d.show(draft, String::new());
         d.show(None, "for the draft".into());

@@ -1,9 +1,5 @@
-use adroit_model::testing::worktree as wt;
-use adroit_model::{Agent, Session, build};
-use adroit_protocol::{
-    Change, Event, HistoryRead, Listed, PromptChange, Request, Seq, TreeWork, WorkPatch,
-    WorkSnapshot,
-};
+use adroit_model::Agent;
+use adroit_protocol::{HistoryRead, PromptChange, Request};
 
 use std::path::PathBuf;
 
@@ -13,43 +9,23 @@ use crate::msg::Msg;
 use crate::prompt::drafts::Drafts;
 use crate::prompt::images::Attachments;
 use crate::scenario::Scenario;
+use crate::testing::{SnapshotBuilder, session, session_tab};
 
-fn listing() -> Event {
-    let sessions = vec![Session {
-        id: "a".into(),
-        name: "a".into(),
-        cwd: "/r/a".into(),
-        ..Default::default()
-    }];
-    let found = [("/r/a".into(), Some(wt("/r/a", "/r", "main")))]
-        .into_iter()
-        .collect();
-    let tree = build(&sessions, &[], &found, &[], None);
-    Event::Snapshot(Box::new(WorkSnapshot {
-        seq: Seq(1),
-        tree: TreeWork {
-            listed: Some(Box::new(Listed {
-                sessions,
-                terminals: Vec::new(),
-                tree,
-            })),
-            ..Default::default()
-        },
-        ..Default::default()
-    }))
+/// The host listing the one session `a`, in `/r/a`.
+fn listing() -> SnapshotBuilder {
+    crate::testing::listing([session("a")])
 }
 
-fn history(seq: u64, asked: u64, sent: &[&str]) -> Event {
-    Event::Patch(WorkPatch {
-        seq: Seq(seq),
-        changes: vec![Change::Prompt(PromptChange::History {
-            read: HistoryRead {
-                asked,
-                project: "/r/a".into(),
-                sent: sent.iter().map(|s| s.to_string()).collect(),
-            },
-        })],
-    })
+/// The host's answer to the `asked`th request for the prompts sent in
+/// `/r/a`.
+fn history(asked: u64, sent: &[&str]) -> PromptChange {
+    PromptChange::History {
+        read: HistoryRead {
+            asked,
+            project: "/r/a".into(),
+            sent: sent.iter().map(|s| s.to_string()).collect(),
+        },
+    }
 }
 
 fn recalled(run: &Scenario) -> Vec<Effect> {
@@ -82,26 +58,26 @@ fn stepping_through_the_prompts_sent_asks_the_host_for_the_project_s_and_puts_it
         })]
     );
     // An answer for another request puts nothing in.
-    let run = run.event(history(2, 7, &["old"]));
+    let run = run.tell(history(7, &["old"]));
     assert!(
         !run.last_effects()
             .iter()
             .any(|e| matches!(e, Effect::PromptRecall { .. }))
     );
-    let run = run.event(history(3, 1, &["fix it"]));
+    let run = run.tell(history(1, &["fix it"]));
     assert_eq!(
         recalled(&run),
         [Effect::PromptRecall {
-            tab: Some(Tab::Session("a".into())),
+            tab: Some(session_tab("a")),
             back: true,
             sent: vec!["fix it".into()],
         }]
     );
-    let again = run.send(recall(false)).event(history(4, 2, &["fix it"]));
+    let again = run.send(recall(false)).tell(history(2, &["fix it"]));
     assert_eq!(
         recalled(&again),
         [Effect::PromptRecall {
-            tab: Some(Tab::Session("a".into())),
+            tab: Some(session_tab("a")),
             back: false,
             sent: vec!["fix it".into()],
         }]
@@ -121,13 +97,13 @@ fn with_no_project_there_is_nothing_to_step_through() {
     );
 }
 
-fn session(id: &str) -> Option<Tab> {
-    Some(Tab::Session(id.into()))
+fn for_session(id: &str) -> Option<Tab> {
+    Some(session_tab(id))
 }
 
 #[test]
 fn hiding_the_last_session_keeps_its_prompt_and_images_for_reopening() {
-    let leader = session("leader");
+    let leader = for_session("leader");
     let mut drafts = Drafts::default();
     let mut images = Attachments::default();
     drafts.show(leader.clone(), String::new());
@@ -154,8 +130,8 @@ fn hiding_the_last_session_keeps_its_prompt_and_images_for_reopening() {
 
 #[test]
 fn a_stopped_sessions_unsent_input_stays_saved_under_its_original_identity() {
-    let stopped = session("root-a");
-    let other = session("root-b");
+    let stopped = for_session("root-a");
+    let other = for_session("root-b");
     let mut drafts = Drafts::default();
     let mut images = Attachments::default();
     drafts.show(other.clone(), String::new());
@@ -194,8 +170,8 @@ fn a_stopped_sessions_unsent_input_stays_saved_under_its_original_identity() {
 
 #[test]
 fn hiding_a_session_keeps_both_sessions_prompts_and_attachments_separate() {
-    let leader = session("leader");
-    let worker = session("worker");
+    let leader = for_session("leader");
+    let worker = for_session("worker");
     let mut drafts = Drafts::default();
     let mut images = Attachments::default();
     drafts.show(worker.clone(), String::new());
@@ -209,7 +185,7 @@ fn hiding_a_session_keeps_both_sessions_prompts_and_attachments_separate() {
         drafts.show(worker, "leader draft".into()),
         Some("worker draft".into())
     );
-    images.show(session("worker"));
+    images.show(for_session("worker"));
     assert_eq!(images.current(), &[PathBuf::from("/worker.png")]);
     assert_eq!(
         drafts.show(leader.clone(), "edited worker draft".into()),
@@ -221,7 +197,7 @@ fn hiding_a_session_keeps_both_sessions_prompts_and_attachments_separate() {
 
 #[test]
 fn closing_an_ephemeral_draft_keeps_its_text_and_images_accessible_to_the_next_composer() {
-    for next in [None, session("existing")] {
+    for next in [None, for_session("existing")] {
         let draft = Some(Tab::draft("/repo"));
         let mut drafts = Drafts::default();
         let mut images = Attachments::default();
@@ -296,37 +272,18 @@ fn images_attached_or_taken_away_leave_none_selected() {
 }
 
 mod sending {
-    use adroit_model::{Agent, Session, State, Wait};
+    use adroit_model::{Agent, State, Wait};
 
     use super::*;
     use crate::content::Area;
     use crate::prompt::send::{COMPOSE_WAIT, Taken};
+    use crate::testing::{patch, show};
     use adroit_protocol::{Composed, Typing};
 
-    fn listed(state: State) -> Event {
-        let sessions = vec![Session {
-            id: "a".into(),
-            name: "a".into(),
-            cwd: "/r/a".into(),
-            state,
-            ..Default::default()
-        }];
-        let found = [("/r/a".into(), Some(wt("/r/a", "/r", "main")))]
-            .into_iter()
-            .collect();
-        let tree = build(&sessions, &[], &found, &[], None);
-        Event::Snapshot(Box::new(WorkSnapshot {
-            seq: Seq(1),
-            tree: TreeWork {
-                listed: Some(Box::new(Listed {
-                    sessions,
-                    terminals: Vec::new(),
-                    tree,
-                })),
-                ..Default::default()
-            },
-            ..Default::default()
-        }))
+    /// The host listing the one session `a` in `state`, named as a draft
+    /// starting there would first be named.
+    fn listed(state: State) -> SnapshotBuilder {
+        crate::testing::listing([session("a").name("a").state(state)])
     }
 
     fn written(tab: Tab, text: &str) -> Taken {
@@ -352,17 +309,18 @@ mod sending {
         Scenario::answering(move |request| match request {
             Request::Compose { asked, .. } => {
                 seq += 1;
-                vec![Event::Patch(WorkPatch {
-                    seq: Seq(seq),
-                    changes: vec![Change::Prompt(PromptChange::Composed {
-                        composed: Composed {
-                            asked: *asked,
-                            shell,
-                            image_missing,
-                            typing: typed(),
-                        },
-                    })],
-                })]
+                vec![
+                    patch(seq)
+                        .change(PromptChange::Composed {
+                            composed: Composed {
+                                asked: *asked,
+                                shell,
+                                image_missing,
+                                typing: typed(),
+                            },
+                        })
+                        .into(),
+                ]
             }
             _ => Vec::new(),
         })
@@ -375,11 +333,7 @@ mod sending {
     fn sending_with(state: State, tab: Tab, shell: bool, image_missing: bool) -> Scenario {
         composing(shell, image_missing)
             .event(listed(state))
-            .send(Msg::Show {
-                thing: tab,
-                place: None,
-                how: None,
-            })
+            .send(show(tab))
             .send(Msg::PromptSend)
     }
 
@@ -417,7 +371,7 @@ mod sending {
 
     #[test]
     fn a_prompt_is_taken_once_while_it_is_on_its_way() {
-        let run = sending(State::Idle, Tab::Session("a".into()));
+        let run = sending(State::Idle, session_tab("a"));
         assert_eq!(run.last_effects(), [Effect::TakePrompt]);
         let again = run.send(Msg::PromptSend);
         assert!(again.last_effects().is_empty());
@@ -429,7 +383,7 @@ mod sending {
 
     #[test]
     fn a_prompt_that_cannot_go_is_put_back_with_a_word_why() {
-        let session = Tab::Session("a".into());
+        let session = session_tab("a");
         let draft = Tab::draft("/r/a");
         let image = |t: Taken| Taken {
             images: vec!["/a.png".into()],
@@ -489,7 +443,7 @@ mod sending {
 
     #[test]
     fn a_prompt_for_a_session_is_handed_over_and_put_back_if_it_did_not_go() {
-        let session = Tab::Session("a".into());
+        let session = session_tab("a");
         let taken = written(session.clone(), "fix it");
         let run = sending(State::Idle, session).send(Msg::PromptTaken(Box::new(taken.clone())));
         let composed = Taken {
@@ -512,7 +466,7 @@ mod sending {
             run.send(Msg::PromptWent(true)).last_effects(),
             [Effect::PromptSent]
         );
-        let failed = sending(State::Idle, Tab::Session("a".into()))
+        let failed = sending(State::Idle, session_tab("a"))
             .send(Msg::PromptTaken(Box::new(taken.clone())))
             .send(Msg::PromptWent(false));
         assert_eq!(
@@ -527,16 +481,12 @@ mod sending {
 
     #[test]
     fn a_prompt_the_host_does_not_compose_in_time_is_put_back_with_a_word_why() {
-        let session = Tab::Session("a".into());
+        let session = session_tab("a");
         let taken = written(session.clone(), "fix it");
         let silent = || {
             Scenario::answering(|_| Vec::new())
                 .event(listed(State::Idle))
-                .send(Msg::Show {
-                    thing: session.clone(),
-                    place: None,
-                    how: None,
-                })
+                .send(show(session.clone()))
                 .send(Msg::PromptSend)
                 .send(Msg::PromptTaken(Box::new(taken.clone())))
         };
@@ -552,7 +502,7 @@ mod sending {
         assert!(restored(&lapsed));
         assert_eq!(lapsed.state().prompt.sending, None);
         // One composed in time, or asked before, lapses without a word.
-        let composed = sending(State::Idle, Tab::Session("a".into()))
+        let composed = sending(State::Idle, session_tab("a"))
             .send(Msg::PromptTaken(Box::new(taken.clone())))
             .send(Msg::ComposeLapsed(1));
         assert!(composed.last_effects().is_empty());
@@ -600,7 +550,7 @@ fn the_prompt_shows_what_is_written_for_what_the_focused_window_shows() {
     let run = Scenario::new().send(Msg::Focus(crate::content::Area::Console));
     assert!(shown(&run).is_empty());
     let run = run.event(listing()).send(Msg::ShowSession("a".into()));
-    assert_eq!(shown(&run), [Some(Tab::Session("a".into()))]);
+    assert_eq!(shown(&run), [Some(session_tab("a"))]);
     let run = run.send(Msg::Focus(crate::content::Area::Prompt));
     assert!(shown(&run).is_empty());
 }
@@ -624,24 +574,21 @@ fn the_prompt_s_neovim_is_offered_the_sessions_and_the_middle_s_files_each_time_
     assert_eq!(
         offers(&runs),
         [
-            Effect::PromptOffer(vec![Offer::session("a")]),
+            Effect::PromptOffer(vec![Offer::session("a-name")]),
             Effect::PromptRoot(Some("/r/a".into())),
         ]
     );
-    let read = runs.event(Event::Patch(WorkPatch {
-        seq: Seq(2),
-        changes: vec![Change::Place(PlaceChange::Read {
-            read: PlaceRead {
-                worktree: adroit_protocol::HostPath::local("/r/a"),
-                files: vec!["src/lib.rs".into()],
-                jj: false,
-            },
-        })],
-    }));
+    let read = runs.tell(PlaceChange::Read {
+        read: PlaceRead {
+            worktree: adroit_protocol::HostPath::local("/r/a"),
+            files: vec!["src/lib.rs".into()],
+            jj: false,
+        },
+    });
     assert_eq!(
         offers(&read),
         [Effect::PromptOffer(vec![
-            Offer::session("a"),
+            Offer::session("a-name"),
             Offer::file("src/lib.rs"),
         ])]
     );
@@ -654,25 +601,23 @@ fn the_prompt_s_neovim_is_offered_the_sessions_and_the_middle_s_files_each_time_
     assert_eq!(offers(&again).len(), 2);
 }
 
-fn commands(seq: u64, dir: &str, names: &[&str]) -> Event {
+/// The commands of Claude found in `dir`, each named and nothing more.
+fn commands(dir: &str, names: &[&str]) -> PromptChange {
     use adroit_protocol::CommandsRead;
-    Event::Patch(WorkPatch {
-        seq: Seq(seq),
-        changes: vec![Change::Prompt(PromptChange::Commands {
-            read: CommandsRead {
-                agent: Agent::Claude,
-                dir: dir.into(),
-                commands: names
-                    .iter()
-                    .map(|n| adroit_model::Command {
-                        name: (*n).into(),
-                        description: String::new(),
-                        argument_hint: String::new(),
-                    })
-                    .collect(),
-            },
-        })],
-    })
+    PromptChange::Commands {
+        read: CommandsRead {
+            agent: Agent::Claude,
+            dir: dir.into(),
+            commands: names
+                .iter()
+                .map(|n| adroit_model::Command {
+                    name: (*n).into(),
+                    description: String::new(),
+                    argument_hint: String::new(),
+                })
+                .collect(),
+        },
+    }
 }
 
 fn commands_offered(run: &Scenario) -> Vec<Vec<String>> {
@@ -708,10 +653,10 @@ fn the_prompt_is_offered_the_commands_read_for_what_is_shown_once_each() {
         .event(listing())
         .send(Msg::ShowSession("a".into()))
         .send(Msg::PromptRuns(true))
-        .event(commands(2, "/elsewhere", &["stale"]))
-        .event(commands(3, "/r/a", &["compact"]))
-        .event(commands(4, "/r/a", &["compact"]))
-        .event(commands(5, "/r/a", &["compact", "review"]));
+        .tell(commands("/elsewhere", &["stale"]))
+        .tell(commands("/r/a", &["compact"]))
+        .tell(commands("/r/a", &["compact"]))
+        .tell(commands("/r/a", &["compact", "review"]));
     assert_eq!(
         commands_offered(&run),
         [

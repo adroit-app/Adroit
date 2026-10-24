@@ -161,10 +161,7 @@ mod tests {
         let session = Tab::Session("s1".into());
         assert_eq!(passes_enter(Some(&session), "  \n"), Some("s1".to_string()));
         assert_eq!(passes_enter(Some(&session), "hi"), None);
-        let draft = Tab::Draft {
-            worktree: "/w".into(),
-            id: Default::default(),
-        };
+        let draft = Tab::draft("/w");
         assert_eq!(passes_enter(Some(&draft), ""), None);
         assert_eq!(passes_enter(None, ""), None);
     }

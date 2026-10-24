@@ -120,10 +120,7 @@ mod tests {
 
     #[test]
     fn a_draft_s_commands_are_those_of_its_worktree() {
-        let tab = Tab::Draft {
-            worktree: "/api".into(),
-            id: Default::default(),
-        };
+        let tab = Tab::draft("/api");
         assert_eq!(
             commands_dir(&Tree::default(), Some(&tab), None),
             Some(PathBuf::from("/api"))

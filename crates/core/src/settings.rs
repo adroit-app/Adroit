@@ -356,6 +356,11 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
 
+    /// `settings` as adroit writes them, read back.
+    fn written_and_read(settings: &Settings) -> Settings {
+        Settings::parse(&toml::to_string_pretty(settings).unwrap()).unwrap()
+    }
+
     #[test]
     fn a_file_missing_reads_as_designed_and_one_that_cannot_be_had_names_itself() {
         use adroit_protocol::{ConfigFile, FileText};
@@ -414,10 +419,7 @@ mod tests {
                 .unwrap();
         assert!(!settings.usage.cpu && !settings.usage.gpu && !settings.usage.storage);
         assert!(settings.usage.memory);
-        assert_eq!(
-            Settings::parse(&toml::to_string_pretty(&settings).unwrap()).unwrap(),
-            settings
-        );
+        assert_eq!(written_and_read(&settings), settings);
         assert!(Settings::parse("[usage]\nmemroy = false\n").is_err());
     }
 
@@ -431,10 +433,7 @@ mod tests {
         );
         let settings = Settings::parse("[sessions]\nconfirm_channel_warning = false\n").unwrap();
         assert!(!settings.sessions.confirm_channel_warning);
-        assert_eq!(
-            Settings::parse(&toml::to_string_pretty(&settings).unwrap()).unwrap(),
-            settings
-        );
+        assert_eq!(written_and_read(&settings), settings);
     }
 
     #[test]
@@ -459,10 +458,7 @@ model = "chosen-model"
         assert_eq!(s.codex.command, ["/opt/bin/codex"]);
         assert!(s.codex.via_shell);
         assert_eq!(s.codex_sessions.model, "chosen-model");
-        assert_eq!(
-            Settings::parse(&toml::to_string_pretty(&s).unwrap()).unwrap(),
-            s
-        );
+        assert_eq!(written_and_read(&s), s);
         assert!(Settings::parse(r#"agent = "other""#).is_err());
     }
 
@@ -585,8 +581,7 @@ model = "chosen-model"
                 links_shown: 3,
             },
         };
-        let text = toml::to_string_pretty(&s).unwrap();
-        assert_eq!(Settings::parse(&text).unwrap(), s);
+        assert_eq!(written_and_read(&s), s);
     }
 
     #[test]

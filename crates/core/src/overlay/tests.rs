@@ -1,50 +1,20 @@
-use adroit_model::testing::worktree as wt;
-use adroit_model::{Key, Process, Session, State, Wait, build};
-use adroit_protocol::{Event, Listed, Seq, TreeWork, WorkSnapshot};
+use adroit_model::{Key, Process, Wait};
 
 use super::*;
 use crate::actions::Action;
-use crate::content::{Area, Tab};
+use crate::content::Area;
 use crate::effect::Effect;
 use crate::keymap::Context;
 use crate::layout::Side;
 use crate::msg::Msg;
 use crate::scenario::Scenario;
+use crate::testing::{listing, session, session_tab};
 use crate::tree::nav::Item;
-
-fn session(id: &str) -> Session {
-    Session {
-        id: id.into(),
-        name: format!("{id}-name"),
-        cwd: format!("/r/{id}").into(),
-        ..Default::default()
-    }
-}
-
-fn listing(sessions: Vec<Session>) -> Event {
-    let found = sessions
-        .iter()
-        .map(|s| (s.cwd.clone(), Some(wt(s.cwd.clone(), "/r", "main"))))
-        .collect();
-    let tree = build(&sessions, &[], &found, &[], None);
-    Event::Snapshot(Box::new(WorkSnapshot {
-        seq: Seq(1),
-        tree: TreeWork {
-            listed: Some(Box::new(Listed {
-                sessions,
-                terminals: Vec::new(),
-                tree,
-            })),
-            ..Default::default()
-        },
-        ..Default::default()
-    }))
-}
 
 /// A window listing the sessions `a` and `b`, showing `a`.
 fn window() -> Scenario {
     Scenario::new()
-        .event(listing(vec![session("a"), session("b")]))
+        .event(listing([session("a"), session("b")]))
         .send(Msg::ShowSession("a".into()))
 }
 
@@ -76,7 +46,7 @@ fn what_is_drawn_over_the_window_holds_the_keys_the_text_and_the_menu_bar() {
     let cases = [
         (vec![], (None, false, false)),
         (
-            vec![menu_on(Target::Tab(Tab::Session("a".into())))],
+            vec![menu_on(Target::Tab(session_tab("a")))],
             (Some(Holder::Menu), false, false),
         ),
         (
@@ -99,7 +69,7 @@ fn what_is_drawn_over_the_window_holds_the_keys_the_text_and_the_menu_bar() {
         (
             vec![
                 Msg::Confirm(Box::new(Ask::RestartDaemon)),
-                menu_on(Target::Tab(Tab::Session("a".into()))),
+                menu_on(Target::Tab(session_tab("a"))),
             ],
             (Some(Holder::Menu), true, true),
         ),
@@ -113,7 +83,7 @@ fn what_is_drawn_over_the_window_holds_the_keys_the_text_and_the_menu_bar() {
 #[test]
 fn a_key_closes_a_menu_left_open_and_does_nothing_else() {
     let run = window()
-        .send(menu_on(Target::Tab(Tab::Session("a".into()))))
+        .send(menu_on(Target::Tab(session_tab("a"))))
         .send(held("y"));
     assert_eq!(run.state().overlays.menu, None);
     assert!(run.last_effects().is_empty());
@@ -121,19 +91,19 @@ fn a_key_closes_a_menu_left_open_and_does_nothing_else() {
 
 fn stop_a() -> Effect {
     Effect::Host(Request::Stop {
-        session: Box::new(session("a")),
+        session: Box::new(session("a").build()),
     })
 }
 
 #[test]
 fn a_question_is_answered_by_its_keys_and_holds_every_other() {
-    let stop = Ask::Stop(session("a"));
+    let stop = Ask::Stop(session("a").build());
     let process = Process {
         pid: 7,
         name: "node".into(),
         ..Default::default()
     };
-    let kill = Ask::KillProcess(session("a"), process.clone());
+    let kill = Ask::KillProcess(session("a").build(), process.clone());
     // (asked, key, what answering asks done, whether it is still asked)
     let cases = [
         (stop.clone(), "y", Some(stop_a()), false),
@@ -142,7 +112,7 @@ fn a_question_is_answered_by_its_keys_and_holds_every_other() {
             kill,
             "y",
             Some(Effect::Host(Request::Kill {
-                session: Box::new(session("a")),
+                session: Box::new(session("a").build()),
                 process,
             })),
             false,
@@ -300,10 +270,8 @@ fn a_name_given_up_unchanged_or_for_another_field_renames_nothing() {
 
 #[test]
 fn a_session_waiting_on_an_answer_is_answered_before_it_is_renamed() {
-    let mut waits = session("a");
-    waits.state = State::Waiting(Wait::Input);
     let run = Scenario::new()
-        .event(listing(vec![waits]))
+        .event(listing([session("a").waiting(Wait::Input)]))
         .send(renaming("a", RenamePlace::Sidebar));
     assert_eq!(run.state().overlays.rename, None);
     assert_eq!(
@@ -330,7 +298,7 @@ fn a_menu_runs_its_entry_on_what_it_was_opened_on() {
     // (target, the area the keys go to)
     let cases = [
         (Target::Row(Item::Session("b".into())), Area::Sidebar),
-        (Target::Tab(Tab::Session("a".into())), Area::Console),
+        (Target::Tab(session_tab("a")), Area::Console),
         (Target::Link { at: 0, file: false }, Area::Details),
     ];
     for (target, area) in cases {
@@ -373,12 +341,9 @@ fn the_keys_help_takes_its_keys_by_the_bindings_the_chrome_holds() {
     let user = crate::keymap::Keymap::with_user(text).unwrap();
     let help = || {
         window()
-            .event(crate::config::testing::reconfigured(
-                2,
-                adroit_protocol::ConfigChange::Keys {
-                    file: crate::config::testing::keys_file(text),
-                },
-            ))
+            .tell(adroit_protocol::ConfigChange::Keys {
+                file: crate::config::testing::keys_file(text),
+            })
             .send(Msg::KeysHelpOpen(vec![Context::Console, Context::Global]))
     };
     assert_eq!(help().state().chrome.keymap, user);
