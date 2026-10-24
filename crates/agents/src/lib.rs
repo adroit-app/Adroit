@@ -270,7 +270,16 @@ pub trait AgentAdapter: Sync {
         Box::pin(async { None })
     }
     /// The models the provider accepts, asked of it in `dir` as `context` starts it.
-    fn models(&self, _context: AgentContext, _dir: PathBuf) -> Probe<adroit_model::ProviderModel> {
+    fn models(&self, context: AgentContext, dir: PathBuf) -> Probe<adroit_model::ProviderModel> {
+        self.models_within(context, dir, crate::claude::commands::PROBE_TIMEOUT)
+    }
+    /// [`AgentAdapter::models`], given up after `timeout`.
+    fn models_within(
+        &self,
+        _context: AgentContext,
+        _dir: PathBuf,
+        _timeout: std::time::Duration,
+    ) -> Probe<adroit_model::ProviderModel> {
         Box::pin(async { None })
     }
     fn usage(&self, _context: AgentContext, _home: PathBuf) -> Probe<crate::claude::usage::Limit> {

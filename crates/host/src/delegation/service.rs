@@ -341,7 +341,7 @@ async fn start(context: &Context, caller: &Session, start: protocol::Start) -> R
         .models
         .lock()
         .expect("the models' lock")
-        .check(Some(agent), start.model.as_deref())
+        .check(&profile, start.model.as_deref())
         .map_err(|error| Error::new(Code::Invalid, error))?;
     let dir = start.dir.clone().unwrap_or_else(|| caller.cwd.clone());
     let dir = std::fs::canonicalize(&dir)
@@ -466,17 +466,19 @@ async fn listed(all: Vec<Session>, filter: &protocol::Sessions) -> Result<Value>
 async fn watch_models(context: Context) {
     let mut interval = tokio::time::interval(Duration::from_secs(1));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let mut next: HashMap<Agent, tokio::time::Instant> = HashMap::new();
+    // By the generation each profile is asked as, so a profile configured
+    // anew is asked at once and an answer is learned for the one asked.
+    let mut next: HashMap<u64, tokio::time::Instant> = HashMap::new();
     let mut asking = tokio::task::JoinSet::new();
     loop {
         tokio::select! {
             _ = interval.tick() => {}
-            Some(Ok((agent, got))) = asking.join_next(), if !asking.is_empty() => {
+            Some(Ok((generation, got))) = asking.join_next(), if !asking.is_empty() => {
                 let got: Option<Vec<adroit_model::ProviderModel>> = got;
                 let wait = if got.is_some() { 600 } else { 60 };
-                next.insert(agent, tokio::time::Instant::now() + Duration::from_secs(wait));
+                next.insert(generation, tokio::time::Instant::now() + Duration::from_secs(wait));
                 if let Some(models) = got {
-                    context.models.lock().expect("the models' lock").learn(agent, models);
+                    context.models.lock().expect("the models' lock").learn(generation, models);
                 }
                 continue;
             }
@@ -484,23 +486,39 @@ async fn watch_models(context: Context) {
         let Ok(settings) = context.settings() else {
             continue;
         };
-        context
-            .models
-            .lock()
-            .expect("the models' lock")
-            .set_default_agent(settings.default_agent());
+        let profiles = crate::programs::profiles(&settings);
+        let to_ask = {
+            let mut models = context.models.lock().expect("the models' lock");
+            models.configure(
+                profiles.iter().map(asked_of).collect(),
+                settings.profile_of(settings.default_agent()).id.clone(),
+            );
+            models.to_ask()
+        };
         let now = tokio::time::Instant::now();
-        for agent in Agent::ALL {
-            if next.get(&agent).is_none_or(|at| now >= *at) {
+        next.retain(|generation, _| to_ask.iter().any(|(_, g)| g == generation));
+        for (asked, generation) in to_ask {
+            let Some(started) = profiles.iter().find(|p| p.profile == asked.profile) else {
+                continue;
+            };
+            if next.get(&generation).is_none_or(|at| now >= *at) {
                 // Far ahead while asking, so a slow answer is not asked twice.
-                next.insert(agent, now + Duration::from_secs(600));
-                let Ok(started) = crate::programs::starting(&settings, Some(agent), None) else {
-                    continue;
-                };
-                let asked = adroit_agents::adapter(agent).models(started, crate::paths::home());
-                asking.spawn(async move { (agent, asked.await) });
+                next.insert(generation, now + Duration::from_secs(600));
+                let answer = adroit_agents::adapter(started.agent())
+                    .models(started.clone(), crate::paths::home());
+                asking.spawn(async move { (generation, answer.await) });
             }
         }
+    }
+}
+
+/// What `started`'s models are asked through, as the catalog keeps it.
+fn asked_of(started: &adroit_agents::AgentContext) -> adroit_model::Asked {
+    adroit_model::Asked {
+        profile: started.profile.clone(),
+        agent: started.agent(),
+        connection: started.connection.clone(),
+        through: format!("{:?}", (&started.home, &started.launch, &started.shell)),
     }
 }
 

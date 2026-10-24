@@ -17,6 +17,7 @@ dependencies = [
  "adroit-model",
  "adroit-window",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]

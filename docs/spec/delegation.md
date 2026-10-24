@@ -32,7 +32,7 @@ cannot act as another.
   a git worktree; it starts from the given revision, or from the caller's
   current change or commit. Outside version control, a new worktree is
   refused. A worktree that cannot be made refuses the start; the session never
-  falls back to the caller's directory. A model must be one its agent lists
+  falls back to the caller's directory. A model must be one its profile lists
   (see `models`); any other is refused, naming the listed ones.
 - **`send`** sends a message to another session by its id. Any session Adroit
   started, running or not yet ready, can be sent to; one that has ended
@@ -44,9 +44,12 @@ cannot act as another.
   the turn that reported is over, Adroit ends the reporting session. Its
   worktree, and everything in it, stays.
 - **`stop_session`** ends a session the caller started.
-- **`models`** lists, for each agent, the models its provider reports, and
-  which agent a start without one uses. An agent whose provider has not
-  answered has no list, and its models are not checked.
+- **`models`** lists, for each profile a session can start from, its agent,
+  the connection it runs in and the models its provider reports there, and
+  which profile a start that names neither a profile nor an agent uses. Each
+  profile's list is its own, asked again when the profile or its connection
+  changes. A profile whose provider has not answered has no list, and its
+  models are not checked.
 
 At most `max_started` started sessions run at once
 ([settings](settings.md#settingstoml)); a start beyond it is refused with the

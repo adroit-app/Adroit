@@ -14,3 +14,4 @@ adroit-window.workspace = true
 [dev-dependencies]
 adroit-model.workspace = true
 tempfile.workspace = true
+tokio.workspace = true

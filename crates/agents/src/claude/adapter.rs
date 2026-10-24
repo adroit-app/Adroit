@@ -109,14 +109,14 @@ impl AgentAdapter for Claude {
             .await
         })
     }
-    fn models(&self, context: AgentContext, dir: PathBuf) -> Probe<adroit_model::ProviderModel> {
+    fn models_within(
+        &self,
+        context: AgentContext,
+        dir: PathBuf,
+        timeout: std::time::Duration,
+    ) -> Probe<adroit_model::ProviderModel> {
         Box::pin(async move {
-            super::models::probe(
-                |args| launch_in(&context, args, Vec::new()),
-                &dir,
-                super::commands::PROBE_TIMEOUT,
-            )
-            .await
+            super::models::probe(|args| launch_in(&context, args, Vec::new()), &dir, timeout).await
         })
     }
     fn usage(&self, context: AgentContext, home: PathBuf) -> Probe<super::usage::Limit> {

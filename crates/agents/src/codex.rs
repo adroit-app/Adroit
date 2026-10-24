@@ -187,12 +187,17 @@ impl AgentAdapter for Codex {
     fn builtin_commands(&self) -> Vec<crate::claude::commands::Command> {
         commands::builtins()
     }
-    fn models(&self, context: AgentContext, dir: PathBuf) -> Probe<adroit_model::ProviderModel> {
+    fn models_within(
+        &self,
+        context: AgentContext,
+        dir: PathBuf,
+        timeout: std::time::Duration,
+    ) -> Probe<adroit_model::ProviderModel> {
         Box::pin(async move {
             models::probe(
                 launch_in(&context, vec!["app-server".into()], Vec::new()),
                 &dir,
-                crate::claude::commands::PROBE_TIMEOUT,
+                timeout,
             )
             .await
         })

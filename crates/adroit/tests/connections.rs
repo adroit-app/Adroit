@@ -3,6 +3,7 @@
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use adroit_host::execution::{StartRequest, resolve};
 use adroit_host::settings::Settings;
@@ -311,4 +312,106 @@ fn an_agent_the_settings_give_no_profile_starts_and_resumes_as_adroit_s_own_prof
     let resumed = start(Some("codex"), Some(thread)).unwrap();
     let words = resumed.spawn.args.join(" ");
     assert!(words.contains(&format!("resume {thread}")), "{words}");
+}
+
+/// A program standing in for Codex's app server, which lists one model named
+/// after the login it was started in: its home's last component.
+fn model_listing(dir: &Path) -> PathBuf {
+    let path = dir.join("app-server.sh");
+    std::fs::write(
+        &path,
+        r#"IFS= read -r init
+printf '%s\n' '{"id":"adroit-init","result":{}}'
+IFS= read -r initialized
+IFS= read -r query
+login=$(basename "$CODEX_HOME")
+printf '{"id":"adroit-query","result":{"data":[{"id":"%s-model"}],"nextCursor":null}}\n' "$login"
+"#,
+    )
+    .unwrap();
+    path
+}
+
+#[tokio::test]
+async fn two_codex_profiles_list_the_models_of_their_own_logins_and_a_late_answer_is_dropped() {
+    use adroit_model::{Asked, ModelCatalog};
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = settings(
+        Agent::Codex,
+        &model_listing(dir.path()),
+        &dir.path().join("work"),
+        None,
+    );
+    // The agent's own environment keeps whatever home adroit runs with, which
+    // inside a Codex session is that session's; pinned here.
+    s.profiles[0].launch.env.insert(
+        "CODEX_HOME".into(),
+        dir.path().join("own").display().to_string(),
+    );
+    let asked = |profile: &str, through: &str| Asked {
+        profile: profile.parse().unwrap(),
+        agent: Agent::Codex,
+        connection: if profile == "work" { "work" } else { "codex" }
+            .parse()
+            .unwrap(),
+        through: through.into(),
+    };
+    let mut catalog = ModelCatalog::default();
+    catalog.configure(
+        vec![asked("own", "1"), asked("work", "1")],
+        "own".parse().unwrap(),
+    );
+    let generations = catalog.to_ask();
+
+    let codex = adroit_host::programs::profiles(&s)
+        .into_iter()
+        .filter(|c| c.agent() == Agent::Codex)
+        .map(|c| adroit_agents::AgentContext {
+            adroit: ADROIT.into(),
+            ..c
+        });
+    for context in codex {
+        // A test binary and a shell started under a loaded machine may take
+        // longer than a CLI is given to answer.
+        let listed = adroit_agents::adapter(Agent::Codex)
+            .models_within(context.clone(), dir.path().into(), Duration::from_secs(60))
+            .await
+            .unwrap();
+        let (_, generation) = generations
+            .iter()
+            .find(|(a, _)| a.profile == context.profile)
+            .unwrap();
+        catalog.learn(*generation, listed);
+    }
+
+    let own: adroit_model::profile::ProfileId = "own".parse().unwrap();
+    let work: adroit_model::profile::ProfileId = "work".parse().unwrap();
+    assert_eq!(catalog.check(&own, Some("own-model")), Ok(()));
+    assert!(catalog.check(&own, Some("work-model")).is_err());
+    assert_eq!(catalog.check(&work, Some("work-model")), Ok(()));
+    assert!(catalog.check(&work, Some("own-model")).is_err());
+
+    // Asked again through another home, an answer to the earlier question
+    // tells nothing of the profile now.
+    catalog.configure(
+        vec![asked("own", "1"), asked("work", "2")],
+        "own".parse().unwrap(),
+    );
+    let (_, stale) = generations.iter().find(|(a, _)| a.profile == work).unwrap();
+    catalog.learn(
+        *stale,
+        vec![adroit_model::ProviderModel {
+            id: "stale-model".into(),
+            resolved: None,
+            name: "stale".into(),
+            description: String::new(),
+        }],
+    );
+    assert_eq!(
+        catalog.check(&work, Some("anything")),
+        Ok(()),
+        "no list yet"
+    );
+    assert_eq!(catalog.check(&own, Some("own-model")), Ok(()));
+    assert!(catalog.check(&own, Some("work-model")).is_err());
 }

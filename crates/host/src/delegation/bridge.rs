@@ -96,7 +96,7 @@ fn tools(started: bool) -> Vec<Value> {
     }
     tools.push(json!({
         "name": "models",
-        "description": "List the models each agent accepts, and which agent a session starts with by default.",
+        "description": "List the profiles a session can start from, each with its agent, connection and the models it accepts, and which profile a session starts from by default.",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
     }));
     tools

@@ -61,6 +61,27 @@ pub fn recorded(launch: &Settings, profile: &ProfileId) -> Result<AgentContext, 
     in_connection(launch, &profile)
 }
 
+/// Each profile a new session can start from, as `settings` say, in its
+/// connection: those not archived, and the one adroit comes with for an agent
+/// that has none.
+pub fn profiles(settings: &Settings) -> Vec<AgentContext> {
+    let builtin = Agent::ALL
+        .iter()
+        .map(|a| settings.profile_of(*a))
+        .filter(|p| matches!(p, Cow::Owned(_)))
+        .map(Cow::into_owned);
+    let open: Vec<AgentProfile> = settings
+        .profiles
+        .iter()
+        .filter(|p| !p.archived)
+        .cloned()
+        .chain(builtin)
+        .collect();
+    open.iter()
+        .filter_map(|p| in_connection(settings, p).ok())
+        .collect()
+}
+
 /// One context for each connection a profile not archived runs in, as
 /// `settings` say, asked through the agent's default profile where that runs
 /// there, else through the first profile that does: what is kept in the
@@ -268,6 +289,22 @@ home = "/Users/me/claude-work"
             let own = Settings::parse(&text.replace("connection = \"work\"\n", "")).unwrap();
             assert!(starting(&own, None, Some(&id("p"))).is_ok());
         }
+    }
+
+    #[test]
+    fn every_profile_a_session_can_start_from_is_listed_once_in_its_connection() {
+        let listed: Vec<String> = profiles(&settings())
+            .iter()
+            .map(|c| c.profile.to_string())
+            .collect();
+        assert_eq!(listed, ["claude", "claude-work", "codex-review"]);
+        let only_claude =
+            Settings::parse("[[profiles]]\nid = \"mine\"\nagent = \"claude\"\n").unwrap();
+        let listed: Vec<String> = profiles(&only_claude)
+            .iter()
+            .map(|c| c.profile.to_string())
+            .collect();
+        assert_eq!(listed, ["mine", "codex"]);
     }
 
     #[test]
