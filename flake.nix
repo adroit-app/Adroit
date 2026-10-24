@@ -93,6 +93,8 @@
               pkgs.just
               # The embedded prompt editor; its tests start a real Neovim.
               pkgs.neovim
+              # The extension Pi sessions load; its tests run it in Node.
+              pkgs.nodejs
             ]
             ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ pkgs.libiconv ]
             ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.pkg-config ]
