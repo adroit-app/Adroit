@@ -2,15 +2,15 @@ Warning: No project session found with id 'adroit-probe-1'; creating a new sessi
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
  Trust project folder?
- /private/tmp/claude-501/-Users-alisue-ghq-github-com-adroit-app-Adroit--claude-worktrees-agent-profiles-pi/528fa619-38
- b2-4708-a935-ada860b1df97/scratchpad/lab/trusted
+ /Users/me/src/projec
+ t
 
  This allows pi to load .pi settings and resources, install missing project packages, and execute project extensions.
 
  → Trust
    Trust parent folder
- (/private/tmp/claude-501/-Users-alisue-ghq-github-com-adroit-app-Adroit--claude-worktrees-agent-profiles-pi/528fa619-3
- 8b2-4708-a935-ada860b1df97/scratchpad/lab)
+ (/Users/me/src/projec
+t)
    Trust (this session only)
    Do not trust
    Do not trust (this session only)

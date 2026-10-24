@@ -91,7 +91,7 @@ impl AgentAdapter for Claude {
         vec!["auth".into(), "login".into()]
     }
     // Not `claude doctor`, which makes keychain items of its own as it looks.
-    fn status_args(&self) -> Vec<String> {
+    fn status_args(&self, _context: &AgentContext) -> Vec<String> {
         vec!["auth".into(), "status".into(), "--json".into()]
     }
     fn standing(&self, code: Option<i32>, out: &str) -> adroit_model::profile::LoginStanding {
@@ -195,7 +195,7 @@ impl AgentAdapter for Claude {
         own: &mut [adroit_model::Session],
         listed: Vec<adroit_model::Running>,
     ) -> Vec<(u128, Learned)> {
-        follow(own, listed)
+        crate::claude::follow(Agent::Claude, own, listed)
     }
     fn resume_args(&self, context: &AgentContext, conversation: &str) -> Option<Vec<String>> {
         Some(super::resume_args(
@@ -285,16 +285,17 @@ fn asked(context: &AgentContext, args: Vec<String>) -> Started {
     crate::connection::started(&Claude, context, args, Vec::new())
 }
 
-/// Read Claude Code's `listed` sessions against adroit's `own`: each of `own`
-/// learns the process that holds its conversation, and follows that process
-/// to the conversation `/clear` or `/resume` moves it to. What was learned, by
-/// each session's daemon id.
-fn follow(
+/// Read `agent`'s `listed` sessions against adroit's `own`: each of `own`
+/// that `agent` runs learns the process that holds its conversation, and
+/// follows that process to the conversation a `/clear`, `/new` or `/resume`
+/// moves it to. What was learned, by each session's daemon id.
+pub(crate) fn follow(
+    agent: Agent,
     own: &mut [adroit_model::Session],
     listed: Vec<adroit_model::Running>,
 ) -> Vec<(u128, Learned)> {
     let mut learned = Vec::new();
-    for s in own.iter_mut().filter(|s| s.agent == Agent::Claude) {
+    for s in own.iter_mut().filter(|s| s.agent == agent) {
         let Some(id) = adroit_model::daemon::id_of(&s.id) else {
             continue;
         };

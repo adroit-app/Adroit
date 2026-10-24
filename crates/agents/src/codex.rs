@@ -128,7 +128,7 @@ impl AgentAdapter for Codex {
     fn login_args(&self) -> Vec<String> {
         vec!["login".into()]
     }
-    fn status_args(&self) -> Vec<String> {
+    fn status_args(&self, _context: &AgentContext) -> Vec<String> {
         vec!["login".into(), "status".into()]
     }
     // Codex keys its MCP servers' OAuth tokens in the keychain by server

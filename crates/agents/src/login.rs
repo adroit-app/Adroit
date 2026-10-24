@@ -22,7 +22,7 @@ pub fn login(context: &AgentContext) -> Started {
 /// Whether the CLI says `context`'s connection is logged in, asked in `dir`.
 pub async fn standing(context: &AgentContext, dir: &Path) -> LoginStanding {
     let adapter = adapter(context.agent());
-    let (program, args, env) = adapter.launch(context, adapter.status_args(), Vec::new());
+    let (program, args, env) = adapter.launch(context, adapter.status_args(context), Vec::new());
     let child = tokio::process::Command::new(&program)
         .args(args)
         .envs(env)
@@ -61,6 +61,8 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     use adroit_model::Agent;
+    use adroit_model::config::PiOptions;
+    use adroit_model::profile::AgentOptions;
 
     use super::*;
 
@@ -153,10 +155,82 @@ mod tests {
             ("codex", &["login".to_string()][..])
         );
         assert_eq!(
-            adapter(Agent::Claude).status_args(),
+            adapter(Agent::Claude).status_args(&AgentContext::builtin(Agent::Claude)),
             ["auth", "status", "--json"]
         );
-        assert_eq!(adapter(Agent::Codex).status_args(), ["login", "status"]);
+        assert_eq!(
+            adapter(Agent::Codex).status_args(&AgentContext::builtin(Agent::Codex)),
+            ["login", "status"]
+        );
+    }
+
+    #[test]
+    fn pi_is_asked_about_the_provider_of_its_profile_s_model_and_logs_in_in_its_own_interface() {
+        let mut context = AgentContext::builtin(Agent::Pi);
+        context.options = AgentOptions::Pi(PiOptions {
+            model: "anthropic/claude-sonnet-4-5".into(),
+            ..PiOptions::default()
+        });
+        assert_eq!(
+            adapter(Agent::Pi).status_args(&context),
+            ["auth", "check", "--provider", "anthropic", "--json"]
+        );
+        let (program, args, _) = login(&context);
+        assert_eq!(program, "pi");
+        assert!(args.contains(&"--no-session".to_string()), "{args:?}");
+        assert!(
+            args.last().is_some_and(|a| a.ends_with("/pi/login.ts")),
+            "{args:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn pi_is_logged_in_when_its_provider_is_ready() {
+        let dir = tempfile::tempdir().unwrap();
+        let with_model = |out: &str, code| {
+            let mut context = answering(Agent::Pi, dir.path(), out, code);
+            context.options = AgentOptions::Pi(PiOptions {
+                model: "ollama/qwen3".into(),
+                ..PiOptions::default()
+            });
+            context
+        };
+        for (out, code, standing_is) in [
+            (
+                r#"{"status":"ready","provider":"ollama","authType":"api_key"}"#,
+                0,
+                LoginStanding::LoggedIn,
+            ),
+            (
+                r#"{"status":"not_ready","provider":"ollama","reason":"credentials_not_configured"}"#,
+                1,
+                LoginStanding::LoggedOut,
+            ),
+            (
+                r#"{"status":"invalid","provider":"ollama"}"#,
+                2,
+                LoginStanding::Unknown,
+            ),
+            ("", 0, LoginStanding::Unknown),
+        ] {
+            let context = with_model(out, code);
+            assert_eq!(
+                standing(&context, Path::new("/")).await,
+                standing_is,
+                "{out}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn pi_without_a_provider_to_ask_about_is_unknown_unless_it_is_not_installed() {
+        let dir = tempfile::tempdir().unwrap();
+        let context = answering(Agent::Pi, dir.path(), "1.3.0", 0);
+        assert_eq!(adapter(Agent::Pi).status_args(&context), ["--version"]);
+        assert_eq!(
+            standing(&context, Path::new("/")).await,
+            LoginStanding::Unknown
+        );
     }
 
     #[test]

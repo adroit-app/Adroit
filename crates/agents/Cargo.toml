@@ -12,6 +12,7 @@ adroit-model.workspace = true
 adroit-vcs.workspace = true
 libc.workspace = true
 serde_json.workspace = true
+sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
 thiserror.workspace = true
 tokio.workspace = true
 uuid.workspace = true

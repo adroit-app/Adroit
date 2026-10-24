@@ -8,6 +8,7 @@ use tokio::process::Command;
 
 mod adapter;
 pub use adapter::Claude;
+pub(crate) use adapter::follow;
 pub mod commands;
 pub mod context;
 mod control;
@@ -18,7 +19,7 @@ pub mod metrics;
 pub mod models;
 mod past;
 pub mod places;
-mod plugin;
+pub(crate) mod plugin;
 pub mod subagents;
 pub mod usage;
 

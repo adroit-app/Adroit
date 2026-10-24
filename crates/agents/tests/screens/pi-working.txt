@@ -23,5 +23,5 @@ jj-workspace, oss-init, pr-create, pr-review, pr-update, slite-note, yomiyasu
 ── ⠴ Working ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-/private/tmp/claude-501/-Users-alisue-ghq-github-com-adroit-app-Adroit--claude-worktrees-agent-profiles-pi/528fa619-3...
+/Users/me/src/project
 8.7%/33k (auto)                                                                                                     slow

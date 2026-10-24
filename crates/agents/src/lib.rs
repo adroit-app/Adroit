@@ -6,13 +6,14 @@ mod codex;
 pub mod connection;
 mod delivery;
 pub mod login;
+pub mod pi;
 #[cfg(test)]
 mod testing;
 pub use connection::conflict;
 pub use delivery::{DeliveryFailure, DeliveryFuture};
 
 use adroit_model::Agent;
-use adroit_model::config::{CodexOptions, Launch, SessionOptions};
+use adroit_model::config::{CodexOptions, Launch, PiOptions, SessionOptions};
 use adroit_model::profile::{AgentOptions, AgentProfile, ConnectionId, ProfileId};
 use std::path::{Path, PathBuf};
 
@@ -110,14 +111,14 @@ impl AgentContext {
     pub fn claude(&self) -> SessionOptions {
         match &self.options {
             AgentOptions::Claude(options) => options.clone(),
-            AgentOptions::Codex(_) => SessionOptions::default(),
+            _ => SessionOptions::default(),
         }
     }
 
     pub fn claude_mut(&mut self) -> Option<&mut SessionOptions> {
         match &mut self.options {
             AgentOptions::Claude(options) => Some(options),
-            AgentOptions::Codex(_) => None,
+            _ => None,
         }
     }
 
@@ -125,14 +126,29 @@ impl AgentContext {
     pub fn codex(&self) -> CodexOptions {
         match &self.options {
             AgentOptions::Codex(options) => options.clone(),
-            AgentOptions::Claude(_) => CodexOptions::default(),
+            _ => CodexOptions::default(),
         }
     }
 
     pub fn codex_mut(&mut self) -> Option<&mut CodexOptions> {
         match &mut self.options {
             AgentOptions::Codex(options) => Some(options),
-            AgentOptions::Claude(_) => None,
+            _ => None,
+        }
+    }
+
+    /// Pi's options; nothing chosen for a profile of another agent.
+    pub fn pi(&self) -> PiOptions {
+        match &self.options {
+            AgentOptions::Pi(options) => options.clone(),
+            _ => PiOptions::default(),
+        }
+    }
+
+    pub fn pi_mut(&mut self) -> Option<&mut PiOptions> {
+        match &mut self.options {
+            AgentOptions::Pi(options) => Some(options),
+            _ => None,
         }
     }
 }
@@ -242,8 +258,9 @@ pub trait AgentAdapter: Sync {
     /// What starts the CLI's own login, which the user goes through in a
     /// terminal.
     fn login_args(&self) -> Vec<String>;
-    /// What asks the CLI whether it is logged in, without logging in or out.
-    fn status_args(&self) -> Vec<String>;
+    /// What asks the CLI whether `context`'s connection is logged in, without
+    /// logging in or out.
+    fn status_args(&self, context: &AgentContext) -> Vec<String>;
     /// Whether the CLI is logged in, as it answered [`AgentAdapter::status_args`]
     /// with the exit status `code` and `out` on its output.
     fn standing(&self, code: Option<i32>, _out: &str) -> adroit_model::profile::LoginStanding {
@@ -384,6 +401,7 @@ pub fn adapter(agent: Agent) -> &'static dyn AgentAdapter {
     match agent {
         Agent::Claude => &claude::Claude,
         Agent::Codex => &codex::Codex,
+        Agent::Pi => &pi::Pi,
     }
 }
 

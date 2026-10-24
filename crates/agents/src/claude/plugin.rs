@@ -7,7 +7,7 @@ const MANIFEST: &str = include_str!("../../plugin/.claude-plugin/plugin.json");
 const START_SESSION: &str = include_str!("../../plugin/skills/start-session/SKILL.md");
 
 /// The skill, naming `program` as the command to run.
-fn start_session(program: &Path) -> String {
+pub(crate) fn start_session(program: &Path) -> String {
     START_SESSION.replace("@ADROIT@", &crate::shell_word(program))
 }
 

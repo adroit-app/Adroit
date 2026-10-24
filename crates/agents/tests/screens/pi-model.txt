@@ -34,5 +34,5 @@ Only showing models from configured providers. Use /login to add providers.
 
   Enter to select · Ctrl+S to set as default · Escape/Ctrl+C to cancel
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-/private/tmp/claude-501/-Users-alisue-ghq-github-com-adroit-app-Adroit--claude-worktrees-agent-profiles-pi/528fa619-3...
+/Users/me/src/project
 ↑10 ↓6 0.0%/33k (auto)                                                                                              slow
