@@ -19,14 +19,14 @@ const REPLY: &str = "Hello from the fake model.";
 /// The adroit sessions are started through.
 const ADROIT: &str = env!("CARGO_BIN_EXE_adroit");
 
-/// Settings with an OpenCode profile in an account whose home is `home`,
+/// Settings with an OpenCode profile with a login of its own in `home`,
 /// running `opencode` with the user's home at `user`, its model `fake/slow`.
 fn settings(home: &Path, user: &Path, opencode: &str) -> Settings {
     Settings::parse(&format!(
-        "profile = \"oc-fake\"\n\n[[profiles]]\nid = \"oc-fake\"\nagent = \"opencode\"\nconnection = \"fake\"\n\n[profiles.launch]\ncommand = [{}]\n\n[profiles.launch.env]\nHOME = {}\nOPENCODE_DISABLE_AUTOUPDATE = \"1\"\nOPENCODE_DISABLE_MODELS_FETCH = \"1\"\n\n[profiles.opencode]\nmodel = \"fake/slow\"\n\n[[connections]]\nid = \"fake\"\nagent = \"opencode\"\nhome = \"{}\"\n",
+        "profile = \"oc-fake\"\n\n[[profiles]]\nid = \"oc-fake\"\nagent = \"opencode\"\nhome = {}\n\n[profiles.launch]\ncommand = [{}]\n\n[profiles.launch.env]\nHOME = {}\nOPENCODE_DISABLE_AUTOUPDATE = \"1\"\nOPENCODE_DISABLE_MODELS_FETCH = \"1\"\n\n[profiles.opencode]\nmodel = \"fake/slow\"\n",
+        serde_json::to_string(&home.display().to_string()).unwrap(),
         serde_json::to_string(opencode).unwrap(),
-        serde_json::to_string(&user.display().to_string()).unwrap(),
-        home.display()
+        serde_json::to_string(&user.display().to_string()).unwrap()
     ))
     .unwrap()
 }
@@ -37,7 +37,6 @@ fn request(cwd: &Path, prompt: &str, resume: Option<String>) -> StartRequest {
         name: "greet".into(),
         cwd: cwd.into(),
         prompt: prompt.into(),
-        connection: resume.as_ref().map(|_| "fake".parse().unwrap()),
         resume,
         ..Default::default()
     }
@@ -342,7 +341,10 @@ async fn opencode_starts_replies_settles_idle_and_resumes_its_conversation() {
 
     let launch = resolve(
         &settings,
-        request(&work, "", Some(conversation.clone())),
+        StartRequest {
+            home: Some(home.clone()),
+            ..request(&work, "", Some(conversation.clone()))
+        },
         Path::new(ADROIT),
     )
     .unwrap();

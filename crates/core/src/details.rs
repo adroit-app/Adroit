@@ -74,8 +74,8 @@ pub fn overview_facts(
 }
 
 /// What the overview says of what the session `s` started from, as
-/// `settings` name it: its profile, with its agent, and the connection it
-/// runs in.
+/// `settings` name it: its profile, with its agent, and the login it runs
+/// in.
 pub fn started_from_facts(s: &Session, settings: &crate::settings::Settings) -> Vec<Fact> {
     let plain = |label, value| Fact {
         label,
@@ -83,10 +83,13 @@ pub fn started_from_facts(s: &Session, settings: &crate::settings::Settings) -> 
         tone: None,
     };
     vec![
-        plain("Profile", settings.started_as(s.agent, &s.profile)),
         plain(
-            "Account",
-            crate::profiles::connection_name(settings, &s.connection),
+            "Profile",
+            settings.started_as(s.agent, &s.profile, s.home.as_deref(), &s.profile_name),
+        ),
+        plain(
+            "Login",
+            crate::profiles::login_name(s.home.as_deref()).to_string(),
         ),
     ]
 }
@@ -1306,9 +1309,9 @@ mod tests {
     }
 
     #[test]
-    fn the_overview_names_the_profile_and_the_connection_a_session_started_from() {
+    fn the_overview_names_the_profile_and_the_login_a_session_started_from() {
         let settings = crate::settings::Settings::parse(
-            "[[profiles]]\nid = \"claude\"\nagent = \"claude\"\n[[profiles]]\nid = \"claude-work\"\nname = \"Claude Work\"\nagent = \"claude\"\nconnection = \"work\"\n[[connections]]\nid = \"work\"\nname = \"Work\"\nagent = \"claude\"\nhome = \"/w\"\n",
+            "[[profiles]]\nid = \"claude\"\nagent = \"claude\"\n[[profiles]]\nid = \"claude-work\"\nname = \"Claude Work\"\nagent = \"claude\"\nhome = \"/w\"\n",
         )
         .unwrap();
         let shown = |s: &Session| -> Vec<(&str, String)> {
@@ -1317,12 +1320,12 @@ mod tests {
                 .map(|f| (f.label, f.value))
                 .collect()
         };
-        let work = session("s").profile("claude-work", "work").build();
+        let work = session("s").profile("claude-work", Some("/w")).build();
         assert_eq!(
             shown(&work),
             [
                 ("Profile", "Claude Code · Claude Work".to_string()),
-                ("Account", "Work".to_string())
+                ("Login", "This profile's own".to_string())
             ]
         );
         let own = session("s").build();
@@ -1330,7 +1333,19 @@ mod tests {
             shown(&own),
             [
                 ("Profile", "Claude Code · claude".to_string()),
-                ("Account", "Shared with your terminal".to_string())
+                ("Login", "Your terminal's".to_string())
+            ]
+        );
+        // Its profile deleted since, by what it was called as it started.
+        let gone = session("s")
+            .profile("claude-old", Some("/o"))
+            .profile_name("Claude Old")
+            .build();
+        assert_eq!(
+            shown(&gone),
+            [
+                ("Profile", "Claude Code · Claude Old".to_string()),
+                ("Login", "This profile's own".to_string())
             ]
         );
     }

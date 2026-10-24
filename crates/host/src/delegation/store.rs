@@ -6,13 +6,13 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use adroit_model::Agent;
-use adroit_model::profile::{ConnectionId, ProfileId};
+use adroit_model::profile::ProfileId;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use super::{Code, Error, Message, MessageId, MessageKind, Readiness, Result, Session, SessionId};
 use crate::settings::Settings;
 
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 
 /// The tables as the first schema made them; a new database is made by it
 /// and then by every step in `MIGRATIONS`, so it ends as one carried forward.
@@ -53,6 +53,16 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE sessions ADD COLUMN profile TEXT NOT NULL DEFAULT '';
      ALTER TABLE sessions ADD COLUMN connection TEXT NOT NULL DEFAULT '';
      UPDATE sessions SET profile = agent, connection = agent;",
+    // A session that ran in a connection of its own keeps the folder the
+    // connection named, as the settings it was launched with define it: once
+    // profiles own their logins, a connection's id names nothing.
+    "ALTER TABLE sessions ADD COLUMN home TEXT;
+     UPDATE sessions SET home = (
+         SELECT json_extract(c.value, '$.home')
+         FROM json_each(sessions.launch, '$.connections') AS c
+         WHERE json_extract(c.value, '$.id') = sessions.connection
+     ) WHERE connection <> agent AND json_valid(launch);
+     ALTER TABLE sessions DROP COLUMN connection;",
 ];
 
 /// What the window or the work host knows of a session before its program starts.
@@ -61,7 +71,7 @@ pub struct NewSession {
     pub parent: Option<SessionId>,
     pub agent: Agent,
     pub profile: ProfileId,
-    pub connection: ConnectionId,
+    pub home: Option<PathBuf>,
     pub name: String,
     pub cwd: PathBuf,
     pub launch: Settings,
@@ -137,7 +147,7 @@ impl Store {
         let id = SessionId::new();
         let token = format!("{}{}", SessionId::new(), SessionId::new());
         transaction.execute(
-            "INSERT INTO sessions (id, token, parent, agent, profile, connection, name, cwd, launch, readiness, started_ms)
+            "INSERT INTO sessions (id, token, parent, agent, profile, home, name, cwd, launch, readiness, started_ms)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 id.to_string(),
@@ -145,7 +155,7 @@ impl Store {
                 new.parent.map(|parent| parent.to_string()),
                 new.agent.key(),
                 new.profile.as_str(),
-                new.connection.as_str(),
+                new.home.as_ref().map(|home| home.to_string_lossy().into_owned()),
                 new.name,
                 new.cwd.to_string_lossy(),
                 serde_json::to_string(&new.launch).map_err(storage)?,
@@ -384,7 +394,7 @@ impl Store {
     }
 }
 
-const SESSION_COLUMNS: &str = "id, parent, agent, name, cwd, terminal, conversation, readiness, started_ms, reported, ended, profile, connection";
+const SESSION_COLUMNS: &str = "id, parent, agent, name, cwd, terminal, conversation, readiness, started_ms, reported, ended, profile, home";
 
 fn read_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Session>> {
     let id: String = row.get(0)?;
@@ -399,7 +409,7 @@ fn read_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Session>> {
     let reported = row.get(9)?;
     let ended = row.get(10)?;
     let profile: String = row.get(11)?;
-    let connection: String = row.get(12)?;
+    let home: Option<String> = row.get(12)?;
     Ok((|| {
         Ok(Session {
             id: id.parse().map_err(storage)?,
@@ -412,7 +422,7 @@ fn read_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Session>> {
                 .find(|known| known.key() == agent)
                 .ok_or_else(|| storage(format!("unknown agent {agent}")))?,
             profile: profile.parse().map_err(storage)?,
-            connection: connection.parse().map_err(storage)?,
+            home: home.map(PathBuf::from),
             name,
             cwd: PathBuf::from(cwd),
             terminal: terminal.as_deref().and_then(crate::sessions::id_of),
@@ -574,7 +584,7 @@ mod tests {
             parent,
             agent: Agent::Claude,
             profile: ProfileId::builtin(Agent::Claude),
-            connection: ConnectionId::implicit(Agent::Claude),
+            home: None,
             name: name.into(),
             cwd: "/repo".into(),
             launch: Settings::default(),
@@ -863,21 +873,21 @@ mod tests {
     }
 
     #[test]
-    fn a_session_keeps_the_profile_and_connection_it_started_from() {
+    fn a_session_keeps_the_profile_and_the_folder_it_started_from() {
         let (_dir, mut store) = store();
         let (id, _) = store
             .register(NewSession {
                 agent: Agent::Codex,
                 profile: "codex-review".parse().unwrap(),
-                connection: "work".parse().unwrap(),
+                home: Some("/w".into()),
                 ..new(None, "review")
             })
             .unwrap();
 
         let kept = store.session(id).unwrap().unwrap();
         assert_eq!(
-            (kept.profile.as_str(), kept.connection.as_str()),
-            ("codex-review", "work")
+            (kept.profile.as_str(), kept.home.as_deref()),
+            ("codex-review", Some(Path::new("/w")))
         );
         assert_eq!(store.sessions().unwrap()[0], kept);
     }
@@ -946,7 +956,7 @@ PRAGMA user_version = 1;
         for (id, agent) in [(claude, Agent::Claude), (codex, Agent::Codex)] {
             let session = store.session(id).unwrap().unwrap();
             assert_eq!(session.profile, ProfileId::builtin(agent));
-            assert_eq!(session.connection, ConnectionId::implicit(agent));
+            assert_eq!(session.home, None);
         }
         let launch = store.launch(codex).unwrap().unwrap();
         assert_eq!(launch.default_agent(), Agent::Codex);
@@ -958,5 +968,47 @@ PRAGMA user_version = 1;
         drop(store);
         let store = Store::open(&path).unwrap();
         assert_eq!(store.sessions().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn a_database_from_before_profiles_owned_their_logins_reads_each_session_in_the_folder_its_connection_named()
+     {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.sqlite3");
+        let (work, own, gone) = (SessionId::new(), SessionId::new(), SessionId::new());
+        {
+            let old = Connection::open(&path).unwrap();
+            old.execute_batch(SCHEMA_1).unwrap();
+            old.execute_batch(MIGRATIONS[0]).unwrap();
+            old.pragma_update(None, "user_version", 2).unwrap();
+            // Launches kept then define the connections their profiles name.
+            let launch = r#"{"profile":"work","profiles":[{"id":"claude","agent":"claude"},{"id":"work","agent":"claude","connection":"work"}],"connections":[{"id":"work","name":"Work","agent":"claude","home":"/Users/me/work"}]}"#;
+            for (id, profile, connection) in [
+                (work, "work", "work"),
+                (own, "claude", "claude"),
+                (gone, "work", "elsewhere"),
+            ] {
+                old.execute(
+                    "INSERT INTO sessions (id, token, agent, name, cwd, launch, readiness, started_ms, profile, connection)
+                     VALUES (?1, ?2, 'claude', 'old', '/repo', ?3, 'ready', 1, ?4, ?5)",
+                    params![id.to_string(), format!("token-{id}"), launch, profile, connection],
+                )
+                .unwrap();
+            }
+        }
+
+        let store = Store::open(&path).unwrap();
+
+        store.ensure_current_schema().unwrap();
+        let home = |id| store.session(id).unwrap().unwrap().home;
+        assert_eq!(home(work).as_deref(), Some(Path::new("/Users/me/work")));
+        assert_eq!(home(own), None);
+        // A connection its launch does not define names no folder.
+        assert_eq!(home(gone), None);
+        let launch = store.launch(work).unwrap().unwrap();
+        assert_eq!(
+            launch.profiles[1].home.as_deref(),
+            Some(Path::new("/Users/me/work"))
+        );
     }
 }

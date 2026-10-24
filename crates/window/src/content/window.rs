@@ -67,7 +67,8 @@ pub(super) fn window_strip(
     Strip {
         mark,
         name: thing_name(tree, terminals, shows),
-        agent: session.map(|s| settings.started_as(s.agent, &s.profile)),
+        agent: session
+            .map(|s| settings.started_as(s.agent, &s.profile, s.home.as_deref(), &s.profile_name)),
         worktree: tree_view::place_of_tab(tree, terminals, shows).map(|p| p.worktree),
     }
 }

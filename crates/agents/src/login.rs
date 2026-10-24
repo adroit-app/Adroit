@@ -1,4 +1,4 @@
-//! A connection's login, which its agent's CLI keeps: asking the CLI whether
+//! A profile's login, which its agent's CLI keeps: asking the CLI whether
 //! it is logged in, and what starts the CLI's own login in a terminal.
 
 use std::path::Path;
@@ -12,14 +12,14 @@ use crate::{AgentContext, Started, adapter};
 /// How long the CLI has to say whether it is logged in.
 const ASKED_FOR: Duration = Duration::from_secs(20);
 
-/// What starts the CLI's own login in `context`'s connection, for a terminal
+/// What starts the CLI's own login in `context`'s login, for a terminal
 /// to run.
 pub fn login(context: &AgentContext) -> Started {
     let adapter = adapter(context.agent());
     adapter.launch(context, adapter.login_args(), Vec::new())
 }
 
-/// Whether the CLI says `context`'s connection is logged in, asked in `dir`.
+/// Whether the CLI says `context`'s login is logged in, asked in `dir`.
 pub async fn standing(context: &AgentContext, dir: &Path) -> LoginStanding {
     let adapter = adapter(context.agent());
     let (program, args, env) = adapter.launch(context, adapter.status_args(context), Vec::new());
@@ -45,7 +45,7 @@ pub async fn standing(context: &AgentContext, dir: &Path) -> LoginStanding {
 
 /// What a CLI that answers whether it is logged in by its exit status alone
 /// says: 0 when it is, 1 when it is not; 126 or 127, as a shell and
-/// `adroit in-connection` end when the program cannot be started, when it is
+/// `adroit in-own-login` end when the program cannot be started, when it is
 /// not installed.
 pub(crate) fn by_status(code: Option<i32>) -> LoginStanding {
     match code {
@@ -234,7 +234,7 @@ mod tests {
     }
 
     #[test]
-    fn a_login_in_a_connection_of_its_own_runs_in_its_state_directory() {
+    fn a_login_of_a_profile_s_own_runs_in_its_state_directory() {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().join("work");
         let context = AgentContext {
@@ -246,7 +246,7 @@ mod tests {
         assert_eq!(program, "/adroit");
         let line = args.join(" ");
         assert!(
-            line.starts_with(&format!("in-connection codex {} codex", home.display())),
+            line.starts_with(&format!("in-own-login codex {} codex", home.display())),
             "{line}"
         );
         assert!(line.ends_with("login"), "{line}");

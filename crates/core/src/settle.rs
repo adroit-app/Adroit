@@ -230,7 +230,7 @@ fn details_usage(state: &mut ViewState, _: &mut Vec<Effect>) {
     let agent = content::agent_of(state, tab.as_ref());
     let account = adroit_protocol::Account {
         agent,
-        connection: content::connection_of(state, tab.as_ref()),
+        home: content::home_of(state, tab.as_ref()),
     };
     let facts = state.host.work.as_ref().and_then(|w| w.agents.of(agent));
     details::follow_usage(&mut state.details, tab.as_ref(), account, facts);

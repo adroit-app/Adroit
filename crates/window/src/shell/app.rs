@@ -63,6 +63,9 @@ fn App() -> Element {
         div { class: "app",
             KeysField {}
             settings_window::SettingsLoadError { error: app.config.read().settings_error.clone() }
+            settings_window::SettingsNotice {
+                notice: adroit_core::profiles::unshared_notice(&app.config.read().settings),
+            }
             Header { ontoggle: move |side| app.dispatch(Msg::PanelToggle(side)) }
             Body {}
             DaemonBanner {}

@@ -11,7 +11,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use crate::AgentContext;
 
-/// What starts Pi's RPC mode as `context` runs sessions: in a connection of
+/// What starts Pi's RPC mode as `context` runs sessions: in a login of
 /// its own, with the skills its sessions load and none of the user's
 /// others, so what it lists is what a session there is offered.
 pub(super) fn args(context: &AgentContext) -> Vec<String> {
@@ -93,7 +93,7 @@ fn listed(data: &Value) -> Option<Vec<ProviderModel>> {
 }
 
 /// The models Pi, started by `start` in `dir`, can run: those of the
-/// providers its connection has credentials for.
+/// providers its login has credentials for.
 pub(super) async fn models(
     start: crate::Started,
     dir: &Path,
@@ -180,7 +180,7 @@ exec sleep 30"#,
     }
 
     #[test]
-    fn in_a_connection_the_probe_loads_the_skills_a_session_there_does() {
+    fn in_a_login_of_its_own_the_probe_loads_the_skills_a_session_there_does() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("skills")).unwrap();
         let context = AgentContext {

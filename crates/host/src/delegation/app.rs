@@ -74,7 +74,7 @@ pub async fn record(
         parent,
         agent: request.agent,
         profile: context.profile,
-        connection: context.connection,
+        home: context.home,
         name: request.name.clone(),
         cwd: request.cwd.clone(),
         launch: settings.clone(),
@@ -103,6 +103,15 @@ pub async fn messages_of(root: &Path, id: SessionId) -> Result<Vec<Message>> {
 /// The settings `id` was started with, as Adroit recorded them.
 pub async fn launch_of(root: &Path, id: SessionId) -> Result<Option<Settings>> {
     with_store(root, move |store| store.launch(id)).await
+}
+
+/// The folder of its own the session `id` was recorded as running in, none
+/// for its agent's own environment; none at all for a session not recorded.
+pub async fn home_of(root: &Path, id: SessionId) -> Result<Option<Option<PathBuf>>> {
+    with_store(root, move |store| {
+        store.session(id).map(|s| s.map(|s| s.home))
+    })
+    .await
 }
 
 /// Every session Adroit keeps a record of, ended ones included.
@@ -290,7 +299,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_session_is_recorded_with_the_profile_it_starts_from_and_that_profile_s_connection() {
+    async fn a_session_is_recorded_with_the_profile_it_starts_from_and_that_profile_s_login() {
         let root = tempfile::tempdir().unwrap();
         let settings =
             Settings::parse("[[profiles]]\nid = \"mine\"\nagent = \"claude\"\n").unwrap();
@@ -308,8 +317,8 @@ mod tests {
         let kept = sessions(root.path()).await.unwrap();
         assert_eq!(kept.len(), 1);
         assert_eq!(
-            (kept[0].profile.as_str(), kept[0].connection.as_str()),
-            ("mine", "claude")
+            (kept[0].profile.as_str(), kept[0].home.as_deref()),
+            ("mine", None)
         );
     }
     #[tokio::test]
@@ -326,7 +335,7 @@ mod tests {
         for (profile, model, why) in [
             ("gone", None, "profile `gone` is not defined"),
             ("claude", None, "starts Claude Code, not Codex"),
-            ("old", None, "profile `old` is archived"),
+            ("old", None, "profile `old` is not defined"),
             ("codex", Some(" "), "the model is empty"),
         ] {
             let request = crate::execution::StartRequest {

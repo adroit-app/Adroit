@@ -37,10 +37,10 @@ async fn read() -> Offers {
     // names is looked at: not on a runtime thread.
     let (recent, (ghq, ghq_roots), listed) = tokio::join!(
         tokio::task::spawn_blocking(move || {
-            // Every connection Claude Code runs in keeps its own.
+            // Every login Claude Code runs in keeps its own.
             let mut recent: Vec<PathBuf> = Vec::new();
-            let connections = crate::programs::connections(&crate::settings::current());
-            for context in connections
+            let logins = crate::programs::logins(&crate::settings::current());
+            for context in logins
                 .iter()
                 .filter(|c| c.agent() == adroit_model::Agent::Claude)
             {

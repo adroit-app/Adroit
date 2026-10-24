@@ -130,7 +130,7 @@ pub struct HistoryAsk {
     pub window: WindowId,
     pub asked: u64,
     pub agent: Agent,
-    pub connection: adroit_model::profile::ConnectionId,
+    pub home: Option<PathBuf>,
     pub project: PathBuf,
 }
 
@@ -380,14 +380,14 @@ impl Host {
             Request::History {
                 asked,
                 agent,
-                connection,
+                home,
                 project,
             } => {
                 let _ = self.history.send(HistoryAsk {
                     window,
                     asked,
                     agent,
-                    connection,
+                    home,
                     project,
                 });
                 Vec::new()
@@ -1101,7 +1101,7 @@ mod tests {
         let sight = Sight {
             commands: Some(CommandsSight {
                 agent: Agent::Claude,
-                connection: "claude".parse().unwrap(),
+                home: None,
                 dir: "/w".into(),
             }),
             ..Default::default()
@@ -1110,7 +1110,7 @@ mod tests {
         let read = |dir: &str| PromptChange::Commands {
             read: CommandsRead {
                 agent: Agent::Claude,
-                connection: "claude".parse().unwrap(),
+                home: None,
                 dir: dir.into(),
                 commands: Vec::new(),
             },
@@ -1579,7 +1579,7 @@ mod tests {
         let ask = Request::History {
             asked: 1,
             agent: Agent::Claude,
-            connection: "claude".parse().unwrap(),
+            home: None,
             project: "/w".into(),
         };
         assert!(host.on(ask).is_empty());

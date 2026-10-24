@@ -4,7 +4,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::Agent;
-use crate::profile::{ConnectionId, ProfileId};
+use std::path::PathBuf;
+
+use crate::profile::ProfileId;
 
 /// One model a provider lists.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -24,8 +26,9 @@ pub struct ProviderModel {
 pub struct ProfileModels {
     pub profile: ProfileId,
     pub agent: Agent,
-    /// The connection it runs in, whose login the list is of.
-    pub connection: ConnectionId,
+    /// The folder of its own its login is kept in, whose login the list is
+    /// of; none for its agent's own environment.
+    pub home: Option<PathBuf>,
     /// Whether a task that names neither a profile nor an agent starts from it.
     pub default: bool,
     /// `None` until the provider has answered.
@@ -39,8 +42,8 @@ pub struct ProfileModels {
 pub struct Asked {
     pub profile: ProfileId,
     pub agent: Agent,
-    pub connection: ConnectionId,
-    /// Everything that decides what the provider answers: the connection's
+    pub home: Option<PathBuf>,
+    /// Everything that decides what the provider answers: the login's
     /// state directory and how the program is started.
     pub through: String,
 }
@@ -121,7 +124,7 @@ impl ModelCatalog {
             .map(|e| ProfileModels {
                 profile: e.asked.profile.clone(),
                 agent: e.asked.agent,
-                connection: e.asked.connection.clone(),
+                home: e.asked.home.clone(),
                 default: self.default.as_ref() == Some(&e.asked.profile),
                 models: e.models.clone(),
             })
@@ -175,11 +178,11 @@ mod tests {
         text.parse().unwrap()
     }
 
-    fn asked(profile: &str, agent: Agent, connection: &str, through: &str) -> Asked {
+    fn asked(profile: &str, agent: Agent, home: Option<&str>, through: &str) -> Asked {
         Asked {
             profile: id(profile),
             agent,
-            connection: connection.parse().unwrap(),
+            home: home.map(PathBuf::from),
             through: through.into(),
         }
     }
@@ -196,9 +199,9 @@ mod tests {
 
     fn profiles() -> Vec<Asked> {
         vec![
-            asked("claude", Agent::Claude, "claude", "own"),
-            asked("claude-work", Agent::Claude, "work", "/w"),
-            asked("codex", Agent::Codex, "codex", "own"),
+            asked("claude", Agent::Claude, None, "own"),
+            asked("claude-work", Agent::Claude, Some("/w"), "/w"),
+            asked("codex", Agent::Codex, None, "own"),
         ]
     }
 
@@ -323,16 +326,16 @@ mod tests {
     }
 
     #[test]
-    fn the_view_shows_every_profile_with_its_connection_list_and_the_default() {
+    fn the_view_shows_every_profile_with_its_login_list_and_the_default() {
         let mut catalog = catalog();
         catalog.configure(profiles(), id("codex"));
         let view = catalog.view();
-        let shown: Vec<(&str, &str, bool, bool)> = view
+        let shown: Vec<(&str, Option<&std::path::Path>, bool, bool)> = view
             .iter()
             .map(|p| {
                 (
                     p.profile.as_str(),
-                    p.connection.as_str(),
+                    p.home.as_deref(),
                     p.default,
                     p.models.is_some(),
                 )
@@ -341,9 +344,14 @@ mod tests {
         assert_eq!(
             shown,
             [
-                ("claude", "claude", false, true),
-                ("claude-work", "work", false, false),
-                ("codex", "codex", true, true),
+                ("claude", None, false, true),
+                (
+                    "claude-work",
+                    Some(std::path::Path::new("/w")),
+                    false,
+                    false
+                ),
+                ("codex", None, true, true),
             ]
         );
     }

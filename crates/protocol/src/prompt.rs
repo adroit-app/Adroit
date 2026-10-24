@@ -5,7 +5,6 @@
 
 use std::path::PathBuf;
 
-use adroit_model::profile::ConnectionId;
 use adroit_model::{Agent, Command};
 use serde::{Deserialize, Serialize};
 
@@ -18,21 +17,21 @@ pub struct HistoryRead {
     pub sent: Vec<String>,
 }
 
-/// The agent, the connection it runs in and the directory whose commands
-/// `/` offers.
+/// The agent, the folder of a profile's own it runs in, none for its own
+/// environment, and the directory whose commands `/` offers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandsSight {
     pub agent: Agent,
-    pub connection: ConnectionId,
+    pub home: Option<PathBuf>,
     pub dir: PathBuf,
 }
 
-/// The commands `/` offers for an agent, in a connection and a directory: its own, and those
+/// The commands `/` offers for an agent, in a login and a directory: its own, and those
 /// it was found to offer there, however old.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandsRead {
     pub agent: Agent,
-    pub connection: ConnectionId,
+    pub home: Option<PathBuf>,
     pub dir: PathBuf,
     pub commands: Vec<Command>,
 }
@@ -40,7 +39,7 @@ pub struct CommandsRead {
 impl CommandsRead {
     /// Whether this was read for what `sight` names.
     pub fn is_for(&self, sight: &CommandsSight) -> bool {
-        self.agent == sight.agent && self.connection == sight.connection && self.dir == sight.dir
+        self.agent == sight.agent && self.home == sight.home && self.dir == sight.dir
     }
 }
 
@@ -146,7 +145,7 @@ mod tests {
         let read = |dir: &str, names: &[&str]| PromptChange::Commands {
             read: CommandsRead {
                 agent: Agent::Claude,
-                connection: "claude".parse().unwrap(),
+                home: None,
                 dir: dir.into(),
                 commands: names
                     .iter()
@@ -164,13 +163,13 @@ mod tests {
         let held = work.commands.unwrap();
         let sight = |agent, dir: &str| CommandsSight {
             agent,
-            connection: "claude".parse().unwrap(),
+            home: None,
             dir: dir.into(),
         };
         assert!(held.is_for(&sight(Agent::Claude, "/b")));
         // Another login of the agent offers commands of its own.
         assert!(!held.is_for(&CommandsSight {
-            connection: "work".parse().unwrap(),
+            home: Some("/w".into()),
             ..sight(Agent::Claude, "/b")
         }));
         assert!(!held.is_for(&sight(Agent::Claude, "/a")));

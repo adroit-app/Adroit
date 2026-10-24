@@ -1,4 +1,4 @@
-//! Profiles started in connections of their own, through programs standing
+//! Profiles started in logins of their own, through programs standing
 //! in for the agents' that tell what they were started with.
 
 use std::os::unix::fs::PermissionsExt;
@@ -9,12 +9,12 @@ use adroit_host::execution::{StartRequest, resolve};
 use adroit_host::settings::Settings;
 use adroit_model::Agent;
 
-/// The adroit program a connection of its own starts the agent's program
+/// The adroit program a login of its own starts the agent's program
 /// through.
 const ADROIT: &str = env!("CARGO_BIN_EXE_adroit");
 
 /// A program standing in for an agent's, which writes to `$ADROIT_TEST_OUT`
-/// the variables a connection decides on, as it found them, and then its
+/// the variables a login of its own decides on, as it found them, and then its
 /// arguments, one a line.
 fn agent_program(dir: &Path) -> PathBuf {
     let path = dir.join("agent.sh");
@@ -45,7 +45,7 @@ printf '%s\n' "$@"
     path
 }
 
-/// A shell whose startup files set again what a connection removes, and set
+/// A shell whose startup files set again what a login of its own removes, and set
 /// its state directory elsewhere, then run what they are handed.
 fn meddling_shell(dir: &Path) -> PathBuf {
     let path = dir.join("shell");
@@ -59,7 +59,7 @@ fn meddling_shell(dir: &Path) -> PathBuf {
 }
 
 /// Settings with two profiles of `agent`: `own`, in the agent's own
-/// environment, and `work`, in a connection whose home is `home`; both run
+/// environment, and `work`, with a login of its own in `home`; both run
 /// `program`, through `shell` when one is given.
 fn settings(agent: Agent, program: &Path, home: &Path, shell: Option<&Path>) -> Settings {
     let key = agent.key();
@@ -72,14 +72,14 @@ fn settings(agent: Agent, program: &Path, home: &Path, shell: Option<&Path>) -> 
         program.display()
     );
     Settings::parse(&format!(
-        "profile = \"own\"\n\n{shell}[[profiles]]\nid = \"own\"\nagent = \"{key}\"\n{launch}\n[[profiles]]\nid = \"work\"\nagent = \"{key}\"\nconnection = \"work\"\n{launch}\n[[connections]]\nid = \"work\"\nagent = \"{key}\"\nhome = \"{}\"\n",
+        "profile = \"own\"\n\n{shell}[[profiles]]\nid = \"own\"\nagent = \"{key}\"\n{launch}\n[[profiles]]\nid = \"work\"\nagent = \"{key}\"\nhome = \"{}\"\n{launch}",
         home.display()
     ))
     .unwrap()
 }
 
 /// What the program started for `profile` was started with: its variables
-/// as it found them, then its arguments, with the variables a connection
+/// as it found them, then its arguments, with the variables a login of its own
 /// removes inherited from where adroit runs.
 fn started(settings: &Settings, agent: Agent, profile: &str, out: &Path) -> Vec<String> {
     let launch = resolve(
@@ -174,7 +174,7 @@ fn two_codex_profiles_start_side_by_side_each_with_its_own_login_and_mcp_tokens(
 }
 
 #[test]
-fn what_a_shell_s_startup_files_set_again_does_not_reach_a_connection_of_its_own() {
+fn what_a_shell_s_startup_files_set_again_does_not_reach_a_login_of_its_own() {
     let dir = tempfile::tempdir().unwrap();
     let shell = meddling_shell(dir.path());
     let program = agent_program(dir.path());
@@ -201,7 +201,7 @@ fn what_a_shell_s_startup_files_set_again_does_not_reach_a_connection_of_its_own
 }
 
 #[test]
-fn a_profile_whose_launch_sets_its_connection_s_state_directory_is_refused_naming_it() {
+fn a_profile_whose_launch_sets_its_own_login_s_state_directory_is_refused_naming_it() {
     let dir = tempfile::tempdir().unwrap();
     let mut s = settings(
         Agent::Codex,
@@ -227,7 +227,8 @@ fn a_profile_whose_launch_sets_its_connection_s_state_directory_is_refused_namin
 }
 
 #[test]
-fn a_variable_of_a_family_a_connection_removes_reaches_it_from_neither_the_shell_nor_the_host() {
+fn a_variable_of_a_family_a_login_of_its_own_removes_reaches_it_from_neither_the_shell_nor_the_host()
+ {
     let dir = tempfile::tempdir().unwrap();
     let shell = meddling_shell(dir.path());
     let program = agent_program(dir.path());
@@ -254,41 +255,49 @@ fn a_variable_of_a_family_a_connection_removes_reaches_it_from_neither_the_shell
 }
 
 #[test]
-fn a_conversation_resumes_only_in_the_connection_that_keeps_it() {
+fn a_conversation_resumes_only_in_the_login_that_keeps_it() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("w");
     let s = settings(Agent::Codex, &agent_program(dir.path()), &home, None);
     let thread = "019f7a4b-fee9-74d3-9977-5bc9bb134d11";
-    let resume = |profile: &str, kept: &str| {
+    let resume = |profile: &str, kept: Option<&Path>| {
         resolve(
             &s,
             StartRequest {
                 agent: Agent::Codex,
                 profile: Some(profile.parse().unwrap()),
                 resume: Some(thread.into()),
-                connection: Some(kept.parse().unwrap()),
+                home: kept.map(Path::to_path_buf),
                 ..Default::default()
             },
             Path::new("/adroit"),
         )
     };
 
-    let resumed = resume("work", "work").unwrap();
+    let resumed = resume("work", Some(&home)).unwrap();
     let words = resumed.spawn.args.join(" ");
     assert!(
-        words.contains(&format!("in-connection codex {}", home.display())),
+        words.contains(&format!("in-own-login codex {}", home.display())),
         "{words}"
     );
     assert!(words.contains(&format!("resume {thread}")), "{words}");
-    let error = resume("own", "work").unwrap_err();
+    let error = resume("own", Some(&home)).unwrap_err();
     assert_eq!(
         error,
         format!(
-            "conversation {thread} is kept in connection `work`, which profile `own` does not run in"
+            "conversation {thread} is kept in {}, which profile `own` does not run in",
+            home.display()
+        )
+    );
+    let error = resume("work", None).unwrap_err();
+    assert_eq!(
+        error,
+        format!(
+            "conversation {thread} is kept in its agent's own environment, which profile `work` does not run in"
         )
     );
     assert!(
-        resume("gone", "work")
+        resume("gone", Some(&home))
             .unwrap_err()
             .contains("profile `gone` is not defined")
     );
@@ -308,7 +317,6 @@ fn an_agent_the_settings_give_no_profile_starts_and_resumes_as_adroit_s_own_prof
                 agent: Agent::Codex,
                 profile: profile.map(|p| p.parse().unwrap()),
                 resume: resume.map(String::from),
-                connection: resume.map(|_| "codex".parse().unwrap()),
                 ..Default::default()
             },
             Path::new("/adroit"),
@@ -316,8 +324,7 @@ fn an_agent_the_settings_give_no_profile_starts_and_resumes_as_adroit_s_own_prof
     };
 
     let started = start(None, None).unwrap();
-    let recorded =
-        adroit_host::sessions::profile_tags(&"codex".parse().unwrap(), &"codex".parse().unwrap());
+    let recorded = adroit_host::sessions::profile_tags(&"codex".parse().unwrap(), None);
     assert!(
         recorded.iter().all(|t| started.spawn.tags.contains(t)),
         "{:?}",
@@ -366,9 +373,7 @@ async fn two_codex_profiles_list_the_models_of_their_own_logins_and_a_late_answe
     let asked = |profile: &str, through: &str| Asked {
         profile: profile.parse().unwrap(),
         agent: Agent::Codex,
-        connection: if profile == "work" { "work" } else { "codex" }
-            .parse()
-            .unwrap(),
+        home: (profile == "work").then(|| dir.path().join("work")),
         through: through.into(),
     };
     let mut catalog = ModelCatalog::default();

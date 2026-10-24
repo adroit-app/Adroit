@@ -160,7 +160,7 @@ pub struct OpenCodeOptions {
     /// The primary agent it starts as, such as `build` or `plan`; empty for
     /// its own default.
     pub agent: String,
-    /// Permission rules put after the account's own, the last that matches a
+    /// Permission rules put after those of its login's own configuration, the last that matches a
     /// tool call deciding whether it is allowed, asked about or denied.
     pub permissions: Vec<OpenCodeRule>,
     /// Whether every tool call no rule denies is allowed without asking, as

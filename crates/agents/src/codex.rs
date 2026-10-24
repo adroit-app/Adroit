@@ -133,7 +133,7 @@ impl AgentAdapter for Codex {
     }
     // Codex keys its MCP servers' OAuth tokens in the keychain by server
     // alone, so every home would share them; in a file they stay in the home.
-    fn connection_args(&self) -> Vec<String> {
+    fn own_login_args(&self) -> Vec<String> {
         vec!["-c".into(), "mcp_oauth_credentials_store=\"file\"".into()]
     }
     fn capabilities(&self) -> Capabilities {
@@ -314,7 +314,7 @@ impl AgentAdapter for Codex {
     }
 }
 
-/// Where Codex, started as `context` says, keeps its state: the connection's
+/// Where Codex, started as `context` says, keeps its state: the login's
 /// directory, else `CODEX_HOME` as the launch or adroit's own environment
 /// sets it, else `.codex` in `home`.
 fn root(context: &AgentContext, home: &Path) -> PathBuf {

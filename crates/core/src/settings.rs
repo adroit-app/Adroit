@@ -11,9 +11,8 @@ pub use adroit_protocol::ThemeKind;
 pub use adroit_model::Agent;
 pub use adroit_model::config::CodexOptions;
 pub use adroit_model::config::{Launch, SessionOptions, ShellLaunch};
-pub use adroit_model::profile::{
-    AgentConnection, AgentOptions, AgentProfile, ConnectionId, ProfileId,
-};
+use adroit_model::profile::earlier;
+pub use adroit_model::profile::{AgentOptions, AgentProfile, ProfileId};
 
 /// Which Option keys count as Alt, sending Meta, in a console; the others type
 /// what macOS makes of the key with Option, as `Option-2` typing `™`.
@@ -143,19 +142,21 @@ pub struct ConsoleSettings {
 #[serde(default, try_from = "SettingsFile")]
 pub struct Settings {
     /// The profile a new session starts from, by id, when it names neither a
-    /// profile nor an agent; left out, the first profile not archived. A
+    /// profile nor an agent; left out, the first profile. A
     /// session not started yet can be switched to another agent for the
     /// current run of the window.
     pub profile: ProfileId,
     /// The profiles sessions start from, each `[[profiles]]` table one of them
-    /// ([settings](settings.md#profiles-and-connections)). An agent's default
-    /// profile is the default profile when that starts the agent, else the
-    /// agent's first profile not archived.
+    /// ([settings](settings.md#profiles)). An agent's default profile is the
+    /// default profile when that starts the agent, else the agent's first
+    /// profile.
     pub profiles: Vec<AgentProfile>,
-    /// The state directories profiles can run their agent's CLI in, each
-    /// `[[connections]]` table one of them; every agent also runs in its own
-    /// environment, which needs none.
-    pub connections: Vec<AgentConnection>,
+    /// The profiles that a file written with connections had
+    /// share one with a profile before them, and that run in their agent's
+    /// own environment since; read to say so, never written.
+    #[serde(skip)]
+    #[schemars(skip)]
+    pub unshared: Vec<ProfileId>,
     /// How sessions started by sessions run.
     pub delegation: DelegationSettings,
     /// How large the window draws everything when it opens, from 0.67 to 1.75.
@@ -223,8 +224,9 @@ pub struct Settings {
 #[serde(default, deny_unknown_fields)]
 struct SettingsFile {
     profile: Option<ProfileId>,
-    profiles: Option<Vec<AgentProfile>>,
-    connections: Vec<AgentConnection>,
+    profiles: Option<Vec<earlier::Written>>,
+    #[schemars(skip)]
+    connections: Vec<earlier::Connection>,
     agent: Option<Agent>,
     claude: Option<Launch>,
     sessions: Option<SessionOptions>,
@@ -260,7 +262,7 @@ impl Default for SettingsFile {
         Self {
             profile: None,
             profiles: None,
-            connections: s.connections,
+            connections: Vec::new(),
             agent: None,
             claude: None,
             sessions: None,
@@ -312,16 +314,15 @@ impl TryFrom<SettingsFile> for Settings {
                 keys.join(", ")
             )
         };
-        let (profile, profiles) = match file.profiles {
+        let (profile, (profiles, unshared)) = match file.profiles {
             Some(_) if !earlier.is_empty() => return Err(mixed("profiles")),
-            Some(profiles) => {
+            Some(written) => {
+                let profiles = earlier::adopt(written, &file.connections)?;
                 let profile = match file.profile {
                     Some(profile) => profile,
-                    None => profiles
-                        .iter()
-                        .find(|p| !p.archived)
-                        .map(|p| p.id.clone())
-                        .ok_or("the settings hold no profile that is not archived")?,
+                    None => profiles.0.first().map(|p| p.id.clone()).ok_or(
+                        "the settings hold no profile; add one, or leave `profiles` out for the ones adroit comes with",
+                    )?,
                 };
                 (profile, profiles)
             }
@@ -347,20 +348,23 @@ impl TryFrom<SettingsFile> for Settings {
                     .unwrap_or_else(|| ProfileId::builtin(file.agent.unwrap_or_default()));
                 (
                     profile,
-                    vec![
-                        claude,
-                        codex,
-                        AgentProfile::builtin(Agent::Pi),
-                        AgentProfile::builtin(Agent::OpenCode),
-                    ],
+                    (
+                        vec![
+                            claude,
+                            codex,
+                            AgentProfile::builtin(Agent::Pi),
+                            AgentProfile::builtin(Agent::OpenCode),
+                        ],
+                        Vec::new(),
+                    ),
                 )
             }
         };
-        adroit_model::profile::check(&profile, &profiles, &file.connections)?;
+        adroit_model::profile::check(&profile, &profiles)?;
         Ok(Self {
             profile,
             profiles,
-            connections: file.connections,
+            unshared,
             delegation: file.delegation,
             zoom: file.zoom,
             prompt_min_rows: file.prompt_min_rows,
@@ -420,7 +424,7 @@ impl Default for Settings {
         Self {
             profile: ProfileId::builtin(Agent::Claude),
             profiles: Agent::ALL.map(AgentProfile::builtin).to_vec(),
-            connections: Vec::new(),
+            unshared: Vec::new(),
             delegation: DelegationSettings::default(),
             zoom: 1.0,
             prompt_min_rows: 3,
@@ -500,8 +504,8 @@ impl Settings {
     }
 
     /// The profile a session of `agent` starts from when it names none: the
-    /// default profile when that starts `agent`, else `agent`'s first profile
-    /// not archived, else the one adroit comes with for it.
+    /// default profile when that starts `agent`, else `agent`'s first
+    /// profile, else the one adroit comes with for it.
     pub fn profile_of(&self, agent: Agent) -> Cow<'_, AgentProfile> {
         match self.position_of(agent) {
             Some(at) => Cow::Borrowed(&self.profiles[at]),
@@ -509,9 +513,9 @@ impl Settings {
         }
     }
 
-    /// The profile whose id is `id`: one of the profiles, archived or not, or
-    /// the one adroit comes with for an agent that has none not archived, as
-    /// [`Settings::profile_of`] starts it.
+    /// The profile whose id is `id`: one of the profiles, or the one adroit
+    /// comes with for an agent that has none, as [`Settings::profile_of`]
+    /// starts it.
     pub fn find_profile(&self, id: &ProfileId) -> Option<Cow<'_, AgentProfile>> {
         if let Some(profile) = self.profiles.iter().find(|p| &p.id == id) {
             return Some(Cow::Borrowed(profile));
@@ -538,8 +542,8 @@ impl Settings {
     }
 
     /// The profile adroit comes with for `agent`, under the agent's key, or
-    /// numbered after it while a profile holds that: an id shared with an
-    /// archived profile or one of another agent would find that one instead.
+    /// numbered after it while a profile holds that: an id shared with a
+    /// profile of another agent would find that one instead.
     fn own(&self, agent: Agent) -> AgentProfile {
         let taken = |id: &ProfileId| self.profiles.iter().any(|p| &p.id == id);
         let id = std::iter::once(agent.key().to_string())
@@ -553,17 +557,30 @@ impl Settings {
         }
     }
 
-    /// What a session of `agent` started from the profile `profile` is shown
-    /// as: its agent, and the profile's name when it is not the agent's own
-    /// name, as for the profile adroit comes with; a profile these settings
-    /// no longer hold, by its id.
-    pub fn started_as(&self, agent: Agent, profile: &ProfileId) -> String {
+    /// What a session of `agent` started from the profile `profile` in the
+    /// login `home` is shown as: its agent, and the profile's name when it
+    /// is not the agent's own name, as for the profile adroit comes with. A
+    /// profile these settings no longer hold, or hold under its id for
+    /// another agent or login, as one deleted and its id taken again, is
+    /// named `called`, what it was called as the session started, or by its
+    /// id when that is not known.
+    pub fn started_as(
+        &self,
+        agent: Agent,
+        profile: &ProfileId,
+        home: Option<&std::path::Path>,
+        called: &str,
+    ) -> String {
+        let same = |p: &&AgentProfile| p.agent() == agent && p.home.as_deref() == home;
         let label = match self.profiles.iter().find(|p| &p.id == profile) {
-            Some(p) => p.label().to_string(),
-            None if *profile == ProfileId::builtin(agent) || self.own(agent).id == *profile => {
+            Some(p) if same(&p) => p.label().to_string(),
+            None if home.is_none()
+                && (*profile == ProfileId::builtin(agent) || self.own(agent).id == *profile) =>
+            {
                 agent.label().to_string()
             }
-            None => profile.to_string(),
+            _ if !called.trim().is_empty() => called.trim().to_string(),
+            _ => profile.to_string(),
         };
         if label == agent.label() {
             label
@@ -573,7 +590,7 @@ impl Settings {
     }
 
     fn position_of(&self, agent: Agent) -> Option<usize> {
-        let open = |p: &AgentProfile| p.agent() == agent && !p.archived;
+        let open = |p: &AgentProfile| p.agent() == agent;
         self.profiles
             .iter()
             .position(|p| p.id == self.profile && open(p))
@@ -810,7 +827,7 @@ model = "chosen-model"
         assert_eq!(s.default_agent(), Agent::Codex);
         let codex = s.profile_of(Agent::Codex);
         assert_eq!(codex.id.as_str(), "codex");
-        assert_eq!(codex.connection, ConnectionId::implicit(Agent::Codex));
+        assert_eq!(codex.home, None);
         assert_eq!(codex.launch.command, ["/opt/bin/codex"]);
         assert!(codex.launch.via_shell);
         assert_eq!(codex.launch.env.get("FOO").map(String::as_str), Some("bar"));
@@ -996,28 +1013,16 @@ model = "chosen-model"
                         model: "opus".into(),
                         ..SessionOptions::default()
                     }),
-                    connection: "work".parse().unwrap(),
+                    home: Some("/Users/me/claude-work".into()),
                     ..AgentProfile::builtin(Agent::Claude)
                 },
                 AgentProfile {
                     id: "codex-review".parse().unwrap(),
                     name: "Review".into(),
-                    archived: false,
-                    ..AgentProfile::builtin(Agent::Codex)
-                },
-                AgentProfile {
-                    id: "old".parse().unwrap(),
-                    archived: true,
                     ..AgentProfile::builtin(Agent::Codex)
                 },
             ],
-            connections: vec![AgentConnection {
-                id: "work".parse().unwrap(),
-                name: "Work".into(),
-                agent: Agent::Claude,
-                home: "/Users/me/claude-work".into(),
-                archived: false,
-            }],
+            unshared: Vec::new(),
             delegation: DelegationSettings { max_started: 8 },
             zoom: 1.1,
             prompt_min_rows: 2,
@@ -1190,7 +1195,7 @@ agent = "claude"
 id = "claude-work"
 name = "Claude Work"
 agent = "claude"
-connection = "work"
+home = "/Users/me/.local/share/adroit/profiles/claude-work"
 
 [profiles.launch]
 via_shell = true
@@ -1205,36 +1210,129 @@ agent = "codex"
 
 [profiles.codex]
 sandbox_mode = "read-only"
-
-[[connections]]
-id = "work"
-name = "Work"
-agent = "claude"
-home = "/Users/me/.adroit-claude-work"
 "#;
 
     #[test]
-    fn profiles_and_connections_are_read_as_settings_toml_names_them() {
+    fn profiles_are_read_as_settings_toml_names_them() {
         let s = Settings::parse(PROFILES).unwrap();
         let ids: Vec<&str> = s.profiles.iter().map(|p| p.id.as_str()).collect();
         assert_eq!(ids, ["claude", "claude-work", "codex-review"]);
         assert_eq!(s.profile.as_str(), "claude-work");
         let work = &s.profiles[1];
         assert_eq!(work.label(), "Claude Work");
-        assert_eq!(work.connection.as_str(), "work");
+        assert_eq!(
+            work.home.as_deref(),
+            Some(Path::new(
+                "/Users/me/.local/share/adroit/profiles/claude-work"
+            ))
+        );
         assert!(work.launch.via_shell);
         assert_eq!(work.claude().unwrap().model, "opus");
-        assert_eq!(
-            s.profiles[0].connection,
-            ConnectionId::implicit(Agent::Claude)
-        );
+        assert_eq!(s.profiles[0].home, None);
         assert_eq!(s.profiles[2].codex().unwrap().sandbox_mode, "read-only");
-        assert_eq!(s.connections.len(), 1);
-        assert_eq!(
-            s.connections[0].home,
-            PathBuf::from("/Users/me/.adroit-claude-work")
-        );
         assert_eq!(written_and_read(&s), s);
+    }
+
+    /// A file as versions that kept logins in connections wrote it: two
+    /// profiles share `work`, with one archived before them.
+    const CONNECTIONS: &str = r#"profile = "claude-work"
+
+[[profiles]]
+id = "claude"
+agent = "claude"
+
+[[profiles]]
+id = "old"
+agent = "claude"
+connection = "work"
+archived = true
+
+[[profiles]]
+id = "claude-work"
+name = "Claude Work"
+agent = "claude"
+connection = "work"
+
+[[profiles]]
+id = "claude-review"
+name = "Claude Review"
+agent = "claude"
+connection = "work"
+
+[[profiles]]
+id = "pi-local"
+agent = "pi"
+connection = "local"
+
+[[profiles]]
+id = "codex"
+agent = "codex"
+connection = "codex"
+
+[[connections]]
+id = "work"
+name = "Work"
+agent = "claude"
+home = "/Users/me/.adroit/claude-work"
+
+[[connections]]
+id = "local"
+agent = "pi"
+home = "/Users/me/.adroit/pi-local"
+
+[[connections]]
+id = "unused"
+agent = "codex"
+home = "/Users/me/.adroit/unused"
+archived = true
+"#;
+
+    #[test]
+    fn a_file_written_with_connections_gives_each_profile_its_connection_s_home() {
+        let s = Settings::parse(CONNECTIONS).unwrap();
+        let homes: Vec<(&str, Option<&Path>)> = s
+            .profiles
+            .iter()
+            .map(|p| (p.id.as_str(), p.home.as_deref()))
+            .collect();
+        assert_eq!(
+            homes,
+            [
+                ("claude", None),
+                (
+                    "claude-work",
+                    Some(Path::new("/Users/me/.adroit/claude-work"))
+                ),
+                ("claude-review", None),
+                ("pi-local", Some(Path::new("/Users/me/.adroit/pi-local"))),
+                ("codex", None),
+            ]
+        );
+    }
+
+    #[test]
+    fn of_profiles_sharing_a_connection_the_first_keeps_it_and_the_others_are_told_of() {
+        let s = Settings::parse(CONNECTIONS).unwrap();
+        assert_eq!(s.unshared, ["claude-review".parse::<ProfileId>().unwrap()]);
+        assert_eq!(
+            s.find_profile(&"claude-review".parse().unwrap())
+                .unwrap()
+                .home,
+            None
+        );
+    }
+
+    #[test]
+    fn a_file_written_with_connections_is_written_with_homes_and_no_connections() {
+        let earlier = Settings::parse(CONNECTIONS).unwrap();
+        let written = toml::to_string_pretty(&earlier).unwrap();
+        let table: toml::Table = written.parse().unwrap();
+        assert!(!table.contains_key("connections"), "{written}");
+        assert!(!written.contains("connection ="), "{written}");
+        let again = Settings::parse(&written).unwrap();
+        assert_eq!(again.profiles, earlier.profiles);
+        // Once written, nothing is left to tell of.
+        assert!(again.unshared.is_empty());
     }
 
     #[test]
@@ -1243,7 +1341,7 @@ home = "/Users/me/.adroit-claude-work"
         assert_eq!(s, Settings::default());
         assert_eq!(s.profile, ProfileId::builtin(Agent::Claude));
         assert_eq!(s.profiles, Agent::ALL.map(AgentProfile::builtin));
-        assert!(s.connections.is_empty());
+        assert!(s.unshared.is_empty());
     }
 
     #[test]
@@ -1263,7 +1361,7 @@ permission_mode = "plan"
         assert_eq!(s.profile.as_str(), "claude");
         let claude = s.profile_of(Agent::Claude);
         assert_eq!(claude.id.as_str(), "claude");
-        assert_eq!(claude.connection, ConnectionId::implicit(Agent::Claude));
+        assert_eq!(claude.home, None);
         assert_eq!(claude.launch.command, ["/opt/claude", "--verbose"]);
         assert!(claude.launch.via_shell);
         assert_eq!(claude.launch.env.get("FOO").map(String::as_str), Some("1"));
@@ -1329,7 +1427,7 @@ permission_mode = "plan"
     }
 
     #[test]
-    fn settings_whose_profiles_and_connections_do_not_hold_together_are_refused() {
+    fn settings_whose_profiles_or_connections_do_not_hold_together_are_refused() {
         let profile = |id: &str, agent: &str, rest: &str| {
             format!("[[profiles]]\nid = \"{id}\"\nagent = \"{agent}\"\n{rest}\n")
         };
@@ -1353,6 +1451,20 @@ permission_mode = "plan"
                 profile("claude", "claude", "connection = \"work\"")
                     + &connection("work", "codex", "/w"),
                 "profile `claude` starts Claude Code but connection `work` belongs to Codex",
+            ),
+            (
+                profile("claude", "claude", "home = \"/w\"")
+                    + &profile("codex", "codex", "home = \"/w\""),
+                "profiles `claude` and `codex` both keep their login in /w",
+            ),
+            (
+                profile("claude", "claude", "home = \"~/w\""),
+                "profile `claude` needs an absolute path as its home",
+            ),
+            (
+                profile("claude", "claude", "home = \"/h\"\nconnection = \"work\"")
+                    + &connection("work", "claude", "/w"),
+                "profile `claude` names both `connection` and `home`",
             ),
             (
                 profile("claude", "claude", "[profiles.codex]\nmodel = \"m\""),
@@ -1382,11 +1494,11 @@ permission_mode = "plan"
                     profile("claude", "claude", ""),
                     profile("old", "claude", "archived = true")
                 ),
-                "profile `old` is archived and cannot be the default",
+                "profile `old` is not defined",
             ),
             (
                 profile("old", "claude", "archived = true"),
-                "the settings hold no profile that is not archived",
+                "the settings hold no profile",
             ),
         ];
         for (text, why) in cases {
@@ -1396,9 +1508,9 @@ permission_mode = "plan"
     }
 
     #[test]
-    fn with_no_profile_named_the_first_profile_not_archived_is_the_default() {
+    fn with_no_profile_named_the_first_profile_is_the_default() {
         let s = Settings::parse(
-            "[[profiles]]\nid = \"old\"\nagent = \"claude\"\narchived = true\n[[profiles]]\nid = \"review\"\nagent = \"codex\"\n",
+            "[[profiles]]\nid = \"review\"\nagent = \"codex\"\n[[profiles]]\nid = \"claude\"\nagent = \"claude\"\n",
         )
         .unwrap();
         assert_eq!(s.profile.as_str(), "review");
@@ -1406,8 +1518,22 @@ permission_mode = "plan"
     }
 
     #[test]
-    fn an_agent_starts_from_the_default_profile_when_that_is_its_own_else_from_its_first_not_archived()
-     {
+    fn a_profile_written_archived_is_read_as_if_it_were_not_there_and_dropped_when_written() {
+        let s = Settings::parse(
+            "[[profiles]]\nid = \"old\"\nagent = \"claude\"\nhome = \"/o\"\narchived = true\n[[profiles]]\nid = \"review\"\nagent = \"codex\"\n[[profiles]]\nid = \"new\"\nagent = \"claude\"\nhome = \"/o\"\n",
+        )
+        .unwrap();
+        let ids: Vec<&str> = s.profiles.iter().map(|p| p.id.as_str()).collect();
+        assert_eq!(ids, ["review", "new"]);
+        assert_eq!(s.profile.as_str(), "review");
+        assert_eq!(s.find_profile(&"old".parse().unwrap()), None);
+        let written = toml::to_string_pretty(&s).unwrap();
+        assert!(!written.contains("old"), "{written}");
+        assert!(!written.contains("archived"), "{written}");
+    }
+
+    #[test]
+    fn an_agent_starts_from_the_default_profile_when_that_is_its_own_else_from_its_first() {
         let s = Settings::parse(PROFILES).unwrap();
         assert_eq!(s.profile_of(Agent::Claude).id.as_str(), "claude-work");
         assert_eq!(s.profile_of(Agent::Codex).id.as_str(), "codex-review");
@@ -1417,7 +1543,7 @@ permission_mode = "plan"
         };
         assert_eq!(s.profile_of(Agent::Claude).id.as_str(), "claude");
         let mut s = s;
-        s.profiles[0].archived = true;
+        s.profiles.remove(0);
         assert_eq!(s.profile_of(Agent::Claude).id.as_str(), "claude-work");
     }
 
@@ -1445,66 +1571,90 @@ permission_mode = "plan"
         )
         .unwrap();
         assert_eq!(found(&s, "codex"), None);
-        let s = Settings::parse(
-            "[[profiles]]\nid = \"claude\"\nagent = \"claude\"\narchived = true\n[[profiles]]\nid = \"mine\"\nagent = \"claude\"\n",
-        )
-        .unwrap();
-        assert!(found(&s, "claude").unwrap().archived);
     }
 
     #[test]
     fn adroit_s_own_profile_takes_an_id_no_profile_holds_so_it_is_found_as_offered() {
         let found = |s: &Settings, id: &ProfileId| s.find_profile(id).map(Cow::into_owned).unwrap();
-        // The agent's key held by its own profile archived, or by a profile
-        // of another agent.
-        for text in [
-            "[[profiles]]\nid = \"claude\"\nagent = \"claude\"\n[[profiles]]\nid = \"codex\"\nagent = \"codex\"\narchived = true\n",
+        // The agent's key held by a profile of another agent.
+        let s = Settings::parse(
             "[[profiles]]\nid = \"claude\"\nagent = \"claude\"\n[[profiles]]\nid = \"codex\"\nagent = \"claude\"\n",
-        ] {
-            let s = Settings::parse(text).unwrap();
-            let offered = s.profile_of(Agent::Codex).into_owned();
-            assert_eq!(offered.id.as_str(), "codex-2", "{text}");
-            assert_eq!(found(&s, &offered.id), offered);
-            assert_eq!(
-                found(&s, &"codex".parse().unwrap()).id.as_str(),
-                "codex",
-                "the profile that holds the key is still found by it"
-            );
-        }
+        )
+        .unwrap();
+        let offered = s.profile_of(Agent::Codex).into_owned();
+        assert_eq!(offered.id.as_str(), "codex-2");
+        assert_eq!(found(&s, &offered.id), offered);
+        assert_eq!(
+            found(&s, &"codex".parse().unwrap()).id.as_str(),
+            "codex",
+            "the profile that holds the key is still found by it"
+        );
     }
 
     #[test]
     fn a_session_is_shown_by_its_agent_and_a_profile_of_another_name_by_that_too() {
         let s = Settings::parse(PROFILES).unwrap();
-        let shown = |agent, profile: &str| s.started_as(agent, &profile.parse().unwrap());
+        let shown = |agent, profile: &str, home: Option<&str>| {
+            s.started_as(agent, &profile.parse().unwrap(), home.map(Path::new), "")
+        };
         assert_eq!(
-            shown(Agent::Claude, "claude-work"),
+            shown(
+                Agent::Claude,
+                "claude-work",
+                Some("/Users/me/.local/share/adroit/profiles/claude-work")
+            ),
             "Claude Code · Claude Work"
         );
         assert_eq!(
-            shown(Agent::Claude, "claude"),
+            shown(Agent::Claude, "claude", None),
             "Claude Code · Claude Personal"
         );
-        assert_eq!(shown(Agent::Codex, "gone"), "Codex · gone");
+        assert_eq!(shown(Agent::Codex, "gone", None), "Codex · gone");
         let own = Settings::default();
         assert_eq!(
-            own.started_as(Agent::Codex, &"codex".parse().unwrap()),
+            own.started_as(Agent::Codex, &"codex".parse().unwrap(), None, ""),
             "Codex"
         );
         // One started before profiles, from a profile since removed.
         let none = Settings::parse("[[profiles]]\nid = \"mine\"\nagent = \"claude\"\n").unwrap();
         assert_eq!(
-            none.started_as(Agent::Codex, &"codex".parse().unwrap()),
+            none.started_as(Agent::Codex, &"codex".parse().unwrap(), None, ""),
             "Codex"
         );
-        // Adroit's own, numbered past an archived profile that holds the key.
-        let archived = Settings::parse(
-            "[[profiles]]\nid = \"claude\"\nagent = \"claude\"\n[[profiles]]\nid = \"codex\"\nname = \"Old\"\nagent = \"codex\"\narchived = true\n",
+        // Adroit's own, numbered past a profile of another agent that holds
+        // the key.
+        let keyed = Settings::parse(
+            "[[profiles]]\nid = \"claude\"\nagent = \"claude\"\n[[profiles]]\nid = \"codex\"\nname = \"Old\"\nagent = \"claude\"\n",
         )
         .unwrap();
         assert_eq!(
-            archived.started_as(Agent::Codex, &"codex-2".parse().unwrap()),
+            keyed.started_as(Agent::Codex, &"codex-2".parse().unwrap(), None, ""),
             "Codex"
+        );
+    }
+
+    #[test]
+    fn a_session_of_a_profile_deleted_since_is_named_as_its_profile_was_called_when_it_started() {
+        let s = Settings::parse(PROFILES).unwrap();
+        let work = "claude-work".parse().unwrap();
+        let shown = |s: &Settings, home: Option<&str>| {
+            s.started_as(Agent::Claude, &work, home.map(Path::new), "Old Work")
+        };
+        let home = Some("/Users/me/.local/share/adroit/profiles/claude-work");
+        // Still held, it goes by the name it has now.
+        assert_eq!(shown(&s, home), "Claude Code · Claude Work");
+        let mut deleted = s.clone();
+        deleted.profiles.retain(|p| p.id != work);
+        assert_eq!(shown(&deleted, home), "Claude Code · Old Work");
+        // Its id taken again by a profile of another login is not it.
+        assert_eq!(
+            shown(&s, Some("/Users/me/old-work")),
+            "Claude Code · Old Work"
+        );
+        // Not known, it goes by its id.
+        assert_eq!(
+            deleted.started_as(Agent::Claude, &work, home.map(Path::new), ""),
+            "Claude Code · claude-work"
         );
     }
 

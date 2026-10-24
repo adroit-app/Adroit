@@ -80,10 +80,15 @@ pub struct Session {
     /// The session that started this one; none for one the user started.
     pub parent: Option<SessionId>,
     pub agent: Agent,
-    /// The profile it started from, and the connection that runs in; the
-    /// agent's own for one started before sessions were.
+    /// The profile it started from, and the folder of that profile's own it
+    /// runs in, none for its agent's own environment; the agent's own
+    /// profile for one started before sessions were.
     pub profile: crate::profile::ProfileId,
-    pub connection: crate::profile::ConnectionId,
+    pub home: Option<PathBuf>,
+    /// What its profile was called when it started, as the settings it
+    /// started with say; empty while that is not known.
+    #[serde(default)]
+    pub profile_name: String,
     /// Which session this is: the daemon's id.
     pub id: String,
     /// The conversation's id; empty until the conversation tells it.

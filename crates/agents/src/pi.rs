@@ -18,9 +18,9 @@ pub struct Pi;
 /// can write wherever its user can.
 pub const READ_ONLY_TOOLS: [&str; 4] = ["read", "grep", "find", "ls"];
 
-/// Whether a connection of its own removes `name`: a variable a provider
+/// Whether a login of its own removes `name`: a variable a provider
 /// reads a credential or an endpoint from, ahead of or beside the logins in
-/// the connection's `auth.json` and `models.json`, or one that moves Pi's
+/// the login's `auth.json` and `models.json`, or one that moves Pi's
 /// sessions or packages elsewhere. The cloud providers' own variables go
 /// too: Pi reads them for Bedrock, Vertex and the like without a switch.
 fn denied(name: &str) -> bool {
@@ -260,9 +260,9 @@ impl AgentAdapter for Pi {
 }
 
 /// How a session runs, as `context` says, whether it starts a conversation
-/// or resumes one. In a connection of its own, Pi keeps its sessions in the
-/// connection whatever a project's settings say, and loads only the skills
-/// the connection keeps, not those every Pi of the user shares.
+/// or resumes one. In a login of its own, Pi keeps its sessions in the
+/// login whatever a project's settings say, and loads only the skills
+/// the login keeps, not those every Pi of the user shares.
 fn options(context: &AgentContext) -> Vec<String> {
     let mut args = vec!["--tui-mode".into(), "regular".into()];
     let options = context.pi();
@@ -398,7 +398,7 @@ mod tests {
     }
 
     #[test]
-    fn in_a_connection_pi_keeps_its_sessions_there_and_loads_only_the_connection_s_skills() {
+    fn in_a_login_of_its_own_pi_keeps_its_sessions_there_and_loads_only_its_skills() {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().join("work");
         let context = AgentContext {
@@ -433,7 +433,7 @@ mod tests {
     }
 
     #[test]
-    fn a_connection_removes_every_provider_s_credentials_and_what_moves_pi_s_state() {
+    fn a_login_of_its_own_removes_every_provider_s_credentials_and_what_moves_pi_s_state() {
         for name in [
             "ANTHROPIC_API_KEY",
             "ANTHROPIC_OAUTH_TOKEN",

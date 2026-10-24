@@ -5,7 +5,6 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use adroit_model::profile::ConnectionId;
 use adroit_model::{Session, TerminalSession, Worktree, build};
 use adroit_protocol::{Listed, TreeChange};
 use adroit_term::Daemon;
@@ -150,6 +149,16 @@ pub async fn read_sessions(
     for s in &kept {
         match sessions::read(s) {
             Some(Kept::Agent(mut c)) => {
+                if sessions::earlier_connection(s).is_some()
+                    && let Some(record) = c.delegation
+                    && let Ok(Some(Some(home))) =
+                        crate::delegation::app::home_of(&crate::delegation::app::root(), record)
+                            .await
+                {
+                    // Named on the session from now on, as its record has it.
+                    learned.push((s.id, sessions::HOME, home.to_string_lossy().into_owned()));
+                    c.home = Some(home);
+                }
                 if let Some(at) = inputs.get(&s.id)
                     && let Some(tag) = sessions::note_input(&mut c, *at)
                 {
@@ -169,6 +178,11 @@ pub async fn read_sessions(
                 {
                     c.state = state;
                 }
+                // Named as the settings it started with call its profile,
+                // which the settings now may hold no more.
+                if let Ok(context) = crate::programs::of_session(&c).await {
+                    c.profile_name = context.profile_name;
+                }
                 own.push(c);
             }
             Some(Kept::Terminal(sh)) => kept_shells.push(sh),
@@ -177,10 +191,10 @@ pub async fn read_sessions(
     }
     // Without Claude Code, or with a listing it cannot give, nothing is
     // learned; the sessions are listed all the same.
-    // Each connection lists the sessions running in it alone, so each is
-    // asked as a session of it was started and read against those.
-    for (agent, connection, context) in
-        connections_of(
+    // Each login lists the sessions running in it alone, so each is asked as
+    // a session of it was started and read against those.
+    for (agent, home, context) in
+        logins_of(
             &own,
             |s| async move { crate::programs::of_session(&s).await },
         )
@@ -188,7 +202,7 @@ pub async fn read_sessions(
     {
         let adapter = adroit_agents::adapter(agent);
         let listed = adapter.list_sessions(context).await.unwrap_or_default();
-        let ours = |s: &Session| s.agent == agent && s.connection == connection;
+        let ours = |s: &Session| s.agent == agent && s.home == home;
         let mut these: Vec<Session> = own.iter().filter(|s| ours(s)).cloned().collect();
         let tags = adapter.follow(&mut these, listed);
         learned.extend(tags.into_iter().map(sessions::learned_tag));
@@ -214,15 +228,15 @@ pub async fn read_sessions(
     Ok((own, kept_shells))
 }
 
-/// Each agent and connection `own` has sessions in, with the context the
+/// Each agent and login `own` has sessions in, with the context the
 /// first of those sessions `of` tells one for runs in, tried in turn; one whose sessions
 /// tell none is left out.
-async fn connections_of<F, Fut>(
+async fn logins_of<F, Fut>(
     own: &[Session],
     of: F,
 ) -> Vec<(
     adroit_model::Agent,
-    ConnectionId,
+    Option<PathBuf>,
     adroit_agents::AgentContext,
 )>
 where
@@ -231,18 +245,18 @@ where
 {
     let mut out: Vec<(
         adroit_model::Agent,
-        ConnectionId,
+        Option<PathBuf>,
         adroit_agents::AgentContext,
     )> = Vec::new();
     for s in own {
         if out
             .iter()
-            .any(|(agent, connection, _)| *agent == s.agent && *connection == s.connection)
+            .any(|(agent, home, _)| *agent == s.agent && *home == s.home)
         {
             continue;
         }
         if let Ok(context) = of(s.clone()).await {
-            out.push((s.agent, s.connection.clone(), context));
+            out.push((s.agent, s.home.clone(), context));
         }
     }
     out
@@ -256,11 +270,11 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn a_connection_is_asked_through_the_first_of_its_sessions_whose_context_is_known() {
+    async fn a_login_is_asked_through_the_first_of_its_sessions_whose_context_is_known() {
         let own = [
-            session("lost").profile("claude-work", "work").build(),
-            session("kept").profile("claude-work", "work").build(),
-            session("other").profile("claude-work", "work").build(),
+            session("lost").profile("claude-work", Some("/w")).build(),
+            session("kept").profile("claude-work", Some("/w")).build(),
+            session("other").profile("claude-work", Some("/w")).build(),
             session("mine").build(),
         ];
         let of = |s: Session| async move {
@@ -273,18 +287,15 @@ mod tests {
             }
         };
 
-        let asked: Vec<(String, String)> = connections_of(&own, of)
+        let asked: Vec<(Option<PathBuf>, String)> = logins_of(&own, of)
             .await
             .into_iter()
-            .map(|(_, connection, context)| (connection.to_string(), context.shell))
+            .map(|(_, home, context)| (home, context.shell))
             .collect();
 
         assert_eq!(
             asked,
-            [
-                ("work".into(), "kept".into()),
-                ("claude".into(), "mine".into())
-            ]
+            [(Some("/w".into()), "kept".into()), (None, "mine".into())]
         );
     }
 }

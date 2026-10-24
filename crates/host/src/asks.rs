@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use adroit_model::profile::{ConnectionId, ProfileId};
+use adroit_model::profile::ProfileId;
 use adroit_model::time::now_ms;
 use adroit_model::{TerminalProgram, TerminalResourceId, TerminalSession};
 use adroit_protocol::{Answer, Ask, ConfigFile, FileText, HostPath, SessionStart, TerminalStart};
@@ -72,22 +72,18 @@ async fn answer(watched: &Watched, judged: &watch::Sender<Judged>, ask: Ask) -> 
         }
         Ask::Picture { path, whole } => Ok(picture(path, whole).await),
         Ask::Run { args, cwd, input } => Ok(run(&args, &cwd, input).await),
-        Ask::LoginStanding {
-            connection,
-            profile,
-            after,
-        } => {
+        Ask::LoginStanding { profile, after } => {
             if let Some(terminal) = after {
                 ended(terminal).await;
             }
-            login_standing(&connection, profile.as_ref()).await
+            login_standing(&profile).await
         }
         Ask::OpenLogin {
-            connection,
             profile,
             cols,
             rows,
-        } => open_login(watched, &connection, profile.as_ref(), cols, rows).await,
+        } => open_login(watched, &profile, cols, rows).await,
+        Ask::DeleteLogin { profile } => delete_login(&profile).await,
     };
     answered.unwrap_or_else(|text| Answer::Failed { text })
 }
@@ -152,7 +148,7 @@ async fn start_session(watched: &Watched, start: SessionStart) -> Result<Answer,
         prompt: start.prompt,
         images: start.images,
         resume: start.resume,
-        connection: start.connection,
+        home: start.home,
         env: daemon::agent_env(),
         started_ms: now_ms(),
         ..Default::default()
@@ -225,29 +221,97 @@ async fn start_terminal(watched: &Watched, start: TerminalStart) -> Result<Answe
     })
 }
 
-/// Whether the connection `id` is logged in, as the CLI `profile` starts
-/// there says when asked in the user's home.
-async fn login_standing(id: &ConnectionId, profile: Option<&ProfileId>) -> Result<Answer, String> {
-    let context = programs::for_connection(&settings::current(), id, profile)?;
+/// Whether the profile `profile` is logged in, as the CLI it starts says
+/// where it runs it, asked in the user's home.
+async fn login_standing(profile: &ProfileId) -> Result<Answer, String> {
+    let context = programs::for_profile(&settings::current(), profile)?;
     let standing = adroit_agents::login::standing(&context, &crate::paths::home()).await;
-    Ok(Answer::LoginStanding {
-        standing,
-        profile: context.profile,
-    })
+    Ok(Answer::LoginStanding { standing })
+}
+
+/// Delete the folder the profile `profile` keeps its login in, as the
+/// settings say now: one adroit made, never the agent's own environment
+/// nor a folder named by hand, and none a session still runs in.
+async fn delete_login(profile: &ProfileId) -> Result<Answer, String> {
+    let settings = settings::current();
+    let found = settings
+        .profiles
+        .iter()
+        .find(|p| &p.id == profile)
+        .ok_or_else(|| format!("profile `{profile}` is not defined"))?;
+    let Some(home) = found.home.clone() else {
+        return Err(format!(
+            "{} runs in your terminal's login, of which adroit deletes nothing",
+            found.label()
+        ));
+    };
+    let data = adroit_model::paths::data_dir();
+    if !adroit_core::profiles::made_by_adroit(&home, &data, |p| std::fs::canonicalize(p).ok()) {
+        return Err(format!(
+            "{} is not a folder adroit made, so it is left as it is; delete it yourself if it is to go",
+            home.display()
+        ));
+    }
+    let kept = daemon::daemon()
+        .sessions()
+        .await
+        .map_err(|e| e.to_string())?;
+    let running: Vec<adroit_model::Session> = kept
+        .iter()
+        .filter_map(sessions::read)
+        .filter_map(|k| match k {
+            sessions::Kept::Agent(s) => Some(s),
+            sessions::Kept::Terminal(_) => None,
+        })
+        .collect();
+    unused(found.label(), &home, &running)?;
+    match tokio::fs::remove_dir_all(&home).await {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+            Err(format!("{} could not be deleted: {e}", home.display()))
+        }
+        _ => Ok(Answer::Done),
+    }
+}
+
+/// Whether no session of `running` runs in `home`, the folder of the
+/// profile called `name`; why it cannot be deleted otherwise, naming them.
+fn unused(
+    name: &str,
+    home: &std::path::Path,
+    running: &[adroit_model::Session],
+) -> Result<(), String> {
+    let using: Vec<&str> = running
+        .iter()
+        .filter(|s| s.home.as_deref() == Some(home))
+        .map(|s| match s.name.trim() {
+            "" => s.id.as_str(),
+            named => named,
+        })
+        .collect();
+    if using.is_empty() {
+        return Ok(());
+    }
+    let (runs, end) = match using.len() {
+        1 => ("runs", "it"),
+        _ => ("run", "them"),
+    };
+    Err(format!(
+        "{} {runs} in {}; end {end}, or delete {name} without its folder",
+        using.join(", "),
+        home.display()
+    ))
 }
 
 /// Start a terminal, listed in the tree as any other, that runs the CLI's
-/// own login in the connection `id`, as `profile` starts it, in the user's
-/// home.
+/// own login where the profile `profile` runs it, in the user's home.
 async fn open_login(
     watched: &Watched,
-    id: &ConnectionId,
-    profile: Option<&ProfileId>,
+    profile: &ProfileId,
     cols: u16,
     rows: u16,
 ) -> Result<Answer, String> {
     let settings = settings::current();
-    let context = programs::for_connection(&settings, id, profile)?;
+    let context = programs::for_profile(&settings, profile)?;
     let (program, args, env) = adroit_agents::login::login(&context);
     let cwd = crate::paths::home();
     let terminal = TerminalSession {
@@ -255,7 +319,9 @@ async fn open_login(
         id: 0,
         name: format!(
             "log in · {}",
-            adroit_core::profiles::connection_name(&settings, id)
+            settings
+                .find_profile(profile)
+                .map_or_else(|| profile.to_string(), |p| p.label().to_string())
         ),
         cwd: cwd.clone(),
         program: TerminalProgram::Command,
@@ -384,6 +450,42 @@ fn save_keys(text: &str) -> Result<Answer, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_login_s_folder_is_not_deleted_while_sessions_run_in_it_and_says_which() {
+        use adroit_model::testing::session;
+        let home = std::path::Path::new("/d/adroit/profiles/work");
+        let elsewhere = [
+            session("a")
+                .name("fix")
+                .profile("work", Some("/d/x"))
+                .build(),
+            session("b").name("fix").profile("claude", None).build(),
+        ];
+        assert_eq!(unused("Work", home, &elsewhere), Ok(()));
+        let one = [session("a")
+            .name("fix")
+            .profile("work", Some("/d/adroit/profiles/work"))
+            .build()];
+        assert_eq!(
+            unused("Work", home, &one),
+            Err(
+                "fix runs in /d/adroit/profiles/work; end it, or delete Work without its folder"
+                    .into()
+            )
+        );
+        let two = [
+            one[0].clone(),
+            session("0c")
+                .name(" ")
+                .profile("old", Some("/d/adroit/profiles/work"))
+                .build(),
+        ];
+        assert_eq!(
+            unused("Work", home, &two),
+            Err("fix, 0c run in /d/adroit/profiles/work; end them, or delete Work without its folder".into())
+        );
+    }
 
     #[test]
     fn a_session_or_terminal_starts_on_this_host_alone() {

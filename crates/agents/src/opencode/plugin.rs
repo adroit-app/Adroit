@@ -18,7 +18,7 @@ fn plugin(program: &Path) -> String {
     let quoted = |text: &str| serde_json::to_string(text).expect("a string as JSON");
     PLUGIN
         .replace("\"@ADROIT@\"", &quoted(&program.to_string_lossy()))
-        .replace("\"@OUTSIDE@\"", &quoted(crate::connection::OUTSIDE))
+        .replace("\"@OUTSIDE@\"", &quoted(crate::own_login::OUTSIDE))
         .replace("\"@SESSION@\"", &quoted(super::SESSION))
 }
 
@@ -72,7 +72,7 @@ mod tests {
         assert!(
             script.contains(&format!(
                 r#"const OUTSIDE = "{}";"#,
-                crate::connection::OUTSIDE
+                crate::own_login::OUTSIDE
             )),
             "{script}"
         );
@@ -186,7 +186,7 @@ process.exit(0);
         let harness = dir.join("harness.mjs");
         std::fs::write(
             &harness,
-            HARNESS.replace("@OUTSIDE@", crate::connection::OUTSIDE),
+            HARNESS.replace("@OUTSIDE@", crate::own_login::OUTSIDE),
         )
         .unwrap();
         let out = std::process::Command::new("node")
@@ -254,7 +254,7 @@ exec sleep 30"#,
     }
 
     #[test]
-    fn commands_the_session_runs_get_back_the_folders_from_outside_its_account() {
+    fn commands_the_session_runs_get_back_the_folders_from_outside_its_login() {
         let dir = tempfile::tempdir().unwrap();
         let (_bin, adroit) = crate::testing::program(
             "adroit",

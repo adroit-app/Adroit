@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use adroit_model::Agent;
-use adroit_model::profile::{ConnectionId, LoginStanding, ProfileId};
+use adroit_model::profile::{LoginStanding, ProfileId};
 use adroit_protocol::{Answer, Ask};
 use dioxus::prelude::*;
 
@@ -89,16 +89,15 @@ pub(crate) fn ends_wait(
     after == Some(waited) || standing == Some(LoginStanding::LoggedIn)
 }
 
-/// Ask the work host whether `profile`, which runs in `connection`, is
-/// logged in, once the terminal `after` has ended when one is named; the
-/// answer goes to the window's logins whichever draft asked.
-pub(crate) fn ask(app: AppCtx, profile: ProfileId, connection: ConnectionId, after: Option<u128>) {
+/// Ask the work host whether `profile` is logged in, once the terminal
+/// `after` has ended when one is named; the answer goes to the window's
+/// logins whichever draft asked.
+pub(crate) fn ask(app: AppCtx, profile: ProfileId, after: Option<u128>) {
     let mut logins = app.logins;
     let now = asking(logins.peek().get(&profile), after);
     logins.write().insert(profile.clone(), now);
     let asked = app.ask(Ask::LoginStanding {
-        connection,
-        profile: Some(profile.clone()),
+        profile: profile.clone(),
         after,
     });
     app.keep(async move {
@@ -106,7 +105,7 @@ pub(crate) fn ask(app: AppCtx, profile: ProfileId, connection: ConnectionId, aft
         let mut logins = logins.write();
         let known = logins.get(&profile).copied();
         match answer {
-            Answer::LoginStanding { standing, .. } => {
+            Answer::LoginStanding { standing } => {
                 let next = answered(known.as_ref(), after, standing, Instant::now());
                 logins.insert(profile, next);
             }

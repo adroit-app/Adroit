@@ -23,7 +23,7 @@ pub const OLDEST: (u64, u64) = (2, 1);
 /// What every command adroit runs OpenCode with carries. Without it OpenCode
 /// starts a background server on a port fixed for the machine, which
 /// outlives the command and keeps the environment of the first that started
-/// it: another account's login, or another session's credential.
+/// it: another login, or another session's credential.
 const STANDALONE: &str = "--standalone";
 
 /// What hands a fragment of OpenCode's configuration from where adroit's
@@ -95,7 +95,7 @@ fn read_only_rules() -> Vec<adroit_model::config::OpenCodeRule> {
         .collect()
 }
 
-/// Whether an account of its own lets `name` reach OpenCode from the
+/// Whether a login of its own lets `name` reach OpenCode from the
 /// environment it is started in: what locates the user, the terminal and
 /// the network, and adroit's own. OpenCode connects every provider whose
 /// credential variable models.dev lists, a list that changes with every
@@ -143,7 +143,7 @@ fn allowed(name: &str) -> bool {
     NAMES.contains(&name) || FAMILIES.iter().any(|family| name.starts_with(family))
 }
 
-/// Whether an account of its own decides on `name` alone: a variable that
+/// Whether a login of its own decides on `name` alone: a variable that
 /// carries a login, moves OpenCode's configuration, database or rules
 /// elsewhere, or lets a client into its server.
 fn denied(name: &str) -> bool {
@@ -166,7 +166,7 @@ fn denied(name: &str) -> bool {
 }
 
 /// The roots OpenCode keeps everything of its own under, each named by its
-/// variable and the folder of an account's home it is moved to: the four of
+/// variable and the folder of a login's home it is moved to: the four of
 /// its own, and the temporary folder it keeps the output of commands in.
 const ROOTS: [(&str, &str); 5] = [
     ("XDG_CONFIG_HOME", "config"),
@@ -205,18 +205,18 @@ impl AgentAdapter for OpenCode {
         "opencode".into()
     }
 
-    // Where OpenCode keeps its logins; [`AgentAdapter::connection_variables`]
+    // Where OpenCode keeps its logins; [`AgentAdapter::own_login_variables`]
     // moves its other roots too.
     fn state_variable(&self) -> &'static str {
         "XDG_DATA_HOME"
     }
 
-    fn connection_variables(&self, home: &Path) -> Vec<(String, String)> {
+    fn own_login_variables(&self, home: &Path) -> Vec<(String, String)> {
         let mut set: Vec<(String, String)> = ROOTS
             .iter()
             .map(|(name, dir)| (name.to_string(), home.join(dir).display().to_string()))
             .collect();
-        // Claude Code's skills in the user's home would be every account's.
+        // Claude Code's skills in the user's home would be every login's.
         set.push(("OPENCODE_DISABLE_CLAUDE_CODE".into(), "1".into()));
         set
     }
@@ -273,7 +273,7 @@ impl AgentAdapter for OpenCode {
             merge(&mut config, ours);
         }
         // The last rule that matches decides: adroit's tools stay allowed
-        // whatever the profile's or the account's rules say of every tool.
+        // whatever the profile's or the login's rules say of every tool.
         if let Some(rules) = config.get_mut("permissions").and_then(Value::as_array_mut) {
             let (ours, others): (Vec<Value>, Vec<Value>) =
                 rules.drain(..).partition(|rule| rule["action"] == TOOLS);
@@ -302,7 +302,7 @@ impl AgentAdapter for OpenCode {
         {
             env.push((SESSION.into(), id.clone()));
         }
-        connection::started(self, &context, args, env)
+        own_login::started(self, &context, args, env)
     }
 
     fn refusal(&self, context: AgentContext, dir: PathBuf) -> Refusal {

@@ -1,4 +1,4 @@
-//! The conversations every agent kept in each connection, listed while the
+//! The conversations every agent kept in each login, listed while the
 //! window shows the list of them: read again each time it changes which directory it lists, or
 //! asks for everything read again, and every half minute meanwhile.
 
@@ -15,7 +15,7 @@ pub(super) async fn watch(mut watched: Watched) {
             let dir = sight.dir.clone();
             let read = tokio::task::spawn_blocking(move || {
                 let (settings, home) = (crate::settings::current(), crate::paths::home());
-                let pasts = crate::programs::connections(&settings)
+                let pasts = crate::programs::logins(&settings)
                     .iter()
                     .flat_map(|c| adroit_agents::adapter(c.agent()).past(c, &home, dir.as_deref()))
                     .collect();

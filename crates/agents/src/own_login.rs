@@ -1,4 +1,4 @@
-//! How an agent is started in a connection of its own: in its state
+//! How an agent is started in a login of its own: in its state
 //! directory, with nothing of another login reaching it.
 
 use std::path::Path;
@@ -6,10 +6,10 @@ use std::path::Path;
 use crate::{AgentAdapter, AgentContext, Started};
 
 /// What runs the agent of `context` with `args` and `env`: in the agent's own
-/// environment, as its launch says; in a connection of its own, through
+/// environment, as its launch says; in a login of its own, through
 /// adroit's [`SUBCOMMAND`], which, once the shell the launch may start it
 /// through has read its startup files, removes every variable that would
-/// carry another login and names the connection's state directory.
+/// carry another login and names the login's state directory.
 pub(crate) fn started<A: AgentAdapter + ?Sized>(
     adapter: &A,
     context: &AgentContext,
@@ -49,7 +49,7 @@ pub(crate) fn started<A: AgentAdapter + ?Sized>(
         true => line.push(adapter.program()),
         false => line.extend(launch.command.iter().cloned()),
     }
-    let args: Vec<String> = adapter.connection_args().into_iter().chain(args).collect();
+    let args: Vec<String> = adapter.own_login_args().into_iter().chain(args).collect();
     let through = adroit_model::config::Launch {
         command: line,
         ..launch.clone()
@@ -62,32 +62,32 @@ pub(crate) fn started<A: AgentAdapter + ?Sized>(
 /// adroit's whole path so a `PATH` the shell's startup files set cannot
 /// replace it. `env -u` would remove only the variables named to it, not
 /// every one of a family, nor those the terminal host alone holds.
-pub const SUBCOMMAND: &str = "in-connection";
+pub const SUBCOMMAND: &str = "in-own-login";
 
 /// What names a variable [`SUBCOMMAND`] leaves as it is, one the launch sets
 /// that its agent would otherwise remove of what it inherits.
 const KEEP: &str = "--keep";
 
 /// The prefix under which [`SUBCOMMAND`] keeps the value from outside the
-/// connection of a variable the connection sets, for each its adapter
+/// login of a variable the login sets, for each its adapter
 /// [`AgentAdapter::kept_outside`] names, so what the agent runs can put it
 /// back.
 pub const OUTSIDE: &str = "ADROIT_OUTSIDE_";
 
-/// Whether a connection of its own in `home` decides on `name` alone: one of
+/// Whether a login of its own in `home` decides on `name` alone: one of
 /// the variables it sets, or one known to carry a login or to move the
 /// agent's state.
 fn decides<A: AgentAdapter + ?Sized>(adapter: &A, home: &Path, name: &str) -> bool {
     adapter.denies(name)
         || adapter
-            .connection_variables(home)
+            .own_login_variables(home)
             .iter()
             .any(|(set, _)| set == name)
 }
 
-/// Runs `adroit in-connection <agent> <home> [--keep <name>]… <program>
+/// Runs `adroit in-own-login <agent> <home> [--keep <name>]… <program>
 /// [<arg>…]`: replaces this process with `program`, with none of the
-/// variables `agent`'s connection removes but those kept, and the variables
+/// variables `agent`'s login removes but those kept, and the variables
 /// it sets naming `home` and the folders in it. Returns only when that fails,
 /// with the exit status to end with.
 pub fn run(args: &[String]) -> i32 {
@@ -131,7 +131,7 @@ fn command(
     };
     let adapter = crate::adapter(adroit_model::Agent::parse(agent).ok_or_else(usage)?);
     let home = Path::new(home);
-    let set = adapter.connection_variables(home);
+    let set = adapter.own_login_variables(home);
     let mut command = std::process::Command::new(program);
     command.args(rest);
     // Empty for one unset outside, which is put back unset.
@@ -153,7 +153,7 @@ fn command(
     Ok(command)
 }
 
-/// What puts back, in a process started inside an agent's connection, the
+/// What puts back, in a process started inside an agent's own login, the
 /// variables from outside it that [`SUBCOMMAND`] kept, given the variables the
 /// process has: each with its value, or none to remove it. What adroit runs
 /// there, such as its MCP server or `adroit terminal`, then finds the
@@ -183,7 +183,7 @@ pub fn make_private(dir: &Path) -> std::io::Result<()> {
         .create(dir)
 }
 
-/// The first variable `context`'s launch sets that its connection decides on
+/// The first variable `context`'s launch sets that its login decides on
 /// alone: its state directory, or one carrying another login; none in the
 /// agent's own environment, where the launch sets what it likes.
 pub fn conflict<A: AgentAdapter + ?Sized>(adapter: &A, context: &AgentContext) -> Option<String> {
@@ -203,7 +203,7 @@ mod tests {
     use super::*;
     use crate::adapter;
 
-    fn in_connection(agent: Agent, home: &Path) -> AgentContext {
+    fn in_own_login(agent: Agent, home: &Path) -> AgentContext {
         AgentContext {
             home: Some(home.to_path_buf()),
             shell: "/bin/zsh".into(),
@@ -212,7 +212,7 @@ mod tests {
         }
     }
 
-    /// What `adroit in-connection` started for `agent` in `home`, with the
+    /// What `adroit in-own-login` started for `agent` in `home`, with the
     /// variables `names`, removes, and what it sets, each in name order.
     fn cleared(agent: Agent, home: &str, names: &[&str]) -> (Vec<String>, Vec<String>) {
         let args: Vec<String> = [agent.key(), home, "program", "a"]
@@ -233,10 +233,10 @@ mod tests {
     }
 
     #[test]
-    fn claude_code_in_a_connection_of_its_own_keeps_its_state_there_with_no_other_login() {
+    fn claude_code_in_a_login_of_its_own_keeps_its_state_there_with_no_other_login() {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().join("claude-work");
-        let context = in_connection(Agent::Claude, &home);
+        let context = in_own_login(Agent::Claude, &home);
         let (program, args, env) = adapter(Agent::Claude).launch(
             &context,
             vec!["--x".into()],
@@ -290,9 +290,9 @@ mod tests {
     }
 
     #[test]
-    fn codex_in_a_connection_of_its_own_keeps_its_logins_and_mcp_tokens_there() {
+    fn codex_in_a_login_of_its_own_keeps_its_logins_and_mcp_tokens_there() {
         let dir = tempfile::tempdir().unwrap();
-        let context = in_connection(Agent::Codex, dir.path());
+        let context = in_own_login(Agent::Codex, dir.path());
         let (_, args, _) =
             adapter(Agent::Codex).launch(&context, vec!["app-server".into()], vec![]);
         let home = dir.path().display().to_string();
@@ -336,7 +336,7 @@ mod tests {
     fn the_state_directory_is_named_exactly_as_written() {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().join("a b");
-        let context = in_connection(Agent::Claude, &home);
+        let context = in_own_login(Agent::Claude, &home);
         let (_, args, _) = adapter(Agent::Claude).launch(&context, vec![], vec![]);
         assert_eq!(args[2], home.display().to_string());
         assert!(home.is_dir());
@@ -345,7 +345,7 @@ mod tests {
     }
 
     #[test]
-    fn a_connection_s_last_step_names_an_agent_its_home_and_a_program() {
+    fn a_login_of_its_own_s_last_step_names_an_agent_its_home_and_a_program() {
         for args in [&[][..], &["claude", "/w"], &["nobody", "/w", "program"]] {
             let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
             assert!(command(&args, std::iter::empty()).is_err(), "{args:?}");
@@ -355,7 +355,7 @@ mod tests {
     #[test]
     fn started_through_the_shell_the_variables_are_cleared_after_its_startup_files() {
         let dir = tempfile::tempdir().unwrap();
-        let mut context = in_connection(Agent::Claude, dir.path());
+        let mut context = in_own_login(Agent::Claude, dir.path());
         context.launch.via_shell = true;
         context.launch.command = vec!["/opt/claude".into()];
         let (program, args, _) = adapter(Agent::Claude).launch(&context, vec![], vec![]);
@@ -381,8 +381,8 @@ mod tests {
     }
 
     #[test]
-    fn a_launch_that_sets_what_its_connection_decides_on_is_named() {
-        let mut context = in_connection(Agent::Codex, Path::new("/c"));
+    fn a_launch_that_sets_what_its_own_login_decides_on_is_named() {
+        let mut context = in_own_login(Agent::Codex, Path::new("/c"));
         assert_eq!(conflict(adapter(Agent::Codex), &context), None);
         context.launch.env.insert("FOO".into(), "1".into());
         assert_eq!(conflict(adapter(Agent::Codex), &context), None);
@@ -394,7 +394,7 @@ mod tests {
             conflict(adapter(Agent::Codex), &context).as_deref(),
             Some("OPENAI_ORGANIZATION")
         );
-        let mut context = in_connection(Agent::Claude, Path::new("/c"));
+        let mut context = in_own_login(Agent::Claude, Path::new("/c"));
         context
             .launch
             .env
@@ -409,7 +409,7 @@ mod tests {
     fn opencode_in_an_account_of_its_own_is_told_to_keep_what_its_launch_sets() {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().join("oc");
-        let mut context = in_connection(Agent::OpenCode, &home);
+        let mut context = in_own_login(Agent::OpenCode, &home);
         context
             .launch
             .env
@@ -503,7 +503,7 @@ mod tests {
     }
 
     #[test]
-    fn what_a_connection_kept_from_outside_it_is_put_back_and_one_unset_removed() {
+    fn what_a_login_of_its_own_kept_from_outside_it_is_put_back_and_one_unset_removed() {
         let put = outside(
             [
                 (format!("{OUTSIDE}XDG_STATE_HOME"), "/me/state"),
@@ -536,7 +536,7 @@ mod tests {
     #[test]
     fn a_deny_list_agent_keeps_nothing_it_would_remove_and_keeps_no_value_from_outside() {
         let dir = tempfile::tempdir().unwrap();
-        let context = in_connection(Agent::Pi, dir.path());
+        let context = in_own_login(Agent::Pi, dir.path());
         let (_, args, _) = adapter(Agent::Pi).launch(
             &context,
             vec![],

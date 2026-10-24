@@ -282,7 +282,7 @@ fn options(sessions: &SessionOptions) -> super::Options {
 /// as `context` starts a session: the program, its arguments, and the
 /// variables its launch adds.
 fn asked(context: &AgentContext, args: Vec<String>) -> Started {
-    crate::connection::started(&Claude, context, args, Vec::new())
+    crate::own_login::started(&Claude, context, args, Vec::new())
 }
 
 /// Read `agent`'s `listed` sessions against adroit's `own`: each of `own`

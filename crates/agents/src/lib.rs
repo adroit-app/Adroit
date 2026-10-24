@@ -3,19 +3,19 @@
 
 pub mod claude;
 mod codex;
-pub mod connection;
 mod delivery;
 pub mod login;
 pub mod opencode;
+pub mod own_login;
 pub mod pi;
 #[cfg(test)]
 mod testing;
-pub use connection::conflict;
 pub use delivery::{DeliveryFailure, DeliveryFuture};
+pub use own_login::conflict;
 
 use adroit_model::Agent;
 use adroit_model::config::{CodexOptions, Launch, OpenCodeOptions, PiOptions, SessionOptions};
-use adroit_model::profile::{AgentOptions, AgentProfile, ConnectionId, ProfileId};
+use adroit_model::profile::{AgentOptions, AgentProfile, ProfileId};
 use std::path::{Path, PathBuf};
 
 /// A command that starts an agent: the program, its arguments and the
@@ -33,7 +33,7 @@ pub(crate) fn quoted_pastes(images: &[PathBuf]) -> Vec<String> {
         .collect()
 }
 
-/// `pasts` as the conversations kept in `context`'s connection, which a
+/// `pasts` as the conversations kept in `context`'s login, which a
 /// resume starts from its profile.
 pub(crate) fn kept_in(
     context: &AgentContext,
@@ -42,8 +42,9 @@ pub(crate) fn kept_in(
     pasts
         .into_iter()
         .map(|past| adroit_model::Past {
-            connection: context.connection.clone(),
+            home: context.home.clone(),
             profile: context.profile.clone(),
+            profile_name: context.profile_name.clone(),
             ..past
         })
         .collect()
@@ -65,18 +66,18 @@ pub fn shell_word(program: impl AsRef<Path>) -> String {
 }
 
 /// What an adapter is handed to start its agent, or ask it something, rather
-/// than reading the context itself: one profile, resolved against the
-/// connection it runs in.
+/// than reading the context itself: one profile, with the login it runs in.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentContext {
     pub profile: ProfileId,
-    pub connection: ConnectionId,
-    /// The connection's state directory, exactly as the context write it;
-    /// none in the agent's own environment.
+    /// What the profile is called.
+    pub profile_name: String,
+    /// The state directory of the profile's own login, exactly as the
+    /// settings write it; none in the agent's own environment.
     pub home: Option<PathBuf>,
     /// The shell a program started through the shell runs in.
     pub shell: String,
-    /// The adroit program a connection of its own starts the agent's program
+    /// The adroit program a login of its own starts the agent's program
     /// through, as the last step before it: the one running, unless
     /// told otherwise.
     pub adroit: PathBuf,
@@ -85,13 +86,12 @@ pub struct AgentContext {
 }
 
 impl AgentContext {
-    /// `profile` run in the connection whose state directory is `home`, none
-    /// for the agent's own environment, through `shell`.
-    pub fn new(profile: &AgentProfile, home: Option<PathBuf>, shell: impl Into<String>) -> Self {
+    /// `profile` run in its login, through `shell`.
+    pub fn new(profile: &AgentProfile, shell: impl Into<String>) -> Self {
         Self {
             profile: profile.id.clone(),
-            connection: profile.connection.clone(),
-            home,
+            profile_name: profile.label().to_string(),
+            home: profile.home.clone(),
             shell: shell.into(),
             adroit: std::env::current_exe().unwrap_or_else(|_| "adroit".into()),
             launch: profile.launch.clone(),
@@ -101,7 +101,7 @@ impl AgentContext {
 
     /// The profile adroit comes with for `agent`, in its own environment.
     pub fn builtin(agent: Agent) -> Self {
-        Self::new(&AgentProfile::builtin(agent), None, "")
+        Self::new(&AgentProfile::builtin(agent), "")
     }
 
     pub fn agent(&self) -> Agent {
@@ -268,19 +268,19 @@ pub trait AgentAdapter: Sync {
     }
     fn program(&self) -> String;
     /// The variable naming the directory the agent's program keeps its
-    /// state in, which a connection of its own sets.
+    /// state in, which a login of its own sets.
     fn state_variable(&self) -> &'static str;
-    /// Whether a connection of its own removes `name`, a variable known to
+    /// Whether a login of its own removes `name`, a variable known to
     /// carry a login or to move the agent's state, or one of their families,
     /// even when a shell's startup files set it again.
     fn denies(&self, name: &str) -> bool;
-    /// What a connection of its own in `home` sets last, which the profile's
+    /// What a login of its own in `home` sets last, which the profile's
     /// launch cannot set: the state variable naming `home`, unless the agent
     /// keeps its state in more than one place.
-    fn connection_variables(&self, home: &Path) -> Vec<(String, String)> {
+    fn own_login_variables(&self, home: &Path) -> Vec<(String, String)> {
         vec![(self.state_variable().into(), home.display().to_string())]
     }
-    /// Whether a connection of its own removes `name` from what the agent
+    /// Whether a login of its own removes `name` from what the agent
     /// inherits, unless the profile's launch sets it: those it
     /// [denies](AgentAdapter::denies), unless the agent reads credentials
     /// from more variables than a list of them could keep up with, and only
@@ -288,8 +288,8 @@ pub trait AgentAdapter: Sync {
     fn removes(&self, name: &str) -> bool {
         self.denies(name)
     }
-    /// The variables a connection of its own sets whose values from outside
-    /// it are kept as well, under [`connection::OUTSIDE`], for what the agent
+    /// The variables a login of its own sets whose values from outside
+    /// it are kept as well, under [`login::OUTSIDE`], for what the agent
     /// runs to be given back.
     fn kept_outside(&self) -> &'static [&'static str] {
         &[]
@@ -297,7 +297,7 @@ pub trait AgentAdapter: Sync {
     /// What starts the CLI's own login, which the user goes through in a
     /// terminal.
     fn login_args(&self) -> Vec<String>;
-    /// What asks the CLI whether `context`'s connection is logged in, without
+    /// What asks the CLI whether `context`'s login is logged in, without
     /// logging in or out.
     fn status_args(&self, context: &AgentContext) -> Vec<String>;
     /// Whether the CLI is logged in, as it answered [`AgentAdapter::status_args`]
@@ -311,14 +311,14 @@ pub trait AgentAdapter: Sync {
     fn refusal(&self, _context: AgentContext, _dir: PathBuf) -> Refusal {
         Box::pin(async { None })
     }
-    /// What a connection of its own starts the program with, ahead of
+    /// What a login of its own starts the program with, ahead of
     /// adroit's arguments.
-    fn connection_args(&self) -> Vec<String> {
+    fn own_login_args(&self) -> Vec<String> {
         Vec::new()
     }
     /// What starts the agent with `args` as `context` says: the program,
     /// its arguments, and `env` with the agent's own variables and then the
-    /// launch's, in the state directory of `context`'s connection.
+    /// launch's, in the state directory of `context`'s login.
     fn launch(
         &self,
         context: &AgentContext,
@@ -326,7 +326,7 @@ pub trait AgentAdapter: Sync {
         env: Vec<(String, String)>,
     ) -> crate::Started {
         let env = env.into_iter().chain(self.environment()).collect();
-        connection::started(self, context, args, env)
+        own_login::started(self, context, args, env)
     }
     fn capabilities(&self) -> Capabilities;
     fn usage_url(&self) -> Option<&'static str> {
@@ -424,7 +424,7 @@ pub trait AgentAdapter: Sync {
         Vec::new()
     }
     /// The prompts sent in `project` that the agent keeps to recall, as
-    /// `context`'s connection keeps them, `home` being the user's home.
+    /// `context`'s login keeps them, `home` being the user's home.
     fn history(&self, _context: &AgentContext, _home: &Path, _project: &Path) -> Vec<String> {
         Vec::new()
     }

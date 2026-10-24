@@ -8,10 +8,14 @@ use crate::Agent;
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Past {
     pub agent: Agent,
-    /// The connection that keeps it, which it is resumed in alone, and the
-    /// profile it was listed through, which a resume starts from.
-    pub connection: crate::profile::ConnectionId,
+    /// The folder of a profile's own that keeps it, none for its agent's own
+    /// environment, which it is resumed in alone, and the profile it was
+    /// listed through, which a resume starts from.
+    pub home: Option<PathBuf>,
     pub profile: crate::profile::ProfileId,
+    /// What that profile was called when it was listed.
+    #[serde(default)]
+    pub profile_name: String,
     /// The conversation's id, which the agent resumes it by.
     pub id: String,
     /// The directory it ran in.

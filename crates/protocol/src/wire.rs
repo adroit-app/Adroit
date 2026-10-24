@@ -62,6 +62,28 @@ pub(crate) mod wide_keys {
     }
 }
 
+/// A map whose keys JSON cannot name, as a list of its keys and values.
+pub(crate) mod pairs {
+    use super::*;
+
+    pub(crate) fn serialize<S: Serializer, K: Serialize, V: Serialize>(
+        map: &BTreeMap<K, V>,
+        out: S,
+    ) -> Result<S::Ok, S::Error> {
+        out.collect_seq(map.iter())
+    }
+
+    pub(crate) fn deserialize<'de, D: Deserializer<'de>, K, V>(
+        input: D,
+    ) -> Result<BTreeMap<K, V>, D::Error>
+    where
+        K: Deserialize<'de> + Ord,
+        V: Deserialize<'de>,
+    {
+        Ok(Vec::<(K, V)>::deserialize(input)?.into_iter().collect())
+    }
+}
+
 /// A set of 128-bit ids, each a decimal string.
 pub(crate) mod wide_set {
     use super::*;

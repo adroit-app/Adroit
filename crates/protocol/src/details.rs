@@ -7,7 +7,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use adroit_model::links::Links;
-use adroit_model::profile::ConnectionId;
 use adroit_model::repository::{Listing, Revision, Spot};
 use adroit_model::usage::Limit;
 use adroit_model::{Agent, ConversationStats, Note, Process};
@@ -54,11 +53,14 @@ impl Sight {
     }
 }
 
-/// An agent's account: the one it is logged in as in a connection.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// An agent's account: the one it is logged in as in a login, the agent's
+/// own environment or a folder of a profile's own.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Account {
     pub agent: Agent,
-    pub connection: ConnectionId,
+    /// The folder of a profile's own the login is kept in; none for the
+    /// agent's own environment.
+    pub home: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -74,8 +76,9 @@ pub struct DetailsWork {
     pub sessions: BTreeMap<String, SessionRead>,
     /// By the worktree.
     pub repositories: BTreeMap<PathBuf, RepositoryRead>,
-    /// Each account's usage limits, by the connection it is logged in in.
-    pub usage: BTreeMap<ConnectionId, Vec<Limit>>,
+    /// Each account's usage limits.
+    #[serde(with = "crate::wire::pairs")]
+    pub usage: BTreeMap<Account, Vec<Limit>>,
     /// The whole machine's usage.
     pub system: Option<SystemUsage>,
 }
@@ -216,7 +219,7 @@ impl DetailsWork {
                 self.repositories.remove(&worktree).is_some()
             }
             DetailsChange::Usage { account, limits } => {
-                self.usage.insert(account.connection, limits.clone()) != Some(limits)
+                self.usage.insert(account, limits.clone()) != Some(limits)
             }
             DetailsChange::System { usage } => set(&mut self.system, Some(usage)),
         }
@@ -295,7 +298,7 @@ mod tests {
         let usage = || DetailsChange::Usage {
             account: Account {
                 agent: Agent::Claude,
-                connection: "claude".parse().unwrap(),
+                home: None,
             },
             limits: Vec::new(),
         };

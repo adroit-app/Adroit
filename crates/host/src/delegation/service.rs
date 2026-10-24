@@ -517,7 +517,7 @@ fn asked_of(started: &adroit_agents::AgentContext) -> adroit_model::Asked {
     adroit_model::Asked {
         profile: started.profile.clone(),
         agent: started.agent(),
-        connection: started.connection.clone(),
+        home: started.home.clone(),
         through: format!("{:?}", (&started.home, &started.launch, &started.shell)),
     }
 }
@@ -619,11 +619,11 @@ impl Watcher {
         screen: &[String],
     ) -> Result<()> {
         let answered = tags::value(&native.tags, CHANNEL_CONFIRMED).is_some();
-        let (id, profile) = (record.id, record.profile.clone());
+        let (id, profile, home) = (record.id, record.profile.clone(), record.home.clone());
         let allowed = context
             .call(move |store| store.launch(id))
             .await?
-            .and_then(|launch| crate::programs::recorded(&launch, &profile).ok())
+            .and_then(|launch| crate::programs::recorded(&launch, &profile, home.as_deref()).ok())
             .is_some_and(|started| started.claude().confirm_channel_warning);
         if let Some(keys) = channel_warning_keys(record.agent, allowed, answered, screen) {
             // Tagged before pressing: a lost reply must not lead to a second press.
@@ -677,12 +677,13 @@ impl Watcher {
         }
         if adapter.conversation_title_needs_lookup(title) && self.looking.insert(id) {
             let (context, title, cwd) = (context.clone(), title.to_owned(), record.cwd.clone());
-            let profile = record.profile.clone();
+            let (profile, home) = (record.profile.clone(), record.home.clone());
             self.lookups.spawn(async move {
                 let Ok(Some(launch)) = context.call(move |store| store.launch(id)).await else {
                     return (id, None);
                 };
-                let Ok(started) = crate::programs::recorded(&launch, &profile) else {
+                let Ok(started) = crate::programs::recorded(&launch, &profile, home.as_deref())
+                else {
                     return (id, None);
                 };
                 (id, adapter.resolve_conversation(started, cwd, title).await)
@@ -698,10 +699,8 @@ impl Watcher {
         if self.delivering.contains(&record.id) {
             return Ok(());
         }
-        let (id, profile) = (record.id, record.profile.clone());
-        let next = context
-            .call(move |store| next_delivery(store, id, &profile))
-            .await?;
+        let id = record.id;
+        let next = context.call(move |store| next_delivery(store, id)).await?;
         let Some((message, sender, started)) = next else {
             return Ok(());
         };
@@ -721,13 +720,13 @@ impl Watcher {
 }
 
 /// The oldest message waiting for `id`, its sender, and the context it is
-/// handed over in: that of `profile`, the one `id` was recorded as started
-/// from, as the settings it was started with say, whatever they say now, as
-/// another connection's queue does not know the session.
+/// handed over in: that of the profile `id` was recorded as started from,
+/// in the login it was recorded as running in, as the settings it was
+/// started with say, whatever they say now, as another login's queue does
+/// not know the session.
 fn next_delivery(
     store: &mut Store,
     id: SessionId,
-    profile: &adroit_model::profile::ProfileId,
 ) -> Result<Option<(Message, Option<Session>, adroit_agents::AgentContext)>> {
     let Some(message) = store.next_undelivered(id)? else {
         return Ok(None);
@@ -736,11 +735,11 @@ fn next_delivery(
         Some(sender) => store.session(sender)?,
         None => None,
     };
-    let Some(launch) = store.launch(id)? else {
+    let (Some(launch), Some(recipient)) = (store.launch(id)?, store.session(id)?) else {
         return Ok(None);
     };
-    let started =
-        crate::programs::recorded(&launch, profile).map_err(|e| Error::new(Code::Storage, e))?;
+    let started = crate::programs::recorded(&launch, &recipient.profile, recipient.home.as_deref())
+        .map_err(|e| Error::new(Code::Storage, e))?;
     Ok(Some((message, sender, started)))
 }
 
@@ -921,19 +920,19 @@ mod tests {
         assert!(from_own_conversation(&claude, Some("y")).is_ok());
     }
     #[test]
-    fn a_message_is_handed_over_in_the_connection_its_recipient_started_in_after_a_restart() {
+    fn a_message_is_handed_over_in_the_login_its_recipient_started_in_after_a_restart() {
         use super::super::store::NewSession;
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("state.sqlite3");
         let launch = Settings::parse(
-            "[[profiles]]\nid = \"codex\"\nagent = \"codex\"\n\n[[profiles]]\nid = \"codex-work\"\nagent = \"codex\"\nconnection = \"work\"\n\n[[connections]]\nid = \"work\"\nagent = \"codex\"\nhome = \"/w/codex\"\n",
+            "[[profiles]]\nid = \"codex\"\nagent = \"codex\"\n\n[[profiles]]\nid = \"codex-work\"\nagent = \"codex\"\nhome = \"/w/codex\"\n",
         )
         .unwrap();
-        let new = |profile: &str, connection: &str| NewSession {
+        let new = |profile: &str, home: Option<&str>| NewSession {
             parent: None,
             agent: Agent::Codex,
             profile: profile.parse().unwrap(),
-            connection: connection.parse().unwrap(),
+            home: home.map(PathBuf::from),
             name: profile.into(),
             cwd: "/repo".into(),
             launch: launch.clone(),
@@ -941,8 +940,8 @@ mod tests {
         };
         let to = {
             let mut store = Store::open(&path).unwrap();
-            let (from, _) = store.register(new("codex", "codex")).unwrap();
-            let (to, _) = store.register(new("codex-work", "work")).unwrap();
+            let (from, _) = store.register(new("codex", None)).unwrap();
+            let (to, _) = store.register(new("codex-work", Some("/w/codex"))).unwrap();
             store.send(from, to, "review").unwrap();
             to
         };
@@ -950,12 +949,9 @@ mod tests {
         // Read again as a work host started anew does, asking only what was
         // recorded, never the settings in force.
         let mut store = Store::open(&path).unwrap();
-        let (message, _, started) = next_delivery(&mut store, to, &"codex-work".parse().unwrap())
-            .unwrap()
-            .unwrap();
+        let (message, _, started) = next_delivery(&mut store, to).unwrap().unwrap();
 
         assert_eq!(message.body, "review");
-        assert_eq!(started.connection.as_str(), "work");
         assert_eq!(started.home, Some("/w/codex".into()));
     }
 
@@ -973,7 +969,7 @@ mod tests {
                 parent: None,
                 agent,
                 profile: started.profile,
-                connection: started.connection,
+                home: started.home,
                 name: agent.key().into(),
                 cwd: "/repo".into(),
                 launch: launch.clone(),
@@ -984,14 +980,10 @@ mod tests {
         let (from, _) = store.register(new(Agent::Claude)).unwrap();
         let (to, _) = store.register(new(Agent::Codex)).unwrap();
         store.send(from, to, "review").unwrap();
-        let profile = new(Agent::Codex).profile;
 
-        let (message, _, handed) = next_delivery(&mut store, to, &profile).unwrap().unwrap();
+        let (message, _, handed) = next_delivery(&mut store, to).unwrap().unwrap();
 
         assert_eq!(message.body, "review");
-        assert_eq!(
-            (handed.agent(), handed.connection.as_str()),
-            (Agent::Codex, "codex")
-        );
+        assert_eq!((handed.agent(), handed.home), (Agent::Codex, None));
     }
 }

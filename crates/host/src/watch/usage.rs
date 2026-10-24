@@ -6,29 +6,29 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use adroit_agents::claude::usage::Fresh;
-use adroit_model::profile::ConnectionId;
 use adroit_protocol::DetailsChange;
 
 use super::{Watched, distinct};
 
 pub(super) async fn watch(mut watched: Watched) {
-    // By the connection, which is the account the limits are of.
-    let mut fresh = HashMap::<ConnectionId, Fresh>::new();
+    // By the login, which is the account the limits are of.
+    let mut fresh = HashMap::<adroit_protocol::Account, Fresh>::new();
     loop {
         let shown = distinct(&watched.sights(), |s| s.usage.clone().filter(|_| s.details));
         for account in shown {
-            let held = fresh.entry(account.connection.clone()).or_default();
+            let held = fresh.entry(account.clone()).or_default();
             if held.want(Instant::now()) {
-                let got = match super::asked_in(&watched.seen(), account.agent, &account.connection)
-                    .await
-                {
-                    Some(context) => {
-                        adroit_agents::adapter(account.agent)
-                            .usage(context, crate::paths::home())
-                            .await
-                    }
-                    None => None,
-                };
+                let got =
+                    match super::asked_in(&watched.seen(), account.agent, account.home.as_deref())
+                        .await
+                    {
+                        Some(context) => {
+                            adroit_agents::adapter(account.agent)
+                                .usage(context, crate::paths::home())
+                                .await
+                        }
+                        None => None,
+                    };
                 held.settle(Instant::now(), got);
             }
             if let Some(limits) = held.get() {

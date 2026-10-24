@@ -700,8 +700,7 @@ mod tests {
             .ask(&Request::Ask {
                 asked: 1,
                 ask: Box::new(Ask::LoginStanding {
-                    connection: "claude".parse().unwrap(),
-                    profile: None,
+                    profile: "claude".parse().unwrap(),
                     after: Some(7),
                 }),
             })

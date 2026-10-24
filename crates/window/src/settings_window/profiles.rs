@@ -1,17 +1,16 @@
 //! The Agents pages of the Settings window: a page for each profile sessions
-//! start from, and one for each account they run in with the login it keeps.
-//! settings.toml and the code call an account a connection.
+//! start from, with the login it keeps, and one to make a profile.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use adroit_core::agent_pages::AgentPage;
-use adroit_core::profiles::{self, NewHome};
+use adroit_core::profiles::{self, Login, LoginFolder};
 use adroit_model::Agent;
 use adroit_model::config::{CodexOptions, Launch, OpenCodeOptions, PiOptions, SessionOptions};
 use adroit_model::paths::tilde;
-use adroit_model::profile::{ConnectionId, LoginStanding, ProfileId};
+use adroit_model::profile::{AgentProfile, LoginStanding, ProfileId};
 use adroit_protocol::{AgentsWork, Answer, Ask, Request};
 use dioxus::prelude::*;
 
@@ -19,11 +18,10 @@ use super::{Change, CodexGroup, LaunchGroup, OpenCodeGroup, PiGroup, SessionGrou
 use crate::components::{SettingGroup, SettingRow, SettingsError, TextField};
 use crate::icons::{Icon, IconView};
 use crate::link::Link;
-use crate::paths::home;
 use crate::settings::{AgentOptions, Settings};
 
-/// A change to the profiles or accounts that may be refused, with what came
-/// of it when it is not.
+/// A change to the profiles that may be refused, with what came of it when
+/// it is not.
 type Attempt<T> = Rc<dyn Fn(&mut Settings) -> Result<T, String>>;
 
 /// Make `op` the change, run on the settings as they are when it is made,
@@ -59,26 +57,24 @@ fn attempt<T: 'static>(
     }
 }
 
-/// The folder a new account keeps its state in when none is chosen, as it
-/// is shown: `<id>` standing for the id it is given.
-fn own_home() -> String {
-    let data = adroit_model::paths::data_dir();
-    tilde(
-        &data.join("adroit").join("connections").join("<id>"),
-        &home(),
-    )
+/// The folders that exist, written as the system writes them through their
+/// links, for a login's folder to be written once that way.
+fn canonical(path: &Path) -> Option<PathBuf> {
+    std::fs::canonicalize(path).ok()
 }
 
-/// An account's own folder, under the data folder by its id, written as
-/// the folders that exist are.
-fn own_account(s: &mut Settings, id: &ProfileId, name: &str) -> Result<ConnectionId, String> {
-    let data = adroit_model::paths::data_dir();
-    profiles::add_connection_for(s, id, name, NewHome::Own { data }, |p| {
-        std::fs::canonicalize(p).ok()
-    })
-}
+/// What the login of a profile is known as, kept while the pages change so
+/// a login is not asked again on each: by the profile and the folder it
+/// keeps its login in, so a profile whose login changes is asked anew.
+type Probes = HashMap<(ProfileId, Option<PathBuf>), Probed>;
 
-/// The page under Agents that is `page`, `choose` going to another.
+/// The folder of its own each profile had before it was given its
+/// terminal's login while Settings is open, to take again when its own is
+/// chosen back.
+pub(super) type LeftHomes = HashMap<ProfileId, PathBuf>;
+
+/// The page under Agents that is `page`, `choose` going to another; `left`
+/// the folders profiles left.
 #[component]
 pub(super) fn AgentsPane(
     page: AgentPage,
@@ -86,25 +82,33 @@ pub(super) fn AgentsPane(
     agents: AgentsWork,
     change: Callback<Change>,
     choose: Callback<AgentPage>,
+    left: Signal<LeftHomes>,
 ) -> Element {
-    // Kept while the pages change, so a login is not asked again on each.
-    let probed = use_signal(HashMap::<ConnectionId, Probed>::new);
-    match page {
-        AgentPage::Profile(id) => rsx! {
-            ProfilePage { key: "profile-{id}", id, now, agents, change, choose, probed }
-        },
-        AgentPage::NewProfile => rsx! {
-            NewProfilePage { now, change, choose }
-        },
-        AgentPage::Accounts => rsx! {
-            AccountsPage { now, change, choose }
-        },
-        AgentPage::Account(id) => rsx! {
-            AccountPage { key: "account-{id}", id, now, change, choose, probed }
-        },
-        AgentPage::Archived => rsx! {
-            ArchivedPage { now, change }
-        },
+    let probed = use_signal(Probes::new);
+    // What became of a profile deleted, told on the page shown after.
+    let mut told = use_signal(|| None::<(AgentPage, String)>);
+    use_effect(use_reactive(&page, move |page| {
+        if told.peek().as_ref().is_some_and(|(on, _)| *on != page) {
+            told.set(None);
+        }
+    }));
+    let notice = told
+        .read()
+        .as_ref()
+        .filter(|(on, _)| *on == page)
+        .map(|(_, said)| said.clone());
+    rsx! {
+        if let Some(said) = notice {
+            div { class: "settings-notice", role: "status", "{said}" }
+        }
+        match page {
+            AgentPage::Profile(id) => rsx! {
+                ProfilePage { key: "profile-{id}", id, now, agents, change, choose, probed, left, told }
+            },
+            AgentPage::NewProfile => rsx! {
+                NewProfilePage { now, change, choose }
+            },
+        }
     }
 }
 
@@ -121,12 +125,8 @@ fn PageHead(title: String, #[props(default)] mark: Option<String>) -> Element {
     }
 }
 
-/// The value of the account select that makes a new account.
-const NEW_ACCOUNT: &str = "+new";
-
-/// Everything about the profile `id`: its name, agent and account with the
-/// account's login, its new sessions' options and its launch, and what can
-/// be done to it.
+/// Everything about the profile `id`: its name, agent and login, its new
+/// sessions' options and its launch, and what can be done to it.
 #[component]
 fn ProfilePage(
     id: ProfileId,
@@ -134,12 +134,13 @@ fn ProfilePage(
     agents: AgentsWork,
     change: Callback<Change>,
     choose: Callback<AgentPage>,
-    probed: Signal<HashMap<ConnectionId, Probed>>,
+    probed: Signal<Probes>,
+    left: Signal<LeftHomes>,
+    told: Signal<Option<(AgentPage, String)>>,
 ) -> Element {
     let refused = use_signal(|| None::<String>);
-    let mut told = use_signal(|| None::<String>);
-    let mut making = use_signal(|| false);
-    let mut account_name = use_signal(String::new);
+    let mut reset = use_signal(|| None::<String>);
+    let deleting = use_signal(|| false);
     let Some(profile) = now.profiles.iter().find(|p| p.id == id).cloned() else {
         return rsx! {};
     };
@@ -149,7 +150,6 @@ fn ProfilePage(
         .of(agent)
         .map(|f| f.program.clone())
         .unwrap_or_default();
-    let choices = profiles::connection_choices(&now, agent, &profile.connection);
     let act = move |op: Attempt<()>| attempt(change, refused, op).is_some();
     let mut switch_agent = {
         let id = id.clone();
@@ -157,8 +157,7 @@ fn ProfilePage(
             let id = id.clone();
             let op: Attempt<Option<String>> = Rc::new(move |s| profiles::change_agent(s, &id, to));
             if let Some(said) = attempt(change, refused, op) {
-                told.set(said);
-                making.set(false);
+                reset.set(said);
             }
         }
     };
@@ -166,30 +165,51 @@ fn ProfilePage(
         let id = id.clone();
         move |_| {
             let id = id.clone();
-            let op: Attempt<ProfileId> = Rc::new(move |s| profiles::duplicate_profile(s, &id));
+            let op: Attempt<ProfileId> = Rc::new(move |s| {
+                profiles::duplicate_profile(s, &id, &adroit_model::paths::data_dir(), canonical)
+            });
             if let Some(copy) = attempt(change, refused, op) {
                 choose(AgentPage::Profile(copy));
             }
         }
     };
-    let make_account = {
-        let id = id.clone();
-        move |_| {
-            let (id, name) = (id.clone(), account_name());
-            let op: Attempt<ConnectionId> = Rc::new(move |s| own_account(s, &id, &name));
-            if attempt(change, refused, op).is_some() {
-                making.set(false);
-                account_name.set(String::new());
+    let set_login = {
+        let (id, home) = (id.clone(), profile.home.clone());
+        let mut left = left;
+        move |login: Login| {
+            let login = match login {
+                Login::Own if home.is_none() => left
+                    .peek()
+                    .get(&id)
+                    .cloned()
+                    .map_or(Login::Own, Login::Again),
+                login => login,
+            };
+            let to_terminal = login == Login::Terminal;
+            let op_id = id.clone();
+            let changed = act(Rc::new(move |s| {
+                profiles::set_login(
+                    s,
+                    &op_id,
+                    login.clone(),
+                    &adroit_model::paths::data_dir(),
+                    canonical,
+                )
+            }));
+            if changed {
+                match (&home, to_terminal) {
+                    (Some(had), true) => {
+                        left.write().insert(id.clone(), had.clone());
+                    }
+                    (None, false) => {
+                        left.write().remove(&id);
+                    }
+                    _ => {}
+                }
             }
         }
     };
-    let account_hint = match profile.connection.implicit_agent() {
-        Some(_) => format!(
-            "Logging in or out of {} in a terminal changes it too.",
-            agent.label()
-        ),
-        None => format!("A login, history and settings of {}'s own.", agent.label()),
-    };
+    let folder = profiles::login_folder(&profile, &adroit_model::paths::data_dir(), canonical);
     rsx! {
         PageHead {
             title: profile.label().to_string(),
@@ -219,20 +239,34 @@ fn ProfilePage(
                 IconView { icon: Icon::Copy, size: 13 }
                 " Duplicate"
             }
-            button {
-                r#type: "button",
-                onclick: {
-                    let id = id.clone();
-                    move |_| {
-                        let id = id.clone();
-                        act(Rc::new(move |s| profiles::archive_profile(s, &id)));
-                    }
-                },
-                "Archive"
+            if !default {
+                button {
+                    r#type: "button",
+                    class: "danger",
+                    disabled: deleting(),
+                    onclick: {
+                        let mut deleting = deleting;
+                        move |_| deleting.set(true)
+                    },
+                    "Delete…"
+                }
             }
         }
         if let Some(why) = refused() {
             SettingsError { "{why}" }
+        }
+        if deleting() {
+            DeleteProfile {
+                id: id.clone(),
+                name: profile.label().to_string(),
+                folder,
+                then: AgentPage::Profile(now.profile.clone()),
+                change,
+                choose,
+                refused,
+                deleting,
+                told,
+            }
         }
         SettingGroup {
             SettingRow { label: "Name", hint: "",
@@ -248,7 +282,7 @@ fn ProfilePage(
                     },
                 }
             }
-            SettingRow { label: "Agent", hint: "Changing it resets the model, options, account and command.",
+            SettingRow { label: "Agent", hint: "Changing it resets the model, options, login and command.",
                 select {
                     aria_label: "Profile agent",
                     onchange: move |e| {
@@ -261,85 +295,16 @@ fn ProfilePage(
                     }
                 }
             }
-            if let Some(said) = told() {
+            if let Some(said) = reset() {
                 div { class: "settings-row",
                     div { class: "binding-note warn", role: "status", "{said}" }
                 }
             }
-            SettingRow { label: "Account", hint: account_hint,
-                select {
-                    aria_label: "Profile account",
-                    onchange: {
-                        let id = id.clone();
-                        move |e: Event<FormData>| {
-                            if e.value() == NEW_ACCOUNT {
-                                making.set(true);
-                                return;
-                            }
-                            making.set(false);
-                            if let Ok(to) = e.value().parse::<ConnectionId>() {
-                                let id = id.clone();
-                                act(Rc::new(move |s| profiles::set_connection(s, &id, &to)));
-                            }
-                        }
-                    },
-                    for c in choices {
-                        option {
-                            key: "{c.id}",
-                            value: "{c.id}",
-                            selected: !making() && c.id == profile.connection,
-                            if c.archived { "{c.name} (archived)" } else { "{c.name}" }
-                        }
-                    }
-                    option { value: NEW_ACCOUNT, selected: making(), "New account…" }
-                }
-            }
-            if making() {
-                SettingRow {
-                    label: "New account",
-                    hint: "A login of its own for {agent.label()}, kept in a folder of its own.",
-                    input {
-                        r#type: "text",
-                        aria_label: "New account's name",
-                        placeholder: "Name",
-                        onmounted: move |e| async move {
-                            let _ = e.set_focus(true).await;
-                        },
-                        value: "{account_name}",
-                        oninput: move |e| account_name.set(e.value()),
-                        onkeydown: {
-                            let mut make_account = make_account.clone();
-                            move |e: KeyboardEvent| {
-                                if e.key() == Key::Enter {
-                                    make_account(());
-                                }
-                            }
-                        },
-                    }
-                    button {
-                        r#type: "button",
-                        class: "primary",
-                        onclick: {
-                            let mut make_account = make_account.clone();
-                            move |_| make_account(())
-                        },
-                        "Create"
-                    }
-                    button {
-                        r#type: "button",
-                        onclick: move |_| {
-                            making.set(false);
-                            account_name.set(String::new());
-                        },
-                        "Cancel"
-                    }
-                }
-            }
             LoginRow {
-                id: profile.connection.clone(),
+                profile: id.clone(),
                 agent,
-                now: now.clone(),
-                asking: Some(id.clone()),
+                home: profile.home.clone(),
+                choose_login: set_login,
                 probed,
             }
         }
@@ -457,7 +422,7 @@ fn NewProfilePage(now: Settings, change: Callback<Change>, choose: Callback<Agen
     rsx! {
         PageHead { title: "New profile" }
         p { class: "settings-agent-note",
-            "A profile is an agent, the account it uses and how its new sessions start. A draft picks one before its first prompt."
+            "A profile is an agent, where it keeps its login and how its new sessions start. A draft picks one before its first prompt."
         }
         if let Some(why) = refused() {
             SettingsError { "{why}" }
@@ -504,310 +469,162 @@ fn NewProfilePage(now: Settings, change: Callback<Change>, choose: Callback<Agen
     }
 }
 
-/// What accounts are, and one to make, in a folder of its own or one
-/// chosen for it; it opens once made.
+/// Asks before deleting the profile `id`, called `name`, whose login is
+/// `folder`: whether to delete that folder too, when adroit made it, left
+/// unchosen. The folder goes first, through the work host, which refuses it
+/// while sessions run there; the profile goes once it has. What became of
+/// it is `told` on `then`, the page shown next.
 #[component]
-fn AccountsPage(now: Settings, change: Callback<Change>, choose: Callback<AgentPage>) -> Element {
-    let refused = use_signal(|| None::<String>);
-    let mut name = use_signal(String::new);
-    let mut agent = use_signal(|| now.default_agent());
-    let mut folder = use_signal(String::new);
-    let own_home = own_home();
-    let create = move |_| {
-        let (name, agent, chosen) = (name(), agent(), folder());
-        let op: Attempt<ConnectionId> = Rc::new(move |s| {
-            let home = match chosen.trim() {
-                "" => NewHome::Own {
-                    data: adroit_model::paths::data_dir(),
-                },
-                path => NewHome::Chosen {
-                    path: path.to_string(),
-                    home: home(),
-                },
-            };
-            profiles::add_connection(s, &name, agent, home, |p| std::fs::canonicalize(p).ok())
-        });
-        if let Some(id) = attempt(change, refused, op) {
-            choose(AgentPage::Account(id));
-        }
-    };
-    rsx! {
-        PageHead { title: "Accounts" }
-        p { class: "settings-agent-note",
-            "An account is a separate login, history and settings for an agent. Each profile uses one, and profiles can share one. Every agent also has the account shared with your terminal. The agent logs in itself; Adroit keeps no passwords."
-        }
-        if let Some(why) = refused() {
-            SettingsError { "{why}" }
-        }
-        SettingGroup { title: "New account",
-            SettingRow { label: "Name", hint: "",
-                input {
-                    class: "settings-command",
-                    r#type: "text",
-                    aria_label: "New account's name",
-                    placeholder: "Work",
-                    value: "{name}",
-                    oninput: move |e| name.set(e.value()),
-                }
-            }
-            SettingRow { label: "Agent", hint: "",
-                select {
-                    aria_label: "New account's agent",
-                    onchange: move |e| {
-                        if let Some(a) = Agent::parse(&e.value()) {
-                            agent.set(a);
-                        }
-                    },
-                    for a in Agent::ALL {
-                        option { key: "{a.key()}", value: "{a.key()}", selected: agent() == a, "{a.label()}" }
-                    }
-                }
-            }
-            SettingRow { label: "Folder", hint: "Empty for a folder of its own. It cannot be changed later.",
-                input {
-                    class: "settings-command",
-                    r#type: "text",
-                    aria_label: "New account's folder",
-                    placeholder: "{own_home}",
-                    value: "{folder}",
-                    oninput: move |e| folder.set(e.value()),
-                }
-            }
-            div { class: "settings-row",
-                div { class: "settings-row-label" }
-                div { class: "settings-row-control",
-                    button { r#type: "button", class: "primary", onclick: create,
-                        IconView { icon: Icon::Plus, size: 13 }
-                        " Create account"
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// The account `id`: its name and folder when it is one of its own, the
-/// profiles that use it, its login, and archiving it.
-#[component]
-fn AccountPage(
-    id: ConnectionId,
-    now: Settings,
+fn DeleteProfile(
+    id: ProfileId,
+    name: String,
+    folder: LoginFolder,
+    then: AgentPage,
     change: Callback<Change>,
     choose: Callback<AgentPage>,
-    probed: Signal<HashMap<ConnectionId, Probed>>,
+    refused: Signal<Option<String>>,
+    deleting: Signal<bool>,
+    told: Signal<Option<(AgentPage, String)>>,
 ) -> Element {
-    let refused = use_signal(|| None::<String>);
-    let own = now.connections.iter().find(|c| c.id == id).cloned();
-    let Some(agent) = id
-        .implicit_agent()
-        .or_else(|| own.as_ref().map(|c| c.agent))
-    else {
-        return rsx! {};
-    };
-    let act = move |op: Attempt<()>| attempt(change, refused, op).is_some();
-    let users: Vec<(ProfileId, String)> = profiles::users(&now, &id)
-        .iter()
-        .map(|p| (p.id.clone(), p.label().to_string()))
-        .collect();
-    let note = match &own {
-        None => format!(
-            "{} as it runs in your own terminal: logging in or out there changes it here too.",
-            agent.label()
-        ),
-        Some(_) => format!(
-            "A login, history and settings of {}'s own, apart from your terminal's. {} logs in itself; Adroit keeps no passwords.",
-            agent.label(),
-            agent.label()
-        ),
+    let link = use_context::<Link>();
+    let mut with_folder = use_signal(|| false);
+    let mut busy = use_signal(|| false);
+    let shown = |p: &Path| tilde(p, &crate::paths::home());
+    let confirm = {
+        let (id, name, folder) = (id.clone(), name.clone(), folder.clone());
+        move |_| {
+            let mut refused = refused;
+            let (id, name, folder, next) = (id.clone(), name.clone(), folder.clone(), then.clone());
+            let gone = with_folder() && matches!(folder, LoginFolder::Deletable(_));
+            let asked_for = id.clone();
+            let finish = move |gone: bool| {
+                let op: Attempt<AgentProfile> = {
+                    let id = id.clone();
+                    Rc::new(move |s| profiles::delete_profile(s, &id))
+                };
+                if attempt(change, refused, op).is_some() {
+                    let mut told = told;
+                    let mut deleting = deleting;
+                    deleting.set(false);
+                    told.set(Some((
+                        next.clone(),
+                        profiles::deleted_notice(&name, &folder, gone, shown),
+                    )));
+                    choose(next);
+                }
+            };
+            if !gone {
+                finish(false);
+                return;
+            }
+            busy.set(true);
+            let asked = link.ask(Ask::DeleteLogin { profile: asked_for });
+            spawn(async move {
+                match asked.await {
+                    Answer::Done => finish(true),
+                    Answer::Failed { text } => refused.set(Some(text)),
+                    answer => refused.set(Some(format!("the work host answered {answer:?}"))),
+                }
+                busy.set(false);
+            });
+        }
     };
     rsx! {
-        PageHead {
-            title: profiles::connection_name(&now, &id),
-            mark: Some(agent.label().to_string()),
-        }
-        p { class: "settings-agent-note", "{note}" }
-        if let Some(why) = refused() {
-            SettingsError { "{why}" }
-        }
-        SettingGroup {
-            if let Some(c) = own.clone() {
-                SettingRow { label: "Name", hint: "",
-                    TextField {
-                        value: "{c.name}",
-                        aria_label: "Account name",
-                        onchange: {
-                            let id = id.clone();
-                            move |name: String| {
-                                let id = id.clone();
-                                act(Rc::new(move |s| profiles::rename_connection(s, &id, &name)));
-                            }
-                        },
-                    }
-                }
-                SettingRow { label: "Folder", hint: tilde(&c.home, &home()),
-                    button {
-                        r#type: "button",
-                        onclick: {
-                            let folder: PathBuf = c.home.clone();
-                            move |_| super::open_with("-R", &folder, "")
-                        },
-                        IconView { icon: Icon::Folder, size: 13 }
-                        " Show in Finder"
-                    }
-                }
+        div { class: "settings-confirm", role: "alertdialog", aria_label: "Delete {name}",
+            p { class: "settings-confirm-head", "Delete {name}?" }
+            p { class: "settings-agent-note",
+                "Sessions that ran from it keep running, and are resumed, as they started."
             }
-            div { class: "settings-row",
-                div { class: "settings-row-label",
-                    div { "Used by" }
-                    if users.is_empty() {
-                        div { class: "settings-hint", "No profile uses it." }
+            match &folder {
+                LoginFolder::Terminal => rsx! {
+                    p { class: "settings-agent-note",
+                        "It uses your terminal's login, which is left as it is."
+                    }
+                },
+                LoginFolder::Deletable(home) => rsx! {
+                    label { class: "settings-confirm-choice",
+                        input {
+                            r#type: "checkbox",
+                            checked: with_folder(),
+                            onchange: move |e| with_folder.set(e.checked()),
+                        }
+                        span { "Also delete its login folder " code { "{shown(home)}" } }
+                    }
+                    p { class: if with_folder() { "binding-note bad" } else { "binding-note warn" },
+                        IconView { icon: Icon::AlertTriangle, size: 12 }
+                        " Deleting the folder loses the login, history and settings kept in it, and the sessions that ran in it can no longer be resumed. Left unchosen, the folder stays."
+                    }
+                },
+                LoginFolder::Kept(home) => rsx! {
+                    p { class: "settings-agent-note",
+                        "Its login folder "
+                        code { "{shown(home)}" }
+                        " was not made by Adroit, so it is left as it is."
+                    }
+                },
+            }
+            div { class: "settings-page-actions",
+                button {
+                    r#type: "button",
+                    class: "danger",
+                    disabled: busy(),
+                    onclick: confirm,
+                    if with_folder() && matches!(folder, LoginFolder::Deletable(_)) {
+                        "Delete profile and folder"
                     } else {
-                        div { class: "settings-used-by",
-                            for (pid, label) in users {
-                                button {
-                                    key: "{pid}",
-                                    r#type: "button",
-                                    class: "settings-link",
-                                    onclick: move |_| choose(AgentPage::Profile(pid.clone())),
-                                    "{label}"
-                                }
-                            }
-                        }
+                        "Delete profile"
                     }
                 }
-            }
-            LoginRow {
-                id: id.clone(),
-                agent,
-                now: now.clone(),
-                probed,
-            }
-            if own.is_some() {
-                SettingRow { label: "Archive", hint: "Logs nothing out and keeps its folder.",
-                    button {
-                        r#type: "button",
-                        onclick: {
-                            let id = id.clone();
-                            move |_| {
-                                let id = id.clone();
-                                act(Rc::new(move |s| profiles::archive_connection(s, &id)));
-                            }
-                        },
-                        "Archive"
-                    }
+                button {
+                    r#type: "button",
+                    disabled: busy(),
+                    onclick: move |_| {
+                        let mut deleting = deleting;
+                        deleting.set(false);
+                    },
+                    "Cancel"
                 }
             }
         }
     }
 }
 
-/// The profiles and accounts archived, each to bring back.
-#[component]
-fn ArchivedPage(now: Settings, change: Callback<Change>) -> Element {
-    let refused = use_signal(|| None::<String>);
-    let act = move |op: Attempt<()>| attempt(change, refused, op).is_some();
-    let rows: Vec<_> = profiles::profile_rows(&now)
-        .into_iter()
-        .filter(|r| r.archived)
-        .collect();
-    let accounts: Vec<_> = now
-        .connections
-        .iter()
-        .filter(|c| c.archived)
-        .cloned()
-        .collect();
-    rsx! {
-        PageHead { title: "Archived" }
-        p { class: "settings-agent-note",
-            "Kept for the sessions that used them; nothing new starts from them."
-        }
-        if let Some(why) = refused() {
-            SettingsError { "{why}" }
-        }
-        if !rows.is_empty() {
-            SettingGroup { title: "Profiles",
-                for row in rows {
-                    SettingRow {
-                        key: "{row.id}",
-                        label: row.name.clone(),
-                        hint: "{row.agent.label()} · {row.connection}",
-                        button {
-                            r#type: "button",
-                            onclick: {
-                                let id = row.id.clone();
-                                move |_| {
-                                    let id = id.clone();
-                                    act(Rc::new(move |s| profiles::unarchive_profile(s, &id)));
-                                }
-                            },
-                            "Unarchive"
-                        }
-                    }
-                }
-            }
-        }
-        if !accounts.is_empty() {
-            SettingGroup { title: "Accounts",
-                for c in accounts {
-                    SettingRow {
-                        key: "{c.id}",
-                        label: profiles::connection_name(&now, &c.id),
-                        hint: "{c.agent.label()} · {tilde(&c.home, &home())}",
-                        button {
-                            r#type: "button",
-                            onclick: {
-                                let id = c.id.clone();
-                                move |_| {
-                                    let id = id.clone();
-                                    act(Rc::new(move |s| profiles::unarchive_connection(s, &id)));
-                                }
-                            },
-                            "Unarchive"
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// What is known of an account's login while the Settings window shows it.
+/// What is known of a profile's login while the Settings window shows it.
 #[derive(Debug, Clone, PartialEq)]
 enum Probed {
     Asking,
     /// Its login terminal, by its id, is open; it is asked again once that
     /// ends.
     LoggingIn(u128),
-    /// As the CLI the profile it names starts there said.
-    Is(LoginStanding, ProfileId),
+    /// As the CLI the profile starts said.
+    Is(LoginStanding),
     Failed(String),
 }
 
-/// Ask the work host whether the account `id` is logged in, once the
-/// terminal `after` has ended when one is named, into `probed`.
+/// Ask the work host whether the profile `key` names is logged in where it
+/// keeps its login, once the terminal `after` has ended when one is named,
+/// into `probed`.
 fn probe(
     link: &Link,
-    mut probed: Signal<HashMap<ConnectionId, Probed>>,
-    id: ConnectionId,
+    mut probed: Signal<Probes>,
+    key: (ProfileId, Option<PathBuf>),
     after: Option<u128>,
 ) {
-    let waited = match (after, probed.peek().get(&id)) {
+    let waited = match (after, probed.peek().get(&key)) {
         (Some(terminal), _) | (None, Some(&Probed::LoggingIn(terminal))) => Some(terminal),
         _ => None,
     };
-    probed
-        .write()
-        .insert(id.clone(), waited.map_or(Probed::Asking, Probed::LoggingIn));
+    probed.write().insert(
+        key.clone(),
+        waited.map_or(Probed::Asking, Probed::LoggingIn),
+    );
     let asked = link.ask(Ask::LoginStanding {
-        connection: id.clone(),
-        profile: None,
+        profile: key.0.clone(),
         after,
     });
     spawn(async move {
         let (got, standing) = match asked.await {
-            Answer::LoginStanding { standing, profile } => {
-                (Probed::Is(standing, profile), Some(standing))
-            }
+            Answer::LoginStanding { standing } => (Probed::Is(standing), Some(standing)),
             Answer::Failed { text } => (Probed::Failed(text), None),
             answer => (
                 Probed::Failed(format!("the work host answered {answer:?}")),
@@ -817,34 +634,33 @@ fn probe(
         let mut probed = probed.write();
         // A login terminal still open is waited for still, unless this
         // answer came once it ended or says the login is done.
-        if let Some(Probed::LoggingIn(terminal)) = probed.get(&id)
+        if let Some(Probed::LoggingIn(terminal)) = probed.get(&key)
             && !crate::logins::ends_wait(*terminal, after, standing)
         {
             return;
         }
-        probed.insert(id, got);
+        probed.insert(key, got);
     });
 }
 
-/// Open a terminal that runs the CLI's login in the account `id`, and ask
-/// again whether it is logged in once it ends.
-fn open_login(link: Link, probed: Signal<HashMap<ConnectionId, Probed>>, id: ConnectionId) {
+/// Open a terminal that runs the CLI's login where the profile `key` names
+/// keeps its login, and ask again whether it is logged in once it ends.
+fn open_login(link: Link, probed: Signal<Probes>, key: (ProfileId, Option<PathBuf>)) {
     let mut probed = probed;
     let asked = link.ask(Ask::OpenLogin {
-        connection: id.clone(),
-        profile: None,
+        profile: key.0.clone(),
         cols: 0,
         rows: 0,
     });
     spawn(async move {
         match asked.await {
-            Answer::Terminal { terminal } => probe(&link, probed, id, Some(terminal.id)),
+            Answer::Terminal { terminal } => probe(&link, probed, key, Some(terminal.id)),
             Answer::Failed { text } => {
-                probed.write().insert(id, Probed::Failed(text));
+                probed.write().insert(key, Probed::Failed(text));
             }
             answer => {
                 probed.write().insert(
-                    id,
+                    key,
                     Probed::Failed(format!("the work host answered {answer:?}")),
                 );
             }
@@ -852,35 +668,40 @@ fn open_login(link: Link, probed: Signal<HashMap<ConnectionId, Probed>>, id: Con
     });
 }
 
-/// Whether the account `id` is logged in, asked as the row is shown unless
-/// it was already, with what to do next: open its login terminal, or ask
-/// again; while that terminal is open, ask again or cancel the login. `now` names the profile whose CLI answered, unless it is
-/// `asking`, the profile whose page the row is on.
+/// The value of the login select for a login of the profile's own.
+const OWN: &str = "own";
+
+/// Where the profile `profile` keeps its login, `home` for a folder of its
+/// own, which `choose_login` changes, and whether it is logged in there:
+/// asked as the row is shown unless it was already, with what to do next,
+/// open its login terminal or ask again; while that terminal is open, ask
+/// again or cancel the login.
 #[component]
 fn LoginRow(
-    id: ConnectionId,
+    profile: ProfileId,
     agent: Agent,
-    now: Settings,
-    #[props(default)] asking: Option<ProfileId>,
-    probed: Signal<HashMap<ConnectionId, Probed>>,
+    home: Option<PathBuf>,
+    choose_login: EventHandler<Login>,
+    probed: Signal<Probes>,
 ) -> Element {
     let link = use_context::<Link>();
     {
         let link = link.clone();
-        // Asked again for each account the row comes to show, as a profile's
-        // account changes under it.
-        use_effect(use_reactive((&id,), move |(id,)| {
-            if !probed.peek().contains_key(&id) {
-                probe(&link, probed, id, None);
+        // Asked again for each login the row comes to show, as the
+        // profile's login changes under it.
+        use_effect(use_reactive((&profile, &home), move |(profile, home)| {
+            let key = (profile, home);
+            if !probed.peek().contains_key(&key) {
+                probe(&link, probed, key, None);
             }
         }));
     }
-    let settings = now;
-    let now = probed.read().get(&id).cloned();
+    let key = (profile, home.clone());
+    let now = probed.read().get(&key).cloned();
     let (chip, class) = match &now {
         None | Some(Probed::Asking) => ("Checking…".to_string(), "login-standing"),
         Some(Probed::LoggingIn(_)) => ("Waiting for login…".to_string(), "login-standing"),
-        Some(Probed::Is(s, _)) => (
+        Some(Probed::Is(s)) => (
             s.label().to_string(),
             match s {
                 LoginStanding::LoggedIn => "login-standing in",
@@ -892,38 +713,52 @@ fn LoginRow(
         Some(Probed::Failed(_)) => ("Unknown".to_string(), "login-standing"),
     };
     let said = match &now {
-        Some(Probed::Is(LoginStanding::Missing, _)) => format!(
+        Some(Probed::Is(LoginStanding::Missing)) => format!(
             "{} isn't installed. Install it, or set the profile's launch command.",
             agent.label()
         ),
-        Some(Probed::Is(LoginStanding::Unknown, _)) => {
+        Some(Probed::Is(LoginStanding::Unknown)) => {
             format!("{} didn't say whether it is logged in.", agent.label())
         }
         Some(Probed::Failed(why)) => why.clone(),
-        Some(Probed::Is(LoginStanding::LoggedOut, _)) => crate::logins::without_login(agent)
+        Some(Probed::Is(LoginStanding::LoggedOut)) => crate::logins::without_login(agent)
             .unwrap_or_default()
             .to_string(),
         _ => String::new(),
     };
-    let hint = match &now {
-        Some(Probed::Is(_, profile)) => {
-            match profiles::checked_with(&settings, profile, asking.as_ref()) {
-                Some(name) => format!("{said} Checked with {name}.").trim().to_string(),
-                None => said,
-            }
-        }
-        _ => said,
+    let whose = match &home {
+        None => format!(
+            "{} as it runs in your terminal: logging in or out there changes it here too.",
+            agent.label()
+        ),
+        Some(folder) => format!(
+            "Kept apart from your terminal's in {}. {} logs in itself; Adroit keeps no passwords.",
+            tilde(folder, &crate::paths::home()),
+            agent.label()
+        ),
     };
-    let logged_out = matches!(now, Some(Probed::Is(LoginStanding::LoggedOut, _)));
+    let hint = format!("{whose} {said}").trim().to_string();
+    let logged_out = matches!(now, Some(Probed::Is(LoginStanding::LoggedOut)));
     let busy = matches!(now, None | Some(Probed::Asking));
     let waiting = match now {
         Some(Probed::LoggingIn(terminal)) => Some(terminal),
         _ => None,
     };
     let (a, b, c) = (link.clone(), link.clone(), link);
-    let (again, login) = (id.clone(), id);
+    let (again, login) = (key.clone(), key);
     rsx! {
         SettingRow { label: "Login", hint,
+            select {
+                aria_label: "Profile login",
+                onchange: move |e: Event<FormData>| {
+                    choose_login.call(match e.value().as_str() {
+                        OWN => Login::Own,
+                        _ => Login::Terminal,
+                    });
+                },
+                option { value: "terminal", selected: home.is_none(), "{profiles::TERMINAL}" }
+                option { value: OWN, selected: home.is_some(), "{profiles::OWN}" }
+            }
             span { class, role: "status", "{chip}" }
             button {
                 r#type: "button",

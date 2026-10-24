@@ -31,7 +31,7 @@ fn id_at(now: u64, random: &[u8; 16]) -> String {
     format!("ses_{counting_down:012x}{letters}")
 }
 
-/// The conversations `context`'s account keeps that ran in `dir`, or in any
+/// The conversations `context`'s login keeps that ran in `dir`, or in any
 /// directory when none is given, asked of OpenCode in `home`. A
 /// conversation a subagent ran under another is left to that one.
 pub(super) fn past(context: &AgentContext, home: &Path, dir: Option<&Path>) -> Vec<Past> {
@@ -70,8 +70,9 @@ fn listed(context: &AgentContext, out: &str, dir: Option<&Path>) -> Vec<Past> {
             }
             Some(Past {
                 agent: context.agent(),
-                connection: context.connection.clone(),
+                home: context.home.clone(),
                 profile: context.profile.clone(),
+                profile_name: context.profile_name.clone(),
                 id: session["id"].as_str()?.into(),
                 cwd: cwd.into(),
                 title: adroit_model::title_of(session["title"].as_str().unwrap_or_default()),
@@ -142,7 +143,7 @@ mod tests {
     }
 
     #[test]
-    fn the_conversations_are_asked_of_opencode_s_own_server_in_the_account() {
+    fn the_conversations_are_asked_of_opencode_s_own_server_in_the_login() {
         let (_dir, opencode) = crate::testing::program(
             "opencode",
             r#"printf '%s ' "$@" > "$0.args"

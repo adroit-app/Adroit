@@ -92,25 +92,18 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
                 None => Vec::new(),
             }
         }
-        Msg::OpenLogin {
-            connection,
-            profile,
-        } => vec![Effect::OpenLogin {
-            connection,
-            profile,
-        }],
+        Msg::OpenLogin { profile } => vec![Effect::OpenLogin { profile }],
         Msg::DraftProfile { tab, profile } => {
             let found = state
                 .config
                 .settings
                 .find_profile(&profile)
-                .filter(|p| !p.archived)
                 .map(std::borrow::Cow::into_owned);
             let Some(chosen) = found else {
                 return status_line::notice(
                     &mut state.chrome.status,
                     format!(
-                        "Profile `{profile}` is archived or no longer defined; choose another in the draft or under Settings → Agents"
+                        "Profile `{profile}` is no longer defined; choose another in the draft or under Settings → Agents"
                     ),
                 );
             };

@@ -209,8 +209,8 @@ fn opencode_is_logged_in_once_it_lists_any_connection() {
 }
 
 #[test]
-fn an_account_of_its_own_keeps_every_root_of_opencode_s_in_its_home() {
-    let set = OpenCode.connection_variables(Path::new("/w/oc"));
+fn a_login_of_its_own_keeps_every_root_of_opencode_s_in_its_home() {
+    let set = OpenCode.own_login_variables(Path::new("/w/oc"));
     assert_eq!(
         set,
         [
@@ -227,7 +227,7 @@ fn an_account_of_its_own_keeps_every_root_of_opencode_s_in_its_home() {
 }
 
 #[test]
-fn an_account_of_its_own_lets_through_only_what_locates_the_user_and_adroit_s_own() {
+fn a_login_of_its_own_lets_through_only_what_locates_the_user_and_adroit_s_own() {
     for name in [
         "PATH",
         "HOME",
@@ -272,7 +272,7 @@ fn an_account_of_its_own_lets_through_only_what_locates_the_user_and_adroit_s_ow
     ] {
         assert!(OpenCode.denies(name), "{name}");
     }
-    // What a profile's launch may set for its sessions, the account's own
+    // What a profile's launch may set for its sessions, the login's own
     // configuration added to adroit's among them.
     for name in ["OPENCODE_CONFIG_CONTENT", "OLLAMA_API_KEY", "JAVA_HOME"] {
         assert!(!OpenCode.denies(name), "{name}");
@@ -413,7 +413,7 @@ fn matched(pattern: &str, text: &str) -> bool {
     }
 }
 
-/// A document of a repository's or an account's own that gives every agent
+/// A document of a repository's or a login's own that gives every agent
 /// and `agent` leave for everything.
 fn allowing_everything(agent: &str) -> Value {
     let all = json!([{"action":"*", "resource":"*", "effect":"allow"}]);
@@ -448,7 +448,7 @@ fn a_read_only_session_may_read_but_change_no_file_and_run_no_command_whatever_e
         .map(|(_, value)| serde_json::from_str(value).unwrap())
         .unwrap();
     assert_eq!(ours["default_agent"], "plan");
-    // Were a repository's read, or as the account's own says, ours load last;
+    // Were a repository's read, or as the login's own says, ours load last;
     // started with a prompt, OpenCode runs it as its own default agent.
     for agent in ["plan", DEFAULT_AGENT] {
         let documents = [allowing_everything(agent), ours.clone()];

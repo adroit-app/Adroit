@@ -3,7 +3,7 @@ fn main() {
     // Run from inside an agent's account, such as by its MCP server or a
     // command its session runs, adroit finds its instance where it is
     // outside the account, not where the account moved the agent's folders.
-    for (name, value) in adroit_agents::connection::outside(std::env::vars_os()) {
+    for (name, value) in adroit_agents::own_login::outside(std::env::vars_os()) {
         // SAFETY: no other thread exists yet.
         unsafe {
             match value {
@@ -15,9 +15,9 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let asked = command(&args);
     // Ahead of settling the instance: the agent's program is handed the
-    // environment exactly as its connection leaves it.
-    if let Some(Command::InConnection(rest)) = &asked {
-        std::process::exit(adroit_agents::connection::run(rest));
+    // environment exactly as its login leaves it.
+    if let Some(Command::InOwnLogin(rest)) = &asked {
+        std::process::exit(adroit_agents::own_login::run(rest));
     }
     let given = match &asked {
         Some(Command::Window { instance, .. }) => instance.clone(),
@@ -52,7 +52,7 @@ fn main() {
         Some(Command::Daemon(asked)) => std::process::exit(adroit_host::daemon_cli(asked)),
         Some(Command::Host(asked)) => std::process::exit(adroit_host::host_cli(asked)),
         Some(Command::Window { .. }) => {}
-        Some(Command::InConnection(_)) => unreachable!("run before the instance is settled"),
+        Some(Command::InOwnLogin(_)) => unreachable!("run before the instance is settled"),
     }
     match adroit_window::open_window(new) {
         // An open window came to the front.

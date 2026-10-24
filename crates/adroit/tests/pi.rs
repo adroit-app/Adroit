@@ -1,5 +1,5 @@
 //! Pi as it runs in a console of adroit's, against a model of the test's own
-//! that answers every prompt alike, in a connection of its own: no
+//! that answers every prompt alike, with a login of its own: no
 //! provider's credentials are needed or reached.
 
 use std::os::unix::fs::PermissionsExt;
@@ -101,7 +101,7 @@ async fn model() -> u16 {
     port
 }
 
-/// Settings with a Pi profile in a connection whose home is `home`, its
+/// Settings with a Pi profile with a login of its own in `home`, its
 /// models naming the endpoint on `port`.
 fn settings(home: &Path, port: u16) -> Settings {
     settings_loading(home, port, &[])
@@ -129,7 +129,7 @@ fn settings_loading(home: &Path, port: u16, extensions: &[&Path]) -> Settings {
         .collect::<Vec<_>>()
         .join(", ");
     Settings::parse(&format!(
-        "profile = \"pi-fake\"\n\n[[profiles]]\nid = \"pi-fake\"\nagent = \"pi\"\nconnection = \"fake\"\n\n[profiles.launch]\ncommand = [{command}]\n\n[profiles.launch.env]\nPI_OFFLINE = \"1\"\nPI_SKIP_VERSION_CHECK = \"1\"\nPI_TELEMETRY = \"0\"\n\n[profiles.pi]\nmodel = \"fake/slow\"\n\n[[connections]]\nid = \"fake\"\nagent = \"pi\"\nhome = \"{}\"\n",
+        "profile = \"pi-fake\"\n\n[[profiles]]\nid = \"pi-fake\"\nagent = \"pi\"\nhome = \"{}\"\n\n[profiles.launch]\ncommand = [{command}]\n\n[profiles.launch.env]\nPI_OFFLINE = \"1\"\nPI_SKIP_VERSION_CHECK = \"1\"\nPI_TELEMETRY = \"0\"\n\n[profiles.pi]\nmodel = \"fake/slow\"\n",
         home.display()
     ))
     .unwrap()
@@ -194,7 +194,7 @@ async fn pi_starts_replies_reports_itself_idle_and_resumes_its_conversation() {
         name: "greet".into(),
         cwd: work.clone(),
         prompt: prompt.into(),
-        connection: resume.as_ref().map(|_| "fake".parse().unwrap()),
+        home: resume.as_ref().map(|_| home.clone()),
         resume,
         ..Default::default()
     };

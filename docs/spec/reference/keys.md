@@ -75,7 +75,7 @@ changes them ([keys](../keys.md)).
 | `session.rename` | Rename… | edit the name of a session adroit runs in place; the tree shows it, and the session is sent Claude Code's `/rename` so its own interface says it too | `tree`: `R` |
 | `session.agent_next` | Next Agent of New Session | while a session not started yet is shown, switch the agent it is to run to the next one ([details](../sessions.md#agents)) | `draft`: `Ctrl+g a` |
 | `session.agent_prev` | Previous Agent of New Session | while a session not started yet is shown, switch the agent it is to run to the previous one ([details](../sessions.md#agents)) | `draft`: `Ctrl+g A` |
-| `session.profile_next` | Next Profile of New Session | while a session not started yet is shown, switch the profile it is to start from to the next one, among those not archived ([details](../sessions.md#agents)) | `draft`: `Ctrl+g p` |
+| `session.profile_next` | Next Profile of New Session | while a session not started yet is shown, switch the profile it is to start from to the next one ([details](../sessions.md#agents)) | `draft`: `Ctrl+g p` |
 | `session.profile_prev` | Previous Profile of New Session | while a session not started yet is shown, switch the profile it is to start from to the previous one ([details](../sessions.md#agents)) | `draft`: `Ctrl+g P` |
 | `shell.open` | Open Shell | open a shell in the worktree | `global`: `Mod+s`<br>`tree`: `$` |
 | `terminal.stop` | Stop Terminal | end the terminal selected in the tree, or else the one shown |  |

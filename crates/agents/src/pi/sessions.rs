@@ -15,7 +15,7 @@ use crate::AgentContext;
 const HEAD: u64 = 512 * 1024;
 
 /// Where Pi, started as `context` says, keeps its sessions: in the
-/// connection's directory, else where the launch or adroit's own
+/// login's directory, else where the launch or adroit's own
 /// environment moves them or Pi's state, else under `.pi/agent` in `home`.
 pub(super) fn root(context: &AgentContext, home: &Path) -> PathBuf {
     if let Some(dir) = &context.home {
@@ -219,7 +219,7 @@ mod tests {
     }
 
     #[test]
-    fn a_connection_keeps_its_sessions_in_its_own_folder() {
+    fn a_login_of_its_own_keeps_its_sessions_in_its_folder() {
         let context = AgentContext {
             home: Some("/w/pi".into()),
             ..AgentContext::builtin(Agent::Pi)

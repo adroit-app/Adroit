@@ -39,25 +39,26 @@ pub enum Ask {
     /// The image file at `path` as a `data:` URL: whole, or as the small copy
     /// a list draws.
     Picture { path: PathBuf, whole: bool },
-    /// Whether the connection `connection` is logged in, as its CLI says,
-    /// asked once the terminal `after`, when one is named, has ended. The
-    /// CLI is the one `profile` starts, when one is named, else the one a
-    /// profile that runs there starts.
+    /// Whether the profile `profile` is logged in, as the CLI it starts says
+    /// where it runs it, asked once the terminal `after`, when one is named,
+    /// has ended.
     LoginStanding {
-        connection: adroit_model::profile::ConnectionId,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        profile: Option<adroit_model::profile::ProfileId>,
+        profile: adroit_model::profile::ProfileId,
         #[serde(default, with = "crate::wire::wide_opt")]
         after: Option<u128>,
     },
-    /// Start a terminal that runs the CLI's own login in the connection
-    /// `connection`, the CLI chosen as for [`Ask::LoginStanding`].
+    /// Start a terminal that runs the CLI's own login where the profile
+    /// `profile` runs it.
     OpenLogin {
-        connection: adroit_model::profile::ConnectionId,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        profile: Option<adroit_model::profile::ProfileId>,
+        profile: adroit_model::profile::ProfileId,
         cols: u16,
         rows: u16,
+    },
+    /// Delete the folder of its own the profile `profile` keeps its login
+    /// in, as the settings say now: one adroit made, in which no session
+    /// runs.
+    DeleteLogin {
+        profile: adroit_model::profile::ProfileId,
     },
     /// Run the command `adroit <args>` as run in `cwd`, with `input` on its
     /// standard input.
@@ -88,10 +89,11 @@ pub struct SessionStart {
     pub images: Vec<PathBuf>,
     /// The conversation it continues, by its id.
     pub resume: Option<String>,
-    /// The connection that keeps the conversation it continues, which it
-    /// has to run in.
+    /// The folder of a profile's own that keeps the conversation it
+    /// continues, which it has to run in; none for its agent's own
+    /// environment.
     #[serde(default)]
-    pub connection: Option<adroit_model::profile::ConnectionId>,
+    pub home: Option<PathBuf>,
     pub cols: u16,
     pub rows: u16,
 }
@@ -160,11 +162,9 @@ pub enum Answer {
         stderr: String,
         code: i32,
     },
-    /// Whether a connection is logged in, as the CLI the profile `profile`
-    /// starts there said.
+    /// Whether a profile is logged in, as the CLI it starts said.
     LoginStanding {
         standing: adroit_model::profile::LoginStanding,
-        profile: adroit_model::profile::ProfileId,
     },
     /// What is written in the prompts, as kept.
     Drafts(Box<Drafts>),

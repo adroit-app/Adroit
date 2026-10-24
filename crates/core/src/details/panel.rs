@@ -533,7 +533,7 @@ pub fn usage(details: &Details, work: Option<&WorkSnapshot>, now_ms: u64) -> Vec
         (Some(account), Some(work)) => work
             .details
             .usage
-            .get(&account.connection)
+            .get(account)
             .map(|limits| gauges(limits, now_ms))
             .unwrap_or_default(),
         _ => Vec::new(),
@@ -653,7 +653,6 @@ mod tests {
 
     use adroit_model::Agent;
     use adroit_model::links::{Peer, Touch};
-    use adroit_model::profile::ConnectionId;
     use adroit_model::repository::{DiffKind, DiffLine, Listing as Read, Rev};
     use adroit_model::subagents::{Agent as Subagent, Standing};
     use adroit_model::testing::session;
@@ -1266,9 +1265,13 @@ mod tests {
                     ..Default::default()
                 },
             );
-            details
-                .usage
-                .insert(ConnectionId::implicit(Agent::Claude), limits.clone());
+            details.usage.insert(
+                Account {
+                    agent: Agent::Claude,
+                    home: None,
+                },
+                limits.clone(),
+            );
             let run = Scenario::new()
                 .event(
                     work(details)
@@ -1289,10 +1292,7 @@ mod tests {
         for agent in [Agent::Claude, Agent::Codex] {
             let facts = with_usage(agent, true);
             let facts = facts.of(agent);
-            let account = Account {
-                agent,
-                connection: ConnectionId::implicit(agent),
-            };
+            let account = Account { agent, home: None };
             let usage = |tab: Option<&Tab>| {
                 let mut details = Details::default();
                 follow_usage(&mut details, tab, account.clone(), facts);
@@ -1314,7 +1314,7 @@ mod tests {
         let draft = Tab::draft("/project");
         let codex = Account {
             agent: Agent::Codex,
-            connection: ConnectionId::implicit(Agent::Codex),
+            home: None,
         };
         follow_usage(&mut details, Some(&draft), codex, None);
         assert_eq!(details.shown.usage, None, "nothing told of the agent");

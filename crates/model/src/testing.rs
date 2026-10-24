@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::profile::{AgentConnection, AgentProfile};
+use crate::profile::AgentProfile;
 use crate::{
     Agent, AgentPermissions, Session, SessionId, State, TerminalSession, Tree, Wait, Worktree,
     build,
@@ -57,14 +57,21 @@ impl SessionBuilder {
     pub fn agent(mut self, agent: Agent) -> Self {
         self.0.agent = agent;
         self.0.profile = crate::profile::ProfileId::builtin(agent);
-        self.0.connection = crate::profile::ConnectionId::implicit(agent);
+        self.0.home = None;
         self
     }
 
-    /// The profile it started from, by id, and the connection that runs in.
-    pub fn profile(mut self, profile: &str, connection: &str) -> Self {
+    /// The profile it started from, by id, and the folder of that profile's
+    /// own it runs in, none for its agent's own environment.
+    pub fn profile(mut self, profile: &str, home: Option<&str>) -> Self {
         self.0.profile = profile.parse().expect("a valid profile id");
-        self.0.connection = connection.parse().expect("a valid connection id");
+        self.0.home = home.map(PathBuf::from);
+        self
+    }
+
+    /// What its profile was called when it started.
+    pub fn profile_name(mut self, name: impl Into<String>) -> Self {
+        self.0.profile_name = name.into();
         self
     }
 
@@ -274,45 +281,13 @@ pub fn profile(id: &str, agent: Agent) -> ProfileBuilder {
 pub struct ProfileBuilder(AgentProfile);
 
 impl ProfileBuilder {
-    /// The connection it runs in, by id.
-    pub fn connection(mut self, id: &str) -> Self {
-        self.0.connection = id.parse().expect("a valid connection id");
-        self
-    }
-
-    pub fn archived(mut self) -> Self {
-        self.0.archived = true;
+    /// The folder of its own it keeps its login in.
+    pub fn home(mut self, home: impl Into<PathBuf>) -> Self {
+        self.0.home = Some(home.into());
         self
     }
 
     pub fn build(self) -> AgentProfile {
-        self.0
-    }
-}
-
-/// A connection with `id` as its id and its name, of `agent`, kept in `home`.
-pub fn connection(id: &str, agent: Agent, home: impl Into<PathBuf>) -> ConnectionBuilder {
-    ConnectionBuilder(AgentConnection {
-        id: id.parse().expect("a valid connection id"),
-        name: id.to_string(),
-        agent,
-        home: home.into(),
-        archived: false,
-    })
-}
-
-/// An [`AgentConnection`] being built; see [`connection`].
-#[derive(Debug, Clone)]
-#[must_use]
-pub struct ConnectionBuilder(AgentConnection);
-
-impl ConnectionBuilder {
-    pub fn archived(mut self) -> Self {
-        self.0.archived = true;
-        self
-    }
-
-    pub fn build(self) -> AgentConnection {
         self.0
     }
 }

@@ -18,23 +18,11 @@ when the file does not name it, and what it does
 | `keep_awake` | boolean | `true` | Keep the Mac from idle sleep while a session or a shell runs, the window open or not; the display still sleeps. |
 | `light_theme` | string | `"Dawnfox"` | The theme drawn while the appearance is light, by name: one adroit comes with, or one in `themes/` beside `settings.toml`. |
 | `notify_waiting` | boolean | `false` | Show a notification when a session starts waiting on you while the window is not in front; with several windows open, the one holding the lowest number tells. |
-| `profile` | string | `"claude"` | The profile a new session starts from, by id, when it names neither a profile nor an agent; left out, the first profile not archived. A session not started yet can be switched to another agent for the current run of the window. |
+| `profile` | string | `"claude"` | The profile a new session starts from, by id, when it names neither a profile nor an agent; left out, the first profile. A session not started yet can be switched to another agent for the current run of the window. |
 | `prompt_max_rows` | integer | `12` | The most lines the prompt grows to before it scrolls inside. |
 | `prompt_min_rows` | integer | `3` | The fewest lines the prompt shows. |
 | `scratch_dir` | string | `""` | Where scratch sessions run, `~` standing for your home folder; empty for adroit's own folder. |
 | `zoom` | number | `1.0` | How large the window draws everything when it opens, from 0.67 to 1.75. Command 0 comes back to it. |
-
-## `[[connections]]`
-
-The state directories profiles can run their agent's CLI in, each `[[connections]]` table one of them; every agent also runs in its own environment, which needs none.
-
-| Setting | Type | Default | Description |
-| --- | --- | --- | --- |
-| `connections.agent` | one of `claude`, `codex`, `pi`, `opencode` |  | The agent whose CLI keeps its state there, `claude`, `codex`, `pi` or `opencode`. |
-| `connections.archived` | boolean |  | Whether it is kept only for the profiles and sessions that used it. |
-| `connections.home` | string |  | The state directory, as an absolute path without `~`, `.` or `..` and with no `/` doubled or at its end; it is fixed when the connection is made, since the CLIs tell logins apart by it as it is written. |
-| `connections.id` | string |  | The connection's id, kept when it is renamed: lowercase letters, digits and `-`, and none of the agents' keys, which name their own environments. |
-| `connections.name` | string | `""` | What the connection is called; empty for its id. |
 
 ## `[console]`
 
@@ -85,13 +73,12 @@ Where the picker looks for directories to start a session in.
 
 ## `[[profiles]]`
 
-The profiles sessions start from, each `[[profiles]]` table one of them ([settings](../settings.md#profiles-and-connections)). An agent's default profile is the default profile when that starts the agent, else the agent's first profile not archived.
+The profiles sessions start from, each `[[profiles]]` table one of them ([settings](../settings.md#profiles)). An agent's default profile is the default profile when that starts the agent, else the agent's first profile.
 
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
 | `profiles.agent` | one of `claude`, `codex`, `pi`, `opencode` |  | The agent it starts, `claude`, `codex`, `pi` or `opencode`. |
-| `profiles.archived` | boolean |  | Whether it is kept only for the sessions that ran from it, and offered for no new one. |
-| `profiles.connection` | string |  | The connection it runs in, by id; left out for the agent's own environment, which the agent's key also names. |
+| `profiles.home` | string |  | The folder of its own its agent keeps its login, history and settings in, as an absolute path without `~`, `.` or `..` and with no `/` doubled or at its end, which no other profile names; it is fixed when the login is made, since the CLIs tell logins apart by it as it is written. Left out, the agent runs in its own environment, shared with the terminal. |
 | `profiles.id` | string |  | The profile's id, kept when it is renamed: lowercase letters, digits and `-`. |
 | `profiles.name` | string | `""` | What the profile is called; empty for its id. |
 
@@ -139,7 +126,7 @@ OpenCode's model as `provider/model`, the agent it starts as, its permission rul
 
 ### `[[profiles.opencode.permissions]]`
 
-Permission rules put after the account's own, the last that matches a tool call deciding whether it is allowed, asked about or denied.
+Permission rules put after those of its login's own configuration, the last that matches a tool call deciding whether it is allowed, asked about or denied.
 
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |

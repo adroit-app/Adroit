@@ -268,7 +268,12 @@ fn type_of(schema: &Value) -> String {
             .collect();
         return format!("one of {}", names.join(", "));
     }
-    match schema["type"].as_str() {
+    // One that may be left out is typed as its value and null.
+    let kind = match &schema["type"] {
+        Value::Array(kinds) => kinds.iter().find(|k| *k != "null"),
+        kind => Some(kind),
+    };
+    match kind.and_then(Value::as_str) {
         Some("array") => format!("array of {}s", type_of(&schema["items"])),
         Some("object") => format!("table of {}s", type_of(&schema["additionalProperties"])),
         Some(kind) => kind.to_string(),
@@ -391,6 +396,8 @@ mod tests {
             s.contains("| `delegation.max_started` | integer | `4` |"),
             "{s}"
         );
+        // A setting that may be left out is of the type it has when it is not.
+        assert!(s.contains("| `profiles.home` | string |  |"), "{s}");
         assert!(
             s.contains("## `[[profiles]]`\n\nThe profiles sessions"),
             "{s}"

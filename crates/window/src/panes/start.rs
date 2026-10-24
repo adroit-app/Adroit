@@ -151,20 +151,15 @@ impl Ui {
         });
     }
 
-    /// Open a terminal that runs the CLI's own login in `connection`, as
-    /// `profile` starts it, shown with the keys, for the user to log in
+    /// Open a terminal that runs the CLI's own login where `profile` runs
+    /// it, shown with the keys, for the user to log in
     /// there; whether it is logged in is asked again once it ends.
-    pub(crate) fn open_login(
-        &self,
-        connection: adroit_model::profile::ConnectionId,
-        profile: adroit_model::profile::ProfileId,
-    ) {
+    pub(crate) fn open_login(&self, profile: adroit_model::profile::ProfileId) {
         let (app, hub) = (self.app, self.hub.clone());
         let size = *self.local.console_size.peek();
         spawn(async move {
             let asked = Ask::OpenLogin {
-                connection: connection.clone(),
-                profile: Some(profile.clone()),
+                profile: profile.clone(),
                 cols: size.cols,
                 rows: size.rows,
             };
@@ -180,7 +175,7 @@ impl Ui {
                 }
             };
             let id = terminal.id;
-            crate::logins::ask(app, profile, connection, Some(id));
+            crate::logins::ask(app, profile, Some(id));
             if let Err(e) = attach_held(app, &hub, id, Tab::Terminal(id), size).await {
                 app.status(Some(format!("cannot open the login terminal: {e}")));
                 return;
@@ -225,7 +220,7 @@ impl Ui {
                 prompt: text,
                 images: taken.images.clone(),
                 resume: None,
-                connection: None,
+                home: None,
                 cols: size.cols,
                 rows: size.rows,
             };
@@ -270,7 +265,7 @@ impl Ui {
                 name: name.clone(),
                 cwd: HostPath::local(&past.cwd),
                 resume: Some(past.id.clone()),
-                connection: Some(past.connection.clone()),
+                home: past.home.clone(),
                 cols: size.cols,
                 rows: size.rows,
                 ..Default::default()

@@ -154,6 +154,23 @@ fn SettingsFileError() -> Element {
     let config = use_config();
     rsx! {
         SettingsLoadError { error: config.read().settings_error.clone() }
+        SettingsNotice { notice: adroit_core::profiles::unshared_notice(&config.read().settings) }
+    }
+}
+
+/// `notice`, what came of reading the settings that the user is to know of,
+/// told over the window.
+#[component]
+pub fn SettingsNotice(notice: Option<String>) -> Element {
+    rsx! {
+        if let Some(notice) = notice {
+            div {
+                class: "settings-error",
+                role: "status",
+                style: "padding: 12px; color: var(--wait); white-space: pre-wrap; flex: none; max-height: 30vh; overflow: auto; user-select: text",
+                "{notice}"
+            }
+        }
     }
 }
 
@@ -185,6 +202,7 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
     let mut chosen = use_signal(|| None::<AgentPage>);
     let mut now = use_signal(|| config.peek().settings.clone());
     let mut failed = use_signal(|| None::<String>);
+    let left = use_signal(profiles::LeftHomes::new);
     // Changes made elsewhere, such as in the file, show here as well.
     use_effect(move || now.set(config.read().settings.clone()));
     let change = move |f: Change| {
@@ -235,27 +253,22 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
                     }
                     if p == Pane::Agents && pane() == Pane::Agents {
                         for entry in agent_pages::entries(&now()) {
-                            if let Some(to) = entry.page.clone() {
                             button {
-                                key: "{to:?}",
+                                key: "{entry.page:?}",
                                 r#type: "button",
-                                class: {
-                                    let depth = if entry.depth > 1 { " deep" } else { "" };
-                                    let on = if to == page { " on" } else { "" };
-                                    format!("settings-nav-item settings-agent{depth}{on}")
-                                },
-                                aria_current: if to == page { "page" } else { "false" },
+                                class: if entry.page == page { "settings-nav-item settings-agent on" } else { "settings-nav-item settings-agent" },
+                                aria_current: if entry.page == page { "page" } else { "false" },
                                 title: if entry.default { format!("{}, used for new sessions", entry.label) } else { entry.label.clone() },
-                                onclick: move |_| chosen.set(Some(to.clone())),
+                                onclick: {
+                                    let to = entry.page.clone();
+                                    move |_| chosen.set(Some(to.clone()))
+                                },
                                 span { class: "settings-nav-label", "{entry.label}" }
                                 if entry.default {
                                     span { class: "settings-nav-mark", aria_label: "Used for new sessions",
                                         IconView { icon: Icon::Check, size: 12 }
                                     }
                                 }
-                            }
-                            } else {
-                                div { key: "caption {entry.label}", class: "settings-nav-caption", "{entry.label}" }
                             }
                         }
                     }
@@ -278,6 +291,7 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
                             agents: agents.clone(),
                             change,
                             choose: move |to: AgentPage| chosen.set(Some(to)),
+                            left,
                         }
                     },
                     Pane::Programs => rsx! { ProgramsPane { now: now(), change } },
@@ -862,7 +876,7 @@ fn OpenCodeGroup(
                     onchange: move |value: String| set(OpenCodeOptions { model: value.trim().into(), ..model.clone() }),
                 }
             }
-            SettingRow { label: "Agent", hint: "The primary agent they start as, one of OpenCode's or the account's own; empty for OpenCode's default.",
+            SettingRow { label: "Agent", hint: "The primary agent they start as, one of OpenCode's or its login's own; empty for OpenCode's default.",
                 TextField {
                     list: "opencode-agents",
                     aria_label: "Agent",
@@ -876,7 +890,7 @@ fn OpenCodeGroup(
                     }
                 }
             }
-            SettingRow { label: "Permission rules", hint: "One a line: allow, ask or deny, then what a tool does, such as edit, shell or webfetch, then what it is done to, * for anything. They come after the account's own, and the last that matches a tool call decides. OpenCode has no sandbox: a session allowed shell runs any command.",
+            SettingRow { label: "Permission rules", hint: "One a line: allow, ask or deny, then what a tool does, such as edit, shell or webfetch, then what it is done to, * for anything. They come after its login's own, and the last that matches a tool call decides. OpenCode has no sandbox: a session allowed shell runs any command.",
                 TextArea {
                     value: "{format_rules(&options.permissions)}",
                     placeholder: "ask shell *",

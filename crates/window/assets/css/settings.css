@@ -12,9 +12,7 @@ button.settings-nav-item { width: 100%; text-align: left; background: transparen
 button.settings-nav-item:hover { background: var(--raised); }
 button.settings-nav-item.on { background: var(--select); }
 .settings-agent { padding-left: 35px; font-size: 12px; gap: 6px; }
-.settings-agent.deep { padding-left: 47px; }
 .settings-nav-label { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.settings-nav-caption { flex: none; padding: 8px 10px 2px 47px; color: var(--text-3); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .settings-nav-mark { flex: none; display: inline-flex; margin-left: auto; color: var(--wait); }
 .settings-nav-item.on .settings-nav-mark .icon { color: var(--wait); }
 .settings-nav-mark .icon { color: var(--wait); }
@@ -121,8 +119,13 @@ button.chip-add:hover { color: var(--text); background: var(--select); }
 .settings-page-head + .settings-agent-note { margin-top: 6px; }
 .settings-page-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 18px; }
 .settings-page-actions button { display: inline-flex; align-items: center; gap: 4px; }
-.settings-used-by { display: flex; flex-wrap: wrap; gap: 2px 6px; margin-top: 2px; }
-.settings-used-by button.settings-link { padding: 0; font-size: 12px; }
+.settings-notice { color: var(--text-2); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; user-select: text; overflow-wrap: anywhere; }
+.settings-confirm { background: var(--panel); border: 1px solid var(--fail); border-radius: 10px; padding: 12px 14px 2px; margin-bottom: 18px; }
+.settings-confirm-head { font-weight: 600; margin: 0 0 4px; }
+.settings-confirm .settings-agent-note { margin: 4px 0 10px; }
+.settings-confirm .binding-note { margin: 0 0 12px; line-height: 1.5; }
+.settings-confirm-choice { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; overflow-wrap: anywhere; }
+.settings-confirm code { user-select: text; }
 details.settings-advanced > summary { color: var(--text-2); font-size: 12px; padding: 2px 4px 10px; border-radius: 4px; }
 details.settings-advanced > summary:hover { color: var(--text); }
 details.settings-advanced > summary:focus-visible { outline: 2px solid var(--run); outline-offset: 2px; }

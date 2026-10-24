@@ -54,7 +54,7 @@ fn stepping_through_the_prompts_sent_asks_the_host_for_the_project_s_and_puts_it
         [Effect::Host(Request::History {
             asked: 1,
             agent: Agent::Claude,
-            connection: "claude".parse().unwrap(),
+            home: None,
             project: "/r/a".into(),
         })]
     );
@@ -608,7 +608,7 @@ fn commands(dir: &str, names: &[&str]) -> PromptChange {
     PromptChange::Commands {
         read: CommandsRead {
             agent: Agent::Claude,
-            connection: "claude".parse().unwrap(),
+            home: None,
             dir: dir.into(),
             commands: names
                 .iter()
@@ -642,7 +642,7 @@ fn the_host_is_asked_for_the_commands_of_the_agent_and_directory_shown() {
         run.state().host.watched.commands,
         Some(CommandsSight {
             agent: Agent::Claude,
-            connection: "claude".parse().unwrap(),
+            home: None,
             dir: "/r/a".into(),
         })
     );
@@ -676,17 +676,17 @@ fn the_prompt_is_offered_the_commands_read_for_what_is_shown_once_each() {
 }
 
 #[test]
-fn a_session_s_history_and_commands_are_asked_in_the_connection_it_runs_in() {
+fn a_session_s_history_and_commands_are_asked_in_the_login_it_runs_in() {
     let run = Scenario::new()
         .event(crate::testing::listing([
-            session("a").profile("claude-work", "work")
+            session("a").profile("claude-work", Some("/w"))
         ]))
         .send(Msg::ShowSession("a".into()))
         .send(recall(true));
     assert!(matches!(
         run.last_effects(),
-        [Effect::Host(Request::History { connection, .. })] if connection.as_str() == "work"
+        [Effect::Host(Request::History { home, .. })] if home.as_deref() == Some(std::path::Path::new("/w"))
     ));
     let sight = run.state().host.watched.commands.clone().unwrap();
-    assert_eq!(sight.connection.as_str(), "work");
+    assert_eq!(sight.home.as_deref(), Some(std::path::Path::new("/w")));
 }

@@ -2,7 +2,6 @@ use std::collections::BTreeMap;
 
 use std::path::PathBuf;
 
-use adroit_model::profile::ConnectionId;
 use adroit_model::{Agent, Process, Session, TerminalSession};
 use serde::{Deserialize, Serialize};
 
@@ -68,12 +67,13 @@ pub enum Request {
         text: String,
         images: Vec<PathBuf>,
     },
-    /// Read the prompts `agent` kept as sent in `project`, in `connection`,
+    /// Read the prompts `agent` kept as sent in `project`, in the login whose
+    /// folder is `home`, none for the agent's own environment,
     /// for the request numbered `asked`.
     History {
         asked: u64,
         agent: Agent,
-        connection: ConnectionId,
+        home: Option<PathBuf>,
         project: PathBuf,
     },
     /// What `ask` asks, answered once by `asked`, the number its asker gave

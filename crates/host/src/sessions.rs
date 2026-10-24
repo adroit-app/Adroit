@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use adroit_model::profile::{ConnectionId, ProfileId};
+use adroit_model::profile::ProfileId;
 use adroit_model::{Session, State, TerminalProgram, TerminalSession};
 use adroit_term::tags;
 
@@ -28,9 +28,13 @@ const CONVERSATION: &str = "adroit.claude";
 const PID: &str = "adroit.pid";
 /// Present on a session started with adroit's editor as its external editor.
 const EDITOR: &str = "adroit.editor";
-/// The profile a session started from, and the connection it runs in; a
-/// session started before profiles carries neither and ran in its agent's own.
+/// The profile a session started from, and the folder of that profile's own
+/// it runs in, none for its agent's own environment; a session started before
+/// profiles carries neither and ran in its agent's own.
 const PROFILE: &str = "adroit.profile";
+pub(crate) const HOME: &str = "adroit.home";
+/// The connection a session started while profiles named connections ran in,
+/// which only its record tells the folder of.
 const CONNECTION: &str = "adroit.connection";
 
 /// A session the daemon holds, as what it runs.
@@ -82,10 +86,8 @@ pub fn read(session: &adroit_term::Session) -> Option<Kept> {
                 Some(id) => id.parse().ok()?,
                 None => ProfileId::builtin(adroit_model::Agent::parse(kind)?),
             },
-            connection: match tags::value(t, CONNECTION) {
-                Some(id) => id.parse().ok()?,
-                None => ConnectionId::implicit(adroit_model::Agent::parse(kind)?),
-            },
+            home: tags::value(t, HOME).map(PathBuf::from),
+            profile_name: String::new(),
             id: hex(session.id),
             session_id: tags::value(t, CONVERSATION).unwrap_or_default(),
             pid: tags::value(t, PID).and_then(|p| p.parse().ok()),
@@ -173,12 +175,25 @@ pub fn agent_tags(
     out
 }
 
-/// The tags naming the profile a session started from and the connection it
-/// runs in.
-pub fn profile_tags(profile: &ProfileId, connection: &ConnectionId) -> Vec<String> {
+/// The tags naming the profile a session started from and the folder of its
+/// own it runs in, none for its agent's own environment.
+pub fn profile_tags(profile: &ProfileId, home: Option<&std::path::Path>) -> Vec<String> {
     let mut out = tags::tagged(PROFILE, profile.as_str());
-    out.extend(tags::tagged(CONNECTION, connection.as_str()));
+    if let Some(home) = home {
+        out.extend(tags::tagged(HOME, &home.to_string_lossy()));
+    }
     out
+}
+
+/// The connection of its own a session started while profiles named
+/// connections names, when it names no folder: the record of it, not the
+/// tag, tells which folder that was.
+pub fn earlier_connection(session: &adroit_term::Session) -> Option<String> {
+    let t = &session.tags;
+    if tags::value(t, HOME).is_some() {
+        return None;
+    }
+    tags::value(t, CONNECTION).filter(|id| adroit_model::Agent::parse(id).is_none())
 }
 
 /// The tag saying a session started with `env` runs with adroit's editor,
@@ -350,6 +365,7 @@ mod tests {
 
     use super::*;
     use adroit_model::Running;
+    use std::path::Path;
 
     /// The tags Claude Code called `fix` in `/api` is started with.
     fn fix_tags(
@@ -512,18 +528,44 @@ mod tests {
     fn a_session_is_read_back_with_its_profile_and_one_from_before_profiles_with_its_agent_s_own() {
         let tags = fix_tags("uuid", &adroit_model::AgentPermissions::Default, 0);
         let read_as = |tags: Vec<String>| match read(&kept(7, tags)) {
-            Some(Kept::Agent(c)) => (c.profile.to_string(), c.connection.to_string()),
+            Some(Kept::Agent(c)) => (c.profile.to_string(), c.home),
             _ => panic!("not a session"),
         };
-        assert_eq!(read_as(tags.clone()), ("claude".into(), "claude".into()));
-        let started = profile_tags(&"claude-work".parse().unwrap(), &"work".parse().unwrap());
+        assert_eq!(read_as(tags.clone()), ("claude".into(), None));
+        let started = profile_tags(&"claude-work".parse().unwrap(), Some(Path::new("/w")));
+        assert_eq!(started, ["adroit.profile=claude-work", "adroit.home=/w"]);
         assert_eq!(
-            started,
-            ["adroit.profile=claude-work", "adroit.connection=work"]
+            read_as([tags.clone(), started].concat()),
+            ("claude-work".into(), Some("/w".into()))
+        );
+        let own = profile_tags(&"claude".parse().unwrap(), None);
+        assert_eq!(own, ["adroit.profile=claude"]);
+        assert_eq!(read_as([tags, own].concat()), ("claude".into(), None));
+    }
+
+    #[test]
+    fn a_session_started_in_a_connection_of_its_own_is_told_by_it_until_it_names_its_folder() {
+        let tags = fix_tags("uuid", &adroit_model::AgentPermissions::Default, 0);
+        let with = |more: &[&str]| {
+            kept(
+                7,
+                [tags.clone(), more.iter().map(|t| t.to_string()).collect()].concat(),
+            )
+        };
+        let earlier = with(&["adroit.profile=claude-work", "adroit.connection=work"]);
+        assert_eq!(earlier_connection(&earlier).as_deref(), Some("work"));
+        let Some(Kept::Agent(session)) = read(&earlier) else {
+            panic!("an agent session")
+        };
+        assert_eq!(session.home, None);
+        // Its agent's own environment, or a folder named since, is no question.
+        assert_eq!(
+            earlier_connection(&with(&["adroit.connection=claude"])),
+            None
         );
         assert_eq!(
-            read_as([tags, started].concat()),
-            ("claude-work".into(), "work".into())
+            earlier_connection(&with(&["adroit.connection=work", "adroit.home=/w"])),
+            None
         );
     }
 

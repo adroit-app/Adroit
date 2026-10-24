@@ -59,10 +59,9 @@ pub enum Effect {
     // The content.
     /// Start a shell or a Neovim as asked.
     StartTerminal(TerminalAsk),
-    /// Open a terminal running the CLI's own login in this connection, as
-    /// this profile starts it, and show it.
+    /// Open a terminal running the CLI's own login where this profile runs
+    /// it, and show it.
     OpenLogin {
-        connection: adroit_model::profile::ConnectionId,
         profile: adroit_model::profile::ProfileId,
     },
     /// The prompt's text for a draft no window shows any longer goes to

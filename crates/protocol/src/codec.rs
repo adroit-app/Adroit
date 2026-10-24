@@ -73,7 +73,7 @@ mod tests {
             }),
             usage: Some(crate::Account {
                 agent: adroit_model::Agent::Codex,
-                connection: "work".parse().unwrap(),
+                home: Some("/w".into()),
             }),
             tree: TreeSight {
                 every_worktree: true,
@@ -89,7 +89,7 @@ mod tests {
             place: Some(crate::HostPath::local("/w")),
             commands: Some(CommandsSight {
                 agent: adroit_model::Agent::Codex,
-                connection: "work".parse().unwrap(),
+                home: Some("/w".into()),
                 dir: "/w".into(),
             }),
             terminals: BTreeSet::from([u128::MAX, 7]),
@@ -105,24 +105,28 @@ mod tests {
         round_trips(Request::Ask {
             asked: 9,
             ask: Box::new(crate::Ask::LoginStanding {
-                connection: "work".parse().unwrap(),
-                profile: Some("claude-work".parse().unwrap()),
+                profile: "claude-work".parse().unwrap(),
                 after: Some(u128::MAX),
             }),
         });
         round_trips(Request::Ask {
             asked: 10,
             ask: Box::new(crate::Ask::OpenLogin {
-                connection: "claude".parse().unwrap(),
-                profile: None,
+                profile: "claude".parse().unwrap(),
                 cols: 80,
                 rows: 24,
+            }),
+        });
+        round_trips(Request::Ask {
+            asked: 11,
+            ask: Box::new(crate::Ask::DeleteLogin {
+                profile: "claude-work".parse().unwrap(),
             }),
         });
         round_trips(Request::History {
             asked: 3,
             agent: adroit_model::Agent::Claude,
-            connection: "work".parse().unwrap(),
+            home: Some("/w".into()),
             project: "/w".into(),
         });
         round_trips(Request::CommandsWanted);
@@ -195,7 +199,13 @@ mod tests {
                         ..Default::default()
                     },
                 )]),
-                usage: BTreeMap::from([("work".parse().unwrap(), Vec::new())]),
+                usage: BTreeMap::from([(
+                    crate::Account {
+                        agent: adroit_model::Agent::Claude,
+                        home: Some("/w".into()),
+                    },
+                    Vec::new(),
+                )]),
                 system: Some(SystemUsage::default()),
                 ..Default::default()
             },
@@ -223,7 +233,7 @@ mod tests {
                 history: Some(HistoryRead::default()),
                 commands: Some(CommandsRead {
                     agent: adroit_model::Agent::Claude,
-                    connection: "claude".parse().unwrap(),
+                    home: None,
                     dir: "/w".into(),
                     commands: vec![adroit_model::Command {
                         name: "compact".into(),
@@ -287,7 +297,7 @@ mod tests {
                 details(DetailsChange::Usage {
                     account: crate::Account {
                         agent: adroit_model::Agent::Claude,
-                        connection: "work".parse().unwrap(),
+                        home: Some("/w".into()),
                     },
                     limits: vec![Limit {
                         window: Window::WeekOf("Opus".into()),
@@ -387,7 +397,7 @@ mod tests {
                 Change::Prompt(PromptChange::Commands {
                     read: CommandsRead {
                         agent: adroit_model::Agent::Codex,
-                        connection: "codex".parse().unwrap(),
+                        home: None,
                         dir: "/w".into(),
                         commands: Vec::new(),
                     },

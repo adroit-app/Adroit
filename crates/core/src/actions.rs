@@ -315,7 +315,7 @@ pub static ACTIONS: &[ActionSpec] = &[
         .bar("Next Agent of New Session", Icon::ArrowsExchange),
     S::new(A::SessionAgentPrev, "session.agent_prev", "while a session not started yet is shown, switch the agent it is to run to the previous one ([details](sessions.md#agents))")
         .bar("Previous Agent of New Session", Icon::ArrowsExchange2),
-    S::new(A::SessionProfileNext, "session.profile_next", "while a session not started yet is shown, switch the profile it is to start from to the next one, among those not archived ([details](sessions.md#agents))")
+    S::new(A::SessionProfileNext, "session.profile_next", "while a session not started yet is shown, switch the profile it is to start from to the next one ([details](sessions.md#agents))")
         .bar("Next Profile of New Session", Icon::ChevronDown),
     S::new(A::SessionProfilePrev, "session.profile_prev", "while a session not started yet is shown, switch the profile it is to start from to the previous one ([details](sessions.md#agents))")
         .bar("Previous Profile of New Session", Icon::AdjustmentsHorizontal),

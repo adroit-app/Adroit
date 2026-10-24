@@ -379,7 +379,7 @@ fn looking_at_a_row_that_folds_goes_into_it_rather_than_folding_it() {
 
 #[test]
 fn a_draft_switches_its_profile_keeping_options_within_an_agent_and_resetting_them_across() {
-    const PROFILES: &str = "profile = \"claude\"\n[[profiles]]\nid = \"claude\"\nagent = \"claude\"\n[[profiles]]\nid = \"work\"\nname = \"Work\"\nagent = \"claude\"\nconnection = \"work\"\n[[profiles]]\nid = \"old\"\nagent = \"claude\"\narchived = true\n[[profiles]]\nid = \"review\"\nname = \"Review\"\nagent = \"codex\"\n[[connections]]\nid = \"work\"\nagent = \"claude\"\nhome = \"/w\"\n";
+    const PROFILES: &str = "profile = \"claude\"\n[[profiles]]\nid = \"claude\"\nagent = \"claude\"\n[[profiles]]\nid = \"work\"\nname = \"Work\"\nagent = \"claude\"\nhome = \"/w\"\n[[profiles]]\nid = \"old\"\nagent = \"claude\"\narchived = true\n[[profiles]]\nid = \"review\"\nname = \"Review\"\nagent = \"codex\"\n";
     let draft = Tab::draft("/r/a");
     let chosen = content::DraftOptions {
         model: Some("opus".into()),
@@ -400,21 +400,21 @@ fn a_draft_switches_its_profile_keeping_options_within_an_agent_and_resetting_th
     let at = |run: &Scenario| {
         (
             content::profile_of(run.state(), Some(&draft)).to_string(),
-            content::connection_of(run.state(), Some(&draft)).to_string(),
+            content::home_of(run.state(), Some(&draft)),
             content::agent_of(run.state(), Some(&draft)),
         )
     };
-    assert_eq!(at(&run), ("claude".into(), "claude".into(), Agent::Claude));
+    assert_eq!(at(&run), ("claude".into(), None, Agent::Claude));
 
     let run = run.send(next());
-    assert_eq!(at(&run), ("work".into(), "work".into(), Agent::Claude));
+    assert_eq!(at(&run), ("work".into(), Some("/w".into()), Agent::Claude));
     let options = run.state().content.drafts.options[&draft].clone();
     assert_eq!(options.model, chosen.model, "kept within an agent");
     assert_eq!(options.permissions, chosen.permissions);
 
-    // The archived profile is passed over.
+    // A profile written archived is not there to pass to.
     let run = run.send(next());
-    assert_eq!(at(&run), ("review".into(), "codex".into(), Agent::Codex));
+    assert_eq!(at(&run), ("review".into(), None, Agent::Codex));
     let options = run.state().content.drafts.options[&draft].clone();
     assert_eq!(options.model, None);
     assert_eq!(

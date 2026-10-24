@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 
 use adroit_core::msg::Msg;
-use adroit_model::profile::{ConnectionId, LoginStanding, ProfileId};
+use adroit_model::profile::{LoginStanding, ProfileId};
 use adroit_model::{Agent, AgentPermissions};
 use adroit_protocol::Request;
 use std::time::Instant;
@@ -178,7 +178,6 @@ fn AgentChoices(current: Agent, keys: Option<String>, onchoose: EventHandler<Age
 pub(crate) struct ProfileChoice {
     pub id: ProfileId,
     pub agent: Agent,
-    pub connection: ConnectionId,
     /// What it is offered as; see [`adroit_core::profiles::offered_as`].
     pub label: String,
 }
@@ -217,7 +216,6 @@ fn ProfileChoices(
             LoginNotice {
                 key: "{chosen.id}",
                 profile: chosen.id.clone(),
-                connection: chosen.connection.clone(),
                 agent: chosen.agent,
             }
         }
@@ -225,15 +223,15 @@ fn ProfileChoices(
 }
 
 /// What to do before the session can start when the CLI `profile` starts
-/// in its connection says it is not logged in, or cannot be found; nothing
+/// where it runs it says it is not logged in, or cannot be found; nothing
 /// otherwise. Asked as the draft shows the profile, unless the window asked
 /// a short while ago, and again once a login terminal opened here ends.
 #[component]
-fn LoginNotice(profile: ProfileId, connection: ConnectionId, agent: Agent) -> Element {
+fn LoginNotice(profile: ProfileId, agent: Agent) -> Element {
     let app = use_context::<AppCtx>();
     let ask = {
-        let (profile, connection) = (profile.clone(), connection.clone());
-        move || crate::logins::ask(app, profile.clone(), connection.clone(), None)
+        let profile = profile.clone();
+        move || crate::logins::ask(app, profile.clone(), None)
     };
     {
         let (profile, ask) = (profile.clone(), ask.clone());
@@ -277,7 +275,6 @@ fn LoginNotice(profile: ProfileId, connection: ConnectionId, agent: Agent) -> El
                         kind: "primary",
                         onclick: move |_| {
                             app.dispatch(Msg::OpenLogin {
-                                connection: connection.clone(),
                                 profile: profile.clone(),
                             });
                         },

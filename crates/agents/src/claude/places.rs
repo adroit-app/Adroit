@@ -7,7 +7,7 @@ use std::time::SystemTime;
 use crate::AgentContext;
 
 /// The directory Claude Code keeps its state in as `context` starts it: the
-/// connection's, else `CLAUDE_CONFIG_DIR` as the launch or adroit's own
+/// login's, else `CLAUDE_CONFIG_DIR` as the launch or adroit's own
 /// environment sets it; none for the home directory's.
 pub(crate) fn config_dir(context: &AgentContext) -> Option<PathBuf> {
     context
@@ -126,7 +126,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_connection_s_conversations_are_read_in_its_own_directory_whatever_the_launch_sets() {
+    fn a_login_of_its_own_s_conversations_are_read_in_its_directory_whatever_the_launch_sets() {
         let home = Path::new("/h");
         let mut context = AgentContext::builtin(Agent::Claude);
         context

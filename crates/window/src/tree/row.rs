@@ -50,9 +50,9 @@ pub(crate) fn row_tip(item: &Item) -> &'static str {
 /// from as `settings` name it.
 pub(crate) fn row_badge(tree: &Tree, settings: &Settings, item: &Item) -> Option<String> {
     match item {
-        Item::Session(id) | Item::Waiting(id) => {
-            nav::find(tree, id).map(|(_, s)| settings.started_as(s.agent, &s.profile))
-        }
+        Item::Session(id) | Item::Waiting(id) => nav::find(tree, id).map(|(_, s)| {
+            settings.started_as(s.agent, &s.profile, s.home.as_deref(), &s.profile_name)
+        }),
         _ => None,
     }
 }

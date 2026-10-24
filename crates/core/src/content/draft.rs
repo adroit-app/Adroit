@@ -59,7 +59,7 @@ pub fn profile_for(
         .filter(|id| {
             settings
                 .find_profile(id)
-                .is_some_and(|p| !p.archived && p.agent() == agent)
+                .is_some_and(|p| p.agent() == agent)
         })
         .cloned()
         .unwrap_or_else(|| settings.profile_of(agent).id.clone())
@@ -136,7 +136,7 @@ mod tests {
     #[test]
     fn a_draft_starts_from_the_profile_chosen_while_it_can_else_its_agent_s_default() {
         let s = Settings::parse(
-            "profile = \"work\"\n[[profiles]]\nid = \"claude\"\nagent = \"claude\"\n[[profiles]]\nid = \"work\"\nagent = \"claude\"\n[[profiles]]\nid = \"old\"\nagent = \"claude\"\narchived = true\n[[profiles]]\nid = \"review\"\nagent = \"codex\"\n",
+            "profile = \"work\"\n[[profiles]]\nid = \"claude\"\nagent = \"claude\"\n[[profiles]]\nid = \"work\"\nagent = \"claude\"\n[[profiles]]\nid = \"review\"\nagent = \"codex\"\n",
         )
         .unwrap();
         let id = |text: &str| text.parse::<ProfileId>().unwrap();
@@ -146,8 +146,7 @@ mod tests {
         assert_eq!(pick(Agent::Claude, Some("claude")), "claude");
         assert_eq!(pick(Agent::Claude, None), "work");
         assert_eq!(pick(Agent::Codex, None), "review");
-        // Archived, gone or of another agent since, it is not taken.
-        assert_eq!(pick(Agent::Claude, Some("old")), "work");
+        // Deleted or of another agent since, it is not taken.
         assert_eq!(pick(Agent::Claude, Some("gone")), "work");
         assert_eq!(pick(Agent::Codex, Some("claude")), "review");
     }

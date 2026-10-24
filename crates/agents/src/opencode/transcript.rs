@@ -1,8 +1,8 @@
 //! Read an OpenCode conversation, as `opencode session export` hands it
 //! over, into the overview's shared link collector, and count what it did.
 //! OpenCode keeps it in a database of its own, which every conversation of
-//! the account writes to, so it is exported again once the database changes,
-//! apart from the reader that asks and no more often than a busy account
+//! the login writes to, so it is exported again once the database changes,
+//! apart from the reader that asks and no more often than a busy login
 //! warrants.
 
 use std::path::{Path, PathBuf};
@@ -23,11 +23,11 @@ const SEARCHING: [&str; 3] = ["shell", "grep", "glob"];
 const STALE_AFTER: Duration = Duration::from_secs(30);
 
 /// How long an export stands for the conversation while the database keeps
-/// being written: some conversation of the account is running a turn.
+/// being written: some conversation of the login is running a turn.
 const BUSY_FOR: Duration = Duration::from_secs(20);
 
 /// How long the database is left unwritten before every conversation of the
-/// account counts as settled, and is exported however recently it was.
+/// login counts as settled, and is exported however recently it was.
 const SETTLED_AFTER: Duration = Duration::from_secs(3);
 
 /// When the database was last written as of an export, and when that export
@@ -43,7 +43,7 @@ pub(super) struct Transcript {
     id: String,
     cwd: PathBuf,
     home: PathBuf,
-    /// The folder OpenCode keeps its data in for the account.
+    /// The folder OpenCode keeps its data in for the login.
     data: PathBuf,
     /// The last export asked for, whether or not OpenCode made it.
     exported: Option<Asked>,
@@ -53,7 +53,7 @@ pub(super) struct Transcript {
 }
 
 impl Transcript {
-    /// The reader of the conversation `id`, which `context`'s account keeps,
+    /// The reader of the conversation `id`, which `context`'s login keeps,
     /// of a session in `cwd`, `~` standing for `home`.
     pub(super) fn open(context: AgentContext, id: String, cwd: &Path, home: &Path) -> Self {
         let data = match &context.home {
@@ -73,7 +73,7 @@ impl Transcript {
         }
     }
 
-    /// The files OpenCode keeps its database in for `context`'s account.
+    /// The files OpenCode keeps its database in for `context`'s login.
     fn database(&self) -> [PathBuf; 2] {
         let db = self.data.join("opencode").join("opencode.db");
         [db.with_extension("db-wal"), db]
@@ -226,7 +226,7 @@ impl Transcript {
 /// Whether the conversation is exported again, the database written as
 /// `written` at `now`, the `last` export asked for when it was as the files
 /// say and how long ago. A database that keeps changing is some conversation
-/// of the account at work, maybe another one, so it is exported at most once
+/// of the login at work, maybe another one, so it is exported at most once
 /// in [`BUSY_FOR`], and once more as soon as the writing stops.
 fn due(
     last: Option<(&[Option<SystemTime>], Duration)>,

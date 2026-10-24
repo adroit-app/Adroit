@@ -13,7 +13,7 @@ mod windows;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
 
-use adroit_model::profile::{AgentProfile, ConnectionId, ProfileId};
+use adroit_model::profile::{AgentProfile, ProfileId};
 use adroit_model::{Agent, TerminalProgram, Tree};
 use adroit_protocol::{Seq, WorkSnapshot};
 
@@ -165,21 +165,21 @@ pub fn profile_of(state: &crate::state::ViewState, tab: Option<&Tab>) -> Profile
         .profile_of(tree, tab, &state.config.settings)
 }
 
-/// The connection the prompt of `tab` goes to: a session's own, else the one
-/// the profile it would start from runs in.
-pub fn connection_of(state: &crate::state::ViewState, tab: Option<&Tab>) -> ConnectionId {
+/// The folder of the login the prompt of `tab` goes to, none for its agent's
+/// own environment: a session's own, else the one the profile it would start
+/// from runs in.
+pub fn home_of(state: &crate::state::ViewState, tab: Option<&Tab>) -> Option<std::path::PathBuf> {
     let tree = crate::tree::listed(state.host.work.as_ref());
     if let Some(Tab::Session(id)) = tab
         && let Some((_, session)) = crate::tree::nav::find(tree, id)
     {
-        return session.connection.clone();
+        return session.home.clone();
     }
-    let agent = agent_of(state, tab);
     state
         .config
         .settings
         .find_profile(&profile_of(state, tab))
-        .map_or_else(|| ConnectionId::implicit(agent), |p| p.connection.clone())
+        .and_then(|p| p.home.clone())
 }
 
 /// A border between windows being dragged: where the pointer was pressed,

@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use adroit_model::profile::{ConnectionId, ProfileId};
+use adroit_model::profile::ProfileId;
 use adroit_model::{
     Agent, AgentPermissions, CustomPermissions, TerminalProgram, TerminalResourceId,
     TerminalSession,
@@ -35,9 +35,10 @@ pub struct StartRequest {
     /// The conversation the session continues, by its id; a new one when
     /// none is given.
     pub resume: Option<String>,
-    /// The connection that keeps the conversation it continues, which it
-    /// has to run in.
-    pub connection: Option<ConnectionId>,
+    /// The folder of a profile's own that keeps the conversation it
+    /// continues, which it has to run in; none for its agent's own
+    /// environment.
+    pub home: Option<PathBuf>,
 }
 
 pub use adroit_model::ModelSource;
@@ -189,13 +190,17 @@ pub fn resolve(
         // given its tools would lose those it reaches other sessions with.
         options.tools.push(crate::delegation::launch::TOOLS.into());
     }
-    if let (Some(id), Some(kept)) = (&request.resume, &request.connection)
-        && *kept != context.connection
+    if let Some(id) = &request.resume
+        && request.home != context.home
     {
-        // Another connection's program does not know the conversation, and
-        // would run it under another login if it did.
+        // Another login's program does not know the conversation, and would
+        // run it under another login if it did.
         return Err(format!(
-            "conversation {id} is kept in connection `{kept}`, which profile `{}` does not run in",
+            "conversation {id} is kept in {}, which profile `{}` does not run in",
+            request.home.as_ref().map_or_else(
+                || "its agent's own environment".to_string(),
+                |home| home.display().to_string()
+            ),
             context.profile
         ));
     }
@@ -254,7 +259,7 @@ pub fn resolve(
     );
     tags.extend(sessions::profile_tags(
         &context.profile,
-        &context.connection,
+        context.home.as_deref(),
     ));
     tags.extend(sessions::editor_tags(&env));
     if let Some(delegation) = &request.delegation {
