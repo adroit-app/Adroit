@@ -12,11 +12,10 @@ use dioxus::prelude::*;
 use crate::bridge::AppCtx;
 use crate::completion::Completions;
 use crate::components::{
-    AgentBadge, DraftMark, FileGlyph, ListRow, PlaceMark, SessionMark, StateGlyph, TerminalMark,
-    glyph, runs_of, session_mark,
+    AgentBadge, DraftMark, FileLook, FileRow, ListRow, PlaceMark, SessionMark, StateGlyph,
+    TerminalMark, glyph, runs_of, session_mark,
 };
 use crate::content::Tab;
-use crate::file_icons;
 use crate::files;
 use crate::icons::{Icon, IconView};
 use crate::nav::{self, Item};
@@ -40,7 +39,7 @@ pub(crate) fn row_tip(item: &Item) -> &'static str {
         }
         Item::Heading(..) => "What runs in the worktree, of one kind. Enter folds it",
         Item::File { dir: true, .. } => {
-            "A directory of the worktree. Enter or l unfolds it, h folds it"
+            "A directory of the worktree. l goes into it, h folds it or the one it is in, Enter folds or unfolds it"
         }
         Item::File { .. } => "A file of the worktree",
     }
@@ -102,6 +101,62 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
     let it = item;
     let is_sel = view.selected.as_ref() == Some(&it);
     let open = view.folds.is_open(&it);
+    if let Item::File {
+        worktree,
+        path,
+        dir,
+    } = &it
+    {
+        // Hidden or ignored files stand back, as fern draws them.
+        let back = files::is_hidden(path)
+            || marks
+                .and_then(|m| m.get(worktree))
+                .is_some_and(|m| m.ignores(path));
+        let look = FileLook {
+            dir: *dir,
+            back,
+            shown: !*dir && shows_file(shows.as_ref(), terminals, path),
+            editing: false,
+        };
+        let status = marks
+            .and_then(|m| m.get(worktree))
+            .and_then(|m| m.of(path, *dir));
+        // A file stands in its viewer's tabs and its Neovim's.
+        let chips = if *dir {
+            String::new()
+        } else {
+            let mut at = content_now.tabs_showing(&Tab::Viewer(path.clone()));
+            for t in terminals.iter().filter(|t| t.file.as_ref() == Some(path)) {
+                at.extend(content_now.tabs_showing(&Tab::Terminal(t.id)));
+            }
+            at.sort_unstable();
+            at.dedup();
+            at.iter()
+                .map(usize::to_string)
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        let here = it.clone();
+        return rsx! {
+            FileRow {
+                path: path.clone(),
+                // The rows are of the narrowed tree.
+                depth: nav::depth(&view.narrowed, &it),
+                look,
+                open,
+                selected: is_sel,
+                title: row_tip(&it).to_owned(),
+                onclick: move |_| on.onopen.call(here.clone()),
+                oncontextmenu: menu_opener(app, Target::Row(it.clone())),
+                if !chips.is_empty() {
+                    span { class: "tab-where", title: "The tabs showing it", "{chips}" }
+                }
+                if let Some(mark) = status {
+                    span { class: if mark == 'A' { "file-status added" } else { "file-status" }, "{mark}" }
+                }
+            }
+        };
+    }
     let mark = match &it {
         Item::Session(id) => nav::find(t, id).and_then(|(_, s)| session_mark(s.reads_only())),
         _ => None,
@@ -163,34 +218,7 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
                 .unwrap_or_default();
             ("", name, String::new(), None)
         }
-        Item::File {
-            worktree,
-            path,
-            dir,
-        } => {
-            let name = path
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            // Hidden or ignored files stand back, as fern draws them.
-            let back = files::is_hidden(path)
-                || marks
-                    .and_then(|m| m.get(worktree))
-                    .is_some_and(|m| m.ignores(path));
-            let kind = match (*dir, back) {
-                (true, true) => "file dir back",
-                (true, false) => "file dir",
-                (false, true) => "file back",
-                (false, false) => "file",
-            };
-            (
-                kind,
-                if *dir { format!("{name}/") } else { name },
-                String::new(),
-                None,
-            )
-        }
-        Item::Waiting(_) => ("", String::new(), String::new(), None),
+        Item::File { .. } | Item::Waiting(_) => ("", String::new(), String::new(), None),
     };
     // The rows are of the narrowed tree, where a workspace can be flat that
     // is not in full.
@@ -199,18 +227,6 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
     let chips = match &it {
         Item::Session(id) => content_now.tabs_showing(&Tab::Session(id.clone())),
         Item::Terminal(id) => content_now.tabs_showing(&Tab::Terminal(*id)),
-        // A file stands in its viewer's tabs and its Neovim's.
-        Item::File {
-            path, dir: false, ..
-        } => {
-            let mut at = content_now.tabs_showing(&Tab::Viewer(path.clone()));
-            for t in terminals.iter().filter(|t| t.file.as_ref() == Some(path)) {
-                at.extend(content_now.tabs_showing(&Tab::Terminal(t.id)));
-            }
-            at.sort_unstable();
-            at.dedup();
-            at
-        }
         _ => Vec::new(),
     }
     .iter()
@@ -218,29 +234,6 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
     .collect::<Vec<_>>()
     .join(" ");
     let row_title = row_tip(&it).to_owned();
-    let (file_glyph, file_mark) = match &it {
-        Item::File {
-            worktree,
-            path,
-            dir,
-        } => {
-            let kind = if *dir {
-                file_icons::Kind::Directory { open }
-            } else {
-                file_icons::Kind::File
-            };
-            let icon = file_icons::find(path, kind);
-            let colour = icon
-                .colour
-                .map(|c| format!("color:{}", c.css()))
-                .unwrap_or_default();
-            let mark = marks
-                .and_then(|m| m.get(worktree))
-                .and_then(|m| m.of(path, *dir));
-            (Some((icon.glyph, colour)), mark)
-        }
-        _ => (None, None),
-    };
     let terminal = match &it {
         Item::Terminal(id) => Some(runs_of(terminals, *id)),
         _ => None,
@@ -260,9 +253,6 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
     let kind = match &it {
         Item::Session(id) if shows == Some(Tab::Session(id.clone())) => format!("{kind} shown"),
         Item::Terminal(id) if shows == Some(Tab::Terminal(*id)) => format!("{kind} shown"),
-        Item::File {
-            path, dir: false, ..
-        } if shows_file(shows.as_ref(), terminals, path) => format!("{kind} shown"),
         _ => kind.to_string(),
     };
     let target = Target::Row(it.clone());
@@ -291,9 +281,6 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
             if let Some(icon) = place_icon {
                 PlaceMark { icon }
             }
-            if let Some((glyph, colour)) = file_glyph {
-                FileGlyph { glyph, style: colour }
-            }
             if let Some(runs) = terminal { TerminalMark { runs } }
             span { class: "list-row-name",
                 if let Item::Session(id) = &it {
@@ -309,9 +296,6 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
             span { class: "list-row-meta", "{meta}" }
             if !chips.is_empty() {
                 span { class: "tab-where", title: "The tabs showing it", "{chips}" }
-            }
-            if let Some(mark) = file_mark {
-                span { class: if mark == 'A' { "file-status added" } else { "file-status" }, "{mark}" }
             }
             if let Some(label) = badge {
                 AgentBadge { label }

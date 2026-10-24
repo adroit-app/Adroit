@@ -29,6 +29,8 @@ pub struct TreeView {
     /// Whether every worktree git knows of is listed, those where nothing
     /// runs too.
     pub every_worktree: bool,
+    /// Whether the files whose names start with `.` are listed.
+    pub show_hidden: bool,
     /// The tree narrowed to what the filter holds.
     pub narrowed: Tree,
     /// The sessions waiting on the user, of the whole tree.
@@ -44,13 +46,16 @@ pub struct TreeView {
     /// The directories whose entries the rows list.
     listed: BTreeSet<PathBuf>,
     /// What the rows were last built from.
-    built_from: Option<(Seq, String, Folds)>,
+    built_from: Option<(Seq, String, Folds, bool)>,
     /// Counts the times the rows were built anew.
     built: u64,
     /// The rows the selection was last kept among.
     kept_among: u64,
     /// The tab the selection last followed.
     followed: Option<Tab>,
+    /// The row gone into, whose first row is selected once it is listed,
+    /// as a directory's are once the host has read it.
+    into: Option<Item>,
     /// The error the status line was last told the sessions cannot be
     /// listed for.
     failing: Option<String>,
@@ -63,9 +68,14 @@ pub enum Key {
     Up,
     First,
     Last,
-    /// Fold the row selected when it is open, or go to the row it sits
-    /// under, as fern's `h` does.
+    /// Fold the row selected when it is open, or else the row it sits under,
+    /// going there.
     Fold,
+    /// Unfold the row selected and go to the first row under it, once it is
+    /// listed, as fern's `l` does on a directory.
+    Into,
+    /// Show or hide the files whose names start with `.`.
+    Hidden,
 }
 
 /// Where the content's focused window is, as the header writes it: its
@@ -148,9 +158,24 @@ pub(crate) fn press(view: &mut TreeView, key: Key) -> Vec<Effect> {
                 return Vec::new();
             }
             match nav::parent(rows, &view.narrowed, &row) {
-                Some(up) => Some(up),
+                Some(up) => {
+                    view.folds.set(&up, false);
+                    Some(up)
+                }
                 None => return Vec::new(),
             }
+        }
+        Key::Hidden => {
+            view.show_hidden = !view.show_hidden;
+            return Vec::new();
+        }
+        Key::Into => {
+            if let Some(row) = current.filter(|r| nav::holds(r, &view.narrowed)) {
+                let row = row.clone();
+                view.folds.set(&row, true);
+                view.into = Some(row);
+            }
+            return Vec::new();
         }
     };
     view.selected = next;
@@ -161,7 +186,14 @@ pub(crate) fn press(view: &mut TreeView, key: Key) -> Vec<Effect> {
 /// or the folds changed since they were last built. A directory's entries
 /// come from what the host listed of it.
 pub(crate) fn build(view: &mut TreeView, work: Option<&WorkSnapshot>) {
-    let from = work.map(|w| (w.seq, view.filter.clone(), view.folds.clone()));
+    let from = work.map(|w| {
+        (
+            w.seq,
+            view.filter.clone(),
+            view.folds.clone(),
+            view.show_hidden,
+        )
+    });
     if from.is_some() && view.built_from == from {
         return;
     }
@@ -173,7 +205,11 @@ pub(crate) fn build(view: &mut TreeView, work: Option<&WorkSnapshot>) {
     let asked = RefCell::new(BTreeSet::new());
     let read = |dir: &Path| {
         asked.borrow_mut().insert(dir.to_path_buf());
-        facts.entries.get(dir).cloned().unwrap_or_default()
+        let mut entries = facts.entries.get(dir).cloned().unwrap_or_default();
+        if !view.show_hidden {
+            entries.retain(|e| !adroit_model::files::is_hidden(&e.path));
+        }
+        entries
     };
     let rows = nav::items(
         &view.narrowed,
@@ -192,6 +228,28 @@ pub(crate) fn build(view: &mut TreeView, work: Option<&WorkSnapshot>) {
     if view.rows != rows {
         view.rows = rows;
         view.built += 1;
+    }
+}
+
+/// The row gone into gives the selection to the first row under it once
+/// that is listed, unless the selection has moved off it meanwhile.
+pub(crate) fn go_into(view: &mut TreeView) {
+    let Some(row) = view.into.clone() else {
+        return;
+    };
+    if view.selected.as_ref() != Some(&row) {
+        view.into = None;
+        return;
+    }
+    let rows = &view.rows;
+    let first = rows
+        .iter()
+        .position(|r| *r == row)
+        .and_then(|at| rows.get(at + 1))
+        .filter(|next| nav::parent(rows, &view.narrowed, next).as_ref() == Some(&row));
+    if let Some(first) = first {
+        view.selected = Some(first.clone());
+        view.into = None;
     }
 }
 
@@ -366,6 +424,7 @@ mod tests {
     use adroit_protocol::{Sight, TreeChange};
 
     use super::*;
+    use crate::actions::Action;
     use crate::msg::Msg;
     use crate::scenario::Scenario;
     use crate::testing::{self, listing, patch, session, session_tab, shell, show_in};
@@ -524,16 +583,159 @@ mod tests {
     }
 
     #[test]
-    fn the_fold_key_folds_an_open_node_and_climbs_from_anything_else() {
+    fn the_fold_key_folds_an_open_node_or_else_the_one_it_sits_under() {
         let heading = Item::Heading("/r".into(), Heading::Sessions);
         let run = Scenario::new()
             .event(listing([session("a").cwd("/r")]))
             .send(Msg::TreeSelect(Some(Item::Session("a".into()))))
             .send(Msg::TreeKey(Key::Fold));
         assert_eq!(selected(&run), Some(heading.clone()));
-        let folded = run.send(Msg::TreeKey(Key::Fold));
-        assert!(!folded.state().tree.folds.is_open(&heading));
-        assert_eq!(selected(&folded), Some(heading));
+        assert!(!run.state().tree.folds.is_open(&heading));
+    }
+
+    /// The worktree `/r` with its Files heading open, listing `/r/src`, a
+    /// directory, as the host read it.
+    fn with_src() -> (Scenario, Item) {
+        let files = Item::Heading("/r".into(), Heading::Files);
+        let run = Scenario::new()
+            .event(listing([session("a").cwd("/r")]))
+            .send(Msg::TreeFold {
+                row: files,
+                open: true,
+            })
+            .event(patch(2).change(TreeChange::Entries {
+                dir: "/r".into(),
+                entries: vec![Entry {
+                    path: "/r/src".into(),
+                    dir: true,
+                }],
+            }));
+        let src = Item::File {
+            worktree: "/r".into(),
+            path: "/r/src".into(),
+            dir: true,
+        };
+        (run, src)
+    }
+
+    #[test]
+    fn going_into_a_directory_unfolds_it_and_selects_its_first_entry_once_read() {
+        let (run, src) = with_src();
+        let into = run
+            .send(Msg::TreeSelect(Some(src.clone())))
+            .send(Msg::TreeKey(Key::Into));
+        assert!(into.state().tree.folds.is_open(&src));
+        assert_eq!(selected(&into), Some(src.clone()));
+        let read = into.event(patch(3).change(TreeChange::Entries {
+            dir: "/r/src".into(),
+            entries: vec![
+                Entry {
+                    path: "/r/src/lib.rs".into(),
+                    dir: false,
+                },
+                Entry {
+                    path: "/r/src/main.rs".into(),
+                    dir: false,
+                },
+            ],
+        }));
+        let lib = Item::File {
+            worktree: "/r".into(),
+            path: "/r/src/lib.rs".into(),
+            dir: false,
+        };
+        assert_eq!(selected(&read), Some(lib.clone()));
+        // Back out, it folds the directory it was in.
+        let out = read.send(Msg::TreeKey(Key::Fold));
+        assert_eq!(selected(&out), Some(src.clone()));
+        assert!(!out.state().tree.folds.is_open(&src));
+        // Into it again, its entries are known already.
+        let again = out.send(Msg::TreeKey(Key::Into));
+        assert_eq!(selected(&again), Some(lib));
+    }
+
+    fn pressed(name: &str) -> Msg {
+        Msg::Key {
+            key: adroit_model::Key::new(name),
+            probe: Box::new(crate::console::Probe::default()),
+        }
+    }
+
+    #[test]
+    fn a_file_s_row_takes_the_filer_s_keys_before_the_tree_s() {
+        // What `key` resolves to with the row `at` selected and the keys in
+        // the tree.
+        let on = |at: Option<Item>, key: &str| {
+            let (run, src) = with_src();
+            let run = run
+                .send(Msg::Focus(crate::content::Area::Sidebar))
+                .send(Msg::TreeSelect(at.or(Some(src))))
+                .send(pressed(key));
+            match run.last_effects() {
+                [Effect::PerformKey(action, _)] => Some(action.clone()),
+                _ => None,
+            }
+        };
+        assert_eq!(on(None, "l"), Some(Action::FilerInto));
+        assert_eq!(on(None, "!"), Some(Action::FilerHidden));
+        // Off the files, the tree's own `!` lists every worktree.
+        let session = Some(Item::Session("a".into()));
+        assert_eq!(on(session, "!"), Some(Action::WorktreesToggle));
+    }
+
+    #[test]
+    fn hidden_files_are_listed_only_while_shown() {
+        let (run, _) = with_src();
+        let run = run.event(patch(3).change(TreeChange::Entries {
+            dir: "/r".into(),
+            entries: vec![
+                Entry {
+                    path: "/r/.env".into(),
+                    dir: false,
+                },
+                Entry {
+                    path: "/r/src".into(),
+                    dir: true,
+                },
+            ],
+        }));
+        let env = Item::File {
+            worktree: "/r".into(),
+            path: "/r/.env".into(),
+            dir: false,
+        };
+        assert!(!rows(&run).contains(&env));
+        let shown = run.send(Msg::TreeKey(Key::Hidden));
+        assert!(rows(&shown).contains(&env));
+    }
+
+    #[test]
+    fn going_into_an_open_node_selects_its_first_row_and_keeps_it_open() {
+        let heading = Item::Heading("/r".into(), Heading::Sessions);
+        let run = Scenario::new()
+            .event(listing([session("a").cwd("/r")]))
+            .send(Msg::TreeSelect(Some(heading.clone())))
+            .send(Msg::TreeKey(Key::Into));
+        assert!(run.state().tree.folds.is_open(&heading));
+        assert_eq!(selected(&run), Some(Item::Session("a".into())));
+    }
+
+    #[test]
+    fn moving_away_before_a_directory_is_read_stays_where_it_went() {
+        let (run, src) = with_src();
+        let moved = run
+            .send(Msg::TreeSelect(Some(src)))
+            .send(Msg::TreeKey(Key::Into))
+            .send(Msg::TreeKey(Key::Up));
+        let at = selected(&moved);
+        let read = moved.event(patch(3).change(TreeChange::Entries {
+            dir: "/r/src".into(),
+            entries: vec![Entry {
+                path: "/r/src/lib.rs".into(),
+                dir: false,
+            }],
+        }));
+        assert_eq!(selected(&read), at);
     }
 
     #[test]

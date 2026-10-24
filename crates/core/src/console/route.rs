@@ -80,6 +80,16 @@ pub fn contexts(
     drafting(shown, here)
 }
 
+/// `here` with the filer's bindings first while the tree's selection is
+/// a file or a directory and the tree has the keys.
+pub fn filing(mut here: Vec<Context>, area: Area, on_file: bool) -> Vec<Context> {
+    if area == Area::Sidebar && on_file {
+        let at = here.iter().position(|c| *c == Context::Tree).unwrap_or(0);
+        here.insert(at, Context::Filer);
+    }
+    here
+}
+
 /// The areas whose bindings the keys help shows for `area`, nearest first.
 pub fn help_contexts(area: Area, shown: Option<&Tab>) -> Vec<Context> {
     let here: &[Context] = match area {

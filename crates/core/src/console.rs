@@ -208,12 +208,16 @@ pub(crate) fn press(state: &mut ViewState, key: Key, probe: Probe) -> Vec<Effect
     // its answer; a shell takes every key but those.
     let pane = pane || (probe.pane && area == Area::Prompt);
     let passing = pane && route::passes(area, session, waits(state));
-    let contexts = route::contexts(
+    let contexts = route::filing(
+        route::contexts(
+            area,
+            state.content.active(),
+            passing,
+            windowing,
+            probe.inserting,
+        ),
         area,
-        state.content.active(),
-        passing,
-        windowing,
-        probe.inserting,
+        matches!(state.tree.selected, Some(nav::Item::File { .. })),
     );
     let seq = std::mem::take(&mut state.console.pending);
     let action = match state.chrome.keymap.resolve(&contexts, &seq, &key) {

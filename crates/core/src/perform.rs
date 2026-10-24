@@ -52,7 +52,11 @@ pub(crate) fn perform(
         Action::None => Vec::new(),
         Action::KeysHelp => step(
             state,
-            Msg::KeysHelpOpen(route::help_contexts(area, thing.as_ref())),
+            Msg::KeysHelpOpen(route::filing(
+                route::help_contexts(area, thing.as_ref()),
+                area,
+                matches!(cur, Some(Item::File { .. })),
+            )),
         ),
         Action::ViewerZoomIn
         | Action::ViewerZoomOut
@@ -261,10 +265,31 @@ pub(crate) fn perform(
             open(state, item, Some(how), true)
         }
         Action::CursorShow => match cur {
+            // A row that only folds, or one folded, is gone into: what it
+            // holds is what there is to look at.
+            Some(item)
+                if matches!(
+                    nav::opens(
+                        &item,
+                        &state.tree.narrowed,
+                        tree::terminals(state.host.work.as_ref())
+                    ),
+                    nav::Opens::Fold
+                ) || nav::unfolds(&item, &state.tree.narrowed, &state.tree.folds) =>
+            {
+                step(state, Msg::TreeKey(TreeKey::Into))
+            }
             Some(item) => open(state, item, Some(Opening::Preview), false),
             None => Vec::new(),
         },
         Action::CursorFold => step(state, Msg::TreeKey(TreeKey::Fold)),
+        // On the tree's files, the filer's actions are the tree's own.
+        Action::FilerDown => perform(state, Action::CursorDown, key, probe),
+        Action::FilerUp => perform(state, Action::CursorUp, key, probe),
+        Action::FilerInto => perform(state, Action::CursorShow, key, probe),
+        Action::FilerOut => perform(state, Action::CursorFold, key, probe),
+        Action::FilerOpen => perform(state, Action::CursorGo, key, probe),
+        Action::FilerHidden => step(state, Msg::TreeKey(TreeKey::Hidden)),
         Action::CursorClose => step(state, Msg::Window(action)),
         Action::CursorCopy => {
             let terminals = tree::terminals(state.host.work.as_ref());

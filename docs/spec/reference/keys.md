@@ -50,11 +50,17 @@ changes them ([keys](../keys.md)).
 | `cursor.split` |  | open the selected session, shell, worktree or file as `cursor.go` does, in a new window split off the focused one, below it | `tree`: `s` |
 | `cursor.vsplit` |  | open the selected session, shell, worktree or file as `cursor.go` does, in a new window split off the focused one, beside it | `tree`: `v` |
 | `cursor.tab` |  | open the selected session, shell, worktree or file as `cursor.go` does, in a new tab after the one shown, though a window shows it already | `tree`: `t` |
-| `cursor.show` |  | look at the selected session, shell, worktree or file: show the tab already showing it and close the preview, or else show it in the preview, with the keys staying in the tree; on a folded row, unfold it instead; fold or unfold a workspace, a heading or a directory; in the details panel, open the selected row | `tree`: `l`, `L`, `Shift+Enter`, `Ctrl+Enter` |
-| `cursor.fold` |  | fold the selected node, or on a row that is not unfolded go up to the row it sits under; in the details panel, go back out to the list what it shows was opened from | `tree`: `h`<br>`details`: `Escape`, `Backspace` |
+| `cursor.show` |  | look at the selected session, shell, worktree or file: show the tab already showing it and close the preview, or else show it in the preview, with the keys staying in the tree; go into a workspace, a heading, a directory or a folded row instead: unfold it and go to its first row once it is listed; in the details panel, open the selected row | `tree`: `l`, `L`, `Shift+Enter`, `Ctrl+Enter` |
+| `cursor.fold` |  | fold the selected node when it is open, or else the row it sits under, going there; in the details panel, go back out to the list what it shows was opened from | `tree`: `h`<br>`details`: `Escape`, `Backspace` |
 | `cursor.close` |  | close every window showing the selected session, shell or Neovim, or the selected file in its viewer or its Neovim; what they showed runs on | `tree`: `x` |
 | `cursor.copy` |  | copy the path of the selected file, worktree or workspace, or the name of the selected session, shell or Neovim; in the details panel, the selected link of the overview: its address, or its file's path | `tree`: `y`<br>`details`: `y` |
 | `cursor.reveal` |  | in the details panel, show the selected file of the overview in the Finder |  |
+| `filer.down` |  | move to the next file or directory, in the tree's files or the picker's directories | `filer`: `j`, `ArrowDown` |
+| `filer.up` |  | move to the previous file or directory | `filer`: `k`, `ArrowUp` |
+| `filer.into` |  | open the directory selected and go to its first entry once it is read; on a file of the tree, look at it as `cursor.show` does | `filer`: `l`, `ArrowRight` |
+| `filer.out` |  | close the directory selected when it is open, or else the one it is in, going there | `filer`: `h`, `ArrowLeft` |
+| `filer.open` |  | in the tree, open the file or fold the directory selected as `cursor.go` does; in the picker, start a session in the directory selected | `filer`: `Enter` |
+| `filer.hidden` |  | show or hide the files and directories whose names start with `.` | `filer`: `!` |
 | `waiting.next` | Next Waiting | look at the next session waiting on you in the preview, with the keys in its console | `global`: `Ctrl+q ]`<br>`tree`: `] w` |
 | `waiting.prev` | Previous Waiting | look at the previous session waiting on you in the preview, with the keys in its console | `global`: `Ctrl+q [`<br>`tree`: `[ w` |
 | `session.next` | Next Session | look at the session after the one shown, in the tree's order over every session, folded away or filtered out too, going round at the end, in the preview; the keys stay in the area they are in | `global`: `Ctrl+q N` |
@@ -237,6 +243,18 @@ changes them ([keys](../keys.md)).
 "[ w" = "waiting.prev"
 "}" = "workspace.next"
 "{" = "workspace.prev"
+
+[filer]
+"j" = "filer.down"
+"ArrowDown" = "filer.down"
+"k" = "filer.up"
+"ArrowUp" = "filer.up"
+"l" = "filer.into"
+"ArrowRight" = "filer.into"
+"h" = "filer.out"
+"ArrowLeft" = "filer.out"
+"Enter" = "filer.open"
+"!" = "filer.hidden"
 
 [details]
 "j" = "cursor.down"

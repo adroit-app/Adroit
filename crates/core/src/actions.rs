@@ -58,6 +58,12 @@ pub enum Action {
     CursorClose,
     CursorCopy,
     CursorReveal,
+    FilerDown,
+    FilerUp,
+    FilerInto,
+    FilerOut,
+    FilerOpen,
+    FilerHidden,
     WaitingNext,
     WaitingPrev,
     SessionNext,
@@ -256,11 +262,11 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::CursorTab, "cursor.tab", "open the selected session, shell, worktree or file as `cursor.go` does, in a new tab after the one shown, though a window shows it already")
         .icon(Icon::BrowserPlus)
         .row("Open in a new tab", Go),
-    S::new(A::CursorShow, "cursor.show", "look at the selected session, shell, worktree or file: show the tab already showing it and close the preview, or else show it in the preview, with the keys staying in the tree; on a folded row, unfold it instead; fold or unfold a workspace, a heading or a directory; in the details panel, open the selected row")
+    S::new(A::CursorShow, "cursor.show", "look at the selected session, shell, worktree or file: show the tab already showing it and close the preview, or else show it in the preview, with the keys staying in the tree; go into a workspace, a heading, a directory or a folded row instead: unfold it and go to its first row once it is listed; in the details panel, open the selected row")
         .says("Look at it in the preview")
         .icon(Icon::Eye)
         .row("Preview", Go),
-    S::new(A::CursorFold, "cursor.fold", "fold the selected node, or on a row that is not unfolded go up to the row it sits under; in the details panel, go back out to the list what it shows was opened from").says("Fold, or go back"),
+    S::new(A::CursorFold, "cursor.fold", "fold the selected node when it is open, or else the row it sits under, going there; in the details panel, go back out to the list what it shows was opened from").says("Fold, or go back"),
     S::new(A::CursorClose, "cursor.close", "close every window showing the selected session, shell or Neovim, or the selected file in its viewer or its Neovim; what they showed runs on")
         .icon(Icon::SquareMinus)
         .row("Close its windows", End),
@@ -270,6 +276,12 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::CursorReveal, "cursor.reveal", "in the details panel, show the selected file of the overview in the Finder")
         .icon(Icon::FolderSearch)
         .row("Reveal in Finder", Go),
+    S::new(A::FilerDown, "filer.down", "move to the next file or directory, in the tree's files or the picker's directories").says("Next entry"),
+    S::new(A::FilerUp, "filer.up", "move to the previous file or directory").says("Previous entry"),
+    S::new(A::FilerInto, "filer.into", "open the directory selected and go to its first entry once it is read; on a file of the tree, look at it as `cursor.show` does").says("Go into"),
+    S::new(A::FilerOut, "filer.out", "close the directory selected when it is open, or else the one it is in, going there").says("Close the directory"),
+    S::new(A::FilerOpen, "filer.open", "in the tree, open the file or fold the directory selected as `cursor.go` does; in the picker, start a session in the directory selected").says("Open"),
+    S::new(A::FilerHidden, "filer.hidden", "show or hide the files and directories whose names start with `.`").says("Show or hide the hidden"),
     S::new(A::WaitingNext, "waiting.next", "look at the next session waiting on you in the preview, with the keys in its console").bar("Next Waiting", Icon::BellDown),
     S::new(A::WaitingPrev, "waiting.prev", "look at the previous session waiting on you in the preview, with the keys in its console").bar("Previous Waiting", Icon::BellUp),
     S::new(A::SessionNext, "session.next", "look at the session after the one shown, in the tree's order over every session, folded away or filtered out too, going round at the end, in the preview; the keys stay in the area they are in").bar("Next Session", Icon::MessageDown),
@@ -494,6 +506,12 @@ mod tests {
             CursorClose,
             CursorCopy,
             CursorReveal,
+            FilerDown,
+            FilerUp,
+            FilerInto,
+            FilerOut,
+            FilerOpen,
+            FilerHidden,
             WaitingNext,
             WaitingPrev,
             SessionNext,

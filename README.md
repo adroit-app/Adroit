@@ -121,9 +121,9 @@ or the Session menu.
 | --- | --- |
 | `j` `k`, `gg` `G` | move |
 | `Enter` `o` | open a session, worktree or file: go to where it is already shown, in any tab, or else open it in a new tab, a file in Neovim or in a viewer by its kind; fold or unfold a workspace, a heading or a directory |
-| `l` `Shift-Enter` `Ctrl-Enter` | look at it in the preview tab, with the keys staying in the tree |
+| `l` `Shift-Enter` `Ctrl-Enter` | look at it in the preview tab, with the keys staying in the tree; go into a workspace, a heading or a directory, to its first row |
 | `s` `v` `t` | open it in a new split below or beside the focused window, or in a new tab though it is shown already |
-| `h` | fold, or go up to the row above |
+| `h` | fold the row, or else the one it sits under, going there |
 | `]w` `[w` | the next or previous session waiting on you, with the console ready to answer it; `Ctrl-q ]` `Ctrl-q [` from anywhere |
 | `w` | choose where a new session works |
 | `n` `$` `e` | start a session, a shell or Neovim in the selected worktree or directory |
@@ -133,7 +133,7 @@ or the Session menu.
 | `X` | end a session; Claude Code keeps its conversation, for `/resume` |
 | `i` | write a prompt |
 | `/` | narrow the tree to sessions by name; `Enter` keeps it, `Esc` clears it |
-| `!` | list every worktree, those without sessions too, or only those with sessions |
+| `!` | list every worktree, those without sessions too, or only those with sessions; on a file, show or hide the hidden files |
 | `r` | refresh |
 
 In the console, a session takes only the keys its own controls need: `Enter`,

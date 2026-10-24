@@ -176,6 +176,7 @@ fn tree_failing(state: &mut ViewState, effects: &mut Vec<Effect>) {
 /// The tree's rows are built from what the host listed.
 fn tree_rows(state: &mut ViewState, _: &mut Vec<Effect>) {
     tree::build(&mut state.tree, state.host.work.as_ref());
+    tree::go_into(&mut state.tree);
 }
 
 /// A selected row that leaves the rows gives way to another.

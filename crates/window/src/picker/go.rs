@@ -7,8 +7,11 @@ use dioxus::prelude::*;
 
 use super::{PickerKeys, QueryField};
 use crate::bridge::AppCtx;
-use crate::components::{Dialog, ListRow, PlaceMark};
-use crate::icons::{Icon, IconView};
+use adroit_core::actions::Action;
+use adroit_core::keymap::Context;
+
+use crate::components::{Dialog, FileLook, FileRow, ListRow, PlaceMark};
+use crate::icons::Icon;
 
 /// `text` with what `query` marked in it drawn as matched.
 fn marked(query: &Query, text: &str) -> Element {
@@ -29,22 +32,35 @@ pub(super) fn Go(picker: Picker) -> Element {
     let home = app.picker.read().home.clone();
     let host = app.host.read();
     let work = host.work.as_ref();
-    let keys: &[(&str, &str)] = match picker.mode {
-        Mode::List => &[
+    let fixed = |keys: &[(&str, &str)]| -> Vec<(String, String)> {
+        keys.iter()
+            .map(|(k, w)| (k.to_string(), w.to_string()))
+            .collect()
+    };
+    let keys = match picker.mode {
+        Mode::List => fixed(&[
             ("Ctrl+n/p", "move"),
             ("Enter", "choose"),
             ("Ctrl+f", "file tree"),
             ("Esc", "close"),
-        ],
-        Mode::Tree => &[
-            ("j/k", "move"),
-            ("l", "open"),
-            ("h", "close"),
-            ("!", "hidden"),
-            ("Enter", "choose"),
-            ("Ctrl+f", "list"),
-            ("Esc", "close"),
-        ],
+        ]),
+        // The filer's keys, as the keymap binds them.
+        Mode::Tree => {
+            let km = app.chrome.read().keymap.clone();
+            let filer = [
+                (Action::FilerDown, "down"),
+                (Action::FilerUp, "up"),
+                (Action::FilerInto, "open"),
+                (Action::FilerOut, "close"),
+                (Action::FilerHidden, "hidden"),
+                (Action::FilerOpen, "choose"),
+            ];
+            filer
+                .iter()
+                .filter_map(|(a, w)| km.keys_for(Context::Filer, a).map(|k| (k, w.to_string())))
+                .chain(fixed(&[("Ctrl+f", "list"), ("Esc", "close")]))
+                .collect()
+        }
     };
     rsx! {
         Dialog { kind: "picker-dialog", title: "Go to a session, or start one",
@@ -86,25 +102,22 @@ pub(super) fn Go(picker: Picker) -> Element {
                 Mode::Tree => rsx! {
                     div { class: "list-rows",
                         for r in tree_rows(&picker, work) {
-                            ListRow {
+                            FileRow {
                                 key: "{r.root.display()}:{r.path.display()}",
-                                kind: "mono",
+                                path: r.path.clone(),
+                                depth: r.depth,
+                                look: FileLook {
+                                    dir: true,
+                                    back: adroit_model::files::is_hidden(&r.path),
+                                    ..FileLook::default()
+                                },
+                                open: picker.filer.is_expanded(&r),
+                                label: (r.depth == 0).then(|| short(&r.path, &home)),
                                 selected: picker.filer.cursor() == Some(&r),
-                                style: "padding-left: {8 + r.depth * 16}px",
                                 onclick: {
                                     let path = r.path.clone();
                                     move |_| app.dispatch(Msg::PickerDir(path.clone()))
                                 },
-                                span { class: "picker-chevron",
-                                    IconView { icon: if picker.filer.is_expanded(&r) { Icon::ChevronDown } else { Icon::ChevronRight }, size: 12 }
-                                }
-                                span { class: "list-row-name",
-                                    if r.depth == 0 {
-                                        "{short(&r.path, &home)}"
-                                    } else {
-                                        "{r.path.file_name().unwrap_or_default().to_string_lossy()}"
-                                    }
-                                }
                             }
                         }
                     }

@@ -69,11 +69,11 @@ fn QueryField(query: String, #[props(default)] placeholder: String) -> Element {
 
 /// The keys a picker takes, each with what it does, along its foot.
 #[component]
-fn PickerKeys(keys: &'static [(&'static str, &'static str)]) -> Element {
+fn PickerKeys(keys: Vec<(String, String)>) -> Element {
     rsx! {
         div { class: "picker-keys",
-            for (k, what) in keys.iter() {
-                KeyHint { key: "{k}", keys: "{k}", does: "{what}" }
+            for (k, what) in keys.into_iter() {
+                KeyHint { key: "{k}", keys: k.clone(), does: what }
             }
         }
     }

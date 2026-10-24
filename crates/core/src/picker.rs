@@ -7,8 +7,10 @@ use std::path::{Path, PathBuf};
 use adroit_model::Key;
 use adroit_protocol::{PastSight, PickSight, WorkSnapshot};
 
+use crate::actions::Action;
 use crate::content;
 use crate::effect::Effect;
+use crate::keymap::{Context, Step};
 use crate::state::ViewState;
 use crate::tree;
 
@@ -208,7 +210,11 @@ pub(crate) fn press(state: &mut ViewState, key: &Key) -> Vec<Effect> {
             return Vec::new();
         }
         Picking::Go(p) if p.mode == Mode::Tree => {
-            return match tree_key(p, key, work) {
+            let action = match state.chrome.keymap.resolve(&[Context::Filer], &[], key) {
+                Step::Run(action) => action,
+                Step::Wait | Step::Nothing => return Vec::new(),
+            };
+            return match tree_key(p, &action, work) {
                 Some(dir) => start_in(state, dir),
                 None => Vec::new(),
             };
@@ -244,18 +250,18 @@ fn rows_len(view: &PickerView, work: Option<&WorkSnapshot>) -> usize {
     }
 }
 
-/// A key in the directory tree; the directory chosen, when one is.
-fn tree_key(picker: &mut Picker, key: &Key, work: Option<&WorkSnapshot>) -> Option<PathBuf> {
-    let plain = !key.ctrl && !key.alt && !key.meta;
+/// The filer's action in the directory tree; the directory chosen, when
+/// one is.
+fn tree_key(picker: &mut Picker, action: &Action, work: Option<&WorkSnapshot>) -> Option<PathBuf> {
     let rows = tree_rows(picker, work);
     let filer = &mut picker.filer;
-    match key.key.as_str() {
-        "j" | "ArrowDown" if plain || key.shift => filer.down(&rows),
-        "k" | "ArrowUp" if plain || key.shift => filer.up(&rows),
-        "l" | "ArrowRight" if plain => enter(picker, work),
-        "h" | "ArrowLeft" if plain => filer.close(&rows),
-        "!" => filer.toggle_hidden(),
-        "Enter" if plain => return filer.chosen(),
+    match action {
+        Action::FilerDown => filer.down(&rows),
+        Action::FilerUp => filer.up(&rows),
+        Action::FilerInto => enter(picker, work),
+        Action::FilerOut => filer.close(&rows),
+        Action::FilerHidden => filer.toggle_hidden(),
+        Action::FilerOpen => return filer.chosen(),
         _ => {}
     }
     None

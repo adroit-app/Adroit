@@ -128,6 +128,7 @@ mod tests {
                 Context::Viewer,
                 Context::Global,
                 Context::Tree,
+                Context::Filer,
                 Context::Details,
                 Context::Console,
                 Context::Prompt,

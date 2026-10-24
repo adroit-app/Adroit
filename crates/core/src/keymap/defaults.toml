@@ -117,6 +117,18 @@
 "}" = "workspace.next"
 "{" = "workspace.prev"
 
+[filer]
+"j" = "filer.down"
+"ArrowDown" = "filer.down"
+"k" = "filer.up"
+"ArrowUp" = "filer.up"
+"l" = "filer.into"
+"ArrowRight" = "filer.into"
+"h" = "filer.out"
+"ArrowLeft" = "filer.out"
+"Enter" = "filer.open"
+"!" = "filer.hidden"
+
 [details]
 "j" = "cursor.down"
 "ArrowDown" = "cursor.down"

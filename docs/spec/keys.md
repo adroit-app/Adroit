@@ -95,6 +95,7 @@ takes the keys away, so they do nothing there.
 | --- | --- |
 | `global` | every area, after the area's own |
 | `tree` | the tree, and the details panel after its own |
+| `filer` | a file tree: the tree's, before its own while a file or a directory is selected, and the picker's |
 | `details` | the details panel |
 | `console` | the console while it shows a session |
 | `prompt` | the prompt, before Neovim |

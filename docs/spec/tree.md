@@ -26,13 +26,9 @@ heading for each kind: Sessions, Shells, and Editors for Neovim. A heading
 folds, and the row of one for what runs counts what it holds. Shells and Neovim never sit straight under a workspace: where a
 workspace has no worktree row, the headings are its checkout's.
 
-Files starts folded. Unfolded, it lists the worktree's files as a file tree,
-directories first, each with its Nerd Font icon in the colour vim-glyph-palette
-gives it, drawn from adroit's own Nerd Font whatever the console's font
-is. A directory is read when it is unfolded, `l` or `Enter` unfolding it and
-`h` folding it or going up to the
-directory above. Names with a leading dot, and what git ignores, are drawn
-dim; the version control's own `.git` and `.jj` are not listed. A file jj or
+Files starts folded. Unfolded, it lists the worktree's files as a
+[file tree](#file-trees). Hidden files once shown, and what git ignores, are
+drawn dim; the version control's own `.git` and `.jj` are not listed. A file jj or
 git sees changed is marked at the end of its row with the letter git gives it,
 an added one in a jj workspace with `A`, and a directory holding one with a
 dot. The marks and the listing follow the disk within seconds.
@@ -98,11 +94,10 @@ its file name, or from a first line `name: <label>`. A prompt with no words
 in ASCII letters, one written in Japanese for one, is named by its own first
 letters, cut short.
 
-`Ctrl+f` turns the picker into a **file tree** for a directory the list does
-not offer. It shows the directories under the home directory, under each
-ghq root and under each folder the settings list, side by side. `j` and `k` move, `l` opens a directory, `h` closes it
-or moves to its parent, `!` shows or hides the hidden ones, and `Enter`
-chooses the directory under the cursor. `Ctrl+f` goes back to the list and
+`Ctrl+f` turns the picker into a [file tree](#file-trees) for a directory the
+list does not offer. It shows the directories under the home directory, under
+each ghq root and under each folder the settings list, side by side, and
+choosing one with the filer's open key starts a session there. `Ctrl+f` goes back to the list and
 `Escape` closes the picker.
 
 `n` on a row starts a session in that row's worktree or directory without the
@@ -139,3 +134,18 @@ question until it is answered there. Claude Code takes a folder outside git
 as trusted when a folder above it is, so trusting the scratch folder itself,
 by running `claude` once in a shell opened from Scratch, keeps the question
 from coming back.
+
+## File trees
+
+The tree's files and the picker's directories are one file tree, drawn and
+moved through alike, with the `filer` area's keys
+([keys](reference/keys.md#actions)). Directories come first, each entry with
+its Nerd Font icon in the colour vim-glyph-palette gives it, drawn from
+adroit's own Nerd Font whatever the console's font is. A directory is read
+when it is opened. Going into a directory opens it and goes to its first
+entry once it is read; going out closes the directory selected when it is
+open, or else the one it is in, and goes there. Names with a leading dot are
+listed only while the hidden are shown, and are drawn dim.
+
+In the tree, going out of any row closes the one it sits under, and going
+into a heading or a workspace goes to its first row, as in a directory.

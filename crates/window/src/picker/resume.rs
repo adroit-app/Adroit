@@ -75,7 +75,7 @@ pub(super) fn Resume(list: List) -> Element {
                     },
                 }
             }
-            PickerKeys { keys }
+            PickerKeys { keys: keys.iter().map(|(k, w)| (k.to_string(), w.to_string())).collect() }
         }
     }
 }

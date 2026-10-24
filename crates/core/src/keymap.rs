@@ -39,12 +39,16 @@ pub enum Context {
     Draft,
     /// A viewer in the focused window.
     Viewer,
+    /// Files and directories: the tree's, with a file or a directory
+    /// selected, before its own bindings, and the picker's.
+    Filer,
 }
 
 impl Context {
-    pub const ALL: [Context; 7] = [
+    pub const ALL: [Context; 8] = [
         Context::Global,
         Context::Tree,
+        Context::Filer,
         Context::Details,
         Context::Console,
         Context::Prompt,
@@ -61,6 +65,7 @@ impl Context {
             Context::Prompt => "prompt",
             Context::Draft => "draft",
             Context::Viewer => "viewer",
+            Context::Filer => "filer",
         }
     }
     /// What the Settings window heads the area's bindings with.
@@ -73,6 +78,7 @@ impl Context {
             Context::Prompt => "Prompt",
             Context::Draft => "New session",
             Context::Viewer => "Viewer",
+            Context::Filer => "Files",
         }
     }
 
@@ -86,6 +92,9 @@ impl Context {
             Context::Prompt => "The prompt, before Neovim takes the key.",
             Context::Draft => "Before the area's bindings while a new session is shown.",
             Context::Viewer => "A viewer of an image, a movie, an HTML page or a PDF.",
+            Context::Filer => {
+                "The tree's files and directories, before the tree's bindings, and the picker's directories."
+            }
         }
     }
 }
@@ -866,6 +875,28 @@ mod tests {
             Chord::pressed("L", false, false, true, false),
             Some("L".into())
         );
+    }
+
+    #[test]
+    fn the_filer_moves_as_fern_does() {
+        let map = Keymap::defaults();
+        let files = [Context::Filer, Context::Tree, Context::Global];
+        for (key, action) in [
+            ("j", Action::FilerDown),
+            ("ArrowDown", Action::FilerDown),
+            ("k", Action::FilerUp),
+            ("ArrowUp", Action::FilerUp),
+            ("l", Action::FilerInto),
+            ("ArrowRight", Action::FilerInto),
+            ("h", Action::FilerOut),
+            ("ArrowLeft", Action::FilerOut),
+            ("Enter", Action::FilerOpen),
+            ("!", Action::FilerHidden),
+            // What the filer leaves unbound is the tree's.
+            ("s", Action::CursorSplit),
+        ] {
+            assert_eq!(step(&map, &files, &[], key), Step::Run(action), "{key}");
+        }
     }
 
     #[test]

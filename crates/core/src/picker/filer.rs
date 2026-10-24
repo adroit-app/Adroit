@@ -1,5 +1,6 @@
 //! A directory tree over several roots, moved through like fern: `j`/`k`
-//! move, `l` opens, `h` closes or goes to the parent, `!` shows the hidden.
+//! move, `l` opens and goes in, `h` closes the directory under the cursor or
+//! the one it is in, `!` shows the hidden.
 //!
 //! Directories are read through a function the caller passes, so the tree
 //! is tested without a disk and drawn from what the work host listed.
@@ -192,8 +193,8 @@ impl Filer {
         }
     }
 
-    /// Close the directory under the cursor when it is open, else move to
-    /// its parent; a shut root stays where it is.
+    /// Close the directory under the cursor when it is open, else the one it
+    /// is in, moving there; a shut root stays where it is.
     pub fn close(&mut self, rows: &[Row]) {
         let Some(cur) = self.cursor.clone() else {
             return;
@@ -206,6 +207,8 @@ impl Filer {
             .parent()
             .and_then(|p| rows.iter().find(|r| r.is(&cur.root, p)))
         {
+            self.expanded
+                .remove(&(parent.root.clone(), parent.path.clone()));
             self.cursor = Some(parent.clone());
         }
     }
@@ -385,7 +388,7 @@ mod tests {
     }
 
     #[test]
-    fn closing_a_shut_directory_moves_to_its_parent_and_closing_an_open_one_shuts_it() {
+    fn closing_shuts_the_open_directory_under_the_cursor_or_else_the_one_it_is_in() {
         let read = sample();
         let mut filer = Filer::new(["/h"]);
         filer.open(&read);
@@ -395,13 +398,10 @@ mod tests {
 
         filer.close(&filer.rows(&read));
         assert_eq!(at(&filer), "/h/src");
-        filer.close(&filer.rows(&read));
-        assert_eq!(at(&filer), "/h/src");
         assert_eq!(
             lines(&filer.rows(&read)),
             vec!["/h", "  /h/docs", "  /h/src"]
         );
-        filer.close(&filer.rows(&read));
         filer.close(&filer.rows(&read));
         assert_eq!(at(&filer), "/h");
         assert_eq!(lines(&filer.rows(&read)), vec!["/h"]);
