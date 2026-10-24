@@ -777,12 +777,8 @@ pub fn copied(item: &Item, tree: &Tree, terminals: &[TerminalSession]) -> Option
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adroit_model::testing::{self, worktree as wt};
-    use adroit_model::{State, TerminalSession, Wait, build, inbox};
-
-    fn s(id: &str, cwd: &str, state: State) -> Session {
-        testing::session(id).cwd(cwd).state(state).build()
-    }
+    use adroit_model::testing::{self, TreeBuilder};
+    use adroit_model::{TerminalSession, Wait, inbox};
 
     const OAUTH: &str = "/api/.claude/worktrees/oauth";
 
@@ -790,25 +786,22 @@ mod tests {
     /// worktree; `web` one with sessions only in its main checkout; `tmp` is
     /// outside git.
     fn tree() -> Tree {
-        let found = testing::found(&[
-            ("/api", Some(wt("/api", "/api", "main"))),
-            (OAUTH, Some(wt(OAUTH, "/api", "oauth"))),
-            ("/web", Some(wt("/web", "/web", "main"))),
-            ("/tmp", None),
-        ]);
-        build(
-            &[
-                s("a", "/api", State::Working),
-                s("b", "/api", State::Waiting(Wait::Permission)),
-                s("o", OAUTH, State::Idle),
-                s("c", "/web", State::Idle),
-                s("z", "/tmp", State::Waiting(Wait::Input)),
-            ],
-            &[],
-            &found,
-            &[],
-            None,
-        )
+        repositories()
+            .found("/tmp", None)
+            .session(testing::session("a").cwd("/api").working())
+            .session(testing::session("b").cwd("/api").waiting(Wait::Permission))
+            .session(testing::session("o").cwd(OAUTH))
+            .session(testing::session("c").cwd("/web"))
+            .session(testing::session("z").cwd("/tmp").waiting(Wait::Input))
+            .build()
+    }
+
+    /// The main checkouts of `api` and `web`, and `api`'s `oauth` worktree.
+    fn repositories() -> TreeBuilder {
+        testing::tree()
+            .checkout("/api", "/api", "main")
+            .checkout(OAUTH, "/api", "oauth")
+            .checkout("/web", "/web", "main")
     }
 
     fn ws(root: &str) -> Item {
@@ -969,24 +962,22 @@ mod tests {
     /// `a` runs in the main checkout of `api` and started `o`, which runs in
     /// the `oauth` worktree, and `w`, which runs in `web`.
     fn delegating_tree(starter_listed: bool) -> Tree {
-        let found = testing::found(&[
-            ("/api", Some(wt("/api", "/api", "main"))),
-            (OAUTH, Some(wt(OAUTH, "/api", "oauth"))),
-            ("/web", Some(wt("/web", "/web", "main"))),
-        ]);
         let starter = adroit_model::SessionId::new();
-        let mut a = s("a", "/api", State::Working);
-        a.delegation = Some(starter);
-        let started = |id: &str, cwd: &str| Session {
-            delegation: Some(adroit_model::SessionId::new()),
-            parent: Some(starter),
-            ..s(id, cwd, State::Working)
+        let started = |id: &str, cwd: &str| {
+            testing::session(id)
+                .cwd(cwd)
+                .working()
+                .delegation(adroit_model::SessionId::new())
+                .parent(starter)
         };
-        let mut sessions = vec![started("o", OAUTH), started("w", "/web")];
-        if starter_listed {
-            sessions.push(a);
-        }
-        build(&sessions, &[], &found, &[], None)
+        let t = repositories()
+            .session(started("o", OAUTH))
+            .session(started("w", "/web"));
+        let a = testing::session("a")
+            .cwd("/api")
+            .working()
+            .delegation(starter);
+        if starter_listed { t.session(a) } else { t }.build()
     }
 
     #[test]
@@ -1415,8 +1406,10 @@ mod tests {
     fn a_workspace_without_a_main_checkout_works_in_its_first_worktree() {
         // A bare repository, a submodule or a separate git directory is
         // named by its git directory, which no session should start in.
-        let found = testing::found(&[("/src/w1", Some(wt("/src/w1", "/src/api.git", "a")))]);
-        let t = build(&[s("a", "/src/w1", State::Idle)], &[], &found, &[], None);
+        let t = testing::tree()
+            .checkout("/src/w1", "/src/api.git", "a")
+            .session(testing::session("a").cwd("/src/w1"))
+            .build();
         assert_eq!(place_of(&t, &ws("/src/api.git")), Some(at("/src/w1")));
     }
 
@@ -1424,11 +1417,8 @@ mod tests {
 
     fn sh(id: u128, name: &str, dir: &str) -> TerminalSession {
         TerminalSession {
-            program: Default::default(),
-            id,
             name: name.into(),
-            cwd: dir.into(),
-            ..Default::default()
+            ..testing::shell(id, dir)
         }
     }
 
@@ -1436,28 +1426,17 @@ mod tests {
     /// where no session runs, one in `tmp`, a workspace without a worktree
     /// row, and one in `notes`, outside git, where nothing else runs.
     fn shelled() -> Tree {
-        let found = testing::found(&[
-            ("/api", Some(wt("/api", "/api", "main"))),
-            (OAUTH, Some(wt(OAUTH, "/api", "oauth"))),
-            (DEV, Some(wt(DEV, "/api", "dev"))),
-            ("/web", Some(wt("/web", "/web", "main"))),
-            ("/tmp", None),
-            ("/notes", None),
-        ]);
-        let sessions: Vec<Session> = tree().sessions().map(|(_, s)| s.clone()).collect();
-        build(
-            &sessions,
-            &[
-                sh(1, "shell", "/api"),
-                sh(2, "shell", DEV),
-                sh(3, "shell-2", DEV),
-                sh(4, "shell", "/tmp"),
-                sh(5, "logs", "/notes"),
-            ],
-            &found,
-            &[],
-            None,
-        )
+        repositories()
+            .checkout(DEV, "/api", "dev")
+            .found("/tmp", None)
+            .found("/notes", None)
+            .sessions(tree().sessions().map(|(_, s)| s.clone()))
+            .terminal(sh(1, "shell", "/api"))
+            .terminal(sh(2, "shell", DEV))
+            .terminal(sh(3, "shell-2", DEV))
+            .terminal(sh(4, "shell", "/tmp"))
+            .terminal(sh(5, "logs", "/notes"))
+            .build()
     }
 
     fn shell(id: u128) -> Item {
@@ -1680,7 +1659,6 @@ mod tests {
     }
     fn editing(id: u128, path: &str) -> TerminalSession {
         TerminalSession {
-            id,
             program: TerminalProgram::Neovim,
             file: Some(path.into()),
             ..sh(id, "nvim", "/api")

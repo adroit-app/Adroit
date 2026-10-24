@@ -43,9 +43,8 @@ mod tests {
             .session(testing::session("a").name("fix").cwd("/r"))
             .build();
         let shell = TerminalSession {
-            id: 7,
             name: "zsh".into(),
-            ..Default::default()
+            ..testing::shell(7, "/r")
         };
         // (thing, its name)
         let cases = [

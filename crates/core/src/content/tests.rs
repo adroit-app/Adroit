@@ -1,10 +1,7 @@
 use std::collections::BTreeSet;
 
-use adroit_model::testing::worktree as wt;
-use adroit_model::{Session, State, TerminalProgram, TerminalSession, Wait, build};
-use adroit_protocol::{
-    Change, Event, Listed, Request, Seq, TreeChange, TreeWork, WorkPatch, WorkSnapshot,
-};
+use adroit_model::{TerminalProgram, Wait};
+use adroit_protocol::Request;
 
 use super::*;
 use crate::actions::Action;
@@ -12,79 +9,15 @@ use crate::details::Sheet;
 use crate::layout::Side;
 use crate::msg::Msg;
 use crate::scenario::Scenario;
+use crate::testing::{
+    SessionBuilder, listed, listing, patch, session, session_tab, shell, show, snapshot,
+};
 use crate::tree::nav::Item;
-
-fn session(id: &str, cwd: &str) -> Session {
-    Session {
-        id: id.into(),
-        name: format!("{id}-name"),
-        cwd: cwd.into(),
-        ..Default::default()
-    }
-}
-
-fn shell(id: u128, cwd: &str) -> TerminalSession {
-    TerminalSession {
-        id,
-        name: format!("shell-{id}"),
-        cwd: cwd.into(),
-        ..Default::default()
-    }
-}
-
-fn placed(sessions: Vec<Session>, terminals: Vec<TerminalSession>) -> Listed {
-    let found = sessions
-        .iter()
-        .map(|s| s.cwd.clone())
-        .chain(terminals.iter().map(|t| t.cwd.clone()))
-        .map(|cwd| (cwd.clone(), Some(wt(cwd, "/r", "main"))))
-        .collect();
-    let tree = build(&sessions, &terminals, &found, &[], None);
-    Listed {
-        sessions,
-        terminals,
-        tree,
-    }
-}
-
-/// The host's first word: the sessions and shells listed.
-fn listing(sessions: Vec<Session>, terminals: Vec<TerminalSession>) -> Event {
-    Event::Snapshot(Box::new(WorkSnapshot {
-        seq: Seq(1),
-        tree: TreeWork {
-            listed: Some(Box::new(placed(sessions, terminals))),
-            ..Default::default()
-        },
-        ..Default::default()
-    }))
-}
-
-/// The sessions and shells listed anew, as the host's `seq`th word.
-fn relisted(seq: u64, sessions: Vec<Session>, terminals: Vec<TerminalSession>) -> Event {
-    Event::Patch(WorkPatch {
-        seq: Seq(seq),
-        changes: vec![Change::Tree(TreeChange::Listed {
-            listed: Box::new(placed(sessions, terminals)),
-        })],
-    })
-}
 
 fn place(worktree: &str) -> Option<Place> {
     Some(Place {
         worktree: worktree.into(),
     })
-}
-
-fn show(thing: Tab) -> Msg {
-    Msg::Show {
-        thing,
-        place: None,
-        how: None,
-    }
-}
-
-fn show_session(id: &str) -> Msg {
-    show(Tab::Session(id.into()))
 }
 
 fn active(run: &Scenario) -> Option<Tab> {
@@ -110,10 +43,8 @@ fn opened(kept: Option<Tab>) -> Msg {
 
 /// The window as it stands once the first listing came: what it kept
 /// had its chance to come back.
-fn listed_with(sessions: Vec<Session>) -> Scenario {
-    Scenario::new()
-        .send(opened(None))
-        .event(listing(sessions, Vec::new()))
+fn listed_with(sessions: impl IntoIterator<Item = SessionBuilder>) -> Scenario {
+    Scenario::new().send(opened(None)).event(listing(sessions))
 }
 
 fn live(ids: &[&str]) -> Msg {
@@ -122,19 +53,18 @@ fn live(ids: &[&str]) -> Msg {
 
 #[test]
 fn a_window_follows_its_session_once_it_is_taken_over() {
-    let mut own = session("own", "/r");
-    own.session_id = "pid-1".into();
-    let run = listed_with(vec![session("pid-1", "/r")])
-        .send(show_session("pid-1"))
-        .event(relisted(2, vec![own], Vec::new()));
+    let own = session("own").cwd("/r").session_id("pid-1");
+    let run = listed_with([session("pid-1").cwd("/r")])
+        .send(show(session_tab("pid-1")))
+        .event(patch(2).listed(listed().session(own)));
     assert_eq!(shown(&run), [Tab::Session("own".into())]);
 }
 
 #[test]
 fn a_session_that_ends_gives_its_windows_up_and_is_said_to_have_ended() {
-    let run = listed_with(vec![session("a", "/r"), session("b", "/r")])
-        .send(show_session("a"))
-        .event(relisted(2, vec![session("b", "/r")], Vec::new()));
+    let run = listed_with([session("a").cwd("/r"), session("b").cwd("/r")])
+        .send(show(session_tab("a")))
+        .event(patch(2).listed(listed().session(session("b").cwd("/r"))));
     // The worktree's first session shows once nothing else is open.
     assert_eq!(shown(&run), [Tab::Session("b".into())]);
     assert_eq!(
@@ -148,10 +78,10 @@ fn a_session_live_here_stays_though_it_is_not_listed() {
     // (what holds it, whether it stays shown)
     let cases: Vec<(Vec<Msg>, bool)> = vec![(vec![], false), (vec![live(&["a"])], true)];
     for (held, stays) in cases {
-        let run = listed_with(vec![session("a", "/r")])
-            .send(show_session("a"))
+        let run = listed_with([session("a").cwd("/r")])
+            .send(show(session_tab("a")))
             .send_all(held.clone())
-            .event(relisted(2, Vec::new(), Vec::new()));
+            .event(patch(2).listed(listed()));
         assert_eq!(
             shown(&run).contains(&Tab::Session("a".into())),
             stays,
@@ -162,10 +92,10 @@ fn a_session_live_here_stays_though_it_is_not_listed() {
 
 #[test]
 fn a_session_no_longer_live_is_given_up_and_said_to_have_ended_once_told() {
-    let run = listed_with(vec![session("a", "/r")])
-        .send(show_session("a"))
+    let run = listed_with([session("a").cwd("/r")])
+        .send(show(session_tab("a")))
         .send(live(&["a"]))
-        .event(relisted(2, Vec::new(), Vec::new()));
+        .event(patch(2).listed(listed()));
     assert_eq!(shown(&run), [Tab::Session("a".into())]);
     let gone = run.send(live(&[]));
     assert_eq!(shown(&gone), Vec::<Tab>::new());
@@ -177,7 +107,7 @@ fn a_session_no_longer_live_is_given_up_and_said_to_have_ended_once_told() {
 
 #[test]
 fn the_panes_kept_are_those_of_what_a_new_listing_lists() {
-    let run = listed_with(vec![session("a", "/r")]);
+    let run = listed_with([session("a").cwd("/r")]);
     let kept = run
         .last_effects()
         .iter()
@@ -216,10 +146,7 @@ fn the_tab_kept_from_the_last_run_comes_back_once_listed() {
         let run = Scenario::new()
             .send(opened(Some(a.clone())))
             .send_all(before.clone().map(show))
-            .event(listing(
-                vec![session("a", "/r/a"), session("b", "/r/b")],
-                Vec::new(),
-            ));
+            .event(listing([session("a"), session("b")]));
         assert_eq!(active(&run), after, "{before:?}");
         if before.is_none() {
             assert_eq!(run.state().content.place, place("/r/a"));
@@ -233,7 +160,7 @@ fn a_kept_tab_comes_back_when_the_sessions_were_listed_before_the_window_opened(
     let kept = [Tab::Session("a".into()), Tab::Terminal(7)];
     for tab in kept {
         let run = Scenario::new()
-            .event(listing(vec![session("a", "/r/a")], vec![shell(7, "/r/a")]))
+            .event(snapshot().listed(listed().session(session("a")).terminal(shell(7, "/r/a"))))
             .send(opened(Some(tab.clone())));
         assert_eq!(active(&run), Some(tab.clone()), "{tab:?}");
     }
@@ -243,8 +170,8 @@ fn a_kept_tab_comes_back_when_the_sessions_were_listed_before_the_window_opened(
 fn a_kept_tab_not_listed_at_first_is_given_up() {
     let run = Scenario::new()
         .send(opened(Some(Tab::Session("a".into()))))
-        .event(listing(Vec::new(), Vec::new()))
-        .event(relisted(2, vec![session("a", "/r")], Vec::new()));
+        .event(snapshot().listed(listed()))
+        .event(patch(2).listed(listed().session(session("a").cwd("/r"))));
     assert_eq!(active(&run), None);
 }
 
@@ -259,18 +186,19 @@ fn what_shows_is_kept_for_the_next_run_once_the_kept_tab_had_its_chance() {
             })
             .collect()
     };
-    let before = Scenario::new().send(opened(None)).send(show_session("a"));
+    let before = Scenario::new()
+        .send(opened(None))
+        .send(show(session_tab("a")));
     assert_eq!(kept(&before), Vec::<Option<Tab>>::new());
     let after = before
-        .event(listing(vec![session("a", "/r")], Vec::new()))
+        .event(listing([session("a").cwd("/r")]))
         .send(Msg::Window(Action::TabClose));
     assert_eq!(kept(&after), [Some(Tab::Session("a".into())), None]);
 }
 
 #[test]
 fn a_session_that_starts_waiting_is_told_of_after_the_first_listing() {
-    let mut waits = session("a", "/r");
-    waits.state = State::Waiting(Wait::Permission);
+    let waits = session("a").cwd("/r").waiting(Wait::Permission);
     let notifying = || {
         Scenario::new().event(crate::config::testing::configured(
             "notify_waiting = true\n",
@@ -278,7 +206,7 @@ fn a_session_that_starts_waiting_is_told_of_after_the_first_listing() {
     };
     let first = notifying()
         .send(opened(None))
-        .event(listing(vec![waits.clone()], Vec::new()));
+        .event(listing([waits.clone()]));
     assert!(
         !first
             .effects()
@@ -287,8 +215,8 @@ fn a_session_that_starts_waiting_is_told_of_after_the_first_listing() {
     );
     let later = notifying()
         .send(opened(None))
-        .event(listing(vec![session("a", "/r")], Vec::new()))
-        .event(relisted(2, vec![waits], Vec::new()));
+        .event(listing([session("a").cwd("/r")]))
+        .event(patch(2).listed(listed().session(waits)));
     assert_eq!(
         later
             .last_effects()
@@ -305,9 +233,9 @@ fn a_session_that_starts_waiting_is_told_of_after_the_first_listing() {
 
 #[test]
 fn the_middle_follows_what_the_focused_window_shows() {
-    let run = listed_with(vec![session("a", "/r/a"), session("b", "/r/b")]).send(show_session("a"));
+    let run = listed_with([session("a"), session("b")]).send(show(session_tab("a")));
     assert_eq!(run.state().content.place, place("/r/a"));
-    let b = run.send(show_session("b"));
+    let b = run.send(show(session_tab("b")));
     assert_eq!(b.state().content.place, place("/r/b"));
     // A tab whose thing is placed nowhere leaves the middle where it is.
     let nowhere = b.send(show(Tab::Viewer("/elsewhere/a.png".into())));
@@ -316,21 +244,21 @@ fn the_middle_follows_what_the_focused_window_shows() {
 
 #[test]
 fn a_session_shown_before_it_is_listed_is_placed_once_it_is() {
-    let run = listed_with(Vec::new())
+    let run = listed_with([])
         .send(Msg::Show {
             thing: Tab::Session("new".into()),
             place: place("/r"),
             how: None,
         })
-        .event(relisted(2, vec![session("new", "/r/w")], Vec::new()));
+        .event(patch(2).listed(listed().session(session("new").cwd("/r/w"))));
     assert_eq!(run.state().content.place, place("/r/w"));
 }
 
 #[test]
 fn the_session_last_shown_in_a_workspace_is_remembered() {
-    let run = listed_with(vec![session("a", "/r"), session("b", "/r")])
-        .send(show_session("a"))
-        .send(show_session("b"));
+    let run = listed_with([session("a").cwd("/r"), session("b").cwd("/r")])
+        .send(show(session_tab("a")))
+        .send(show(session_tab("b")));
     assert_eq!(
         run.state()
             .content
@@ -437,7 +365,7 @@ fn a_panel_hidden_from_the_start_leaves_the_keys_where_they_are() {
 #[test]
 fn a_shell_shown_takes_the_keys_from_the_prompt() {
     let run = Scenario::new()
-        .send(show_session("a"))
+        .send(show(session_tab("a")))
         .send(Msg::Focus(Area::Prompt))
         .send(show(Tab::Terminal(1)));
     assert_eq!(run.state().content.focus, Area::Console);
@@ -446,7 +374,7 @@ fn a_shell_shown_takes_the_keys_from_the_prompt() {
 #[test]
 fn coming_into_the_prompt_asks_the_console_for_what_was_typed() {
     let run = Scenario::new()
-        .send(show_session("a"))
+        .send(show(session_tab("a")))
         .send(Msg::Focus(Area::Console));
     assert!(!run.last_effects().contains(&Effect::ConsoleLive));
     let into = run.send(Msg::Focus(Area::Prompt));
@@ -458,7 +386,7 @@ fn coming_into_the_prompt_asks_the_console_for_what_was_typed() {
 #[test]
 fn the_window_back_key_returns_to_where_the_keys_were() {
     let run = Scenario::new()
-        .send(show_session("a"))
+        .send(show(session_tab("a")))
         .send(Msg::Focus(Area::Console))
         .send(Msg::Focus(Area::Details))
         .send(Msg::Window(Action::WindowBack));
@@ -468,7 +396,7 @@ fn the_window_back_key_returns_to_where_the_keys_were() {
 #[test]
 fn the_window_keys_leave_a_hidden_panel_alone() {
     let run = Scenario::new()
-        .send(show_session("a"))
+        .send(show(session_tab("a")))
         .send(Msg::Focus(Area::Console))
         .send(Msg::PanelToggle(Side::Sidebar))
         .send(Msg::Window(Action::WindowLeft));
@@ -516,7 +444,7 @@ fn the_window_keys_split_close_and_go_through_tabs() {
 #[test]
 fn the_tab_keys_step_the_details_sheets_while_the_details_have_the_keys() {
     let run = Scenario::new()
-        .send(show_session("a"))
+        .send(show(session_tab("a")))
         .send(Msg::Focus(Area::Details))
         .send(Msg::Window(Action::TabNext));
     assert_eq!(run.state().details.drill.sheet(), Sheet::Changes);
@@ -548,8 +476,8 @@ fn a_new_window_splits_off_a_draft_in_the_middle_s_worktree() {
 #[test]
 fn a_new_session_or_shell_starts_in_the_selected_row_s_worktree_from_the_tree() {
     let base = || {
-        listed_with(vec![session("a", "/r/a"), session("b", "/r/b")])
-            .send(show_session("a"))
+        listed_with([session("a"), session("b")])
+            .send(show(session_tab("a")))
             .send(Msg::TreeSelect(Some(Item::Session("b".into()))))
     };
     // (where the keys are, the worktree)
@@ -581,7 +509,7 @@ fn a_new_session_or_shell_starts_in_the_selected_row_s_worktree_from_the_tree() 
 
 #[test]
 fn opening_a_row_shows_what_it_stands_for_and_may_take_the_keys() {
-    let run = listed_with(vec![session("a", "/r")]).send(Msg::OpenRow {
+    let run = listed_with([session("a").cwd("/r")]).send(Msg::OpenRow {
         item: Item::Session("a".into()),
         how: Some(Opening::Existing),
         take_keys: false,
@@ -589,7 +517,7 @@ fn opening_a_row_shows_what_it_stands_for_and_may_take_the_keys() {
     assert_eq!(active(&run), Some(Tab::Session("a".into())));
     assert_eq!(run.state().content.focus, Area::Sidebar);
     assert_eq!(run.state().tree.selected, Some(Item::Session("a".into())));
-    let keys = listed_with(vec![session("a", "/r")]).send(Msg::OpenRow {
+    let keys = listed_with([session("a").cwd("/r")]).send(Msg::OpenRow {
         item: Item::Session("a".into()),
         how: Some(Opening::Existing),
         take_keys: true,
@@ -600,8 +528,8 @@ fn opening_a_row_shows_what_it_stands_for_and_may_take_the_keys() {
 #[test]
 fn a_row_clicked_opens_as_cursor_go_opens_it() {
     let item = Item::Session("a".into());
-    let clicked = listed_with(vec![session("a", "/r")]).send(Msg::RowClicked(item.clone()));
-    let gone = listed_with(vec![session("a", "/r")]).send(Msg::OpenRow {
+    let clicked = listed_with([session("a").cwd("/r")]).send(Msg::RowClicked(item.clone()));
+    let gone = listed_with([session("a").cwd("/r")]).send(Msg::OpenRow {
         item,
         how: Some(Opening::Existing),
         take_keys: true,
@@ -618,7 +546,7 @@ fn opening_a_file_s_row_starts_a_neovim_on_it() {
         path: "/r/a.rs".into(),
         dir: false,
     };
-    let run = listed_with(vec![session("a", "/r")]).send(Msg::OpenRow {
+    let run = listed_with([session("a").cwd("/r")]).send(Msg::OpenRow {
         item: file,
         how: Some(Opening::Tab),
         take_keys: true,
@@ -641,8 +569,8 @@ fn opening_a_file_s_row_starts_a_neovim_on_it() {
 
 #[test]
 fn a_session_is_shown_wherever_it_runs_and_its_row_selected() {
-    let run = listed_with(vec![session("a", "/r/a"), session("b", "/r/b")])
-        .send(show_session("a"))
+    let run = listed_with([session("a"), session("b")])
+        .send(show(session_tab("a")))
         .send(Msg::ShowSession("b".into()));
     assert_eq!(active(&run), Some(Tab::Session("b".into())));
     assert_eq!(run.state().content.place, place("/r/b"));
@@ -655,7 +583,13 @@ fn a_session_is_shown_wherever_it_runs_and_its_row_selected() {
 fn a_closed_shell_gives_its_windows_up_to_another_thing_of_its_worktree() {
     let run = Scenario::new()
         .send(opened(None))
-        .event(listing(vec![session("a", "/r")], vec![shell(1, "/r")]))
+        .event(
+            snapshot().listed(
+                listed()
+                    .session(session("a").cwd("/r"))
+                    .terminal(shell(1, "/r")),
+            ),
+        )
         .send(Msg::Show {
             thing: Tab::Terminal(1),
             place: place("/r"),
@@ -676,7 +610,7 @@ fn a_closed_shell_gives_its_windows_up_to_another_thing_of_its_worktree() {
 #[test]
 fn dragging_a_border_resizes_the_windows_beside_it() {
     let run = Scenario::new()
-        .send(show_session("a"))
+        .send(show(session_tab("a")))
         .send(Msg::Window(Action::WindowVsplit));
     let border = run.state().content.windows.current().unwrap().borders()[0].clone();
     let dragged = run
@@ -716,9 +650,9 @@ fn the_host_reads_the_worktree_in_the_middle_while_it_is_there() {
             })
             .flatten()
     };
-    let run = Scenario::new().event(listing(vec![session("a", "/r/a")], vec![]));
+    let run = Scenario::new().event(listing([session("a")]));
     assert_eq!(watched(&run), None);
-    let run = run.send(show_session("a"));
+    let run = run.send(show(session_tab("a")));
     assert_eq!(
         watched(&run),
         Some(adroit_protocol::HostPath::local("/r/a"))
@@ -727,15 +661,14 @@ fn the_host_reads_the_worktree_in_the_middle_while_it_is_there() {
 
 #[test]
 fn a_session_that_starts_waiting_is_not_told_of_when_the_settings_say_so() {
-    let mut waits = session("a", "/r");
-    waits.state = State::Waiting(Wait::Permission);
+    let waits = session("a").cwd("/r").waiting(Wait::Permission);
     let run = Scenario::new()
         .event(crate::config::testing::configured(
             "notify_waiting = false\n",
         ))
         .send(opened(None))
-        .event(listing(vec![session("a", "/r")], Vec::new()))
-        .event(relisted(2, vec![waits], Vec::new()));
+        .event(listing([session("a").cwd("/r")]))
+        .event(patch(2).listed(listed().session(waits)));
     assert!(
         !run.effects()
             .iter()
@@ -746,8 +679,7 @@ fn a_session_that_starts_waiting_is_not_told_of_when_the_settings_say_so() {
 #[test]
 fn a_prompt_goes_to_the_session_s_agent_or_the_draft_s_or_the_last_chosen_or_the_settings() {
     use adroit_model::Agent;
-    let mut codex = session("c", "/r");
-    codex.agent = Agent::Codex;
+    let codex = session("c").cwd("/r").agent(Agent::Codex);
     let draft = |dir: &str| Tab::Draft {
         worktree: dir.into(),
         id: Default::default(),
@@ -755,7 +687,7 @@ fn a_prompt_goes_to_the_session_s_agent_or_the_draft_s_or_the_last_chosen_or_the
     let run = Scenario::new()
         .event(crate::config::testing::configured("agent = \"codex\"\n"))
         .send(opened(None))
-        .event(listing(vec![codex], Vec::new()));
+        .event(listing([codex]));
     let state = run.state();
     assert_eq!(
         agent_of(state, Some(&Tab::Session("c".into()))),

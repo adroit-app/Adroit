@@ -362,71 +362,13 @@ pub fn working(work: Option<&WorkSnapshot>) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use adroit_model::testing::{self, worktree as wt};
-    use adroit_model::{Session, Wait, build};
-    use adroit_protocol::{Change, Event, Listed, Sight, TreeChange, WorkPatch};
+    use adroit_model::{Session, Wait};
+    use adroit_protocol::{Sight, TreeChange};
 
     use super::*;
     use crate::msg::Msg;
     use crate::scenario::Scenario;
-
-    fn session(id: &str, cwd: &str) -> Session {
-        Session {
-            id: id.into(),
-            name: id.into(),
-            cwd: cwd.into(),
-            ..Default::default()
-        }
-    }
-
-    fn waiting(id: &str, cwd: &str) -> Session {
-        Session {
-            state: State::Waiting(Wait::Permission),
-            ..session(id, cwd)
-        }
-    }
-
-    /// The host's first word: the sessions listed, placed in their worktrees.
-    fn listing(sessions: Vec<Session>) -> Event {
-        Event::Snapshot(Box::new(WorkSnapshot {
-            seq: Seq(1),
-            tree: TreeWork {
-                listed: Some(Box::new(placed(sessions))),
-                ..Default::default()
-            },
-            ..Default::default()
-        }))
-    }
-
-    fn placed(sessions: Vec<Session>) -> Listed {
-        let found = sessions
-            .iter()
-            .map(|s| (s.cwd.clone(), Some(wt(s.cwd.clone(), "/r", "main"))))
-            .collect();
-        let tree = build(&sessions, &[], &found, &[], None);
-        Listed {
-            sessions,
-            terminals: Vec::new(),
-            tree,
-        }
-    }
-
-    fn patch(seq: u64, changes: Vec<TreeChange>) -> Event {
-        Event::Patch(WorkPatch {
-            seq: Seq(seq),
-            changes: changes.into_iter().map(Change::Tree).collect(),
-        })
-    }
-
-    fn shows_session(id: &str, worktree: &str) -> Msg {
-        Msg::Show {
-            thing: Tab::Session(id.into()),
-            place: Some(Place {
-                worktree: worktree.into(),
-            }),
-            how: None,
-        }
-    }
+    use crate::testing::{self, listing, patch, session, session_tab, shell, show_in};
 
     fn rows(run: &Scenario) -> Vec<Item> {
         run.state().tree.rows.clone()
@@ -481,28 +423,25 @@ mod tests {
 
     #[test]
     fn a_finished_session_is_seen_once_shown_while_the_user_is_in_the_window() {
-        let done = |id: &str| Session {
-            state: State::Done,
-            ..session(id, "/r")
-        };
+        let done = |id: &str| session(id).cwd("/r").state(State::Done);
         let finished = |run: &Scenario, id: &str| -> State {
             let tree = listed(run.state().host.work.as_ref()).clone();
             let (_, s) = nav::find(&tree, id).unwrap();
             run.state().tree.completions.state(s).clone()
         };
-        let listed_done = Scenario::new().event(listing(vec![done("a"), done("b")]));
+        let listed_done = Scenario::new().event(listing([done("a"), done("b")]));
         assert_eq!(finished(&listed_done, "a"), State::Done);
-        let shown = listed_done.send(shows_session("a", "/r"));
+        let shown = listed_done.send(show_in(session_tab("a"), "/r"));
         assert_eq!(finished(&shown, "a"), State::Idle);
         assert_eq!(finished(&shown, "b"), State::Done);
         // Seen once, it stays seen when another is shown.
-        let other = shown.send(shows_session("b", "/r"));
+        let other = shown.send(show_in(session_tab("b"), "/r"));
         assert_eq!(finished(&other, "a"), State::Idle);
         // Shown while the window is in the back, it is not seen yet.
         let away = Scenario::new()
             .send(Msg::WindowFocused(false))
-            .event(listing(vec![done("a")]))
-            .send(shows_session("a", "/r"));
+            .event(listing([done("a")]))
+            .send(show_in(session_tab("a"), "/r"));
         assert_eq!(finished(&away, "a"), State::Done);
         let back = away.send(Msg::WindowFocused(true));
         assert_eq!(finished(&back, "a"), State::Idle);
@@ -510,7 +449,10 @@ mod tests {
 
     #[test]
     fn the_rows_are_built_from_what_the_host_lists() {
-        let run = Scenario::new().event(listing(vec![session("a", "/r"), waiting("b", "/r/w")]));
+        let run = Scenario::new().event(listing([
+            session("a").cwd("/r"),
+            session("b").cwd("/r/w").waiting(Wait::Permission),
+        ]));
         let got = rows(&run);
         assert!(got.contains(&Item::Workspace("/r".into())));
         assert!(got.contains(&Item::Session("a".into())));
@@ -528,9 +470,9 @@ mod tests {
     #[test]
     fn the_filter_narrows_the_rows_and_the_waiting_ones() {
         let run = Scenario::new()
-            .event(listing(vec![
-                session("apple", "/r"),
-                waiting("berry", "/r"),
+            .event(listing([
+                session("apple").cwd("/r"),
+                session("berry").cwd("/r").waiting(Wait::Permission),
             ]))
             .send(Msg::TreeFilter("app".into()));
         let got = rows(&run);
@@ -544,7 +486,7 @@ mod tests {
     fn a_folded_workspace_hides_its_rows_until_unfolded() {
         let ws = Item::Workspace("/r".into());
         let run = Scenario::new()
-            .event(listing(vec![session("a", "/r")]))
+            .event(listing([session("a").cwd("/r")]))
             .send(Msg::TreeFold {
                 row: ws.clone(),
                 open: false,
@@ -558,7 +500,7 @@ mod tests {
     fn the_keys_move_the_selection_through_the_rows() {
         let base = || {
             Scenario::new()
-                .event(listing(vec![session("a", "/r")]))
+                .event(listing([session("a").cwd("/r")]))
                 .send(Msg::TreeSelect(Some(Item::Session("a".into()))))
         };
         let all = rows(&base());
@@ -585,7 +527,7 @@ mod tests {
     fn the_fold_key_folds_an_open_node_and_climbs_from_anything_else() {
         let heading = Item::Heading("/r".into(), Heading::Sessions);
         let run = Scenario::new()
-            .event(listing(vec![session("a", "/r")]))
+            .event(listing([session("a").cwd("/r")]))
             .send(Msg::TreeSelect(Some(Item::Session("a".into()))))
             .send(Msg::TreeKey(Key::Fold));
         assert_eq!(selected(&run), Some(heading.clone()));
@@ -597,37 +539,29 @@ mod tests {
     #[test]
     fn a_selected_row_that_leaves_gives_way_to_its_other_row() {
         let run = Scenario::new()
-            .event(listing(vec![waiting("a", "/r")]))
-            .send(shows_session("a", "/r"))
+            .event(listing([session("a").cwd("/r").waiting(Wait::Permission)]))
+            .send(show_in(session_tab("a"), "/r"))
             .send(Msg::TreeSelect(Some(Item::Waiting("a".into()))))
-            .event(patch(
-                2,
-                vec![TreeChange::Listed {
-                    listed: Box::new(placed(vec![session("a", "/r")])),
-                }],
-            ));
+            .event(patch(2).listed(testing::listed().sessions([session("a").cwd("/r")])));
         assert_eq!(selected(&run), Some(Item::Session("a".into())));
     }
 
     #[test]
     fn a_row_selected_ahead_of_being_listed_stays_until_it_is() {
         let run = Scenario::new()
-            .event(listing(vec![session("a", "/r")]))
-            .send(shows_session("a", "/r"))
+            .event(listing([session("a").cwd("/r")]))
+            .send(show_in(session_tab("a"), "/r"))
             .send(Msg::TreeSelect(Some(Item::Session("new".into()))));
         assert_eq!(selected(&run), Some(Item::Session("new".into())));
-        let listed = run.event(patch(
-            2,
-            vec![TreeChange::Listed {
-                listed: Box::new(placed(vec![session("a", "/r"), session("new", "/r")])),
-            }],
+        let listed = run.event(patch(2).listed(
+            testing::listed().sessions([session("a").cwd("/r"), session("new").cwd("/r")]),
         ));
         assert_eq!(selected(&listed), Some(Item::Session("new".into())));
     }
 
     #[test]
     fn the_selection_follows_the_window_unless_moved_by_hand() {
-        let sessions = vec![session("a", "/r"), session("b", "/r")];
+        let sessions = vec![session("a").cwd("/r"), session("b").cwd("/r")];
         // (selection before the switch, selection after it)
         let cases = [
             (None, Some(Item::Session("b".into()))),
@@ -643,9 +577,9 @@ mod tests {
         for (before, after) in cases {
             let run = Scenario::new()
                 .event(listing(sessions.clone()))
-                .send(shows_session("a", "/r"))
+                .send(show_in(session_tab("a"), "/r"))
                 .send(Msg::TreeSelect(before.clone()))
-                .send(shows_session("b", "/r"));
+                .send(show_in(session_tab("b"), "/r"));
             assert_eq!(selected(&run), after, "{before:?}");
         }
     }
@@ -654,7 +588,7 @@ mod tests {
     fn the_host_keeps_read_the_files_the_rows_list() {
         let files = Item::Heading("/r".into(), Heading::Files);
         let run = Scenario::new()
-            .event(listing(vec![session("a", "/r")]))
+            .event(listing([session("a").cwd("/r")]))
             .send(Msg::TreeFold {
                 row: files.clone(),
                 open: true,
@@ -666,13 +600,10 @@ mod tests {
             path: "/r/src".into(),
             dir: true,
         };
-        let read = run.event(patch(
-            2,
-            vec![TreeChange::Entries {
-                dir: "/r".into(),
-                entries: vec![src],
-            }],
-        ));
+        let read = run.event(patch(2).change(TreeChange::Entries {
+            dir: "/r".into(),
+            entries: vec![src],
+        }));
         let dir = Item::File {
             worktree: "/r".into(),
             path: "/r/src".into(),
@@ -715,18 +646,18 @@ mod tests {
             error: error.map(Into::into),
         };
         let run = Scenario::new()
-            .event(listing(Vec::new()))
-            .event(patch(2, vec![failing(Some("no daemon"))]));
+            .event(listing(Vec::<Session>::new()))
+            .event(patch(2).change(failing(Some("no daemon"))));
         assert_eq!(run.state().chrome.status.line.as_deref(), Some("no daemon"));
-        let read = run.event(patch(3, vec![failing(None)]));
+        let read = run.event(patch(3).change(failing(None)));
         assert_eq!(read.state().chrome.status.line, None);
     }
 
     #[test]
     fn the_header_names_where_the_focused_window_is() {
         let run = Scenario::new()
-            .event(listing(vec![session("a", "/r")]))
-            .send(shows_session("a", "/r"));
+            .event(listing([session("a").cwd("/r")]))
+            .send(show_in(session_tab("a"), "/r"));
         let got = crumbs(
             &run.state().content.showing(),
             run.state().host.work.as_ref(),
@@ -736,7 +667,7 @@ mod tests {
             Some(Crumbs {
                 workspace: Some(("r".into(), false)),
                 worktree: "/r".into(),
-                target: "a".into(),
+                target: "a-name".into(),
             })
         );
         let nothing = run.send(Msg::Window(crate::actions::Action::TabClose));
@@ -751,15 +682,11 @@ mod tests {
 
     #[test]
     fn a_tab_is_placed_in_the_worktree_its_thing_is_in() {
-        let tree = testing::tree()
-            .session(testing::session("a").cwd("/r/w"))
+        let tree = adroit_model::testing::tree()
+            .session(session("a").cwd("/r/w"))
             .checkout("/r/w", "/r", "b")
             .build();
-        let shell = TerminalSession {
-            id: 7,
-            cwd: "/r/w/src".into(),
-            ..Default::default()
-        };
+        let shell = shell(7, "/r/w/src");
         let place = |w: &str| Some(Place { worktree: w.into() });
         // (tab, its place)
         let cases = [
