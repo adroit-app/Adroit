@@ -528,3 +528,93 @@ fn a_command_key_runs_the_window_s_binding_while_a_dialog_takes_every_key() {
         );
     }
 }
+
+fn ctrl_q() -> Msg {
+    press(Key::new("q").ctrl(), with_pane())
+}
+
+/// The window with the user's own bindings in force.
+fn bound(text: &str) -> Scenario {
+    window().tell(adroit_protocol::ConfigChange::Keys {
+        file: crate::config::testing::keys_file(text),
+    })
+}
+
+fn performed(run: &Scenario) -> Vec<Action> {
+    run.effects()
+        .iter()
+        .filter_map(|e| match e {
+            Effect::PerformKey(a, _) => Some(a.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn the_last_key_of_a_sequence_stepping_through_tabs_steps_again_alone() {
+    let run = window().send_all([ctrl_q(), key("g"), key("t"), key("t")]);
+    assert_eq!(
+        run.last_effects(),
+        [Effect::PerformKey(Action::TabNext, Key::new("t"))]
+    );
+    // Another key the same keys begin a repeating binding with steps too.
+    let run = run.send(key("T"));
+    assert_eq!(
+        run.last_effects(),
+        [Effect::PerformKey(Action::TabPrev, Key::new("T"))]
+    );
+}
+
+#[test]
+fn the_user_s_own_sequence_repeats_by_its_last_key_as_well() {
+    let run = bound("[global]\n\"Ctrl+q ]\" = \"tab.next\"\n\"Ctrl+q [\" = \"tab.prev\"\n")
+        .send_all([ctrl_q(), key("]"), key("]"), key("]"), key("[")]);
+    assert_eq!(
+        performed(&run),
+        [
+            Action::TabNext,
+            Action::TabNext,
+            Action::TabNext,
+            Action::TabPrev
+        ]
+    );
+}
+
+#[test]
+fn a_key_that_repeats_nothing_ends_the_repeating_and_does_what_it_does() {
+    let run = window().send_all([ctrl_q(), key("}"), key("s")]);
+    // `s` alone is no binding of the console: it starts reading it.
+    assert_eq!(
+        run.last_effects(),
+        [Effect::ReadConsole(vec![Key::new("s")])]
+    );
+    assert_eq!(run.state().console.repeat, None);
+    let run = run.send(key("}"));
+    assert_eq!(performed(&run), [Action::WorkspaceNext]);
+}
+
+#[test]
+fn a_sequence_that_does_not_step_through_anything_does_not_repeat() {
+    let run = window().send_all([ctrl_q(), key("s"), key("s")]);
+    assert_eq!(performed(&run), [Action::WindowSplit]);
+    assert_eq!(run.state().console.repeat, None);
+}
+
+#[test]
+fn text_typed_ends_the_repeating() {
+    let run = window().send_all([
+        ctrl_q(),
+        key("}"),
+        Msg::Text {
+            text: "}".into(),
+            pasted: false,
+        },
+    ]);
+    assert_eq!(run.state().console.repeat, None);
+}
+
+#[test]
+fn the_keys_repeat_while_the_last_key_is_pressed_again() {
+    let run = window().send_all([ctrl_q(), key("}")]);
+    assert_eq!(run.state().console.repeat, Some(vec![Key::new("q").ctrl()]));
+}

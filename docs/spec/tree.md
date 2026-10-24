@@ -106,9 +106,8 @@ choosing one with the filer's open key starts a session there. `Ctrl+f` goes bac
 `Escape` closes the picker.
 
 `n` on a row starts a session in that row's worktree or directory without the
-picker. `Ctrl+q N` and `Ctrl+q P` open the next and
-the previous session without asking, and `Ctrl+q }` and `Ctrl+q {` a session
-of the next and the previous workspace, the one last shown there.
+picker. `Ctrl+q }` and `Ctrl+q {` open a session of the next and the
+previous workspace without asking, the one last shown there.
 
 ## Scratch sessions
 

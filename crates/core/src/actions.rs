@@ -166,6 +166,9 @@ pub struct ActionSpec {
     /// they call it says too little among the keys.
     pub says: Option<&'static str>,
     pub icon: Option<Icon>,
+    /// Whether it steps through something, so the last key of a sequence
+    /// bound to it runs it again alone.
+    pub repeats: bool,
 }
 
 impl ActionSpec {
@@ -178,6 +181,7 @@ impl ActionSpec {
             row: None,
             says: None,
             icon: None,
+            repeats: false,
         }
     }
 
@@ -189,6 +193,11 @@ impl ActionSpec {
 
     const fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
+        self
+    }
+
+    const fn repeats(mut self) -> Self {
+        self.repeats = true;
         self
     }
 
@@ -214,8 +223,8 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::WindowDown, "window.down", "move to the window below: a session's prompt lies below its console").bar("Window Below", Icon::SquareArrowDown),
     S::new(A::WindowUp, "window.up", "move to the window above: a session's console lies above its prompt").bar("Window Above", Icon::SquareArrowUp),
     S::new(A::WindowRight, "window.right", "move to the window to the right: the details panel lies right of the content's windows").bar("Right Window", Icon::SquareArrowRight),
-    S::new(A::WindowNext, "window.next", "move to the window after the one the keys are in, from the tree through the content's windows, each console before its prompt, to the details panel, going round at the end").bar("Next Window", Icon::ArrowBarRight),
-    S::new(A::WindowPrev, "window.prev", "move to the window before the one the keys are in, in the order `window.next` goes, going round at the start").bar("Previous Window", Icon::ArrowBarLeft),
+    S::new(A::WindowNext, "window.next", "move to the window after the one the keys are in, from the tree through the content's windows, each console before its prompt, to the details panel, going round at the end").bar("Next Window", Icon::ArrowBarRight).repeats(),
+    S::new(A::WindowPrev, "window.prev", "move to the window before the one the keys are in, in the order `window.next` goes, going round at the start").bar("Previous Window", Icon::ArrowBarLeft).repeats(),
     S::new(A::WindowTop, "window.top", "move to the first window, the tree when shown").bar("First Window", Icon::ArrowUpLeft),
     S::new(A::WindowBottom, "window.bottom", "move to the last window, the details panel when shown").bar("Last Window", Icon::ArrowDownRight),
     S::new(A::WindowBack, "window.back", "move back to the window the keys were in before").bar("Back to Window Before", Icon::ArrowBackUp),
@@ -234,16 +243,16 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::WindowExchange, "window.exchange", "exchange the focused window with the next one in its split, or the one before the last").bar("Exchange Windows", Icon::SwitchHorizontal),
     S::new(A::WindowRotate, "window.rotate", "rotate the windows of the focused window's split forward, the last becoming the first").bar("Rotate Windows", Icon::RotateClockwise),
     S::new(A::WindowEqualize, "window.equalize", "give the windows of every split the same size").bar("Equal Sizes", Icon::Equal),
-    S::new(A::WindowNarrower, "window.narrower", "make the focused window a step narrower").bar("Narrower", Icon::ColumnRemove),
-    S::new(A::WindowWider, "window.wider", "make the focused window a step wider").bar("Wider", Icon::ColumnInsertRight),
-    S::new(A::WindowTaller, "window.taller", "make the focused window a step taller").bar("Taller", Icon::RowInsertBottom),
-    S::new(A::WindowShorter, "window.shorter", "make the focused window a step shorter").bar("Shorter", Icon::RowRemove),
+    S::new(A::WindowNarrower, "window.narrower", "make the focused window a step narrower").bar("Narrower", Icon::ColumnRemove).repeats(),
+    S::new(A::WindowWider, "window.wider", "make the focused window a step wider").bar("Wider", Icon::ColumnInsertRight).repeats(),
+    S::new(A::WindowTaller, "window.taller", "make the focused window a step taller").bar("Taller", Icon::RowInsertBottom).repeats(),
+    S::new(A::WindowShorter, "window.shorter", "make the focused window a step shorter").bar("Shorter", Icon::RowRemove).repeats(),
     S::new(A::WindowMaximizeHeight, "window.maximize_height", "make the focused window as tall as the others allow")
         .bar("Tallest", Icon::ArrowAutofitHeight),
     S::new(A::WindowMaximizeWidth, "window.maximize_width", "make the focused window as wide as the others allow").bar("Widest", Icon::ArrowAutofitWidth),
     S::new(A::WindowToTab, "window.to_tab", "move the focused window to a new tab, unless it is the only one of its tab").bar("Move Window to a New Tab", Icon::BrowserPlus),
-    S::new(A::TabNext, "tab.next", "show the next tab of the area the keys are in: the details panel's sheets there, elsewhere the content's tabs").bar("Next Tab", Icon::ChevronRight),
-    S::new(A::TabPrev, "tab.prev", "show the previous tab of the area the keys are in: the details panel's sheets there, elsewhere the content's tabs").bar("Previous Tab", Icon::ChevronLeft),
+    S::new(A::TabNext, "tab.next", "show the next tab of the area the keys are in: the details panel's sheets there, elsewhere the content's tabs").bar("Next Tab", Icon::ChevronRight).repeats(),
+    S::new(A::TabPrev, "tab.prev", "show the previous tab of the area the keys are in: the details panel's sheets there, elsewhere the content's tabs").bar("Previous Tab", Icon::ChevronLeft).repeats(),
     S::new(A::TabLast, "tab.last", "show the content's tab shown before the one shown now").bar("Tab Before", Icon::ArrowBack),
     S::new(A::CursorDown, "cursor.down", "move the selection in the tree to the next row; in the details panel, in the list it shows, or scroll what else it shows").says("Select the next row"),
     S::new(A::CursorUp, "cursor.up", "move the selection in the tree to the previous row; in the details panel, in the list it shows, or scroll what else it shows").says("Select the previous row"),
@@ -282,12 +291,12 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::FilerOut, "filer.out", "close the directory selected when it is open, or else the one it is in, going there").says("Close the directory"),
     S::new(A::FilerOpen, "filer.open", "in the tree, open the file or fold the directory selected as `cursor.go` does; in the picker, start a session in the directory selected").says("Open"),
     S::new(A::FilerHidden, "filer.hidden", "show or hide the files and directories whose names start with `.`").says("Show or hide the hidden"),
-    S::new(A::WaitingNext, "waiting.next", "look at the next session waiting on you in the preview, with the keys in its console").bar("Next Waiting", Icon::BellDown),
-    S::new(A::WaitingPrev, "waiting.prev", "look at the previous session waiting on you in the preview, with the keys in its console").bar("Previous Waiting", Icon::BellUp),
-    S::new(A::SessionNext, "session.next", "look at the session after the one shown, in the tree's order over every session, folded away or filtered out too, going round at the end, in the preview; the keys stay in the area they are in").bar("Next Session", Icon::MessageDown),
-    S::new(A::SessionPrev, "session.prev", "look at the session before the one shown, in the tree's order over every session, folded away or filtered out too, going round at the start, in the preview; the keys stay in the area they are in").bar("Previous Session", Icon::MessageUp),
-    S::new(A::WorkspaceNext, "workspace.next", "look at a session of the workspace after the one shown, in the tree's order over every workspace holding a session, folded away or filtered out too, going round at the end: the session last shown there since the window opened, or else its first, in the preview; the keys stay in the area they are in").bar("Next Workspace", Icon::FolderDown),
-    S::new(A::WorkspacePrev, "workspace.prev", "look at a session of the workspace before the one shown, as `workspace.next` does, going round at the start").bar("Previous Workspace", Icon::FolderUp),
+    S::new(A::WaitingNext, "waiting.next", "look at the next session waiting on you in the preview, with the keys in its console").bar("Next Waiting", Icon::BellDown).repeats(),
+    S::new(A::WaitingPrev, "waiting.prev", "look at the previous session waiting on you in the preview, with the keys in its console").bar("Previous Waiting", Icon::BellUp).repeats(),
+    S::new(A::SessionNext, "session.next", "look at the session after the one shown, in the tree's order over every session, folded away or filtered out too, going round at the end, in the preview; the keys stay in the area they are in").bar("Next Session", Icon::MessageDown).repeats(),
+    S::new(A::SessionPrev, "session.prev", "look at the session before the one shown, in the tree's order over every session, folded away or filtered out too, going round at the start, in the preview; the keys stay in the area they are in").bar("Previous Session", Icon::MessageUp).repeats(),
+    S::new(A::WorkspaceNext, "workspace.next", "look at a session of the workspace after the one shown, in the tree's order over every workspace holding a session, folded away or filtered out too, going round at the end: the session last shown there since the window opened, or else its first, in the preview; the keys stay in the area they are in").bar("Next Workspace", Icon::FolderDown).repeats(),
+    S::new(A::WorkspacePrev, "workspace.prev", "look at a session of the workspace before the one shown, as `workspace.next` does, going round at the start").bar("Previous Workspace", Icon::FolderUp).repeats(),
     S::new(A::SessionPick, "session.pick", "open the picker, to go to a session or choose where a new one works ([details](tree.md#going-to-a-session-or-starting-one))").bar("Go to or Start Session…", Icon::Search),
     S::new(A::SessionNew, "session.new", "start a session, with the prompt ready to write its first message: in the selected row's worktree or directory from the tree, in the one the focused window shows from elsewhere")
         .bar("New Session", Icon::MessagePlus)
@@ -357,7 +366,7 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::ViewerForward, "viewer.forward", "in a viewer, seek a movie forward").says("Forward"),
     S::new(A::ViewerCopyPath, "viewer.copy_path", "in a viewer, copy the path of the file it shows").says("Copy the path"),
     S::new(A::ConsoleSend(None), "console.send", "send the key pressed to the session; with a key named after it, as in `console.send Escape`, send that key instead").says("Send the key to the console"),
-    S::new(A::TabGo(1), "tab.go", "show the content's tab numbered `n`, from 1 to 9, or the last when there are fewer").says("Go to tab"),
+    S::new(A::TabGo(1), "tab.go", "show the content's tab numbered `n`, from 1 to 8, or the last when there are fewer; 9 shows the last however many there are").says("Go to tab"),
 ];
 
 impl Action {
@@ -383,6 +392,12 @@ impl Action {
             .iter()
             .find(|s| discriminant(&s.action) == discriminant(self))
             .expect("every action has a row in ACTIONS")
+    }
+
+    /// Whether the last key of a sequence bound to the action runs it again
+    /// alone.
+    pub fn repeats(&self) -> bool {
+        self.spec().repeats
     }
 
     /// The icon the action is shown with; `None` for an action that is only

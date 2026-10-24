@@ -57,12 +57,16 @@ pub fn keys() -> String {
             .collect::<Vec<_>>()
             .join("<br>");
         let bar = spec.bar.unwrap_or_default();
+        let does = match spec.repeats {
+            true => format!("{}; repeats ([keys](keys.md#repeating))", spec.does),
+            false => spec.does.to_string(),
+        };
         writeln!(
             out,
             "| {} | {} | {} | {} |",
             cell(&format!("`{}`", usage(spec))),
             cell(bar),
-            cell(&rebase_links(spec.does)),
+            cell(&rebase_links(&does)),
             cell(&bound),
         )
         .unwrap();

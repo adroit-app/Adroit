@@ -853,6 +853,15 @@ impl<T: Clone + PartialEq> Content<T> {
         }
     }
 
+    /// Show the tab numbered `n` from 1, or the last when there are fewer;
+    /// 9 is the last however many there are.
+    pub fn go_to_numbered_tab(&mut self, n: u8) {
+        match n {
+            9 => self.go_to_tab(usize::MAX),
+            n => self.go_to_tab(usize::from(n).saturating_sub(1)),
+        }
+    }
+
     /// Show the tab shown before the one shown now.
     pub fn go_to_last_tab(&mut self) {
         if let Some(at) = self.tabs.iter().position(|t| Some(t.id) == self.last) {
@@ -1093,6 +1102,23 @@ mod tests {
         c.look("e");
         c.to_new_tab();
         assert!(c.tabs().last().is_some_and(|t| t.is_preview()));
+    }
+
+    #[test]
+    fn tab_nine_is_the_last_however_many_there_are_as_in_browsers() {
+        let mut c = one("a");
+        for thing in ["b", "c", "d", "e", "f", "g", "h", "i", "j", "k"] {
+            c.open(thing);
+        }
+        c.look("l");
+        c.go_to_numbered_tab(8);
+        assert_eq!(c.current_index(), 7);
+        c.go_to_numbered_tab(9);
+        assert_eq!(c.current_index(), 10);
+        let mut few = one("a");
+        few.open("b");
+        few.go_to_numbered_tab(8);
+        assert_eq!(few.current_index(), 1);
     }
 
     #[test]
