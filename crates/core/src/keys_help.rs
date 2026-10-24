@@ -19,9 +19,18 @@ pub struct Group {
 /// One action of an area, with every sequence bound to it there.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Row {
-    pub keys: Vec<String>,
+    pub keys: Vec<Keys>,
     pub label: String,
     pub icon: Option<Icon>,
+}
+
+/// Sequences of a row that start alike: the keys they share, then the last
+/// key of each, as in `Ctrl+q` `h` / `ArrowLeft`. A single key shares
+/// nothing and stands alone.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Keys {
+    pub lead: Vec<String>,
+    pub ends: Vec<String>,
 }
 
 /// The groups of `keymap`'s bindings, the areas of `here` first and in
@@ -34,7 +43,7 @@ pub fn groups(keymap: &Keymap, here: &[Context]) -> Vec<Group> {
         .copied()
         .chain(rest)
         .filter_map(|ctx| {
-            let mut rows: Vec<(Action, Row)> = Vec::new();
+            let mut bound: Vec<(Action, Vec<String>)> = Vec::new();
             for (area, keys, name) in &listed {
                 let Ok(action) = name.parse::<Action>() else {
                     continue;
@@ -42,25 +51,107 @@ pub fn groups(keymap: &Keymap, here: &[Context]) -> Vec<Group> {
                 if *area != ctx.name() {
                     continue;
                 }
-                match rows.iter_mut().find(|(a, _)| *a == action) {
-                    Some((_, row)) => row.keys.push(keys.clone()),
-                    None => rows.push((
-                        action.clone(),
-                        Row {
-                            keys: vec![keys.clone()],
-                            label: action.label(),
-                            icon: action.icon(),
-                        },
-                    )),
+                match bound.iter_mut().find(|(a, _)| *a == action) {
+                    Some((_, seqs)) => seqs.push(keys.clone()),
+                    None => bound.push((action, vec![keys.clone()])),
                 }
             }
+            let rows: Vec<Row> = fold_numbers(bound)
+                .into_iter()
+                .map(|(label, icon, seqs)| Row {
+                    keys: share_leads(&seqs),
+                    label,
+                    icon,
+                })
+                .collect();
             (!rows.is_empty()).then(|| Group {
                 context: ctx,
                 here: here.contains(&ctx),
-                rows: rows.into_iter().map(|(_, r)| r).collect(),
+                rows,
             })
         })
         .collect()
+}
+
+/// The rows of `bound`, labelled, with the sequences of [`Action::TabGo`]
+/// that differ only in a run of numbers ending them folded into one row,
+/// `Ctrl+q 1–9`, where the first of those numbers stood.
+fn fold_numbers(bound: Vec<(Action, Vec<String>)>) -> Vec<(String, Option<Icon>, Vec<String>)> {
+    let mut heads: Vec<(&str, Vec<u8>)> = Vec::new();
+    for (action, seqs) in &bound {
+        let Action::TabGo(n) = action else {
+            continue;
+        };
+        for head in seqs.iter().filter_map(|s| before_number(s, *n)) {
+            match heads.iter_mut().find(|(h, _)| *h == head) {
+                Some((_, ns)) => ns.push(*n),
+                None => heads.push((head, vec![*n])),
+            }
+        }
+    }
+    let mut runs = Vec::new();
+    let mut taken: Vec<(String, u8)> = Vec::new();
+    let (mut lo, mut hi) = (u8::MAX, 0);
+    for (head, mut ns) in heads {
+        ns.sort_unstable();
+        for run in ns.chunk_by(|a, b| b - a == 1) {
+            if let [first, .., last] = run {
+                runs.push(format!("{head}{first}–{last}"));
+                taken.extend(run.iter().map(|n| (head.to_string(), *n)));
+                (lo, hi) = (lo.min(*first), hi.max(*last));
+            }
+        }
+    }
+    let mut runs = Some(runs).filter(|r| !r.is_empty());
+    let mut rows = Vec::new();
+    for (action, seqs) in bound {
+        let Action::TabGo(n) = action else {
+            rows.push((action.label(), action.icon(), seqs));
+            continue;
+        };
+        if let Some(runs) = runs.take() {
+            rows.push((
+                format!("{}–{hi}", Action::TabGo(lo).label()),
+                action.icon(),
+                runs,
+            ));
+        }
+        let seqs: Vec<String> = seqs
+            .into_iter()
+            .filter(|s| !before_number(s, n).is_some_and(|h| taken.contains(&(h.to_string(), n))))
+            .collect();
+        if !seqs.is_empty() {
+            rows.push((action.label(), action.icon(), seqs));
+        }
+    }
+    rows
+}
+
+/// What `seq` presses before the number `n` its last key is, when it ends
+/// in that number: `Ctrl+q ` of `Ctrl+q 3`, `Cmd+` of `Cmd+3`.
+fn before_number(seq: &str, n: u8) -> Option<&str> {
+    let head = seq.strip_suffix(char::from(b'0' + n))?;
+    (head.is_empty() || head.ends_with([' ', '+'])).then_some(head)
+}
+
+/// `seqs` with the ones that start with the same keys written as one
+/// [`Keys`], in the order the first of each stands.
+fn share_leads(seqs: &[String]) -> Vec<Keys> {
+    let mut keys: Vec<Keys> = Vec::new();
+    for seq in seqs {
+        let (lead, end) = match seq.rsplit_once(' ') {
+            Some((lead, end)) => (lead.split(' ').map(str::to_string).collect(), end),
+            None => (Vec::new(), seq.as_str()),
+        };
+        match keys.iter_mut().find(|k| !lead.is_empty() && k.lead == lead) {
+            Some(k) => k.ends.push(end.to_string()),
+            None => keys.push(Keys {
+                lead,
+                ends: vec![end.to_string()],
+            }),
+        }
+    }
+    keys
 }
 
 /// What a key does while the keys help is shown.
@@ -102,6 +193,25 @@ mod tests {
 
     fn contexts(groups: &[Group]) -> Vec<Context> {
         groups.iter().map(|g| g.context).collect()
+    }
+
+    fn alone(key: &str) -> Keys {
+        Keys {
+            lead: Vec::new(),
+            ends: vec![key.into()],
+        }
+    }
+
+    fn after(lead: &[&str], ends: &[&str]) -> Keys {
+        Keys {
+            lead: lead.iter().map(|k| k.to_string()).collect(),
+            ends: ends.iter().map(|k| k.to_string()).collect(),
+        }
+    }
+
+    /// How `Mod+n` is written on this platform.
+    fn with_mod(n: &str) -> String {
+        Chord::parse(&format!("Mod+{n}")).unwrap().to_string()
     }
 
     fn row<'a>(groups: &'a [Group], ctx: Context, label: &str) -> Option<&'a Row> {
@@ -159,7 +269,7 @@ mod tests {
     fn keys_bound_to_one_action_in_an_area_share_its_row() {
         let groups = groups(&Keymap::defaults(), &[]);
         let down = row(&groups, Context::Tree, &Action::CursorDown.label()).unwrap();
-        assert_eq!(down.keys, ["j", "ArrowDown"]);
+        assert_eq!(down.keys, [alone("j"), alone("ArrowDown")]);
     }
 
     #[test]
@@ -186,14 +296,79 @@ mod tests {
         let map = Keymap::with_user("[tree]\n\"j\" = \"none\"\n\"J\" = \"cursor.down\"\n").unwrap();
         let groups = groups(&map, &[]);
         let down = row(&groups, Context::Tree, &Action::CursorDown.label()).unwrap();
-        assert_eq!(down.keys, ["ArrowDown", "J"]);
+        assert_eq!(down.keys, [alone("ArrowDown"), alone("J")]);
     }
 
     #[test]
     fn a_sequence_is_written_as_the_file_writes_it() {
         let groups = groups(&Keymap::defaults(), &[]);
         let first = row(&groups, Context::Tree, &Action::CursorFirst.label()).unwrap();
-        assert_eq!(first.keys, ["g g"]);
+        assert_eq!(first.keys, [after(&["g"], &["g"])]);
+    }
+
+    #[test]
+    fn keys_that_start_alike_write_what_they_share_once() {
+        let groups = groups(&Keymap::defaults(), &[]);
+        let left = row(&groups, Context::Global, &Action::WindowLeft.label()).unwrap();
+        assert_eq!(left.keys, [after(&["Ctrl+q"], &["h", "ArrowLeft"])]);
+    }
+
+    #[test]
+    fn keys_that_start_differently_stand_apart_in_the_order_of_the_file() {
+        let groups = groups(&Keymap::defaults(), &[]);
+        let next = row(&groups, Context::Global, &Action::TabNext.label()).unwrap();
+        assert_eq!(
+            next.keys,
+            [
+                alone("Ctrl+Tab"),
+                alone("Ctrl+PageDown"),
+                alone("Cmd+}"),
+                after(&["Ctrl+q", "g"], &["t"]),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_numbered_action_bound_over_a_run_of_numbers_takes_one_row() {
+        let groups = groups(&Keymap::defaults(), &[]);
+        let go = row(&groups, Context::Global, "Go to tab 1–9").unwrap();
+        assert_eq!(
+            go.keys,
+            [
+                after(&["Ctrl+q"], &["1–9"]),
+                alone(&format!("{}–9", with_mod("1"))),
+            ]
+        );
+        assert!(row(&groups, Context::Global, &Action::TabGo(1).label()).is_none());
+    }
+
+    #[test]
+    fn the_folded_row_stands_where_its_first_number_is_bound() {
+        let groups = groups(&Keymap::defaults(), &[]);
+        let global = &groups
+            .iter()
+            .find(|g| g.context == Context::Global)
+            .unwrap()
+            .rows;
+        let at = |label: &str| global.iter().position(|r| r.label == label).unwrap();
+        assert_eq!(at("Go to tab 1–9"), at(&Action::TabPrev.label()) + 1);
+    }
+
+    #[test]
+    fn a_gap_in_the_numbers_splits_the_run() {
+        let map = Keymap::with_user("[global]\n\"Ctrl+q 5\" = \"none\"\n").unwrap();
+        let groups = groups(&map, &[]);
+        let go = row(&groups, Context::Global, "Go to tab 1–9").unwrap();
+        assert_eq!(go.keys[0], after(&["Ctrl+q"], &["1–4", "6–9"]));
+    }
+
+    #[test]
+    fn a_number_bound_on_its_own_keeps_a_row_of_its_own() {
+        let map = Keymap::with_user("[global]\n\"Alt+x\" = \"tab.go 3\"\n").unwrap();
+        let groups = groups(&map, &[]);
+        let three = row(&groups, Context::Global, &Action::TabGo(3).label()).unwrap();
+        assert_eq!(three.keys, [alone("Alt+x")]);
+        assert!(row(&groups, Context::Global, "Go to tab 1–9").is_some());
     }
 
     fn opens(map: &Keymap, contexts: &[Context], chord: &str) -> bool {
