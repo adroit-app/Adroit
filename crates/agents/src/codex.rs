@@ -113,10 +113,7 @@ impl AgentAdapter for Codex {
     }
 
     fn image_pastes(&self, images: &[PathBuf]) -> Vec<String> {
-        images
-            .iter()
-            .map(|image| format!("\"{}\"", image.display()))
-            .collect()
+        crate::quoted_pastes(images)
     }
 
     fn image_args(&self, images: &[PathBuf]) -> Vec<String> {

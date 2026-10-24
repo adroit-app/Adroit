@@ -72,6 +72,12 @@ impl AgentAdapter for Claude {
         prompt
     }
 
+    // Named with `@` in a prompt typed in, an image is a file for the model
+    // to read; pasted, Claude Code attaches it.
+    fn image_pastes(&self, images: &[PathBuf]) -> Vec<String> {
+        crate::quoted_pastes(images)
+    }
+
     fn program(&self) -> String {
         super::claude_program()
     }

@@ -92,7 +92,11 @@ belong to their session or draft, stay with a prompt set aside or restored after
 failed send, and are kept past the window alongside saved prompts.
 
 Sending delivers the words and images in the receiving agent's format;
-image paths are added only at sending, never to the Neovim buffer. Images
+image paths are added only at sending, never to the Neovim buffer. A
+running Claude Code or Codex session gets each image pasted into its input
+as its own attachment, as a file dragged onto a terminal is, before the
+words; a session started from a draft is given them with its first prompt,
+which Claude Code receives as files named in the prompt. Images
 can be sent without text. A shell command cannot carry images.
 PNG, JPEG, GIF and WebP images are accepted; another kind is refused with a
 notice. A video is not taken. A saved image is kept for a week after it is

@@ -18,6 +18,15 @@ use std::path::{Path, PathBuf};
 /// start.
 pub type Started = (String, Vec<String>, Vec<(String, String)>);
 
+/// Each image's path in double quotes, as a terminal pastes a file dragged
+/// onto it, which an agent's input takes as that image attached.
+pub(crate) fn quoted_pastes(images: &[PathBuf]) -> Vec<String> {
+    images
+        .iter()
+        .map(|image| format!("\"{}\"", image.display()))
+        .collect()
+}
+
 /// `program` as a shell reads it back as one word, for what tells an agent
 /// the command to run.
 pub fn shell_word(program: impl AsRef<Path>) -> String {
@@ -136,7 +145,13 @@ pub trait AgentAdapter: Sync {
         Box::pin(async { Err(DeliveryFailure::Unsupported) })
     }
 
+    /// The prompt `text` with `images` named in it as the agent reads them:
+    /// the first prompt it is started with, and a prompt typed into it when
+    /// it takes no [`AgentAdapter::image_pastes`].
     fn image_prompt(&self, text: &str, images: &[PathBuf]) -> String;
+    /// What is pasted into a running session, one paste for each image,
+    /// for the agent to attach it; none when it is named in the prompt
+    /// instead.
     fn image_pastes(&self, _images: &[PathBuf]) -> Vec<String> {
         Vec::new()
     }
@@ -301,11 +316,15 @@ mod tests {
             PathBuf::from("/tmp/two.png"),
         ];
         let claude = adapter(Agent::Claude);
+        // Started with a first prompt, Claude Code reads the images it names.
         assert_eq!(
             claude.image_prompt("look", &images),
             "look @\"/tmp/my shot.png\" @\"/tmp/two.png\""
         );
-        assert!(claude.image_pastes(&images).is_empty());
+        assert_eq!(
+            claude.image_pastes(&images),
+            ["\"/tmp/my shot.png\"", "\"/tmp/two.png\""]
+        );
         let codex = adapter(Agent::Codex);
         assert_eq!(codex.image_prompt("look", &images), "look");
         assert_eq!(
