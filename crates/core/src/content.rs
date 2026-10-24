@@ -161,6 +161,15 @@ impl ContentView {
         self.windows.focused()
     }
 
+    /// The window drawn as having the keys: the focused window, while the
+    /// keys are in its console or prompt rather than in a side panel.
+    pub fn marked_window(&self) -> Option<WindowId> {
+        match self.focus {
+            Area::Console | Area::Prompt => self.windows.focused_window(),
+            Area::Sidebar | Area::Details => None,
+        }
+    }
+
     pub fn showing(&self) -> Showing {
         Showing {
             tab: self.active().cloned(),

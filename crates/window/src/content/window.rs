@@ -124,13 +124,13 @@ fn WindowStrip(id: WindowId, strip: Strip, preview: bool) -> Element {
 }
 
 /// The window `id`, where its share `r` of the content puts it, with its
-/// strip and `body`, drawn apart in the `preview`; pressing it gives it the
-/// focus.
+/// strip and `body`, drawn apart in the `preview` and `marked` while it has
+/// the keys; pressing it gives it the focus.
 #[component]
 pub(super) fn ContentWindow(
     id: WindowId,
     r: Rect,
-    focused: bool,
+    marked: bool,
     preview: bool,
     strip: Strip,
     body: Element,
@@ -145,7 +145,7 @@ pub(super) fn ContentWindow(
     );
     rsx! {
         div {
-            class: match (focused, preview) {
+            class: match (marked, preview) {
                 (true, true) => "win focused preview",
                 (true, false) => "win focused",
                 (false, true) => "win preview",
