@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+pub use adroit_protocol::ThemeKind;
+
 pub use adroit_model::config::CodexOptions;
 pub use adroit_model::config::{Launch, SessionOptions, ShellLaunch};
 
@@ -32,6 +34,31 @@ impl OptionAsAlt {
         }
     }
 }
+
+/// Which of the light and the dark theme is drawn.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum Appearance {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+impl Appearance {
+    pub fn name(self) -> &'static str {
+        match self {
+            Appearance::System => "system",
+            Appearance::Light => "light",
+            Appearance::Dark => "dark",
+        }
+    }
+}
+
+/// The theme drawn in a light appearance when the settings name none.
+pub const LIGHT_THEME: &str = "GitHub Light Default";
 
 /// How much the details panel reads and shows.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -138,9 +165,20 @@ pub struct Settings {
     /// The font's weight, from 100 to 900; adroit's own comes in regular and bold,
     /// and draws other weights in the nearer of them.
     pub font_weight: u16,
-    /// The console's colours, by the name of a theme: one adroit comes with, or one
-    /// in `themes/` beside `settings.toml`.
-    pub theme: String,
+    /// Which of the two themes colours the console and the window: `system`
+    /// follows macOS as it switches between light and dark, `light` and `dark`
+    /// keep to one.
+    pub appearance: Appearance,
+    /// The theme drawn while the appearance is light, by name: one adroit comes
+    /// with, or one in `themes/` beside `settings.toml`.
+    pub light_theme: String,
+    /// The theme drawn while the appearance is dark, named as the light one is.
+    pub dark_theme: String,
+    /// The one theme files written before themes followed the appearance
+    /// name; read to keep their look, never written.
+    #[serde(skip_serializing)]
+    #[schemars(skip)]
+    pub theme: Option<String>,
     /// Keep the Mac from idle sleep while a session or a shell runs, the window
     /// open or not; the display still sleeps.
     pub keep_awake: bool,
@@ -216,7 +254,10 @@ impl Default for Settings {
             font_family: String::new(),
             font_size: 13.0,
             font_weight: 400,
-            theme: crate::palette::DEFAULT.into(),
+            appearance: Appearance::System,
+            light_theme: LIGHT_THEME.into(),
+            dark_theme: crate::palette::DEFAULT.into(),
+            theme: None,
             keep_awake: true,
             notify_waiting: false,
             shell: ShellLaunch::default(),
@@ -305,10 +346,16 @@ impl Settings {
         );
         self.zoom = self.zoom.clamp(least, most);
         self.font_family = self.font_family.trim().to_string();
-        self.theme = self.theme.trim().to_string();
-        if self.theme.is_empty() {
-            self.theme = crate::palette::DEFAULT.into();
-        }
+        let named = |name: &str, otherwise: &str| match name.trim() {
+            "" => otherwise.to_string(),
+            name => name.to_string(),
+        };
+        self.light_theme = named(&self.light_theme, LIGHT_THEME);
+        self.dark_theme = named(&self.dark_theme, crate::palette::DEFAULT);
+        self.theme = self
+            .theme
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty());
         self.font_size = self.font_size.clamp(8.0, 32.0);
         self.font_weight = (self.font_weight.clamp(100, 900) + 50) / 100 * 100;
         let words = |c: Vec<String>| -> Vec<String> {
@@ -326,6 +373,38 @@ impl Settings {
         d.diff_lines = d.diff_lines.clamp(1, 100_000);
         d.links_kept = d.links_kept.clamp(1, adroit_model::links::KEPT);
         d.links_shown = d.links_shown.max(1);
+        self
+    }
+
+    /// The theme in force while the system's appearance is `system`.
+    pub fn theme_in(&self, system: ThemeKind) -> &str {
+        let kind = match self.appearance {
+            Appearance::System => system,
+            Appearance::Light => ThemeKind::Light,
+            Appearance::Dark => ThemeKind::Dark,
+        };
+        match kind {
+            ThemeKind::Light => &self.light_theme,
+            ThemeKind::Dark => &self.dark_theme,
+        }
+    }
+
+    /// The settings with the one theme an earlier version named, of `kind`,
+    /// taken as the theme of that kind and that appearance chosen, so the
+    /// look stays as it was; settings without one as they are.
+    pub fn migrated(mut self, kind: ThemeKind) -> Self {
+        if let Some(theme) = self.theme.take() {
+            match kind {
+                ThemeKind::Light => {
+                    self.light_theme = theme;
+                    self.appearance = Appearance::Light;
+                }
+                ThemeKind::Dark => {
+                    self.dark_theme = theme;
+                    self.appearance = Appearance::Dark;
+                }
+            }
+        }
         self
     }
 
@@ -521,7 +600,9 @@ model = "chosen-model"
             font_family: "  ".into(),
             font_size: 99.0,
             font_weight: 1234,
-            theme: " ".into(),
+            light_theme: " ".into(),
+            dark_theme: "".into(),
+            theme: Some("  ".into()),
             keep_awake: true,
             ..Settings::default()
         }
@@ -531,7 +612,63 @@ model = "chosen-model"
         assert_eq!(s.font_family, "");
         assert_eq!(s.font_size, 32.0);
         assert_eq!(s.font_weight, 900);
-        assert_eq!(s.theme, crate::palette::DEFAULT);
+        assert_eq!(s.light_theme, LIGHT_THEME);
+        assert_eq!(s.dark_theme, crate::palette::DEFAULT);
+        assert_eq!(s.theme, None);
+    }
+
+    #[test]
+    fn the_theme_follows_the_system_with_a_light_and_a_dark_one_unless_one_appearance_is_chosen() {
+        let s = Settings::parse("").unwrap();
+        assert_eq!(s.appearance, Appearance::System);
+        assert_eq!(s.light_theme, LIGHT_THEME);
+        assert_eq!(s.dark_theme, crate::palette::DEFAULT);
+        let s = Settings::parse("light_theme = \"Latte\"\ndark_theme = \"Nord\"\n").unwrap();
+        for (appearance, system, theme) in [
+            (Appearance::System, ThemeKind::Light, "Latte"),
+            (Appearance::System, ThemeKind::Dark, "Nord"),
+            (Appearance::Light, ThemeKind::Light, "Latte"),
+            (Appearance::Light, ThemeKind::Dark, "Latte"),
+            (Appearance::Dark, ThemeKind::Light, "Nord"),
+            (Appearance::Dark, ThemeKind::Dark, "Nord"),
+        ] {
+            let s = Settings {
+                appearance,
+                ..s.clone()
+            };
+            assert_eq!(s.theme_in(system), theme, "{appearance:?} in {system:?}");
+        }
+        let s = Settings::parse("appearance = \"light\"\n").unwrap();
+        assert_eq!(s.appearance, Appearance::Light);
+        assert_eq!(written_and_read(&s), s);
+        assert!(Settings::parse("appearance = \"auto\"\n").is_err());
+    }
+
+    #[test]
+    fn the_one_theme_earlier_versions_named_takes_the_slot_of_its_kind_and_that_appearance() {
+        let s = Settings::parse("theme = \"Nord\"\n").unwrap();
+        assert_eq!(s.theme.as_deref(), Some("Nord"));
+        let dark = s.clone().migrated(ThemeKind::Dark);
+        assert_eq!(
+            (dark.appearance, dark.dark_theme.as_str(), dark.theme),
+            (Appearance::Dark, "Nord", None)
+        );
+        assert_eq!(dark.light_theme, LIGHT_THEME);
+        let light = Settings::parse("theme = \"Latte\"\n")
+            .unwrap()
+            .migrated(ThemeKind::Light);
+        assert_eq!(
+            (light.appearance, light.light_theme.as_str()),
+            (Appearance::Light, "Latte")
+        );
+        assert_eq!(light.dark_theme, crate::palette::DEFAULT);
+        // Written again, the earlier key is gone.
+        let written = toml::to_string_pretty(&light).unwrap();
+        assert!(!written.contains("\ntheme"), "{written}");
+        assert!(written.contains("light_theme = \"Latte\""), "{written}");
+        // Settings without it are left as they are.
+        let none = Settings::default();
+        assert_eq!(none.clone().migrated(ThemeKind::Light), none);
     }
 
     #[test]
@@ -570,7 +707,10 @@ model = "chosen-model"
             font_family: "IntoneMono Nerd Font".into(),
             font_size: 14.0,
             font_weight: 300,
-            theme: "Nightfox".into(),
+            appearance: Appearance::Dark,
+            light_theme: "Catppuccin Latte".into(),
+            dark_theme: "Nightfox".into(),
+            theme: None,
             keep_awake: false,
             notify_waiting: true,
             shell: ShellLaunch {

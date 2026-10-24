@@ -3,8 +3,10 @@
 
 use std::path::Path;
 
-use adroit_protocol::Colours;
+use adroit_protocol::{Colours, ThemeKind, ThemeListed};
 use adroit_term::Palette;
+
+use crate::settings::Settings;
 
 pub use adroit_core::palette::{ANSI, DEFAULT};
 
@@ -61,6 +63,50 @@ pub fn palette(name: &str, dir: &Path) -> Result<Palette, String> {
     }
 }
 
+/// Whether the theme `name` is light or dark, by its palette; one that
+/// cannot be read counts as dark, as adroit's own is.
+pub fn kind(name: &str, dir: &Path) -> ThemeKind {
+    match palette(name, dir) {
+        Ok(p) if !p.is_dark() => ThemeKind::Light,
+        _ => ThemeKind::Dark,
+    }
+}
+
+/// Every theme to choose from, as [`names`] lists them, with its kind.
+pub fn listed(dir: &Path) -> Vec<ThemeListed> {
+    names(dir)
+        .into_iter()
+        .map(|name| ThemeListed {
+            kind: kind(&name, dir),
+            name,
+        })
+        .collect()
+}
+
+/// `settings` with the one theme an earlier version named taken by its
+/// kind, read from `dir`.
+pub fn migrated(settings: Settings, dir: &Path) -> Settings {
+    match settings.theme.as_deref() {
+        Some(theme) => {
+            let kind = kind(theme, dir);
+            settings.migrated(kind)
+        }
+        None => settings,
+    }
+}
+
+/// The theme `settings` name for the system's appearance now: the one
+/// rule every session, shell and window is coloured by.
+pub fn in_force(settings: &Settings) -> String {
+    settings.theme_in(crate::appearance::system()).to_string()
+}
+
+/// The palette of the theme in force, from the user's themes folder or
+/// adroit's.
+pub fn palette_in_force(settings: &Settings) -> Result<Palette, String> {
+    palette(&in_force(settings), &crate::settings::themes_dir())
+}
+
 /// The colours of the theme `name`, found as [`palette`] finds them: a
 /// theme's text only once it reads as a palette.
 pub fn colours(name: &str, dir: &Path) -> Colours {
@@ -109,6 +155,55 @@ mod tests {
                 error: "no theme named \"Nothing\"".into()
             }
         );
+    }
+
+    #[test]
+    fn of_the_themes_adroit_comes_with_only_the_latte_and_github_light_are_light() {
+        let none = Path::new("/no/such/folder");
+        let light: Vec<String> = listed(none)
+            .into_iter()
+            .filter(|t| t.kind == ThemeKind::Light)
+            .map(|t| t.name)
+            .collect();
+        assert_eq!(light, ["Catppuccin Latte", "GitHub Light Default"]);
+        assert_eq!(kind(DEFAULT, none), ThemeKind::Dark);
+        assert_eq!(kind("Nowhere", none), ThemeKind::Dark);
+    }
+
+    #[test]
+    fn the_light_theme_named_when_none_is_is_one_adroit_comes_with_and_light() {
+        let none = Path::new("/no/such/folder");
+        let defaults = Settings::default();
+        assert_eq!(kind(&defaults.light_theme, none), ThemeKind::Light);
+        assert_eq!(kind(&defaults.dark_theme, none), ThemeKind::Dark);
+    }
+
+    #[test]
+    fn the_one_theme_an_earlier_version_named_keeps_its_look() {
+        use crate::settings::Appearance;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Paper"),
+            "background = #fafafa\nforeground = #202020\n",
+        )
+        .unwrap();
+        let read = |text: &str| migrated(Settings::parse(text).unwrap(), dir.path());
+        let s = read("theme = \"Paper\"\n");
+        assert_eq!(
+            (s.appearance, s.light_theme.as_str(), s.theme),
+            (Appearance::Light, "Paper", None)
+        );
+        let s = read("theme = \"Nord\"\n");
+        assert_eq!(
+            (s.appearance, s.dark_theme.as_str()),
+            (Appearance::Dark, "Nord")
+        );
+        let s = read("theme = \"Gone\"\n");
+        assert_eq!(
+            (s.appearance, s.dark_theme.as_str()),
+            (Appearance::Dark, "Gone")
+        );
+        assert_eq!(read(""), Settings::default());
     }
 
     #[test]

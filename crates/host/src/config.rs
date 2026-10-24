@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use adroit_protocol::{ConfigFile, ConfigWork, Configured, FileText, ThemeRead};
+use adroit_protocol::{ConfigFile, ConfigWork, Configured, FileText, ThemeKind, ThemeRead};
 
 use crate::settings::Settings;
 
@@ -26,7 +26,11 @@ pub fn file(path: &Path) -> ConfigFile {
 /// Both files, read now, with what the host makes of the settings in force.
 pub fn read() -> ConfigWork {
     ConfigWork {
-        configured: Some(configured(&crate::settings::current(), None)),
+        configured: Some(configured(
+            &crate::settings::current(),
+            crate::appearance::system(),
+            None,
+        )),
         ..files()
     }
 }
@@ -40,22 +44,25 @@ pub fn files() -> ConfigWork {
     }
 }
 
-/// What the host makes of `settings`: where scratch sessions run, and the
-/// colours of the theme they name, read again only when it is another than
-/// the one `last` made of.
-pub fn configured(settings: &Settings, last: Option<&Configured>) -> Configured {
+/// What the host makes of `settings` with the system in the appearance
+/// `system`: where scratch sessions run, and the colours of the theme they
+/// name for it, read again only when it is another than the one `last` made
+/// of.
+pub fn configured(settings: &Settings, system: ThemeKind, last: Option<&Configured>) -> Configured {
+    let themes_dir = crate::settings::themes_dir();
+    let name = settings.theme_in(system);
     let theme = match last {
-        Some(last) if last.theme.name == settings.theme => last.theme.clone(),
+        Some(last) if last.theme.name == name => last.theme.clone(),
         _ => ThemeRead {
-            name: settings.theme.clone(),
-            colours: crate::themes::colours(&settings.theme, &crate::settings::themes_dir()),
+            name: name.to_string(),
+            colours: crate::themes::colours(name, &themes_dir),
         },
     };
-    let themes_dir = crate::settings::themes_dir();
     Configured {
         scratch: crate::settings::scratch_folder(settings, &crate::paths::home()),
         theme,
-        themes: crate::themes::names(&themes_dir),
+        themes: crate::themes::listed(&themes_dir),
+        system,
         themes_dir,
         login_shell: crate::programs::login_shell(),
     }
@@ -87,6 +94,30 @@ mod tests {
     }
 
     #[test]
+    fn the_theme_in_force_is_the_one_named_for_the_system_s_appearance_unless_one_is_chosen() {
+        use crate::settings::Appearance;
+        let both = Settings {
+            light_theme: "Catppuccin Latte".into(),
+            dark_theme: "Nord".into(),
+            ..Settings::default()
+        };
+        for (appearance, system, name) in [
+            (Appearance::System, ThemeKind::Light, "Catppuccin Latte"),
+            (Appearance::System, ThemeKind::Dark, "Nord"),
+            (Appearance::Light, ThemeKind::Dark, "Catppuccin Latte"),
+            (Appearance::Dark, ThemeKind::Light, "Nord"),
+        ] {
+            let settings = Settings {
+                appearance,
+                ..both.clone()
+            };
+            let made = configured(&settings, system, None);
+            assert_eq!(made.theme.name, name, "{appearance:?} in {system:?}");
+            assert_eq!(made.system, system);
+        }
+    }
+
+    #[test]
     fn the_theme_named_is_read_again_only_once_another_is_named() {
         let last = Configured {
             scratch: "/old".into(),
@@ -99,20 +130,24 @@ mod tests {
             ..Default::default()
         };
         let mine = Settings {
-            theme: "Mine".into(),
+            dark_theme: "Mine".into(),
             ..Settings::default()
         };
-        let kept = configured(&mine, Some(&last));
+        let kept = configured(&mine, ThemeKind::Dark, Some(&last));
         assert_eq!(kept.theme, last.theme);
         assert_eq!(
             kept.scratch,
             crate::settings::scratch_folder(&mine, &crate::paths::home())
         );
-        let nord = Settings {
-            theme: "Nord".into(),
-            ..Settings::default()
-        };
-        let read = configured(&nord, Some(&last));
+        // The system turning light names the other theme.
+        let read = configured(
+            &Settings {
+                light_theme: "Nord".into(),
+                ..mine
+            },
+            ThemeKind::Light,
+            Some(&last),
+        );
         assert_eq!(read.theme.name, "Nord");
         assert!(matches!(
             read.theme.colours,

@@ -31,6 +31,7 @@
   --focus-line: #3a4352;
   --focus-border: #4a5566;
   --kbd-text: #c9ccd2;
+  --shadow: rgba(0,0,0,0.45);
 }
 * { box-sizing: border-box; }
 .icon { display: inline-flex; flex: none; align-items: center; justify-content: center; }

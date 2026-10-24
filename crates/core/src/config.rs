@@ -43,12 +43,23 @@ pub(crate) fn take_in(state: &mut ViewState) -> Vec<Effect> {
     };
     let config = &mut state.config;
     let mut effects = Vec::new();
-    if work.config.settings != config.taken.settings {
+    // The one theme an earlier version named waits for the host's list to
+    // tell its kind.
+    let listed = config.settings.theme.is_some()
+        && work.config.configured.is_some()
+        && work.config.configured != config.taken.configured;
+    if work.config.settings != config.taken.settings || listed {
         config.taken.settings = work.config.settings.clone();
         if let Some(file) = &config.taken.settings {
             match Settings::read(file) {
                 Ok(settings) => {
-                    config.settings = settings;
+                    config.settings = match (&settings.theme, &work.config.configured) {
+                        (Some(theme), Some(made)) => {
+                            let kind = made.kind_of(theme);
+                            settings.migrated(kind)
+                        }
+                        _ => settings,
+                    };
                     config.settings_error = None;
                 }
                 Err(error) => config.settings_error = Some(error),
@@ -318,5 +329,27 @@ mod tests {
             run.state().chrome.status.line.as_deref(),
             Some("no theme named \"Lost\"")
         );
+    }
+
+    #[test]
+    fn the_one_theme_an_earlier_version_named_is_taken_by_its_kind_once_the_host_lists_it() {
+        use crate::settings::{Appearance, ThemeKind};
+        use adroit_protocol::ThemeListed;
+        let listed = ConfigChange::Configured {
+            configured: Configured {
+                themes: vec![ThemeListed {
+                    name: "Latte".into(),
+                    kind: ThemeKind::Light,
+                }],
+                ..Default::default()
+            },
+        };
+        let run = Scenario::new().event(configured("theme = \"Latte\"\n"));
+        assert_eq!(run.state().config.settings.theme.as_deref(), Some("Latte"));
+        let run = run.tell(listed);
+        let settings = &run.state().config.settings;
+        assert_eq!(settings.theme, None);
+        assert_eq!(settings.appearance, Appearance::Light);
+        assert_eq!(settings.light_theme, "Latte");
     }
 }

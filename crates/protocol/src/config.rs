@@ -42,7 +42,24 @@ pub enum Colours {
     Unreadable { error: String },
 }
 
-/// The theme the settings name, and its colours.
+/// Whether a theme is drawn light text on a dark ground or the other way,
+/// and which of the two the system's appearance is in.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ThemeKind {
+    Light,
+    #[default]
+    Dark,
+}
+
+/// A theme there is to choose from, and its kind.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ThemeListed {
+    pub name: String,
+    pub kind: ThemeKind,
+}
+
+/// The theme the settings name for the appearance in force, and its colours.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ThemeRead {
     pub name: String,
@@ -55,12 +72,25 @@ pub struct Configured {
     /// Where scratch sessions run.
     pub scratch: PathBuf,
     pub theme: ThemeRead,
-    /// The themes there are to choose from, by name.
-    pub themes: Vec<String>,
+    /// The themes there are to choose from, with their kinds.
+    pub themes: Vec<ThemeListed>,
+    /// The appearance the system was in when the host read it.
+    pub system: ThemeKind,
     /// Where the user's own themes go.
     pub themes_dir: PathBuf,
     /// The shell a shell runs when the settings name none.
     pub login_shell: String,
+}
+
+impl Configured {
+    /// The kind of the theme `name`, as listed; one not listed counts as
+    /// dark, as the host counts a theme it cannot read.
+    pub fn kind_of(&self, name: &str) -> ThemeKind {
+        self.themes
+            .iter()
+            .find(|t| t.name == name)
+            .map_or(ThemeKind::Dark, |t| t.kind)
+    }
 }
 
 /// What the host read of the configuration; none of a file until it is
@@ -134,6 +164,26 @@ mod tests {
             })
         );
         assert_eq!(work.keys.map(|f| f.text), Some(FileText::Missing));
+    }
+
+    #[test]
+    fn a_theme_s_kind_is_as_listed_and_one_not_listed_counts_as_dark() {
+        let configured = Configured {
+            themes: vec![
+                ThemeListed {
+                    name: "Latte".into(),
+                    kind: ThemeKind::Light,
+                },
+                ThemeListed {
+                    name: "Nord".into(),
+                    kind: ThemeKind::Dark,
+                },
+            ],
+            ..Default::default()
+        };
+        assert_eq!(configured.kind_of("Latte"), ThemeKind::Light);
+        assert_eq!(configured.kind_of("Nord"), ThemeKind::Dark);
+        assert_eq!(configured.kind_of("Gone"), ThemeKind::Dark);
     }
 
     #[test]

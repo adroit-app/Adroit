@@ -43,15 +43,28 @@ them), or one of your own: a file in `themes/` beside `settings.toml`, named
 as the theme, in Ghostty's theme format, so a theme file from Ghostty works as
 it is. Of it, adroit reads the sixteen colours, the background, the
 foreground and the cursor's colour. Your file of the same name as one adroit
-comes with is used in its place. The whole window is drawn in the theme's
-colours, and a new theme reaches the consoles already open. A program started
-in a console is told the theme's colours from the first time it asks, so one
-that picks its look by the background as it starts, as Neovim does, picks
-the theme's.
+comes with is used in its place. A theme whose background is darker than its
+text is a dark one, any other a light one; one that cannot be read counts as
+dark.
+
+You choose a light theme and a dark theme, and the appearance: System follows
+macOS, switching within a second of macOS turning light or dark, as it does
+on its own when set to Auto; Light and Dark keep to one theme. The Settings
+window offers for each only the themes of its kind, and keeps a theme the
+settings name that is not among them in view until another is picked. The
+theme follows macOS whether a window is open or not, so a session started with
+none open takes the theme of the appearance in force. The whole window is
+drawn in the theme's colours, and a new theme reaches the consoles already
+open. A program started in a console is told the theme's colours from the
+first time it asks, so one that picks its look by the background as it
+starts, as Neovim does, picks the theme's.
 
 An unknown setting makes the file unreadable, so a misspelt one is not
 silently ignored. `naming_model` and `projects_dir`, which earlier versions
-wrote, are read and dropped.
+wrote, are read and dropped. `theme`, the one theme earlier versions named, is
+read as the light or the dark theme by its kind, with the appearance kept to
+that kind, so the look stays as it was; it is dropped the next time the file is
+written.
 
 ## Neovim
 

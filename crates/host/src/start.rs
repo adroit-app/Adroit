@@ -134,7 +134,7 @@ async fn start(
     let mut spawn = resolved.spawn;
     spawn.cols = COLS;
     spawn.rows = ROWS;
-    let palette = crate::themes::palette(&settings.theme, &crate::settings::themes_dir())?;
+    let palette = crate::themes::palette_in_force(&settings)?;
     let attach = recorded.clone();
     let started =
         crate::execution::spawn_headless_prepared(daemon, spawn, &palette, move |id| async move {

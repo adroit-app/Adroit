@@ -24,7 +24,7 @@ use crate::icons::{Icon, IconView};
 use crate::keys_pane::KeysPane;
 use crate::link::Link;
 use crate::paths::home;
-use crate::settings::{OptionAsAlt, Settings};
+use crate::settings::{Appearance, OptionAsAlt, Settings, ThemeKind};
 use crate::style::SETTINGS_CSS;
 use crate::zoom::LEVELS;
 
@@ -81,6 +81,7 @@ pub fn close_in_front() -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Pane {
     General,
+    Appearance,
     Console,
     Prompt,
     Agents,
@@ -89,8 +90,9 @@ enum Pane {
 }
 
 impl Pane {
-    const ALL: [Pane; 6] = [
+    const ALL: [Pane; 7] = [
         Pane::General,
+        Pane::Appearance,
         Pane::Console,
         Pane::Prompt,
         Pane::Agents,
@@ -101,6 +103,7 @@ impl Pane {
     fn title(self) -> &'static str {
         match self {
             Pane::General => "General",
+            Pane::Appearance => "Appearance",
             Pane::Console => "Console",
             Pane::Prompt => "Prompt",
             Pane::Agents => "Agents",
@@ -112,6 +115,7 @@ impl Pane {
     fn icon(self) -> Icon {
         match self {
             Pane::General => Icon::AdjustmentsHorizontal,
+            Pane::Appearance => Icon::SunMoon,
             Pane::Console => Icon::Terminal,
             Pane::Prompt => Icon::Pencil,
             Pane::Agents => Icon::Message,
@@ -236,6 +240,7 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
                 }
                 match pane() {
                     Pane::General => rsx! { General { now: now(), change } },
+                    Pane::Appearance => rsx! { AppearancePane { now: now(), change } },
                     Pane::Console => rsx! { ConsolePane { now: now(), change } },
                     Pane::Prompt => rsx! { PromptPane { now: now(), change } },
                     Pane::Agents => rsx! {
@@ -426,34 +431,58 @@ const WEIGHTS: [(u16, &str); 9] = [
     (900, "Black"),
 ];
 
+/// The appearances to choose among, as the settings name them.
+const APPEARANCES: [(Appearance, &str); 3] = [
+    (Appearance::System, "System"),
+    (Appearance::Light, "Light"),
+    (Appearance::Dark, "Dark"),
+];
+
 #[component]
-fn ConsolePane(now: Settings, change: Callback<Change>) -> Element {
+fn AppearancePane(now: Settings, change: Callback<Change>) -> Element {
     let config = use_config();
-    let (themes, themes_dir) = {
-        let config = config.read();
-        let made = config.files().configured.clone().unwrap_or_default();
-        (made.themes, made.themes_dir)
+    let made = config.read().files().configured.clone().unwrap_or_default();
+    let of = |kind: ThemeKind| -> Vec<String> {
+        made.themes
+            .iter()
+            .filter(|t| t.kind == kind)
+            .map(|t| t.name.clone())
+            .collect()
     };
-    let known = themes.contains(&now.theme);
-    let installed = use_resource(|| async {
-        tokio::task::spawn_blocking(crate::installed_fonts::installed)
-            .await
-            .ok()
-    });
+    let (light, dark) = (of(ThemeKind::Light), of(ThemeKind::Dark));
+    let system = match made.system {
+        ThemeKind::Light => "light",
+        ThemeKind::Dark => "dark",
+    };
+    let themes_dir = made.themes_dir;
     rsx! {
         SettingGroup {
-            SettingRow { label: "Theme", hint: "The console's colours. A theme of your own goes in the themes folder, a file in Ghostty's theme format named as the theme.",
+            SettingRow { label: "Appearance", hint: "System follows macOS as it turns light or dark, now {system}; Light and Dark keep to one theme.",
                 select {
                     onchange: move |e| {
-                        let theme = e.value();
-                        change(Box::new(move |s: &mut Settings| s.theme = theme));
+                        let chosen = APPEARANCES
+                            .iter()
+                            .find(|(a, _)| a.name() == e.value())
+                            .map_or(Appearance::System, |(a, _)| *a);
+                        change(Box::new(move |s: &mut Settings| s.appearance = chosen));
                     },
-                    for t in themes {
-                        option { key: "{t}", value: "{t}", selected: now.theme == t, "{t}" }
+                    for (appearance, label) in APPEARANCES {
+                        option { key: "{appearance.name()}", value: "{appearance.name()}", selected: now.appearance == appearance, "{label}" }
                     }
-                    if !known {
-                        option { value: "{now.theme}", selected: true, "{now.theme}" }
-                    }
+                }
+            }
+            SettingRow { label: "Light theme", hint: "The colours while the appearance is light. A theme of your own goes in the themes folder, a file in Ghostty's theme format named as the theme.",
+                ThemeSelect {
+                    themes: light,
+                    now: now.light_theme.clone(),
+                    onchange: move |theme: String| change(Box::new(move |s: &mut Settings| s.light_theme = theme)),
+                }
+            }
+            SettingRow { label: "Dark theme", hint: "The colours while the appearance is dark.",
+                ThemeSelect {
+                    themes: dark,
+                    now: now.dark_theme.clone(),
+                    onchange: move |theme: String| change(Box::new(move |s: &mut Settings| s.dark_theme = theme)),
                 }
             }
             SettingRow { label: "Themes folder", hint: tilde(&themes_dir, &home()),
@@ -469,6 +498,37 @@ fn ConsolePane(now: Settings, change: Callback<Change>) -> Element {
                     "Open"
                 }
             }
+        }
+    }
+}
+
+/// A choice among `themes`, keeping `now` in view when it is not among
+/// them, as a name with no such theme or one of the other kind.
+#[component]
+fn ThemeSelect(themes: Vec<String>, now: String, onchange: Callback<String>) -> Element {
+    let known = themes.contains(&now);
+    rsx! {
+        select {
+            onchange: move |e| onchange(e.value()),
+            for t in themes {
+                option { key: "{t}", value: "{t}", selected: now == t, "{t}" }
+            }
+            if !known {
+                option { value: "{now}", selected: true, "{now}" }
+            }
+        }
+    }
+}
+
+#[component]
+fn ConsolePane(now: Settings, change: Callback<Change>) -> Element {
+    let installed = use_resource(|| async {
+        tokio::task::spawn_blocking(crate::installed_fonts::installed)
+            .await
+            .ok()
+    });
+    rsx! {
+        SettingGroup {
             SettingRow { label: "Font", hint: "The family the console and the prompt are drawn in, among the monospace ones installed and adroit's own, which stands behind any other for Nerd Font glyphs.",
                 select {
                     onchange: move |e| {

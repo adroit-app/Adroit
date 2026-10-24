@@ -11,15 +11,17 @@ when the file does not name it, and what it does
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
 | `agent` | one of `claude`, `codex` | `"claude"` | The agent a new session starts with, `claude` or `codex`; a session not started yet can be switched to another for the current run of the window. |
+| `appearance` | one of `system`, `light`, `dark` | `"system"` | Which of the two themes colours the console and the window: `system` follows macOS as it switches between light and dark, `light` and `dark` keep to one. |
+| `dark_theme` | string | `"Adroit"` | The theme drawn while the appearance is dark, named as the light one is. |
 | `font_family` | string | `""` | The font the console and the prompt are drawn in, as the system names its family; empty for adroit's own, JetBrainsMono Nerd Font Mono. Adroit's own stands behind any other, so Nerd Font glyphs draw whatever font is chosen, and a Japanese font behind that. A line is as tall as the font asks, as in a terminal. |
 | `font_size` | number | `13.0` | The font's size, in points, from 8 to 32. |
 | `font_weight` | integer | `400` | The font's weight, from 100 to 900; adroit's own comes in regular and bold, and draws other weights in the nearer of them. |
 | `keep_awake` | boolean | `true` | Keep the Mac from idle sleep while a session or a shell runs, the window open or not; the display still sleeps. |
+| `light_theme` | string | `"GitHub Light Default"` | The theme drawn while the appearance is light, by name: one adroit comes with, or one in `themes/` beside `settings.toml`. |
 | `notify_waiting` | boolean | `false` | Show a notification when a session starts waiting on you while the window is not in front; with several windows open, the one holding the lowest number tells. |
 | `prompt_max_rows` | integer | `12` | The most lines the prompt grows to before it scrolls inside. |
 | `prompt_min_rows` | integer | `3` | The fewest lines the prompt shows. |
 | `scratch_dir` | string | `""` | Where scratch sessions run, `~` standing for your home folder; empty for adroit's own folder. |
-| `theme` | string | `"Adroit"` | The console's colours, by the name of a theme: one adroit comes with, or one in `themes/` beside `settings.toml`. |
 | `zoom` | number | `1.0` | How large the window draws everything when it opens, from 0.67 to 1.75. Command 0 comes back to it. |
 
 ## `[claude]`

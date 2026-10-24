@@ -99,6 +99,13 @@ impl Palette {
         Ok(p)
     }
 
+    /// Whether the palette is a dark one: its background darker than its
+    /// foreground, by their relative luminance.
+    pub fn is_dark(&self) -> bool {
+        let lum = |c: Rgb| 0.2126 * c.r as f64 + 0.7152 * c.g as f64 + 0.0722 * c.b as f64;
+        lum(self.background) < lum(self.foreground)
+    }
+
     /// The colour a program asking for colour `index` is told: one of the
     /// 256-colour table, or past it the foreground, the background and the
     /// cursor, in the order the terminal numbers them.
@@ -133,6 +140,25 @@ impl Palette {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_palette_is_dark_when_its_background_is_darker_than_its_text() {
+        let dark = Palette::default();
+        assert!(dark.is_dark());
+        let light = Palette {
+            background: Rgb::new(0xff, 0xff, 0xff),
+            foreground: Rgb::new(0x24, 0x29, 0x2f),
+            ..dark
+        };
+        assert!(!light.is_dark());
+        // Green weighs most: a green ground under blue text reads as light.
+        let green = Palette {
+            background: Rgb::new(0, 0x80, 0),
+            foreground: Rgb::new(0, 0, 0xff),
+            ..Palette::default()
+        };
+        assert!(!green.is_dark());
+    }
 
     #[test]
     fn the_first_sixteen_indices_are_the_ansi_colours() {
