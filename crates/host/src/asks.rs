@@ -220,7 +220,7 @@ fn keep_image(mime: &str, data: &str) -> Result<Answer, String> {
 
 /// Make the settings `text` writes the settings, kept for the next run.
 fn save_settings(text: String) -> Result<Answer, String> {
-    let next = settings::Settings::read(&ConfigFile {
+    let next = settings::read(&ConfigFile {
         path: settings::path(),
         text: FileText::Read { text },
     })?;

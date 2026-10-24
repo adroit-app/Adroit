@@ -120,6 +120,7 @@ icons! {
     SquareMinus => "square-minus",
     SquarePlus => "square-plus",
     SquareX => "square-x",
+    SunMoon => "sun-moon",
     SwitchHorizontal => "switch-horizontal",
     Terminal => "terminal",
     Terminal2 => "terminal-2",

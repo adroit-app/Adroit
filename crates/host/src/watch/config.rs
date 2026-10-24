@@ -37,7 +37,11 @@ pub(super) async fn watch(watched: Watched) {
         // The theme's file is read only for a theme newly named.
         let made = configured.clone();
         let Ok(made) = tokio::task::spawn_blocking(move || {
-            crate::config::configured(&settings::current(), made.as_ref())
+            crate::config::configured(
+                &settings::current(),
+                crate::appearance::system(),
+                made.as_ref(),
+            )
         })
         .await
         else {

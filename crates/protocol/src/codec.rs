@@ -41,8 +41,8 @@ mod tests {
         ConversationRead, DetailsChange, DetailsWork, Dialog, Event, FileText, HistoryRead, Offers,
         PastChange, PastSight, PastWork, PickChange, PickSight, PickWork, PlaceChange, PlaceRead,
         PlaceWork, PromptChange, PromptWork, RepositoryRead, RepositorySight, Request, Seq,
-        SessionRead, Sight, SystemUsage, ThemeRead, Told, TreeChange, TreeSight, Typing, Version,
-        WorkSnapshot,
+        SessionRead, Sight, SystemUsage, ThemeKind, ThemeListed, ThemeRead, Told, TreeChange,
+        TreeSight, Typing, Version, WorkSnapshot,
     };
 
     fn round_trips<T>(message: T)
@@ -220,7 +220,11 @@ mod tests {
                             text: "background = #010203\n".into(),
                         },
                     },
-                    themes: vec!["Mine".into(), "Nord".into()],
+                    themes: vec![ThemeListed {
+                        name: "Mine".into(),
+                        kind: ThemeKind::Light,
+                    }],
+                    system: ThemeKind::Light,
                     themes_dir: "/c/themes".into(),
                     login_shell: "/bin/zsh".into(),
                 }),

@@ -20,8 +20,7 @@ pub fn window(p: &Palette) -> Window {
     let (bg, fg) = (p.background, p.foreground);
     let toward = |amount: f64| mix(bg, fg, amount).hex();
     let away = mix(bg, Rgb::new(0, 0, 0), 0.25);
-    let lum = |c: Rgb| 0.2126 * c.r as f64 + 0.7152 * c.g as f64 + 0.0722 * c.b as f64;
-    let dark = lum(bg) < lum(fg);
+    let dark = p.is_dark();
     // On a light background the ground darkens less, or it reads as a border.
     let ground = if dark { away } else { mix(bg, fg, -0.04) };
     let mut vars = vec![

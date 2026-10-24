@@ -23,8 +23,14 @@ pub fn themes_dir() -> PathBuf {
     config_dir().join("themes")
 }
 
+/// The settings `file` holds, as [`Settings::read`] has them, with the one
+/// theme an earlier version named taken by its kind.
+pub fn read(file: &adroit_protocol::ConfigFile) -> Result<Settings, String> {
+    Settings::read(file).map(|s| crate::themes::migrated(s, &themes_dir()))
+}
+
 fn read_path(path: &Path) -> Result<Settings, String> {
-    Settings::read(&crate::config::file(path))
+    read(&crate::config::file(path))
 }
 
 /// Keep the UI available for repairing an invalid configuration, with
@@ -79,7 +85,7 @@ pub fn current() -> Settings {
 /// or by another program, and tell every window: a file that does not read
 /// leaves the settings as they are.
 pub fn take_in(file: &adroit_protocol::ConfigFile) {
-    match Settings::read(file) {
+    match read(file) {
         Ok(next) if next != current() => {
             if let Ok(mut s) = SETTINGS.write() {
                 *s = next;

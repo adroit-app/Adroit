@@ -396,7 +396,7 @@ async fn start(context: &Context, caller: &Session, start: protocol::Start) -> R
     let mut spawn = resolved.spawn;
     spawn.cols = 120;
     spawn.rows = 40;
-    let palette = crate::themes::palette(&settings.theme, &crate::settings::themes_dir())
+    let palette = crate::themes::palette_in_force(&settings)
         .map_err(|error| Error::new(Code::Invalid, error))?;
     let attach = recorded.clone();
     let started = crate::execution::spawn_headless_prepared(
