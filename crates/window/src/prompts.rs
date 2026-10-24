@@ -1,23 +1,23 @@
 //! What is written in the prompt for each tab. The prompt holds the shown
 //! tab's text; the others' is kept aside until their tab is shown again.
 
-use std::collections::{BTreeMap, VecDeque};
-use std::path::{Path, PathBuf};
+use std::collections::VecDeque;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use adroit_nvim::Embedded;
 use dioxus::prelude::*;
-use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use tokio::sync::oneshot;
 
 use adroit_core::msg::Msg;
+use adroit_protocol::{Answer, Ask, Drafts as KeptDrafts};
 
 use crate::bridge::AppCtx;
 use crate::content::Tab;
-use crate::paths::instance_state;
+use crate::link::GONE;
 
 use adroit_core::prompt::drafts::History;
 pub use adroit_core::prompt::drafts::*;
@@ -44,6 +44,8 @@ pub enum Op {
     Recall(Option<Tab>, bool, Vec<String>),
     /// Keep what is written, the shown tab's too, past the window.
     Save,
+    /// The work host kept these drafts, or could not when none.
+    Saved(Option<KeptDrafts>),
 }
 
 async fn restore_before_op<F, Fut>(
@@ -68,66 +70,47 @@ where
     Ok(op)
 }
 
-/// Where what is written is kept past the window.
-#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct DraftCheckpoint {
-    text: BTreeMap<String, String>,
-    images: BTreeMap<String, Vec<PathBuf>>,
+/// What is written as the work host keeps it, asked until a work host
+/// answers; none when the one that answers cannot read what it keeps, so
+/// that nothing is written over it.
+async fn kept_drafts(app: AppCtx) -> Option<KeptDrafts> {
+    loop {
+        match app.ask(Ask::Drafts).await {
+            Answer::Drafts(drafts) => return Some(*drafts),
+            Answer::Failed { text } if text == GONE => {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+            Answer::Failed { text } => {
+                eprintln!("adroit: {text}; what is written is not kept, to keep what is there");
+                return None;
+            }
+            answer => {
+                eprintln!("adroit: the work host answered {answer:?} for the drafts");
+                return None;
+            }
+        }
+    }
 }
 
-impl DraftCheckpoint {
-    fn read<T: serde::de::DeserializeOwned>(path: &Path) -> Result<Option<T>, String> {
-        match std::fs::read(path) {
-            Ok(bytes) => serde_json::from_slice(&bytes)
-                .map(Some)
-                .map_err(|error| format!("cannot read {}: {error}", path.display())),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(format!("cannot read {}: {error}", path.display())),
-        }
-    }
-
-    fn load(directory: &Path) -> Result<Self, String> {
-        if let Some(checkpoint) = Self::read(&directory.join("draft-checkpoint.json"))? {
-            return Ok(checkpoint);
-        }
-        Ok(Self {
-            text: Self::read(&directory.join("drafts.json"))?.unwrap_or_default(),
-            images: Self::read(&directory.join("attachments.json"))?.unwrap_or_default(),
-        })
-    }
-
-    fn keep(&self, directory: &Path, saved: &mut Option<Self>) -> Result<(), String> {
-        use std::io::Write;
-        use std::os::unix::fs::OpenOptionsExt;
-
-        if saved.as_ref() == Some(self) {
-            return Ok(());
-        }
-        let temporary = directory.join(format!(
-            ".draft-checkpoint-{}.tmp",
-            adroit_model::DraftId::new()
-        ));
-        let result = (|| {
-            std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
-            let mut file = std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(&temporary)
-                .map_err(|error| error.to_string())?;
-            file.write_all(&serde_json::to_vec(self).map_err(|error| error.to_string())?)
-                .map_err(|error| error.to_string())?;
-            file.sync_all().map_err(|error| error.to_string())?;
-            std::fs::rename(&temporary, directory.join("draft-checkpoint.json"))
-                .map_err(|error| error.to_string())
-        })();
-        if result.is_err() {
-            let _ = std::fs::remove_file(&temporary);
-        }
-        result?;
-        *saved = Some(self.clone());
-        Ok(())
-    }
+/// Send the work host what changed of `now` since `kept`, telling the keeper
+/// through `tx` whether it kept it.
+fn save(app: AppCtx, tx: UnboundedSender<Op>, kept: &KeptDrafts, now: KeptDrafts) {
+    let changes = now.since(kept);
+    let asked = app.ask(Ask::KeepDrafts(Box::new(changes)));
+    spawn(async move {
+        let saved = match asked.await {
+            Answer::Done => Some(now),
+            Answer::Failed { text } => {
+                eprintln!("adroit: cannot keep what is written: {text}");
+                None
+            }
+            answer => {
+                eprintln!("adroit: the work host answered {answer:?} for the drafts");
+                None
+            }
+        };
+        let _ = tx.send(Op::Saved(saved));
+    });
 }
 
 /// How often what is written is kept, so a window that ends however it ends
@@ -170,20 +153,16 @@ pub(crate) fn keeper(nvim: Signal<Option<Arc<Embedded>>>, app: AppCtx) -> Prompt
             }
         });
     }
+    let saving = tx.clone();
     spawn(async move {
-        let directory = instance_state();
-        let (checkpoint, writable) = match DraftCheckpoint::load(&directory) {
-            Ok(checkpoint) => (checkpoint, true),
-            Err(error) => {
-                eprintln!(
-                    "adroit: {error}; draft checkpoint saving is disabled to preserve the existing file"
-                );
-                (DraftCheckpoint::default(), false)
-            }
-        };
+        // What the work host keeps, which saving changes; none when nothing
+        // may be written.
+        let mut kept = kept_drafts(app).await;
+        let checkpoint = kept.clone().unwrap_or_default();
         let mut drafts = Drafts::restored(checkpoint.text);
         let mut images = adroit_core::prompt::images::Attachments::restored(checkpoint.images);
-        let mut saved = None;
+        // A save the work host has not answered yet; another waits for it.
+        let mut in_flight = false;
         let mut opened = false;
         let mut history = History::default();
         let mut deferred = VecDeque::new();
@@ -272,8 +251,18 @@ pub(crate) fn keeper(nvim: Signal<Option<Arc<Embedded>>>, app: AppCtx) -> Prompt
                         let _ = reply.send((drafts.shown().clone(), text, images.take()));
                     }
                     Op::Save => {}
+                    Op::Saved(saved) => {
+                        in_flight = false;
+                        if saved.is_some() {
+                            kept = saved;
+                        }
+                        continue;
+                    }
                 }
-                if checkpoint_due {
+                if checkpoint_due
+                    && !in_flight
+                    && let Some(was) = &kept
+                {
                     let text = if let Some(nv) = &nv {
                         match nv.text().await {
                             Ok(text) => text,
@@ -285,12 +274,13 @@ pub(crate) fn keeper(nvim: Signal<Option<Arc<Embedded>>>, app: AppCtx) -> Prompt
                     } else {
                         String::new()
                     };
-                    let checkpoint = DraftCheckpoint {
+                    let now = KeptDrafts {
                         text: drafts.saved(&text),
                         images: images.saved(),
                     };
-                    if writable && let Err(error) = checkpoint.keep(&directory, &mut saved) {
-                        eprintln!("adroit: cannot save the prompt checkpoint: {error}");
+                    if now != *was {
+                        in_flight = true;
+                        save(app, saving.clone(), was, now);
                     }
                 }
                 show_images(images.current());
@@ -307,6 +297,8 @@ pub(crate) fn keeper(nvim: Signal<Option<Arc<Embedded>>>, app: AppCtx) -> Prompt
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
 
     #[tokio::test]
@@ -364,50 +356,5 @@ mod tests {
             .send((drafts.shown().clone(), "old draft".into(), vec![]))
             .unwrap();
         assert_eq!(received.await.unwrap().1, "old draft");
-    }
-
-    #[test]
-    fn failed_checkpoint_writes_do_not_advance_the_saved_baseline_and_can_retry() {
-        let directory = tempfile::tempdir().unwrap();
-        let blocked = directory.path().join("not-a-directory");
-        std::fs::write(&blocked, "Keep me").unwrap();
-        let checkpoint = DraftCheckpoint::default();
-        let mut saved = None;
-        assert!(checkpoint.keep(&blocked, &mut saved).is_err());
-        assert!(saved.is_none());
-        assert_eq!(std::fs::read_to_string(&blocked).unwrap(), "Keep me");
-        checkpoint.keep(directory.path(), &mut saved).unwrap();
-        assert_eq!(saved, Some(checkpoint.clone()));
-        assert_eq!(DraftCheckpoint::load(directory.path()).unwrap(), checkpoint);
-    }
-
-    #[test]
-    fn legacy_files_are_read_only_until_a_checkpoint_exists_and_never_mask_a_broken_checkpoint() {
-        let directory = tempfile::tempdir().unwrap();
-        std::fs::write(
-            directory.path().join("drafts.json"),
-            r#"{"session:old":"legacy draft"}"#,
-        )
-        .unwrap();
-        std::fs::write(
-            directory.path().join("attachments.json"),
-            r#"{"session:old":["/legacy.png"]}"#,
-        )
-        .unwrap();
-        let checkpoint = DraftCheckpoint::load(directory.path()).unwrap();
-        assert_eq!(
-            checkpoint.text.get("session:old").map(String::as_str),
-            Some("legacy draft")
-        );
-        assert_eq!(
-            checkpoint.images.get("session:old"),
-            Some(&vec![PathBuf::from("/legacy.png")])
-        );
-        std::fs::write(
-            directory.path().join("draft-checkpoint.json"),
-            "incomplete checkpoint",
-        )
-        .unwrap();
-        assert!(DraftCheckpoint::load(directory.path()).is_err());
     }
 }

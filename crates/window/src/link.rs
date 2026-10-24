@@ -17,7 +17,7 @@ use adroit_protocol::{Answer, Ask, Event, Request, SPOKEN, Told, WorkHost, judge
 use tokio::sync::{mpsc, oneshot};
 
 /// What an ask in flight is answered when the host goes before answering.
-const GONE: &str = "The work host went away before it answered; try again";
+pub(crate) const GONE: &str = "The work host went away before it answered; try again";
 
 /// How long the link waits before trying the host again.
 const AGAIN: Duration = Duration::from_millis(500);

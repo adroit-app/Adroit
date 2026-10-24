@@ -11,6 +11,7 @@ pub mod config;
 pub mod daemon;
 pub mod delegation;
 pub mod details;
+pub mod drafts;
 pub mod editor;
 pub mod env;
 pub mod execution;

@@ -47,6 +47,22 @@ async fn answer(watched: &Watched, judged: &watch::Sender<Judged>, ask: Ask) -> 
         Ask::KeepImage { mime, data } => keep_image(&mime, &data),
         Ask::SaveSettings { text } => save_settings(text),
         Ask::SaveKeys { text } => save_keys(&text),
+        Ask::Drafts => {
+            let dir = crate::paths::instance_state();
+            tokio::task::spawn_blocking(move || crate::drafts::load(&dir))
+                .await
+                .map_err(|e| e.to_string())
+                .and_then(|kept| kept)
+                .map(|drafts| Answer::Drafts(Box::new(drafts)))
+        }
+        Ask::KeepDrafts(changes) => {
+            let dir = crate::paths::instance_state();
+            tokio::task::spawn_blocking(move || crate::drafts::change(&dir, *changes))
+                .await
+                .map_err(|e| e.to_string())
+                .and_then(|kept| kept)
+                .map(|()| Answer::Done)
+        }
         Ask::Picture { path, whole } => Ok(picture(path, whole).await),
         Ask::Run { args, cwd, input } => Ok(run(&args, &cwd, input).await),
     };

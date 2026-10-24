@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use adroit_model::{Agent, AgentPermissions, TerminalProgram, TerminalSession};
 use serde::{Deserialize, Serialize};
 
-use crate::HostPath;
+use crate::{DraftChanges, Drafts, HostPath};
 
 /// What is asked of the work host.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -30,6 +30,10 @@ pub enum Ask {
     /// Make `text` the key bindings over the defaults, as `keys.toml` holds
     /// them.
     SaveKeys { text: String },
+    /// What is written in the prompts, as kept.
+    Drafts,
+    /// Keep what a window changed of what is written in the prompts.
+    KeepDrafts(Box<DraftChanges>),
     /// The image file at `path` as a `data:` URL: whole, or as the small copy
     /// a list draws.
     Picture { path: PathBuf, whole: bool },
@@ -117,6 +121,8 @@ pub enum Answer {
         stderr: String,
         code: i32,
     },
+    /// What is written in the prompts, as kept.
+    Drafts(Box<Drafts>),
     Done,
     /// It failed, for this reason, said to the user.
     Failed {
