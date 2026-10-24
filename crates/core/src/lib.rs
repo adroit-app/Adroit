@@ -2,6 +2,7 @@
 //! over it, with no UI and no programs run.
 
 pub mod actions;
+pub mod agent_pages;
 pub mod chrome;
 pub mod complete;
 pub mod completion;

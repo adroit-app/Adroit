@@ -364,6 +364,21 @@ pub fn add_connection(
     Ok(id)
 }
 
+/// A connection called `name` of the profile `id`'s agent, made as
+/// [`add_connection`] makes one, which the profile then runs in: its id.
+pub fn add_connection_for(
+    settings: &mut Settings,
+    id: &ProfileId,
+    name: &str,
+    home: NewHome,
+    canonical: impl Fn(&Path) -> Option<PathBuf>,
+) -> Result<ConnectionId, String> {
+    let agent = settings.profiles[position(settings, id)?].agent();
+    let made = add_connection(settings, name, agent, home, canonical)?;
+    set_connection(settings, id, &made)?;
+    Ok(made)
+}
+
 fn connection_mut<'a>(
     settings: &'a mut Settings,
     id: &ConnectionId,
@@ -788,6 +803,23 @@ mod tests {
                 .unwrap_err(),
             "connection Work already keeps its state in /Users/me/work; a connection needs a folder of its own"
         );
+    }
+
+    #[test]
+    fn a_connection_made_for_a_profile_is_of_its_agent_and_the_profile_runs_in_it() {
+        let mut s = settings();
+        let own = NewHome::Own { data: "/d".into() };
+        let made = add_connection_for(&mut s, &id("codex"), "Codex CI", own.clone(), none).unwrap();
+        assert_eq!(made, cid("codex-ci"));
+        let c = s.connections.last().unwrap();
+        assert_eq!(c.agent, Agent::Codex);
+        assert_eq!(c.home, Path::new("/d/adroit/connections/codex-ci"));
+        assert_eq!(s.profiles[2].connection, made);
+        holds(&s);
+        let before = s.clone();
+        assert!(add_connection_for(&mut s, &id("codex"), " ", own.clone(), none).is_err());
+        assert!(add_connection_for(&mut s, &id("gone"), "X", own, none).is_err());
+        assert_eq!(s, before);
     }
 
     #[test]

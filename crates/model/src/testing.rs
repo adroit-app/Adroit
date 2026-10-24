@@ -307,6 +307,11 @@ pub fn connection(id: &str, agent: Agent, home: impl Into<PathBuf>) -> Connectio
 pub struct ConnectionBuilder(AgentConnection);
 
 impl ConnectionBuilder {
+    pub fn archived(mut self) -> Self {
+        self.0.archived = true;
+        self
+    }
+
     pub fn build(self) -> AgentConnection {
         self.0
     }
