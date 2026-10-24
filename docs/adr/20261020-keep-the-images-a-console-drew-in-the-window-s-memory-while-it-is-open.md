@@ -1,4 +1,4 @@
-# Keep the images a console drew in memory while adroit runs
+# Keep the images a console drew in the window's memory while it is open
 
 Status: Accepted
 
@@ -6,13 +6,14 @@ Status: Accepted
 
 A program draws images in its console through the kitty graphics protocol, and
 the console holds one only while the program keeps it. Agents redraw often, so
-a diagram can be gone a few turns later, and no transcript records it.
+a diagram can be gone a few turns later, and no transcript records it. The
+window is what receives the images, as it draws the console.
 
 ## Decision
 
-adroit keeps a copy of each image a session's console receives, in memory, for
-as long as it runs, within bounds per session and in total past which the
-oldest go.
+The window keeps a copy of each image a session's console sends it, in
+memory, for as long as it is open, within bounds per session and in total
+past which the oldest go.
 
 ## Alternatives considered
 
@@ -25,6 +26,7 @@ oldest go.
 
 ## Consequences
 
-- Images drawn while adroit is detached are kept only if the console still
-  holds them when it attaches again.
-- Quitting adroit forgets every kept image.
+- Images drawn while no window shows the session are kept only if the console
+  still holds them when a window attaches.
+- Closing a window forgets the images it kept, and each window keeps only those
+  it was sent.

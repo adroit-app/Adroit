@@ -25,5 +25,5 @@ sent.
 ## Consequences
 
 - Images can be seen and removed without editing the user's words.
-- Attachments belong to a tab, as the prompt text does.
+- Attachments belong to what the prompt is written for, as its text does.
 - Each agent's image input is an interface its adapter depends on.

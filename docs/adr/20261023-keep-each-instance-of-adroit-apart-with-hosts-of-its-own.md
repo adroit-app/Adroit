@@ -1,6 +1,6 @@
 # Keep each instance of adroit apart, with hosts of its own
 
-Status: Proposed
+Status: Accepted
 
 ## Context
 

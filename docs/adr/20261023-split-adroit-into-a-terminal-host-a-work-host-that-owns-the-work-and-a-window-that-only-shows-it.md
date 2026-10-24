@@ -1,33 +1,33 @@
 # Split adroit into a terminal host, a work host that owns the work, and a window that only shows it
 
-Status: Proposed
+Status: Accepted
 
 ## Context
 
-The session daemon holds the sessions' terminals, and also runs delegation and
-judges whether a session is ready. Both change often, and a fix to either
+The session daemon held the sessions' terminals, and also ran delegation and
+judged whether a session was ready. Both change often, and a fix to either
 reached nothing until the daemon was replaced, which ends every session. The
-window, for its part, keeps what is known of the work in its own memory and
-reads files, repositories and processes itself, so it can only run on the
-machine the sessions run on. The window is meant to run, in time, on another
-machine than the sessions.
+window, for its part, kept what was known of the work in its own memory and
+read files, repositories and processes itself, so the work was gone while it
+was closed, and it could only run on the machine the sessions run on. The
+window is meant to run, in time, on another machine than the sessions.
 
 ## Decision
 
-adroit runs as three parts.
+adroit runs as three kinds of process.
 
 - The terminal host holds each session's pseudo-terminal and emulator, and
   nothing else.
 - The work host owns everything known of the work: which sessions there are
-  and where, who started and messaged whom, how each session stands, and the
-  files, repositories and programs on its machine. Every program a session or
-  the window needs runs here, the Neovims the window draws among them.
-- The window holds only how the work is shown. It draws what the hosts send
-  and passes on what the user does, and it reaches the hosts' machine through
-  their sockets alone.
+  and where, who started and messaged whom, how each session stands, the
+  prompts' texts, and the files, repositories, programs and settings on its
+  machine. Sessions, shells and the commands run in them start here.
+- The window holds only how the work is shown. It learns the work from the
+  work host and changes it by asking the work host; it sends keys to and draws
+  screens from the terminal host directly.
 
-Both hosts run on the machine the sessions run on. The window sends keys to
-and draws screens from the terminal host directly.
+Both hosts run on the machine the sessions run on, and are reached through
+their sockets alone.
 
 ## Alternatives considered
 
@@ -46,12 +46,11 @@ and draws screens from the terminal host directly.
 
 - The work host can be replaced at any time without ending a session; only a
   change to the terminal host's protocol ends them.
-- The window never opens a file, runs a command or reads a repository itself;
-  the tree, the viewers and the details ask the work host.
-- Neovim runs on the hosts' machine, and the window drives it as a remote
-  interface.
+- The window reads no repository and runs no command of the work's; the tree,
+  the picker and the details ask the work host. The window's code cannot reach
+  the code that reads repositories or runs agents.
 - A place is named by its host as well as its path.
-- With nothing left for the window to answer, nothing keeps an instance to one
-  window.
+- With nothing of the work left in the window, nothing keeps an instance to
+  one window.
 - What a program on the hosts' machine copies reaches the window only through
   its terminal.
