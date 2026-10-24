@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use crate::profile::{AgentConnection, AgentProfile};
 use crate::{
     Agent, AgentPermissions, Session, SessionId, State, TerminalSession, Tree, Wait, Worktree,
     build,
@@ -244,5 +245,59 @@ mod tests {
                 None,
             )
         );
+    }
+}
+
+/// A profile with `id` as its id and its name that starts `agent` in the
+/// agent's own environment, as the CLI's own settings say.
+pub fn profile(id: &str, agent: Agent) -> ProfileBuilder {
+    ProfileBuilder(AgentProfile {
+        id: id.parse().expect("a valid profile id"),
+        name: id.to_string(),
+        ..AgentProfile::builtin(agent)
+    })
+}
+
+/// An [`AgentProfile`] being built; see [`profile`].
+#[derive(Debug, Clone)]
+#[must_use]
+pub struct ProfileBuilder(AgentProfile);
+
+impl ProfileBuilder {
+    /// The connection it runs in, by id.
+    pub fn connection(mut self, id: &str) -> Self {
+        self.0.connection = id.parse().expect("a valid connection id");
+        self
+    }
+
+    pub fn archived(mut self) -> Self {
+        self.0.archived = true;
+        self
+    }
+
+    pub fn build(self) -> AgentProfile {
+        self.0
+    }
+}
+
+/// A connection with `id` as its id and its name, of `agent`, kept in `home`.
+pub fn connection(id: &str, agent: Agent, home: impl Into<PathBuf>) -> ConnectionBuilder {
+    ConnectionBuilder(AgentConnection {
+        id: id.parse().expect("a valid connection id"),
+        name: id.to_string(),
+        agent,
+        home: home.into(),
+        archived: false,
+    })
+}
+
+/// An [`AgentConnection`] being built; see [`connection`].
+#[derive(Debug, Clone)]
+#[must_use]
+pub struct ConnectionBuilder(AgentConnection);
+
+impl ConnectionBuilder {
+    pub fn build(self) -> AgentConnection {
+        self.0
     }
 }

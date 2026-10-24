@@ -16,6 +16,7 @@ mod note;
 mod past;
 pub mod paths;
 mod process;
+pub mod profile;
 pub mod repository;
 mod session;
 pub mod subagents;

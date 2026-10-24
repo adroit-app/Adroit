@@ -38,7 +38,7 @@ impl ShellLaunch {
 #[serde(default, deny_unknown_fields)]
 pub struct Launch {
     /// The program and the arguments it always gets, ahead of adroit's own;
-    /// empty for the program its table names.
+    /// empty for the program it starts: the profile's agent's, or Neovim.
     pub command: Vec<String>,
     /// Whether your shell starts it, as an interactive login shell, so that what
     /// its startup files set reaches it.
