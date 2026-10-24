@@ -253,7 +253,7 @@ fn worktree_node<'a>(tree: &'a mut Tree, w: &Worktree, holder: Holder) -> &'a mu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::{found, session, shell, worktree};
+    use crate::testing::{session, shell, tree, worktree};
 
     fn ids(node: &WorktreeNode) -> Vec<&str> {
         node.sessions.iter().map(|s| s.id.as_str()).collect()
@@ -261,22 +261,13 @@ mod tests {
 
     #[test]
     fn sessions_in_worktrees_of_one_repository_share_its_workspace() {
-        let t = build(
-            &[
-                session("a").cwd("/api").build(),
-                session("b").cwd("/api/.claude/worktrees/x").build(),
-            ],
-            &[],
-            &found(&[
-                ("/api", Some(worktree("/api", "/api", "main"))),
-                (
-                    "/api/.claude/worktrees/x",
-                    Some(worktree("/api/.claude/worktrees/x", "/api", "x")),
-                ),
-            ]),
-            &[],
-            None,
-        );
+        let x = "/api/.claude/worktrees/x";
+        let t = tree()
+            .session(session("a").cwd("/api"))
+            .session(session("b").cwd(x))
+            .checkout("/api", "/api", "main")
+            .checkout(x, "/api", "x")
+            .build();
         assert_eq!(t.workspaces.len(), 1);
         let ws = &t.workspaces[0];
         assert_eq!(ws.name, "api");
@@ -288,13 +279,10 @@ mod tests {
 
     #[test]
     fn a_session_below_a_worktree_s_top_sits_in_that_worktree() {
-        let t = build(
-            &[session("a").cwd("/api/src").build()],
-            &[],
-            &found(&[("/api/src", Some(worktree("/api", "/api", "main")))]),
-            &[],
-            None,
-        );
+        let t = tree()
+            .session(session("a").cwd("/api/src"))
+            .found("/api/src", Some(worktree("/api", "/api", "main")))
+            .build();
         assert_eq!(
             t.workspaces[0].worktrees[0].worktree.path,
             PathBuf::from("/api")
@@ -303,60 +291,43 @@ mod tests {
 
     #[test]
     fn a_directory_outside_git_is_a_workspace_of_its_own() {
-        let t = build(
-            &[
-                session("a").cwd("/notes").build(),
-                session("b").cwd("/notes/sub").build(),
-            ],
-            &[],
-            &found(&[("/notes", None)]),
-            &[],
-            None,
-        );
+        let t = tree()
+            .session(session("a").cwd("/notes"))
+            .session(session("b").cwd("/notes/sub"))
+            .found("/notes", None)
+            .build();
         assert_eq!(t.workspaces.len(), 2);
         assert!(t.workspaces.iter().all(|ws| !ws.git && ws.flat()));
     }
 
     #[test]
     fn a_workspace_with_sessions_only_in_its_main_checkout_is_flat() {
-        let t = build(
-            &[session("a").cwd("/api").build()],
-            &[],
-            &found(&[("/api", Some(worktree("/api", "/api", "main")))]),
-            &[],
-            None,
-        );
+        let t = tree()
+            .session(session("a").cwd("/api"))
+            .checkout("/api", "/api", "main")
+            .build();
         assert!(t.workspaces[0].flat());
     }
 
     #[test]
     fn sessions_only_in_another_worktree_keep_the_worktree_row() {
-        let t = build(
-            &[session("a").cwd("/api/.claude/worktrees/x").build()],
-            &[],
-            &found(&[(
-                "/api/.claude/worktrees/x",
-                Some(worktree("/api/.claude/worktrees/x", "/api", "x")),
-            )]),
-            &[],
-            None,
-        );
+        let x = "/api/.claude/worktrees/x";
+        let t = tree()
+            .session(session("a").cwd(x))
+            .checkout(x, "/api", "x")
+            .build();
         assert!(!t.workspaces[0].flat());
     }
 
     #[test]
     fn listed_worktrees_are_added_empty_to_workspaces_already_shown() {
-        let t = build(
-            &[session("a").cwd("/api").build()],
-            &[],
-            &found(&[("/api", Some(worktree("/api", "/api", "main")))]),
-            &[
-                worktree("/api", "/api", "main"),
-                worktree("/api/.claude/worktrees/y", "/api", "y"),
-                worktree("/web", "/web", "main"),
-            ],
-            None,
-        );
+        let t = tree()
+            .session(session("a").cwd("/api"))
+            .checkout("/api", "/api", "main")
+            .listed(worktree("/api", "/api", "main"))
+            .listed(worktree("/api/.claude/worktrees/y", "/api", "y"))
+            .listed(worktree("/web", "/web", "main"))
+            .build();
         assert_eq!(t.workspaces.len(), 1);
         let ws = &t.workspaces[0];
         assert_eq!(ws.worktrees.len(), 2);
@@ -366,24 +337,15 @@ mod tests {
 
     #[test]
     fn workspaces_go_by_name_and_the_main_checkout_comes_first() {
-        let t = build(
-            &[
-                session("w").cwd("/src/web/.claude/worktrees/b").build(),
-                session("m").cwd("/src/web").build(),
-                session("a").cwd("/src/Api").build(),
-            ],
-            &[],
-            &found(&[
-                ("/src/web", Some(worktree("/src/web", "/src/web", "main"))),
-                (
-                    "/src/web/.claude/worktrees/b",
-                    Some(worktree("/src/web/.claude/worktrees/b", "/src/web", "b")),
-                ),
-                ("/src/Api", None),
-            ]),
-            &[],
-            None,
-        );
+        let b = "/src/web/.claude/worktrees/b";
+        let t = tree()
+            .session(session("w").cwd(b))
+            .session(session("m").cwd("/src/web"))
+            .session(session("a").cwd("/src/Api"))
+            .checkout("/src/web", "/src/web", "main")
+            .checkout(b, "/src/web", "b")
+            .found("/src/Api", None)
+            .build();
         let names: Vec<_> = t.workspaces.iter().map(|w| w.name.as_str()).collect();
         assert_eq!(names, vec!["Api", "web"]);
         assert_eq!(ids(&t.workspaces[1].worktrees[0]), vec!["m"]);
@@ -391,13 +353,10 @@ mod tests {
 
     #[test]
     fn a_session_is_found_with_its_workspace_and_worktree() {
-        let t = build(
-            &[session("a").cwd("/api").build()],
-            &[],
-            &found(&[("/api", Some(worktree("/api", "/api", "main")))]),
-            &[],
-            None,
-        );
+        let t = tree()
+            .session(session("a").cwd("/api"))
+            .checkout("/api", "/api", "main")
+            .build();
         let (ws, wt, s) = t.find("a").unwrap();
         assert_eq!(
             (ws.name.as_str(), wt.worktree.path.as_path(), s.id.as_str()),
@@ -413,16 +372,13 @@ mod tests {
     #[test]
     fn a_worktree_where_only_shells_run_is_listed_with_them() {
         let x = "/api/.claude/worktrees/x";
-        let t = build(
-            &[session("a").cwd("/api").build()],
-            &[shell(1, x), shell(2, x)],
-            &found(&[
-                ("/api", Some(worktree("/api", "/api", "main"))),
-                (x, Some(worktree(x, "/api", "x"))),
-            ]),
-            &[],
-            None,
-        );
+        let t = tree()
+            .session(session("a").cwd("/api"))
+            .terminal(shell(1, x))
+            .terminal(shell(2, x))
+            .checkout("/api", "/api", "main")
+            .checkout(x, "/api", "x")
+            .build();
         let ws = &t.workspaces[0];
         assert_eq!(ws.worktrees.len(), 2);
         assert!(ws.worktrees[1].sessions.is_empty());
@@ -432,16 +388,12 @@ mod tests {
 
     #[test]
     fn a_shell_below_a_worktree_s_top_sits_in_that_worktree_beside_its_sessions() {
-        let t = build(
-            &[session("a").cwd("/api").build()],
-            &[shell(1, "/api/src")],
-            &found(&[
-                ("/api", Some(worktree("/api", "/api", "main"))),
-                ("/api/src", Some(worktree("/api", "/api", "main"))),
-            ]),
-            &[],
-            None,
-        );
+        let t = tree()
+            .session(session("a").cwd("/api"))
+            .terminal(shell(1, "/api/src"))
+            .checkout("/api", "/api", "main")
+            .found("/api/src", Some(worktree("/api", "/api", "main")))
+            .build();
         let ws = &t.workspaces[0];
         assert_eq!(ws.worktrees.len(), 1);
         assert_eq!(ids(&ws.worktrees[0]), ["a"]);
@@ -451,13 +403,10 @@ mod tests {
 
     #[test]
     fn a_shell_outside_git_makes_its_directory_a_workspace() {
-        let t = build(
-            &[],
-            &[shell(1, "/notes")],
-            &found(&[("/notes", None)]),
-            &[],
-            None,
-        );
+        let t = tree()
+            .terminal(shell(1, "/notes"))
+            .found("/notes", None)
+            .build();
         let ws = &t.workspaces[0];
         assert_eq!(
             (ws.name.as_str(), ws.git, ws.flat()),
@@ -468,35 +417,25 @@ mod tests {
 
     #[test]
     fn a_shell_s_workspace_takes_the_worktrees_listed_for_it() {
-        let t = build(
-            &[],
-            &[shell(1, "/api")],
-            &found(&[("/api", Some(worktree("/api", "/api", "main")))]),
-            &[
-                worktree("/api", "/api", "main"),
-                worktree("/api/w", "/api", "w"),
-            ],
-            None,
-        );
+        let t = tree()
+            .terminal(shell(1, "/api"))
+            .checkout("/api", "/api", "main")
+            .listed(worktree("/api", "/api", "main"))
+            .listed(worktree("/api/w", "/api", "w"))
+            .build();
         assert_eq!(t.worktrees().count(), 2);
     }
 
     #[test]
     fn shells_placed_again_go_to_the_innermost_worktree_holding_them() {
         let x = "/api/.claude/worktrees/x";
-        let t = build(
-            &[
-                session("a").cwd("/api").build(),
-                session("b").cwd(x).build(),
-            ],
-            &[shell(1, "/api")],
-            &found(&[
-                ("/api", Some(worktree("/api", "/api", "main"))),
-                (x, Some(worktree(x, "/api", "x"))),
-            ]),
-            &[],
-            None,
-        );
+        let t = tree()
+            .session(session("a").cwd("/api"))
+            .session(session("b").cwd(x))
+            .terminal(shell(1, "/api"))
+            .checkout("/api", "/api", "main")
+            .checkout(x, "/api", "x")
+            .build();
         // One opened since in the nested worktree, one in a directory no
         // worktree listed holds yet; the first is gone.
         let again = t.with_terminals(&[shell(2, format!("{x}/src")), shell(3, "/web")]);
@@ -508,13 +447,10 @@ mod tests {
 
     #[test]
     fn a_shell_is_found_with_its_workspace_and_worktree() {
-        let t = build(
-            &[],
-            &[shell(1, "/api")],
-            &found(&[("/api", Some(worktree("/api", "/api", "main")))]),
-            &[],
-            None,
-        );
+        let t = tree()
+            .terminal(shell(1, "/api"))
+            .checkout("/api", "/api", "main")
+            .build();
         let (ws, wt, s) = t.terminal(1).unwrap();
         assert_eq!(
             (ws.name.as_str(), wt.worktree.path.as_path(), s.id),
@@ -525,16 +461,11 @@ mod tests {
 
     #[test]
     fn iterating_sessions_names_each_ones_workspace() {
-        let t = build(
-            &[
-                session("a").cwd("/api").build(),
-                session("b").cwd("/notes").build(),
-            ],
-            &[],
-            &found(&[("/api", Some(worktree("/api", "/api", "main")))]),
-            &[],
-            None,
-        );
+        let t = tree()
+            .session(session("a").cwd("/api"))
+            .session(session("b").cwd("/notes"))
+            .checkout("/api", "/api", "main")
+            .build();
         let got: Vec<_> = t.sessions().map(|(w, s)| (w, s.id.as_str())).collect();
         assert_eq!(got, vec![("api", "a"), ("notes", "b")]);
     }
@@ -543,20 +474,11 @@ mod tests {
 
     #[test]
     fn sessions_in_directories_under_the_scratch_root_share_one_flat_scratch_workspace() {
-        let t = build(
-            &[
-                session("a")
-                    .cwd("/data/adroit/scratch/20261019-2130")
-                    .build(),
-                session("b")
-                    .cwd("/data/adroit/scratch/20261019-2200")
-                    .build(),
-            ],
-            &[],
-            &found(&[]),
-            &[],
-            Some(Path::new(SCRATCH)),
-        );
+        let t = tree()
+            .session(session("a").cwd("/data/adroit/scratch/20261019-2130"))
+            .session(session("b").cwd("/data/adroit/scratch/20261019-2200"))
+            .scratch(SCRATCH)
+            .build();
         assert_eq!(t.workspaces.len(), 1);
         let ws = &t.workspaces[0];
         assert_eq!(
@@ -571,66 +493,48 @@ mod tests {
     #[test]
     fn a_scratch_directory_belongs_to_the_scratch_workspace_whatever_git_says() {
         let dir = "/data/adroit/scratch/20261019-2130";
-        let t = build(
-            &[session("a").cwd(dir).build()],
-            &[],
-            &found(&[(dir, Some(worktree("/data", "/data", "main")))]),
-            &[
-                worktree("/data", "/data", "main"),
-                worktree("/data/w", "/data", "w"),
-            ],
-            Some(Path::new(SCRATCH)),
-        );
+        let t = tree()
+            .session(session("a").cwd(dir))
+            .found(dir, Some(worktree("/data", "/data", "main")))
+            .listed(worktree("/data", "/data", "main"))
+            .listed(worktree("/data/w", "/data", "w"))
+            .scratch(SCRATCH)
+            .build();
         assert_eq!(t.workspaces.len(), 1);
         assert!(t.workspaces[0].scratch);
     }
 
     #[test]
     fn a_shell_in_the_scratch_root_or_below_it_sits_in_the_scratch_workspace() {
-        let t = build(
-            &[session("a")
-                .cwd("/data/adroit/scratch/20261019-2130")
-                .build()],
-            &[
-                shell(1, SCRATCH),
-                shell(2, "/data/adroit/scratch/20261019-2130"),
-            ],
-            &found(&[]),
-            &[],
-            Some(Path::new(SCRATCH)),
-        );
+        let dir = "/data/adroit/scratch/20261019-2130";
+        let t = tree()
+            .session(session("a").cwd(dir))
+            .terminal(shell(1, SCRATCH))
+            .terminal(shell(2, dir))
+            .scratch(SCRATCH)
+            .build();
         assert_eq!(t.workspaces.len(), 1);
         assert_eq!(shell_ids(&t.workspaces[0].worktrees[0]), [1, 2]);
     }
 
     #[test]
     fn a_directory_beside_the_scratch_root_is_not_in_it() {
-        let t = build(
-            &[session("a").cwd("/data/adroit/scratch-old").build()],
-            &[],
-            &found(&[]),
-            &[],
-            Some(Path::new(SCRATCH)),
-        );
+        let t = tree()
+            .session(session("a").cwd("/data/adroit/scratch-old"))
+            .scratch(SCRATCH)
+            .build();
         assert!(!t.workspaces[0].scratch);
         assert_eq!(t.workspaces[0].name, "scratch-old");
     }
 
     #[test]
     fn the_scratch_workspace_comes_after_every_other() {
-        let t = build(
-            &[
-                session("s")
-                    .cwd("/data/adroit/scratch/20261019-2130")
-                    .build(),
-                session("z").cwd("/src/zebra").build(),
-                session("a").cwd("/src/api").build(),
-            ],
-            &[],
-            &found(&[]),
-            &[],
-            Some(Path::new(SCRATCH)),
-        );
+        let t = tree()
+            .session(session("s").cwd("/data/adroit/scratch/20261019-2130"))
+            .session(session("z").cwd("/src/zebra"))
+            .session(session("a").cwd("/src/api"))
+            .scratch(SCRATCH)
+            .build();
         let names: Vec<_> = t.workspaces.iter().map(|w| w.name.as_str()).collect();
         assert_eq!(names, ["api", "zebra", "Scratch"]);
     }
