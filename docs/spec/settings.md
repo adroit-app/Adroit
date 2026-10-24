@@ -52,7 +52,8 @@ theme = "Adroit"
 keep_awake = true
 
 # Show a notification when a session starts waiting on you while the window
-# is not in front.
+# is not in front; with several windows open, the one holding the lowest
+# number tells.
 notify_waiting = false
 
 # Where scratch sessions run, `~` standing for your home folder; empty for

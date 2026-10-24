@@ -87,6 +87,7 @@ pub fn sections() -> Vec<Section> {
                 Run(Action::NeovimOpen),
                 Run(Action::TerminalStop),
                 Run(Action::TabClose),
+                Run(Action::WindowOpen),
                 Run(Action::WindowClose),
                 Separator,
                 Run(Action::SessionRename),

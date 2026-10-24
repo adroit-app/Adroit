@@ -5,9 +5,13 @@ use crate::paths::{DEFAULT_INSTANCE, INSTANCE_ENV, is_instance};
 /// What `adroit` does, by its arguments.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command {
-    /// Open the window of the instance named, or of the one the environment
-    /// names.
-    Window(Option<String>),
+    /// Open a window of the instance named, or of the one the environment
+    /// names: a new one beside those open when `new`, or else the one open
+    /// brought to the front.
+    Window {
+        instance: Option<String>,
+        new: bool,
+    },
     Version,
     /// A subcommand, and the arguments that follow it.
     Terminal(Vec<String>),
@@ -27,6 +31,23 @@ pub enum DaemonCommand {
     Restart,
 }
 
+/// A window opened as `args`, its options in any order, each once.
+fn window(args: &[String]) -> Option<Command> {
+    let (mut instance, mut new) = (None, false);
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
+        match word.as_str() {
+            "--instance" if instance.is_none() => {
+                let name = words.next().filter(|n| is_instance(n))?;
+                instance = Some(name.clone());
+            }
+            "--new-window" if !new => new = true,
+            _ => return None,
+        }
+    }
+    Some(Command::Window { instance, new })
+}
+
 /// What `adroit host` is asked to do with the work host of the instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HostCommand {
@@ -35,7 +56,7 @@ pub enum HostCommand {
     Restart,
 }
 
-pub const USAGE: &str = "usage: adroit [--instance <name> | --version | terminal … | mcp … | editor … | session … | daemon [stop | restart] | host [stop | restart]]";
+pub const USAGE: &str = "usage: adroit [[--instance <name>] [--new-window] | --version | terminal … | mcp … | editor … | session … | daemon [stop | restart] | host [stop | restart]]";
 
 /// The command `args` ask for; `None` for one adroit does not know, which
 /// must not open a window: a program that ran an older adroit's subcommand
@@ -43,13 +64,16 @@ pub const USAGE: &str = "usage: adroit [--instance <name> | --version | terminal
 pub fn command(args: &[String]) -> Option<Command> {
     let rest = || args[1..].to_vec();
     match args.first().map(String::as_str) {
-        None => Some(Command::Window(None)),
+        None => Some(Command::Window {
+            instance: None,
+            new: false,
+        }),
         // What macOS once added when it launched an app from the Finder.
-        Some(a) if a.starts_with("-psn_") && args.len() == 1 => Some(Command::Window(None)),
-        Some("--instance") => match &args[1..] {
-            [name] if is_instance(name) => Some(Command::Window(Some(name.clone()))),
-            _ => None,
-        },
+        Some(a) if a.starts_with("-psn_") && args.len() == 1 => Some(Command::Window {
+            instance: None,
+            new: false,
+        }),
+        Some("--instance" | "--new-window") => window(args),
         Some("--version") if args.len() == 1 => Some(Command::Version),
         Some("mcp") => Some(Command::Mcp(rest())),
         Some("terminal") => Some(Command::Terminal(rest())),
@@ -100,14 +124,36 @@ mod tests {
         command(&args)
     }
 
+    fn window(instance: Option<&str>, new: bool) -> Option<Command> {
+        Some(Command::Window {
+            instance: instance.map(String::from),
+            new,
+        })
+    }
+
     #[test]
     fn no_arguments_open_the_window() {
-        assert_eq!(asked(&[]), Some(Command::Window(None)));
+        assert_eq!(asked(&[]), window(None, false));
     }
 
     #[test]
     fn the_process_serial_number_macos_once_passed_opens_the_window() {
-        assert_eq!(asked(&["-psn_0_12345"]), Some(Command::Window(None)));
+        assert_eq!(asked(&["-psn_0_12345"]), window(None, false));
+    }
+
+    #[test]
+    fn a_new_window_is_asked_for_of_the_instance_named_or_the_one_in_use() {
+        assert_eq!(asked(&["--new-window"]), window(None, true));
+        assert_eq!(
+            asked(&["--instance", "work", "--new-window"]),
+            window(Some("work"), true)
+        );
+        assert_eq!(
+            asked(&["--new-window", "--instance", "work"]),
+            window(Some("work"), true)
+        );
+        assert_eq!(asked(&["--new-window", "--new-window"]), None);
+        assert_eq!(asked(&["--new-window", "extra"]), None);
     }
 
     #[test]
@@ -150,10 +196,7 @@ mod tests {
 
     #[test]
     fn the_window_of_a_named_instance_is_opened_by_its_name() {
-        assert_eq!(
-            asked(&["--instance", "work"]),
-            Some(Command::Window(Some("work".into())))
-        );
+        assert_eq!(asked(&["--instance", "work"]), window(Some("work"), false));
         assert_eq!(asked(&["--instance"]), None);
         assert_eq!(asked(&["--instance", "../up"]), None);
         assert_eq!(asked(&["--instance", "work", "extra"]), None);

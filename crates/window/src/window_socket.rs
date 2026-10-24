@@ -1,8 +1,14 @@
-//! Window-owned editor handoff and foreground requests.
+//! The sockets the windows of an instance answer on, one for each window by
+//! the number it holds: an `adroit` opened again asks one to come to the
+//! front, and `adroit editor` offers each the input a session handed its
+//! external editor.
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 
+use adroit_model::paths::{window_socket, windows_dir};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
 
@@ -11,7 +17,7 @@ use tokio::sync::{mpsc, oneshot};
 pub enum Request {
     /// Take the text Claude Code handed its external editor in `path`.
     Editor { path: PathBuf },
-    /// Come to the front, for a window of the same instance opened again.
+    /// Come to the front, for adroit opened again.
     Show,
 }
 
@@ -27,18 +33,19 @@ pub enum Response {
     Error(String),
 }
 
-pub use adroit_model::paths::window_socket as socket_path;
+/// How long a window is given to answer before it is passed over.
+const ANSWER_WITHIN: Duration = Duration::from_secs(5);
 
-/// Ask the window of this instance, if one is open, to come to the front;
-/// whether it did, leaving this process nothing to open.
-pub fn hand_to_open_window() -> bool {
-    let socket = socket_path(&adroit_model::paths::instance_state());
-    matches!(ask(&socket, &Request::Show), Ok(Response::Shown))
+/// The folder the windows of this process's instance answer in.
+pub fn windows() -> PathBuf {
+    windows_dir(&adroit_model::paths::instance_state())
 }
 
-/// Send one request to the window and read its answer.
+/// Send one request to the window answering on `socket` and read its answer.
 pub fn ask(socket: &Path, request: &Request) -> std::io::Result<Response> {
     let mut stream = UnixStream::connect(socket)?;
+    stream.set_read_timeout(Some(ANSWER_WITHIN))?;
+    stream.set_write_timeout(Some(ANSWER_WITHIN))?;
     let mut line = serde_json::to_string(request).map_err(std::io::Error::other)?;
     line.push('\n');
     stream.write_all(line.as_bytes())?;
@@ -47,28 +54,104 @@ pub fn ask(socket: &Path, request: &Request) -> std::io::Result<Response> {
     serde_json::from_str(&reply).map_err(std::io::Error::other)
 }
 
-/// Claim the socket for this window. A socket left by a window that has gone
-/// is replaced; one another window still answers on is left alone. Windows
-/// starting together take turns, so only one of them claims it.
-pub fn bind(socket: &Path) -> std::io::Result<tokio::net::UnixListener> {
-    let dir = match socket.parent() {
-        Some(d) if !d.as_os_str().is_empty() => d,
-        _ => Path::new("."),
-    };
-    std::fs::create_dir_all(dir)?;
-    // The folder is locked, not a file beside the socket: a lock file is what
-    // a cleaner of old files takes away, and two windows then hold different
-    // locks.
-    let turn = std::fs::File::open(dir)?;
+/// The numbers of the windows open in `windows`, lowest first: those whose
+/// socket takes a connection.
+pub fn open_numbers(windows: &Path) -> Vec<u32> {
+    let mut numbers: Vec<u32> = std::fs::read_dir(windows)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| e.file_name().to_str()?.strip_suffix(".sock")?.parse().ok())
+        .filter(|n| UnixStream::connect(window_socket(windows, *n)).is_ok())
+        .collect();
+    numbers.sort_unstable();
+    numbers
+}
+
+/// Ask each window open in `windows`, lowest number first, until one gives
+/// an answer `wanted` takes; that answer.
+pub fn ask_each(
+    windows: &Path,
+    request: &Request,
+    wanted: impl Fn(&Response) -> bool,
+) -> Option<Response> {
+    open_numbers(windows)
+        .into_iter()
+        .filter_map(|n| ask(&window_socket(windows, n), request).ok())
+        .find(|answer| wanted(answer))
+}
+
+/// Whether no window open in `windows` holds a number lower than `number`.
+pub fn first_open(windows: &Path, number: u32) -> bool {
+    open_numbers(windows).first().is_none_or(|n| *n >= number)
+}
+
+/// A window this process opens: the number it holds and the socket it
+/// answers on.
+#[derive(Debug)]
+pub struct Claimed {
+    pub number: u32,
+    pub listener: UnixListener,
+}
+
+/// Claim the lowest number no open window in `windows` holds, for a window
+/// about to open. Unless `new`, an open window is asked to come to the front
+/// instead, and nothing is claimed. A socket left by a window that has gone
+/// is taken over; one another window still answers on is left alone.
+/// Windows opening together take turns, so no two claim one number.
+pub fn claim(windows: &Path, new: bool) -> std::io::Result<Option<Claimed>> {
+    std::fs::create_dir_all(windows)?;
+    // The folder is locked, not a file beside the sockets: a lock file is
+    // what a cleaner of old files takes away, and two windows then hold
+    // different locks.
+    let turn = std::fs::File::open(windows)?;
     turn.lock()?;
-    if UnixStream::connect(socket).is_ok() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::AddrInUse,
-            format!("another adroit answers on {}", socket.display()),
-        ));
+    if !new && ask_each(windows, &Request::Show, |r| *r == Response::Shown).is_some() {
+        return Ok(None);
     }
-    let _ = std::fs::remove_file(socket);
-    tokio::net::UnixListener::bind(socket)
+    for number in 1.. {
+        let socket = window_socket(windows, number);
+        if UnixStream::connect(&socket).is_ok() {
+            continue;
+        }
+        let _ = std::fs::remove_file(&socket);
+        let listener = UnixListener::bind(&socket)?;
+        return Ok(Some(Claimed { number, listener }));
+    }
+    unreachable!("a number is free")
+}
+
+/// The window this process opened, once it claimed a number.
+static CLAIMED: OnceLock<u32> = OnceLock::new();
+/// Its socket, until the window starts answering on it.
+static LISTENER: Mutex<Option<UnixListener>> = Mutex::new(None);
+
+/// Open a window of this process's instance: claim a number for it, or,
+/// unless `new`, bring an open window to the front instead. Whether this
+/// process is to open the window.
+pub fn open_window(new: bool) -> std::io::Result<bool> {
+    let Some(claimed) = claim(&windows(), new)? else {
+        return Ok(false);
+    };
+    let _ = CLAIMED.set(claimed.number);
+    *LISTENER.lock().unwrap_or_else(|p| p.into_inner()) = Some(claimed.listener);
+    Ok(true)
+}
+
+/// The number this process's window holds; 1 for one that claimed none.
+pub(crate) fn number() -> u32 {
+    CLAIMED.get().copied().unwrap_or(1)
+}
+
+/// Where this process's window keeps `name` from one run to the next, under
+/// the number it holds.
+pub(crate) fn kept_path(name: &str) -> PathBuf {
+    adroit_model::paths::window_state(&windows(), number()).join(name)
+}
+
+/// The socket this process's window answers on, taken once.
+pub(crate) fn take_listener() -> Option<UnixListener> {
+    LISTENER.lock().unwrap_or_else(|p| p.into_inner()).take()
 }
 
 /// A request the window is asked, with where to send its answer.
@@ -76,14 +159,16 @@ pub type Asked = (Request, oneshot::Sender<Response>);
 
 /// Read requests from every connection to `listener`, each on its own task,
 /// so a slow caller holds up no other. The window answers them in order.
-pub fn serve(listener: tokio::net::UnixListener) -> mpsc::UnboundedReceiver<Asked> {
+pub fn serve(listener: UnixListener) -> std::io::Result<mpsc::UnboundedReceiver<Asked>> {
+    listener.set_nonblocking(true)?;
+    let listener = tokio::net::UnixListener::from_std(listener)?;
     let (tx, rx) = mpsc::unbounded_channel();
     tokio::spawn(async move {
         while let Ok((stream, _)) = listener.accept().await {
             tokio::spawn(reply(stream, tx.clone()));
         }
     });
-    rx
+    Ok(rx)
 }
 
 async fn reply(
@@ -145,10 +230,10 @@ mod tests {
     use std::os::unix::fs::MetadataExt;
     use std::os::unix::process::CommandExt;
 
-    fn temp_socket(tag: &str) -> PathBuf {
+    fn temp_windows(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("adroit-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        dir.join("s.sock")
+        dir.join("windows")
     }
 
     fn stale_socket(path: &Path) -> tokio::net::UnixSocket {
@@ -184,17 +269,31 @@ mod tests {
         result
     }
 
+    fn claimed(windows: &Path) -> Claimed {
+        claim(windows, true).unwrap().expect("a new window claims")
+    }
+
+    /// A window answering every request with `answer`.
+    fn answering(claimed: Claimed, answer: Response) {
+        let mut asked = serve(claimed.listener).unwrap();
+        tokio::spawn(async move {
+            while let Some((_, reply)) = asked.recv().await {
+                let _ = reply.send(answer.clone());
+            }
+        });
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn a_request_crosses_the_socket_and_its_answer_comes_back() {
-        let path = temp_socket("ask");
-        let mut asked = serve(bind(&path).unwrap());
+        let windows = temp_windows("ask");
+        let mut asked = serve(claimed(&windows).listener).unwrap();
         let window = tokio::spawn(async move {
             let (req, reply) = asked.recv().await.unwrap();
             assert_eq!(req, Request::Show);
             reply.send(Response::Shown).unwrap();
         });
-        let p = path.clone();
-        let got = tokio::task::spawn_blocking(move || ask(&p, &Request::Show))
+        let socket = window_socket(&windows, 1);
+        let got = tokio::task::spawn_blocking(move || ask(&socket, &Request::Show))
             .await
             .unwrap()
             .unwrap();
@@ -204,16 +303,11 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn a_caller_that_says_nothing_holds_up_no_other() {
-        let path = temp_socket("idle");
-        let mut asked = serve(bind(&path).unwrap());
-        let _idle = UnixStream::connect(&path).unwrap();
-        tokio::spawn(async move {
-            while let Some((_, reply)) = asked.recv().await {
-                let _ = reply.send(Response::Shown);
-            }
-        });
-        let p = path.clone();
-        let got = tokio::task::spawn_blocking(move || ask(&p, &Request::Show))
+        let windows = temp_windows("idle");
+        answering(claimed(&windows), Response::Shown);
+        let _idle = UnixStream::connect(window_socket(&windows, 1)).unwrap();
+        let socket = window_socket(&windows, 1);
+        let got = tokio::task::spawn_blocking(move || ask(&socket, &Request::Show))
             .await
             .unwrap()
             .unwrap();
@@ -221,73 +315,128 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_socket_left_behind_is_replaced_but_a_live_one_is_not() {
-        let stale = temp_socket("stale");
-        drop(stale_socket(&stale));
-        bind(&stale).unwrap();
+    async fn a_number_left_by_a_window_gone_is_taken_again_but_a_live_one_is_not() {
+        let windows = temp_windows("stale");
+        drop(stale_socket(&window_socket(&windows, 1)));
+        assert_eq!(claimed(&windows).number, 1);
 
-        let path = temp_socket("bind");
-        let _first = bind(&path).unwrap();
-        assert_eq!(
-            bind(&path).unwrap_err().kind(),
-            std::io::ErrorKind::AddrInUse
-        );
+        let windows = temp_windows("live");
+        let _first = claimed(&windows);
+        assert_eq!(claimed(&windows).number, 2);
     }
 
     #[tokio::test]
     async fn the_stale_fixture_can_be_replaced_while_a_child_inherits_its_descriptor() {
-        let path = temp_socket("inherited-stale");
-        let first = stale_socket(&path);
+        let windows = temp_windows("inherited-stale");
+        let first = stale_socket(&window_socket(&windows, 1));
         let replacement = while_a_child_is_before_exec(|| {
             drop(first);
-            bind(&path)
+            claim(&windows, true)
         });
-        replacement.unwrap();
+        assert_eq!(replacement.unwrap().unwrap().number, 1);
     }
 
     #[tokio::test]
     async fn a_live_listener_inherited_by_a_child_is_not_unlinked() {
-        let path = temp_socket("inherited-live");
-        let first = bind(&path).unwrap();
+        let windows = temp_windows("inherited-live");
+        let first = claimed(&windows);
+        let path = window_socket(&windows, 1);
         let inode = std::fs::metadata(&path).unwrap().ino();
         let (replacement, connection, metadata) = while_a_child_is_before_exec(|| {
             drop(first);
             (
-                bind(&path),
+                claim(&windows, true),
                 UnixStream::connect(&path),
                 std::fs::metadata(&path),
             )
         });
-        assert_eq!(
-            replacement.unwrap_err().kind(),
-            std::io::ErrorKind::AddrInUse
-        );
+        assert_eq!(replacement.unwrap().unwrap().number, 2);
         connection.unwrap();
         assert_eq!(metadata.unwrap().ino(), inode);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn of_windows_starting_together_only_one_answers() {
+    async fn windows_opening_together_each_hold_a_number_of_their_own() {
         const WINDOWS: usize = 8;
         for round in 0..20 {
-            let path = temp_socket(&format!("race-{round}"));
+            let windows = temp_windows(&format!("race-{round}"));
             let start = std::sync::Arc::new(std::sync::Barrier::new(WINDOWS));
-            let windows: Vec<_> = (0..WINDOWS)
+            let opening: Vec<_> = (0..WINDOWS)
                 .map(|_| {
-                    let (path, start) = (path.clone(), start.clone());
+                    let (windows, start) = (windows.clone(), start.clone());
                     tokio::task::spawn_blocking(move || {
                         start.wait();
-                        bind(&path)
+                        claim(&windows, true)
                     })
                 })
                 .collect();
-            let mut bound = Vec::new();
-            for w in windows {
-                if let Ok(listener) = w.await.unwrap() {
-                    bound.push(listener);
-                }
+            let mut numbers = Vec::new();
+            let mut held = Vec::new();
+            for w in opening {
+                let claimed = w.await.unwrap().unwrap().unwrap();
+                numbers.push(claimed.number);
+                held.push(claimed);
             }
-            assert_eq!(bound.len(), 1, "round {round}");
+            numbers.sort_unstable();
+            assert_eq!(
+                numbers,
+                (1..=WINDOWS as u32).collect::<Vec<_>>(),
+                "round {round}"
+            );
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn opening_again_brings_an_open_window_forward_and_a_new_window_opens_beside_it() {
+        let windows = temp_windows("again");
+        answering(claimed(&windows), Response::Shown);
+        let w = windows.clone();
+        let again = tokio::task::spawn_blocking(move || claim(&w, false))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(again.is_none(), "the open window came forward");
+        let w = windows.clone();
+        let new = tokio::task::spawn_blocking(move || claim(&w, true))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(new.map(|c| c.number), Some(2));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn each_window_is_asked_in_turn_until_one_takes_what_is_offered() {
+        let windows = temp_windows("each");
+        answering(claimed(&windows), Response::Declined);
+        answering(claimed(&windows), Response::Taken(2));
+        let w = windows.clone();
+        let got = tokio::task::spawn_blocking(move || {
+            ask_each(
+                &w,
+                &Request::Editor {
+                    path: "/tmp/p.md".into(),
+                },
+                |r| matches!(r, Response::Taken(_)),
+            )
+        })
+        .await
+        .unwrap();
+        assert_eq!(got, Some(Response::Taken(2)));
+    }
+
+    #[tokio::test]
+    async fn the_window_holding_the_lowest_number_open_is_the_first() {
+        let windows = temp_windows("first");
+        assert!(first_open(&windows, 1), "no window is open");
+        let one = claimed(&windows);
+        let two = claimed(&windows);
+        assert!(first_open(&windows, one.number));
+        assert!(!first_open(&windows, two.number));
+
+        // A socket a window left behind holds no number.
+        let windows = temp_windows("first-gone");
+        let _gone = stale_socket(&window_socket(&windows, 1));
+        let _two = UnixListener::bind(window_socket(&windows, 2)).unwrap();
+        assert!(first_open(&windows, 2));
     }
 }

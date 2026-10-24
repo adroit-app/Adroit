@@ -4,11 +4,11 @@
 
 use std::path::{Path, PathBuf};
 
-use adroit_model::paths::{USER_EDITOR, editor_script, instance_state, window_socket};
+use adroit_model::paths::{USER_EDITOR, editor_script, instance_state, windows_dir};
 
-/// The script of this instance's window, whether or not it is written.
+/// The script of this instance's windows, whether or not it is written.
 pub fn current_script() -> PathBuf {
-    editor_script(&window_socket(&instance_state()))
+    editor_script(&windows_dir(&instance_state()))
 }
 
 /// What an agent session's environment holds so that Claude Code's external

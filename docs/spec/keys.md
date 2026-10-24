@@ -195,7 +195,8 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 | `tab.go <n>` | show the content's tab numbered `n`, from 1 to 9, or the last when there are fewer |
 | `tab.last` | show the content's tab shown before the one shown now |
 | `tab.close` | close the content's tab shown and every window in it; agents and terminals keep running and remain reachable from the tree |
-| `window.close` | close the window, which ends adroit; its sessions run on |
+| `window.close` | close the window; the instance's other windows stay open, and its sessions run on |
+| `window.open` | open another window of the instance ([instances](sessions.md#instances)) |
 | `cursor.down`, `cursor.up`, `cursor.first`, `cursor.last` | move the selection in the tree; in the details panel, in the list it shows, or scroll what else it shows |
 | `cursor.go` | go to a window showing the selected session, shell, worktree or file, in any tab, or else open it as `cursor.open` does; in the details panel, open the selected row |
 | `cursor.open` | open the selected session, shell, worktree or file in the focused window, in place of what it shows, and move to it, or to the prompt of a session not started yet; on a folded row, a worktree or a session holding others too, unfold it instead; fold or unfold a workspace, a heading or a directory; in the details panel, open the selected row |
@@ -299,6 +300,7 @@ bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 "Mod+[" = "tab.prev"
 "Mod+w" = "tab.close"
 "Cmd+W" = "window.close"
+"Cmd+N" = "window.open"
 "Mod+1" = "details.overview"
 "Mod+2" = "details.changes"
 "Mod+3" = "details.log"

@@ -1,4 +1,5 @@
-//! The side panels' layout, kept across runs of the window.
+//! The side panels' layout, kept across runs of each window by the number
+//! it holds.
 
 use std::path::PathBuf;
 
@@ -15,12 +16,18 @@ pub trait Kept: Sized {
 }
 
 fn path() -> PathBuf {
+    crate::window_socket::kept_path("layout.json")
+}
+
+/// Where the one window kept its layout before there could be several.
+fn shared_path() -> PathBuf {
     state_dir().join("adroit").join("layout.json")
 }
 
 impl Kept for Layout {
     fn load() -> Self {
         std::fs::read_to_string(path())
+            .or_else(|_| std::fs::read_to_string(shared_path()))
             .ok()
             .and_then(|t| serde_json::from_str(&t).ok())
             .unwrap_or_default()

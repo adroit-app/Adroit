@@ -78,6 +78,7 @@ pub enum Action {
     NeovimOpen,
     TabClose,
     WindowClose,
+    WindowOpen,
     Refresh,
     Filter,
     DetailsOverview,
@@ -304,6 +305,7 @@ pub static ACTIONS: &[ActionSpec] = &[
         .bar("Close Tab", Icon::X)
         .row("Close tab", End),
     S::new(A::WindowClose, "window.close").bar("Close Window", Icon::AppWindow),
+    S::new(A::WindowOpen, "window.open").bar("New Window", Icon::CopyPlus),
     S::new(A::Refresh, "refresh").bar("Refresh", Icon::Refresh),
     S::new(A::Filter, "filter").bar("Filter…", Icon::Filter),
     S::new(A::DetailsOverview, "details.overview").bar("Overview", Icon::InfoCircle),
@@ -512,6 +514,7 @@ mod tests {
             NeovimOpen,
             TabClose,
             WindowClose,
+            WindowOpen,
             Refresh,
             Filter,
             DetailsOverview,

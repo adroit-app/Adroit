@@ -343,6 +343,7 @@ pub(crate) fn perform(
         Action::SettingsOpen => vec![Effect::OpenSettings],
         Action::DaemonRestart => step(state, Msg::Confirm(Box::new(Ask::RestartDaemon))),
         Action::WindowClose => vec![Effect::CloseWindow],
+        Action::WindowOpen => vec![Effect::OpenWindow],
         Action::TreeToggle => step(state, Msg::PanelToggle(Side::Sidebar)),
         Action::DetailsToggle => step(state, Msg::PanelToggle(Side::Details)),
         Action::ZoomIn => step(state, Msg::Zoom(zoom::Step::In)),

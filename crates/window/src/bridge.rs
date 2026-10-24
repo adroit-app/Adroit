@@ -86,7 +86,10 @@ pub(crate) fn use_app() -> AppCtx {
         // Drawn without the work, should the host not answer in time.
         let _ = first.recv_timeout(FIRST_WORK);
         let mut view = ViewState::default();
+        // A window that kept nothing yet shows what the instance's one
+        // window kept before there could be several.
         let kept = std::fs::read_to_string(shown_path())
+            .or_else(|_| std::fs::read_to_string(instance_state().join("shown")))
             .ok()
             .and_then(|name| adroit_core::content::from_kept(&name));
         // The layout kept comes first: hiding a panel gives its keys away,
@@ -240,16 +243,26 @@ impl AppCtx {
             Effect::KeepShown(shown) => match shown {
                 Some(tab) => {
                     if let Some(name) = kept_name(&tab) {
-                        let _ = std::fs::write(shown_path(), name);
+                        let path = shown_path();
+                        if let Some(dir) = path.parent() {
+                            let _ = std::fs::create_dir_all(dir);
+                        }
+                        let _ = std::fs::write(path, name);
                     }
                 }
                 None => {
                     let _ = std::fs::remove_file(shown_path());
                 }
             },
-            // Told only while the window is not in front.
+            // Told only while the window is not in front, and by one window
+            // of the instance alone.
             Effect::NotifyWaiting(waiting) => {
-                if !dioxus::desktop::window().is_focused() {
+                if !dioxus::desktop::window().is_focused()
+                    && crate::window_socket::first_open(
+                        &crate::window_socket::windows(),
+                        crate::window_socket::number(),
+                    )
+                {
                     for (name, why) in waiting {
                         spawn(crate::alerts::notify_waiting(&name, &why));
                     }
@@ -257,6 +270,11 @@ impl AppCtx {
             }
             Effect::OpenSettings => self.open_settings(),
             Effect::CloseWindow => dioxus::desktop::window().close(),
+            Effect::OpenWindow => {
+                if let Err(e) = open_another_window() {
+                    self.notice(format!("cannot open another window: {e}"));
+                }
+            }
             effect @ (Effect::ShowShot { .. }
             | Effect::Viewer { .. }
             | Effect::TakeSuggestion { .. }
@@ -370,8 +388,26 @@ fn work_host() -> To {
 }
 
 /// Where the tab shown is kept for the next run of the window.
+/// Open another window of this instance, in a process of its own as every
+/// window is.
+fn open_another_window() -> std::io::Result<()> {
+    let program = crate::panes::adroit_program();
+    let mut window = std::process::Command::new(program)
+        .args([
+            "--instance",
+            &adroit_model::paths::instance(),
+            "--new-window",
+        ])
+        .stdin(std::process::Stdio::null())
+        .spawn()?;
+    // Waited for, so a window closed before this one leaves nothing behind.
+    std::thread::spawn(move || window.wait());
+    Ok(())
+}
+
+/// Where this window keeps what its focused window shows, under its number.
 fn shown_path() -> std::path::PathBuf {
-    instance_state().join("shown")
+    crate::window_socket::kept_path("shown")
 }
 
 impl AppCtx {

@@ -60,5 +60,6 @@ shown.
 ## Across runs
 
 What the focused window showed when the window closed is shown again, in a tab
-of its own, when it opens; the other tabs and windows are not kept.
+of its own, when a window with the same number opens
+([instances](sessions.md#instances)); the other tabs and windows are not kept.
 

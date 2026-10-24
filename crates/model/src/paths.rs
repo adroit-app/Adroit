@@ -98,12 +98,24 @@ pub fn work_host_socket() -> PathBuf {
         .unwrap_or_else(|| instance_state().join("host").join("host.sock"))
 }
 
-/// `$ADROIT_SOCKET`, or `adroit.sock` in the instance's folder `dir`: where
-/// the window answers.
-pub fn window_socket(dir: &Path) -> PathBuf {
-    std::env::var_os("ADROIT_SOCKET")
+/// `$ADROIT_WINDOWS`, or `windows` in the instance's folder `dir`: where
+/// each window of the instance answers, and keeps what it keeps.
+pub fn windows_dir(dir: &Path) -> PathBuf {
+    std::env::var_os("ADROIT_WINDOWS")
         .map(PathBuf::from)
-        .unwrap_or_else(|| dir.join("adroit.sock"))
+        .unwrap_or_else(|| dir.join("windows"))
+}
+
+/// Where the window numbered `number` answers, in the windows' folder
+/// `windows`.
+pub fn window_socket(windows: &Path, number: u32) -> PathBuf {
+    windows.join(format!("{number}.sock"))
+}
+
+/// Where the window numbered `number` keeps how it shows the work from one
+/// run to the next, in the windows' folder `windows`.
+pub fn window_state(windows: &Path, number: u32) -> PathBuf {
+    windows.join(number.to_string())
 }
 
 /// What `adroit editor` hands the user's own editor, `$ADROIT_USER_EDITOR`,
@@ -111,10 +123,10 @@ pub fn window_socket(dir: &Path) -> PathBuf {
 /// carry arguments of its own.
 pub const USER_EDITOR: &str = "ADROIT_USER_EDITOR";
 
-/// Where the editor script for the window answering on `socket` lives:
-/// beside the socket, so windows on sockets of their own do not share one.
-pub fn editor_script(socket: &Path) -> PathBuf {
-    socket.with_extension("editor")
+/// Where the editor script for the windows in the folder `windows` lives:
+/// beside the folder, so the windows of other instances do not share one.
+pub fn editor_script(windows: &Path) -> PathBuf {
+    windows.with_extension("editor")
 }
 
 /// `path` with the home directory written as `~`.
@@ -159,15 +171,26 @@ mod tests {
     }
 
     #[test]
-    fn each_socket_has_a_script_of_its_own_beside_it() {
+    fn each_folder_of_windows_has_a_script_of_its_own_beside_it() {
         assert_eq!(
-            editor_script(Path::new("/run/adroit/adroit.sock")),
-            Path::new("/run/adroit/adroit.editor")
+            editor_script(Path::new("/run/adroit/windows")),
+            Path::new("/run/adroit/windows.editor")
         );
         assert_ne!(
-            editor_script(Path::new("/tmp/one.sock")),
-            editor_script(Path::new("/tmp/two.sock"))
+            editor_script(Path::new("/tmp/one/windows")),
+            editor_script(Path::new("/tmp/two/windows"))
         );
+    }
+
+    #[test]
+    fn each_window_answers_and_keeps_its_state_under_its_number() {
+        let windows = Path::new("/s/adroit/windows");
+        assert_eq!(
+            window_socket(windows, 2),
+            Path::new("/s/adroit/windows/2.sock")
+        );
+        assert_eq!(window_state(windows, 2), Path::new("/s/adroit/windows/2"));
+        assert_ne!(window_socket(windows, 1), window_socket(windows, 2));
     }
 
     #[test]

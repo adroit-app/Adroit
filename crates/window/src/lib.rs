@@ -52,7 +52,7 @@ mod window_socket;
 
 pub use build::Build;
 pub use shell::launch;
-pub use window_socket::hand_to_open_window;
+pub use window_socket::open_window;
 
 #[cfg(test)]
 #[path = "../../host/tests/support/daemon.rs"]

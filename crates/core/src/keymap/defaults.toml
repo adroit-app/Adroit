@@ -49,6 +49,7 @@
 "Mod+[" = "tab.prev"
 "Mod+w" = "tab.close"
 "Cmd+W" = "window.close"
+"Cmd+N" = "window.open"
 "Mod+1" = "details.overview"
 "Mod+2" = "details.changes"
 "Mod+3" = "details.log"

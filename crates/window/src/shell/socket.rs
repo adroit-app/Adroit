@@ -1,6 +1,6 @@
-//! The instance's window socket, which this window answers: another window
-//! of the instance opened asks it to come forward, and `adroit editor`, run
-//! by a session asked for its input, hands that input over to the prompt.
+//! This window's socket, which it answers: adroit opened again asks it to
+//! come forward, and `adroit editor`, run by a session asked for its input,
+//! hands that input over to the prompt when this window asked for it.
 
 use std::path::Path;
 
@@ -12,38 +12,31 @@ use super::Ui;
 use crate::bridge::AppCtx;
 use crate::editor;
 use crate::panes::adroit_program;
-use crate::paths::instance_state;
 use crate::prompts::{Op, Prompts};
-use crate::window_socket::{Request, Response, ask, bind, serve, socket_path};
+use crate::window_socket::{Request, Response, serve, take_listener, windows};
 
-/// Answer the instance's window socket; a window opened together with
-/// another of the instance, which claimed the socket first, brings that
-/// one forward and closes.
+/// Answer this window's socket, which it claimed as it opened.
 pub(crate) fn use_window_socket(ui: &Ui) {
     let (app, prompts) = (ui.app, ui.consoles.prompts);
     use_hook(move || {
-        let socket = socket_path(&instance_state());
         spawn(async move {
-            let mut asked = match bind(&socket) {
-                Ok(listener) => {
-                    // Only the window that answers on the socket can take
-                    // Claude Code's input; another one would hand it to this
-                    // one, which never asked.
-                    match editor::install(&adroit_program(), &socket) {
-                        Ok(_) => app.dispatch(Msg::EditorAnswers),
-                        Err(e) => app.status(Some(format!("cannot write the editor script: {e}"))),
-                    }
-                    serve(listener)
-                }
+            let Some(listener) = take_listener() else {
+                app.status(Some("cannot answer window requests: no socket".into()));
+                return;
+            };
+            let mut asked = match serve(listener) {
+                Ok(asked) => asked,
                 Err(e) => {
-                    if matches!(ask(&socket, &Request::Show), Ok(Response::Shown)) {
-                        dioxus::desktop::window().close();
-                        return;
-                    }
                     app.status(Some(format!("cannot answer window requests: {e}")));
                     return;
                 }
             };
+            // Every window of the instance writes the same script, which
+            // offers the input to each of them.
+            match editor::install(&adroit_program(), &windows()) {
+                Ok(_) => app.dispatch(Msg::EditorAnswers),
+                Err(e) => app.status(Some(format!("cannot write the editor script: {e}"))),
+            }
             while let Some((request, reply)) = asked.recv().await {
                 if let Request::Editor { path } = &request {
                     let _ = reply.send(take_input(path, prompts, app).await);

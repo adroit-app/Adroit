@@ -62,20 +62,22 @@ Invalid arguments exit with status 2. A missing resource, failed launch or
 unreachable daemon exits with status 1. The old `adroit shell list` and
 `adroit shell screen` commands are removed.
 
-## The window socket
+## The window sockets
 
-The window still owns the editor handoff and foreground requests on
-`$ADROIT_SOCKET`, or `adroit.sock` in its instance's state folder. These
-requests do not control terminal resources.
+Each window of an instance answers the editor handoff and foreground
+requests on a socket of its own, in `$ADROIT_WINDOWS`, or the `windows`
+folder of its instance's state folder. These requests do not control
+terminal resources.
 
 Claude Code's external editor uses `adroit editor <file>` to hand over its
 input. Every agent session Adroit starts — from the window, from
 `adroit session start`, or by another session — names it as
 `$VISUAL` and `$EDITOR` once the window has written it, keeping the user's own
 editor in `$ADROIT_USER_EDITOR`; every terminal keeps the user's
-editor. The window asks for the input only of a session started this way. A
-JSONL request `{"op":"editor","path":"/tmp/prompt.md"}` receives
-`{"taken":2}` when two lines were taken, or `"declined"` when the window did
-not request the input. A declined file opens in `$ADROIT_USER_EDITOR`.
-`{"op":"show"}` brings the instance's window to the front and receives
-`"shown"`.
+editor. A window asks for the input only of a session started this way, and
+`adroit editor` offers the file to each window of the instance in turn, so
+the input reaches the window that asked for it. A JSONL request
+`{"op":"editor","path":"/tmp/prompt.md"}` receives `{"taken":2}` when two
+lines were taken, or `"declined"` when the window did not request the input.
+A file every window declines opens in `$ADROIT_USER_EDITOR`.
+`{"op":"show"}` brings the window to the front and receives `"shown"`.

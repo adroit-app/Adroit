@@ -2,14 +2,15 @@
 //! typed into Claude Code's own input.
 //!
 //! adroit sends `Ctrl-g` to a session, Claude Code runs `$VISUAL` on a file
-//! holding its input, and `adroit editor` hands that file to the window, which
-//! moves the text into the prompt and leaves the file empty.
+//! holding its input, and `adroit editor` offers that file to each window of
+//! the instance in turn; the window that asked moves the text into its prompt
+//! and leaves the file empty.
 
 use std::path::{Path, PathBuf};
 
-use adroit_model::paths::{USER_EDITOR, editor_script, instance_state};
+use adroit_model::paths::{USER_EDITOR, editor_script};
 
-use crate::window_socket::{Request, Response, ask, socket_path};
+use crate::window_socket::{Request, Response, ask_each, windows};
 
 /// The lines typed into Claude Code's input, from the file it hands its
 /// editor.
@@ -31,24 +32,24 @@ fn quoted(path: &Path) -> String {
 
 /// The script Claude Code runs as `$VISUAL`. It runs one program without
 /// arguments, so the two words of `adroit editor` go through this, and the
-/// socket is fixed so the session finds this window whatever its own
-/// environment says.
-pub fn script(program: &Path, socket: &Path) -> String {
+/// windows' folder is fixed so the session finds the windows of its instance
+/// whatever its own environment says.
+pub fn script(program: &Path, windows: &Path) -> String {
     format!(
-        "#!/bin/sh\nADROIT_SOCKET={} exec {} editor \"$@\"\n",
-        quoted(socket),
+        "#!/bin/sh\nADROIT_WINDOWS={} exec {} editor \"$@\"\n",
+        quoted(windows),
         quoted(program)
     )
 }
 
-/// Write the script for this window.
-pub fn install(program: &Path, socket: &Path) -> std::io::Result<PathBuf> {
+/// Write the script for the windows answering in `windows`.
+pub fn install(program: &Path, windows: &Path) -> std::io::Result<PathBuf> {
     use std::os::unix::fs::PermissionsExt;
-    let path = editor_script(socket);
+    let path = editor_script(windows);
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    std::fs::write(&path, script(program, socket))?;
+    std::fs::write(&path, script(program, windows))?;
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))?;
     Ok(path)
 }
@@ -69,16 +70,17 @@ pub fn cli(args: &[String]) -> i32 {
         eprintln!("usage: adroit editor <file>");
         return 2;
     };
-    let answer = ask(
-        &socket_path(&instance_state()),
+    let answer = ask_each(
+        &windows(),
         &Request::Editor {
             path: PathBuf::from(path),
         },
+        |r| matches!(r, Response::Taken(_)),
     );
-    if let Ok(Response::Taken(_)) = answer {
+    if answer.is_some() {
         return 0;
     }
-    // The window did not ask, or is not there: the user opened the editor.
+    // No window asked, or none is there: the user opened the editor.
     // With no editor of theirs, the file is left as it is and Claude Code
     // keeps its input.
     match std::env::var(USER_EDITOR) {
@@ -116,11 +118,11 @@ mod tests {
     }
 
     #[test]
-    fn the_script_runs_adroit_editor_against_this_window_s_socket() {
-        let s = script(Path::new("/opt/adroit"), Path::new("/run/it's.sock"));
+    fn the_script_runs_adroit_editor_against_the_windows_of_its_instance() {
+        let s = script(Path::new("/opt/adroit"), Path::new("/run/it's/windows"));
         assert_eq!(
             s,
-            "#!/bin/sh\nADROIT_SOCKET='/run/it'\\''s.sock' exec '/opt/adroit' editor \"$@\"\n"
+            "#!/bin/sh\nADROIT_WINDOWS='/run/it'\\''s/windows' exec '/opt/adroit' editor \"$@\"\n"
         );
     }
 }

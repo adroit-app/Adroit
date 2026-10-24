@@ -284,6 +284,7 @@ fn the_window_s_own_actions_are_handed_to_it() {
     let cases = [
         (Action::SettingsOpen, Effect::OpenSettings),
         (Action::WindowClose, Effect::CloseWindow),
+        (Action::WindowOpen, Effect::OpenWindow),
     ];
     for (action, effect) in cases {
         let run = showing(Area::Sidebar).send(perform(action, None, Probe::default()));

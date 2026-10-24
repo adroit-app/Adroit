@@ -25,6 +25,10 @@ one session is sent to another by moving between windows or tabs. A tab or a
 session's row with something set aside for it is marked.
 What is written outlives the window: opened again, each session gets back what
 was written for it, all but a new session's that was never started.
+Each window of an instance has a prompt of its own. What one window writes for
+a session is kept beside what another writes for another session; two windows
+writing for the same session do not see each other's text, and a window opened
+later gets back the one kept last.
 What is written with nothing open becomes the first prompt of a new session
 opened next. Sent with nothing open, it starts a
 [scratch session](workspaces.md#scratch-sessions).

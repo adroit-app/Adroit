@@ -65,6 +65,7 @@ icons! {
     ColumnInsertRight => "column-insert-right",
     ColumnRemove => "column-remove",
     Copy => "copy",
+    CopyPlus => "copy-plus",
     Cpu => "cpu",
     Database => "database",
     Dots => "dots",

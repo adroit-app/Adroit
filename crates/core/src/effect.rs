@@ -189,6 +189,8 @@ pub enum Effect {
     OpenSettings,
     /// Close the window.
     CloseWindow,
+    /// Open another window of the instance.
+    OpenWindow,
 
     // The overlays.
     /// Run `action` where the keys are now.

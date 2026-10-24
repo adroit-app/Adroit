@@ -43,15 +43,29 @@ Codex as it was written, so what Codex does with it is up to Codex.
 
 ## Instances
 
-adroit runs as named instances, each with its own hosts, sessions and
-window, apart from the others. `adroit --instance <name>` opens the window of
-the instance `name`, as does `adroit` with `$ADROIT_INSTANCE` set; without
-either it is the instance `default`. A name is made of letters, digits, `-`
-and `_`, up to 32 of them.
+adroit runs as named instances, each with its own hosts and sessions, apart
+from the others. `adroit --instance <name>` opens a window of the instance
+`name`, as does `adroit` with `$ADROIT_INSTANCE` set; without either it is
+the instance `default`. A name is made of letters, digits, `-` and `_`, up to
+32 of them.
 
-An instance has one window at most. Opening its window while it is open
-brings the open one to the front instead. The windows of other instances open
-beside it.
+Opening adroit while a window of the instance is open brings that window to
+the front instead, the one opened first when there are several. New Window
+(`window.open`), or `adroit --new-window` with or without `--instance`,
+opens another window of the instance. The windows of other instances open
+beside them.
+
+Every window of an instance shows the same work: a session or a shell
+started, ended or renamed in one is seen in the others. How a window shows
+it is its own: the tree's folds, selection and filter, the content's tabs and
+windows, the panels, the details, the picker, and the prompt. Closing a window
+leaves the others as they are, and the sessions run on with no window open.
+
+Each window holds a number, the lowest none of the instance's open windows
+holds. A window keeps, under its number, the layout of its side panels and
+what its focused window showed when it closed, and the next window opened
+with that number shows them again. Windows are not opened again together:
+opening adroit opens one, and each New Window the next.
 
 The sessions and shells of an instance, and the commands run in them, belong
 to it: they see only its sessions and shells, and the sessions they start are
