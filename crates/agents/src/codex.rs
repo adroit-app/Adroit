@@ -362,10 +362,7 @@ fn options(settings: &AgentSettings) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn screen(text: &str) -> Vec<String> {
-        text.lines().map(String::from).collect()
-    }
+    use crate::testing::screen;
 
     #[test]
     fn a_model_migration_dialog_before_the_composer_accepts_keys_and_needs_attention() {

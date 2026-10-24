@@ -128,8 +128,13 @@ impl Cache {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::{control_error, control_success, launching, program};
 
-    const ANSWER: &str = r#"{"type":"control_response","response":{"subtype":"success","request_id":"adroit","response":{"commands":[{"name":"review","description":"Review a pull request","argumentHint":"[pr]"},{"name":"gh-as:account","description":"(gh-as) Run gh as the account","argumentHint":"","aliases":["account"]},{"name":""},{"description":"no name"}],"models":[]}}}"#;
+    fn answer() -> String {
+        control_success(
+            r#"{"commands":[{"name":"review","description":"Review a pull request","argumentHint":"[pr]"},{"name":"gh-as:account","description":"(gh-as) Run gh as the account","argumentHint":"","aliases":["account"]},{"name":""},{"description":"no name"}],"models":[]}"#,
+        )
+    }
 
     fn command(name: &str, description: &str, argument_hint: &str) -> Command {
         Command {
@@ -142,7 +147,7 @@ mod tests {
     #[test]
     fn the_answer_to_initialize_lists_the_commands_with_their_hints() {
         assert_eq!(
-            reply(ANSWER),
+            reply(&answer()),
             Reply::Commands(vec![
                 command("review", "Review a pull request", "[pr]"),
                 command("gh-as:account", "(gh-as) Run gh as the account", ""),
@@ -152,20 +157,20 @@ mod tests {
 
     #[test]
     fn an_answer_for_another_request_is_not_the_answer() {
-        let other = ANSWER.replace(r#""request_id":"adroit""#, r#""request_id":"x""#);
+        let other = answer().replace(r#""request_id":"adroit""#, r#""request_id":"x""#);
         assert_eq!(reply(&other), Reply::Other);
     }
 
     #[test]
     fn an_error_answer_is_a_refusal() {
-        let line = r#"{"type":"control_response","response":{"subtype":"error","request_id":"adroit","error":"nope"}}"#;
-        assert_eq!(reply(line), Reply::Refused);
+        let line = control_error("nope");
+        assert_eq!(reply(&line), Reply::Refused);
     }
 
     #[test]
     fn a_success_without_commands_is_a_refusal() {
-        let line = r#"{"type":"control_response","response":{"subtype":"success","request_id":"adroit","response":{}}}"#;
-        assert_eq!(reply(line), Reply::Refused);
+        let line = control_success("{}");
+        assert_eq!(reply(&line), Reply::Refused);
     }
 
     #[test]
@@ -243,32 +248,17 @@ mod tests {
         assert!(cache.want(Path::new("/src/web"), t));
     }
 
-    /// A stand-in for Claude Code running `body`, a shell script, in a
-    /// directory of its own; the program's path.
-    fn fake(name: &str, body: &str) -> PathBuf {
-        use std::os::unix::fs::PermissionsExt;
-        let dir =
-            std::env::temp_dir().join(format!("adroit-commands-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let program = dir.join("claude");
-        std::fs::write(&program, format!("#!/bin/sh\n{body}\n")).unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
-        program
-    }
-
     async fn ask(program: &Path, timeout: Duration) -> Option<Vec<Command>> {
-        let dir = program.parent().unwrap();
-        let program = program.to_str().unwrap().to_string();
-        probe(|args| (program, args, Vec::new()), dir, timeout).await
+        probe(launching(program), program.parent().unwrap(), timeout).await
     }
 
     #[tokio::test]
     async fn the_probe_starts_claude_code_as_it_is_set_up_to_start() {
-        let p = fake(
-            "wrapped",
+        let answer = answer();
+        let (_dir, p) = program(
+            "claude",
             &format!(
-                "[ \"$1\" = --wrapped ] && [ \"$2\" = --output-format ] && [ \"$WRAPPED\" = yes ] || exit 1\nread line\necho '{ANSWER}'\nexec sleep 30"
+                "[ \"$1\" = --wrapped ] && [ \"$2\" = --output-format ] && [ \"$WRAPPED\" = yes ] || exit 1\nread line\necho '{answer}'\nexec sleep 30"
             ),
         );
         let program = p.to_str().unwrap().to_string();
@@ -290,9 +280,10 @@ mod tests {
 
     #[tokio::test]
     async fn the_probe_reads_past_other_messages_to_the_answer() {
-        let p = fake(
-            "answer",
-            &format!("read line\necho '{{\"type\":\"system\"}}'\necho '{ANSWER}'\nexec sleep 30"),
+        let answer = answer();
+        let (_dir, p) = program(
+            "claude",
+            &format!("read line\necho '{{\"type\":\"system\"}}'\necho '{answer}'\nexec sleep 30"),
         );
         let got = ask(&p, Duration::from_secs(5)).await.unwrap();
         assert_eq!(got.len(), 2);
@@ -300,10 +291,11 @@ mod tests {
 
     #[tokio::test]
     async fn the_probe_writes_nothing_but_the_initialize_request() {
-        let p = fake(
-            "written",
+        let answer = answer();
+        let (_dir, p) = program(
+            "claude",
             &format!(
-                "IFS= read -r line\nprintf '%s\\n' \"$line\" > \"$(dirname \"$0\")/stdin\"\necho '{ANSWER}'\nexec sleep 30"
+                "IFS= read -r line\nprintf '%s\\n' \"$line\" > \"$(dirname \"$0\")/stdin\"\necho '{answer}'\nexec sleep 30"
             ),
         );
         ask(&p, Duration::from_secs(5)).await.unwrap();
@@ -313,7 +305,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_program_that_does_not_answer_in_time_offers_nothing() {
-        let p = fake("silent", "exec sleep 30");
+        let (_dir, p) = program("claude", "exec sleep 30");
         let started = Instant::now();
         assert_eq!(ask(&p, Duration::from_millis(300)).await, None);
         assert!(started.elapsed() < Duration::from_secs(5));
@@ -321,14 +313,14 @@ mod tests {
 
     #[tokio::test]
     async fn a_program_that_exits_without_answering_offers_nothing() {
-        let p = fake("exits", "read line\necho oops");
+        let (_dir, p) = program("claude", "read line\necho oops");
         assert_eq!(ask(&p, Duration::from_secs(5)).await, None);
     }
 
     #[tokio::test]
     async fn a_missing_program_offers_nothing() {
         let got = probe(
-            |args| ("/nonexistent/claude".to_string(), args, Vec::new()),
+            launching(Path::new("/nonexistent/claude")),
             Path::new("/"),
             Duration::from_secs(1),
         )
@@ -340,10 +332,13 @@ mod tests {
     #[tokio::test]
     #[ignore = "needs Claude Code installed and logged in"]
     async fn claude_code_answers_with_its_built_in_commands() {
-        let start = |args| ("claude".to_string(), args, Vec::new());
-        let got = probe(start, &std::env::temp_dir(), PROBE_TIMEOUT)
-            .await
-            .expect("an answer");
+        let got = probe(
+            launching(Path::new("claude")),
+            &std::env::temp_dir(),
+            PROBE_TIMEOUT,
+        )
+        .await
+        .expect("an answer");
         assert!(got.iter().any(|c| c.name == "compact"), "{got:?}");
     }
 }

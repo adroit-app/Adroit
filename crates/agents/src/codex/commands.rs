@@ -116,6 +116,7 @@ pub(super) fn builtins() -> Vec<Command> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::{app_server, program, started};
     use serde_json::json;
     use std::path::Path;
 
@@ -158,28 +159,11 @@ mod tests {
 
     #[tokio::test]
     async fn the_skill_probe_asks_for_the_directory_without_starting_a_thread() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
-        let program = dir.path().join("codex");
         let reply = json!({"id":"adroit-query","result":{"data":[{"cwd":dir.path(),"skills":[{"name":"deploy","enabled":true,"description":"Deploy"}]}]}});
-        std::fs::write(
-            &program,
-            format!(
-                r#"#!/bin/sh
-read line
-echo '{{"id":"adroit-init","result":{{}}}}'
-read line
-IFS= read -r line
-printf '%s\n' "$line" > query
-echo '{reply}'
-exec sleep 30
-"#
-            ),
-        )
-        .unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let (_program_dir, codex) = program("codex", &app_server("query", &reply.to_string()));
         let got = probe(
-            (program.to_str().unwrap().into(), vec![], vec![]),
+            started(&codex, &[]),
             dir.path(),
             std::time::Duration::from_secs(5),
         )
@@ -198,7 +182,7 @@ exec sleep 30
     async fn a_failed_skill_probe_does_not_replace_the_cached_list() {
         assert!(
             probe(
-                ("/nonexistent/codex".into(), vec![], vec![]),
+                started(Path::new("/nonexistent/codex"), &[]),
                 Path::new("/"),
                 std::time::Duration::from_secs(1)
             )
@@ -212,7 +196,7 @@ exec sleep 30
     #[ignore = "needs Codex installed with enabled skills"]
     async fn installed_codex_lists_enabled_skills() {
         let got = probe(
-            ("codex".into(), vec!["app-server".into()], vec![]),
+            started(Path::new("codex"), &["app-server"]),
             &std::env::temp_dir(),
             std::time::Duration::from_secs(15),
         )

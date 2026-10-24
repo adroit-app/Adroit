@@ -148,8 +148,13 @@ impl<K: PartialEq + Clone> Fresh<K> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::{control_error, control_success};
 
-    const ANSWER: &str = r#"{"type":"control_response","response":{"subtype":"success","request_id":"adroit","response":{"categories":[],"totalTokens":218868,"maxTokens":1000000,"rawMaxTokens":1000000,"percentage":22}}}"#;
+    fn answer() -> String {
+        control_success(
+            r#"{"categories":[],"totalTokens":218868,"maxTokens":1000000,"rawMaxTokens":1000000,"percentage":22}"#,
+        )
+    }
 
     #[test]
     fn the_request_asks_for_the_context_without_its_breakdown() {
@@ -164,7 +169,7 @@ mod tests {
     #[test]
     fn the_answer_is_the_tokens_held_and_the_window() {
         assert_eq!(
-            reply(ANSWER),
+            reply(&answer()),
             Reply::Window {
                 used: 218_868,
                 total: 1_000_000
@@ -174,10 +179,10 @@ mod tests {
 
     #[test]
     fn an_answer_without_a_window_is_a_refusal() {
-        let line = r#"{"type":"control_response","response":{"subtype":"success","request_id":"adroit","response":{"totalTokens":5,"maxTokens":0}}}"#;
-        assert_eq!(reply(line), Reply::Refused);
-        let line = r#"{"type":"control_response","response":{"subtype":"error","request_id":"adroit","error":"get_context_usage is not supported"}}"#;
-        assert_eq!(reply(line), Reply::Refused);
+        let line = control_success(r#"{"totalTokens":5,"maxTokens":0}"#);
+        assert_eq!(reply(&line), Reply::Refused);
+        let line = control_error("get_context_usage is not supported");
+        assert_eq!(reply(&line), Reply::Refused);
     }
 
     #[test]

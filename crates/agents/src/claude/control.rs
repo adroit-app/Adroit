@@ -93,6 +93,7 @@ pub(crate) fn answer(line: &str) -> Answer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::{control_error, control_success};
 
     #[test]
     fn the_process_keeps_no_session() {
@@ -101,14 +102,14 @@ mod tests {
 
     #[test]
     fn a_success_for_adroits_request_carries_its_response() {
-        let line = r#"{"type":"control_response","response":{"subtype":"success","request_id":"adroit","response":{"x":1}}}"#;
-        assert_eq!(answer(line), Answer::Success(serde_json::json!({"x":1})));
+        let line = control_success(r#"{"x":1}"#);
+        assert_eq!(answer(&line), Answer::Success(serde_json::json!({"x":1})));
     }
 
     #[test]
     fn an_error_for_adroits_request_is_a_refusal() {
-        let line = r#"{"type":"control_response","response":{"subtype":"error","request_id":"adroit","error":"nope"}}"#;
-        assert_eq!(answer(line), Answer::Refused);
+        let line = control_error("nope");
+        assert_eq!(answer(&line), Answer::Refused);
     }
 
     #[test]

@@ -135,60 +135,53 @@ fn key_hint(line: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::recorded;
     use adroit_model::State;
 
-    /// A screen kept under `tests/screens`. Those named after a slash command
-    /// and `input`, `slash-menu` and `after-a-reply` were recorded from Claude
-    /// Code 2.1.302 at 120×40, and `model-while-working` from 2.1.303 at
-    /// 120×40 with the lines only that session showed taken out; `working` and
-    /// `quoting-a-dialog` are `after-a-reply` with a spinner, or a reply
-    /// quoting a dialog, written in. Those ending in `-named` are the screen
-    /// without that suffix with the session's name, `fix`, written into the
-    /// input box's top rule as a session started with `--name` shows it. `dev-channels` was recorded from 2.1.304
-    /// at 120×40 launched with a development channel, and
-    /// `dev-channels-confirmed` right after confirming it, with the lines only
-    /// that recording's environment showed taken out.
-    fn screen(name: &str) -> Vec<String> {
-        let path = format!("{}/tests/screens/{name}.txt", env!("CARGO_MANIFEST_DIR"));
-        std::fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("{path}: {e}"))
-            .lines()
-            .map(String::from)
-            .collect()
-    }
+    // The screens kept under `tests/screens`. Those named after a slash command
+    // and `input`, `slash-menu` and `after-a-reply` were recorded from Claude
+    // Code 2.1.302 at 120×40, and `model-while-working` from 2.1.303 at
+    // 120×40 with the lines only that session showed taken out; `working` and
+    // `quoting-a-dialog` are `after-a-reply` with a spinner, or a reply
+    // quoting a dialog, written in. Those ending in `-named` are the screen
+    // without that suffix with the session's name, `fix`, written into the
+    // input box's top rule as a session started with `--name` shows it. `dev-channels` was recorded from 2.1.304
+    // at 120×40 launched with a development channel, and
+    // `dev-channels-confirmed` right after confirming it, with the lines only
+    // that recording's environment showed taken out.
 
     #[test]
     fn the_pickers_and_settings_slash_commands_open_are_dialogs() {
         for name in ["model", "config", "permissions", "mcp", "theme"] {
-            assert!(dialog_open(&screen(name)), "{name}");
+            assert!(dialog_open(&recorded(name)), "{name}");
         }
     }
 
     #[test]
     fn a_picker_opened_while_claude_works_is_a_dialog_above_the_input_box() {
-        assert!(dialog_open(&screen("model-while-working")));
+        assert!(dialog_open(&recorded("model-while-working")));
     }
 
     #[test]
     fn the_input_box_waiting_for_a_message_is_no_dialog() {
-        assert!(!dialog_open(&screen("input")));
-        assert!(!dialog_open(&screen("after-a-reply")));
+        assert!(!dialog_open(&recorded("input")));
+        assert!(!dialog_open(&recorded("after-a-reply")));
     }
 
     #[test]
     fn the_slash_command_menu_below_the_input_box_is_no_dialog() {
-        assert!(!dialog_open(&screen("slash-menu")));
+        assert!(!dialog_open(&recorded("slash-menu")));
     }
 
     #[test]
     fn a_session_working_with_its_spinner_shows_no_dialog() {
-        assert!(!dialog_open(&screen("working")));
+        assert!(!dialog_open(&recorded("working")));
     }
 
     #[test]
     fn a_picker_opened_above_an_input_box_carrying_the_session_s_name_is_a_dialog() {
-        assert!(dialog_open(&screen("model-while-working-named")));
-        assert!(!dialog_open(&screen("working-named")));
+        assert!(dialog_open(&recorded("model-while-working-named")));
+        assert!(!dialog_open(&recorded("working-named")));
     }
 
     #[test]
@@ -204,7 +197,7 @@ mod tests {
 
     #[test]
     fn a_reply_quoting_a_dialog_above_the_input_box_is_no_dialog() {
-        assert!(!dialog_open(&screen("quoting-a-dialog")));
+        assert!(!dialog_open(&recorded("quoting-a-dialog")));
     }
 
     #[test]
@@ -221,25 +214,25 @@ mod tests {
 
     #[test]
     fn the_warning_before_loading_development_channels_is_a_dialog() {
-        assert!(dialog_open(&screen("dev-channels")));
+        assert!(dialog_open(&recorded("dev-channels")));
     }
 
     #[test]
     fn the_input_box_after_confirming_the_warning_is_no_dialog() {
-        assert!(!dialog_open(&screen("dev-channels-confirmed")));
+        assert!(!dialog_open(&recorded("dev-channels-confirmed")));
     }
 
     #[test]
     fn the_development_channels_warning_names_the_channels_it_would_load() {
         assert_eq!(
-            development_channels(&screen("dev-channels")),
+            development_channels(&recorded("dev-channels")),
             Some(vec!["server:adroit".to_string()])
         );
     }
 
     #[test]
     fn a_warning_naming_several_channels_names_each_of_them() {
-        let lines = screen("dev-channels")
+        let lines = recorded("dev-channels")
             .into_iter()
             .map(|line| {
                 line.replace(
@@ -259,7 +252,7 @@ mod tests {
 
     #[test]
     fn the_warning_with_exit_selected_is_not_taken_for_the_warning_to_confirm() {
-        let lines = screen("dev-channels")
+        let lines = recorded("dev-channels")
             .into_iter()
             .map(|line| match line.trim() {
                 "❯ 1. I am using this for local development" => {
@@ -282,19 +275,22 @@ mod tests {
             "model",
             "quoting-a-dialog",
         ] {
-            assert_eq!(development_channels(&screen(name)), None, "{name}");
+            assert_eq!(development_channels(&recorded(name)), None, "{name}");
         }
     }
 
     #[test]
     fn a_session_with_its_spinner_above_the_input_box_works() {
-        assert_eq!(screen_state(&screen("working")), Some(State::Working));
-        assert_eq!(screen_state(&screen("working-named")), Some(State::Working));
+        assert_eq!(screen_state(&recorded("working")), Some(State::Working));
+        assert_eq!(
+            screen_state(&recorded("working-named")),
+            Some(State::Working)
+        );
     }
 
     #[test]
     fn a_tip_under_the_spinner_leaves_the_session_working() {
-        let lines = screen("working")
+        let lines = recorded("working")
             .into_iter()
             .flat_map(|line| {
                 let tip = line
@@ -309,7 +305,7 @@ mod tests {
     #[test]
     fn a_session_with_its_input_box_and_no_spinner_is_idle() {
         for name in ["input", "after-a-reply", "dev-channels-confirmed"] {
-            assert_eq!(screen_state(&screen(name)), Some(State::Idle), "{name}");
+            assert_eq!(screen_state(&recorded(name)), Some(State::Idle), "{name}");
         }
     }
 
@@ -329,13 +325,13 @@ mod tests {
     #[test]
     fn a_screen_with_a_dialog_of_claude_s_own_tells_no_state() {
         for name in ["model", "model-while-working", "dev-channels"] {
-            assert_eq!(screen_state(&screen(name)), None, "{name}");
+            assert_eq!(screen_state(&recorded(name)), None, "{name}");
         }
     }
 
     #[test]
     fn a_reply_mentioning_a_spinner_far_above_the_input_box_is_not_one() {
-        let mut lines = screen("after-a-reply");
+        let mut lines = recorded("after-a-reply");
         let at = lines.iter().position(|l| rule(l)).unwrap();
         lines.insert(
             at.saturating_sub(10),

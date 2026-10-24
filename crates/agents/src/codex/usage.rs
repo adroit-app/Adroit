@@ -68,6 +68,7 @@ pub(super) async fn probe(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::{program, started};
     use serde_json::json;
 
     #[test]
@@ -121,20 +122,10 @@ mod tests {
         );
     }
 
+    /// Codex running `body`, a shell script, started as an app server.
     fn fake(body: &str) -> (tempfile::TempDir, crate::Started) {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = tempfile::tempdir().unwrap();
-        let program = dir.path().join("codex");
-        std::fs::write(&program, format!("#!/bin/sh\n{body}\n")).unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
-        (
-            dir,
-            (
-                program.to_str().unwrap().into(),
-                vec!["app-server".into()],
-                vec![],
-            ),
-        )
+        let (dir, codex) = program("codex", body);
+        (dir, started(&codex, &["app-server"]))
     }
 
     #[tokio::test]
@@ -201,7 +192,7 @@ exec sleep 30
     #[ignore = "needs Codex installed and logged in to a plan with limits"]
     async fn installed_codex_answers_with_account_limits() {
         let got = probe(
-            ("codex".into(), vec!["app-server".into()], vec![]),
+            started(Path::new("codex"), &["app-server"]),
             &std::env::temp_dir(),
             crate::claude::usage::PROBE_TIMEOUT,
         )

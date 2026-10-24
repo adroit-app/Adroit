@@ -676,6 +676,7 @@ pub fn links<'a>(
 mod tests {
     use super::*;
 
+    use crate::testing::append;
     use serde_json::json;
 
     fn assistant(content: serde_json::Value) -> String {
@@ -995,16 +996,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir.join("talk.jsonl")
-    }
-
-    fn append(path: &Path, text: &str) {
-        use std::io::Write;
-        let mut f = std::fs::File::options()
-            .create(true)
-            .append(true)
-            .open(path)
-            .unwrap();
-        f.write_all(text.as_bytes()).unwrap();
     }
 
     const NOWHERE: &dyn Fn(&Path) -> bool = &|_| false;
