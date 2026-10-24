@@ -25,6 +25,7 @@ pub mod palette;
 pub mod perform;
 pub mod picker;
 pub mod prompt;
+pub mod reference;
 pub mod scenario;
 pub mod settings;
 pub mod settle;

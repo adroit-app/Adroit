@@ -149,6 +149,9 @@ pub struct ActionSpec {
     pub action: Action,
     /// What the file of bindings calls it.
     pub name: &'static str,
+    /// What it does, in full, as the key reference says it: Markdown
+    /// starting in lower case, its links naming the files of `docs/spec/`.
+    pub does: &'static str,
     /// What the menu bar calls it; `None` for an action that is only a key.
     pub bar: Option<&'static str>,
     /// What a right-click menu calls it, unless it says what it does there
@@ -161,10 +164,11 @@ pub struct ActionSpec {
 }
 
 impl ActionSpec {
-    const fn new(action: Action, name: &'static str) -> Self {
+    const fn new(action: Action, name: &'static str, does: &'static str) -> Self {
         ActionSpec {
             action,
             name,
+            does,
             bar: None,
             row: None,
             says: None,
@@ -200,152 +204,152 @@ use Group::{End, Go, Start};
 
 /// Every action, in the order the Settings window offers them.
 pub static ACTIONS: &[ActionSpec] = &[
-    S::new(A::None, "none"),
-    S::new(A::WindowLeft, "window.left").bar("Left Window", Icon::SquareArrowLeft),
-    S::new(A::WindowDown, "window.down").bar("Window Below", Icon::SquareArrowDown),
-    S::new(A::WindowUp, "window.up").bar("Window Above", Icon::SquareArrowUp),
-    S::new(A::WindowRight, "window.right").bar("Right Window", Icon::SquareArrowRight),
-    S::new(A::WindowNext, "window.next").bar("Next Window", Icon::ArrowBarRight),
-    S::new(A::WindowPrev, "window.prev").bar("Previous Window", Icon::ArrowBarLeft),
-    S::new(A::WindowTop, "window.top").bar("First Window", Icon::ArrowUpLeft),
-    S::new(A::WindowBottom, "window.bottom").bar("Last Window", Icon::ArrowDownRight),
-    S::new(A::WindowBack, "window.back").bar("Back to Window Before", Icon::ArrowBackUp),
-    S::new(A::WindowSplit, "window.split").bar("Split One Above the Other", Icon::LayoutRows),
-    S::new(A::WindowVsplit, "window.vsplit").bar("Split Side by Side", Icon::LayoutColumns),
-    S::new(A::WindowNew, "window.new").bar("Split for a New Session", Icon::SquarePlus),
-    S::new(A::WindowQuit, "window.quit").bar("Close Split", Icon::SquareMinus),
-    S::new(A::WindowOnly, "window.only").bar("Close Other Splits", Icon::Square),
-    S::new(A::WindowMoveLeft, "window.move_left")
+    S::new(A::None, "none", "nothing; bound to keys, it takes them away"),
+    S::new(A::WindowLeft, "window.left", "move to the window to the left: the tree lies left of the content's windows").bar("Left Window", Icon::SquareArrowLeft),
+    S::new(A::WindowDown, "window.down", "move to the window below: a session's prompt lies below its console").bar("Window Below", Icon::SquareArrowDown),
+    S::new(A::WindowUp, "window.up", "move to the window above: a session's console lies above its prompt").bar("Window Above", Icon::SquareArrowUp),
+    S::new(A::WindowRight, "window.right", "move to the window to the right: the details panel lies right of the content's windows").bar("Right Window", Icon::SquareArrowRight),
+    S::new(A::WindowNext, "window.next", "move to the window after the one the keys are in, from the tree through the content's windows, each console before its prompt, to the details panel, going round at the end").bar("Next Window", Icon::ArrowBarRight),
+    S::new(A::WindowPrev, "window.prev", "move to the window before the one the keys are in, in the order `window.next` goes, going round at the start").bar("Previous Window", Icon::ArrowBarLeft),
+    S::new(A::WindowTop, "window.top", "move to the first window, the tree when shown").bar("First Window", Icon::ArrowUpLeft),
+    S::new(A::WindowBottom, "window.bottom", "move to the last window, the details panel when shown").bar("Last Window", Icon::ArrowDownRight),
+    S::new(A::WindowBack, "window.back", "move back to the window the keys were in before").bar("Back to Window Before", Icon::ArrowBackUp),
+    S::new(A::WindowSplit, "window.split", "split the focused window one above the other, the new window, below it, showing the same ([content](content.md))").bar("Split One Above the Other", Icon::LayoutRows),
+    S::new(A::WindowVsplit, "window.vsplit", "split the focused window side by side, the new window, right of it, showing the same ([content](content.md))").bar("Split Side by Side", Icon::LayoutColumns),
+    S::new(A::WindowNew, "window.new", "split the focused window one above the other and start writing a new session in the new one, in the worktree the focused window shows").bar("Split for a New Session", Icon::SquarePlus),
+    S::new(A::WindowQuit, "window.quit", "close the focused window, and its tab when it was the last; what it showed runs on").bar("Close Split", Icon::SquareMinus),
+    S::new(A::WindowOnly, "window.only", "close every other window of the tab").bar("Close Other Splits", Icon::Square),
+    S::new(A::WindowMoveLeft, "window.move_left", "move the focused window to the left of its tab, as tall as the tab")
         .bar("Move Window to the Left", Icon::ArrowBarToLeft),
-    S::new(A::WindowMoveDown, "window.move_down")
+    S::new(A::WindowMoveDown, "window.move_down", "move the focused window to the bottom of its tab, as wide as the tab")
         .bar("Move Window to the Bottom", Icon::ArrowBarToDown),
-    S::new(A::WindowMoveUp, "window.move_up").bar("Move Window to the Top", Icon::ArrowBarToUp),
-    S::new(A::WindowMoveRight, "window.move_right")
+    S::new(A::WindowMoveUp, "window.move_up", "move the focused window to the top of its tab, as wide as the tab").bar("Move Window to the Top", Icon::ArrowBarToUp),
+    S::new(A::WindowMoveRight, "window.move_right", "move the focused window to the right of its tab, as tall as the tab")
         .bar("Move Window to the Right", Icon::ArrowBarToRight),
-    S::new(A::WindowExchange, "window.exchange").bar("Exchange Windows", Icon::SwitchHorizontal),
-    S::new(A::WindowRotate, "window.rotate").bar("Rotate Windows", Icon::RotateClockwise),
-    S::new(A::WindowEqualize, "window.equalize").bar("Equal Sizes", Icon::Equal),
-    S::new(A::WindowNarrower, "window.narrower").bar("Narrower", Icon::ColumnRemove),
-    S::new(A::WindowWider, "window.wider").bar("Wider", Icon::ColumnInsertRight),
-    S::new(A::WindowTaller, "window.taller").bar("Taller", Icon::RowInsertBottom),
-    S::new(A::WindowShorter, "window.shorter").bar("Shorter", Icon::RowRemove),
-    S::new(A::WindowMaximizeHeight, "window.maximize_height")
+    S::new(A::WindowExchange, "window.exchange", "exchange the focused window with the next one in its split, or the one before the last").bar("Exchange Windows", Icon::SwitchHorizontal),
+    S::new(A::WindowRotate, "window.rotate", "rotate the windows of the focused window's split forward, the last becoming the first").bar("Rotate Windows", Icon::RotateClockwise),
+    S::new(A::WindowEqualize, "window.equalize", "give the windows of every split the same size").bar("Equal Sizes", Icon::Equal),
+    S::new(A::WindowNarrower, "window.narrower", "make the focused window a step narrower").bar("Narrower", Icon::ColumnRemove),
+    S::new(A::WindowWider, "window.wider", "make the focused window a step wider").bar("Wider", Icon::ColumnInsertRight),
+    S::new(A::WindowTaller, "window.taller", "make the focused window a step taller").bar("Taller", Icon::RowInsertBottom),
+    S::new(A::WindowShorter, "window.shorter", "make the focused window a step shorter").bar("Shorter", Icon::RowRemove),
+    S::new(A::WindowMaximizeHeight, "window.maximize_height", "make the focused window as tall as the others allow")
         .bar("Tallest", Icon::ArrowAutofitHeight),
-    S::new(A::WindowMaximizeWidth, "window.maximize_width").bar("Widest", Icon::ArrowAutofitWidth),
-    S::new(A::WindowToTab, "window.to_tab").bar("Move Window to a New Tab", Icon::BrowserPlus),
-    S::new(A::TabNext, "tab.next").bar("Next Tab", Icon::ChevronRight),
-    S::new(A::TabPrev, "tab.prev").bar("Previous Tab", Icon::ChevronLeft),
-    S::new(A::TabLast, "tab.last").bar("Tab Before", Icon::ArrowBack),
-    S::new(A::CursorDown, "cursor.down").says("Select the next row"),
-    S::new(A::CursorUp, "cursor.up").says("Select the previous row"),
-    S::new(A::CursorFirst, "cursor.first").says("Select the first row"),
-    S::new(A::CursorLast, "cursor.last").says("Select the last row"),
-    S::new(A::CursorGo, "cursor.go")
+    S::new(A::WindowMaximizeWidth, "window.maximize_width", "make the focused window as wide as the others allow").bar("Widest", Icon::ArrowAutofitWidth),
+    S::new(A::WindowToTab, "window.to_tab", "move the focused window to a new tab, unless it is the only one of its tab").bar("Move Window to a New Tab", Icon::BrowserPlus),
+    S::new(A::TabNext, "tab.next", "show the next tab of the area the keys are in: the details panel's sheets there, elsewhere the content's tabs").bar("Next Tab", Icon::ChevronRight),
+    S::new(A::TabPrev, "tab.prev", "show the previous tab of the area the keys are in: the details panel's sheets there, elsewhere the content's tabs").bar("Previous Tab", Icon::ChevronLeft),
+    S::new(A::TabLast, "tab.last", "show the content's tab shown before the one shown now").bar("Tab Before", Icon::ArrowBack),
+    S::new(A::CursorDown, "cursor.down", "move the selection in the tree to the next row; in the details panel, in the list it shows, or scroll what else it shows").says("Select the next row"),
+    S::new(A::CursorUp, "cursor.up", "move the selection in the tree to the previous row; in the details panel, in the list it shows, or scroll what else it shows").says("Select the previous row"),
+    S::new(A::CursorFirst, "cursor.first", "move the selection in the tree to the first row; in the details panel, in the list it shows, or scroll what else it shows").says("Select the first row"),
+    S::new(A::CursorLast, "cursor.last", "move the selection in the tree to the last row; in the details panel, in the list it shows, or scroll what else it shows").says("Select the last row"),
+    S::new(A::CursorGo, "cursor.go", "go to a window showing the selected session, shell, worktree or file, in any tab, or else open it as `cursor.open` does; in the details panel, open the selected row")
         .says("Go to it where it is shown")
         .icon(Icon::ArrowRight)
         .row("Open", Go),
-    S::new(A::CursorOpen, "cursor.open")
+    S::new(A::CursorOpen, "cursor.open", "open the selected session, shell, worktree or file in the focused window, in place of what it shows, and move to it, or to the prompt of a session not started yet; on a folded row, a worktree or a session holding others too, unfold it instead; fold or unfold a workspace, a heading or a directory; in the details panel, open the selected row")
         .says("Open it here")
         .icon(Icon::ArrowRight)
         .row("Open", Go),
-    S::new(A::CursorSplit, "cursor.split")
+    S::new(A::CursorSplit, "cursor.split", "open the selected session, shell, worktree or file as `cursor.open` does, in a new window split off the focused one, below it")
         .icon(Icon::LayoutRows)
         .row("Open in a split below", Go),
-    S::new(A::CursorVsplit, "cursor.vsplit")
+    S::new(A::CursorVsplit, "cursor.vsplit", "open the selected session, shell, worktree or file as `cursor.open` does, in a new window split off the focused one, beside it")
         .icon(Icon::LayoutColumns)
         .row("Open in a split beside", Go),
-    S::new(A::CursorTab, "cursor.tab")
+    S::new(A::CursorTab, "cursor.tab", "open the selected session, shell, worktree or file as `cursor.open` does, in a new tab after the one shown")
         .icon(Icon::BrowserPlus)
         .row("Open in a new tab", Go),
-    S::new(A::CursorShow, "cursor.show")
+    S::new(A::CursorShow, "cursor.show", "open the selected session, shell, worktree or file in the focused window as `cursor.open` does, with the keys staying in the tree; fold or unfold a workspace, a heading or a directory; in the details panel, open the selected row")
         .icon(Icon::Eye)
         .row("Show", Go),
-    S::new(A::CursorFold, "cursor.fold").says("Fold, or go back"),
-    S::new(A::CursorClose, "cursor.close")
+    S::new(A::CursorFold, "cursor.fold", "fold the selected node, or on a row that is not unfolded go up to the row it sits under; in the details panel, go back out to the list what it shows was opened from").says("Fold, or go back"),
+    S::new(A::CursorClose, "cursor.close", "close every window showing the selected session, shell or Neovim, or the selected file in its viewer or its Neovim; what they showed runs on")
         .icon(Icon::SquareMinus)
         .row("Close its windows", End),
-    S::new(A::CursorCopy, "cursor.copy")
+    S::new(A::CursorCopy, "cursor.copy", "copy the path of the selected file, worktree or workspace, or the name of the selected session, shell or Neovim; in the details panel, the selected link of the overview: its address, or its file's path")
         .icon(Icon::Copy)
         .row("Copy", Go),
-    S::new(A::CursorReveal, "cursor.reveal")
+    S::new(A::CursorReveal, "cursor.reveal", "in the details panel, show the selected file of the overview in the Finder")
         .icon(Icon::FolderSearch)
         .row("Reveal in Finder", Go),
-    S::new(A::WaitingNext, "waiting.next").bar("Next Waiting", Icon::BellDown),
-    S::new(A::WaitingPrev, "waiting.prev").bar("Previous Waiting", Icon::BellUp),
-    S::new(A::SessionNext, "session.next").bar("Next Session", Icon::MessageDown),
-    S::new(A::SessionPrev, "session.prev").bar("Previous Session", Icon::MessageUp),
-    S::new(A::WorkspaceNext, "workspace.next").bar("Next Workspace", Icon::FolderDown),
-    S::new(A::WorkspacePrev, "workspace.prev").bar("Previous Workspace", Icon::FolderUp),
-    S::new(A::SessionPick, "session.pick").bar("Go to or Start Session…", Icon::Search),
-    S::new(A::SessionNew, "session.new")
+    S::new(A::WaitingNext, "waiting.next", "open the next session waiting on you").bar("Next Waiting", Icon::BellDown),
+    S::new(A::WaitingPrev, "waiting.prev", "open the previous session waiting on you").bar("Previous Waiting", Icon::BellUp),
+    S::new(A::SessionNext, "session.next", "open the session after the one shown, in the tree's order over every session, folded away or filtered out too, going round at the end; the keys stay in the area they are in").bar("Next Session", Icon::MessageDown),
+    S::new(A::SessionPrev, "session.prev", "open the session before the one shown, in the tree's order over every session, folded away or filtered out too, going round at the start; the keys stay in the area they are in").bar("Previous Session", Icon::MessageUp),
+    S::new(A::WorkspaceNext, "workspace.next", "open a session of the workspace after the one shown, in the tree's order over every workspace holding a session, folded away or filtered out too, going round at the end: the session last shown there since the window opened, or else its first; the keys stay in the area they are in").bar("Next Workspace", Icon::FolderDown),
+    S::new(A::WorkspacePrev, "workspace.prev", "open a session of the workspace before the one shown, as `workspace.next` does, going round at the start").bar("Previous Workspace", Icon::FolderUp),
+    S::new(A::SessionPick, "session.pick", "open the picker, to go to a session or choose where a new one works ([details](workspaces.md#going-to-a-session-or-starting-one))").bar("Go to or Start Session…", Icon::Search),
+    S::new(A::SessionNew, "session.new", "start a session, with the prompt ready to write its first message: in the selected row's worktree or directory from the tree, in the one the focused window shows from elsewhere")
         .bar("New Session", Icon::MessagePlus)
         .row("New session here", Start),
-    S::new(A::SessionScratch, "session.scratch").bar("New Scratch Session", Icon::Notes),
-    S::new(A::SessionResume, "session.resume").bar("Resume Conversation…", Icon::TransferIn),
-    S::new(A::SessionStop, "session.stop")
+    S::new(A::SessionScratch, "session.scratch", "start a scratch session, with the prompt ready: one that runs in a new directory of its own, for talking about something no project holds ([details](workspaces.md#scratch-sessions))").bar("New Scratch Session", Icon::Notes),
+    S::new(A::SessionResume, "session.resume", "list the conversations Claude Code and Codex kept, to resume one in a new session ([details](sessions.md#resuming-a-past-conversation))").bar("Resume Conversation…", Icon::TransferIn),
+    S::new(A::SessionStop, "session.stop", "end a session adroit runs after asking; Claude Code keeps its conversation, for `/resume` in a session started later")
         .bar("End…", Icon::PlayerStop)
         .row("End…", End),
-    S::new(A::SessionRename, "session.rename")
+    S::new(A::SessionRename, "session.rename", "edit the name of a session adroit runs in place; the tree shows it, and the session is sent Claude Code's `/rename` so its own interface says it too")
         .bar("Rename…", Icon::Pencil)
         .row("Rename…", Go),
-    S::new(A::SessionAgentNext, "session.agent_next")
+    S::new(A::SessionAgentNext, "session.agent_next", "while a session not started yet is shown, switch the agent it is to run to the next one ([details](sessions.md#agents))")
         .bar("Next Agent of New Session", Icon::ArrowsExchange),
-    S::new(A::SessionAgentPrev, "session.agent_prev")
+    S::new(A::SessionAgentPrev, "session.agent_prev", "while a session not started yet is shown, switch the agent it is to run to the previous one ([details](sessions.md#agents))")
         .bar("Previous Agent of New Session", Icon::ArrowsExchange2),
-    S::new(A::ShellOpen, "shell.open")
+    S::new(A::ShellOpen, "shell.open", "open a shell in the worktree")
         .bar("Open Shell", Icon::Terminal2)
         .row("Open a shell here", Start),
-    S::new(A::TerminalStop, "terminal.stop")
+    S::new(A::TerminalStop, "terminal.stop", "end the terminal selected in the tree, or else the one shown")
         .bar("Stop Terminal", Icon::SquareX)
         .row("Stop terminal", End),
-    S::new(A::NeovimOpen, "neovim.open")
+    S::new(A::NeovimOpen, "neovim.open", "open Neovim, with your own configuration, in the worktree as `shell.open` opens a shell ([shells](terminals.md))")
         .bar("Open Neovim", Icon::Code)
         .row("Open Neovim here", Start),
-    S::new(A::TabClose, "tab.close")
+    S::new(A::TabClose, "tab.close", "close the content's tab shown and every window in it; agents and terminals keep running and remain reachable from the tree")
         .bar("Close Tab", Icon::X)
         .row("Close tab", End),
-    S::new(A::WindowClose, "window.close").bar("Close Window", Icon::AppWindow),
-    S::new(A::WindowOpen, "window.open").bar("New Window", Icon::CopyPlus),
-    S::new(A::Refresh, "refresh").bar("Refresh", Icon::Refresh),
-    S::new(A::Filter, "filter").bar("Filter…", Icon::Filter),
-    S::new(A::DetailsOverview, "details.overview").bar("Overview", Icon::InfoCircle),
-    S::new(A::DetailsChanges, "details.changes").bar("Changes", Icon::FileDiff),
-    S::new(A::DetailsLog, "details.log").bar("Log", Icon::GitCommit),
-    S::new(A::WorktreesToggle, "worktrees.toggle").bar("Toggle All Worktrees", Icon::ListTree),
-    S::new(A::ScrollDown, "scroll.down").says("Scroll down"),
-    S::new(A::ScrollUp, "scroll.up").says("Scroll up"),
-    S::new(A::ScrollHalfDown, "scroll.half_down").says("Scroll down half a page"),
-    S::new(A::ScrollHalfUp, "scroll.half_up").says("Scroll up half a page"),
-    S::new(A::ScrollTop, "scroll.top").says("Scroll to the top"),
-    S::new(A::ScrollBottom, "scroll.bottom").says("Scroll to the bottom"),
-    S::new(A::ConsoleSendNext, "console.send_next").says("Send the next key as it is"),
-    S::new(A::ConsolePassEveryKey, "console.pass_every_key").says("Pass every key on"),
-    S::new(A::PromptFocus, "prompt.focus").bar("Prompt", Icon::CursorText),
-    S::new(A::PromptWrite, "prompt.write").says("Write in the prompt"),
-    S::new(A::PromptSend, "prompt.send").bar("Send Prompt", Icon::Send),
-    S::new(A::PromptImages, "prompt.images").bar("Select Attached Image", Icon::Photo),
-    S::new(A::PromptTakeSuggestion, "prompt.take_suggestion").says("Take the suggested prompt"),
-    S::new(A::HistoryPrev, "prompt.history_prev").says("Previous prompt"),
-    S::new(A::HistoryNext, "prompt.history_next").says("Next prompt"),
-    S::new(A::SettingsOpen, "settings.open").bar("Settings…", Icon::Settings),
-    S::new(A::DaemonRestart, "daemon.restart").bar("Restart Session Daemon…", Icon::ServerBolt),
-    S::new(A::KeysHelp, "keys.help").bar("Keyboard Shortcuts", Icon::Keyboard),
-    S::new(A::ZoomIn, "zoom.in").bar("Zoom In", Icon::ZoomIn),
-    S::new(A::ZoomOut, "zoom.out").bar("Zoom Out", Icon::ZoomOut),
-    S::new(A::ZoomReset, "zoom.reset").bar("Actual Size", Icon::ZoomReset),
-    S::new(A::TreeToggle, "tree.toggle").bar("Toggle Tree", Icon::LayoutSidebar),
-    S::new(A::DetailsToggle, "details.toggle").bar("Toggle Details", Icon::LayoutSidebarRight),
-    S::new(A::ViewerZoomIn, "viewer.zoom_in").says("Zoom in"),
-    S::new(A::ViewerZoomOut, "viewer.zoom_out").says("Zoom out"),
-    S::new(A::ViewerZoomFit, "viewer.zoom_fit").says("Fit to the window"),
-    S::new(A::ViewerPageNext, "viewer.page_next").says("Next page"),
-    S::new(A::ViewerPagePrev, "viewer.page_prev").says("Previous page"),
-    S::new(A::ViewerPlay, "viewer.play").says("Play or pause"),
-    S::new(A::ViewerBack, "viewer.back").says("Back"),
-    S::new(A::ViewerForward, "viewer.forward").says("Forward"),
-    S::new(A::ViewerCopyPath, "viewer.copy_path").says("Copy the path"),
-    S::new(A::ConsoleSend(None), "console.send").says("Send the key to the console"),
-    S::new(A::TabGo(1), "tab.go").says("Go to tab"),
+    S::new(A::WindowClose, "window.close", "close the window; the instance's other windows stay open, and its sessions run on").bar("Close Window", Icon::AppWindow),
+    S::new(A::WindowOpen, "window.open", "open another window of the instance ([instances](sessions.md#instances))").bar("New Window", Icon::CopyPlus),
+    S::new(A::Refresh, "refresh", "read the sessions, and what git says of where they run, again now").bar("Refresh", Icon::Refresh),
+    S::new(A::Filter, "filter", "narrow the tree to the sessions, shells, workspaces and worktrees whose names hold what is typed next; `Enter` keeps it, `Escape` clears it").bar("Filter…", Icon::Filter),
+    S::new(A::DetailsOverview, "details.overview", "show the overview sheet of the details panel ([details](details.md)), and the panel when it is hidden").bar("Overview", Icon::InfoCircle),
+    S::new(A::DetailsChanges, "details.changes", "show the changes sheet of the details panel ([details](details.md)), and the panel when it is hidden").bar("Changes", Icon::FileDiff),
+    S::new(A::DetailsLog, "details.log", "show the log sheet of the details panel ([details](details.md)), and the panel when it is hidden").bar("Log", Icon::GitCommit),
+    S::new(A::WorktreesToggle, "worktrees.toggle", "list every worktree git knows, those without sessions too, or only those with sessions again").bar("Toggle All Worktrees", Icon::ListTree),
+    S::new(A::ScrollDown, "scroll.down", "scroll the details panel down a step; bound in the console, scroll it: Claude Code and other programs that read the mouse are sent the wheel, others are scrolled back through what scrolled off; bound in a viewer, scroll what it shows").says("Scroll down"),
+    S::new(A::ScrollUp, "scroll.up", "scroll up a step, what `scroll.down` scrolls").says("Scroll up"),
+    S::new(A::ScrollHalfDown, "scroll.half_down", "scroll down half a page, what `scroll.down` scrolls").says("Scroll down half a page"),
+    S::new(A::ScrollHalfUp, "scroll.half_up", "scroll up half a page, what `scroll.down` scrolls").says("Scroll up half a page"),
+    S::new(A::ScrollTop, "scroll.top", "scroll to the top, what `scroll.down` scrolls").says("Scroll to the top"),
+    S::new(A::ScrollBottom, "scroll.bottom", "scroll to the bottom, what `scroll.down` scrolls").says("Scroll to the bottom"),
+    S::new(A::ConsoleSendNext, "console.send_next", "send the next key as it is, whatever it is bound to").says("Send the next key as it is"),
+    S::new(A::ConsolePassEveryKey, "console.pass_every_key", "send every key as it is until `Escape`; `Ctrl+c` sends `Escape` meanwhile").says("Pass every key on"),
+    S::new(A::PromptFocus, "prompt.focus", "give the prompt the keys").bar("Prompt", Icon::CursorText),
+    S::new(A::PromptWrite, "prompt.write", "give the prompt the keys, and the key pressed with them").says("Write in the prompt"),
+    S::new(A::PromptSend, "prompt.send", "send what the prompt holds").bar("Send Prompt", Icon::Send),
+    S::new(A::PromptImages, "prompt.images", "select an attached image").bar("Select Attached Image", Icon::Photo),
+    S::new(A::PromptTakeSuggestion, "prompt.take_suggestion", "on an empty prompt, send the key pressed to the session and then bring the session's input into the prompt, so a prompt Claude Code suggests is taken to edit; an agent whose input cannot be taken back gets the key alone. On a prompt holding text or images, or while Neovim shows its completions or its command line, the key is Neovim's").says("Take the suggested prompt"),
+    S::new(A::HistoryPrev, "prompt.history_prev", "put the prompt sent before the one shown in the prompt, to change and send again: those Claude Code recalls with its Up arrow where the focused window's session works. In the prompt, while Neovim shows its completions or its command line, the key is Neovim's").says("Previous prompt"),
+    S::new(A::HistoryNext, "prompt.history_next", "put the prompt sent after the one shown in the prompt, as `prompt.history_prev` does").says("Next prompt"),
+    S::new(A::SettingsOpen, "settings.open", "open the Settings window").bar("Settings…", Icon::Settings),
+    S::new(A::DaemonRestart, "daemon.restart", "restart the sessions' daemon after asking, ending every session it holds ([details](sessions.md#the-hosts))").bar("Restart Session Daemon…", Icon::ServerBolt),
+    S::new(A::KeysHelp, "keys.help", "show every binding in force, area by area, the areas the keys are in first, each with what its action does; `Escape`, `q` or the key that showed it closes it, and no other key acts behind it").bar("Keyboard Shortcuts", Icon::Keyboard),
+    S::new(A::ZoomIn, "zoom.in", "draw the window a step larger").bar("Zoom In", Icon::ZoomIn),
+    S::new(A::ZoomOut, "zoom.out", "draw the window a step smaller").bar("Zoom Out", Icon::ZoomOut),
+    S::new(A::ZoomReset, "zoom.reset", "draw the window at the zoom the settings give").bar("Actual Size", Icon::ZoomReset),
+    S::new(A::TreeToggle, "tree.toggle", "show or hide the tree").bar("Toggle Tree", Icon::LayoutSidebar),
+    S::new(A::DetailsToggle, "details.toggle", "show or hide the details panel").bar("Toggle Details", Icon::LayoutSidebarRight),
+    S::new(A::ViewerZoomIn, "viewer.zoom_in", "in a viewer, draw an image, a PDF or an HTML page larger ([viewers](viewers.md))").says("Zoom in"),
+    S::new(A::ViewerZoomOut, "viewer.zoom_out", "in a viewer, draw an image, a PDF or an HTML page smaller").says("Zoom out"),
+    S::new(A::ViewerZoomFit, "viewer.zoom_fit", "in a viewer, draw an image, a PDF or an HTML page fitting the window").says("Fit to the window"),
+    S::new(A::ViewerPageNext, "viewer.page_next", "in a viewer, show a PDF's next page").says("Next page"),
+    S::new(A::ViewerPagePrev, "viewer.page_prev", "in a viewer, show a PDF's previous page").says("Previous page"),
+    S::new(A::ViewerPlay, "viewer.play", "in a viewer, play or pause a movie").says("Play or pause"),
+    S::new(A::ViewerBack, "viewer.back", "in a viewer, seek a movie back").says("Back"),
+    S::new(A::ViewerForward, "viewer.forward", "in a viewer, seek a movie forward").says("Forward"),
+    S::new(A::ViewerCopyPath, "viewer.copy_path", "in a viewer, copy the path of the file it shows").says("Copy the path"),
+    S::new(A::ConsoleSend(None), "console.send", "send the key pressed to the session; with a key named after it, as in `console.send Escape`, send that key instead").says("Send the key to the console"),
+    S::new(A::TabGo(1), "tab.go", "show the content's tab numbered `n`, from 1 to 9, or the last when there are fewer").says("Go to tab"),
 ];
 
 impl Action {
@@ -601,6 +605,15 @@ mod tests {
         for action in every_action() {
             let said = action.label();
             assert_eq!(said.is_empty(), action == Action::None, "{action:?}");
+        }
+    }
+
+    #[test]
+    fn every_action_says_in_full_what_it_does_starting_in_lower_case() {
+        for spec in ACTIONS {
+            let first = spec.does.chars().next();
+            assert!(first.is_some_and(|c| !c.is_uppercase()), "{}", spec.name);
+            assert!(!spec.does.ends_with('.'), "{}", spec.name);
         }
     }
 
