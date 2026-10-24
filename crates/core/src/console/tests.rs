@@ -458,11 +458,11 @@ fn text_for_a_session_is_written_in_the_prompt_and_an_image_kept_for_it() {
         })
     };
     assert_eq!(
-        image(window()).last_effects(),
-        [Effect::KeepImage {
+        image(window()).last_effects().last(),
+        Some(&Effect::KeepImage {
             mime: "image/png".into(),
             data: "AA==".into()
-        }]
+        })
     );
     let shell = window().send(Msg::Show {
         thing: Tab::Terminal(1),
@@ -475,6 +475,25 @@ fn text_for_a_session_is_written_in_the_prompt_and_an_image_kept_for_it() {
             text: String::new(),
             pasted: true
         }]
+    );
+}
+
+#[test]
+fn ctrl_enter_sends_an_image_pasted_while_the_console_had_the_keys() {
+    let run = window()
+        .send(Msg::ImagePasted {
+            mime: "image/png".into(),
+            data: "AA==".into(),
+        })
+        .send(Msg::PromptImages(vec!["/kept.png".into()]));
+    assert_eq!(run.state().content.focus, Area::Prompt);
+    let run = run.send(press(Key::new("Enter").ctrl(), with_pane()));
+    assert_eq!(
+        run.last_effects(),
+        [Effect::PerformKey(
+            Action::PromptSend,
+            Key::new("Enter").ctrl()
+        )]
     );
 }
 

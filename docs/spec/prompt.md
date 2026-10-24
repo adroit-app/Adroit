@@ -79,7 +79,9 @@ take a shell line; its session is started with a message first.
 ## A pasted image
 
 An image pasted into the prompt, with no text beside it on the clipboard, is
-saved as an attachment, separate from the words being written. Attachments
+saved as an attachment, separate from the words being written. Pasted while
+a session's console has the keys, it is attached all the same and the prompt
+takes the keys, as it does for text, so Ctrl+Enter sends it. Attachments
 show previews and can be selected and removed with the mouse or keyboard.
 While images are attached, the text area fits its actual screen lines, up to
 the configured maximum, without reserving the minimum text rows. Attachments

@@ -334,14 +334,19 @@ pub(crate) fn text(state: &mut ViewState, text: String, pasted: bool) -> Vec<Eff
     }
 }
 
-/// An image pasted: kept for the prompt, or handed to the console's program
-/// as an empty paste, as a terminal hands on an image paste, for it to read
-/// the image off the clipboard itself.
+/// An image pasted: kept for the prompt, which takes the keys as it does for
+/// text, or handed to the console's program as an empty paste, as a terminal
+/// hands on an image paste, for it to read the image off the clipboard
+/// itself.
 pub(crate) fn image(state: &mut ViewState, mime: String, data: String) -> Vec<Effect> {
     state.console.pending.clear();
     state.console.repeat = None;
     match text_goes(state) {
-        Typed::Prompt => vec![Effect::KeepImage { mime, data }],
+        Typed::Prompt => {
+            let mut effects = step(state, Msg::Focus(Area::Prompt));
+            effects.push(Effect::KeepImage { mime, data });
+            effects
+        }
         Typed::Program => vec![Effect::PaneText {
             text: String::new(),
             pasted: true,
