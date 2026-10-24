@@ -131,11 +131,17 @@ pub(crate) fn use_input(ui: &Ui) {
         }
     });
     use_menu_bar(ui);
+    // Whether the page has the keys, and whether an input method composes
+    // there, as it last told.
+    let page_focused = use_hook(|| Rc::new(Cell::new(true)));
+    let composing = use_hook(|| Rc::new(Cell::new(false)));
     // The window made key again gives the keys to its page, whatever in the
     // window took them meanwhile: AppKit sends them to the first responder,
-    // and with anything but the page there no key reaches the window.
+    // and with anything but the page there no key reaches the window. Not
+    // while a composition is open, which a new first responder ends.
     dioxus::desktop::use_wry_event_handler({
         let desktop = dioxus::desktop::window();
+        let composing = composing.clone();
         move |event, _| {
             use dioxus::desktop::tao::event::Event;
             if let Event::WindowEvent {
@@ -146,20 +152,18 @@ pub(crate) fn use_input(ui: &Ui) {
                 && *window_id == desktop.window.id()
             {
                 app.dispatch(Msg::WindowFocused(*on));
-                if *on {
+                if *on && !composing.get() {
                     keys::trace(|| "window made key: the page takes the keys");
                     let _ = desktop.webview.focus();
                 }
             }
         }
     });
-    // Whether the page has the keys, as it last told.
-    let page_focused = use_hook(|| Rc::new(Cell::new(true)));
     use_hook({
         let ui = ui.clone();
         let page_focused = page_focused.clone();
         move || {
-            spawn(listen(ui, page_focused));
+            spawn(listen(ui, page_focused, composing));
         }
     });
     // A window that has the keys while its page has not, past a moment, gives
@@ -184,7 +188,7 @@ pub(crate) fn use_input(ui: &Ui) {
 /// Keys, text, pastes and input-method commits from the hidden text area.
 /// Keys with a modifier and keys that type nothing come as keys; plain
 /// characters come as text.
-async fn listen(ui: Ui, page_focused: Rc<Cell<bool>>) {
+async fn listen(ui: Ui, page_focused: Rc<Cell<bool>>, composing: Rc<Cell<bool>>) {
     let app = ui.app;
     let run = || {
         document::eval(&format!(
@@ -193,6 +197,8 @@ async fn listen(ui: Ui, page_focused: Rc<Cell<bool>>) {
         ))
     };
     let mut input = run();
+    let desktop = dioxus::desktop::window();
+    let mut unanswered = keys::Unanswered::default();
     loop {
         let message = match keys::after(input.recv::<keys::Message>().await) {
             keys::Next::Handle(message) => message,
@@ -217,6 +223,22 @@ async fn listen(ui: Ui, page_focused: Rc<Cell<bool>>) {
         match message {
             keys::Message::Trace { text } => keys::trace(|| format!("js {text}")),
             keys::Message::Focused { on } => page_focused.set(on),
+            keys::Message::Composing { on } => composing.set(on),
+            keys::Message::Dropped { answered } => match unanswered.dropped(answered) {
+                keys::Lost::Nothing => {
+                    keys::trace(|| format!("dropped as composing, answered={answered}"))
+                }
+                keys::Lost::Ended(n) => lost(&format!(
+                    "{n} keys dropped as composing went unanswered by the input method"
+                )),
+                keys::Lost::Reset(n) => {
+                    lost(&format!(
+                        "{n} keys in a row dropped as composing went unanswered by the input method: resetting it"
+                    ));
+                    composing.set(false);
+                    reset_input_method(&desktop);
+                }
+            },
             keys::Message::Paste { text } => {
                 keys::trace(|| format!("text {text:?} pasted=true"));
                 app.dispatch(Msg::Text { text, pasted: true });
@@ -237,6 +259,40 @@ async fn listen(ui: Ui, page_focused: Rc<Cell<bool>>) {
             keys::Message::Key { .. } | keys::Message::Lost => {}
         }
     }
+}
+
+/// Tell of keys the input method lost, on the standard error and in the
+/// lost keys' log, whether keys are traced or not.
+fn lost(what: &str) {
+    eprintln!("[keys] {what}");
+    let _ = keys::record(&keys::lost_log(), what, keys::LOST_LOG_LIMIT);
+}
+
+/// Reset the input method, which stopped answering the keys: the page empties
+/// its text area and gives it focus again, the composition's marked text is
+/// discarded, and the page loses first responder and takes it back.
+fn reset_input_method(desktop: &dioxus::desktop::DesktopContext) {
+    document::eval("window.adroitInput?.reset?.();");
+    #[cfg(target_os = "macos")]
+    resign_first_responder(desktop);
+    let _ = desktop.webview.focus();
+}
+
+#[cfg(target_os = "macos")]
+fn resign_first_responder(desktop: &dioxus::desktop::DesktopContext) {
+    use dioxus::desktop::tao::platform::macos::WindowExtMacOS;
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSTextInputContext, NSWindow};
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    if let Some(context) = NSTextInputContext::currentInputContext(mtm) {
+        context.discardMarkedText();
+    }
+    // SAFETY: tao hands out the window's NSWindow, alive as long as
+    // `desktop`.
+    let window = unsafe { &*(desktop.window.ns_window() as *const NSWindow) };
+    window.makeFirstResponder(None);
 }
 
 /// The menu bar shows the Command keys in force, and runs what an entry
@@ -349,6 +405,11 @@ pub(crate) fn KeysField() -> Element {
         Area::Sidebar | Area::Details => false,
     };
     rsx! {
-        textarea { id: "adroit-keys", autofocus: true, readonly: !takes_text }
+        // The script makes it read-only, once no composition is open.
+        textarea {
+            id: "adroit-keys",
+            autofocus: true,
+            "data-takes-text": if takes_text { "yes" } else { "no" },
+        }
     }
 }

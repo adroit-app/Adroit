@@ -17,6 +17,38 @@ if (window.adroitDebugKeys) {
   window.addEventListener('error', (e) => trace('error ' + e.message + ' at ' + e.lineno + ':' + e.colno));
   window.addEventListener('unhandledrejection', (e) => trace('rejection ' + e.reason));
 }
+// Whether an input method composes in the text area. WebKit ends a
+// composition whose text area turns read-only, is emptied or loses focus, and
+// brings its text back later: none of these is done to it until the
+// composition ends.
+let composing = false;
+const compose = (on) => {
+  composing = on;
+  if (current()) dioxus.send({ kind: 'composing', on });
+};
+// The window says in `data-takes-text` whether the text area takes text; it
+// is made read-only, or writable, once no composition is open.
+const settle = () => {
+  if (composing || !current()) return;
+  const takes = t.dataset.takesText !== 'no';
+  if (t.readOnly === takes) t.readOnly = !takes;
+};
+new MutationObserver(settle).observe(t, { attributes: true, attributeFilter: ['data-takes-text'] });
+settle();
+// A key dropped for the input method is answered by it, as it composes, with
+// a composition event or text at most a moment away. The window is told of
+// each such key, and resets an input method that stops answering them.
+const moment = 300;
+let answeredAt = -Infinity;
+for (const k of ['compositionstart', 'compositionupdate', 'compositionend', 'beforeinput']) {
+  t.addEventListener(k, () => { answeredAt = performance.now(); }, true);
+}
+const dropped = () => {
+  const at = performance.now();
+  setTimeout(() => {
+    if (current()) dioxus.send({ kind: 'dropped', answered: answeredAt >= at - moment });
+  }, moment);
+};
 // Whether the menu holds Command with this key: one of macOS's letters,
 // whatever else is held, or a key an entry shows, written as the bindings
 // write it. Shift is in a letter's case and in a character such as `}`, but
@@ -84,7 +116,11 @@ const onKey = (e, astray) => {
     dioxus.send({ kind: 'key', key: name, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey, meta: true });
     return;
   }
-  if (e.isComposing || e.keyCode === 229 || e.metaKey) return;
+  if (e.metaKey) return;
+  if (e.isComposing || e.keyCode === 229 || e.key === 'Process') {
+    dropped();
+    return;
+  }
   if (e.code === 'AltLeft' || e.code === 'AltRight') option = e.code;
   const printable = [...e.key].length === 1;
   // On a grid, an Option key that does not count as Alt types what macOS
@@ -175,6 +211,7 @@ document.body.appendChild(probe);
 const wide = /[ᄀ-ᅟ⺀-〾ぁ-㏿㐀-䶿一-鿿ꀀ-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦]|[\u{1F300}-\u{1F64F}\u{1F900}-\u{1F9FF}\u{20000}-\u{3FFFD}]/u;
 let cell = 0;
 t.addEventListener('compositionstart', () => {
+  compose(true);
   t.classList.add('composing');
   if (onGrid) {
     probe.textContent = 'M'.repeat(100);
@@ -228,12 +265,35 @@ t.addEventListener('paste', (e) => {
   };
   r.readAsDataURL(f);
 });
-t.addEventListener('compositionend', (e) => {
+// The composition no longer drawn.
+const unshow = () => {
   t.classList.remove('composing', 'gridded');
   shown.classList.remove('on');
   shown.replaceChildren();
   t.style.width = '';
+};
+// What the window asks of an input method that stopped answering: the text
+// area emptied, the composition forgotten, and focus taken from it and given
+// back, which makes WebKit start its input context afresh.
+me.reset = () => {
+  if (!current()) return;
+  unshow();
+  composing = false;
+  t.blur();
+  t.value = '';
+  settle();
+  t.focus();
+};
+t.addEventListener('compositionend', (e) => {
+  unshow();
+  compose(false);
   if (e.data) dioxus.send({ kind: 'text', text: e.data });
-  setTimeout(() => { t.value = ''; }, 0);
+  // A composition started meanwhile, as the key that commits one may start
+  // the next, leaves the text area to its own end.
+  setTimeout(() => {
+    if (composing) return;
+    t.value = '';
+    settle();
+  }, 0);
 });
 keep();

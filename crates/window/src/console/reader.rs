@@ -1,10 +1,10 @@
 //! The console's reader as the window runs it: a Neovim of its own, started
-//! once and sized as the console, shown what the console holds when reading
-//! starts and again as it changes while it is read.
+//! again whenever it quits and sized as the console, shown what the console
+//! holds when reading starts and again as it changes while it is read.
 
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use adroit_core::msg::Msg;
 use adroit_nvim::{Embedded, Event as NvimEvent, Mark};
@@ -13,6 +13,7 @@ use dioxus::prelude::*;
 use tokio::sync::{Notify, mpsc};
 
 use super::Hub;
+use super::restart::Restarts;
 use crate::bridge::AppCtx;
 use crate::console_read;
 
@@ -94,22 +95,60 @@ impl Reader {
         self.hub.panes.borrow().get(&tab).cloned()
     }
 
-    /// Start the reader and tell the window what it does until it quits.
+    /// Start the reader, tell the window what it does until it quits, and
+    /// start it again.
     async fn run(&mut self) {
-        let (tx, mut rx) = mpsc::unbounded_channel();
-        let size = *self.console_size.peek();
-        let started = Embedded::spawn_reader(
-            &super::nvim_program(),
-            &[],
-            size.cols,
-            size.rows,
-            move |ev| {
-                let _ = tx.send(ev);
-            },
-        )
-        .await;
-        let Ok(r) = started else { return };
-        self.reader.set(Some(Arc::new(r)));
+        let app = self.app;
+        let mut restarts = Restarts::default();
+        // Whether the status line tells of a reader that could not run.
+        let mut told = false;
+        loop {
+            let (tx, rx) = mpsc::unbounded_channel();
+            let size = *self.console_size.peek();
+            let started = Embedded::spawn_reader(
+                &super::nvim_program(),
+                &[],
+                size.cols,
+                size.rows,
+                move |ev| {
+                    let _ = tx.send(ev);
+                },
+            )
+            .await;
+            let (lived, trouble) = match started {
+                Ok(r) => {
+                    if told {
+                        told = false;
+                        app.status(None);
+                    }
+                    let born = Instant::now();
+                    self.reader.set(Some(Arc::new(r)));
+                    self.serve(rx).await;
+                    self.reader.set(None);
+                    app.dispatch(Msg::ReaderQuit);
+                    (
+                        Some(born.elapsed()),
+                        "The console's reader quit as it started".to_string(),
+                    )
+                }
+                Err(e) => (None, format!("cannot start the console's reader: {e}")),
+            };
+            let wait = restarts.wait(lived);
+            if wait.is_zero() {
+                app.notice("The console's reader quit; it starts afresh".into());
+                continue;
+            }
+            app.status(Some(format!(
+                "{trouble}; trying again in {}s",
+                wait.as_secs()
+            )));
+            told = true;
+            tokio::time::sleep(wait).await;
+        }
+    }
+
+    /// Tell the window what the reader does until it quits.
+    async fn serve(&mut self, mut rx: mpsc::UnboundedReceiver<NvimEvent>) {
         let app = self.app;
         while let Some(ev) = rx.recv().await {
             match ev {

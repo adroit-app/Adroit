@@ -62,3 +62,9 @@ itself. The prompt's configuration is `prompt/nvim/init.lua` beside
 `settings.toml`, and the reader's `console/nvim/init.lua`, each read when
 it starts; their other files are kept in `adroit/prompt/nvim` and
 `adroit/console/nvim` under Neovim's data and state folders.
+
+Either Neovim that quits is started again; the console read when its
+reader quits is shown live. One that quits as it starts, as a
+broken configuration makes it, or cannot be started is tried again after a
+wait that grows while it keeps failing, the status line saying so; fixing
+the configuration is enough to bring it back, without restarting adroit.

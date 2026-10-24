@@ -261,6 +261,13 @@ fn read_the_console_takes_its_keys_and_leaves_with_its_own() {
 }
 
 #[test]
+fn the_reader_quitting_shows_the_console_live_again() {
+    let run = window().send(Msg::ReadingStarted).send(Msg::ReaderQuit);
+    assert!(!run.state().console.reading);
+    assert_eq!(run.last_effects(), [Effect::ConsoleLive]);
+}
+
+#[test]
 fn another_tab_shown_is_shown_live() {
     let run = window()
         .send(Msg::ReadingStarted)

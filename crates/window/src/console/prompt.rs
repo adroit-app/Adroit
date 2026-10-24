@@ -3,19 +3,16 @@
 //! the lines it asks for within the settings' bounds.
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use adroit_core::msg::Msg;
 use adroit_nvim::{Embedded, Event as NvimEvent};
 use dioxus::prelude::*;
 use tokio::sync::mpsc;
 
+use super::restart::Restarts;
 use super::{mode_of, nvim_program, prompt_rows};
 use crate::bridge::AppCtx;
-
-/// How long the prompt's Neovim has to live to be started again once it
-/// quits.
-const NVIM_SETTLE: Duration = Duration::from_secs(2);
 
 /// The prompt's Neovim and the grid the window draws it in.
 #[derive(Clone, Copy)]
@@ -110,67 +107,94 @@ impl PromptNeovim {
 
     async fn run(self, app: AppCtx, has_images: Memo<bool>, commands_wanted: Callback<()>) {
         let mut nvim = self.nvim;
-        let mut prompt_frame = self.prompt_frame;
-        let mut prompt_view = self.prompt_view;
-        let mut prompt_height = self.prompt_height;
+        let mut restarts = Restarts::default();
+        // Whether the status line tells of a Neovim that could not run.
+        let mut told = false;
         loop {
-            let (tx, mut rx) = mpsc::unbounded_channel();
+            let (tx, rx) = mpsc::unbounded_channel();
             let started = Embedded::spawn(&nvim_program(), &[], 80, 1, move |ev| {
                 let _ = tx.send(ev);
             })
             .await;
-            let embedded = match started {
-                Ok(e) => Arc::new(e),
-                Err(e) => {
-                    app.status(Some(format!("cannot start Neovim: {e}")));
-                    return;
+            let (lived, trouble) = match started {
+                Ok(e) => {
+                    if told {
+                        told = false;
+                        app.status(None);
+                    }
+                    let born = Instant::now();
+                    let embedded = Arc::new(e);
+                    nvim.set(Some(embedded.clone()));
+                    app.dispatch(Msg::PromptRuns(true));
+                    self.serve(&embedded, rx, app, has_images, commands_wanted)
+                        .await;
+                    nvim.set(None);
+                    app.dispatch(Msg::PromptRuns(false));
+                    (
+                        Some(born.elapsed()),
+                        "Neovim quit as it started".to_string(),
+                    )
                 }
+                Err(e) => (None, format!("cannot start Neovim: {e}")),
             };
-            let born = Instant::now();
-            nvim.set(Some(embedded.clone()));
-            app.dispatch(Msg::PromptRuns(true));
-            let rows = *self.prompt_rows.peek() as u16;
-            let cols = *self.prompt_cols.peek();
-            let _ = embedded.resize(cols, rows).await;
-            while let Some(ev) = rx.recv().await {
-                match ev {
-                    NvimEvent::Redraw => {
-                        *prompt_frame.write() += 1;
-                        let m = mode_of(&embedded.state());
-                        if app.prompt.peek().mode != m {
-                            app.dispatch(Msg::PromptMode(m.0, m.1));
-                        }
+            let wait = restarts.wait(lived);
+            if wait.is_zero() {
+                app.notice("Neovim quit; the prompt starts afresh".into());
+                continue;
+            }
+            // One that quits as it starts is not started over and over.
+            app.status(Some(format!(
+                "{trouble}; trying again in {}s",
+                wait.as_secs()
+            )));
+            told = true;
+            tokio::time::sleep(wait).await;
+        }
+    }
+
+    /// Tell the window what the prompt's Neovim does until it quits.
+    async fn serve(
+        &self,
+        embedded: &Embedded,
+        mut rx: mpsc::UnboundedReceiver<NvimEvent>,
+        app: AppCtx,
+        has_images: Memo<bool>,
+        commands_wanted: Callback<()>,
+    ) {
+        let mut prompt_frame = self.prompt_frame;
+        let mut prompt_view = self.prompt_view;
+        let mut prompt_height = self.prompt_height;
+        let rows = *self.prompt_rows.peek() as u16;
+        let cols = *self.prompt_cols.peek();
+        let _ = embedded.resize(cols, rows).await;
+        while let Some(ev) = rx.recv().await {
+            match ev {
+                NvimEvent::Redraw => {
+                    *prompt_frame.write() += 1;
+                    let m = mode_of(&embedded.state());
+                    if app.prompt.peek().mode != m {
+                        app.dispatch(Msg::PromptMode(m.0, m.1));
                     }
-                    // Only the console's reader tells of yanks and of where
-                    // it is scrolled to.
-                    NvimEvent::Yank { .. } | NvimEvent::Scrolled { .. } => {}
-                    NvimEvent::Shell(on) => app.dispatch(Msg::PromptShell(on)),
-                    NvimEvent::CommandsWanted => commands_wanted(()),
-                    NvimEvent::View { top, lines } => {
-                        if *prompt_view.peek() != (top, lines) {
-                            prompt_view.set((top, lines));
-                        }
+                }
+                // Only the console's reader tells of yanks and of where
+                // it is scrolled to.
+                NvimEvent::Yank { .. } | NvimEvent::Scrolled { .. } => {}
+                NvimEvent::Shell(on) => app.dispatch(Msg::PromptShell(on)),
+                NvimEvent::CommandsWanted => commands_wanted(()),
+                NvimEvent::View { top, lines } => {
+                    if *prompt_view.peek() != (top, lines) {
+                        prompt_view.set((top, lines));
                     }
-                    NvimEvent::Height(h) => {
-                        prompt_height.set(h);
-                        let images = *has_images.peek();
-                        if let Some(rows) = self.fit(images) {
-                            let cols = *self.prompt_cols.peek();
-                            let _ = embedded.resize(cols, rows as u16).await;
-                        }
+                }
+                NvimEvent::Height(h) => {
+                    prompt_height.set(h);
+                    let images = *has_images.peek();
+                    if let Some(rows) = self.fit(images) {
+                        let cols = *self.prompt_cols.peek();
+                        let _ = embedded.resize(cols, rows as u16).await;
                     }
                 }
             }
-            nvim.set(None);
-            app.dispatch(Msg::PromptRuns(false));
-            // One that quits as it starts would be started forever.
-            if born.elapsed() < NVIM_SETTLE {
-                app.status(Some(
-                    "Neovim quit as it started; restart adroit to try again".into(),
-                ));
-                return;
-            }
-            app.notice("Neovim quit; the prompt starts afresh".into());
         }
     }
 }

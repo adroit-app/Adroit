@@ -22,6 +22,7 @@ use crate::view::ScreenView;
 
 mod prompt;
 mod reader;
+mod restart;
 
 pub(crate) use prompt::*;
 pub(crate) use reader::*;

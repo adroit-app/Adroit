@@ -257,6 +257,9 @@ pub enum Msg {
     ConsolePassEveryKey,
     /// The reader shows the console and takes its keys.
     ReadingStarted,
+    /// The reader's Neovim quit, and the console is shown live until it
+    /// runs again.
+    ReaderQuit,
     /// The prompt's Neovim runs, or quit.
     PromptRuns(bool),
     /// The window answers the editor's requests, and so is handed a

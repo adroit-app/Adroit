@@ -396,6 +396,7 @@ fn set(console: &mut ConsoleView, msg: Msg) -> Vec<Effect> {
         Msg::ConsoleSendNext => console.send_next = true,
         Msg::ConsolePassEveryKey => console.direct = true,
         Msg::ReadingStarted => console.reading = true,
+        Msg::ReaderQuit => return leave_reading(console),
         Msg::PromptRuns(runs) => console.prompt_runs = runs,
         Msg::EditorAnswers => console.answers = true,
         Msg::InputAsked(tab) => return input_asked(console, tab),

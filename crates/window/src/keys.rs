@@ -48,6 +48,16 @@ pub enum Message {
     Focused {
         on: bool,
     },
+    /// A key dropped for the input method, and whether it answered within a
+    /// moment.
+    Dropped {
+        answered: bool,
+    },
+    /// Whether an input method composes in the text area, told as a
+    /// composition starts and ends.
+    Composing {
+        on: bool,
+    },
 }
 
 /// What to do with what the script sent.
@@ -118,6 +128,71 @@ impl Watch {
         self.astray = 0;
         true
     }
+}
+
+/// How many keys in a row the input method may leave unanswered before it is
+/// taken to have stopped answering them.
+const RESET_AFTER: u32 = 3;
+
+/// Counts the keys the page dropped as composing that the input method did
+/// not answer, with a composition event or text, within a moment.
+#[derive(Debug, Default)]
+pub struct Unanswered {
+    run: u32,
+}
+
+/// What a key dropped as composing tells.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Lost {
+    Nothing,
+    /// The input method answered again after leaving so many keys
+    /// unanswered.
+    Ended(u32),
+    /// The input method left so many keys in a row unanswered: reset it.
+    Reset(u32),
+}
+
+impl Unanswered {
+    /// A key dropped as composing, `answered` by the input method or not.
+    pub fn dropped(&mut self, answered: bool) -> Lost {
+        if answered {
+            return match std::mem::take(&mut self.run) {
+                0 => Lost::Nothing,
+                n => Lost::Ended(n),
+            };
+        }
+        self.run += 1;
+        if self.run < RESET_AFTER {
+            return Lost::Nothing;
+        }
+        Lost::Reset(std::mem::take(&mut self.run))
+    }
+}
+
+/// The most the lost keys' log holds before it starts afresh.
+pub const LOST_LOG_LIMIT: u64 = 256 * 1024;
+
+/// Where the window writes of the keys the input method lost: the app's
+/// standard error goes nowhere, and a trace of them must outlive the window.
+pub fn lost_log() -> std::path::PathBuf {
+    adroit_model::paths::instance_state().join("keys.log")
+}
+
+/// Append `line` to the log at `path`, stamped with the time in milliseconds,
+/// starting the log afresh once it holds `limit` bytes or more.
+pub fn record(path: &std::path::Path, line: &str, limit: u64) -> std::io::Result<()> {
+    use std::io::Write;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let full = std::fs::metadata(path).is_ok_and(|m| m.len() >= limit);
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(!full)
+        .write(true)
+        .truncate(full)
+        .open(path)?;
+    writeln!(file, "{} {line}", adroit_model::time::now_ms())
 }
 
 /// Whether the way keys travel is written to the standard error, as
@@ -274,6 +349,14 @@ mod tests {
     }
 
     #[test]
+    fn the_page_telling_whether_an_input_method_composes_is_read() {
+        assert_eq!(
+            read(r#"{"kind":"composing","on":true}"#),
+            Message::Composing { on: true }
+        );
+    }
+
+    #[test]
     fn a_key_window_whose_page_stays_without_the_keys_gives_them_back_on_the_second_look() {
         let mut w = Watch::default();
         assert!(!w.look(true, false, false));
@@ -316,5 +399,62 @@ mod tests {
             ))),
             Next::Restart
         );
+    }
+
+    #[test]
+    fn the_page_telling_of_a_key_it_dropped_as_composing_is_read() {
+        assert_eq!(
+            read(r#"{"kind":"dropped","answered":false}"#),
+            Message::Dropped { answered: false }
+        );
+    }
+
+    #[test]
+    fn keys_the_input_method_answers_are_typing_and_tell_nothing() {
+        let mut u = Unanswered::default();
+        for _ in 0..20 {
+            assert_eq!(u.dropped(true), Lost::Nothing);
+        }
+    }
+
+    #[test]
+    fn a_few_keys_in_a_row_the_input_method_leaves_unanswered_reset_it() {
+        let mut u = Unanswered::default();
+        assert_eq!(u.dropped(false), Lost::Nothing);
+        assert_eq!(u.dropped(false), Lost::Nothing);
+        assert_eq!(u.dropped(false), Lost::Reset(3));
+        // Counted afresh from the reset.
+        assert_eq!(u.dropped(false), Lost::Nothing);
+    }
+
+    #[test]
+    fn an_answer_ends_a_run_of_unanswered_keys_and_tells_how_many_were_lost() {
+        let mut u = Unanswered::default();
+        u.dropped(false);
+        u.dropped(false);
+        assert_eq!(u.dropped(true), Lost::Ended(2));
+        assert_eq!(u.dropped(false), Lost::Nothing);
+        assert_eq!(u.dropped(false), Lost::Nothing);
+        assert_eq!(u.dropped(false), Lost::Reset(3));
+    }
+
+    #[test]
+    fn the_lost_keys_log_keeps_each_line_stamped_and_starts_afresh_once_too_long() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("deep").join("keys.log");
+        record(&path, "first", 64).unwrap();
+        record(&path, "second", 64).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 2, "{text}");
+        assert!(
+            lines[0].ends_with(" first") && lines[1].ends_with(" second"),
+            "{text}"
+        );
+        record(&path, &"x".repeat(80), 64).unwrap();
+        record(&path, "third", 64).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(text.lines().count(), 1, "{text}");
+        assert!(text.trim_end().ends_with(" third"), "{text}");
     }
 }
