@@ -3,3 +3,4 @@
 .direnv/
 result
 /.claude/worktrees/
+nvim.log
