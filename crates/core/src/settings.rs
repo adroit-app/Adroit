@@ -545,24 +545,6 @@ impl Settings {
         }
     }
 
-    /// Makes a profile of `agent` the default: `earlier`, a default it had
-    /// before, while that is still one of `agent`'s profiles not archived,
-    /// else `agent`'s default profile. The default it replaces, which
-    /// switching back takes as `earlier`.
-    pub fn default_to(&mut self, agent: Agent, earlier: Option<&ProfileId>) -> ProfileId {
-        let replaced = self.profile.clone();
-        let kept = earlier.filter(|id| {
-            self.profiles
-                .iter()
-                .any(|p| &p.id == *id && p.agent() == agent && !p.archived)
-        });
-        self.profile = match kept {
-            Some(id) => id.clone(),
-            None => self.profile_of_mut(agent).id.clone(),
-        };
-        replaced
-    }
-
     /// What a session of `agent` started from the profile `profile` is shown
     /// as: its agent, and the profile's name when it is not the agent's own
     /// name, as for the profile adroit comes with; a profile these settings
@@ -1481,24 +1463,6 @@ permission_mode = "plan"
                 "the profile that holds the key is still found by it"
             );
         }
-    }
-
-    #[test]
-    fn switching_the_default_agent_back_restores_the_profile_it_had_while_that_still_holds() {
-        let mut s = Settings::parse(PROFILES).unwrap();
-        let earlier = s.default_to(Agent::Codex, None);
-        assert_eq!(earlier.as_str(), "claude-work");
-        assert_eq!(s.profile.as_str(), "codex-review");
-        let back = s.default_to(Agent::Claude, Some(&earlier));
-        assert_eq!(s.profile.as_str(), "claude-work");
-        assert_eq!(back.as_str(), "codex-review");
-        // One archived or of another agent since is not taken back.
-        s.default_to(Agent::Codex, None);
-        s.profiles[1].archived = true;
-        s.default_to(Agent::Claude, Some(&"claude-work".parse().unwrap()));
-        assert_eq!(s.profile.as_str(), "claude");
-        s.default_to(Agent::Claude, Some(&"codex-review".parse().unwrap()));
-        assert_eq!(s.profile.as_str(), "claude");
     }
 
     #[test]

@@ -108,3 +108,12 @@ button.chip-add:hover { color: var(--text); background: var(--select); }
 .segmented button:hover { background: transparent; color: var(--text); }
 .segmented button.on { background: var(--wait-tint); color: var(--wait); font-weight: 500; }
 .action-row-label button.settings-link { font-size: 12px; padding: 0 2px; }
+.profile-row.on { background: var(--raised); }
+.profile-row .settings-row-label { display: flex; flex-wrap: wrap; align-items: center; column-gap: 8px; }
+.profile-row .settings-hint { flex-basis: 100%; }
+button.settings-link.profile-name { color: var(--text); padding: 0; font-weight: 500; }
+.settings-row-control button { display: inline-flex; align-items: center; gap: 4px; }
+.login-standing { font-size: 11px; color: var(--text-3); background: var(--raised); border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
+.login-standing.in { color: var(--done); }
+.login-standing.out { color: var(--wait); background: var(--wait-tint-soft); }
+.login-standing.missing { color: var(--fail); background: var(--fail-tint); }

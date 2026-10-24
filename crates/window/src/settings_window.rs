@@ -24,9 +24,11 @@ use crate::icons::{Icon, IconView};
 use crate::keys_pane::KeysPane;
 use crate::link::Link;
 use crate::paths::home;
-use crate::settings::{AgentOptions, Appearance, OptionAsAlt, ProfileId, Settings, ThemeKind};
+use crate::settings::{Appearance, OptionAsAlt, ProfileId, Settings, ThemeKind};
 use crate::style::SETTINGS_CSS;
 use crate::zoom::LEVELS;
+
+mod profiles;
 
 thread_local! {
     static OPEN: RefCell<Weak<DesktopService>> = const { RefCell::new(Weak::new()) };
@@ -125,6 +127,24 @@ impl Pane {
     }
 }
 
+/// The pages under Agents.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AgentsPage {
+    Profiles,
+    Connections,
+}
+
+impl AgentsPage {
+    const ALL: [Self; 2] = [Self::Profiles, Self::Connections];
+
+    fn title(self) -> &'static str {
+        match self {
+            Self::Profiles => "Profiles",
+            Self::Connections => "Connections",
+        }
+    }
+}
+
 /// Hand `path` to `open` with `how`: `-R` shows it in the Finder, `-t` opens
 /// it in the text editor. It is made from `starter` first when it does not
 /// exist yet, so there is something to show.
@@ -179,17 +199,18 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
     let config = use_config();
     let link = use_context::<Link>();
     let mut pane = use_signal(|| Pane::General);
-    let mut agent = use_signal(|| config.peek().settings.default_agent());
+    let mut page = use_signal(|| AgentsPage::Profiles);
     let mut now = use_signal(|| config.peek().settings.clone());
     let mut failed = use_signal(|| None::<String>);
-    // The profile each agent had as the default before General switched away
-    // from it, taken back when it is switched back to.
-    let earlier = use_signal(std::collections::HashMap::<adroit_model::Agent, ProfileId>::new);
     // Changes made elsewhere, such as in the file, show here as well.
     use_effect(move || now.set(config.read().settings.clone()));
     let change = move |f: Change| {
         let mut next = now.peek().clone();
         f(&mut next);
+        // A change refused leaves the file as the user wrote it.
+        if next == *now.peek() {
+            return;
+        }
         // Shown at once; the host sends the settings as it kept them.
         now.set(next.clone());
         let saved = toml::to_string_pretty(&next)
@@ -223,14 +244,14 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
                         "{p.title()}"
                     }
                     if p == Pane::Agents && pane() == Pane::Agents {
-                        for choice in adroit_model::Agent::ALL {
+                        for choice in AgentsPage::ALL {
                             button {
-                                key: "{choice.key()}",
+                                key: "{choice.title()}",
                                 r#type: "button",
-                                class: if agent() == choice { "settings-nav-item settings-agent on" } else { "settings-nav-item settings-agent" },
-                                aria_current: if agent() == choice { "page" } else { "false" },
-                                onclick: move |_| agent.set(choice),
-                                "{choice.label()}"
+                                class: if page() == choice { "settings-nav-item settings-agent on" } else { "settings-nav-item settings-agent" },
+                                aria_current: if page() == choice { "page" } else { "false" },
+                                onclick: move |_| page.set(choice),
+                                "{choice.title()}"
                             }
                         }
                     }
@@ -242,17 +263,13 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
                     SettingsError { "Could not keep the settings: {e}" }
                 }
                 match pane() {
-                    Pane::General => rsx! { General { now: now(), change, earlier } },
+                    Pane::General => rsx! { General { now: now(), change } },
                     Pane::Appearance => rsx! { AppearancePane { now: now(), change } },
                     Pane::Console => rsx! { ConsolePane { now: now(), change } },
                     Pane::Prompt => rsx! { PromptPane { now: now(), change } },
-                    Pane::Agents => rsx! {
-                        AgentsPane {
-                            agent: agent(),
-                            program: agents.of(agent()).map(|f| f.program.clone()).unwrap_or_default(),
-                            now: now(),
-                            change,
-                        }
+                    Pane::Agents => match page() {
+                        AgentsPage::Profiles => rsx! { profiles::ProfilesPane { now: now(), agents: agents.clone(), change } },
+                        AgentsPage::Connections => rsx! { profiles::ConnectionsPane { now: now(), change } },
                     },
                     Pane::Programs => rsx! { ProgramsPane { now: now(), change } },
                     Pane::Keys => rsx! { KeysPane {} },
@@ -265,11 +282,7 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
 type Change = Box<dyn FnOnce(&mut Settings)>;
 
 #[component]
-fn General(
-    now: Settings,
-    change: Callback<Change>,
-    earlier: Signal<std::collections::HashMap<adroit_model::Agent, ProfileId>>,
-) -> Element {
+fn General(now: Settings, change: Callback<Change>) -> Element {
     let config = use_config();
     let files = {
         let files = config.read();
@@ -309,24 +322,19 @@ fn General(
                 }
             }
         }
-        SettingGroup { title: "Default agent",
-            SettingRow { label: "Agent", hint: "The agent a new session starts with; each can be switched before its first prompt. Sessions already running keep their agent.",
+        SettingGroup { title: "Default profile",
+            SettingRow { label: "Profile", hint: "The profile a new session starts from; a draft can choose another before its first prompt. Sessions already running keep theirs.",
                 select {
+                    aria_label: "Default profile",
                     onchange: move |e| {
-                        if let Some(agent) = adroit_model::Agent::parse(&e.value()) {
-                            let mut earlier = earlier;
-                            let kept = earlier.peek().get(&agent).cloned();
+                        if let Ok(id) = e.value().parse::<ProfileId>() {
                             change(Box::new(move |s: &mut Settings| {
-                                let from = s.default_agent();
-                                let replaced = s.default_to(agent, kept.as_ref());
-                                if from != agent {
-                                    earlier.write().insert(from, replaced);
-                                }
+                                let _ = adroit_core::profiles::make_default(s, &id);
                             }));
                         }
                     },
-                    for c in agent_choices(now.default_agent()) {
-                        option { key: "{c.agent.key()}", value: "{c.agent.key()}", selected: c.selected, "{c.label}" }
+                    for row in adroit_core::profiles::profile_rows(&now).into_iter().filter(|r| !r.archived) {
+                        option { key: "{row.id}", value: "{row.id}", selected: row.default, "{row.name} — {row.agent.label()}" }
                     }
                 }
             }
@@ -732,25 +740,6 @@ const MODES: [(&str, &str); 5] = [
     ("bypassPermissions", "Bypass permissions"),
 ];
 
-struct AgentChoice {
-    agent: adroit_model::Agent,
-    label: &'static str,
-    selected: bool,
-}
-
-/// Each agent new sessions can run, the one they run now marked: a select's
-/// own `value` does not pick the option it names when the pane is drawn.
-fn agent_choices(chosen: adroit_model::Agent) -> Vec<AgentChoice> {
-    adroit_model::Agent::ALL
-        .into_iter()
-        .map(|agent| AgentChoice {
-            agent,
-            label: agent.label(),
-            selected: agent == chosen,
-        })
-        .collect()
-}
-
 /// The models offered to choose from; another can be typed.
 const MODELS: [&str; 3] = ["opus", "sonnet", "haiku"];
 
@@ -767,71 +756,6 @@ impl AgentSection {
         match self {
             Self::Sessions => "Sessions",
             Self::Launch => "Launch",
-        }
-    }
-}
-
-#[component]
-fn AgentsPane(
-    agent: adroit_model::Agent,
-    /// The program the agent runs unless its launch names another.
-    program: String,
-    now: Settings,
-    change: Callback<Change>,
-) -> Element {
-    use adroit_model::Agent;
-    let mut section = use_signal(|| AgentSection::Sessions);
-    rsx! {
-        div { class: "settings-agent-tabs", role: "group", aria_label: "Agent settings",
-            for item in AgentSection::ALL {
-                button {
-                    r#type: "button",
-                    key: "{item.title()}",
-                    class: if section() == item { "on" } else { "" },
-                    aria_pressed: section() == item,
-                    onclick: move |_| section.set(item),
-                    "{item.title()}"
-                }
-            }
-        }
-        p { class: "settings-agent-note",
-            match section() {
-                AgentSection::Launch => "How this agent starts.",
-                AgentSection::Sessions => "Defaults for new sessions. Running sessions keep their settings.",
-            }
-        }
-        if section() == AgentSection::Launch {
-            LaunchGroup {
-                key: "launch-{agent.key()}",
-                title: "Launch",
-                hint: "The program and its arguments; empty for the agent's own command.",
-                placeholder: program.clone(),
-                launch: now.profile_of(agent).launch.clone(),
-                set: move |launch: Launch| change(Box::new(move |s: &mut Settings| s.profile_of_mut(agent).launch = launch)),
-            }
-        } else {
-            match agent {
-                Agent::Claude => rsx! {
-                    SessionGroup {
-                        key: "claude-{agent.key()}",
-                        title: section().title(),
-                        options: now.profile_of(agent).claude().cloned().unwrap_or_default(),
-                        set: move |options: SessionOptions| change(Box::new(move |s: &mut Settings| {
-                            s.profile_of_mut(agent).options = AgentOptions::Claude(options);
-                        })),
-                    }
-                },
-                Agent::Codex => rsx! {
-                    CodexGroup {
-                        key: "codex-{agent.key()}",
-                        title: section().title(),
-                        options: now.profile_of(agent).codex().cloned().unwrap_or_default(),
-                        set: move |options: adroit_model::config::CodexOptions| change(Box::new(move |s: &mut Settings| {
-                            s.profile_of_mut(agent).options = AgentOptions::Codex(options);
-                        })),
-                    }
-                },
-            }
         }
     }
 }
@@ -939,28 +863,5 @@ fn SessionGroup(title: String, options: SessionOptions, set: Callback<SessionOpt
                 }
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use adroit_model::Agent;
-
-    #[test]
-    fn the_agent_new_sessions_run_is_the_one_marked_chosen() {
-        for chosen in Agent::ALL {
-            let marked: Vec<Agent> = agent_choices(chosen)
-                .into_iter()
-                .filter(|c| c.selected)
-                .map(|c| c.agent)
-                .collect();
-            assert_eq!(marked, [chosen]);
-        }
-        let offered: Vec<Agent> = agent_choices(Agent::Claude)
-            .into_iter()
-            .map(|c| c.agent)
-            .collect();
-        assert_eq!(offered, Agent::ALL);
     }
 }
