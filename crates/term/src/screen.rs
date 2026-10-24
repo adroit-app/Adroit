@@ -225,11 +225,19 @@ impl Colours {
     fn style(&self, attrs: &felis_grid::Attributes) -> Style {
         let f = attrs.flags;
         let mut fg = self.resolve(attrs.fg).unwrap_or(self.foreground);
-        if f.contains(AttrFlags::FAINT) {
-            let dim = |v: u8| (u16::from(v) * 2 / 3) as u8;
-            fg = Rgb::new(dim(fg.r), dim(fg.g), dim(fg.b));
-        }
         let mut bg = self.resolve(attrs.bg);
+        if f.contains(AttrFlags::FAINT) {
+            // Toward the ground rather than toward black: on a light ground
+            // black would make faint text stronger than plain text.
+            let ground = bg.unwrap_or(self.background);
+            let lean =
+                |a: u8, b: u8| (f64::from(a) + (f64::from(b) - f64::from(a)) / 3.0).round() as u8;
+            fg = Rgb::new(
+                lean(fg.r, ground.r),
+                lean(fg.g, ground.g),
+                lean(fg.b, ground.b),
+            );
+        }
         if f.contains(AttrFlags::REVERSE) != self.reverse {
             let back = bg.unwrap_or(self.background);
             bg = Some(fg);
@@ -397,6 +405,27 @@ pub(crate) mod tests {
         assert_eq!(s.lines[0].runs[0].style.fg, Rgb::new(1, 2, 3));
         assert_eq!(s.lines[0].runs[1].style.fg, Rgb::new(0, 0, 255));
         assert_eq!(s.background, Rgb::new(4, 5, 6));
+    }
+
+    #[test]
+    fn faint_text_leans_a_third_of_the_way_to_the_background_dark_or_light() {
+        let dark = Palette::default();
+        let light = Palette {
+            background: Rgb::new(0xfa, 0xf4, 0xed),
+            foreground: Rgb::new(0x57, 0x52, 0x79),
+            ..Palette::default()
+        };
+        for p in [dark, light] {
+            let s = screen_of_lines(b"\x1b[2mx\x1b[0;2;31my", 4, &p, &Overrides::default());
+            let faint = |c: Rgb| {
+                let at = |a: u8, b: u8| (a as f64 + (b as f64 - a as f64) / 3.0).round() as u8;
+                let bg = p.background;
+                Rgb::new(at(c.r, bg.r), at(c.g, bg.g), at(c.b, bg.b))
+            };
+            let runs = &s.lines[0].runs;
+            assert_eq!(runs[0].style.fg, faint(p.foreground), "{p:?}");
+            assert_eq!(runs[1].style.fg, faint(p.ansi[1]), "{p:?}");
+        }
     }
 
     #[test]
