@@ -2,6 +2,7 @@
 //! signal per slice for components to read, and the runner that carries out
 //! what each message asks.
 
+use std::collections::VecDeque;
 use std::rc::Rc;
 
 use adroit_core::actions::Action;
@@ -46,7 +47,50 @@ impl HostLink for Link {
 }
 
 /// What runs an effect handed to `App`.
-type Handed = Rc<dyn Fn(Effect)>;
+type Handed<E = Effect> = Rc<dyn Fn(E)>;
+
+/// The effects handed to `App` and what runs them. The view state takes in
+/// the host's first answers before the window is drawn, so effects are
+/// handed before anything runs them; they wait, and those handed later wait
+/// behind them, so each runs in the order it was asked.
+struct Handoff<E = Effect> {
+    run: Option<Handed<E>>,
+    waiting: VecDeque<E>,
+}
+
+impl<E> Default for Handoff<E> {
+    fn default() -> Self {
+        Self {
+            run: None,
+            waiting: VecDeque::new(),
+        }
+    }
+}
+
+impl<E> Handoff<E> {
+    /// `effect` with what runs it now, or none while it waits.
+    fn hand(&mut self, effect: E) -> Option<(Handed<E>, E)> {
+        match &self.run {
+            Some(run) if self.waiting.is_empty() => Some((run.clone(), effect)),
+            _ => {
+                self.waiting.push_back(effect);
+                None
+            }
+        }
+    }
+
+    /// `run` runs the effects from now on, those waiting first.
+    fn over(&mut self, run: Handed<E>) {
+        self.run = Some(run);
+    }
+
+    /// The effect waiting longest, with what runs it, once something does.
+    fn next_waiting(&mut self) -> Option<(Handed<E>, E)> {
+        let run = self.run.clone()?;
+        let effect = self.waiting.pop_front()?;
+        Some((run, effect))
+    }
+}
 
 /// What runs an action handed to `App`, with the key that ran it.
 type Performer = Rc<dyn Fn(Action, Option<Key>)>;
@@ -68,8 +112,8 @@ pub(crate) struct AppCtx {
     pub(crate) overlays: Signal<Overlays>,
     pub(crate) console: Signal<ConsoleView>,
     pub(crate) prompt: Signal<PromptView>,
-    /// What runs the effects whose state `App` still holds.
-    handed: CopyValue<Option<Handed>>,
+    /// The effects whose state `App` still holds, and what runs them.
+    handed: CopyValue<Handoff>,
     /// What runs an action where the keys are now, which `App` still does.
     performer: CopyValue<Option<Performer>>,
     /// The component that opened the view state, whose tasks live as long
@@ -126,7 +170,7 @@ pub(crate) fn use_app() -> AppCtx {
             overlays: Signal::new(view.overlays.clone()),
             console: Signal::new(view.console.clone()),
             prompt: Signal::new(view.prompt.clone()),
-            handed: CopyValue::new(None),
+            handed: CopyValue::new(Handoff::default()),
             performer: CopyValue::new(None),
             scope: current_scope_id(),
             view: CopyValue::new(view),
@@ -191,7 +235,20 @@ impl AppCtx {
     /// panes, the prompt and the console, terminals started and images shown.
     pub(crate) fn hand_over(&self, run: impl Fn(Effect) + 'static) {
         let mut handed = self.handed;
-        handed.set(Some(Rc::new(run)));
+        handed.write().over(Rc::new(run));
+        // Not run here: this is called while the window is drawn, and the
+        // effects change what is drawn.
+        as_from(self.scope, || {
+            spawn(async move {
+                loop {
+                    let next = handed.write().next_waiting();
+                    let Some((run, effect)) = next else {
+                        break;
+                    };
+                    run(effect);
+                }
+            })
+        });
     }
 
     /// Hand the actions a menu entry runs to `perform`.
@@ -360,8 +417,9 @@ impl AppCtx {
     }
 
     fn hand(&self, effect: Effect) {
-        let handed = self.handed.read().clone();
-        if let Some(run) = handed {
+        let mut handed = self.handed;
+        let now = handed.write().hand(effect);
+        if let Some((run, effect)) = now {
             run(effect);
         }
     }
@@ -648,5 +706,31 @@ mod tests {
             vec![Effect::Zoom(1.1), Effect::Zoom(1.25), Effect::Zoom(1.0)]
         );
         assert_eq!(window.view.chrome.zoom, 1.0);
+    }
+
+    #[test]
+    fn effects_handed_before_anything_runs_them_run_first_and_in_order_once_it_is_there() {
+        let ran = Rc::new(std::cell::RefCell::new(Vec::new()));
+        let run_all = |handoff: &mut Handoff<u8>| {
+            while let Some((run, effect)) = handoff.next_waiting() {
+                run(effect);
+            }
+        };
+        let mut handoff = Handoff::default();
+        assert!(handoff.hand(1).is_none());
+        assert!(handoff.hand(2).is_none());
+        handoff.over(Rc::new({
+            let ran = ran.clone();
+            move |effect| ran.borrow_mut().push(effect)
+        }));
+        assert!(
+            handoff.hand(3).is_none(),
+            "waits behind those handed before"
+        );
+        run_all(&mut handoff);
+        let (run, effect) = handoff.hand(4).expect("nothing waits, so it runs now");
+        run(effect);
+        run_all(&mut handoff);
+        assert_eq!(*ran.borrow(), [1, 2, 3, 4]);
     }
 }

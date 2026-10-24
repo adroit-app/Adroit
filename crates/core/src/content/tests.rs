@@ -167,6 +167,22 @@ fn a_kept_tab_comes_back_when_the_sessions_were_listed_before_the_window_opened(
 }
 
 #[test]
+fn the_prompt_of_a_kept_tab_that_comes_back_is_that_session_s() {
+    let run = Scenario::new()
+        .event(snapshot().listed(listed().session(session("a"))))
+        .send(opened(Some(Tab::Session("a".into()))));
+    let told: Vec<&Option<Tab>> = run
+        .effects()
+        .iter()
+        .filter_map(|e| match e {
+            Effect::PromptShow(tab) => Some(tab),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(told, [&Some(Tab::Session("a".into()))]);
+}
+
+#[test]
 fn a_kept_tab_not_listed_at_first_is_given_up() {
     let run = Scenario::new()
         .send(opened(Some(Tab::Session("a".into()))))
