@@ -2,6 +2,11 @@ fn main() {
     use adroit_host::cli::{Command, USAGE, command, settle_instance};
     let args: Vec<String> = std::env::args().skip(1).collect();
     let asked = command(&args);
+    // Ahead of settling the instance: the agent's program is handed the
+    // environment exactly as its connection leaves it.
+    if let Some(Command::InConnection(rest)) = &asked {
+        std::process::exit(adroit_agents::connection::run(rest));
+    }
     let given = match &asked {
         Some(Command::Window { instance, .. }) => instance.clone(),
         _ => None,
@@ -35,6 +40,7 @@ fn main() {
         Some(Command::Daemon(asked)) => std::process::exit(adroit_host::daemon_cli(asked)),
         Some(Command::Host(asked)) => std::process::exit(adroit_host::host_cli(asked)),
         Some(Command::Window { .. }) => {}
+        Some(Command::InConnection(_)) => unreachable!("run before the instance is settled"),
     }
     match adroit_window::open_window(new) {
         // An open window came to the front.

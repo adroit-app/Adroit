@@ -7,5 +7,10 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+adroit-agents.workspace = true
 adroit-host.workspace = true
 adroit-window.workspace = true
+
+[dev-dependencies]
+adroit-model.workspace = true
+tempfile.workspace = true

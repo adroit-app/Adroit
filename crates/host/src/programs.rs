@@ -93,11 +93,14 @@ fn in_connection(settings: &Settings, profile: &AgentProfile) -> Result<AgentCon
                 .clone(),
         ),
     };
-    Ok(AgentContext::new(
-        profile,
-        home,
-        settings.shell.program(&login_shell()),
-    ))
+    let context = AgentContext::new(profile, home, settings.shell.program(&login_shell()));
+    match adroit_agents::conflict(adroit_agents::adapter(profile.agent()), &context) {
+        Some(name) => Err(format!(
+            "profile `{}` cannot set `{name}` in its launch: connection `{}` keeps its own login and state directory",
+            profile.id, profile.connection
+        )),
+        None => Ok(context),
+    }
 }
 
 #[cfg(test)]
@@ -198,6 +201,30 @@ home = "/Users/me/claude-work"
             starting(&settings(), None, Some(&id("codex"))).unwrap_err(),
             "profile `codex` is not defined"
         );
+    }
+
+    #[test]
+    fn a_profile_in_a_connection_of_its_own_cannot_set_what_the_connection_decides_on() {
+        for (agent, name) in [
+            ("claude", "CLAUDE_CONFIG_DIR"),
+            ("claude", "ANTHROPIC_API_KEY"),
+            ("codex", "CODEX_HOME"),
+            ("codex", "OPENAI_API_KEY"),
+        ] {
+            let text = format!(
+                "[[profiles]]\nid = \"p\"\nagent = \"{agent}\"\nconnection = \"work\"\n[profiles.launch.env]\n{name} = \"x\"\n\n[[connections]]\nid = \"work\"\nagent = \"{agent}\"\nhome = \"/w\"\n"
+            );
+            let s = Settings::parse(&text).unwrap();
+            assert_eq!(
+                starting(&s, None, Some(&id("p"))).unwrap_err(),
+                format!(
+                    "profile `p` cannot set `{name}` in its launch: connection `work` keeps its own login and state directory"
+                )
+            );
+            // In the agent's own environment the launch sets what it likes.
+            let own = Settings::parse(&text.replace("connection = \"work\"\n", "")).unwrap();
+            assert!(starting(&own, None, Some(&id("p"))).is_ok());
+        }
     }
 
     #[test]

@@ -48,6 +48,69 @@ use crate::Started;
 /// another name would mislead every other program asking.
 pub const ENV: &[(&str, &str)] = &[("CLAUDE_CODE_FORCE_TERMINAL_IMAGES", "1")];
 
+/// What Claude Code reads a login from ahead of the one in its state
+/// directory, or what moves where that directory's state is found. The
+/// cloud providers' own credentials, such as `AWS_*` and
+/// `GOOGLE_APPLICATION_CREDENTIALS`, are left for the tools a session runs:
+/// without a `CLAUDE_CODE_USE_*` switch Claude Code does not read them.
+const DENIED: &[&str] = &[
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_CUSTOM_HEADERS",
+    "ANTHROPIC_FEDERATION_RULE_ID",
+    "ANTHROPIC_IDENTITY_TOKEN_FILE",
+    "ANTHROPIC_ORGANIZATION_ID",
+    "ANTHROPIC_PROFILE",
+    "ANTHROPIC_WORKSPACE_ID",
+    "ANTHROPIC_AWS_API_KEY",
+    "ANTHROPIC_AWS_BASE_URL",
+    "ANTHROPIC_AWS_WORKSPACE_ID",
+    "ANTHROPIC_BEDROCK_BASE_URL",
+    "ANTHROPIC_VERTEX_PROJECT_ID",
+    "ANTHROPIC_VERTEX_BASE_URL",
+    "ANTHROPIC_FOUNDRY_API_KEY",
+    "ANTHROPIC_FOUNDRY_BASE_URL",
+    "ANTHROPIC_FOUNDRY_RESOURCE",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "CLAUDE_CODE_OAUTH_REFRESH_TOKEN",
+    "CLAUDE_CODE_OAUTH_SCOPES",
+    "CLAUDE_CODE_CUSTOM_OAUTH_URL",
+    "CLAUDE_CODE_CLIENT_CERT",
+    "CLAUDE_CODE_CLIENT_KEY",
+    "CLAUDE_CODE_CLIENT_KEY_PASSPHRASE",
+    "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_USE_VERTEX",
+    "CLAUDE_CODE_USE_FOUNDRY",
+    "CLAUDE_CODE_USE_ANTHROPIC_AWS",
+    "CLAUDE_CODE_USE_MANTLE",
+    "CLAUDE_CODE_USE_GATEWAY",
+    "CLAUDE_CODE_SKIP_BEDROCK_AUTH",
+    "CLAUDE_CODE_SKIP_VERTEX_AUTH",
+    "CLAUDE_CODE_SKIP_FOUNDRY_AUTH",
+    "CLAUDE_CODE_SKIP_MANTLE_AUTH",
+    "CLAUDE_CODE_SKIP_ANTHROPIC_AWS_AUTH",
+    "CLAUDE_CODE_PROJECT_DIR_NAME",
+    "CLAUDE_SECURESTORAGE_CONFIG_DIR",
+    "CLAUDE_CONFIG_DIR",
+    "CLOUD_ML_REGION",
+];
+
+/// Whether `name` is one of [`DENIED`], or of the families they come from.
+pub(crate) fn denies(name: &str) -> bool {
+    DENIED.contains(&name)
+        || name.starts_with("CLAUDE_CODE_USE_")
+        || [
+            "ANTHROPIC_AWS_",
+            "ANTHROPIC_BEDROCK_",
+            "ANTHROPIC_VERTEX_",
+            "ANTHROPIC_FOUNDRY_",
+        ]
+        .iter()
+        .any(|family| name.starts_with(family))
+        || (name.starts_with("CLAUDE_CODE_SKIP_") && name.ends_with("_AUTH"))
+}
+
 /// What `cmd`, running `program`, prints, or why it failed.
 async fn output(program: &str, mut cmd: Command) -> Result<String, Error> {
     let out = cmd.output().await.map_err(|source| Error::Spawn {

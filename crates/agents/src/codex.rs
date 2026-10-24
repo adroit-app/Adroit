@@ -117,6 +117,19 @@ impl AgentAdapter for Codex {
     fn program(&self) -> String {
         "codex".into()
     }
+    fn state_variable(&self) -> &'static str {
+        "CODEX_HOME"
+    }
+    // Codex reads every `OPENAI_*` and `CODEX_*` it knows ahead of, or
+    // beside, the login in its home; the home itself is set apart.
+    fn denies(&self, name: &str) -> bool {
+        name.starts_with("OPENAI_") || (name.starts_with("CODEX_") && name != "CODEX_HOME")
+    }
+    // Codex keys its MCP servers' OAuth tokens in the keychain by server
+    // alone, so every home would share them; in a file they stay in the home.
+    fn connection_args(&self) -> Vec<String> {
+        vec!["-c".into(), "mcp_oauth_credentials_store=\"file\"".into()]
+    }
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             command_probe: true,

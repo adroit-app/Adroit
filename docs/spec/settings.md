@@ -137,12 +137,23 @@ login, history and settings there apart from every other. Each
 `[[connections]]` table is one: its `id`, kept as a profile's is and never
 one of the agents' names, its `name`, the `agent` whose program keeps its
 state there, and its `home`, an absolute path fixed when the connection is
-made. The agent's program logs in and keeps its credentials in that
-directory itself; adroit keeps none. Every agent also runs in its own
-environment, the program as it runs outside adroit, for which adroit sets no
-state directory: a profile runs there when its `connection` is left out or
-names the agent, as `claude`. A profile runs only in a connection of its own
-agent. Adroit starts no session from a profile in a connection of its own.
+made. The program tells logins apart by the directory as it is written, so
+`home` is written one way only: without `~`, `.` or `..`, and with no `/`
+doubled or at its end. The agent's program logs in and keeps its
+credentials in that directory itself; adroit keeps none. Every agent also
+runs in its own environment, the program as it runs outside adroit, for
+which adroit sets no state directory: a profile runs there when its
+`connection` is left out or names the agent, as `claude`. A profile runs
+only in a connection of its own agent.
+
+A profile in a connection of its own starts its agent's program, and asks it
+anything, with `home` as the program's state directory, which adroit makes
+when it is missing and never puts anything in. None of the variables that
+would carry another login, or move the program's state elsewhere, reaches
+it, even when the shell it is started through sets them again. Its launch
+cannot set them either, nor the state directory: a session of a profile
+whose launch does is refused, naming the variable. In the agent's own
+environment the launch sets what it likes.
 
 A file that names no `profiles` holds the profiles adroit comes with, one
 for each agent, named after the agent, which start it in its own environment

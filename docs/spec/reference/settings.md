@@ -32,7 +32,7 @@ The state directories profiles can run their agent's CLI in, each `[[connections
 | --- | --- | --- | --- |
 | `connections.agent` | one of `claude`, `codex` |  | The agent whose CLI keeps its state there, `claude` or `codex`. |
 | `connections.archived` | boolean |  | Whether it is kept only for the profiles and sessions that used it. |
-| `connections.home` | string |  | The state directory, as an absolute path; it is fixed when the connection is made, since the CLIs tell logins apart by it. |
+| `connections.home` | string |  | The state directory, as an absolute path without `~`, `.` or `..` and with no `/` doubled or at its end; it is fixed when the connection is made, since the CLIs tell logins apart by it as it is written. |
 | `connections.id` | string |  | The connection's id, kept when it is renamed: lowercase letters, digits and `-`, and none of the agents' keys, which name their own environments. |
 | `connections.name` | string | `""` | What the connection is called; empty for its id. |
 

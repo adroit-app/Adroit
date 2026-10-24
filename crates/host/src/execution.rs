@@ -176,15 +176,8 @@ pub fn resolve(
     request: StartRequest,
     adroit_program: &Path,
 ) -> Result<ResolvedLaunch, String> {
-    let (context, target) = configured(settings, &request)?;
-    if context.home.is_some() {
-        // Started without its state directory, the agent would run as the
-        // CLI's own login rather than the connection's.
-        return Err(format!(
-            "profile `{}` runs in connection `{}`, which adroit does not start sessions in",
-            context.profile, context.connection
-        ));
-    }
+    let (mut context, target) = configured(settings, &request)?;
+    context.adroit = adroit_program.to_path_buf();
     let adapter = agents::adapter(request.agent);
     let conversation = request
         .resume

@@ -385,32 +385,3 @@ fn a_launch_adroit_keeps_no_record_of_carries_no_mcp_server() {
         );
     }
 }
-
-#[test]
-fn no_session_starts_from_a_profile_in_a_connection_of_its_own() {
-    let settings = Settings::parse(
-        r#"[[profiles]]
-id = "claude-work"
-agent = "claude"
-connection = "work"
-
-[[connections]]
-id = "work"
-agent = "claude"
-home = "/Users/me/claude-work"
-"#,
-    )
-    .unwrap();
-    let error = resolve(
-        &settings,
-        request(Agent::Claude, None),
-        Path::new("/adroit"),
-    )
-    .unwrap_err();
-    assert!(
-        error.contains("profile `claude-work` runs in connection `work`"),
-        "{error}"
-    );
-    // The agent's own environment still starts.
-    assert!(resolve(&settings, request(Agent::Codex, None), Path::new("/adroit")).is_ok());
-}

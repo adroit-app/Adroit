@@ -311,8 +311,9 @@ pub struct AgentConnection {
     pub name: String,
     /// The agent whose CLI keeps its state there, `claude` or `codex`.
     pub agent: Agent,
-    /// The state directory, as an absolute path; it is fixed when the
-    /// connection is made, since the CLIs tell logins apart by it.
+    /// The state directory, as an absolute path without `~`, `.` or `..` and
+    /// with no `/` doubled or at its end; it is fixed when the connection is
+    /// made, since the CLIs tell logins apart by it as it is written.
     pub home: PathBuf,
     /// Whether it is kept only for the profiles and sessions that used it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -339,9 +340,9 @@ pub fn check(
                 agent.label()
             ));
         }
-        if connection.home.as_os_str().is_empty() || !connection.home.is_absolute() {
+        if !plain_absolute(&connection.home) {
             return Err(format!(
-                "connection `{}` needs an absolute path as its home",
+                "connection `{}` needs an absolute path as its home, written without `~`, `.` or `..` and with no `/` doubled or at its end",
                 connection.id
             ));
         }
@@ -384,6 +385,21 @@ pub fn check(
         )),
         Some(_) => Ok(()),
     }
+}
+
+/// Whether `home` is an absolute path written the one way: the agents' programs
+/// tell logins apart by the directory's name as it is written, so any other
+/// spelling of the same directory would be another login.
+fn plain_absolute(home: &std::path::Path) -> bool {
+    let Some(text) = home.to_str() else {
+        return false;
+    };
+    text.len() > 1
+        && text.starts_with('/')
+        && !text.ends_with('/')
+        && !text.contains("//")
+        && !text.contains('~')
+        && text[1..].split('/').all(|part| part != "." && part != "..")
 }
 
 #[cfg(test)]
@@ -534,7 +550,17 @@ mod tests {
             vec![connection("codex", Agent::Codex, "/c").build()],
             "connection id `codex` is reserved for Codex's own environment",
         );
-        for home in ["", "relative/dir", "~/claude"] {
+        for home in [
+            "",
+            "/",
+            "relative/dir",
+            "~/claude",
+            "/Users/me/~work",
+            "/Users/me/work/",
+            "/Users/me//work",
+            "/Users/me/./work",
+            "/Users/me/../me/work",
+        ] {
             refused(
                 "claude",
                 vec![claude().build()],

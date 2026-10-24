@@ -19,6 +19,9 @@ pub enum Command {
     Mcp(Vec<String>),
     Editor(Vec<String>),
     Session(Vec<String>),
+    /// Start an agent's program in a connection of its own, as the last step
+    /// of its launch; never typed by hand, so left out of the usage.
+    InConnection(Vec<String>),
     Daemon(DaemonCommand),
     Host(HostCommand),
 }
@@ -79,6 +82,7 @@ pub fn command(args: &[String]) -> Option<Command> {
         Some("terminal") => Some(Command::Terminal(rest())),
         Some("editor") => Some(Command::Editor(rest())),
         Some("session") => Some(Command::Session(rest())),
+        Some(adroit_agents::connection::SUBCOMMAND) => Some(Command::InConnection(rest())),
         Some("daemon") => match &args[1..] {
             [] => Some(Command::Daemon(DaemonCommand::Serve)),
             [verb] if verb == "stop" => Some(Command::Daemon(DaemonCommand::Stop)),
@@ -192,6 +196,14 @@ mod tests {
             Some(Command::Host(HostCommand::Restart))
         );
         assert_eq!(asked(&["--version"]), Some(Command::Version));
+        assert_eq!(
+            asked(&["in-connection", "claude", "/w", "claude"]),
+            Some(Command::InConnection(vec![
+                "claude".into(),
+                "/w".into(),
+                "claude".into()
+            ]))
+        );
     }
 
     #[test]

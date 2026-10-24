@@ -3,9 +3,11 @@
 
 pub mod claude;
 mod codex;
+pub mod connection;
 mod delivery;
 #[cfg(test)]
 mod testing;
+pub use connection::conflict;
 pub use delivery::{DeliveryFailure, DeliveryFuture};
 
 use adroit_model::Agent;
@@ -55,6 +57,10 @@ pub struct AgentContext {
     pub home: Option<PathBuf>,
     /// The shell a program started through the shell runs in.
     pub shell: String,
+    /// The adroit program a connection of its own starts the agent's program
+    /// through, as the last step before it: the one running, unless
+    /// told otherwise.
+    pub adroit: PathBuf,
     pub launch: Launch,
     pub options: AgentOptions,
 }
@@ -68,6 +74,7 @@ impl AgentContext {
             connection: profile.connection.clone(),
             home,
             shell: shell.into(),
+            adroit: std::env::current_exe().unwrap_or_else(|_| "adroit".into()),
             launch: profile.launch.clone(),
             options: profile.options.clone(),
         }
@@ -208,23 +215,29 @@ pub trait AgentAdapter: Sync {
         Vec::new()
     }
     fn program(&self) -> String;
+    /// The variable naming the directory the agent's program keeps its
+    /// state in, which a connection of its own sets.
+    fn state_variable(&self) -> &'static str;
+    /// Whether a connection of its own removes `name`, a variable known to
+    /// carry a login or to move the agent's state, or one of their families,
+    /// even when a shell's startup files set it again.
+    fn denies(&self, name: &str) -> bool;
+    /// What a connection of its own starts the program with, ahead of
+    /// adroit's arguments.
+    fn connection_args(&self) -> Vec<String> {
+        Vec::new()
+    }
     /// What starts the agent with `args` as `context` says: the program,
     /// its arguments, and `env` with the agent's own variables and then the
-    /// launch's.
+    /// launch's, in the state directory of `context`'s connection.
     fn launch(
         &self,
         context: &AgentContext,
         args: Vec<String>,
         env: Vec<(String, String)>,
     ) -> crate::Started {
-        let launch = &context.launch;
-        let (program, args) = launch.command_line(&self.program(), &args, &context.shell);
-        let env = env
-            .into_iter()
-            .chain(self.environment())
-            .chain(launch.env.clone())
-            .collect();
-        (program, args, env)
+        let env = env.into_iter().chain(self.environment()).collect();
+        connection::started(self, context, args, env)
     }
     fn capabilities(&self) -> Capabilities;
     fn usage_url(&self) -> Option<&'static str> {

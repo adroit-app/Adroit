@@ -81,6 +81,12 @@ impl AgentAdapter for Claude {
     fn program(&self) -> String {
         super::claude_program()
     }
+    fn state_variable(&self) -> &'static str {
+        "CLAUDE_CONFIG_DIR"
+    }
+    fn denies(&self, name: &str) -> bool {
+        super::denies(name)
+    }
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             command_probe: true,
@@ -253,15 +259,7 @@ fn options(sessions: &SessionOptions) -> super::Options {
 /// as `context` starts a session: the program, its arguments, and the
 /// variables its launch adds.
 fn asked(context: &AgentContext, args: Vec<String>) -> Started {
-    let (program, args) =
-        context
-            .launch
-            .command_line(&super::claude_program(), &args, &context.shell);
-    (
-        program,
-        args,
-        context.launch.env.clone().into_iter().collect(),
-    )
+    crate::connection::started(&Claude, context, args, Vec::new())
 }
 
 /// Read Claude Code's `listed` sessions against adroit's `own`: each of `own`

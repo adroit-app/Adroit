@@ -1,0 +1,238 @@
+//! Profiles started in connections of their own, through programs standing
+//! in for the agents' that tell what they were started with.
+
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+
+use adroit_host::execution::{StartRequest, resolve};
+use adroit_host::settings::Settings;
+use adroit_model::Agent;
+
+/// The adroit program a connection of its own starts the agent's program
+/// through.
+const ADROIT: &str = env!("CARGO_BIN_EXE_adroit");
+
+/// A program standing in for an agent's, which writes to `$ADROIT_TEST_OUT`
+/// the variables a connection decides on, as it found them, and then its
+/// arguments, one a line.
+fn agent_program(dir: &Path) -> PathBuf {
+    let path = dir.join("agent.sh");
+    std::fs::write(
+        &path,
+        r#"{
+printf 'CLAUDE_CONFIG_DIR=%s\n' "${CLAUDE_CONFIG_DIR-unset}"
+printf 'CODEX_HOME=%s\n' "${CODEX_HOME-unset}"
+printf 'ANTHROPIC_API_KEY=%s\n' "${ANTHROPIC_API_KEY-unset}"
+printf 'OPENAI_API_KEY=%s\n' "${OPENAI_API_KEY-unset}"
+printf 'CODEX_ACCESS_TOKEN=%s\n' "${CODEX_ACCESS_TOKEN-unset}"
+printf 'CLAUDE_CODE_USE_NEWCLOUD=%s\n' "${CLAUDE_CODE_USE_NEWCLOUD-unset}"
+printf 'ANTHROPIC_VERTEX_REGION=%s\n' "${ANTHROPIC_VERTEX_REGION-unset}"
+printf 'OPENAI_EXTRA=%s\n' "${OPENAI_EXTRA-unset}"
+printf 'CODEX_EXTRA=%s\n' "${CODEX_EXTRA-unset}"
+printf '%s\n' "$@"
+} > "$ADROIT_TEST_OUT"
+"#,
+    )
+    .unwrap();
+    path
+}
+
+/// A shell whose startup files set again what a connection removes, and set
+/// its state directory elsewhere, then run what they are handed.
+fn meddling_shell(dir: &Path) -> PathBuf {
+    let path = dir.join("shell");
+    std::fs::write(
+        &path,
+        "#!/bin/sh\nexport ANTHROPIC_API_KEY=from-rc OPENAI_API_KEY=from-rc CODEX_ACCESS_TOKEN=from-rc\nexport CLAUDE_CODE_USE_NEWCLOUD=from-rc OPENAI_EXTRA=from-rc\nexport CLAUDE_CONFIG_DIR=/from-rc CODEX_HOME=/from-rc\nshift 5\nexec \"$@\"\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    path
+}
+
+/// Settings with two profiles of `agent`: `own`, in the agent's own
+/// environment, and `work`, in a connection whose home is `home`; both run
+/// `program`, through `shell` when one is given.
+fn settings(agent: Agent, program: &Path, home: &Path, shell: Option<&Path>) -> Settings {
+    let key = agent.key();
+    let via_shell = shell.is_some();
+    let shell = shell.map_or(String::new(), |s| {
+        format!("[shell]\ncommand = [\"{}\"]\n\n", s.display())
+    });
+    let launch = format!(
+        "[profiles.launch]\ncommand = [\"/bin/sh\", \"{}\"]\nvia_shell = {via_shell}\n",
+        program.display()
+    );
+    Settings::parse(&format!(
+        "profile = \"own\"\n\n{shell}[[profiles]]\nid = \"own\"\nagent = \"{key}\"\n{launch}\n[[profiles]]\nid = \"work\"\nagent = \"{key}\"\nconnection = \"work\"\n{launch}\n[[connections]]\nid = \"work\"\nagent = \"{key}\"\nhome = \"{}\"\n",
+        home.display()
+    ))
+    .unwrap()
+}
+
+/// What the program started for `profile` was started with: its variables
+/// as it found them, then its arguments, with the variables a connection
+/// removes inherited from where adroit runs.
+fn started(settings: &Settings, agent: Agent, profile: &str, out: &Path) -> Vec<String> {
+    let launch = resolve(
+        settings,
+        StartRequest {
+            agent,
+            profile: Some(profile.parse().unwrap()),
+            name: "fix".into(),
+            cwd: "/".into(),
+            prompt: "go".into(),
+            env: vec![("ADROIT_TEST_OUT".into(), out.display().to_string())],
+            ..Default::default()
+        },
+        Path::new(ADROIT),
+    )
+    .unwrap();
+    let status = std::process::Command::new(&launch.spawn.program)
+        .args(&launch.spawn.args)
+        .envs(launch.spawn.env.iter().cloned())
+        .env("ANTHROPIC_API_KEY", "inherited")
+        .env("OPENAI_API_KEY", "inherited")
+        .env("CODEX_ACCESS_TOKEN", "inherited")
+        .env("ANTHROPIC_VERTEX_REGION", "inherited")
+        .env("CODEX_EXTRA", "inherited")
+        .env_remove("CLAUDE_CONFIG_DIR")
+        .env_remove("CODEX_HOME")
+        .status()
+        .unwrap();
+    assert!(status.success());
+    std::fs::read_to_string(out)
+        .unwrap()
+        .lines()
+        .map(String::from)
+        .collect()
+}
+
+fn has(lines: &[String], line: &str) -> bool {
+    lines.iter().any(|l| l == line)
+}
+
+#[test]
+fn two_claude_code_profiles_start_side_by_side_each_with_its_own_login() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("claude-work");
+    let s = settings(Agent::Claude, &agent_program(dir.path()), &home, None);
+
+    let own = started(&s, Agent::Claude, "own", &dir.path().join("own"));
+    let work = started(&s, Agent::Claude, "work", &dir.path().join("work"));
+
+    // The agent's own environment is left as adroit found it.
+    assert!(has(&own, "CLAUDE_CONFIG_DIR=unset"), "{own:?}");
+    assert!(has(&own, "ANTHROPIC_API_KEY=inherited"), "{own:?}");
+    assert!(
+        has(&work, &format!("CLAUDE_CONFIG_DIR={}", home.display())),
+        "{work:?}"
+    );
+    assert!(has(&work, "ANTHROPIC_API_KEY=unset"), "{work:?}");
+    assert!(home.is_dir());
+}
+
+#[test]
+fn two_codex_profiles_start_side_by_side_each_with_its_own_login_and_mcp_tokens() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("codex-work");
+    let s = settings(Agent::Codex, &agent_program(dir.path()), &home, None);
+
+    let own = started(&s, Agent::Codex, "own", &dir.path().join("own"));
+    let work = started(&s, Agent::Codex, "work", &dir.path().join("work"));
+
+    assert!(has(&own, "CODEX_HOME=unset"), "{own:?}");
+    assert!(has(&own, "OPENAI_API_KEY=inherited"), "{own:?}");
+    assert!(
+        !has(&own, "mcp_oauth_credentials_store=\"file\""),
+        "{own:?}"
+    );
+    assert!(
+        has(&work, &format!("CODEX_HOME={}", home.display())),
+        "{work:?}"
+    );
+    assert!(has(&work, "OPENAI_API_KEY=unset"), "{work:?}");
+    assert!(has(&work, "CODEX_ACCESS_TOKEN=unset"), "{work:?}");
+    assert!(
+        has(&work, "mcp_oauth_credentials_store=\"file\""),
+        "{work:?}"
+    );
+}
+
+#[test]
+fn what_a_shell_s_startup_files_set_again_does_not_reach_a_connection_of_its_own() {
+    let dir = tempfile::tempdir().unwrap();
+    let shell = meddling_shell(dir.path());
+    let program = agent_program(dir.path());
+    for (agent, state, key) in [
+        (Agent::Claude, "CLAUDE_CONFIG_DIR", "ANTHROPIC_API_KEY"),
+        (Agent::Codex, "CODEX_HOME", "OPENAI_API_KEY"),
+    ] {
+        let home = dir.path().join(format!("{}-work", agent.key()));
+        let s = settings(agent, &program, &home, Some(&shell));
+
+        let own = started(&s, agent, "own", &dir.path().join("own"));
+        let work = started(&s, agent, "work", &dir.path().join("work"));
+
+        // In its own environment the agent gets what the shell sets, as it
+        // would started from that shell.
+        assert!(has(&own, &format!("{key}=from-rc")), "{own:?}");
+        assert!(
+            has(&work, &format!("{state}={}", home.display())),
+            "{work:?}"
+        );
+        assert!(has(&work, &format!("{key}=unset")), "{work:?}");
+    }
+}
+
+#[test]
+fn a_profile_whose_launch_sets_its_connection_s_state_directory_is_refused_naming_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = settings(
+        Agent::Codex,
+        &agent_program(dir.path()),
+        &dir.path().join("w"),
+        None,
+    );
+    s.profiles[1]
+        .launch
+        .env
+        .insert("CODEX_HOME".into(), "/elsewhere".into());
+    let error = resolve(
+        &s,
+        StartRequest {
+            agent: Agent::Codex,
+            profile: Some("work".parse().unwrap()),
+            ..Default::default()
+        },
+        Path::new("/adroit"),
+    )
+    .unwrap_err();
+    assert!(error.contains("cannot set `CODEX_HOME`"), "{error}");
+}
+
+#[test]
+fn a_variable_of_a_family_a_connection_removes_reaches_it_from_neither_the_shell_nor_the_host() {
+    let dir = tempfile::tempdir().unwrap();
+    let shell = meddling_shell(dir.path());
+    let program = agent_program(dir.path());
+    for (agent, from_rc, inherited) in [
+        (
+            Agent::Claude,
+            "CLAUDE_CODE_USE_NEWCLOUD",
+            "ANTHROPIC_VERTEX_REGION",
+        ),
+        (Agent::Codex, "OPENAI_EXTRA", "CODEX_EXTRA"),
+    ] {
+        let home = dir.path().join(format!("{}-work", agent.key()));
+        let s = settings(agent, &program, &home, Some(&shell));
+
+        let own = started(&s, agent, "own", &dir.path().join("own"));
+        let work = started(&s, agent, "work", &dir.path().join("work"));
+
+        assert!(has(&own, &format!("{from_rc}=from-rc")), "{own:?}");
+        assert!(has(&own, &format!("{inherited}=inherited")), "{own:?}");
+        assert!(has(&work, &format!("{from_rc}=unset")), "{work:?}");
+        assert!(has(&work, &format!("{inherited}=unset")), "{work:?}");
+    }
+}
