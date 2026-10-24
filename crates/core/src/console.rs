@@ -39,6 +39,9 @@ pub const PULL_AFTER_FREE: Duration = Duration::from_millis(300);
 pub struct ConsoleView {
     /// The keys pressed so far of a binding not complete yet.
     pub pending: Vec<Key>,
+    /// The keys before the last of a repeating binding just run: a key they
+    /// begin a repeating binding with runs it alone, until another key.
+    pub repeat: Option<Vec<Key>>,
     /// Whether the next key goes to the session as it is.
     pub send_next: bool,
     /// Whether the console passes every key on to the session it shows.
@@ -150,6 +153,8 @@ pub(crate) fn press(state: &mut ViewState, key: Key, probe: Probe) -> Vec<Effect
     }
     let area = state.content.focus;
     let pane = probe.pane && area == Area::Console;
+    // Any key but one that repeats ends the repeating.
+    let repeat = state.console.repeat.take();
     let console = &mut state.console;
     // A Ctrl-g among keys sent as they are is the user's own: a request of
     // adroit's still waiting would take its answer.
@@ -194,7 +199,8 @@ pub(crate) fn press(state: &mut ViewState, key: Key, probe: Probe) -> Vec<Effect
         let console = &state.console;
         windowing = !console.pending.is_empty()
             || route::app_key(&key)
-            || state.chrome.keymap.resolve(&[Context::Global], &[], &key) != Step::Nothing;
+            || state.chrome.keymap.resolve(&[Context::Global], &[], &key) != Step::Nothing
+            || repeated(state, &[Context::Global], repeat.as_deref(), &key).is_some();
         if !windowing {
             match reader::exit(&key, reader.normal) {
                 Some(Exit::Live) => return leave_reading(&mut state.console),
@@ -220,12 +226,23 @@ pub(crate) fn press(state: &mut ViewState, key: Key, probe: Probe) -> Vec<Effect
         matches!(state.tree.selected, Some(nav::Item::File { .. })),
     );
     let seq = std::mem::take(&mut state.console.pending);
+    if seq.is_empty()
+        && let Some(action) = repeated(state, &contexts, repeat.as_deref(), &key)
+    {
+        state.console.repeat = repeat;
+        return vec![Effect::PerformKey(action, key)];
+    }
     let action = match state.chrome.keymap.resolve(&contexts, &seq, &key) {
         Step::Wait => {
             state.console.pending = seq.into_iter().chain(Some(key)).collect();
             return Vec::new();
         }
-        Step::Run(action) => action,
+        Step::Run(action) => {
+            if action.repeats() && !seq.is_empty() {
+                state.console.repeat = Some(seq);
+            }
+            action
+        }
         Step::Nothing => {
             // In a session's console, a key adroit does not bind is a Vim
             // key: it starts reading the console with it, and with a
@@ -254,6 +271,20 @@ pub(crate) fn press(state: &mut ViewState, key: Key, probe: Probe) -> Vec<Effect
         return crate::chrome::open_keys_help(&mut state.chrome, contexts);
     }
     vec![Effect::PerformKey(action, key)]
+}
+
+/// The repeating action `key` runs after the keys `before` it, looked up in
+/// `contexts`, while those keys repeat.
+fn repeated(
+    state: &ViewState,
+    contexts: &[Context],
+    before: Option<&[Key]>,
+    key: &Key,
+) -> Option<Action> {
+    match state.chrome.keymap.resolve(contexts, before?, key) {
+        Step::Run(action) if action.repeats() => Some(action),
+        _ => None,
+    }
 }
 
 /// A key the reader takes. A program that scrolls what it shows itself, as
@@ -286,6 +317,7 @@ fn leave_reading(console: &mut ConsoleView) -> Vec<Effect> {
 /// of keys begun.
 pub(crate) fn text(state: &mut ViewState, text: String, pasted: bool) -> Vec<Effect> {
     state.console.pending.clear();
+    state.console.repeat = None;
     match text_goes(state) {
         Typed::Prompt => {
             let mut effects = step(state, Msg::Focus(Area::Prompt));
@@ -307,6 +339,7 @@ pub(crate) fn text(state: &mut ViewState, text: String, pasted: bool) -> Vec<Eff
 /// the image off the clipboard itself.
 pub(crate) fn image(state: &mut ViewState, mime: String, data: String) -> Vec<Effect> {
     state.console.pending.clear();
+    state.console.repeat = None;
     match text_goes(state) {
         Typed::Prompt => vec![Effect::KeepImage { mime, data }],
         Typed::Program => vec![Effect::PaneText {
@@ -392,7 +425,10 @@ fn set(console: &mut ConsoleView, msg: Msg) -> Vec<Effect> {
                 console.stale.insert(tab);
             }
         }
-        Msg::SequenceDropped => console.pending.clear(),
+        Msg::SequenceDropped => {
+            console.pending.clear();
+            console.repeat = None;
+        }
         Msg::ConsoleSendNext => console.send_next = true,
         Msg::ConsolePassEveryKey => console.direct = true,
         Msg::ReadingStarted => console.reading = true,

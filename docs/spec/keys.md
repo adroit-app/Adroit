@@ -181,6 +181,17 @@ means what it means without, as after Vim's `Ctrl-w`, unless the sequence is
 bound with it so: `Ctrl+q Ctrl+h` is `Ctrl+q h`. Tab is the exception;
 `Ctrl+q Ctrl+Tab` is nothing.
 
+### Repeating
+
+An action that steps through something, such as the tabs, the waiting
+sessions, the workspaces or a window's size, repeats: once a sequence bound
+to it runs, its last key alone runs it again, and so does another key that
+completes, after the same keys before it, a binding to an action that
+repeats. `Ctrl+q g t t t` shows the tab three after, and `Ctrl+q g t t T` one
+after. The mode chip says `REPEAT` meanwhile. Any other key, or text typed,
+ends it and does what it does. The [key reference](reference/keys.md#actions)
+says which actions repeat.
+
 ### Actions
 
 The [key reference](reference/keys.md#actions) lists every action a binding

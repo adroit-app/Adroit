@@ -126,12 +126,15 @@ pub struct Footing<'a> {
     pub reading: Option<&'a str>,
     /// The prompt's mode, as its class and its word.
     pub prompt: (&'static str, &'static str),
+    /// The last key of a binding that steps through something runs it again.
+    pub repeating: bool,
 }
 
 impl Footing<'_> {
     pub fn mode(&self) -> (String, &'static str) {
         let (word, class) = match self.area {
             _ if self.picking => ("PICK", "normal"),
+            _ if self.repeating => ("REPEAT", "pass"),
             Area::Console if self.direct => ("DIRECT", "pass"),
             Area::Console if self.answering || matches!(self.shown, Some(Tab::Terminal(_))) => {
                 ("PASS", "pass")
@@ -355,6 +358,7 @@ mod tests {
             answering: false,
             reading: None,
             prompt: ("insert", "INSERT"),
+            repeating: false,
         };
         let cases = [
             (
@@ -363,6 +367,20 @@ mod tests {
                     ..at(Area::Console, Some(&session))
                 },
                 ("PICK", "normal"),
+            ),
+            (
+                Footing {
+                    repeating: true,
+                    ..at(Area::Prompt, Some(&session))
+                },
+                ("REPEAT", "pass"),
+            ),
+            (
+                Footing {
+                    repeating: true,
+                    ..at(Area::Sidebar, None)
+                },
+                ("REPEAT", "pass"),
             ),
             (
                 Footing {

@@ -15,8 +15,8 @@ changes them ([keys](../keys.md)).
 | `window.down` | Window Below | move to the window below: a session's prompt lies below its console | `global`: `Ctrl+q j`, `Ctrl+q ArrowDown` |
 | `window.up` | Window Above | move to the window above: a session's console lies above its prompt | `global`: `Ctrl+q k`, `Ctrl+q ArrowUp` |
 | `window.right` | Right Window | move to the window to the right: the details panel lies right of the content's windows | `global`: `Ctrl+q l`, `Ctrl+q ArrowRight` |
-| `window.next` | Next Window | move to the window after the one the keys are in, from the tree through the content's windows, each console before its prompt, to the details panel, going round at the end | `global`: `Ctrl+q q` |
-| `window.prev` | Previous Window | move to the window before the one the keys are in, in the order `window.next` goes, going round at the start | `global`: `Ctrl+q Q` |
+| `window.next` | Next Window | move to the window after the one the keys are in, from the tree through the content's windows, each console before its prompt, to the details panel, going round at the end; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+q q` |
+| `window.prev` | Previous Window | move to the window before the one the keys are in, in the order `window.next` goes, going round at the start; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+q Q` |
 | `window.top` | First Window | move to the first window, the tree when shown | `global`: `Ctrl+q t` |
 | `window.bottom` | Last Window | move to the last window, the details panel when shown | `global`: `Ctrl+q b` |
 | `window.back` | Back to Window Before | move back to the window the keys were in before | `global`: `Ctrl+q p` |
@@ -32,15 +32,15 @@ changes them ([keys](../keys.md)).
 | `window.exchange` | Exchange Windows | exchange the focused window with the next one in its split, or the one before the last | `global`: `Ctrl+q x` |
 | `window.rotate` | Rotate Windows | rotate the windows of the focused window's split forward, the last becoming the first | `global`: `Ctrl+q r` |
 | `window.equalize` | Equal Sizes | give the windows of every split the same size | `global`: `Ctrl+q =` |
-| `window.narrower` | Narrower | make the focused window a step narrower | `global`: `Ctrl+q <` |
-| `window.wider` | Wider | make the focused window a step wider | `global`: `Ctrl+q >` |
-| `window.taller` | Taller | make the focused window a step taller | `global`: `Ctrl+q Plus` |
-| `window.shorter` | Shorter | make the focused window a step shorter | `global`: `Ctrl+q -` |
+| `window.narrower` | Narrower | make the focused window a step narrower; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+q <` |
+| `window.wider` | Wider | make the focused window a step wider; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+q >` |
+| `window.taller` | Taller | make the focused window a step taller; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+q Plus` |
+| `window.shorter` | Shorter | make the focused window a step shorter; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+q -` |
 | `window.maximize_height` | Tallest | make the focused window as tall as the others allow | `global`: `Ctrl+q _` |
 | `window.maximize_width` | Widest | make the focused window as wide as the others allow | `global`: `Ctrl+q \|` |
 | `window.to_tab` | Move Window to a New Tab | move the focused window to a new tab, unless it is the only one of its tab | `global`: `Ctrl+q T` |
-| `tab.next` | Next Tab | show the next tab of the area the keys are in: the details panel's sheets there, elsewhere the content's tabs | `global`: `Ctrl+Tab`, `Ctrl+PageDown`, `Cmd+}`, `Ctrl+q g t` |
-| `tab.prev` | Previous Tab | show the previous tab of the area the keys are in: the details panel's sheets there, elsewhere the content's tabs | `global`: `Ctrl+Shift+Tab`, `Ctrl+PageUp`, `Cmd+{`, `Ctrl+q g T` |
+| `tab.next` | Next Tab | show the next tab of the area the keys are in: the details panel's sheets there, elsewhere the content's tabs; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+Tab`, `Ctrl+PageDown`, `Cmd+}`, `Ctrl+q g t` |
+| `tab.prev` | Previous Tab | show the previous tab of the area the keys are in: the details panel's sheets there, elsewhere the content's tabs; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+Shift+Tab`, `Ctrl+PageUp`, `Cmd+{`, `Ctrl+q g T` |
 | `tab.last` | Tab Before | show the content's tab shown before the one shown now | `global`: `Ctrl+q g Tab` |
 | `cursor.down` |  | move the selection in the tree to the next row; in the details panel, in the list it shows, or scroll what else it shows | `tree`: `j`, `ArrowDown`<br>`details`: `j`, `ArrowDown` |
 | `cursor.up` |  | move the selection in the tree to the previous row; in the details panel, in the list it shows, or scroll what else it shows | `tree`: `k`, `ArrowUp`<br>`details`: `k`, `ArrowUp` |
@@ -61,12 +61,12 @@ changes them ([keys](../keys.md)).
 | `filer.out` |  | close the directory selected when it is open, or else the one it is in, going there | `filer`: `h`, `ArrowLeft` |
 | `filer.open` |  | in the tree, open the file or fold the directory selected as `cursor.go` does; in the picker, start a session in the directory selected | `filer`: `Enter` |
 | `filer.hidden` |  | show or hide the files and directories whose names start with `.` | `filer`: `!` |
-| `waiting.next` | Next Waiting | look at the next session waiting on you in the preview, with the keys in its console | `global`: `Mod+j` |
-| `waiting.prev` | Previous Waiting | look at the previous session waiting on you in the preview, with the keys in its console | `global`: `Mod+k` |
-| `session.next` | Next Session | look at the session after the one shown, in the tree's order over every session, folded away or filtered out too, going round at the end, in the preview; the keys stay in the area they are in |  |
-| `session.prev` | Previous Session | look at the session before the one shown, in the tree's order over every session, folded away or filtered out too, going round at the start, in the preview; the keys stay in the area they are in |  |
-| `workspace.next` | Next Workspace | look at a session of the workspace after the one shown, in the tree's order over every workspace holding a session, folded away or filtered out too, going round at the end: the session last shown there since the window opened, or else its first, in the preview; the keys stay in the area they are in | `global`: `Ctrl+q }`<br>`tree`: `}` |
-| `workspace.prev` | Previous Workspace | look at a session of the workspace before the one shown, as `workspace.next` does, going round at the start | `global`: `Ctrl+q {`<br>`tree`: `{` |
+| `waiting.next` | Next Waiting | look at the next session waiting on you in the preview, with the keys in its console; repeats ([keys](../keys.md#repeating)) | `global`: `Mod+j` |
+| `waiting.prev` | Previous Waiting | look at the previous session waiting on you in the preview, with the keys in its console; repeats ([keys](../keys.md#repeating)) | `global`: `Mod+k` |
+| `session.next` | Next Session | look at the session after the one shown, in the tree's order over every session, folded away or filtered out too, going round at the end, in the preview; the keys stay in the area they are in; repeats ([keys](../keys.md#repeating)) |  |
+| `session.prev` | Previous Session | look at the session before the one shown, in the tree's order over every session, folded away or filtered out too, going round at the start, in the preview; the keys stay in the area they are in; repeats ([keys](../keys.md#repeating)) |  |
+| `workspace.next` | Next Workspace | look at a session of the workspace after the one shown, in the tree's order over every workspace holding a session, folded away or filtered out too, going round at the end: the session last shown there since the window opened, or else its first, in the preview; the keys stay in the area they are in; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+q }`<br>`tree`: `}` |
+| `workspace.prev` | Previous Workspace | look at a session of the workspace before the one shown, as `workspace.next` does, going round at the start; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+q {`<br>`tree`: `{` |
 | `session.pick` | Go to or Start Session… | open the picker, to go to a session or choose where a new one works ([details](../tree.md#going-to-a-session-or-starting-one)) | `global`: `Mod+p`<br>`tree`: `w` |
 | `session.new` | New Session | start a session, with the prompt ready to write its first message: in the selected row's worktree or directory from the tree, in the one the focused window shows from elsewhere | `global`: `Mod+t`<br>`tree`: `n` |
 | `session.scratch` | New Scratch Session | start a scratch session, with the prompt ready: one that runs in a new directory of its own, for talking about something no project holds ([details](../tree.md#scratch-sessions)) |  |

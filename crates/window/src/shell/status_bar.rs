@@ -39,7 +39,10 @@ pub(crate) fn mode_tip(mode: &str, dialog: bool) -> &'static str {
         }
         "TREE" => "The tree has the keys: j and k move, Enter opens. Ctrl+q l goes right",
         "DETAILS" => {
-            "The details panel has the keys: j and k move or scroll, Enter opens, h goes back, Cmd+] and Cmd+[ change the sheet"
+            "The details panel has the keys: j and k move or scroll, Enter opens, h goes back, 1, 2 and 3 show a sheet"
+        }
+        "REPEAT" => {
+            "The last key pressed steps again alone, as do the keys beside it; any other key does what it does"
         }
         "CONSOLE" => {
             "The console has the keys: Vim's moves read it, i writes a prompt below, Ctrl+q h goes back to the tree"

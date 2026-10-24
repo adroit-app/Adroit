@@ -22,9 +22,9 @@ pub(crate) fn Footer() -> Element {
         in_dialog,
         answering,
     } = answering(app);
-    let (reading, passing) = {
+    let (reading, passing, repeating) = {
         let console = app.console.read();
-        (console.reading, console.direct)
+        (console.reading, console.direct, console.repeat.is_some())
     };
     let reader_mode = reading.then(|| {
         let _ = (ui.consoles.reader_frame)();
@@ -42,6 +42,7 @@ pub(crate) fn Footer() -> Element {
         answering,
         reading: reader_mode.as_deref(),
         prompt: app.prompt.read().mode,
+        repeating,
     }
     .mode();
     let km = app.chrome.read().keymap.clone();
