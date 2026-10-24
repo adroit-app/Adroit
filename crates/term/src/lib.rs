@@ -6,6 +6,7 @@ mod input;
 mod palette;
 mod pane;
 pub mod picture;
+mod presence;
 mod screen;
 pub mod tags;
 
@@ -15,6 +16,7 @@ pub use daemon::{
 pub use input::{Input, Key};
 pub use palette::{Palette, Rgb};
 pub use pane::{Drawn, Pane, Picture, Size};
+pub use presence::Presence;
 pub use screen::{Cursor, CursorShape, Line, Part, Run, Screen, Style, block, set_apart};
 
 /// The versions of the terminal protocol this build speaks: felis's wire

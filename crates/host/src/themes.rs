@@ -78,10 +78,15 @@ pub fn names(dir: &Path) -> Vec<String> {
 /// The palette of the theme `name`: the user's file of that name in `dir`
 /// first, so one can be changed by writing it there, then adroit's.
 pub fn palette(name: &str, dir: &Path) -> Result<Palette, String> {
-    match colours(name, dir) {
+    palette_of(&colours(name, dir))
+}
+
+/// The palette of a theme's `colours`.
+pub fn palette_of(colours: &Colours) -> Result<Palette, String> {
+    match colours {
         Colours::Own => Ok(Palette::default()),
-        Colours::Theme { text } => Palette::from_ghostty(&text),
-        Colours::Unreadable { error } => Err(error),
+        Colours::Theme { text } => Palette::from_ghostty(text),
+        Colours::Unreadable { error } => Err(error.clone()),
     }
 }
 

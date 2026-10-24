@@ -47,6 +47,12 @@ pub(super) async fn watch(watched: Watched) {
         else {
             continue;
         };
+        let rethemed = configured
+            .as_ref()
+            .is_none_or(|last| last.theme != made.theme);
+        if rethemed && let Ok(palette) = crate::themes::palette_of(&made.theme.colours) {
+            crate::presences::retheme(&palette).await;
+        }
         configured = Some(made.clone());
         let files = config
             .settings

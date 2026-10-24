@@ -24,7 +24,7 @@ use tokio::sync::mpsc;
 
 use crate::daemon::{Daemon, Error, Result, Spawn, spawn_args};
 use crate::screen::{Overrides, screen_of};
-use crate::{Key, Palette, Rgb, Screen};
+use crate::{Key, Palette, Presence, Rgb, Screen};
 
 /// How large a pane is, in cells and in the pixels of a cell.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -133,7 +133,7 @@ impl Drop for Pane {
     }
 }
 
-fn theme(palette: &Palette) -> SessionToDaemonMsg {
+pub(crate) fn theme(palette: &Palette) -> SessionToDaemonMsg {
     let rgb = |c: Rgb| (c.r, c.g, c.b);
     SessionToDaemonMsg::ConfigureTheme {
         fg: Some(rgb(palette.foreground)),
@@ -208,7 +208,7 @@ fn found(spawn: &Spawn) -> bool {
     std::env::split_paths(&path).any(|dir| runs(&dir.join(&spawn.program)))
 }
 
-fn dark(palette: &Palette) -> bool {
+pub(crate) fn dark(palette: &Palette) -> bool {
     let lum = |c: Rgb| 0.2126 * f64::from(c.r) + 0.7152 * f64::from(c.g) + 0.0722 * f64::from(c.b);
     lum(palette.background) < lum(palette.foreground)
 }
@@ -263,6 +263,61 @@ impl Pane {
         W: Fn() + Send + Sync + 'static,
         F: std::future::Future<Output = Result<()>>,
     {
+        let (pane, ()) = Self::started(
+            daemon,
+            spawn,
+            size,
+            palette,
+            waker_for,
+            prepare,
+            |_| async { Ok(()) },
+        )
+        .await?;
+        Ok(pane)
+    }
+
+    /// Start a session as [`Pane::start_prepared`] does for no window to
+    /// show, returning the [`Presence`] that tells it `palette` for as long
+    /// as it is kept, there before the program runs.
+    pub async fn start_unshown<F>(
+        daemon: &Daemon,
+        spawn: Spawn,
+        size: Size,
+        palette: &Palette,
+        prepare: impl FnOnce(u128) -> F,
+    ) -> Result<Presence>
+    where
+        F: std::future::Future<Output = Result<()>>,
+    {
+        let (_pane, presence) = Self::started(
+            daemon,
+            spawn,
+            size,
+            palette,
+            |_| || {},
+            prepare,
+            |id| daemon.present(id, palette),
+        )
+        .await?;
+        Ok(presence)
+    }
+
+    /// [`Pane::start_prepared`], with `before_release` done once the pane has
+    /// told the session `palette` and before its program runs.
+    async fn started<W, F, T, G>(
+        daemon: &Daemon,
+        spawn: Spawn,
+        size: Size,
+        palette: &Palette,
+        waker_for: impl FnOnce(u128) -> W,
+        prepare: impl FnOnce(u128) -> F,
+        before_release: impl FnOnce(u128) -> G,
+    ) -> Result<(Self, T)>
+    where
+        W: Fn() + Send + Sync + 'static,
+        F: std::future::Future<Output = Result<()>>,
+        G: std::future::Future<Output = Result<T>>,
+    {
         // Behind the gate the daemon starts a shell, which is always there,
         // so a program missing is told here, as the daemon would have.
         if !found(&spawn) {
@@ -285,9 +340,16 @@ impl Pane {
         }
         let waker = waker_for(info.id);
         let pane = Self::over(conn, &info, size, palette, waker);
+        let before = match before_release(info.id).await {
+            Ok(before) => before,
+            Err(error) => {
+                let _ = daemon.end(info.id).await;
+                return Err(error);
+            }
+        };
         pane.send(InputMsg::KeyBytes(RELEASE.to_vec()));
         pane.input_fence().await?;
-        Ok(pane)
+        Ok((pane, before))
     }
 
     /// The pane over `conn`, attached to the session `info` lists.

@@ -591,6 +591,98 @@ async fn a_program_asking_for_the_background_as_it_starts_is_told_the_theme_s() 
     );
 }
 
+/// Wait until the session `id` shows a line satisfying `ok`, with no pane
+/// attached to look, or fail after a while.
+async fn until_shown(d: &Daemon, id: u128, ok: impl Fn(&str) -> bool) -> Vec<String> {
+    for _ in 0..200 {
+        let text = d.visible(id).await.unwrap();
+        if text.iter().any(|l| ok(l)) {
+            return text;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("never shown; the screen has {:?}", d.visible(id).await);
+}
+
+async fn start_unshown(d: &Daemon, spawn: Spawn, palette: &Palette) -> adroit_term::Presence {
+    Pane::start_unshown(d, spawn, Size::new(40, 6), palette, |_| async { Ok(()) })
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn a_program_started_with_no_window_is_told_the_theme_s_background_however_late_it_asks() {
+    let (d, _dir) = daemon().await;
+    let palette = themed(adroit_term::Rgb::new(0x12, 0x34, 0x56));
+    // As Codex does, the program asks only once it has started up.
+    let presence = start_unshown(
+        &d,
+        sh(&format!("sleep 0.5; {ASK_BACKGROUND}; sleep 5")),
+        &palette,
+    )
+    .await;
+    let text = until_shown(&d, presence.id(), |l| l.contains("rgb:")).await;
+    assert!(
+        text.iter().any(|l| l.contains("rgb:1212/3434/5656")),
+        "{text:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_program_started_with_no_window_is_told_a_new_theme_once_it_changes() {
+    let (d, _dir) = daemon().await;
+    let presence = start_unshown(
+        &d,
+        sh(&format!(
+            "stty raw -echo; printf ready; head -c 1 >/dev/null; {ASK_BACKGROUND}; sleep 5"
+        )),
+        &themed(adroit_term::Rgb::new(0x12, 0x34, 0x56)),
+    )
+    .await;
+    let id = presence.id();
+    until_shown(&d, id, |l| l.starts_with("ready")).await;
+    presence
+        .set_palette(&themed(adroit_term::Rgb::new(0xab, 0xcd, 0xef)))
+        .await
+        .unwrap();
+    d.press(id, b"x").await.unwrap();
+    let text = until_shown(&d, id, |l| l.contains("rgb:")).await;
+    assert!(
+        text.iter().any(|l| l.contains("rgb:abab/cdcd/efef")),
+        "{text:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_presence_ends_with_its_session() {
+    let (d, _dir) = daemon().await;
+    let presence = start_unshown(&d, sh("sleep 5"), &Palette::default()).await;
+    assert!(!presence.ended());
+    d.end(presence.id()).await.unwrap();
+    for _ in 0..200 {
+        if presence.ended() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("the presence outlived its session");
+}
+
+#[tokio::test]
+async fn a_window_attached_after_a_start_with_none_sizes_the_program() {
+    let (d, _dir) = daemon().await;
+    let presence = start_unshown(
+        &d,
+        sh("trap 'stty size' WINCH; printf ready; while :; do sleep 0.05; done"),
+        &Palette::default(),
+    )
+    .await;
+    let id = presence.id();
+    until_shown(&d, id, |l| l.starts_with("ready")).await;
+    let pane = attach_as(&d, id, Size::new(50, 8), &Palette::default()).await;
+    until(&pane, |t| t.iter().any(|l| l.contains("8 50"))).await;
+}
+
 #[tokio::test]
 async fn a_program_started_in_a_pane_draws_from_the_top_of_its_screen() {
     let (d, _dir) = daemon().await;

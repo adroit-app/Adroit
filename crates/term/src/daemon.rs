@@ -183,6 +183,11 @@ impl Daemon {
         self.connect(Offer::window(false)).await
     }
 
+    /// A window sent the screen only as it asks for frames.
+    pub(crate) async fn paced_window(&self) -> Result<Connection<ReadHalf, WriteHalf>> {
+        self.connect(Offer::window(true)).await
+    }
+
     /// Every session the daemon holds, oldest first.
     pub async fn sessions(&self) -> Result<Vec<Session>> {
         let mut listed = self.ops().await?.list_sessions().await?;

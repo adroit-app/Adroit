@@ -34,8 +34,15 @@ fn take(id: u128) -> bool {
 }
 
 /// Hold the program of the session `id`, which was started held, until it
-/// is let go; it is let go anyway after a while.
-pub(crate) fn hold(id: u128) {
+/// is let go; it is let go anyway after a while. The host keeps a window of
+/// its own on the session from now on, so the program is told the theme
+/// even when no window shows the session as it asks.
+pub(crate) async fn hold(id: u128) {
+    if let Ok(palette) = crate::themes::palette_in_force(&crate::settings::current())
+        && let Ok(presence) = crate::daemon::daemon().present(id, &palette).await
+    {
+        crate::presences::keep(presence).await;
+    }
     HELD.lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .hold(id);

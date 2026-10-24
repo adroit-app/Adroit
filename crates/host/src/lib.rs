@@ -21,6 +21,7 @@ mod jobs;
 pub mod pasted;
 pub mod paths;
 pub mod pictures;
+mod presences;
 pub mod processes;
 pub mod programs;
 pub mod scratch;

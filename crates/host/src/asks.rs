@@ -162,7 +162,7 @@ async fn start_session(watched: &Watched, start: SessionStart) -> Result<Answer,
         let _ = terminal_host.end(id).await;
         return Err(format!("cannot {verb} {name}: {e}"));
     }
-    held::hold(id);
+    held::hold(id).await;
     watched.relist();
     Ok(Answer::Session {
         id: sessions::hex(id),
@@ -192,7 +192,7 @@ async fn start_terminal(watched: &Watched, start: TerminalStart) -> Result<Answe
         .spawn_held(resolved.spawn)
         .await
         .map_err(|e| e.to_string())?;
-    held::hold(id);
+    held::hold(id).await;
     resolved.terminal.id = id;
     watched.terminal_opened(resolved.terminal.clone());
     Ok(Answer::Terminal {

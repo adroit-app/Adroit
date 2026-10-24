@@ -79,6 +79,49 @@ async fn terminal_resources_can_be_started_read_and_stopped_without_a_window() {
     assert!(seen, "the headless terminal did not start its program");
 }
 
+#[tokio::test]
+async fn a_terminal_started_without_a_window_is_told_the_theme_s_background_however_late_it_asks() {
+    let (daemon, dir) = daemon().await;
+    let mut settings = Settings::default();
+    settings.appearance = adroit_core::settings::Appearance::Dark;
+    // Asked once the program has started up, as Codex asks, its reply shown
+    // with the escape as `E`.
+    settings.shell.command = vec![
+        "/bin/sh".into(),
+        "-c".into(),
+        r"sleep 0.5; stty raw -echo; printf '\033]11;?\033\\'; head -c 23 | tr '\033' E; sleep 5"
+            .into(),
+    ];
+    let terminal = terminals::start(
+        &daemon,
+        &settings,
+        TerminalStartRequest {
+            name: "asks".into(),
+            cwd: dir.path().into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let mut screen = Vec::new();
+    for _ in 0..200 {
+        screen = terminals::screen(&daemon, terminal.resource_id)
+            .await
+            .unwrap();
+        if screen.iter().any(|line| line.contains("rgb:")) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    // Nightfox's background, the dark theme named when none is.
+    assert!(
+        screen
+            .iter()
+            .any(|line| line.contains("rgb:1919/2323/3030")),
+        "{screen:?}"
+    );
+}
+
 /// A Neovim started on a new file in `dir`, of the user's configuration
 /// none, with its first screen drawn.
 async fn neovim_on_a_file(daemon: &Daemon, dir: &std::path::Path) -> adroit_model::TerminalSession {

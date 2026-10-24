@@ -161,8 +161,10 @@ where
         if spawn.cols == 0 { 120 } else { spawn.cols },
         if spawn.rows == 0 { 40 } else { spawn.rows },
     );
-    let pane = Pane::start_prepared(daemon, spawn, size, palette, |_| || {}, prepare).await?;
-    Ok(pane.id())
+    let presence = Pane::start_unshown(daemon, spawn, size, palette, prepare).await?;
+    let id = presence.id();
+    crate::presences::keep(presence).await;
+    Ok(id)
 }
 
 pub fn resolve(
