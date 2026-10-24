@@ -10,7 +10,7 @@ use std::sync::Arc;
 use adroit_core::content::{Area, Tab, TerminalAsk, file_name, fresh_name, label_from};
 use adroit_core::msg::Msg;
 use adroit_core::prompt::send::Start;
-use adroit_protocol::{Answer, Ask, Request, SessionStart, TerminalStart};
+use adroit_protocol::{Answer, Ask, HostPath, Request, SessionStart, TerminalStart};
 use adroit_term::{Pane, Size};
 use dioxus::prelude::*;
 
@@ -115,7 +115,7 @@ impl Ui {
         let size = *self.local.console_size.peek();
         let start = TerminalStart {
             name,
-            cwd: p.worktree.clone(),
+            cwd: HostPath::local(&p.worktree),
             program: runs,
             file,
             cols: size.cols,
@@ -172,7 +172,7 @@ impl Ui {
             let start = SessionStart {
                 agent: taken.agent,
                 name: name.clone(),
-                cwd: worktree.clone(),
+                cwd: HostPath::local(worktree),
                 draft: true,
                 model: options.model,
                 permissions: options.permissions,
@@ -220,7 +220,7 @@ impl Ui {
             let start = SessionStart {
                 agent: past.agent,
                 name: name.clone(),
-                cwd: past.cwd.clone(),
+                cwd: HostPath::local(&past.cwd),
                 resume: Some(past.id.clone()),
                 cols: size.cols,
                 rows: size.rows,

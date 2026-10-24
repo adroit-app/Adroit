@@ -12,7 +12,7 @@ use adroit_model::usage::Limit;
 use adroit_model::{Agent, ConversationStats, Note, Process};
 use serde::{Deserialize, Serialize};
 
-use crate::{CommandsSight, PastSight, PickSight, TreeSight};
+use crate::{CommandsSight, HostPath, PastSight, PickSight, TreeSight};
 
 /// What a window shows that the host keeps read while it is shown. The host
 /// reads nothing for a window that shows nothing.
@@ -36,7 +36,7 @@ pub struct Sight {
     /// What the picker lists, while it is open.
     pub pick: Option<PickSight>,
     /// The worktree in the middle, whose files `@` in the prompt offers.
-    pub place: Option<PathBuf>,
+    pub place: Option<HostPath>,
     /// The agent and the directory whose commands `/` in the prompt offers.
     pub commands: Option<CommandsSight>,
 }

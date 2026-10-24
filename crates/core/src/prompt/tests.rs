@@ -632,7 +632,7 @@ fn the_prompt_s_neovim_is_offered_the_sessions_and_the_middle_s_files_each_time_
         seq: Seq(2),
         changes: vec![Change::Place(PlaceChange::Read {
             read: PlaceRead {
-                worktree: "/r/a".into(),
+                worktree: adroit_protocol::HostPath::local("/r/a"),
                 files: vec!["src/lib.rs".into()],
                 jj: false,
             },

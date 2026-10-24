@@ -708,7 +708,10 @@ fn the_host_reads_the_worktree_in_the_middle_while_it_is_there() {
     let run = Scenario::new().event(listing(vec![session("a", "/r/a")], vec![]));
     assert_eq!(watched(&run), None);
     let run = run.send(show_session("a"));
-    assert_eq!(watched(&run), Some("/r/a".into()));
+    assert_eq!(
+        watched(&run),
+        Some(adroit_protocol::HostPath::local("/r/a"))
+    );
 }
 
 #[test]

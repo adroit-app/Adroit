@@ -3,10 +3,11 @@
 //! the terminal host's standing and its restart, keeping a pasted image,
 //! saving the settings.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use adroit_model::time::now_ms;
-use adroit_protocol::{Answer, Ask, ConfigFile, FileText, SessionStart, TerminalStart};
+use adroit_protocol::{Answer, Ask, ConfigFile, FileText, HostPath, SessionStart, TerminalStart};
 use tokio::sync::watch;
 
 use crate::delegation::app as delegation;
@@ -71,6 +72,19 @@ async fn run(args: &[String], cwd: &std::path::Path, input: Option<String>) -> A
     }
 }
 
+/// The path of `place`, which has to be on this host's own machine: no
+/// other host can be reached yet.
+fn here(place: HostPath) -> Result<PathBuf, String> {
+    match place.on_local() {
+        Some(path) => Ok(path.to_path_buf()),
+        None => Err(format!(
+            "{} is on {}, which cannot be reached",
+            place.path.display(),
+            place.host.0
+        )),
+    }
+}
+
 /// Start the session `start` asks for, held, as the delegation store records
 /// it: a draft's in a new folder of its own when it is in the scratch folder.
 async fn start_session(watched: &Watched, start: SessionStart) -> Result<Answer, String> {
@@ -81,12 +95,13 @@ async fn start_session(watched: &Watched, start: SessionStart) -> Result<Answer,
         "start"
     };
     let name = start.name;
+    let at = here(start.cwd).map_err(|e| format!("cannot {verb} {name}: {e}"))?;
     let cwd = if start.draft {
         let root = settings::scratch_folder(&settings, &crate::paths::home());
-        scratch::start_dir(&start.cwd, &root, Moment::now())
+        scratch::start_dir(&at, &root, Moment::now())
             .map_err(|e| format!("cannot make a directory for {name}: {e}"))?
     } else {
-        start.cwd
+        at
     };
     let request = StartRequest {
         agent: start.agent,
@@ -141,12 +156,13 @@ async fn start_session(watched: &Watched, start: SessionStart) -> Result<Answer,
 /// Start the shell, Neovim or command `start` asks for, held, and list it at
 /// once.
 async fn start_terminal(watched: &Watched, start: TerminalStart) -> Result<Answer, String> {
+    let cwd = here(start.cwd).map_err(|e| format!("cannot open {}: {e}", start.name))?;
     let settings = settings::current();
     let mut resolved = crate::execution::resolve_terminal(
         &settings,
         TerminalStartRequest {
             name: start.name,
-            cwd: start.cwd,
+            cwd,
             program: start.program,
             // Not `agent_env`: a shell or Neovim keeps the user's own editor.
             env: daemon::terminal_env(),
@@ -236,6 +252,19 @@ fn save_keys(text: &str) -> Result<Answer, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_session_or_terminal_starts_on_this_host_alone() {
+        assert_eq!(here(HostPath::local("/w")), Ok(PathBuf::from("/w")));
+        let away = HostPath {
+            host: adroit_protocol::HostName("build-box".into()),
+            path: "/w".into(),
+        };
+        assert_eq!(
+            here(away),
+            Err("/w is on build-box, which cannot be reached".into())
+        );
+    }
 
     #[tokio::test]
     async fn a_command_is_run_by_its_name_and_one_unknown_or_misspoken_is_refused_as_misused() {

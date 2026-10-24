@@ -1552,14 +1552,14 @@ mod tests {
         let mut host = Host::default();
         let read = |worktree: &str| PlaceChange::Read {
             read: adroit_protocol::PlaceRead {
-                worktree: worktree.into(),
+                worktree: adroit_protocol::HostPath::local(worktree),
                 files: vec!["a.rs".into()],
                 jj: false,
             },
         };
         let middle = |worktree: Option<&str>| {
             Request::Watch(Box::new(Sight {
-                place: worktree.map(Into::into),
+                place: worktree.map(adroit_protocol::HostPath::local),
                 ..Default::default()
             }))
         };

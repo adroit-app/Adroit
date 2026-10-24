@@ -12,7 +12,11 @@ use super::{Watched, distinct};
 pub(super) async fn watch(mut watched: Watched) {
     loop {
         for worktree in distinct(&watched.sights(), |s| s.place.clone()) {
-            let repo = Repo::open(&worktree);
+            // Only the host's own machine can be read for now.
+            let Some(path) = worktree.on_local() else {
+                continue;
+            };
+            let repo = Repo::open(path);
             let read = PlaceRead {
                 files: repo.files().await.unwrap_or_default(),
                 jj: repo.is_jj(),

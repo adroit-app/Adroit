@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use adroit_model::{Agent, AgentPermissions, TerminalProgram, TerminalSession};
 use serde::{Deserialize, Serialize};
 
+use crate::HostPath;
+
 /// What is asked of the work host.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -47,7 +49,7 @@ pub struct SessionStart {
     pub name: String,
     /// Where it runs, or the draft's place a new folder is made under when
     /// it is the scratch folder.
-    pub cwd: PathBuf,
+    pub cwd: HostPath,
     /// Made from a draft, whose place may be the scratch folder.
     pub draft: bool,
     pub model: Option<String>,
@@ -64,7 +66,7 @@ pub struct SessionStart {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TerminalStart {
     pub name: String,
-    pub cwd: PathBuf,
+    pub cwd: HostPath,
     pub program: TerminalProgram,
     /// The file Neovim starts on.
     pub file: Option<PathBuf>,

@@ -1,7 +1,7 @@
 //! What must hold across slices after every message: each rule brings one
 //! slice in line with the others, and runs in the order listed.
 
-use adroit_protocol::{Request, Sight};
+use adroit_protocol::{HostPath, Request, Sight};
 
 use crate::effect::Effect;
 use crate::state::ViewState;
@@ -271,7 +271,11 @@ pub(crate) fn sight(state: &ViewState) -> Sight {
         tree: tree::sight(&state.tree),
         past: state.picker.past_sight(),
         pick: state.picker.sight(),
-        place: state.content.place.as_ref().map(|p| p.worktree.clone()),
+        place: state
+            .content
+            .place
+            .as_ref()
+            .map(|p| HostPath::local(&p.worktree)),
         commands: prompt::commands_sight(state),
         ..details::sight(&state.details)
     }

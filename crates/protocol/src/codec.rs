@@ -83,7 +83,7 @@ mod tests {
             pick: Some(PickSight {
                 listed: BTreeSet::from(["/home".into()]),
             }),
-            place: Some("/w".into()),
+            place: Some(crate::HostPath::local("/w")),
             commands: Some(CommandsSight {
                 agent: adroit_model::Agent::Codex,
                 dir: "/w".into(),
@@ -383,7 +383,7 @@ mod tests {
                 Change::Pick(PickChange::Left),
                 Change::Place(PlaceChange::Read {
                     read: PlaceRead {
-                        worktree: "/w".into(),
+                        worktree: crate::HostPath::local("/w"),
                         files: vec!["src/a.rs".into()],
                         jj: true,
                     },
