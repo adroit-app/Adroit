@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use nvim_rs::compat::tokio::Compat;
+use nvim_rs::error::CallError;
 use nvim_rs::{Handler, Neovim, UiAttachOptions};
 use rmpv::Value;
 use tokio::process::{Child, ChildStdin, Command};
@@ -438,11 +439,24 @@ impl Embedded {
         })
     }
 
+    /// Ask Neovim with `request` on a task of its own, which waits for the
+    /// answer even when the caller stops waiting. nvim-rs ends the whole
+    /// connection when an answer comes for a request whose future was
+    /// dropped, and a caller's future is dropped with the component that
+    /// spawned it.
+    async fn ask<T, F>(&self, request: impl FnOnce(Neovim<Writer>) -> F) -> Result<T, Error>
+    where
+        T: Send + 'static,
+        F: Future<Output = Result<T, Box<CallError>>> + Send + 'static,
+    {
+        Ok(tokio::spawn(request(self.nvim.clone())).await??)
+    }
+
     #[cfg(test)]
     pub(crate) async fn stdpath(&self, kind: &str) -> String {
+        let kind = Value::from(kind);
         let path = self
-            .nvim
-            .call_function("stdpath", vec![Value::from(kind)])
+            .ask(move |n| async move { n.call_function("stdpath", vec![kind]).await })
             .await
             .unwrap();
         path.as_str().unwrap().to_string()
@@ -450,11 +464,20 @@ impl Embedded {
 
     #[cfg(test)]
     pub(crate) async fn eval(&self, expr: &str) -> Value {
-        self.nvim.eval(expr).await.unwrap()
+        let expr = expr.to_string();
+        self.ask(move |n| async move { n.eval(&expr).await })
+            .await
+            .unwrap()
+    }
+
+    async fn exec_lua(&self, lua: &str, args: Vec<Value>) -> Result<Value, Error> {
+        let lua = lua.to_string();
+        self.ask(move |n| async move { n.exec_lua(&lua, args).await })
+            .await
     }
 
     pub(crate) async fn exec(&self, lua: &str, args: Vec<Value>) -> Result<(), Error> {
-        self.nvim.exec_lua(lua, args).await?;
+        self.exec_lua(lua, args).await?;
         Ok(())
     }
 
@@ -465,13 +488,15 @@ impl Embedded {
     /// Type keys in Neovim's notation.
     pub async fn input(&self, keys: &str) -> Result<(), Error> {
         self.state().forget_message();
-        self.nvim.input(keys).await?;
+        let keys = keys.to_string();
+        self.ask(move |n| async move { n.input(&keys).await })
+            .await?;
         Ok(())
     }
 
     pub async fn resize(&self, cols: u16, rows: u16) -> Result<(), Error> {
-        self.nvim.ui_try_resize(cols as i64, rows as i64).await?;
-        Ok(())
+        self.ask(move |n| async move { n.ui_try_resize(cols as i64, rows as i64).await })
+            .await
     }
 
     /// Leave whatever mode the prompt is in and start writing after its text.
@@ -493,24 +518,27 @@ impl Embedded {
     /// Put text into the prompt as text, whatever mode it is in.
     pub async fn paste(&self, text: &str) -> Result<(), Error> {
         self.state().forget_message();
-        self.nvim.paste(text, false, -1).await?;
+        let text = text.to_string();
+        self.ask(move |n| async move { n.paste(&text, false, -1).await })
+            .await?;
         Ok(())
+    }
+
+    async fn set_var(&self, name: &'static str, value: Value) -> Result<(), Error> {
+        self.ask(move |n| async move { n.set_var(name, value).await })
+            .await
     }
 
     /// Replace what `@` in the prompt offers.
     pub async fn set_candidates(&self, candidates: &[Candidate]) -> Result<(), Error> {
-        self.nvim
-            .set_var("adroit_candidates", candidate_list(candidates))
-            .await?;
-        Ok(())
+        self.set_var("adroit_candidates", candidate_list(candidates))
+            .await
     }
 
     /// Replace what `/` in the prompt offers; none offers nothing.
     pub async fn set_commands(&self, commands: &[Candidate]) -> Result<(), Error> {
-        self.nvim
-            .set_var("adroit_commands", candidate_list(commands))
-            .await?;
-        Ok(())
+        self.set_var("adroit_commands", candidate_list(commands))
+            .await
     }
 
     /// The directory a path after `@` is walked from; without one, a path is
@@ -519,14 +547,12 @@ impl Embedded {
         let root = root
             .map(|p| p.to_string_lossy().into_owned())
             .unwrap_or_default();
-        self.nvim.set_var("adroit_root", Value::from(root)).await?;
-        Ok(())
+        self.set_var("adroit_root", Value::from(root)).await
     }
 
     /// The prompt's text.
     pub async fn text(&self) -> Result<String, Error> {
         Ok(self
-            .nvim
             .exec_lua(TEXT, vec![])
             .await?
             .as_str()
@@ -539,15 +565,13 @@ impl Embedded {
     pub async fn append(&self, lines: &[String]) -> Result<(), Error> {
         let list = lines.iter().map(|l| Value::from(l.as_str())).collect();
         self.state().forget_message();
-        self.nvim.exec_lua(APPEND, vec![Value::Array(list)]).await?;
-        Ok(())
+        self.exec(APPEND, vec![Value::Array(list)]).await
     }
 
     /// The prompt's text, leaving the prompt empty for the next one.
     pub async fn take_text(&self) -> Result<String, Error> {
         self.state().forget_message();
         Ok(self
-            .nvim
             .exec_lua(TAKE_TEXT, vec![])
             .await?
             .as_str()
@@ -1028,5 +1052,19 @@ mod tests {
         wait(&mut rx, |ev| *ev == Event::Shell(true)).await;
         e.take_text().await.unwrap();
         wait(&mut rx, |ev| *ev == Event::Shell(false)).await;
+    }
+
+    #[tokio::test]
+    async fn a_request_given_up_before_its_answer_leaves_the_connection_alive() {
+        let (e, mut rx) = start().await;
+        // `f` waits for the character to find, and holds back what follows.
+        e.input("<Esc>f").await.unwrap();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let given_up = tokio::time::timeout(Duration::from_millis(300), e.resize(40, 5)).await;
+        assert!(given_up.is_err(), "held back by `f`");
+        e.input("x").await.unwrap();
+        let answered = tokio::time::timeout(Duration::from_secs(2), e.input("ihello")).await;
+        assert!(answered.is_ok(), "a later request is answered");
+        wait(&mut rx, |_| e.state().screen().text()[0] == "hello").await;
     }
 }
