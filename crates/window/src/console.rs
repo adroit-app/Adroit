@@ -62,6 +62,13 @@ fn scroll_thumb(top: usize, rows: usize, lines: usize) -> Option<(f64, f64)> {
     Some((top, size))
 }
 
+/// How tall the prompt's lines stand for `rows` shown, with Neovim's grid
+/// `drawn` that many rows, or not yet drawn: the card is as tall from the
+/// start as it will be, or a session sized by it is sized twice.
+fn lines_height(rows: usize, drawn: Option<usize>, cell_height: f64) -> f64 {
+    rows.max(drawn.unwrap_or(0)) as f64 * cell_height
+}
+
 /// How far above the bottom of a grid of `rows` the completion menu sits, for
 /// a menu opened at `row`. A grid that shrank under an open menu leaves the
 /// row past its end.
@@ -425,8 +432,14 @@ pub fn Composer(
                         div { class: "prompt-scroll-thumb", style: "top:{top * 100.0}%;height:{size * 100.0}%" }
                     }
                 }
-                if let Some((screen, popup, cmd, _)) = &prompt {
-                    ScreenView { screen: screen.clone(), cell_width: cw, show_cursor: focused && cmd.is_none() && !answering && selected_image.is_none() }
+                div {
+                    class: "prompt-lines",
+                    style: "min-height:{lines_height(rows, prompt.as_ref().map(|(s, ..)| s.lines.len()), ch)}px",
+                    if let Some((screen, _, cmd, _)) = &prompt {
+                        ScreenView { screen: screen.clone(), cell_width: cw, show_cursor: focused && cmd.is_none() && !answering && selected_image.is_none() }
+                    }
+                }
+                if let Some((screen, popup, _, _)) = &prompt {
                     if let (Some(pm), Some((left, least, most))) = (popup, menu) {
                         div {
                             class: "vim-menu",
@@ -526,6 +539,15 @@ mod tests {
         assert_eq!(prompt_rows(0, true, 3, 12), 1);
         assert_eq!(prompt_rows(1, false, 3, 12), 3);
         assert_eq!(prompt_rows(20, false, 3, 12), 12);
+    }
+
+    #[test]
+    fn the_prompt_s_lines_are_as_tall_as_its_rows_before_neovim_draws_them() {
+        assert_eq!(lines_height(3, None, 17.0), 51.0);
+        assert_eq!(lines_height(3, Some(0), 17.0), 51.0);
+        assert_eq!(lines_height(3, Some(3), 17.0), 51.0);
+        // A grid drawn taller for a moment is not cut.
+        assert_eq!(lines_height(3, Some(5), 17.0), 85.0);
     }
 
     #[test]
