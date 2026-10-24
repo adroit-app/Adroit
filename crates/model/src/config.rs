@@ -148,6 +148,39 @@ pub struct PiOptions {
     pub tools: Vec<String>,
 }
 
+/// How OpenCode sessions start, in OpenCode's own terms: it has no sandbox,
+/// so what a session may do is the agent it runs as and the permission rules
+/// it runs under.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct OpenCodeOptions {
+    /// OpenCode's model as `provider/model`, with `#variant` for one of its
+    /// variants; empty for its own choice.
+    pub model: String,
+    /// The primary agent it starts as, such as `build` or `plan`; empty for
+    /// its own default.
+    pub agent: String,
+    /// Permission rules put after the account's own, the last that matches a
+    /// tool call deciding whether it is allowed, asked about or denied.
+    pub permissions: Vec<OpenCodeRule>,
+    /// Whether every tool call no rule denies is allowed without asking, as
+    /// OpenCode's `--auto` does.
+    pub auto: bool,
+}
+
+/// One of OpenCode's permission rules.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct OpenCodeRule {
+    /// What a tool does, such as `edit`, `bash` or `webfetch`, or `*` for
+    /// anything.
+    pub action: String,
+    /// What it does it to, as a pattern: a path, a command, or `*`.
+    pub resource: String,
+    /// `allow`, `ask` or `deny`.
+    pub effect: String,
+}
+
 /// A command written as a shell would split it into words; `None` while a
 /// quote is left open.
 pub fn parse_command(text: &str) -> Option<Vec<String>> {

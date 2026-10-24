@@ -10,7 +10,7 @@ use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 
 use crate::Agent;
-use crate::config::{CodexOptions, Launch, PiOptions, SessionOptions};
+use crate::config::{CodexOptions, Launch, OpenCodeOptions, PiOptions, SessionOptions};
 
 /// Why a string cannot be an id.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -135,6 +135,7 @@ pub enum AgentOptions {
     Claude(SessionOptions),
     Codex(CodexOptions),
     Pi(PiOptions),
+    OpenCode(OpenCodeOptions),
 }
 
 impl AgentOptions {
@@ -144,6 +145,7 @@ impl AgentOptions {
             Agent::Claude => Self::Claude(SessionOptions::default()),
             Agent::Codex => Self::Codex(CodexOptions::default()),
             Agent::Pi => Self::Pi(PiOptions::default()),
+            Agent::OpenCode => Self::OpenCode(OpenCodeOptions::default()),
         }
     }
 
@@ -152,6 +154,7 @@ impl AgentOptions {
             Self::Claude(_) => Agent::Claude,
             Self::Codex(_) => Agent::Codex,
             Self::Pi(_) => Agent::Pi,
+            Self::OpenCode(_) => Agent::OpenCode,
         }
     }
 
@@ -162,6 +165,7 @@ impl AgentOptions {
             Self::Claude(options) => &options.model,
             Self::Codex(options) => &options.model,
             Self::Pi(options) => &options.model,
+            Self::OpenCode(options) => &options.model,
         }
     }
 
@@ -170,6 +174,7 @@ impl AgentOptions {
             Self::Claude(options) => &mut options.model,
             Self::Codex(options) => &mut options.model,
             Self::Pi(options) => &mut options.model,
+            Self::OpenCode(options) => &mut options.model,
         }
     }
 }
@@ -257,6 +262,21 @@ impl AgentProfile {
             _ => None,
         }
     }
+
+    /// OpenCode's options, for an OpenCode profile.
+    pub fn opencode(&self) -> Option<&OpenCodeOptions> {
+        match &self.options {
+            AgentOptions::OpenCode(options) => Some(options),
+            _ => None,
+        }
+    }
+
+    pub fn opencode_mut(&mut self) -> Option<&mut OpenCodeOptions> {
+        match &mut self.options {
+            AgentOptions::OpenCode(options) => Some(options),
+            _ => None,
+        }
+    }
 }
 
 /// A profile as settings.toml writes it.
@@ -269,7 +289,7 @@ struct ProfileEntry {
     /// What the profile is called; empty for its id.
     #[serde(default)]
     name: String,
-    /// The agent it starts, `claude`, `codex` or `pi`.
+    /// The agent it starts, `claude`, `codex`, `pi` or `opencode`.
     agent: Agent,
     /// The connection it runs in, by id; left out for the agent's own
     /// environment, which the agent's key also names.
@@ -290,6 +310,11 @@ struct ProfileEntry {
     /// profile; empty values leave Pi's own settings in effect.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pi: Option<PiOptions>,
+    /// OpenCode's model as `provider/model`, the agent it starts as, its
+    /// permission rules and whether it approves on its own, for an `opencode`
+    /// profile; empty values leave OpenCode's own settings in effect.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    opencode: Option<OpenCodeOptions>,
     /// Whether it is kept only for the sessions that ran from it, and offered
     /// for no new one.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -305,6 +330,7 @@ impl TryFrom<ProfileEntry> for AgentProfile {
             (Agent::Claude, entry.claude.is_some()),
             (Agent::Codex, entry.codex.is_some()),
             (Agent::Pi, entry.pi.is_some()),
+            (Agent::OpenCode, entry.opencode.is_some()),
         ];
         if let Some((other, _)) = held.iter().find(|(a, held)| *held && *a != agent) {
             return Err(format!(
@@ -318,6 +344,7 @@ impl TryFrom<ProfileEntry> for AgentProfile {
             Agent::Claude => AgentOptions::Claude(entry.claude.unwrap_or_default()),
             Agent::Codex => AgentOptions::Codex(entry.codex.unwrap_or_default()),
             Agent::Pi => AgentOptions::Pi(entry.pi.unwrap_or_default()),
+            Agent::OpenCode => AgentOptions::OpenCode(entry.opencode.unwrap_or_default()),
         };
         Ok(Self {
             connection: entry
@@ -335,11 +362,12 @@ impl TryFrom<ProfileEntry> for AgentProfile {
 impl From<AgentProfile> for ProfileEntry {
     fn from(profile: AgentProfile) -> Self {
         let agent = profile.agent();
-        let (mut claude, mut codex, mut pi) = (None, None, None);
+        let (mut claude, mut codex, mut pi, mut opencode) = (None, None, None, None);
         match profile.options {
             AgentOptions::Claude(options) => claude = Some(options),
             AgentOptions::Codex(options) => codex = Some(options),
             AgentOptions::Pi(options) => pi = Some(options),
+            AgentOptions::OpenCode(options) => opencode = Some(options),
         }
         Self {
             id: profile.id,
@@ -351,6 +379,7 @@ impl From<AgentProfile> for ProfileEntry {
             claude,
             codex,
             pi,
+            opencode,
             archived: profile.archived,
         }
     }
@@ -369,7 +398,8 @@ pub struct AgentConnection {
     /// What the connection is called; empty for its id.
     #[serde(default)]
     pub name: String,
-    /// The agent whose CLI keeps its state there, `claude`, `codex` or `pi`.
+    /// The agent whose CLI keeps its state there, `claude`, `codex`, `pi` or
+    /// `opencode`.
     pub agent: Agent,
     /// The state directory, as an absolute path without `~`, `.` or `..` and
     /// with no `/` doubled or at its end; it is fixed when the connection is
@@ -567,6 +597,53 @@ mod tests {
             "{error}"
         );
         assert!(read(r#"{"id":"p","agent":"claude","colour":"red"}"#).is_err());
+    }
+
+    #[test]
+    fn an_opencode_profile_holds_its_model_agent_permission_rules_and_auto_approval() {
+        use crate::config::{OpenCodeOptions, OpenCodeRule};
+        let read = |text: &str| serde_json::from_str::<AgentProfile>(text);
+        let opencode = read(
+            r#"{"id":"o","agent":"opencode","opencode":{"model":"ollama/qwen3:8b","agent":"plan","auto":true,
+                "permissions":[{"action":"bash","resource":"git *","effect":"allow"}]}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            opencode.opencode(),
+            Some(&OpenCodeOptions {
+                model: "ollama/qwen3:8b".into(),
+                agent: "plan".into(),
+                permissions: vec![OpenCodeRule {
+                    action: "bash".into(),
+                    resource: "git *".into(),
+                    effect: "allow".into(),
+                }],
+                auto: true,
+            })
+        );
+        assert_eq!(opencode.options.model(), "ollama/qwen3:8b");
+        assert_eq!(opencode.pi(), None);
+        let written = serde_json::to_value(&opencode).unwrap();
+        assert_eq!(written["opencode"]["agent"], "plan");
+        assert_eq!(written.get("pi"), None);
+        assert_eq!(
+            serde_json::from_value::<AgentProfile>(written).unwrap(),
+            opencode
+        );
+        let error = read(r#"{"id":"o","agent":"opencode","pi":{}}"#)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("profile `o` starts OpenCode and cannot hold options for Pi"),
+            "{error}"
+        );
+        assert!(read(r#"{"id":"o","agent":"opencode","opencode":{"tools":[]}}"#).is_err());
+        let builtin = AgentProfile::builtin(Agent::OpenCode);
+        assert_eq!(
+            (builtin.id.as_str(), builtin.label()),
+            ("opencode", "OpenCode")
+        );
+        assert_eq!(builtin.opencode(), Some(&OpenCodeOptions::default()));
     }
 
     #[test]

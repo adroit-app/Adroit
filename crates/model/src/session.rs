@@ -25,15 +25,17 @@ pub enum Agent {
     Claude,
     Codex,
     Pi,
+    OpenCode,
 }
 
 impl Agent {
-    pub const ALL: [Self; 3] = [Self::Claude, Self::Codex, Self::Pi];
+    pub const ALL: [Self; 4] = [Self::Claude, Self::Codex, Self::Pi, Self::OpenCode];
     pub const fn key(self) -> &'static str {
         match self {
             Self::Claude => "claude",
             Self::Codex => "codex",
             Self::Pi => "pi",
+            Self::OpenCode => "opencode",
         }
     }
 
@@ -43,6 +45,7 @@ impl Agent {
             Self::Claude => "Claude Code",
             Self::Codex => "Codex",
             Self::Pi => "Pi",
+            Self::OpenCode => "OpenCode",
         }
     }
 
@@ -63,6 +66,7 @@ impl Agent {
             "claude" => Some(Self::Claude),
             "codex" => Some(Self::Codex),
             "pi" => Some(Self::Pi),
+            "opencode" => Some(Self::OpenCode),
             _ => None,
         }
     }
@@ -223,6 +227,12 @@ mod tests {
         assert_eq!(Agent::Codex.label(), "Codex");
         assert_eq!(Agent::Pi.label(), "Pi");
         assert_eq!(Agent::parse("pi"), Some(Agent::Pi));
+        assert_eq!(Agent::OpenCode.label(), "OpenCode");
+        assert_eq!(Agent::parse("opencode"), Some(Agent::OpenCode));
+        assert_eq!(
+            serde_json::to_value(Agent::OpenCode).unwrap(),
+            Agent::OpenCode.key()
+        );
     }
 
     fn one(json: &str) -> Running {

@@ -77,6 +77,14 @@ pub enum CustomPermissions {
     /// Pi asks before no tool call and has no sandbox: what it may do is the
     /// tools it is given.
     Pi { tools: Vec<String> },
+    /// OpenCode has no sandbox: what it may do is the agent it runs as, its
+    /// permission rules and whether it approves on its own. `primary` is
+    /// OpenCode's agent, named apart from the tag that names adroit's.
+    OpenCode {
+        primary: String,
+        permissions: Vec<crate::config::OpenCodeRule>,
+        auto: bool,
+    },
 }
 
 /// Where a launch's model came from.
