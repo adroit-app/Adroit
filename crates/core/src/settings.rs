@@ -58,7 +58,10 @@ impl Appearance {
 }
 
 /// The theme drawn in a light appearance when the settings name none.
-pub const LIGHT_THEME: &str = "GitHub Light Default";
+pub const LIGHT_THEME: &str = "Dawnfox";
+
+/// The theme drawn in a dark appearance when the settings name none.
+pub const DARK_THEME: &str = "Nightfox";
 
 /// How much the details panel reads and shows.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -256,7 +259,7 @@ impl Default for Settings {
             font_weight: 400,
             appearance: Appearance::System,
             light_theme: LIGHT_THEME.into(),
-            dark_theme: crate::palette::DEFAULT.into(),
+            dark_theme: DARK_THEME.into(),
             theme: None,
             keep_awake: true,
             notify_waiting: false,
@@ -345,17 +348,23 @@ impl Settings {
             crate::zoom::LEVELS[crate::zoom::LEVELS.len() - 1],
         );
         self.zoom = self.zoom.clamp(least, most);
-        self.font_family = self.font_family.trim().to_string();
+        self.font_family = match self.font_family.trim() {
+            crate::fonts::FAMILY => String::new(),
+            family => family.to_string(),
+        };
+        // Earlier versions offered a theme of adroit's own as "Adroit", in
+        // Nightfox's colours on a darker ground.
         let named = |name: &str, otherwise: &str| match name.trim() {
             "" => otherwise.to_string(),
+            "Adroit" => DARK_THEME.to_string(),
             name => name.to_string(),
         };
         self.light_theme = named(&self.light_theme, LIGHT_THEME);
-        self.dark_theme = named(&self.dark_theme, crate::palette::DEFAULT);
+        self.dark_theme = named(&self.dark_theme, DARK_THEME);
         self.theme = self
             .theme
-            .map(|t| t.trim().to_string())
-            .filter(|t| !t.is_empty());
+            .filter(|t| !t.trim().is_empty())
+            .map(|t| named(&t, DARK_THEME));
         self.font_size = self.font_size.clamp(8.0, 32.0);
         self.font_weight = (self.font_weight.clamp(100, 900) + 50) / 100 * 100;
         let words = |c: Vec<String>| -> Vec<String> {
@@ -613,8 +622,41 @@ model = "chosen-model"
         assert_eq!(s.font_size, 32.0);
         assert_eq!(s.font_weight, 900);
         assert_eq!(s.light_theme, LIGHT_THEME);
-        assert_eq!(s.dark_theme, crate::palette::DEFAULT);
+        assert_eq!(s.dark_theme, DARK_THEME);
         assert_eq!(s.theme, None);
+    }
+
+    #[test]
+    fn nightfox_and_dawnfox_are_drawn_when_the_settings_name_no_theme() {
+        let s = Settings::default();
+        assert_eq!(
+            (s.dark_theme.as_str(), s.light_theme.as_str()),
+            ("Nightfox", "Dawnfox")
+        );
+    }
+
+    #[test]
+    fn the_theme_earlier_versions_called_adroit_s_own_is_nightfox() {
+        let s = Settings {
+            light_theme: "Adroit".into(),
+            dark_theme: " Adroit ".into(),
+            theme: Some("Adroit".into()),
+            ..Settings::default()
+        }
+        .sane();
+        assert_eq!(s.light_theme, "Nightfox");
+        assert_eq!(s.dark_theme, "Nightfox");
+        assert_eq!(s.theme.as_deref(), Some("Nightfox"));
+    }
+
+    #[test]
+    fn the_built_in_font_named_is_the_font_left_unnamed() {
+        let s = Settings {
+            font_family: format!(" {} ", crate::fonts::FAMILY),
+            ..Settings::default()
+        }
+        .sane();
+        assert_eq!(s.font_family, "");
     }
 
     #[test]
@@ -622,7 +664,7 @@ model = "chosen-model"
         let s = Settings::parse("").unwrap();
         assert_eq!(s.appearance, Appearance::System);
         assert_eq!(s.light_theme, LIGHT_THEME);
-        assert_eq!(s.dark_theme, crate::palette::DEFAULT);
+        assert_eq!(s.dark_theme, DARK_THEME);
         let s = Settings::parse("light_theme = \"Latte\"\ndark_theme = \"Nord\"\n").unwrap();
         for (appearance, system, theme) in [
             (Appearance::System, ThemeKind::Light, "Latte"),
@@ -661,7 +703,7 @@ model = "chosen-model"
             (light.appearance, light.light_theme.as_str()),
             (Appearance::Light, "Latte")
         );
-        assert_eq!(light.dark_theme, crate::palette::DEFAULT);
+        assert_eq!(light.dark_theme, DARK_THEME);
         // Written again, the earlier key is gone.
         let written = toml::to_string_pretty(&light).unwrap();
         assert!(!written.contains("\ntheme"), "{written}");

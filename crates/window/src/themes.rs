@@ -107,6 +107,17 @@ mod tests {
     }
 
     #[test]
+    fn until_a_theme_is_read_the_window_is_drawn_as_nightfox_draws_it() {
+        let tokens = include_str!("../assets/css/tokens.css");
+        let w = window(&Palette::default());
+        for (name, value) in w.vars.iter().filter(|(n, _)| !n.starts_with("--ansi-")) {
+            let declared = format!("{name}: {value};");
+            assert!(tokens.contains(&declared), "{declared}");
+        }
+        assert!(tokens.contains("color-scheme: dark;"));
+    }
+
+    #[test]
     fn the_window_is_drawn_on_the_theme_s_background_in_its_foreground() {
         let p = preset("Nightfox");
         let w = window(&p);

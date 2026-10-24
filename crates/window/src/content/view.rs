@@ -38,7 +38,10 @@ pub(crate) fn ContentPanel(
     // How large the content's windows are drawn, which a border's drag is
     // measured against.
     let mut drawn = use_signal(|| (0.0f64, 0.0f64));
-    let windows = app.content.read().windows.clone();
+    let (windows, marked_window) = {
+        let content = app.content.read();
+        (content.windows.clone(), content.marked_window())
+    };
     let focused_window = windows.focused_window();
     let windows_el: Vec<Element> = match windows.current() {
         None => vec![rsx! { FocusedBody {} }],
@@ -53,6 +56,7 @@ pub(crate) fn ContentPanel(
                     continue;
                 };
                 let focused = Some(id) == focused_window;
+                let marked = Some(id) == marked_window;
                 let strip = window_strip(t, terms, &completions.read(), &shows);
                 // A viewer is drawn the same focused or not, so it keeps its
                 // zoom, page and playback as the focus moves.
@@ -74,7 +78,7 @@ pub(crate) fn ContentPanel(
                     }
                 };
                 out.push(rsx! {
-                    ContentWindow { key: "{id}", id, r, focused, preview, strip, body }
+                    ContentWindow { key: "{id}", id, r, marked, preview, strip, body }
                 });
             }
             for b in tab.borders() {

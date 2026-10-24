@@ -363,6 +363,30 @@ fn a_panel_hidden_from_the_start_leaves_the_keys_where_they_are() {
 }
 
 #[test]
+fn the_focused_window_is_marked_only_while_the_content_has_the_keys() {
+    let shown = || Scenario::new().send(show(session_tab("a")));
+    let window = shown().state().content.windows.focused_window();
+    assert!(window.is_some());
+    // (the keys' area, whether the focused window is marked)
+    let cases = [
+        (Area::Sidebar, false),
+        (Area::Details, false),
+        (Area::Console, true),
+        (Area::Prompt, true),
+    ];
+    for (area, marked) in cases {
+        let at = shown().send(Msg::Focus(area));
+        let expected = if marked { window } else { None };
+        assert_eq!(at.state().content.marked_window(), expected, "{area:?}");
+    }
+    // Coming back from the tree marks the window the keys left.
+    let back = shown()
+        .send(Msg::Focus(Area::Sidebar))
+        .send(Msg::Focus(Area::Console));
+    assert_eq!(back.state().content.marked_window(), window);
+}
+
+#[test]
 fn a_shell_shown_takes_the_keys_from_the_prompt() {
     let run = Scenario::new()
         .send(show(session_tab("a")))

@@ -45,9 +45,9 @@ impl Default for Palette {
                 Rgb::new(0x7a, 0xd5, 0xd6),
                 Rgb::new(0xe4, 0xe4, 0xe5),
             ],
-            foreground: Rgb::new(0xd4, 0xd6, 0xdb),
-            background: Rgb::new(0x16, 0x19, 0x1d),
-            cursor: Rgb::new(0xe7, 0xe8, 0xeb),
+            foreground: Rgb::new(0xcd, 0xce, 0xcf),
+            background: Rgb::new(0x19, 0x23, 0x30),
+            cursor: Rgb::new(0xcd, 0xce, 0xcf),
         }
     }
 }
@@ -158,6 +158,12 @@ mod tests {
             ..Palette::default()
         };
         assert!(!green.is_dark());
+    }
+
+    #[test]
+    fn a_terminal_draws_in_nightfox_s_colours_until_a_theme_is_read() {
+        let nightfox = include_str!("../../host/themes/Nightfox");
+        assert_eq!(Palette::default(), Palette::from_ghostty(nightfox).unwrap());
     }
 
     #[test]

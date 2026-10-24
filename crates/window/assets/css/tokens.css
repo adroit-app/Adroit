@@ -1,25 +1,25 @@
 /* The variables and the icons' rules every window shares. */
 :root {
   color-scheme: dark;
-  --ground: #0f1114;
-  --panel: #16191d;
-  --raised: #1d2126;
-  --select: #252a31;
-  --line: #22262c;
-  --line-strong: #2f353d;
-  --text: #e7e8eb;
-  --text-2: #a2a8b1;
-  --text-3: #868c96;
-  --wait: #e8b45e;
-  --run: #78aee8;
-  --done: #8fc6a4;
-  --fail: #eba3aa;
-  --coord: #b9a2ec;
-  --usage-cpu: #58c9df;
-  --usage-gpu: #b9a2ec;
-  --usage-memory: #8fc6a4;
-  --usage-storage: #e8a275;
-  --usage-context: #58c9df;
+  --ground: #131a24;
+  --panel: #192330;
+  --raised: #242d3a;
+  --select: #2f3843;
+  --line: #29323e;
+  --line-strong: #38404b;
+  --text: #cdcecf;
+  --text-2: #9b9ea2;
+  --text-3: #7c8187;
+  --wait: #dbc074;
+  --run: #719cd6;
+  --done: #81b29a;
+  --fail: #c94f6d;
+  --coord: #9d79d6;
+  --usage-cpu: #63cdcf;
+  --usage-gpu: #9d79d6;
+  --usage-memory: #81b29a;
+  --usage-storage: #d7a472;
+  --usage-context: #63cdcf;
   --mono: "SF Mono", Menlo, ui-monospace, "Hiragino Kaku Gothic ProN", monospace;
   /* The console's font and line height, set from the settings. */
   --term-font: var(--mono); --term-size: 13px; --term-weight: 400; --cell-h: 17px;
@@ -30,7 +30,7 @@
   --fail-tint: rgba(235,163,170,0.10);
   --focus-line: #3a4352;
   --focus-border: #4a5566;
-  --kbd-text: #c9ccd2;
+  --kbd-text: #9b9ea2;
   --shadow: rgba(0,0,0,0.45);
 }
 * { box-sizing: border-box; }

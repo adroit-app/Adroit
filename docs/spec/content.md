@@ -33,7 +33,8 @@ several windows runs at one size, the focused window's when it is one of them.
 Each window has a strip on top that tells what it shows: its state, its name,
 its agent, and the worktree it is in; a file's window shows the file's icon
 and name, and a `×` at its right end closes the window. The focused window is
-marked as the prompt is when it has the keys.
+marked while the keys are in its console or prompt, and not while they are
+in the tree or the details; it is marked again when they come back.
 A session's window shows the agent's interface; the focused one shows the
 prompt below it as well ([prompt](prompt.md)). A terminal's window takes every
 key but the window commands' prefix and `Mod` keys. A viewer's window has no
