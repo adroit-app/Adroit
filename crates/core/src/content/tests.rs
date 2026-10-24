@@ -34,9 +34,18 @@ fn shown(run: &Scenario) -> Vec<Tab> {
         .collect()
 }
 
+/// The window opened, having kept the content showing `kept` alone.
 fn opened(kept: Option<Tab>) -> Msg {
+    let mut windows = Content::default();
+    if let Some(tab) = kept {
+        windows.open(tab);
+    }
+    opened_with(&windows)
+}
+
+fn opened_with(windows: &Content<Tab>) -> Msg {
     Msg::ContentOpened {
-        kept,
+        kept: windows.kept(kept_name),
         scratch: "/scratch".into(),
     }
 }
@@ -191,25 +200,82 @@ fn a_kept_tab_not_listed_at_first_is_given_up() {
     assert_eq!(active(&run), None);
 }
 
+fn kept_content(run: &Scenario) -> Vec<Kept<String>> {
+    run.last_effects()
+        .iter()
+        .filter_map(|e| match e {
+            Effect::KeepContent(k) => Some(k.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
 #[test]
-fn what_shows_is_kept_for_the_next_run_once_the_kept_tab_had_its_chance() {
-    let kept = |run: &Scenario| -> Vec<Option<Tab>> {
-        run.effects()
-            .iter()
-            .filter_map(|e| match e {
-                Effect::KeepShown(t) => Some(t.clone()),
-                _ => None,
-            })
-            .collect()
-    };
+fn the_content_is_kept_for_the_next_run_as_it_changes_once_the_kept_content_had_its_chance() {
+    let shows = |run: &Scenario| vec![run.state().content.windows.kept(kept_name)];
     let before = Scenario::new()
         .send(opened(None))
         .send(show(session_tab("a")));
-    assert_eq!(kept(&before), Vec::<Option<Tab>>::new());
-    let after = before
-        .event(listing([session("a").cwd("/r")]))
-        .send(Msg::Window(Action::TabClose));
-    assert_eq!(kept(&after), [Some(Tab::Session("a".into())), None]);
+    assert!(
+        !before
+            .effects()
+            .iter()
+            .any(|e| matches!(e, Effect::KeepContent(_)))
+    );
+    let listed = before.event(listing([session("a").cwd("/r")]));
+    assert_eq!(kept_content(&listed), shows(&listed));
+    let split = listed.send(Msg::Window(Action::WindowVsplit));
+    assert_eq!(kept_content(&split), shows(&split));
+    assert_eq!(shows(&split)[0].tabs.len(), 1);
+    let border = split.state().content.windows.current().unwrap().borders()[0].clone();
+    let dragging = split
+        .send(Msg::WindowDragStart {
+            border,
+            from: 500.0,
+            px: 1000.0,
+        })
+        .send(Msg::WindowDragMove(600.0));
+    assert!(kept_content(&dragging).is_empty(), "kept once dropped");
+    let dropped = dragging.send(Msg::WindowDragEnd);
+    assert_eq!(kept_content(&dropped), shows(&dropped));
+    let closed = dropped.send(Msg::Window(Action::TabClose));
+    assert_eq!(kept_content(&closed), [Kept::default()]);
+}
+
+#[test]
+fn the_content_kept_from_the_last_run_comes_back_once_listed_without_what_cannot() {
+    let mut was = Content::default();
+    was.open(Tab::Session("a".into()));
+    was.split(Axis::Row, Tab::Session("gone".into()));
+    was.split(Axis::Column, Tab::Terminal(7));
+    was.open_tab(Tab::Session("b".into()));
+    was.open_tab(Tab::Session("gone".into()));
+    was.go_to_tab(0);
+    let run = Scenario::new().send(opened_with(&was)).event(
+        snapshot().listed(
+            listed()
+                .sessions([session("a"), session("b")])
+                .terminal(shell(7, "/r/a")),
+        ),
+    );
+    let mut ended = was.clone();
+    ended.close_showing(|t| *t == Tab::Session("gone".into()));
+    let windows = &run.state().content.windows;
+    assert_eq!(windows.kept(kept_name), ended.kept(kept_name));
+    assert_eq!(windows.tabs().len(), 2);
+    assert_eq!(active(&run), Some(Tab::Terminal(7)));
+    assert_eq!(run.state().content.place, place("/r/a"));
+}
+
+#[test]
+fn a_kept_content_of_which_nothing_can_come_back_opens_empty() {
+    let mut was = Content::default();
+    was.open(Tab::Session("gone".into()));
+    was.open_tab(Tab::Terminal(9));
+    let run = Scenario::new()
+        .send(opened_with(&was))
+        .event(listing([session("a")]));
+    assert!(run.state().content.windows.is_empty());
 }
 
 #[test]

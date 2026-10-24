@@ -48,9 +48,9 @@ pub struct ContentView {
     scratch: PathBuf,
     /// Where the keys are.
     spot: Spot,
-    /// The tab shown when the window last closed, until the first listing
-    /// gives it its chance to come back.
-    restore: Option<Tab>,
+    /// The content as the window last closed, until the first listing gives
+    /// it its chance to come back.
+    restore: Option<Kept<String>>,
     /// Whether the first listing was looked at, and so whether what is shown
     /// is kept for the next run and what starts waiting is told of.
     pub restored: bool,
@@ -64,8 +64,8 @@ pub struct ContentView {
     /// The sessions shown live here, or being attached to: one started a
     /// moment ago may not be listed yet.
     live: BTreeSet<String>,
-    /// What the kept tab was last made to say.
-    kept: Option<Option<Tab>>,
+    /// What the content kept was last made to say.
+    kept: Option<Kept<String>>,
     /// The tab the place last followed.
     placed_for: Option<Tab>,
     /// The tab the focus last settled for.
@@ -189,13 +189,13 @@ impl ContentView {
     }
 }
 
-/// The window opened, with the tab it showed when it last closed and where a
+/// The window opened, with the content as it last closed and where a
 /// scratch session runs.
-pub(crate) fn opened(view: &mut ContentView, kept: Option<Tab>, scratch: PathBuf) -> Vec<Effect> {
-    view.restore = kept;
+pub(crate) fn opened(view: &mut ContentView, kept: Kept<String>, scratch: PathBuf) -> Vec<Effect> {
+    view.restore = Some(kept);
     view.scratch = scratch;
     // A host that lists the sessions already may have told them before the
-    // window opened; the listing is looked at again for the kept tab.
+    // window opened; the listing is looked at again for the content kept.
     view.looked = None;
     Vec::new()
 }
@@ -429,18 +429,19 @@ pub(crate) fn forget_drafts(view: &mut ContentView) {
     }
 }
 
-/// What the focused window shows is kept for the next run, once the tab kept
-/// from the last run had its chance to come back.
-pub(crate) fn keep_shown(view: &mut ContentView) -> Vec<Effect> {
-    if !view.restored {
+/// The content is kept for the next run as it changes, once the content kept
+/// from the last run had its chance to come back. A border being dragged is
+/// kept where it is dropped, not at every step on the way.
+pub(crate) fn keep_content(view: &mut ContentView) -> Vec<Effect> {
+    if !view.restored || view.drag.is_some() {
         return Vec::new();
     }
-    let now = view.active().cloned();
+    let now = view.windows.kept(kept_name);
     if view.kept.as_ref() == Some(&now) {
         return Vec::new();
     }
     view.kept = Some(now.clone());
-    vec![Effect::KeepShown(now)]
+    vec![Effect::KeepContent(now)]
 }
 
 /// Hiding the panel that has the keys gives them to the console.

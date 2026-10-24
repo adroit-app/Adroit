@@ -91,10 +91,10 @@ pub enum Msg {
     TerminalClosed(u128),
 
     // The content.
-    /// The window opened, with the tab it showed when it last closed and
-    /// where a session started with nothing open runs.
+    /// The window opened, with the content as it last closed and where a
+    /// session started with nothing open runs.
     ContentOpened {
-        kept: Option<Tab>,
+        kept: crate::content::Kept<String>,
         scratch: PathBuf,
     },
     /// The keys go to this area.

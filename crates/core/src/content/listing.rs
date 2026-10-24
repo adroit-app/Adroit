@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 
 use adroit_model::{State, Tree};
 
-use super::{ContentView, Tab, close_showing};
+use super::{Content, ContentView, Tab, close_showing, from_kept};
 use crate::chrome::status_line;
 use crate::effect::Effect;
 use crate::state::ViewState;
@@ -124,24 +124,26 @@ pub(crate) fn listed(state: &mut ViewState) -> Vec<Effect> {
             terminals: kept_shells.iter().map(|s| s.id).collect(),
         });
     }
-    // The tab shown when the window last closed comes back once what it
-    // shows is listed, unless another was opened meanwhile.
+    // The content as the window last closed comes back with what it shows
+    // that is listed, unless something was opened meanwhile.
     if let Some(kept) = view.restore.take()
-        && view.active().is_none()
+        && view.windows.is_empty()
     {
-        let at = match &kept {
+        let at = |tab: &Tab| match tab {
             Tab::Session(id) => nav::find(next, id).map(|(p, _)| p),
             Tab::Terminal(id) => kept_shells.iter().find(|s| s.id == *id).map(|s| Place {
                 worktree: s.cwd.clone(),
             }),
             Tab::Draft { .. } | Tab::Viewer(_) => None,
         };
-        if let Some(p) = at {
-            if let Tab::Session(id) = &kept {
+        view.windows = Content::from_kept(kept, |name| {
+            from_kept(&name).filter(|tab| at(tab).is_some())
+        });
+        if let Some(tab) = view.active().cloned() {
+            if let Tab::Session(id) = &tab {
                 state.tree.selected = Some(Item::Session(id.clone()));
             }
-            view.place = Some(p);
-            view.windows.open(kept);
+            view.place = at(&tab);
         }
     }
     // Told only of what changed since the window first read the sessions,

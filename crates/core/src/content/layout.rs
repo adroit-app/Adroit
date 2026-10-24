@@ -2,6 +2,8 @@
 //! tabs, every window showing one thing. Windows only show; what they show
 //! runs on whether or not a window shows it.
 
+use serde::{Deserialize, Serialize};
+
 use super::Dir;
 
 /// Where something opened from the tree goes.
@@ -28,7 +30,8 @@ pub const MIN_SIZE: f64 = 0.05;
 const EPS: f64 = 1e-6;
 
 /// How a split lays its parts out.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Axis {
     /// Side by side, as Neovim's `:vsplit` lays them.
     Row,
@@ -979,6 +982,181 @@ impl<T: Clone + PartialEq> Content<T> {
     }
 }
 
+/// The content as it is kept from one run to the next: each tab's layout
+/// with the window focused in it, by its place among the tab's windows, and
+/// the tab shown.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Kept<T> {
+    pub tabs: Vec<KeptTab<T>>,
+    pub current: usize,
+}
+
+impl<T> Default for Kept<T> {
+    fn default() -> Self {
+        Self {
+            tabs: Vec::new(),
+            current: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct KeptTab<T> {
+    pub root: KeptNode<T>,
+    pub focus: usize,
+    #[serde(default)]
+    pub preview: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum KeptNode<T> {
+    Window(T),
+    Split {
+        axis: Axis,
+        parts: Vec<(f64, KeptNode<T>)>,
+    },
+}
+
+impl<T> Node<T> {
+    fn map<U>(self, f: &impl Fn(T) -> U) -> Node<U> {
+        match self {
+            Node::Window(w) => Node::Window(Window {
+                id: w.id,
+                shows: f(w.shows),
+            }),
+            Node::Split(axis, parts) => Node::Split(
+                axis,
+                parts.into_iter().map(|(s, n)| (s, n.map(f))).collect(),
+            ),
+        }
+    }
+
+    fn kept(&self) -> KeptNode<T>
+    where
+        T: Clone,
+    {
+        match self {
+            Node::Window(w) => KeptNode::Window(w.shows.clone()),
+            Node::Split(axis, parts) => KeptNode::Split {
+                axis: *axis,
+                parts: parts.iter().map(|(s, n)| (*s, n.kept())).collect(),
+            },
+        }
+    }
+}
+
+impl<T> Content<T> {
+    fn map<U>(self, f: impl Fn(T) -> U) -> Content<U> {
+        let tabs = self
+            .tabs
+            .into_iter()
+            .map(|t| ContentTab {
+                id: t.id,
+                root: t.root.map(&f),
+                focus: t.focus,
+                previous: t.previous,
+                preview: t.preview,
+            })
+            .collect();
+        Content {
+            tabs,
+            current: self.current,
+            last: self.last,
+            next: self.next,
+        }
+    }
+}
+
+impl<T: Clone + PartialEq> Content<Option<T>> {
+    /// The content with every window that shows nothing closed, as one
+    /// whose thing ended is.
+    fn closed_around(mut self) -> Content<T> {
+        self.close_showing(Option::is_none);
+        self.map(|t| t.expect("a window showing nothing is closed"))
+    }
+
+    fn node_from<U>(
+        &mut self,
+        node: KeptNode<U>,
+        back: &impl Fn(U) -> Option<T>,
+    ) -> Option<Node<Option<T>>> {
+        match node {
+            KeptNode::Window(thing) => Some(Node::Window(self.window(back(thing)))),
+            KeptNode::Split { axis, parts } => {
+                let parts: Vec<_> = parts
+                    .into_iter()
+                    .filter_map(|(size, n)| {
+                        let size = if size.is_finite() && size > 0.0 {
+                            size
+                        } else {
+                            MIN_SIZE
+                        };
+                        Some((size, self.node_from(n, back)?))
+                    })
+                    .collect();
+                (!parts.is_empty()).then(|| Node::Split(axis, parts).normalized())
+            }
+        }
+    }
+}
+
+impl<T: Clone + PartialEq> Content<T> {
+    /// The content as it is kept for the next run, each window's thing as
+    /// `keep` names it. A window `keep` names nothing for is left out as if
+    /// what it showed had ended.
+    pub fn kept<U: Clone + PartialEq>(&self, keep: impl Fn(&T) -> Option<U>) -> Kept<U> {
+        let named = self.clone().map(|t| keep(&t)).closed_around();
+        Kept {
+            tabs: named
+                .tabs
+                .iter()
+                .map(|t| KeptTab {
+                    root: t.root.kept(),
+                    focus: t
+                        .windows()
+                        .iter()
+                        .position(|w| w.id == t.focus)
+                        .unwrap_or_default(),
+                    preview: t.preview,
+                })
+                .collect(),
+            current: named.current,
+        }
+    }
+
+    /// The content `kept` for the last run, each window's thing as `back`
+    /// gives it. A window `back` gives nothing for is closed as if what it
+    /// showed had ended, and the layout closes around it.
+    pub fn from_kept<U>(kept: Kept<U>, back: impl Fn(U) -> Option<T>) -> Self {
+        let mut c = Content::<Option<T>>::default();
+        for tab in kept.tabs {
+            let Some(root) = c.node_from(tab.root, &back) else {
+                continue;
+            };
+            let mut windows = Vec::new();
+            root.windows(&mut windows);
+            let focus = windows[tab.focus.min(windows.len() - 1)].id;
+            let id = c.next;
+            c.next += 1;
+            c.tabs.push(ContentTab {
+                id,
+                root,
+                focus,
+                previous: None,
+                preview: tab.preview,
+            });
+        }
+        // Only the last tab can be the preview, which comes after the rest.
+        let last = c.tabs.len().saturating_sub(1);
+        for (at, tab) in c.tabs.iter_mut().enumerate() {
+            tab.preview &= at == last;
+        }
+        c.current = kept.current.min(last);
+        c.closed_around()
+    }
+}
+
 fn replace_in<T: Clone + PartialEq>(node: &mut Node<T>, from: &T, to: &T) {
     match node {
         Node::Window(w) if w.shows == *from => w.shows = to.clone(),
@@ -1689,5 +1867,119 @@ mod tests {
         assert_eq!(c.shown(), vec![&"a", &"b"]);
         assert!(c.shows_anywhere(&"b"));
         assert!(!c.shows_anywhere(&"c"));
+    }
+
+    fn all(thing: &&'static str) -> Option<&'static str> {
+        Some(*thing)
+    }
+
+    fn back(kept: Kept<&'static str>, gone: &[&str]) -> C {
+        C::from_kept(kept, |t| (!gone.contains(&t)).then_some(t))
+    }
+
+    /// `a | (b / c)` with the border dragged, `c` focused, and a second tab
+    /// showing `d`, the first tab shown.
+    fn laid_out() -> C {
+        let mut c = one("a");
+        c.split(Axis::Row, "b");
+        c.split(Axis::Column, "c");
+        c.drag(&[], 0, 0.3);
+        c.open_tab("d");
+        c.go_to_tab(0);
+        c
+    }
+
+    #[test]
+    fn the_content_kept_comes_back_with_its_tabs_splits_sizes_and_focus() {
+        let c = laid_out();
+        let restored = back(c.kept(all), &[]);
+        assert_eq!(drawn(&restored), "(a | (b / c))");
+        assert_eq!(sizes(&restored), [0.3, 0.7]);
+        assert_eq!(restored.focused(), Some(&"c"));
+        assert_eq!(restored.tabs().len(), 2);
+        assert_eq!(restored.current_index(), 0);
+        assert_eq!(restored.kept(all), c.kept(all));
+    }
+
+    #[test]
+    fn a_window_whose_thing_cannot_come_back_is_closed_as_if_it_had_ended() {
+        let c = laid_out();
+        let restored = back(c.kept(all), &["c", "d"]);
+        let mut ended = c.clone();
+        ended.close_showing(|t| ["c", "d"].contains(t));
+        assert_eq!(drawn(&restored), "(a | b)");
+        assert_eq!(restored.focused(), ended.focused());
+        assert_eq!(restored.kept(all), ended.kept(all));
+    }
+
+    #[test]
+    fn nothing_that_can_come_back_leaves_the_content_empty() {
+        let restored = back(laid_out().kept(all), &["a", "b", "c", "d"]);
+        assert!(restored.is_empty());
+        assert!(back(Kept::default(), &[]).is_empty());
+    }
+
+    #[test]
+    fn a_window_that_keeps_nothing_is_left_out_of_what_is_kept_as_if_it_had_ended() {
+        let c = laid_out();
+        let kept = c.kept(|t| (*t != "b").then_some(*t));
+        let mut ended = c.clone();
+        ended.close_showing(|t| *t == "b");
+        assert_eq!(kept, ended.kept(all));
+    }
+
+    #[test]
+    fn a_kept_content_out_of_shape_comes_back_in_shape() {
+        let kept = Kept {
+            tabs: vec![
+                KeptTab {
+                    root: KeptNode::Split {
+                        axis: Axis::Row,
+                        parts: vec![
+                            (f64::NAN, KeptNode::Window("a")),
+                            (
+                                0.5,
+                                KeptNode::Split {
+                                    axis: Axis::Row,
+                                    parts: vec![(1.0, KeptNode::Window("b"))],
+                                },
+                            ),
+                            (
+                                0.5,
+                                KeptNode::Split {
+                                    axis: Axis::Column,
+                                    parts: Vec::new(),
+                                },
+                            ),
+                        ],
+                    },
+                    focus: 9,
+                    preview: true,
+                },
+                KeptTab {
+                    root: KeptNode::Window("c"),
+                    focus: 0,
+                    preview: true,
+                },
+            ],
+            current: 5,
+        };
+        let restored = back(kept, &[]);
+        assert_eq!(restored.tabs().len(), 2);
+        assert_eq!(restored.current_index(), 1);
+        assert_eq!(restored.focused(), Some(&"c"));
+        let mut restored = restored;
+        restored.go_to_tab(0);
+        assert_eq!(drawn(&restored), "(a | b)");
+        assert!((sizes(&restored).iter().sum::<f64>() - 1.0).abs() < 0.01);
+        assert_eq!(restored.focused(), Some(&"b"));
+        assert_eq!(
+            restored
+                .tabs()
+                .iter()
+                .map(|t| t.is_preview())
+                .collect::<Vec<_>>(),
+            [false, true]
+        );
     }
 }

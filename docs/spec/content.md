@@ -73,9 +73,14 @@ its worktree is shown.
 
 ## Across runs
 
-What the focused window showed when the window closed is shown again, in a tab
-of its own, when a window with the same number opens
-([windows](sessions.md#windows)); the other tabs and windows are not kept.
+The content as it was when the window closed comes back when a window with the
+same number opens ([windows](sessions.md#windows)): every tab, the windows it
+is split into and their sizes, the window focused in each, and the tab shown.
+What cannot come back is left out, the layout closing around it as it does
+when what a window shows ends: a session or terminal no longer listed, a
+viewer, a session not started yet. With nothing left, the content opens
+empty, and something opened before the sessions are first listed takes the
+kept content's place.
 
 ## Terminals
 

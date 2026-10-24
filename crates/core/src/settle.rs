@@ -81,9 +81,9 @@ fn content_drafts(state: &mut ViewState, _: &mut Vec<Effect>) {
     content::forget_drafts(&mut state.content);
 }
 
-/// What the focused window shows is kept for the next run.
+/// The content is kept for the next run.
 fn content_kept(state: &mut ViewState, effects: &mut Vec<Effect>) {
-    effects.extend(content::keep_shown(&mut state.content));
+    effects.extend(content::keep_content(&mut state.content));
 }
 
 /// Hiding the panel that has the keys gives them to the console.

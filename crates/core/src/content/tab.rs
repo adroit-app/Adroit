@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 
 use adroit_model::{Agent, AgentPermissions, DraftId};
 
+use super::{Kept, KeptNode, KeptTab};
+
 /// What a window shows.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Tab {
@@ -187,9 +189,36 @@ pub fn from_kept(name: &str) -> Option<Tab> {
     u128::from_str_radix(id, 16).ok().map(Tab::Terminal)
 }
 
+/// The content kept for the next run, as it is written down: each window by
+/// the name [`kept_name`] gave its tab.
+pub fn kept_text(kept: &Kept<String>) -> String {
+    serde_json::to_string(kept).expect("the content kept is plain data")
+}
+
+/// The content [`kept_text`] wrote. A window kept only the one tab it
+/// showed before the rest of the content was kept, by its name alone, which
+/// reads as that tab alone; anything else reads as nothing kept.
+pub fn read_kept(text: &str) -> Kept<String> {
+    if let Ok(kept) = serde_json::from_str(text) {
+        return kept;
+    }
+    match from_kept(text) {
+        Some(_) => Kept {
+            tabs: vec![KeptTab {
+                root: KeptNode::Window(text.trim().to_string()),
+                focus: 0,
+                preview: false,
+            }],
+            current: 0,
+        },
+        None => Kept::default(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::content::{Axis, Content};
 
     #[test]
     fn options_chosen_with_nothing_open_go_to_the_next_draft_only() {
@@ -233,6 +262,31 @@ mod tests {
         assert_eq!(kept_name(&draft), None);
         assert_eq!(from_kept("shell:not hex"), None);
         assert_eq!(from_kept("something else"), None);
+    }
+
+    #[test]
+    fn the_content_kept_reads_back_as_it_was_written() {
+        let mut windows = Content::default();
+        windows.open(Tab::Session("a".into()));
+        windows.split(Axis::Row, Tab::Terminal(7));
+        windows.open_tab(Tab::Session("b".into()));
+        let kept = windows.kept(kept_name);
+        assert_eq!(read_kept(&kept_text(&kept)), kept);
+    }
+
+    #[test]
+    fn an_old_file_holding_one_kept_tab_reads_as_that_tab_alone_and_anything_else_as_nothing() {
+        let one = Kept {
+            tabs: vec![KeptTab {
+                root: KeptNode::Window("session:a".to_string()),
+                focus: 0,
+                preview: false,
+            }],
+            current: 0,
+        };
+        assert_eq!(read_kept("session:a\n"), one);
+        assert_eq!(read_kept(""), Kept::default());
+        assert_eq!(read_kept("{not json"), Kept::default());
     }
 
     #[test]

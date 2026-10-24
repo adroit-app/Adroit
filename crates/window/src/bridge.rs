@@ -9,7 +9,7 @@ use adroit_core::actions::Action;
 use adroit_core::chrome::Chrome;
 use adroit_core::config::Config;
 use adroit_core::console::ConsoleView;
-use adroit_core::content::{Area, ContentView, Tab, kept_name};
+use adroit_core::content::{Area, ContentView, Tab, kept_text, read_kept};
 use adroit_core::details::{Details, Scroll};
 use adroit_core::effect::Effect;
 use adroit_core::host::Host as HostView;
@@ -130,12 +130,14 @@ pub(crate) fn use_app() -> AppCtx {
         // Drawn without the work, should the host not answer in time.
         let _ = first.recv_timeout(FIRST_WORK);
         let mut view = ViewState::default();
-        // A window that kept nothing yet shows what the instance's one
-        // window kept before there could be several.
-        let kept = std::fs::read_to_string(shown_path())
+        // A window that kept no content yet shows the one tab it kept before
+        // the content was, or else what the instance's one window kept
+        // before there could be several.
+        let kept = std::fs::read_to_string(content_path())
+            .or_else(|_| std::fs::read_to_string(shown_path()))
             .or_else(|_| std::fs::read_to_string(instance_state().join("shown")))
-            .ok()
-            .and_then(|name| adroit_core::content::from_kept(&name));
+            .map(|text| read_kept(&text))
+            .unwrap_or_default();
         // The layout kept comes first: hiding a panel gives its keys away,
         // and a panel kept hidden was not hidden now. The host's first
         // answers are taken in before the window is drawn, so it opens in
@@ -297,20 +299,15 @@ impl AppCtx {
             }
             Effect::Notice(text) => self.notice(text),
             Effect::ShowSession(id) => self.dispatch(Msg::ShowSession(id)),
-            Effect::KeepShown(shown) => match shown {
-                Some(tab) => {
-                    if let Some(name) = kept_name(&tab) {
-                        let path = shown_path();
-                        if let Some(dir) = path.parent() {
-                            let _ = std::fs::create_dir_all(dir);
-                        }
-                        let _ = std::fs::write(path, name);
-                    }
+            Effect::KeepContent(kept) => {
+                let path = content_path();
+                if let Some(dir) = path.parent() {
+                    let _ = std::fs::create_dir_all(dir);
                 }
-                None => {
+                if std::fs::write(path, kept_text(&kept)).is_ok() {
                     let _ = std::fs::remove_file(shown_path());
                 }
-            },
+            }
             // Told only while the window is not in front, and by one window
             // of the instance alone.
             Effect::NotifyWaiting(waiting) => {
@@ -463,7 +460,13 @@ fn open_another_window() -> std::io::Result<()> {
     Ok(())
 }
 
-/// Where this window keeps what its focused window shows, under its number.
+/// Where this window keeps its content, under its number.
+fn content_path() -> std::path::PathBuf {
+    crate::window_socket::kept_path("content.json")
+}
+
+/// Where this window kept the one tab its focused window showed, before it
+/// kept the whole content.
 fn shown_path() -> std::path::PathBuf {
     crate::window_socket::kept_path("shown")
 }

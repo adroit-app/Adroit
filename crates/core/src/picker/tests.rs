@@ -171,7 +171,7 @@ fn typing_narrows_the_list_and_puts_the_cursor_back_on_the_first_row() {
 fn choosing_a_directory_or_the_scratch_row_starts_a_draft_there_to_write_in() {
     let scratch = |run: Scenario| {
         run.send(Msg::ContentOpened {
-            kept: None,
+            kept: Default::default(),
             scratch: "/scratch".into(),
         })
     };

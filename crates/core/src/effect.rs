@@ -64,8 +64,9 @@ pub enum Effect {
     PromptClose(Option<Tab>),
     /// Start writing in the prompt, whatever mode it was left in.
     StartWriting,
-    /// Keep this tab as the one shown for the next run, or none.
-    KeepShown(Option<Tab>),
+    /// Keep the content as this for the next run, each window by the name
+    /// its tab is kept by.
+    KeepContent(crate::content::Kept<String>),
     /// Keep the panes and the images drawn only of these sessions and
     /// terminals.
     KeepPanes {

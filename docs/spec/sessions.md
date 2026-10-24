@@ -69,7 +69,7 @@ leaves the others as they are, and the sessions run on with no window open.
 
 Each window holds a number, the lowest none of the instance's open windows
 holds. A window keeps, under its number, the layout of its side panels and
-what its focused window showed when it closed, and the next window opened
+its content when it closed ([content](content.md#across-runs)), and the next window opened
 with that number shows them again. Windows are not opened again together:
 opening adroit opens one, and each New Window the next.
 
