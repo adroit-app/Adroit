@@ -181,8 +181,10 @@ pub fn resolve(
     if let Some(delegation) = &request.delegation {
         args.extend(delegation.args(request.agent, adroit_program));
         let instructions = match (&request.developer_instructions, request.agent) {
-            (Some(base), Agent::Codex) => format!("{base}\n\n{}", delegation.instructions()),
-            _ => delegation.instructions().to_owned(),
+            (Some(base), Agent::Codex) => {
+                format!("{base}\n\n{}", delegation.instructions(adroit_program))
+            }
+            _ => delegation.instructions(adroit_program),
         };
         args.extend(adapter.instruction_args(&instructions));
     }

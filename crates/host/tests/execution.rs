@@ -307,7 +307,15 @@ fn claude_code_reaches_adroit_through_its_mcp_server_loaded_as_a_channel() {
         args.windows(2)
             .any(|pair| pair == ["--allowedTools", "mcp__adroit__*"])
     );
-    assert!(args.iter().any(|arg| arg == "--append-system-prompt"));
+    let told = args
+        .windows(2)
+        .find(|pair| pair[0] == "--append-system-prompt")
+        .unwrap();
+    assert!(
+        told[1].contains("/bin/adroit terminal start"),
+        "{}",
+        told[1]
+    );
 }
 
 #[test]
@@ -327,6 +335,10 @@ fn codex_reaches_adroit_through_its_mcp_server_and_keeps_its_own_instructions() 
         .unwrap();
     assert!(instructions.contains("Be terse."), "{instructions}");
     assert!(instructions.contains("report"), "{instructions}");
+    assert!(
+        instructions.contains("/bin/adroit terminal start"),
+        "{instructions}"
+    );
 }
 
 #[test]

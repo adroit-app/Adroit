@@ -18,6 +18,21 @@ use std::path::{Path, PathBuf};
 /// start.
 pub type Started = (String, Vec<String>, Vec<(String, String)>);
 
+/// `program` as a shell reads it back as one word, for what tells an agent
+/// the command to run.
+pub fn shell_word(program: impl AsRef<Path>) -> String {
+    let word = program.as_ref().to_string_lossy();
+    if !word.is_empty()
+        && word
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "/._-+".contains(c))
+    {
+        word.into_owned()
+    } else {
+        format!("'{}'", word.replace('\'', r"'\''"))
+    }
+}
+
 /// What the settings say of how agents start: an adapter is handed these
 /// rather than reading the settings itself.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

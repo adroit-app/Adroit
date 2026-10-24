@@ -77,6 +77,12 @@ it is about to do, and afterwards what it did; it neither waits for their
 answer nor takes a lock. Sessions send only what the recipient has to act on:
 no progress notes and no replies that only acknowledge.
 
+Where the instructions name an `adroit` command, such as `adroit terminal`
+for probes, they name the adroit whose work host started the session by its
+absolute path, so a session runs it from any directory, whatever its `PATH`:
+the installed app's own binary, or a development build's own when it runs an
+instance of its own.
+
 ## Starting up
 
 Adroit watches each session it starts until its agent is ready. When the

@@ -8,20 +8,7 @@ const START_SESSION: &str = include_str!("../../plugin/skills/start-session/SKIL
 
 /// The skill, naming `program` as the command to run.
 fn start_session(program: &Path) -> String {
-    START_SESSION.replace("@ADROIT@", &quoted(&program.to_string_lossy()))
-}
-
-/// `word` as the shell reads it back whole.
-fn quoted(word: &str) -> String {
-    if !word.is_empty()
-        && word
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "/._-+".contains(c))
-    {
-        word.to_string()
-    } else {
-        format!("'{}'", word.replace('\'', r"'\''"))
-    }
+    START_SESSION.replace("@ADROIT@", &crate::shell_word(program))
 }
 
 /// Write the plugin into `dir`, naming `program`, over what an earlier adroit
