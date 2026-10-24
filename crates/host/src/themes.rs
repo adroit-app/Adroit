@@ -8,38 +8,60 @@ use adroit_term::Palette;
 
 use crate::settings::Settings;
 
-pub use adroit_core::palette::{ANSI, DEFAULT};
+pub use adroit_core::palette::ANSI;
 
-/// The themes adroit comes with, by name.
+/// The themes adroit comes with, by name: the dark ones, then the light.
 const PRESETS: &[(&str, &str)] = &[
     ("Nightfox", include_str!("../themes/Nightfox")),
+    ("Duskfox", include_str!("../themes/Duskfox")),
+    ("Nordfox", include_str!("../themes/Nordfox")),
+    ("Terafox", include_str!("../themes/Terafox")),
+    ("Carbonfox", include_str!("../themes/Carbonfox")),
     ("TokyoNight", include_str!("../themes/TokyoNight")),
     (
         "Catppuccin Mocha",
         include_str!("../themes/Catppuccin Mocha"),
     ),
     ("Gruvbox Dark", include_str!("../themes/Gruvbox Dark")),
+    (
+        "Gruvbox Material Dark",
+        include_str!("../themes/Gruvbox Material Dark"),
+    ),
     ("Dracula", include_str!("../themes/Dracula")),
     ("Nord", include_str!("../themes/Nord")),
     ("Kanagawa Wave", include_str!("../themes/Kanagawa Wave")),
     ("Rose Pine", include_str!("../themes/Rose Pine")),
+    ("Dayfox", include_str!("../themes/Dayfox")),
+    ("Dawnfox", include_str!("../themes/Dawnfox")),
+    ("TokyoNight Day", include_str!("../themes/TokyoNight Day")),
     (
         "Catppuccin Latte",
         include_str!("../themes/Catppuccin Latte"),
     ),
+    ("Gruvbox Light", include_str!("../themes/Gruvbox Light")),
+    (
+        "Gruvbox Material Light",
+        include_str!("../themes/Gruvbox Material Light"),
+    ),
+    (
+        "Everforest Light Med",
+        include_str!("../themes/Everforest Light Med"),
+    ),
+    ("Kanagawa Lotus", include_str!("../themes/Kanagawa Lotus")),
+    ("Rose Pine Dawn", include_str!("../themes/Rose Pine Dawn")),
     (
         "GitHub Light Default",
         include_str!("../themes/GitHub Light Default"),
     ),
+    ("One Half Light", include_str!("../themes/One Half Light")),
+    ("Melange Light", include_str!("../themes/Melange Light")),
+    ("Zenbones Light", include_str!("../themes/Zenbones Light")),
 ];
 
-/// Every theme to choose from: adroit's own, those it comes with, then the
-/// user's in `dir` by name.
+/// Every theme to choose from: those adroit comes with, then the user's in
+/// `dir` by name.
 pub fn names(dir: &Path) -> Vec<String> {
-    let mut out: Vec<String> = std::iter::once(DEFAULT)
-        .chain(PRESETS.iter().map(|(n, _)| *n))
-        .map(String::from)
-        .collect();
+    let mut out: Vec<String> = PRESETS.iter().map(|(n, _)| n.to_string()).collect();
     let mut own: Vec<String> = std::fs::read_dir(dir)
         .into_iter()
         .flatten()
@@ -64,7 +86,7 @@ pub fn palette(name: &str, dir: &Path) -> Result<Palette, String> {
 }
 
 /// Whether the theme `name` is light or dark, by its palette; one that
-/// cannot be read counts as dark, as adroit's own is.
+/// cannot be read counts as dark.
 pub fn kind(name: &str, dir: &Path) -> ThemeKind {
     match palette(name, dir) {
         Ok(p) if !p.is_dark() => ThemeKind::Light,
@@ -116,8 +138,6 @@ pub fn colours(name: &str, dir: &Path) -> Colours {
             .map_err(|e| e.to_string())
             .and_then(|text| Palette::from_ghostty(&text).map(|_| text))
             .map_err(|e| format!("{}: {e}", file.display()))
-    } else if name == DEFAULT {
-        return Colours::Own;
     } else {
         PRESETS
             .iter()
@@ -138,10 +158,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_theme_s_colours_are_adroit_s_own_its_text_or_why_it_cannot_be_had() {
+    fn a_theme_s_colours_are_its_text_or_why_it_cannot_be_had() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("Mine"), "background = #010203\n").unwrap();
-        assert_eq!(colours(DEFAULT, dir.path()), Colours::Own);
+        assert_eq!(
+            colours("Adroit", dir.path()),
+            Colours::Unreadable {
+                error: "no theme named \"Adroit\"".into()
+            }
+        );
         assert_eq!(
             colours("Mine", dir.path()),
             Colours::Theme {
@@ -158,16 +183,67 @@ mod tests {
     }
 
     #[test]
-    fn of_the_themes_adroit_comes_with_only_the_latte_and_github_light_are_light() {
+    fn the_themes_adroit_comes_with_are_as_many_light_as_dark_the_darks_first() {
         let none = Path::new("/no/such/folder");
-        let light: Vec<String> = listed(none)
-            .into_iter()
-            .filter(|t| t.kind == ThemeKind::Light)
-            .map(|t| t.name)
-            .collect();
-        assert_eq!(light, ["Catppuccin Latte", "GitHub Light Default"]);
-        assert_eq!(kind(DEFAULT, none), ThemeKind::Dark);
+        let of = |k: ThemeKind| -> Vec<String> {
+            listed(none)
+                .into_iter()
+                .filter(|t| t.kind == k)
+                .map(|t| t.name)
+                .collect()
+        };
+        assert_eq!(
+            of(ThemeKind::Dark),
+            [
+                "Nightfox",
+                "Duskfox",
+                "Nordfox",
+                "Terafox",
+                "Carbonfox",
+                "TokyoNight",
+                "Catppuccin Mocha",
+                "Gruvbox Dark",
+                "Gruvbox Material Dark",
+                "Dracula",
+                "Nord",
+                "Kanagawa Wave",
+                "Rose Pine",
+            ]
+        );
+        assert_eq!(
+            of(ThemeKind::Light),
+            [
+                "Dayfox",
+                "Dawnfox",
+                "TokyoNight Day",
+                "Catppuccin Latte",
+                "Gruvbox Light",
+                "Gruvbox Material Light",
+                "Everforest Light Med",
+                "Kanagawa Lotus",
+                "Rose Pine Dawn",
+                "GitHub Light Default",
+                "One Half Light",
+                "Melange Light",
+                "Zenbones Light",
+            ]
+        );
+        let names = names(none);
+        let first_light = names.iter().position(|n| n == "Dayfox").unwrap();
+        assert!(
+            names[first_light..]
+                .iter()
+                .all(|n| kind(n, none) == ThemeKind::Light)
+        );
         assert_eq!(kind("Nowhere", none), ThemeKind::Dark);
+    }
+
+    #[test]
+    fn every_theme_adroit_comes_with_names_its_licence() {
+        let readme = include_str!("../themes/README.md");
+        for (name, _) in PRESETS {
+            assert!(readme.contains(name), "{name}");
+        }
     }
 
     #[test]
@@ -198,6 +274,11 @@ mod tests {
             (s.appearance, s.dark_theme.as_str()),
             (Appearance::Dark, "Nord")
         );
+        let s = read("theme = \"Adroit\"\n");
+        assert_eq!(
+            (s.appearance, s.dark_theme.as_str()),
+            (Appearance::Dark, "Nightfox")
+        );
         let s = read("theme = \"Gone\"\n");
         assert_eq!(
             (s.appearance, s.dark_theme.as_str()),
@@ -226,7 +307,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("Mine"), "background = #010203\n").unwrap();
         let listed = names(dir.path());
-        assert_eq!(listed[0], DEFAULT);
+        assert_eq!(listed[0], PRESETS[0].0);
         assert_eq!(listed.last().map(String::as_str), Some("Mine"));
         let p = palette("Mine", dir.path()).unwrap();
         assert_eq!(p.background, Rgb::new(1, 2, 3));

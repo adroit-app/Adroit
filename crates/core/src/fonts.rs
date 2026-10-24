@@ -35,18 +35,16 @@ pub fn monospace_families<'a>(faces: impl Iterator<Item = (&'a str, bool)>) -> V
 }
 
 /// The choices for a saved `font_family` of `saved`, given the families
-/// `installed`, or `None` while they are still being read: adroit's default,
-/// a saved family that is not installed, adroit's own font, then the
-/// installed ones. A saved family not installed stays a choice, so it is not
-/// lost until another is picked.
+/// `installed`, or `None` while they are still being read: adroit's own
+/// font, which `font_family` leaves unnamed, a saved family that is not
+/// installed, then the installed ones. A saved family not installed stays a
+/// choice, so it is not lost until another is picked.
 pub fn choices(installed: Option<&[String]>, saved: &str) -> Vec<FontChoice> {
     let mut out = vec![FontChoice {
         value: String::new(),
-        label: format!("Adroit's default ({FAMILY})"),
+        label: format!("{FAMILY} (built in)"),
     }];
-    let known = saved.is_empty()
-        || saved == FAMILY
-        || installed.is_some_and(|i| i.iter().any(|f| f == saved));
+    let known = saved.is_empty() || installed.is_some_and(|i| i.iter().any(|f| f == saved));
     if !known {
         out.push(FontChoice {
             value: saved.to_string(),
@@ -56,10 +54,6 @@ pub fn choices(installed: Option<&[String]>, saved: &str) -> Vec<FontChoice> {
             },
         });
     }
-    out.push(FontChoice {
-        value: FAMILY.to_string(),
-        label: format!("{FAMILY} (built in)"),
-    });
     out.extend(
         installed
             .unwrap_or_default()
@@ -116,36 +110,35 @@ mod tests {
     }
 
     #[test]
-    fn adroit_s_default_comes_first_with_its_own_font_after_it() {
+    fn the_built_in_font_comes_first_as_the_font_left_unnamed() {
         let c = choices(Some(&installed_here()), "");
-        assert_eq!(values(&c), ["", FAMILY, "Menlo", "Monaco"]);
-        assert!(c[0].label.contains(FAMILY), "{}", c[0].label);
-        assert!(c[1].label.ends_with("(built in)"), "{}", c[1].label);
+        assert_eq!(values(&c), ["", "Menlo", "Monaco"]);
+        assert_eq!(c[0].label, format!("{FAMILY} (built in)"));
     }
 
     #[test]
-    fn adroit_s_own_font_is_offered_before_the_installed_ones_are_read() {
+    fn the_built_in_font_is_offered_before_the_installed_ones_are_read() {
         let c = choices(None, "");
-        assert_eq!(values(&c), ["", FAMILY]);
+        assert_eq!(values(&c), [""]);
     }
 
     #[test]
     fn an_installed_saved_family_is_offered_once() {
         let c = choices(Some(&installed_here()), "Menlo");
-        assert_eq!(values(&c), ["", FAMILY, "Menlo", "Monaco"]);
+        assert_eq!(values(&c), ["", "Menlo", "Monaco"]);
     }
 
     #[test]
     fn a_saved_family_not_installed_is_kept_and_marked_so() {
         let c = choices(Some(&installed_here()), "Iosevka");
-        assert_eq!(values(&c), ["", "Iosevka", FAMILY, "Menlo", "Monaco"]);
+        assert_eq!(values(&c), ["", "Iosevka", "Menlo", "Monaco"]);
         assert_eq!(c[1].label, "Iosevka (not installed)");
     }
 
     #[test]
     fn a_saved_family_is_offered_unmarked_while_the_installed_ones_are_read() {
         let c = choices(None, "Iosevka");
-        assert_eq!(values(&c), ["", "Iosevka", FAMILY]);
+        assert_eq!(values(&c), ["", "Iosevka"]);
         assert_eq!(c[1].label, "Iosevka");
     }
 }

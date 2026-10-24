@@ -32,26 +32,28 @@ for its sessions. Only that agent's options are offered; changes
 do not affect other agents or sessions already running. General sets the
 agent new sessions start with. Programs holds the shell and Neovim options.
 
-The Settings window offers the font among adroit's default, adroit's own and
-the families installed whose letters and digits are all as wide, the console
-being a grid. A family the settings name that is not installed is offered as
+The Settings window offers the font among adroit's own, which is drawn when
+none is named, and the families installed whose letters and digits are all
+as wide, the console being a grid. A family the settings name that is not installed is offered as
 such and kept, drawn in adroit's own meanwhile, until another is picked.
 
-A theme is adroit's own, one of those it comes with (Nightfox, TokyoNight,
-Catppuccin, Gruvbox, Dracula, Nord, Kanagawa, Rose Pine and GitHub Light among
-them), or one of your own: a file in `themes/` beside `settings.toml`, named
-as the theme, in Ghostty's theme format, so a theme file from Ghostty works as
-it is. Of it, adroit reads the sixteen colours, the background, the
+A theme is one of those adroit comes with, as many light as dark, each taken
+from a theme for Vim or Neovim whose licence lets adroit ship it (Nightfox and
+its sibling themes, TokyoNight, Catppuccin, Gruvbox, Kanagawa and Rose Pine
+among them), or one of your own: a file in `themes/` beside `settings.toml`,
+named as the theme, in Ghostty's theme format, so a theme file from Ghostty
+works as it is. Of it, adroit reads the sixteen colours, the background, the
 foreground and the cursor's colour. Your file of the same name as one adroit
 comes with is used in its place. A theme whose background is darker than its
 text is a dark one, any other a light one; one that cannot be read counts as
-dark.
+dark. Settings naming Adroit, the theme of adroit's own that earlier versions
+offered, are drawn in Nightfox.
 
-You choose a light theme and a dark theme, and the appearance: System follows
-macOS, switching within a second of macOS turning light or dark, as it does
-on its own when set to Auto; Light and Dark keep to one theme. The Settings
-window offers for each only the themes of its kind, and keeps a theme the
-settings name that is not among them in view until another is picked. The
+You choose a light theme and a dark theme, Dawnfox and Nightfox when you
+choose none, and the appearance: System follows macOS, switching within a
+second of macOS turning light or dark, as it does on its own when set to Auto;
+Light and Dark keep to one theme. The Settings window offers for each only
+the themes of its kind, and keeps a theme the settings name that is not among them in view until another is picked. The
 theme follows macOS whether a window is open or not, so a session started with
 none open takes the theme of the appearance in force. The whole window is
 drawn in the theme's colours, and a new theme reaches the consoles already

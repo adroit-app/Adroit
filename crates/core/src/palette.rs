@@ -19,6 +19,3 @@ pub const ANSI: [&str; 16] = [
     "--ansi-14",
     "--ansi-15",
 ];
-
-/// The theme of adroit's own palette.
-pub const DEFAULT: &str = "Adroit";
