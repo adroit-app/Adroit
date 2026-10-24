@@ -761,6 +761,7 @@ fn storage(error: impl std::fmt::Display) -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::{message, record};
 
     fn claude_screen(name: &str) -> Vec<String> {
         let path = format!(
@@ -772,22 +773,6 @@ mod tests {
             .lines()
             .map(String::from)
             .collect()
-    }
-
-    fn session(agent: Agent, conversation: Option<&str>) -> Session {
-        Session {
-            id: SessionId::new(),
-            parent: None,
-            agent,
-            name: "review".into(),
-            cwd: "/repo".into(),
-            terminal: None,
-            conversation: conversation.map(String::from),
-            readiness: Readiness::Ready,
-            started_ms: 0,
-            reported: false,
-            ended: false,
-        }
     }
 
     #[test]
@@ -863,16 +848,11 @@ mod tests {
 
     #[test]
     fn a_message_names_its_sender_and_adroit_s_own_word_names_adroit() {
-        let sender = session(Agent::Claude, None);
-        let message = Message {
-            id: adroit_model::MessageId::new(),
-            sender: Some(sender.id),
-            recipient: SessionId::new(),
-            kind: MessageKind::Report,
-            body: "done".into(),
-            sent_ms: 0,
-            delivered: false,
-        };
+        let sender = record("review").build();
+        let message = message(Some(sender.id), SessionId::new())
+            .kind(MessageKind::Report)
+            .body("done")
+            .build();
         let read = envelope(&message, Some(&sender));
         assert!(read.starts_with("[report] from review"), "{read}");
         assert!(read.contains(&sender.id.to_string()), "{read}");
@@ -887,7 +867,10 @@ mod tests {
 
     #[test]
     fn a_codex_subagent_cannot_act_for_the_session_it_runs_in() {
-        let codex = session(Agent::Codex, Some("thread-a"));
+        let codex = record("review")
+            .agent(Agent::Codex)
+            .conversation("thread-a")
+            .build();
         assert!(from_own_conversation(&codex, Some("thread-a")).is_ok());
         assert_eq!(
             from_own_conversation(&codex, Some("thread-b"))
@@ -895,7 +878,9 @@ mod tests {
                 .code,
             Code::Refused
         );
-        assert!(from_own_conversation(&session(Agent::Codex, None), Some("thread-b")).is_ok());
-        assert!(from_own_conversation(&session(Agent::Claude, Some("x")), Some("y")).is_ok());
+        let fresh = record("review").agent(Agent::Codex).build();
+        assert!(from_own_conversation(&fresh, Some("thread-b")).is_ok());
+        let claude = record("review").conversation("x").build();
+        assert!(from_own_conversation(&claude, Some("y")).is_ok());
     }
 }

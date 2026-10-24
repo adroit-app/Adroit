@@ -154,6 +154,7 @@ fn sample_conversation(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adroit_model::testing::session;
 
     #[test]
     fn conversation_stats_refresh_on_changes_and_log_without_overview_links() {
@@ -184,12 +185,7 @@ mod tests {
 
     #[test]
     fn conversation_sampling_follows_the_selected_session_and_its_transcript_id() {
-        let mut session = Session {
-            id: "shown".into(),
-            session_id: "first".into(),
-            cwd: "/project".into(),
-            ..Default::default()
-        };
+        let mut session = session("shown").session_id("first").cwd("/project").build();
         let shown = session.clone();
         assert!(has_transcript(&shown), "selected session has a transcript");
         assert!(!has_transcript(&Session {

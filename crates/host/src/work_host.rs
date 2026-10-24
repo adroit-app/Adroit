@@ -319,8 +319,9 @@ pub fn cli(asked: HostCommand) -> i32 {
 
 #[cfg(test)]
 mod tests {
+    use adroit_protocol::testing::patch;
     use adroit_protocol::{
-        Answer, Ask, Change, Event, PromptChange, Request, Seq, Version, WorkPatch, decode, encode,
+        Answer, Ask, Change, Event, PromptChange, Request, Seq, Version, decode, encode,
     };
 
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -553,10 +554,7 @@ mod tests {
         for seq in 1..=2 {
             assert_eq!(
                 window.told().await,
-                Event::Patch(WorkPatch {
-                    seq: Seq(seq),
-                    changes: composed(seq),
-                })
+                patch(seq).changes(composed(seq)).into()
             );
         }
     }
@@ -633,15 +631,12 @@ mod tests {
         };
         watched.record([links.clone()]);
         watched.record([failing.clone()]);
-        let patch = |seq, change: adroit_protocol::Change| {
-            Event::Patch(WorkPatch {
-                seq: Seq(seq),
-                changes: vec![change],
-            })
-        };
-        assert_eq!(windows[0].told().await, patch(1, links.into()));
-        assert_eq!(windows[0].told().await, patch(2, failing.clone().into()));
-        assert_eq!(windows[1].told().await, patch(1, failing.into()));
+        assert_eq!(windows[0].told().await, patch(1).change(links).into());
+        assert_eq!(
+            windows[0].told().await,
+            patch(2).change(failing.clone()).into()
+        );
+        assert_eq!(windows[1].told().await, patch(1).change(failing).into());
     }
 
     #[tokio::test]

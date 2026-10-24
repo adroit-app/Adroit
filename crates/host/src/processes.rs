@@ -171,6 +171,7 @@ pub fn kill(session: &Session, target: &Process) -> Result<(), String> {
 mod tests {
     use super::*;
     use adroit_model::Session;
+    use adroit_model::testing::session;
 
     fn process(pid: u32, parent: u32, owner: Option<&str>) -> Process {
         Process {
@@ -218,11 +219,7 @@ mod tests {
         all[2].name = "codex-code-mode-host".into();
         all[3].name = "zsh".into();
         all[4].name = "node".into();
-        let session = Session {
-            id: "session".into(),
-            pid: Some(100),
-            ..Default::default()
-        };
+        let session = session("session").pid(100).build();
         assert_eq!(
             associated(&all, &session)
                 .iter()
@@ -263,10 +260,7 @@ mod tests {
             process(20, 1, Some("other")),
             process(21, 20, Some("other")),
         ];
-        let session = Session {
-            id: "session".into(),
-            ..Session::default()
-        };
+        let session = session("session").build();
         let shown = associated(&all, &session);
         assert_eq!(
             shown.iter().map(|p| p.pid).collect::<Vec<_>>(),

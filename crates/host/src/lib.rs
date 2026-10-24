@@ -31,6 +31,8 @@ pub mod start;
 pub mod system_usage;
 mod terminal_host;
 pub mod terminals;
+#[cfg(test)]
+mod testing;
 pub mod themes;
 pub mod watch;
 pub mod work;
