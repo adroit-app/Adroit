@@ -13,12 +13,11 @@ the directory it works in, its **workspace**, and talking. What the work turns
 out to be shows as you go; nothing has to be named or declared before the
 first word.
 
-A workspace holds every session Adroit runs in it, together with external
-sessions its agent can report. When the workspace is a git repository, its worktrees divide it:
-each session sits under the worktree it runs in. A session hands work on
-when it judges the work calls for it: to its agent's own subagents, or to
-sessions of its own, which usually work in worktrees of their own and which
-you read and steer like any other. You only ask; whether and how the work is
+A workspace holds every session adroit runs in it. When the workspace is a git
+repository, its worktrees divide it: each session sits under the worktree it
+runs in. A session hands work on when it judges the work calls for it: to its
+agent's own subagents, or to sessions of its own, which usually work in
+worktrees of their own and which you read and steer like any other. You only ask; whether and how the work is
 divided is the session's to decide.
 
 You see every workspace's sessions in one window, the ones waiting on you
@@ -45,12 +44,14 @@ rather than like operating a dashboard.
 - **The session comes first.** Starting asks only where: a directory picked
   from those already in use, from the repositories on the machine, or from a
   file tree. Structure is never asked for up front.
-- **Sessions outlive the window.** Every session runs in a terminal daemon,
-  not in the window, so closing adroit leaves them running and opening it again
-  finds them as they were.
+- **Sessions outlive the window.** Every session runs in a terminal host, and
+  everything known of the work is held by a work host, both apart from the
+  window, so closing adroit leaves them running and opening it again finds
+  them as they were. A window only shows the work, and any number of windows
+  can show it.
 - **adroit keeps no records of its own about sessions but who started whom
   and what they told each other.** Which sessions exist, where they run and
-  how they stand come from the daemon that runs them and from what their
+  how they stand come from the hosts that run them and from what their
   programs report; repositories and worktrees come from git. adroit draws them
   and gives you the controls.
 - **Borrow before building.** Terminals and their persistence come from felis;

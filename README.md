@@ -71,10 +71,15 @@ Claude Code and Codex, to resume one in a new session
 idle sleep, so they go on with the display off
 ([details](docs/spec/sessions.md#keeping-the-mac-awake)).
 
+The sessions run in two processes of adroit's own, a terminal host and a work
+host, that keep running when the window closes; any number of windows can
+show them, and New Window (`Cmd-Shift-N`) opens another
+([details](docs/spec/sessions.md#windows)).
+
 ### Codex
 
 Start a session as usual and choose Codex on its draft, by clicking it or with
-`Cmd+g`; Settings → General → Agent sets which a draft starts with.
+`Ctrl-g a`; Settings → General → Agent sets which a draft starts with.
 Settings → Agents → Codex configures its command and environment, with
 session defaults for model, reasoning, approvals and sandbox. Each draft can
 override its model and select a permission profile. Sessions already running keep their agent, so both can run together. From a terminal:
@@ -86,8 +91,8 @@ adroit session start --agent codex --dir ~/src/api/src -- "Review the API"
 Sessions can also start sessions of their own and message each other
 ([details](docs/spec/delegation.md)).
 
-Read-only Codex sessions use its read-only sandbox. Embedded prompt history and slash completion, usage limits and
-transcript-derived details are not yet supported. Use `Ctrl-g i` to operate
+Read-only Codex sessions use its read-only sandbox. Recalling Codex's prompt
+history in the embedded prompt is not yet supported. Use `Ctrl-g i` to operate
 Codex's commands and menus directly; `Esc` returns to Adroit. See
 [the session specification](docs/spec/sessions.md#agents) for the scope.
 

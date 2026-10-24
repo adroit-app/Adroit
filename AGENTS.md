@@ -41,11 +41,16 @@ Run `just ci` before reporting a change as done. CI runs the same recipe.
 | `crates/agents/plugin/` | the Claude Code plugin every session adroit starts loads |
 | `crates/core/` | the window's state and the rules it changes by, with no UI and no programs run |
 | `crates/core/icons/` | the Tabler icons the window draws, with their licence |
+| `crates/core/examples/` | `references`, which writes `docs/spec/reference/` from the code |
+| `crates/model/` | the data every part shares: sessions, places, the tree they form, agents' launch settings, with test builders |
 | `crates/protocol/` | what the window and the work host say to each other: requests, events, the work they describe, the versions they speak |
 | `crates/host/` | the work host, `adroit host`: the work, the sessions and shells it starts in the terminal host, delegation, its socket, and the commands that ask it |
 | `crates/host/themes/` | the console themes adroit comes with |
 | `crates/host/terminfo/` | the terminfo entry the console's programs are given |
 | `crates/host/tests/` | tests that start the terminal host, sessions and shells |
+| `crates/term/` | the terminal host's client and server: felis sessions, their tags, screens and keys, and the protocol's versions |
+| `crates/nvim/` | the Neovims the window embeds for the prompt and the console's reader |
+| `crates/vcs/` | what adroit reads of and makes in git and jj repositories, and the repositories ghq keeps |
 | `assets/logo/` | the logo as flattened SVG, and `build.py` that regenerates it |
 | `assets/macos/` | the macOS app's Info.plist and the script that assembles the app |
 | `assets/file-icons/` | vim-nerdfont's and vim-glyph-palette's icon tables at a pinned revision, their licences, and `update.sh` that copies them again |
