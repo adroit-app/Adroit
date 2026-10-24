@@ -211,6 +211,12 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
         });
     };
     let page = agent_pages::shown(&now.read(), chosen.read().as_ref());
+    // One scrolling pane shows every page, so it would keep the last one's
+    // place.
+    use_effect(move || {
+        let _ = (pane(), chosen());
+        document::eval("document.querySelector('.settings-pane')?.scrollTo(0, 0);");
+    });
     // The window in the theme's colours, as the main one is.
     let root_style = root_style(&config.read());
     rsx! {
