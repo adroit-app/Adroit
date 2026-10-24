@@ -357,11 +357,16 @@ pub(crate) mod tests {
     use super::*;
 
     pub(crate) fn screen(cols: usize, rows: usize, bytes: &[u8]) -> Screen {
+        screen_with(cols, rows, bytes, Overrides::default())
+    }
+
+    /// [`screen`], in the colours `overrides` sets.
+    fn screen_with(cols: usize, rows: usize, bytes: &[u8], overrides: Overrides) -> Screen {
         let mut grid = felis_grid::Grid::with_scrollback(rows as u16, cols as u16, 0);
         felis_vt::Parser::new().advance(&mut grid, bytes);
         let overrides = Overrides {
             reverse: grid.reverse_video(),
-            ..Overrides::default()
+            ..overrides
         };
         screen_of(grid.screen(), &Palette::default(), &overrides, true)
     }
@@ -396,13 +401,11 @@ pub(crate) mod tests {
 
     #[test]
     fn a_colour_the_program_set_wins_over_the_palette() {
-        let mut grid = felis_grid::Grid::with_scrollback(1, 4, 0);
-        felis_vt::Parser::new().advance(&mut grid, b"\x1b[31mx");
         let overrides = Overrides {
             indexed: HashMap::from([(1, Rgb::new(1, 2, 3))]),
             ..Overrides::default()
         };
-        let s = screen_of(grid.screen(), &Palette::default(), &overrides, true);
+        let s = screen_with(4, 1, b"\x1b[31mx", overrides);
         assert_eq!(s.lines[0].runs[0].style.fg, Rgb::new(1, 2, 3));
     }
 

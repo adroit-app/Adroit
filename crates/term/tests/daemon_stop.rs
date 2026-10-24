@@ -1,11 +1,14 @@
 //! A daemon serving in a process of its own is found by its socket and
 //! stopped.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{ExitStatus, Stdio};
 use std::time::Duration;
 
-use adroit_term::{Daemon, Spawn};
+use adroit_term::Daemon;
+
+mod support;
+use support::{sh, socket_dir};
 
 const SOCKET_ENV: &str = "ADROIT_TEST_STOP_SOCKET";
 
@@ -14,17 +17,6 @@ struct Served {
     pid: u32,
     /// Waited on all along, so the process is reaped as soon as it ends.
     exited: tokio::task::JoinHandle<ExitStatus>,
-}
-
-/// A folder of the test's own for a socket, short enough for its path.
-fn socket_dir() -> tempfile::TempDir {
-    let dir = tempfile::Builder::new()
-        .prefix("adroit-")
-        .tempdir_in("/tmp")
-        .unwrap();
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
-    dir
 }
 
 async fn run(fixture: &str, socket: &Path) -> Served {
@@ -85,21 +77,9 @@ async fn stopping_ends_the_daemon_and_the_programs_of_its_sessions() {
     let served = run("serving_fixture", &socket).await;
     let daemon = Daemon::new(&socket);
     let told = dir.path().join("program.pid");
-    daemon
-        .spawn(Spawn {
-            program: "/bin/sh".into(),
-            args: vec![
-                "-c".into(),
-                r#"echo $$ > "$0"; exec sleep 30"#.into(),
-                told.to_string_lossy().into_owned(),
-            ],
-            cwd: PathBuf::from("/tmp"),
-            cols: 40,
-            rows: 6,
-            ..Spawn::default()
-        })
-        .await
-        .unwrap();
+    let mut spawn = sh(r#"echo $$ > "$0"; exec sleep 30"#);
+    spawn.args.push(told.to_string_lossy().into_owned());
+    daemon.spawn(spawn).await.unwrap();
     let mut program = None;
     for _ in 0..200 {
         if let Some(pid) = std::fs::read_to_string(&told)
