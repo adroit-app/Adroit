@@ -33,6 +33,17 @@ pub struct Fact {
     pub tone: Option<&'static str>,
 }
 
+impl Fact {
+    /// A fact drawn as plain text.
+    fn plain(label: &'static str, value: String) -> Fact {
+        Fact {
+            label,
+            value,
+            tone: None,
+        }
+    }
+}
+
 /// What the overview's head says of how the session `s` stands now, at
 /// `now_ms` since the Unix epoch.
 pub fn overview_facts(
@@ -41,14 +52,9 @@ pub fn overview_facts(
     last_input_ms: Option<u64>,
     now_ms: u64,
 ) -> Vec<Fact> {
-    let plain = |label, value| Fact {
-        label,
-        value,
-        tone: None,
-    };
     let mut out = Vec::new();
     if let Some(model) = &stats.model {
-        out.push(plain("Model", model.clone()));
+        out.push(Fact::plain("Model", model.clone()));
     }
     let (state, tone) = match &s.state {
         State::Waiting(why) => (format!("waiting · {why}"), "wait"),
@@ -63,10 +69,10 @@ pub fn overview_facts(
         tone: Some(tone),
     });
     if let Some(started) = s.started_ms {
-        out.push(plain("Started", ago(now_ms.saturating_sub(started))));
+        out.push(Fact::plain("Started", ago(now_ms.saturating_sub(started))));
     }
     if let Some(at) = last_input_ms.max(stats.last_user_ms) {
-        out.push(plain(
+        out.push(Fact::plain(
             "Last input",
             format!("{} ago", lasted(now_ms.saturating_sub(at))),
         ));
@@ -77,18 +83,13 @@ pub fn overview_facts(
 /// What the overview says of what the session `s` started from, as
 /// `settings` name it: its profile, with its agent, and the login it runs
 /// in.
-pub fn started_from_facts(s: &Session, settings: &crate::settings::Settings) -> Vec<Fact> {
-    let plain = |label, value| Fact {
-        label,
-        value,
-        tone: None,
-    };
+fn started_from_facts(s: &Session, settings: &crate::settings::Settings) -> Vec<Fact> {
     vec![
-        plain(
+        Fact::plain(
             "Profile",
             settings.started_as(s.agent, &s.profile, s.home.as_deref(), &s.profile_name),
         ),
-        plain(
+        Fact::plain(
             "Login",
             crate::profiles::login_name(s.home.as_deref()).to_string(),
         ),
@@ -105,24 +106,19 @@ pub fn about_facts(
     workspace: Option<&Path>,
     worktree: Option<&Path>,
 ) -> Vec<Fact> {
-    let plain = |label, value| Fact {
-        label,
-        value,
-        tone: None,
-    };
     let mut out: Vec<Fact> = conversation_totals(stats)
         .into_iter()
-        .map(|(label, value)| plain(label, value))
+        .map(|(label, value)| Fact::plain(label, value))
         .collect();
     out.extend(started_from_facts(s, settings));
     if let Some(root) = workspace {
-        out.push(plain("Workspace", root.display().to_string()));
+        out.push(Fact::plain("Workspace", root.display().to_string()));
     }
     if let Some(w) = worktree {
-        out.push(plain("Worktree", w.display().to_string()));
+        out.push(Fact::plain("Worktree", w.display().to_string()));
     }
     if !s.session_id.is_empty() {
-        out.push(plain("Conversation", s.session_id.clone()));
+        out.push(Fact::plain("Conversation", s.session_id.clone()));
     }
     out
 }
@@ -392,7 +388,7 @@ pub fn shown_agent(a: &Agent, now_ms: u64) -> (String, String) {
     (label, tag)
 }
 
-pub fn standing_word(s: Standing) -> &'static str {
+fn standing_word(s: Standing) -> &'static str {
     match s {
         Standing::Running => "running",
         Standing::Done => "done",
