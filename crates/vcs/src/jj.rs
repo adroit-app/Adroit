@@ -87,36 +87,50 @@ pub fn fileset(paths: &[&str]) -> String {
 /// user's configuration asks.
 const PLAIN: [&str; 3] = ["--color", "never", "--no-pager"];
 
+/// `args` after [`PLAIN`].
+fn plain<'a>(args: &[&'a str]) -> Vec<&'a str> {
+    PLAIN.iter().chain(args).copied().collect()
+}
+
+/// What jj, asked `args` plainly in the workspace at `path`, prints.
+async fn jj(path: &Path, args: &[&str]) -> Result<String, Error> {
+    run("jj", &plain(args), Some(path)).await
+}
+
 /// The changes on top of trunk, the working copy first and each before its
 /// parents, at most `n`.
 pub async fn history(path: &Path, n: usize) -> Result<Vec<Commit>, Error> {
     let count = n.to_string();
-    let mut args = PLAIN.to_vec();
-    args.extend([
-        "log",
-        "--no-graph",
-        "-r",
-        STACK,
-        "-n",
-        &count,
-        "-T",
-        LOG_TEMPLATE,
-    ]);
-    let out = run("jj", &args, Some(path)).await?;
+    let out = jj(
+        path,
+        &[
+            "log",
+            "--no-graph",
+            "-r",
+            STACK,
+            "-n",
+            &count,
+            "-T",
+            LOG_TEMPLATE,
+        ],
+    )
+    .await?;
     Ok(parse_log(&out))
 }
 
 pub async fn revision(path: &Path, rev: &str) -> Result<Revision, Error> {
-    let mut args = PLAIN.to_vec();
-    args.extend([
-        "log",
-        "--no-graph",
-        "-r",
-        rev,
-        "-T",
-        r#"change_id ++ "\0" ++ change_id.shortest(8) ++ "\0" ++ description"#,
-    ]);
-    let out = run("jj", &args, Some(path)).await?;
+    let out = jj(
+        path,
+        &[
+            "log",
+            "--no-graph",
+            "-r",
+            rev,
+            "-T",
+            r#"change_id ++ "\0" ++ change_id.shortest(8) ++ "\0" ++ description"#,
+        ],
+    )
+    .await?;
     parse_revision(&out).ok_or_else(|| Error::Failed {
         program: "jj".into(),
         stderr: "Cannot read the change description".into(),
@@ -125,9 +139,7 @@ pub async fn revision(path: &Path, rev: &str) -> Result<Revision, Error> {
 
 /// The files change `rev` touches.
 pub async fn files(path: &Path, rev: &str) -> Result<Vec<Change>, Error> {
-    let mut args = PLAIN.to_vec();
-    args.extend(["diff", "-r", rev, "-T", FILES_TEMPLATE]);
-    let out = run("jj", &args, Some(path)).await?;
+    let out = jj(path, &["diff", "-r", rev, "-T", FILES_TEMPLATE]).await?;
     Ok(parse_files(&out))
 }
 
@@ -139,8 +151,7 @@ pub async fn file_diff(
     lines: usize,
 ) -> Result<Vec<DiffLine>, Error> {
     let files = fileset(&change.paths());
-    let mut args = PLAIN.to_vec();
-    args.extend(["diff", "-r", rev, "--git", "--", &files]);
+    let args = plain(&["diff", "-r", rev, "--git", "--", &files]);
     let out = run_head("jj", &args, Some(path), lines, DIFF_BYTES).await?;
     Ok(parse_diff(&out, lines))
 }

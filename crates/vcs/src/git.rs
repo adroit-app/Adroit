@@ -178,21 +178,28 @@ fn git_dir(path: &Path) -> Result<&str, Error> {
     })
 }
 
+/// What git, asked `args` about the worktree at `path`, prints.
+async fn git(path: &Path, args: &[&str]) -> Result<String, Error> {
+    let mut all = vec!["-C", git_dir(path)?];
+    all.extend(args);
+    run("git", &all, None).await
+}
+
+/// The paths of a `-z` listing, at most [`FILES`].
+fn nul_paths(out: &str) -> Vec<String> {
+    out.split('\0')
+        .filter(|f| !f.is_empty())
+        .take(FILES)
+        .map(str::to_string)
+        .collect()
+}
+
 /// The files changed in a worktree, staged or not, and every untracked one,
 /// each file of an untracked directory too.
 pub async fn changes(path: &Path) -> Result<Vec<Change>, Error> {
-    let dir = git_dir(path)?;
-    let out = run(
-        "git",
-        &[
-            "-C",
-            dir,
-            "status",
-            "--porcelain",
-            "-z",
-            "--untracked-files=all",
-        ],
-        None,
+    let out = git(
+        path,
+        &["status", "--porcelain", "-z", "--untracked-files=all"],
     )
     .await?;
     Ok(parse_status(&out))
@@ -200,25 +207,16 @@ pub async fn changes(path: &Path) -> Result<Vec<Change>, Error> {
 
 /// The last `n` commits of a worktree's branch, each before its parents.
 pub async fn history(path: &Path, n: usize) -> Result<Vec<Commit>, Error> {
-    let dir = git_dir(path)?;
     let count = format!("-n{n}");
-    let out = run(
-        "git",
-        &["-C", dir, "log", "--topo-order", &count, LOG_FORMAT],
-        None,
-    )
-    .await?;
+    let out = git(path, &["log", "--topo-order", &count, LOG_FORMAT]).await?;
     Ok(parse_log(&out))
 }
 
 /// The files commit `rev` changed.
 pub async fn commit_files(path: &Path, rev: &str) -> Result<Vec<Change>, Error> {
-    let dir = git_dir(path)?;
-    let out = run(
-        "git",
+    let out = git(
+        path,
         &[
-            "-C",
-            dir,
             "-c",
             UNQUOTED,
             "show",
@@ -228,7 +226,6 @@ pub async fn commit_files(path: &Path, rev: &str) -> Result<Vec<Change>, Error> 
             rev,
             "--",
         ],
-        None,
     )
     .await?;
     Ok(parse_name_status(&out))
@@ -305,12 +302,7 @@ pub fn parse_worktrees(out: &str) -> Vec<Worktree> {
 /// directory when that is not its `.git`, as for a submodule, so `repo` is
 /// taken for it instead.
 pub async fn worktrees(repo: &Path) -> Result<Vec<Worktree>, Error> {
-    let out = run(
-        "git",
-        &["-C", git_dir(repo)?, "worktree", "list", "--porcelain"],
-        None,
-    )
-    .await?;
+    let out = git(repo, &["worktree", "list", "--porcelain"]).await?;
     Ok(parse_worktrees(&out)
         .into_iter()
         .map(|w| Worktree {
@@ -330,40 +322,28 @@ pub const FILES: usize = 5000;
 
 /// The files of a worktree git tracks or would track, at most [`FILES`].
 pub async fn files(path: &Path) -> Result<Vec<String>, Error> {
-    let dir = git_dir(path)?;
-    let out = run(
-        "git",
+    let out = git(
+        path,
         &[
-            "-C",
-            dir,
             "ls-files",
             "-z",
             "--cached",
             "--others",
             "--exclude-standard",
         ],
-        None,
     )
     .await?;
-    Ok(out
-        .split('\0')
-        .filter(|f| !f.is_empty())
-        .take(FILES)
-        .map(str::to_string)
-        .collect())
+    Ok(nul_paths(&out))
 }
 
 /// The paths in a worktree git ignores, relative to it; a directory ignored
 /// whole is named once, with a trailing `/`.
 pub async fn ignored(path: &Path) -> Result<Vec<String>, Error> {
-    let dir = git_dir(path)?;
-    let out = run(
-        "git",
+    let out = git(
+        path,
         &[
             "-c",
             UNQUOTED,
-            "-C",
-            dir,
             "ls-files",
             "-z",
             "--others",
@@ -371,15 +351,9 @@ pub async fn ignored(path: &Path) -> Result<Vec<String>, Error> {
             "--exclude-standard",
             "--directory",
         ],
-        None,
     )
     .await?;
-    Ok(out
-        .split('\0')
-        .filter(|f| !f.is_empty())
-        .take(FILES)
-        .map(str::to_string)
-        .collect())
+    Ok(nul_paths(&out))
 }
 
 #[cfg(test)]
@@ -514,6 +488,13 @@ mod tests {
             path: path.into(),
             from: from.map(Into::into),
         }
+    }
+
+    #[test]
+    fn a_nul_separated_listing_names_each_path_once_up_to_files() {
+        assert_eq!(nul_paths("a\0b c\0\0dir/\0"), ["a", "b c", "dir/"]);
+        let many = "f\0".repeat(FILES + 3);
+        assert_eq!(nul_paths(&many).len(), FILES);
     }
 
     #[test]
