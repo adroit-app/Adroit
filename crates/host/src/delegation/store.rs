@@ -95,11 +95,7 @@ impl Store {
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.pragma_update(None, "foreign_keys", true)?;
         connection.pragma_update(None, "journal_mode", "wal")?;
-        let schema: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
-        if schema > SCHEMA_VERSION {
-            return Err(newer(schema));
-        }
-        if schema == 0 {
+        if schema(&connection)? == 0 {
             let tables: i64 = connection.query_row(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
                 [],
@@ -123,13 +119,7 @@ impl Store {
 
     /// Fails once a newer adroit has upgraded the database this one opened.
     pub fn ensure_current_schema(&self) -> Result<()> {
-        let schema: i64 = self
-            .connection
-            .pragma_query_value(None, "user_version", |row| row.get(0))?;
-        if schema > SCHEMA_VERSION {
-            return Err(newer(schema));
-        }
-        Ok(())
+        schema(&self.connection).map(drop)
     }
 
     /// Records a session and returns the identity and credential it acts with.
@@ -183,6 +173,11 @@ impl Store {
         session(&self.connection, id)
     }
 
+    /// The session recorded as `id`, refusing one that never was.
+    pub fn known(&self, id: SessionId) -> Result<Session> {
+        known(&self.connection, id)
+    }
+
     /// Every session, ended ones included, in the order they were registered.
     pub fn sessions(&self) -> Result<Vec<Session>> {
         let mut statement = self.connection.prepare(&format!(
@@ -227,8 +222,7 @@ impl Store {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let current = session(&transaction, id)?
-            .ok_or_else(|| Error::new(Code::NotFound, "the session is unknown"))?;
+        let current = known(&transaction, id)?;
         if current.readiness == readiness || current.ended {
             return Ok(false);
         }
@@ -244,9 +238,7 @@ impl Store {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let Some(current) = session(&transaction, id)? else {
-            return Err(Error::new(Code::NotFound, "the session is unknown"));
-        };
+        let current = known(&transaction, id)?;
         if current.ended {
             return Ok(());
         }
@@ -385,6 +377,10 @@ fn session(connection: &Connection, id: SessionId) -> Result<Option<Session>> {
         .transpose()
 }
 
+fn known(connection: &Connection, id: SessionId) -> Result<Session> {
+    session(connection, id)?.ok_or_else(|| Error::new(Code::NotFound, "the session is unknown"))
+}
+
 const MESSAGE_COLUMNS: &str = "id, sender, recipient, body, sent_ms, delivered";
 
 fn read_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Message>> {
@@ -478,6 +474,15 @@ fn private_database(path: &Path) -> Result<bool> {
     }
 }
 
+/// The schema version the database is at, refusing one a newer adroit wrote.
+fn schema(connection: &Connection) -> Result<i64> {
+    let schema: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    if schema > SCHEMA_VERSION {
+        return Err(newer(schema));
+    }
+    Ok(schema)
+}
+
 fn newer(schema: i64) -> Error {
     Error::new(
         Code::Unsupported,
@@ -527,6 +532,23 @@ mod tests {
             bodies.push(message.body);
         }
         bodies
+    }
+
+    #[test]
+    fn a_session_never_registered_is_not_known() {
+        let (_dir, store) = store();
+
+        let error = store.known(SessionId::new()).unwrap_err();
+
+        assert_eq!(error, Error::new(Code::NotFound, "the session is unknown"));
+    }
+
+    #[test]
+    fn a_registered_session_is_known() {
+        let (_dir, mut store) = store();
+        let id = register(&mut store, None, "opened");
+
+        assert_eq!(store.known(id).unwrap().id, id);
     }
 
     #[test]

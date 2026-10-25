@@ -179,9 +179,7 @@ async fn dispatch(context: &Context, request: Request) -> Result<Value> {
     let caller = context
         .call(move |store| {
             let id = store.authenticate(&credential)?;
-            store
-                .session(id)?
-                .ok_or_else(|| Error::new(Code::NotFound, "the session is unknown"))
+            store.known(id)
         })
         .await?;
     if request.command.acts() {
@@ -217,15 +215,7 @@ async fn dispatch(context: &Context, request: Request) -> Result<Value> {
         .map_err(Error::storage)?),
         Command::Next => {
             let id = caller.id;
-            let next = context
-                .call(move |store| {
-                    let Some(message) = store.next_undelivered(id)? else {
-                        return Ok(None);
-                    };
-                    let sender = store.session(message.sender)?;
-                    Ok(Some((message, sender)))
-                })
-                .await?;
+            let next = context.call(move |store| next_message(store, id)).await?;
             Ok(match next {
                 Some((message, sender)) => json!({
                     "id": message.id,
@@ -682,6 +672,15 @@ impl Watcher {
     }
 }
 
+/// The oldest message waiting for `id`, and its sender.
+fn next_message(store: &Store, id: SessionId) -> Result<Option<(Message, Option<Session>)>> {
+    let Some(message) = store.next_undelivered(id)? else {
+        return Ok(None);
+    };
+    let sender = store.session(message.sender)?;
+    Ok(Some((message, sender)))
+}
+
 /// The oldest message waiting for `id`, its sender, and the context it is
 /// handed over in: that of the profile `id` was recorded as started from,
 /// in the login it was recorded as running in, as the settings it was
@@ -691,10 +690,9 @@ fn next_delivery(
     store: &mut Store,
     id: SessionId,
 ) -> Result<Option<(Message, Option<Session>, adroit_agents::AgentContext)>> {
-    let Some(message) = store.next_undelivered(id)? else {
+    let Some((message, sender)) = next_message(store, id)? else {
         return Ok(None);
     };
-    let sender = store.session(message.sender)?;
     let (Some(launch), Some(recipient)) = (store.launch(id)?, store.session(id)?) else {
         return Ok(None);
     };
