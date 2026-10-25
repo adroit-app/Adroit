@@ -35,244 +35,13 @@ pub enum Event {
 /// hidden, the buffer is a scratch buffer of its own filetype, and every text
 /// change reports how many screen lines the text needs. Runs once startup has
 /// finished, so the user's configuration is already loaded.
-pub const SETUP: &str = r#"
-local chan = ...
-vim.g.adroit_channel = chan
-local function apply()
-  local o = vim.o
-  o.laststatus = 0
-  o.showtabline = 0
-  o.ruler = false
-  o.showmode = false
-  o.cmdheight = 0
-  o.shortmess = o.shortmess .. "IcF"
-  vim.cmd("silent! enew")
-  local b = vim.api.nvim_get_current_buf()
-  vim.g.adroit_buf = b
-  vim.bo[b].buftype = "nofile"
-  vim.bo[b].bufhidden = "hide"
-  vim.bo[b].swapfile = false
-  vim.bo[b].filetype = "adroit-prompt"
-  local w = vim.api.nvim_get_current_win()
-  vim.wo[w].number = false
-  vim.wo[w].relativenumber = false
-  vim.wo[w].signcolumn = "no"
-  vim.wo[w].foldcolumn = "0"
-  vim.wo[w].statuscolumn = ""
-  vim.wo[w].cursorline = false
-  vim.wo[w].wrap = true
-  vim.wo[w].linebreak = true
-  vim.opt_local.fillchars:append({ eob = " " })
-  -- `@` at the start of a word offers the sessions and files the window sets
-  -- in g:adroit_candidates and the entries of the directory typed, walked from
-  -- g:adroit_root; `/` there offers the commands in g:adroit_commands.
-  local function word_start(before, pattern)
-    local s = before:find(pattern)
-    if not s or (s > 1 and not before:sub(s - 1, s - 1):match("%s")) then
-      return nil
-    end
-    return s, before:sub(s + 1)
-  end
-  local LIMIT = 200
-  local function item(c, word)
-    return { word = word, abbr = c.word, menu = c.menu, info = c.info }
-  end
-  local function entries(dir)
-    local ok, names = pcall(vim.fn.readdir, dir)
-    if not ok then
-      return {}
-    end
-    local out = {}
-    for _, name in ipairs(names) do
-      -- Hidden entries are left to be typed, as a shell's completion does.
-      if name:sub(1, 1) ~= "." then
-        out[#out + 1] = { name = name, dir = vim.fn.isdirectory(dir .. "/" .. name) == 1 }
-      end
-    end
-    table.sort(out, function(x, y)
-      if x.dir ~= y.dir then
-        return x.dir
-      end
-      return x.name:lower() < y.name:lower()
-    end)
-    return out
-  end
-  local function paths(typed, out, seen)
-    local cut = typed:match(".*()/")
-    local head = cut and typed:sub(1, cut) or ""
-    local want = typed:sub(#head + 1):lower()
-    local root = vim.g.adroit_root or ""
-    local dir
-    if head:sub(1, 1) == "/" then
-      dir = head
-    elseif root ~= "" then
-      dir = root .. "/" .. head
-    else
-      return
-    end
-    local n = 0
-    for _, e in ipairs(entries(dir)) do
-      if e.name:sub(1, #want):lower() == want then
-        local path = head .. e.name .. (e.dir and "/" or "")
-        seen[path] = true
-        -- A directory takes no space after it, so completing goes on inside.
-        out[#out + 1] = { word = e.dir and path or path .. " ", abbr = path, menu = e.dir and "dir" or "file" }
-        n = n + 1
-        if n >= LIMIT then
-          return
-        end
-      end
-    end
-  end
-  local function offer_paths(s, typed)
-    local want = typed:lower()
-    local sessions, files, seen = {}, {}, {}
-    for _, c in ipairs(vim.g.adroit_candidates or {}) do
-      if c.word:lower():find(want, 1, true) then
-        local list = c.menu == "file" and files or sessions
-        if #list < LIMIT then
-          list[#list + 1] = c
-        end
-      end
-    end
-    local out = {}
-    for _, c in ipairs(sessions) do
-      out[#out + 1] = item(c, c.word .. " ")
-    end
-    paths(typed, out, seen)
-    for _, c in ipairs(files) do
-      if not seen[c.word] then
-        out[#out + 1] = item(c, c.word .. " ")
-      end
-    end
-    vim.fn.complete(s + 1, out)
-  end
-  local function offer_commands(s, typed, sigil)
-    if typed == "" then
-      vim.rpcnotify(chan, "adroit_commands_wanted")
-    end
-    local want = typed:lower()
-    local first, then_ = {}, {}
-    for _, c in ipairs(vim.g.adroit_commands or {}) do
-      if sigil ~= "$" or c.word:sub(1, 1) == "$" then
-        local name = c.word:sub(2):lower()
-        if name:sub(1, #want) == want then
-          first[#first + 1] = item(c, c.word .. " ")
-        elseif name:find(want, 1, true) then
-          then_[#then_ + 1] = item(c, c.word .. " ")
-        end
-      end
-    end
-    vim.list_extend(first, then_)
-    vim.fn.complete(s, first)
-  end
-  local function offer()
-    local before = vim.api.nvim_get_current_line():sub(1, vim.fn.col(".") - 1)
-    local s, typed = word_start(before, "@[^%s@]*$")
-    if s then
-      return offer_paths(s, typed)
-    end
-    s, typed = word_start(before, "/[^%s/]*$")
-    if s then
-      return offer_commands(s, typed, "/")
-    end
-    s, typed = word_start(before, "%$[^%s$]*$")
-    if s then
-      return offer_commands(s, typed, "$")
-    end
-  end
-  vim.o.completeopt = "menuone,noinsert"
-  vim.api.nvim_create_autocmd({ "TextChangedI", "TextChangedP" }, { buffer = b, callback = offer })
-  -- Told on every change, from wherever it comes: typed, pasted, or set by
-  -- the window.
-  local shell = false
-  vim.api.nvim_buf_attach(b, false, {
-    on_lines = function()
-      vim.schedule(function()
-        if not vim.api.nvim_buf_is_valid(b) then
-          return
-        end
-        local now = (vim.api.nvim_buf_get_lines(b, 0, 1, false)[1] or ""):sub(1, 1) == "!"
-        if now ~= shell then
-          shell = now
-          vim.rpcnotify(chan, "adroit_shell", now)
-        end
-      end)
-    end,
-  })
-  local function report()
-    local ok, h = pcall(vim.api.nvim_win_text_height, 0, {})
-    local need = ok and h.all or vim.api.nvim_buf_line_count(0)
-    -- A window grown to fit the text keeps the scroll it needed while it was
-    -- smaller, hiding the first lines above an empty one.
-    if need <= vim.api.nvim_win_get_height(0) and vim.fn.line("w0") > 1 then
-      vim.fn.winrestview({ topline = 1 })
-    end
-    vim.rpcnotify(chan, "adroit_height", need)
-  end
-  local function view()
-    vim.rpcnotify(chan, "adroit_view", vim.fn.line("w0") - 1, vim.api.nvim_buf_line_count(0))
-  end
-  vim.api.nvim_create_autocmd(
-    { "TextChanged", "TextChangedI", "TextChangedP", "VimResized", "BufEnter", "WinResized" },
-    { callback = report }
-  )
-  vim.api.nvim_create_autocmd(
-    { "WinScrolled", "TextChanged", "TextChangedI", "BufEnter" },
-    { callback = view }
-  )
-  report()
-  vim.cmd("startinsert")
-end
-if vim.v.vim_did_enter == 1 then
-  apply()
-else
-  vim.api.nvim_create_autocmd("VimEnter", { once = true, callback = apply })
-end
-"#;
+pub(crate) const SETUP: &str = include_str!("../lua/prompt.lua");
 
-const TAKE_TEXT: &str = r#"
--- The prompt's own buffer, shown again if `:e` or `:help` left it.
-local b = vim.g.adroit_buf
-if not (b and vim.api.nvim_buf_is_valid(b)) then
-  b = vim.api.nvim_get_current_buf()
-elseif vim.api.nvim_get_current_buf() ~= b then
-  vim.api.nvim_win_set_buf(0, b)
-end
-local lines = vim.api.nvim_buf_get_lines(b, 0, -1, false)
-vim.api.nvim_buf_set_lines(b, 0, -1, false, {})
--- With `virtualedit` letting it stay past the end of a line, the cursor would
--- otherwise wait where the text ended.
-vim.api.nvim_win_set_cursor(0, { 1, 0 })
-return table.concat(lines, "\n")
-"#;
+const TAKE_TEXT: &str = include_str!("../lua/take_text.lua");
 
-const APPEND: &str = r#"
-local lines = ...
--- The prompt's own buffer, shown again if `:e` or `:help` left it.
-local b = vim.g.adroit_buf
-if not (b and vim.api.nvim_buf_is_valid(b)) then
-  b = vim.api.nvim_get_current_buf()
-elseif vim.api.nvim_get_current_buf() ~= b then
-  vim.api.nvim_win_set_buf(0, b)
-end
-local cur = vim.api.nvim_buf_get_lines(b, 0, -1, false)
-if #cur == 1 and cur[1] == "" then
-  vim.api.nvim_buf_set_lines(b, 0, -1, false, lines)
-else
-  vim.api.nvim_buf_set_lines(b, -1, -1, false, lines)
-end
-local n = vim.api.nvim_buf_line_count(b)
-vim.api.nvim_win_set_cursor(0, { n, #vim.api.nvim_buf_get_lines(b, n - 1, n, false)[1] })
-"#;
+const APPEND: &str = include_str!("../lua/append.lua");
 
-const TEXT: &str = r#"
-local b = vim.g.adroit_buf
-if not (b and vim.api.nvim_buf_is_valid(b)) then
-  b = 0
-end
-return table.concat(vim.api.nvim_buf_get_lines(b, 0, -1, false), "\n")
-"#;
+const TEXT: &str = include_str!("../lua/text.lua");
 
 #[derive(Clone)]
 struct Listener {
@@ -377,7 +146,7 @@ fn candidate_list(candidates: &[Candidate]) -> Value {
 /// The name the prompt's Neovim runs under, so its configuration, plugins
 /// and state are found in folders of their own, apart from the everyday
 /// Neovim's and the console reader's.
-pub const PROMPT_APPNAME: &str = "adroit/prompt/nvim";
+pub(crate) const PROMPT_APPNAME: &str = "adroit/prompt/nvim";
 
 /// A Neovim process attached as this window's UI.
 pub struct Embedded {
@@ -563,12 +332,7 @@ impl Embedded {
 
     /// The prompt's text.
     pub async fn text(&self) -> Result<String, Error> {
-        Ok(self
-            .exec_lua(TEXT, vec![])
-            .await?
-            .as_str()
-            .unwrap_or_default()
-            .to_string())
+        self.exec_string(TEXT).await
     }
 
     /// Add lines after what the prompt holds, or in its place when it is
@@ -582,8 +346,13 @@ impl Embedded {
     /// The prompt's text, leaving the prompt empty for the next one.
     pub async fn take_text(&self) -> Result<String, Error> {
         self.state().forget_message();
+        self.exec_string(TAKE_TEXT).await
+    }
+
+    /// The string `code` returns; empty for anything else.
+    async fn exec_string(&self, code: &str) -> Result<String, Error> {
         Ok(self
-            .exec_lua(TAKE_TEXT, vec![])
+            .exec_lua(code, vec![])
             .await?
             .as_str()
             .unwrap_or_default()

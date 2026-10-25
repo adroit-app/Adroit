@@ -51,6 +51,7 @@ Run `just ci` before reporting a change as done. CI runs the same recipe.
 | `crates/host/tests/` | tests that start the terminal host, sessions and shells |
 | `crates/term/` | the terminal host's client and server: felis sessions, their tags, screens and keys, and the protocol's versions |
 | `crates/nvim/` | the Neovims the window embeds for the prompt and the console's reader |
+| `crates/nvim/lua/` | the Lua the prompt's and the reader's Neovims run, taken in with `include_str!` |
 | `crates/vcs/` | what adroit reads of and makes in git and jj repositories, and the repositories ghq keeps |
 | `assets/logo/` | the logo as flattened SVG, and `build.py` that regenerates it |
 | `assets/macos/` | the macOS app's Info.plist and the script that assembles the app |

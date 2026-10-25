@@ -7,7 +7,7 @@ mod keys;
 mod reader;
 mod ui;
 
-pub use embed::{Candidate, Embedded, Event, PROMPT_APPNAME, SETUP};
+pub use embed::{Candidate, Embedded, Event};
 pub use keys::notation;
-pub use reader::{CONSOLE_APPNAME, Mark, READER};
+pub use reader::Mark;
 pub use ui::{Cmdline, Popup, PopupItem, UiState};
