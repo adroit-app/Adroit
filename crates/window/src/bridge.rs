@@ -423,7 +423,15 @@ impl AppCtx {
 
 /// `/usr/bin/open` run with `args`, without waiting for it.
 pub(crate) fn open<const N: usize>(args: [String; N]) {
-    let mut cmd = tokio::process::Command::new("/usr/bin/open");
+    run_detached("/usr/bin/open", args);
+}
+
+/// `program` run with `args`, without waiting for it.
+pub(crate) fn run_detached(
+    program: &str,
+    args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
+) {
+    let mut cmd = tokio::process::Command::new(program);
     cmd.args(args);
     spawn(async move {
         let _ = cmd.status().await;

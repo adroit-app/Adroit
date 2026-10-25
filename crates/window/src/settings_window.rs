@@ -16,6 +16,7 @@ use dioxus::desktop::{
 };
 use dioxus::prelude::*;
 
+use crate::bridge::run_detached;
 use crate::components::{
     NumberField, Select, SettingGroup, SettingRow, SettingsError, TextArea, TextField, Toggle,
 };
@@ -144,20 +145,12 @@ pub(crate) fn open_with(how: &str, path: &Path, starter: &str) {
         }
         let _ = std::fs::write(path, starter);
     }
-    let mut cmd = tokio::process::Command::new("open");
-    cmd.arg(how).arg(path);
-    spawn(async move {
-        let _ = cmd.status().await;
-    });
+    run_detached("open", [std::ffi::OsStr::new(how), path.as_os_str()]);
 }
 
 /// Hand `target`, a folder or an address, to `open`, as the Finder would.
 fn run_open(target: impl AsRef<std::ffi::OsStr>) {
-    let mut cmd = tokio::process::Command::new("open");
-    cmd.arg(target);
-    spawn(async move {
-        let _ = cmd.status().await;
-    });
+    run_detached("open", [target]);
 }
 
 const KEYS_STARTER: &str =
