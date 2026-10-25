@@ -118,6 +118,24 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// Why an ask answered `answer` is not done, to an ask that is only done or
+/// failed; nothing when it is done.
+pub(crate) fn failure(answer: Answer) -> Option<String> {
+    match answer {
+        Answer::Done => None,
+        answer => Some(refusal(answer)),
+    }
+}
+
+/// Why `answer`, not the one an ask waited for, is not it: what the host
+/// said when it failed, and otherwise the answer itself.
+pub(crate) fn refusal(answer: Answer) -> String {
+    match answer {
+        Answer::Failed { text } => text,
+        answer => format!("the work host answered {answer:?}"),
+    }
+}
+
 /// What the link says again to a host it connects to after the first: what
 /// the window shows and when the user last typed, as it last said them.
 #[derive(Debug, Default)]
@@ -309,6 +327,28 @@ mod tests {
     use super::*;
 
     const BUILD: &str = "0.0.0 (test)";
+
+    #[test]
+    fn an_ask_done_has_no_failure_and_any_other_answer_says_why() {
+        assert_eq!(failure(Answer::Done), None);
+        assert_eq!(
+            failure(Answer::Failed {
+                text: "no room".into()
+            }),
+            Some("no room".to_string())
+        );
+        let odd = Answer::LoginStanding {
+            standing: adroit_model::profile::LoginStanding::LoggedIn,
+        };
+        assert_eq!(
+            failure(odd.clone()),
+            Some(format!("the work host answered {odd:?}"))
+        );
+        assert_eq!(
+            refusal(odd.clone()),
+            format!("the work host answered {odd:?}")
+        );
+    }
 
     /// A folder for a socket, whose path has to be short.
     fn short_dir() -> tempfile::TempDir {

@@ -17,7 +17,7 @@ use dioxus::prelude::*;
 use super::{Change, CodexGroup, LaunchGroup, OpenCodeGroup, PiGroup, SessionGroup};
 use crate::components::{SettingGroup, SettingRow, SettingsError, TextField};
 use crate::icons::{Icon, IconView};
-use crate::link::Link;
+use crate::link::{Link, failure, refusal};
 use crate::settings::{AgentOptions, Settings};
 
 /// A change to the profiles that may be refused, with what came of it when
@@ -520,10 +520,9 @@ fn DeleteProfile(
             busy.set(true);
             let asked = link.ask(Ask::DeleteLogin { profile: asked_for });
             spawn(async move {
-                match asked.await {
-                    Answer::Done => finish(true),
-                    Answer::Failed { text } => refused.set(Some(text)),
-                    answer => refused.set(Some(format!("the work host answered {answer:?}"))),
+                match failure(asked.await) {
+                    None => finish(true),
+                    why => refused.set(why),
                 }
                 busy.set(false);
             });
@@ -625,11 +624,7 @@ fn probe(
     spawn(async move {
         let (got, standing) = match asked.await {
             Answer::LoginStanding { standing } => (Probed::Is(standing), Some(standing)),
-            Answer::Failed { text } => (Probed::Failed(text), None),
-            answer => (
-                Probed::Failed(format!("the work host answered {answer:?}")),
-                None,
-            ),
+            answer => (Probed::Failed(refusal(answer)), None),
         };
         let mut probed = probed.write();
         // A login terminal still open is waited for still, unless this
@@ -655,14 +650,8 @@ fn open_login(link: Link, probed: Signal<Probes>, key: (ProfileId, Option<PathBu
     spawn(async move {
         match asked.await {
             Answer::Terminal { terminal } => probe(&link, probed, key, Some(terminal.id)),
-            Answer::Failed { text } => {
-                probed.write().insert(key, Probed::Failed(text));
-            }
             answer => {
-                probed.write().insert(
-                    key,
-                    Probed::Failed(format!("the work host answered {answer:?}")),
-                );
+                probed.write().insert(key, Probed::Failed(refusal(answer)));
             }
         }
     });

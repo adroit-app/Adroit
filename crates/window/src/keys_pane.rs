@@ -9,7 +9,7 @@ use std::time::Duration;
 use dioxus::prelude::*;
 
 use adroit_core::config::Config;
-use adroit_protocol::{Answer, Ask, FileText};
+use adroit_protocol::{Ask, FileText};
 
 use crate::actions::Action;
 use crate::components::{Keys, SettingsError};
@@ -18,7 +18,7 @@ use crate::icons::{Icon, IconView};
 use crate::keymap::{Chord, Context, Keymap};
 use crate::keys_by_action::{self, ActionKeys, Bound};
 use crate::keys_edit;
-use crate::link::Link;
+use crate::link::{Link, failure};
 
 /// How long recording keys waits for another before it ends.
 const RECORD_WAIT: Duration = Duration::from_secs(2);
@@ -88,11 +88,7 @@ pub fn KeysPane() -> Element {
             text.set(t.clone());
             let saved = link.read().ask(Ask::SaveKeys { text: t });
             spawn(async move {
-                failed.set(match saved.await {
-                    Answer::Done => None,
-                    Answer::Failed { text } => Some(text),
-                    answer => Some(format!("the work host answered {answer:?}")),
-                });
+                failed.set(failure(saved.await));
             });
         }
         Err(e) => failed.set(Some(e)),

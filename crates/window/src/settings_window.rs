@@ -10,7 +10,7 @@ use adroit_model::config::{
     Launch, SessionOptions, format_command, format_env, parse_command, parse_env,
 };
 use adroit_model::paths::tilde;
-use adroit_protocol::{AgentsWork, Answer, Ask};
+use adroit_protocol::{AgentsWork, Ask};
 use dioxus::desktop::{
     Config as Desktop, DesktopService, LogicalSize, WindowBuilder, WindowCloseBehaviour, window,
 };
@@ -24,7 +24,7 @@ use crate::feed::{root_style, use_config};
 use crate::fonts;
 use crate::icons::{Icon, IconView};
 use crate::keys_pane::KeysPane;
-use crate::link::Link;
+use crate::link::{Link, failure};
 use crate::paths::home;
 use crate::settings::{Appearance, OptionAsAlt, Settings, ThemeKind};
 use crate::style::SETTINGS_CSS;
@@ -227,11 +227,7 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
             .map_err(|e| e.to_string());
         spawn(async move {
             failed.set(match saved {
-                Ok(saved) => match saved.await {
-                    Answer::Done => None,
-                    Answer::Failed { text } => Some(text),
-                    answer => Some(format!("the work host answered {answer:?}")),
-                },
+                Ok(saved) => failure(saved.await),
                 Err(e) => Some(e),
             });
         });
