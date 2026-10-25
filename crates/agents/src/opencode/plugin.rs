@@ -3,14 +3,15 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::pi::extension::write_whole;
+use adroit_model::Agent;
+
+use crate::integration::{write_skill, write_whole};
 
 const PLUGIN: &str = include_str!("../../opencode/adroit.js");
 
 /// adroit's own folder for this instance's OpenCode.
 pub(super) fn instance_dir() -> PathBuf {
-    use adroit_model::paths::{instance, instance_dir, state_dir};
-    instance_dir(&state_dir(), &instance()).join("opencode")
+    crate::integration::instance_dir(Agent::OpenCode)
 }
 
 /// The plugin, naming `program` as adroit's command.
@@ -31,12 +32,7 @@ pub(super) fn install(program: &Path, dir: &Path) -> std::io::Result<(PathBuf, P
     std::fs::create_dir_all(&plugin_dir)?;
     write_whole(&plugin_dir.join("index.js"), &plugin(program))?;
     let skills = dir.join("skills");
-    let skill = skills.join("start-session");
-    std::fs::create_dir_all(&skill)?;
-    write_whole(
-        &skill.join("SKILL.md"),
-        &crate::claude::plugin::start_session(program),
-    )?;
+    write_skill(program, &skills)?;
     Ok((plugin_dir, skills))
 }
 

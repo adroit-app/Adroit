@@ -2,10 +2,11 @@
 //! into adroit's state folder, and what the extension records there of the
 //! conversations Pi holds.
 
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use adroit_model::Running;
+use adroit_model::{Agent, Running};
+
+use crate::integration::{write_skill, write_whole};
 
 const EXTENSION: &str = include_str!("../../pi/adroit.ts");
 const LOGIN: &str = include_str!("../../pi/login.ts");
@@ -36,42 +37,12 @@ fn running_in(dir: &Path) -> PathBuf {
 
 /// adroit's own folder for this instance's Pi.
 fn instance_dir() -> PathBuf {
-    use adroit_model::paths::{instance, instance_dir, state_dir};
-    instance_dir(&state_dir(), &instance()).join("pi")
+    crate::integration::instance_dir(Agent::Pi)
 }
 
 /// The folder this instance's Pi sessions keep their records in.
 pub(super) fn running_dir() -> PathBuf {
     running_in(&instance_dir())
-}
-
-/// Put `contents` at `path`, readable by its user alone, unless it is there
-/// already. It is written beside and moved over, so a Pi loading it at that
-/// moment reads the old file or the new one whole, and whatever stood at
-/// `path`, a link included, is replaced rather than written through.
-pub(crate) fn write_whole(path: &Path, contents: &str) -> std::io::Result<()> {
-    use std::os::unix::fs::OpenOptionsExt;
-    if std::fs::symlink_metadata(path).is_ok_and(|m| m.is_file())
-        && std::fs::read(path).is_ok_and(|kept| kept == contents.as_bytes())
-    {
-        return Ok(());
-    }
-    let written = path.with_file_name(format!(
-        ".{}.{}.tmp",
-        path.file_name().unwrap_or_default().to_string_lossy(),
-        uuid::Uuid::new_v4().simple()
-    ));
-    let result = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&written)
-        .and_then(|mut file| file.write_all(contents.as_bytes()))
-        .and_then(|()| std::fs::rename(&written, path));
-    if result.is_err() {
-        let _ = std::fs::remove_file(&written);
-    }
-    result
 }
 
 /// Write the extension and adroit's skill into `dir`, naming `program`, over
@@ -80,12 +51,7 @@ fn install(program: &Path, dir: &Path) -> std::io::Result<(PathBuf, PathBuf)> {
     std::fs::create_dir_all(dir)?;
     let script = dir.join("adroit.ts");
     write_whole(&script, &extension(program, &running_in(dir)))?;
-    let skill = dir.join("skills").join("start-session");
-    std::fs::create_dir_all(&skill)?;
-    write_whole(
-        &skill.join("SKILL.md"),
-        &crate::claude::plugin::start_session(program),
-    )?;
+    let skill = write_skill(program, &dir.join("skills"))?;
     Ok((script, skill))
 }
 

@@ -5,6 +5,7 @@ pub mod claude;
 mod codex;
 pub mod commands;
 mod delivery;
+mod integration;
 pub mod links;
 pub mod login;
 pub mod opencode;

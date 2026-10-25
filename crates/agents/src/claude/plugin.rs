@@ -3,13 +3,9 @@
 
 use std::path::Path;
 
-const MANIFEST: &str = include_str!("../../plugin/.claude-plugin/plugin.json");
-const START_SESSION: &str = include_str!("../../plugin/skills/start-session/SKILL.md");
+use crate::integration::start_session;
 
-/// The skill, naming `program` as the command to run.
-pub(crate) fn start_session(program: &Path) -> String {
-    START_SESSION.replace("@ADROIT@", &crate::shell_word(program))
-}
+const MANIFEST: &str = include_str!("../../plugin/.claude-plugin/plugin.json");
 
 /// Write the plugin into `dir`, naming `program`, over what an earlier adroit
 /// wrote there.
@@ -35,31 +31,6 @@ pub fn args(program: &Path, dir: &Path) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_skill_names_adroit_s_tools_rather_than_claude_code_s_messaging() {
-        let skill = start_session(Path::new("/adroit"));
-        for tool in ["start_session", "send", "sessions", "models"] {
-            assert!(skill.contains(&format!("`{tool}`")), "{tool}");
-        }
-        assert!(!skill.contains("`report`"));
-        assert!(!skill.contains("ListAgents"));
-        assert!(!skill.contains("SendMessage"));
-    }
-
-    #[test]
-    fn the_skill_names_the_adroit_it_was_written_by() {
-        let skill = start_session(Path::new("/Applications/Adroit.app/Contents/MacOS/adroit"));
-        assert!(skill.contains("/Applications/Adroit.app/Contents/MacOS/adroit session start"));
-        assert!(skill.contains("/Applications/Adroit.app/Contents/MacOS/adroit terminal start"));
-        assert!(!skill.contains("@ADROIT@"));
-    }
-
-    #[test]
-    fn a_program_path_with_spaces_is_quoted_for_the_shell() {
-        let skill = start_session(Path::new("/My Apps/it's/adroit"));
-        assert!(skill.contains(r"'/My Apps/it'\''s/adroit' session start"));
-    }
 
     #[test]
     fn the_plugin_is_written_as_claude_code_loads_one() {
