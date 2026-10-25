@@ -957,6 +957,14 @@ impl Drill {
         }
     }
 
+    /// Whether a row opened from the entries is shown, in place of a list.
+    pub fn shows_row(&self) -> bool {
+        matches!(
+            self.opened.last(),
+            Some(Opened::Agent(..) | Opened::Message(..) | Opened::Process(..))
+        )
+    }
+
     /// What to read for what is shown; the overview is not read.
     pub fn spot(&self) -> Option<Spot> {
         let rev = |c: &Commit| Rev::Commit(c.id.clone());
@@ -1170,6 +1178,7 @@ mod tests {
         let mut drill = Drill::new(Sheet::Overview);
         assert!(drill.open_at(&list, 1));
         assert_eq!(drill.process(), Some("process-1"));
+        assert!(drill.shows_row());
         assert!(drill.back());
         assert_eq!(drill.selected(&list), Some(1));
         let opened = HashSet::from([Group::Running]);
@@ -2153,8 +2162,10 @@ mod tests {
         let mut d = Drill::new(Sheet::Overview);
         assert_eq!(d.agent(), None);
         assert!(!d.open(&list), "its heading opens nothing");
+        assert!(!d.shows_row());
         d.step(&list, 2);
         assert!(d.open(&list));
+        assert!(d.shows_row());
         assert_eq!(d.agent(), Some("toolu_2"));
         assert_eq!(d.crumbs(), ["Fix"]);
         assert_eq!(d.spot(), None, "the overview is not read through git");

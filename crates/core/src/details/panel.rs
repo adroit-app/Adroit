@@ -209,15 +209,7 @@ pub(crate) fn click(details: &mut Details, work: Option<&WorkSnapshot>, at: usiz
             fold(details, *group, !folded);
             Vec::new()
         }
-        Some(Entry::More { group, .. }) => {
-            details.opened.insert(*group);
-            Vec::new()
-        }
-        Some(Entry::Agent(_) | Entry::Message(_) | Entry::Process(_)) => {
-            details.drill.open(&l);
-            Vec::new()
-        }
-        Some(entry) => used(details, entry, Use::Open),
+        Some(entry) => opened(details, &l, entry),
         None => Vec::new(),
     }
 }
@@ -229,19 +221,13 @@ pub(crate) fn press(details: &mut Details, work: Option<&WorkSnapshot>, key: Key
     match (key, &shown) {
         // A row opened from the overview shows no list: the keys scroll,
         // and those that fold go back to the overview.
-        (_, Some(Listing::Links(_)))
-            if details.drill.agent().is_some()
-                || details.drill.message().is_some()
-                || details.drill.process().is_some() =>
-        {
-            match key {
-                Key::Fold => {
-                    details.drill.back();
-                    Vec::new()
-                }
-                _ => scrolled(key),
+        (_, Some(Listing::Links(_))) if details.drill.shows_row() => match key {
+            Key::Fold => {
+                details.drill.back();
+                Vec::new()
             }
-        }
+            _ => scrolled(key),
+        },
         (_, Some(l @ Listing::Links(entries))) => {
             let chosen = details.drill.selected(l).map(|at| &entries[at]);
             pressed_on_overview(details, work, l, chosen, key)
@@ -254,23 +240,21 @@ pub(crate) fn press(details: &mut Details, work: Option<&WorkSnapshot>, key: Key
             details.drill.open(l);
             Vec::new()
         }
-        (Key::Down, Some(l)) => step(details, l, 1),
-        (Key::Up, Some(l)) => step(details, l, -1),
-        (Key::First, Some(l)) => {
-            details.drill.first(l);
-            Vec::new()
-        }
-        (Key::Last, Some(l)) => {
-            details.drill.last(l);
-            Vec::new()
-        }
+        (_, Some(l)) => moved(details, l, key),
         (_, None) => scrolled(key),
-        _ => Vec::new(),
     }
 }
 
-fn step(details: &mut Details, l: &Listing, delta: isize) -> Vec<Effect> {
-    details.drill.step(l, delta);
+/// The cursor moved through `l` as `key` moves it; the other keys do
+/// nothing.
+fn moved(details: &mut Details, l: &Listing, key: Key) -> Vec<Effect> {
+    match key {
+        Key::Down => details.drill.step(l, 1),
+        Key::Up => details.drill.step(l, -1),
+        Key::First => details.drill.first(l),
+        Key::Last => details.drill.last(l),
+        Key::Open | Key::Fold | Key::Copy | Key::Reveal => {}
+    }
     Vec::new()
 }
 
@@ -319,29 +303,27 @@ fn pressed_on_overview(
             }
             Vec::new()
         }
-        (None, Some(Use::Open), Some(Entry::More { group, .. })) => {
+        (None, Some(Use::Open), Some(entry)) => opened(details, l, entry),
+        (None, Some(how), Some(entry)) => used(details, entry, how),
+        (None, Some(_), None) => Vec::new(),
+        _ => moved(details, l, key),
+    }
+}
+
+/// `entry` of `l` opened: the row for a group's rest shows the group whole,
+/// a subagent, message or process opens to a level of its own, and any
+/// other row is used.
+fn opened(details: &mut Details, l: &Listing, entry: &Entry) -> Vec<Effect> {
+    match entry {
+        Entry::More { group, .. } => {
             details.opened.insert(*group);
             Vec::new()
         }
-        (None, Some(Use::Open), Some(Entry::Agent(_) | Entry::Message(_) | Entry::Process(_))) => {
+        Entry::Agent(_) | Entry::Message(_) | Entry::Process(_) => {
             details.drill.open(l);
             Vec::new()
         }
-        (None, Some(how), Some(entry)) => used(details, entry, how),
-        (None, Some(_), None) => Vec::new(),
-        _ => match key {
-            Key::Down => step(details, l, 1),
-            Key::Up => step(details, l, -1),
-            Key::First => {
-                details.drill.first(l);
-                Vec::new()
-            }
-            Key::Last => {
-                details.drill.last(l);
-                Vec::new()
-            }
-            _ => Vec::new(),
-        },
+        entry => used(details, entry, Use::Open),
     }
 }
 
