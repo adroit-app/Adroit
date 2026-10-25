@@ -292,6 +292,19 @@ fn NavItem(pane: Pane, shown: Signal<Pane>) -> Element {
 
 type Change = Box<dyn FnOnce(&mut Settings)>;
 
+/// What a number field does with what it holds once left: `set` it on the
+/// settings when it reads as a number, and nothing otherwise.
+fn set_number<T: std::str::FromStr + 'static>(
+    change: Callback<Change>,
+    set: fn(&mut Settings, T),
+) -> impl FnMut(String) {
+    move |value: String| {
+        if let Ok(n) = value.parse::<T>() {
+            change(Box::new(move |s: &mut Settings| set(s, n)));
+        }
+    }
+}
+
 #[component]
 fn General(now: Settings, change: Callback<Change>) -> Element {
     rsx! {
@@ -380,36 +393,28 @@ fn General(now: Settings, change: Callback<Change>) -> Element {
                 NumberField {
                     min: "1", max: "1000",
                     value: "{now.details.log_commits}",
-                    onchange: move |value: String| if let Ok(n) = value.parse::<usize>() {
-                        change(Box::new(move |s: &mut Settings| s.details.log_commits = n));
-                    },
+                    onchange: set_number::<usize>(change, |s, n| s.details.log_commits = n),
                 }
             }
             SettingRow { label: "Lines of a diff", hint: "How much of a diff is shown before it is cut.",
                 NumberField {
                     min: "1", max: "100000",
                     value: "{now.details.diff_lines}",
-                    onchange: move |value: String| if let Ok(n) = value.parse::<usize>() {
-                        change(Box::new(move |s: &mut Settings| s.details.diff_lines = n));
-                    },
+                    onchange: set_number::<usize>(change, |s, n| s.details.diff_lines = n),
                 }
             }
             SettingRow { label: "Links shown", hint: "How many links of each kind the overview shows before a row that shows them all.",
                 NumberField {
                     min: "1", max: "1000",
                     value: "{now.details.links_shown}",
-                    onchange: move |value: String| if let Ok(n) = value.parse::<usize>() {
-                        change(Box::new(move |s: &mut Settings| s.details.links_shown = n));
-                    },
+                    onchange: set_number::<usize>(change, |s, n| s.details.links_shown = n),
                 }
             }
             SettingRow { label: "Links kept", hint: "How many links of each kind the overview shows, the newest.",
                 NumberField {
                     min: "1", max: "1000",
                     value: "{now.details.links_kept}",
-                    onchange: move |value: String| if let Ok(n) = value.parse::<usize>() {
-                        change(Box::new(move |s: &mut Settings| s.details.links_kept = n));
-                    },
+                    onchange: set_number::<usize>(change, |s, n| s.details.links_kept = n),
                 }
             }
         }
@@ -541,11 +546,7 @@ fn ConsolePane(now: Settings, change: Callback<Change>) -> Element {
                     max: "32",
                     step: "0.5",
                     value: "{now.font_size}",
-                    onchange: move |value: String| {
-                        if let Ok(n) = value.parse::<f64>() {
-                            change(Box::new(move |s: &mut Settings| s.font_size = n));
-                        }
-                    },
+                    onchange: set_number::<f64>(change, |s, n| s.font_size = n),
                 }
             }
             SettingRow { label: "Option as Alt", hint: "Which Option keys send Alt (Meta) to what runs in the console; the others type what macOS makes of the key.",
@@ -595,11 +596,7 @@ fn PromptPane(now: Settings, change: Callback<Change>) -> Element {
                     min: "1",
                     max: "40",
                     value: "{now.prompt_min_rows}",
-                    onchange: move |value: String| {
-                        if let Ok(n) = value.parse::<usize>() {
-                            change(Box::new(move |s: &mut Settings| s.prompt_min_rows = n));
-                        }
-                    },
+                    onchange: set_number::<usize>(change, |s, n| s.prompt_min_rows = n),
                 }
             }
             SettingRow { label: "Most lines", hint: "Past this the prompt scrolls inside.",
@@ -607,11 +604,7 @@ fn PromptPane(now: Settings, change: Callback<Change>) -> Element {
                     min: "1",
                     max: "60",
                     value: "{now.prompt_max_rows}",
-                    onchange: move |value: String| {
-                        if let Ok(n) = value.parse::<usize>() {
-                            change(Box::new(move |s: &mut Settings| s.prompt_max_rows = n));
-                        }
-                    },
+                    onchange: set_number::<usize>(change, |s, n| s.prompt_max_rows = n),
                 }
             }
         }
