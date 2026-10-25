@@ -1,5 +1,5 @@
 {
-  description = "A workspace where you work with many Claude Code sessions by hand: the Claude TUI as it is, prompts in your own Neovim, Vim-style moves.";
+  description = "An Agent Workspace for people who live in Vim: drive any coding agent in its own terminal interface, by hand and the way you edit.";
 
   inputs = {
     nixpkgs.url = "https://channels.nixos.org/nixos-unstable/nixexprs.tar.xz";
