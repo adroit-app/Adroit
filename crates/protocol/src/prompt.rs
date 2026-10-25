@@ -8,6 +8,8 @@ use std::path::PathBuf;
 use adroit_model::{Agent, Command};
 use serde::{Deserialize, Serialize};
 
+use crate::work::set;
+
 /// The prompts an agent kept as sent in a project, oldest first, read for
 /// the request numbered `asked`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -94,27 +96,9 @@ impl PromptWork {
     /// What was read with `change` made; whether that changed it.
     pub fn apply(&mut self, change: PromptChange) -> bool {
         match change {
-            PromptChange::History { read } => {
-                if self.history.as_ref() == Some(&read) {
-                    return false;
-                }
-                self.history = Some(read);
-                true
-            }
-            PromptChange::Commands { read } => {
-                if self.commands.as_ref() == Some(&read) {
-                    return false;
-                }
-                self.commands = Some(read);
-                true
-            }
-            PromptChange::Composed { composed } => {
-                if self.composed.as_ref() == Some(&composed) {
-                    return false;
-                }
-                self.composed = Some(composed);
-                true
-            }
+            PromptChange::History { read } => set(&mut self.history, Some(read)),
+            PromptChange::Commands { read } => set(&mut self.commands, Some(read)),
+            PromptChange::Composed { composed } => set(&mut self.composed, Some(composed)),
         }
     }
 }

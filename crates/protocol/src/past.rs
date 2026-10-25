@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use adroit_model::Past;
 use serde::{Deserialize, Serialize};
 
+use crate::work::set;
+
 /// Which conversations a window lists.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PastSight {
@@ -43,11 +45,7 @@ impl PastWork {
             } => Some((sight, conversations)),
             PastChange::Left => None,
         };
-        if self.listed == now {
-            return false;
-        }
-        self.listed = now;
-        true
+        set(&mut self.listed, now)
     }
 
     /// The conversations listed for `sight`; none while they are not.

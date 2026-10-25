@@ -6,6 +6,8 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::work::set;
+
 /// What a file of the configuration held when the host read it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -118,20 +120,11 @@ impl ConfigWork {
     /// What was read with `change` made; whether that changed it.
     pub fn apply(&mut self, change: ConfigChange) -> bool {
         match change {
-            ConfigChange::Settings { file } => replace(&mut self.settings, file),
-            ConfigChange::Keys { file } => replace(&mut self.keys, file),
-            ConfigChange::Configured { configured } => replace(&mut self.configured, configured),
+            ConfigChange::Settings { file } => set(&mut self.settings, Some(file)),
+            ConfigChange::Keys { file } => set(&mut self.keys, Some(file)),
+            ConfigChange::Configured { configured } => set(&mut self.configured, Some(configured)),
         }
     }
-}
-
-/// `slot` holding `now`; whether it held something else.
-fn replace<T: PartialEq>(slot: &mut Option<T>, now: T) -> bool {
-    if slot.as_ref() == Some(&now) {
-        return false;
-    }
-    *slot = Some(now);
-    true
 }
 
 #[cfg(test)]

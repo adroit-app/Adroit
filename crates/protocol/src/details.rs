@@ -12,6 +12,7 @@ use adroit_model::usage::Limit;
 use adroit_model::{Agent, ConversationStats, Note, Process};
 use serde::{Deserialize, Serialize};
 
+use crate::work::set;
 use crate::{CommandsSight, HostPath, PastSight, PickSight, TreeSight};
 
 /// What a window shows that the host keeps read while it is shown. The host
@@ -230,15 +231,6 @@ impl DetailsWork {
     fn session(&mut self, id: String) -> &mut SessionRead {
         self.sessions.entry(id).or_default()
     }
-}
-
-/// `slot` holding `value`; whether it held something else.
-fn set<T: PartialEq>(slot: &mut T, value: T) -> bool {
-    if *slot == value {
-        return false;
-    }
-    *slot = value;
-    true
 }
 
 #[cfg(test)]

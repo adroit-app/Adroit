@@ -6,6 +6,8 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::work::set;
+
 /// What the picker shows that the host keeps read while it is open.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PickSight {
@@ -53,11 +55,7 @@ impl PickWork {
             PickChange::Offers { offers } => Some(offers),
             PickChange::Left => None,
         };
-        if self.offers == now {
-            return false;
-        }
-        self.offers = now;
-        true
+        set(&mut self.offers, now)
     }
 }
 

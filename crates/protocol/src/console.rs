@@ -4,6 +4,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::work::set;
+
 /// Whether the screen of `session` showed a dialog of its agent's own when
 /// the host last looked.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -30,11 +32,7 @@ impl ConsoleWork {
     /// What was seen with `change` made; whether that changed it.
     pub fn apply(&mut self, change: ConsoleChange) -> bool {
         let ConsoleChange::Dialog { dialog } = change;
-        if self.dialog.as_ref() == Some(&dialog) {
-            return false;
-        }
-        self.dialog = Some(dialog);
-        true
+        set(&mut self.dialog, Some(dialog))
     }
 
     /// Whether `session` showed a dialog of its agent's own when last

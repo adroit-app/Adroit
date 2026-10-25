@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::work::set;
+
 /// The name of a host the work is on. Every place is on the work host's
 /// own machine for now, which is named [`HostName::local`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -86,11 +88,7 @@ impl PlaceWork {
             PlaceChange::Read { read } => Some(read),
             PlaceChange::Left => None,
         };
-        if self.read == now {
-            return false;
-        }
-        self.read = now;
-        true
+        set(&mut self.read, now)
     }
 
     /// What was read of `worktree`, on the work host's own machine; none

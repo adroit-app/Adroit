@@ -121,3 +121,37 @@ impl From<ConsoleChange> for Change {
         Change::Console(change)
     }
 }
+
+/// `slot` holding `value`; whether it held something else.
+pub(crate) fn set<T: PartialEq>(slot: &mut T, value: T) -> bool {
+    if *slot == value {
+        return false;
+    }
+    *slot = value;
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn setting_a_slot_to_what_it_holds_changes_nothing() {
+        let mut slot = Some(1);
+
+        let changed = set(&mut slot, Some(1));
+
+        assert!(!changed);
+        assert_eq!(slot, Some(1));
+    }
+
+    #[test]
+    fn setting_a_slot_to_something_else_replaces_it() {
+        let mut slot = None;
+
+        let changed = set(&mut slot, Some(1));
+
+        assert!(changed);
+        assert_eq!(slot, Some(1));
+    }
+}
