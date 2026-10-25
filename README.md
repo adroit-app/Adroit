@@ -7,16 +7,18 @@
 
 # Adroit
 
-A workspace for Claude Code, Codex, Pi and OpenCode sessions: their own terminal
-interfaces, prompts in Neovim, Vim-style moves.
+An Agent Workspace for people who live in Vim: drive any coding agent in its own
+terminal interface, by hand and the way you edit.
 
 > [!NOTE]
 > Adroit is early: it runs, but expect rough edges and changes.
 
-Work with several coding agents across repositories in one window. Sessions are
-grouped by workspace and worktree, with those waiting on you listed first. Each
-keeps its agent's real terminal interface; you write prompts in Neovim and move
-between tabs, splits, the tree and the details panel with Vim-style keys.
+Claude Code, Codex, Pi and OpenCode sessions stand side by side in one window,
+each in the interface its agent ships, unchanged. You write prompts in a real
+Neovim, configured for Adroit with the mappings and plugins you choose, and
+move between tabs, splits, the tree and the details panel with Vim's motions.
+Sessions are grouped by workspace and worktree, across repositories, with
+those waiting on you listed first.
 
 ```text
 api                              ← a repository
