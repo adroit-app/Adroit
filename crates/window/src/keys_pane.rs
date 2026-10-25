@@ -375,41 +375,13 @@ fn ActionForm(
         .filter(|c| areas().contains(c))
         .collect();
     let action = item.action.clone();
-    let next = if keys.is_empty() || chosen.is_empty() {
-        None
-    } else {
-        Some(match &old {
-            None => keys_by_action::add(&text, &action, &keys, &chosen),
-            Some(b) => {
-                keys_by_action::replace(&text, &action, (&b.keys, &b.areas), (&keys, &chosen))
-            }
-        })
-    };
+    let next = keys_by_action::edited(&text, &action, old.as_ref(), &keys, &chosen);
     let valid = matches!(next, Some(Ok(_)));
     let same = old
         .as_ref()
         .is_some_and(|b| b.keys == keys && b.areas == chosen);
-    let mine = format!(" is {action}");
-    let clashes: Vec<String> = if valid {
-        chosen
-            .iter()
-            .flat_map(|&area| {
-                let except = old
-                    .as_ref()
-                    .filter(|b| b.areas.contains(&area))
-                    .map(|b| b.keys.as_str());
-                let place = if chosen.len() > 1 {
-                    format!("{}: ", area.title())
-                } else {
-                    String::new()
-                };
-                map.clashes(area, &keys, except)
-                    .into_iter()
-                    .filter(|c| !c.ends_with(&mine))
-                    .map(move |c| format!("{place}{c}"))
-                    .collect::<Vec<_>>()
-            })
-            .collect()
+    let clashes = if valid {
+        keys_by_action::clashes(&map, &action, &keys, &chosen, old.as_ref())
     } else {
         Vec::new()
     };
@@ -757,10 +729,7 @@ fn BindingForm(
     });
     let recording = use_signal(|| keys.is_none());
     let new_keys = typed().trim().to_string();
-    let valid = !new_keys.is_empty()
-        && keys_edit::bind("", area, &new_keys, &chosen())
-            .ok()
-            .is_some_and(|t| Keymap::with_user(&t).is_ok());
+    let valid = keys_edit::bindable(area, &new_keys, &chosen());
     let same = was_keys.as_deref() == Some(new_keys.as_str()) && was_action == chosen();
     let clashes = if valid {
         map.clashes(ctx, &new_keys, was_keys.as_deref())
@@ -773,17 +742,7 @@ fn BindingForm(
         move || {
             let keys = typed.peek().trim().to_string();
             let action = chosen.peek().clone();
-            let cleared = match &was_keys {
-                Some(old) if *old != keys => keys_edit::unbind(&text, area, old),
-                _ => Ok(text.clone()),
-            };
-            let next = cleared.and_then(|t| {
-                if keys_edit::default_of(area, &keys).as_deref() == Some(action.as_str()) {
-                    keys_edit::reset(&t, area, &keys)
-                } else {
-                    keys_edit::bind(&t, area, &keys, &action)
-                }
-            });
+            let next = keys_edit::rebind(&text, area, was_keys.as_deref(), &keys, &action);
             on_apply.call(next.map_err(|e| e.to_string()));
         }
     };

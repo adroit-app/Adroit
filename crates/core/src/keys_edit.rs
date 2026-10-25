@@ -84,6 +84,36 @@ pub fn reset_all(text: &str) -> Result<String, Error> {
     Ok(doc.to_string())
 }
 
+/// Whether `keys`, trimmed, can be bound to `action` in `area`: some are
+/// given, and a keymap takes the binding.
+pub fn bindable(area: &str, keys: &str, action: &str) -> bool {
+    !keys.is_empty()
+        && bind("", area, keys, action)
+            .ok()
+            .is_some_and(|t| Keymap::with_user(&t).is_ok())
+}
+
+/// `text` with the binding of `was` in `area`, or a new one when there was
+/// none, made `keys` running `action`: `was` let go of when the keys
+/// change, and a binding the defaults make anyway left to them.
+pub fn rebind(
+    text: &str,
+    area: &str,
+    was: Option<&str>,
+    keys: &str,
+    action: &str,
+) -> Result<String, Error> {
+    let cleared = match was {
+        Some(old) if old != keys => unbind(text, area, old)?,
+        _ => text.to_string(),
+    };
+    if default_of(area, keys).as_deref() == Some(action) {
+        reset(&cleared, area, keys)
+    } else {
+        bind(&cleared, area, keys, action)
+    }
+}
+
 /// The action the defaults bind `keys` to in `area`.
 pub fn default_of(area: &str, keys: &str) -> Option<String> {
     Keymap::defaults()
@@ -176,6 +206,42 @@ mod tests {
         assert!(!out.contains("\"Ctrl+Alt+x\""), "{out}");
         let out = unbind(file, "tree", "Ctrl+Alt+x").unwrap();
         assert!(!out.contains("Alt+Ctrl+x"), "{out}");
+    }
+
+    #[test]
+    fn keys_are_bindable_when_some_are_given_and_the_keymap_takes_them() {
+        assert!(bindable("tree", "J", "cursor.down"));
+        assert!(bindable("tree", "g g", "cursor.first"));
+        assert!(!bindable("tree", "", "cursor.down"));
+        assert!(!bindable("tree", "Hyper+j", "cursor.down"));
+        assert!(!bindable("tree", "J", "no.such.action"));
+    }
+
+    #[test]
+    fn a_binding_saved_under_its_own_keys_takes_the_new_action() {
+        let out = rebind(FILE, "tree", Some("J"), "J", "cursor.up").unwrap();
+        assert_eq!(out, bind(FILE, "tree", "J", "cursor.up").unwrap());
+    }
+
+    #[test]
+    fn a_binding_saved_under_other_keys_lets_go_of_the_old_ones() {
+        let out = rebind(FILE, "tree", Some("J"), "K", "cursor.down").unwrap();
+        assert!(!out.contains("\"J\""), "{out}");
+        assert!(out.contains("K = \"cursor.down\""), "{out}");
+        let out = rebind("", "tree", Some("j"), "J", "cursor.down").unwrap();
+        assert!(out.contains("j = \"none\""), "{out}");
+        assert!(out.contains("J = \"cursor.down\""), "{out}");
+    }
+
+    #[test]
+    fn a_binding_saved_as_the_default_is_left_to_the_defaults() {
+        let out = rebind(FILE, "tree", Some("J"), "j", "cursor.down").unwrap();
+        assert!(!out.contains("\"J\""), "{out}");
+        assert!(!out.contains("j ="), "{out}");
+        assert_eq!(
+            rebind("", "tree", None, "K", "cursor.up").unwrap(),
+            bind("", "tree", "K", "cursor.up").unwrap()
+        );
     }
 
     #[test]

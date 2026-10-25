@@ -297,6 +297,55 @@ pub fn replace(
     )
 }
 
+/// `text` with `keys` running `action` in `areas`, in place of `old` when
+/// they change a binding; nothing while either is missing.
+pub fn edited(
+    text: &str,
+    action: &str,
+    old: Option<&Bound>,
+    keys: &str,
+    areas: &[Context],
+) -> Option<Result<String, Error>> {
+    if keys.is_empty() || areas.is_empty() {
+        return None;
+    }
+    Some(match old {
+        None => add(text, action, keys, areas),
+        Some(b) => replace(text, action, (&b.keys, &b.areas), (keys, areas)),
+    })
+}
+
+/// What else `keys` run in each of `areas` in `map`, the area named when
+/// there are several: neither `action` itself nor `old`, the binding they
+/// change, where it is.
+pub fn clashes(
+    map: &Keymap,
+    action: &str,
+    keys: &str,
+    areas: &[Context],
+    old: Option<&Bound>,
+) -> Vec<String> {
+    let mine = format!(" is {action}");
+    areas
+        .iter()
+        .flat_map(|&area| {
+            let except = old
+                .filter(|b| b.areas.contains(&area))
+                .map(|b| b.keys.as_str());
+            let place = if areas.len() > 1 {
+                format!("{}: ", area.title())
+            } else {
+                String::new()
+            };
+            map.clashes(area, keys, except)
+                .into_iter()
+                .filter(|c| !c.ends_with(&mine))
+                .map(move |c| format!("{place}{c}"))
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
 /// `text` with `action` run by adroit's own keys again: the file's own
 /// bindings of it gone, and adroit's that the file took away or bound to
 /// something else put back.
@@ -513,6 +562,73 @@ mod tests {
                 ("ArrowDown", vec!["tree", "details"]),
                 ("Ctrl+n", vec!["tree"]),
             ]
+        );
+    }
+
+    #[test]
+    fn a_form_edits_nothing_until_it_has_keys_and_an_area() {
+        assert!(edited("", "cursor.down", None, "", &[Context::Tree]).is_none());
+        assert!(edited("", "cursor.down", None, "J", &[]).is_none());
+    }
+
+    #[test]
+    fn a_form_adds_its_keys_or_puts_them_in_place_of_those_it_changes() {
+        let areas = [Context::Tree, Context::Details];
+        assert_eq!(
+            edited("", "cursor.down", None, "J", &areas),
+            Some(add("", "cursor.down", "J", &areas))
+        );
+        let old = Bound {
+            keys: "j".into(),
+            areas: areas.to_vec(),
+        };
+        assert_eq!(
+            edited("", "cursor.down", Some(&old), "Ctrl+n", &[Context::Tree]),
+            Some(replace(
+                "",
+                "cursor.down",
+                ("j", &areas),
+                ("Ctrl+n", &[Context::Tree])
+            ))
+        );
+    }
+
+    #[test]
+    fn a_form_warns_of_what_else_its_keys_run_in_each_area_named_when_there_are_several() {
+        let map = Keymap::defaults();
+        assert_eq!(
+            clashes(&map, "tab.close", "k", &[Context::Tree], None),
+            ["k is cursor.up"]
+        );
+        assert_eq!(
+            clashes(
+                &map,
+                "tab.close",
+                "k",
+                &[Context::Tree, Context::Details],
+                None
+            ),
+            ["Tree: k is cursor.up", "Details: k is cursor.up"]
+        );
+    }
+
+    #[test]
+    fn a_form_does_not_warn_of_the_action_itself_or_of_the_keys_it_changes() {
+        let map = Keymap::defaults();
+        assert!(clashes(&map, "cursor.up", "k", &[Context::Tree], None).is_empty());
+        let old = Bound {
+            keys: "k".into(),
+            areas: vec![Context::Tree],
+        };
+        assert_eq!(
+            clashes(
+                &map,
+                "tab.close",
+                "k",
+                &[Context::Tree, Context::Details],
+                Some(&old)
+            ),
+            ["Details: k is cursor.up"]
         );
     }
 
