@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
+use crate::time::epoch_ms;
+
 pub use adroit_model::subagents::*;
 
 /// The most subagents that ended kept: the latest to end.
@@ -402,32 +404,6 @@ fn clip(text: &str) -> String {
         end -= 1;
     }
     format!("{}…", &text[..end])
-}
-
-/// Milliseconds since the Unix epoch of a UTC time such as
-/// `2026-10-19T14:13:00.648Z`.
-pub(crate) fn epoch_ms(s: &str) -> Option<u64> {
-    let num = |r: std::ops::Range<usize>| s.get(r)?.parse::<i64>().ok();
-    let (y, mo, d) = (num(0..4)?, num(5..7)?, num(8..10)?);
-    let (h, mi, sec) = (num(11..13)?, num(14..16)?, num(17..19)?);
-    let frac = s
-        .get(19..)
-        .and_then(|r| r.strip_prefix('.'))
-        .map(|r| r.trim_end_matches('Z'))
-        .filter(|r| !r.is_empty() && r.bytes().all(|b| b.is_ascii_digit()))
-        .map_or(0, |r| {
-            let r = &r[..r.len().min(3)];
-            r.parse::<i64>().unwrap_or(0) * 10_i64.pow(3 - r.len() as u32)
-        });
-    // Days from the civil date, after Howard Hinnant's `days_from_civil`.
-    let y = if mo <= 2 { y - 1 } else { y };
-    let era = y.div_euclid(400);
-    let yoe = y - era * 400;
-    let doy = (153 * (mo + if mo > 2 { -3 } else { 9 }) + 2) / 5 + d - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let days = era * 146_097 + doe - 719_468;
-    let ms = ((days * 24 + h) * 60 + mi) * 60_000 + sec * 1000 + frac;
-    u64::try_from(ms).ok()
 }
 
 /// What `lines` of a session's transcript tell of its subagents.
@@ -960,16 +936,5 @@ mod tests {
         );
         s.look();
         assert_eq!(s.agents()[0].steps, [tool("Read", "/w/late")]);
-    }
-
-    #[test]
-    fn a_utc_time_is_read_to_the_millisecond() {
-        assert_eq!(epoch_ms("1970-01-01T00:00:00.000Z"), Some(0));
-        assert_eq!(epoch_ms("2000-03-01T00:00:00Z"), Some(951_868_800_000));
-        assert_eq!(
-            epoch_ms("2026-10-19T14:13:00.648Z"),
-            Some(1_792_419_180_648)
-        );
-        assert_eq!(epoch_ms("yesterday"), None);
     }
 }

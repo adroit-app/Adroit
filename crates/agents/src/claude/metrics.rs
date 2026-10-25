@@ -5,9 +5,7 @@ use std::collections::{HashMap, HashSet};
 use adroit_model::{ConversationStats, Tokens};
 use serde_json::Value;
 
-pub fn timestamp_ms(value: &Value) -> Option<u64> {
-    value.as_str().and_then(super::subagents::epoch_ms)
-}
+use crate::time::timestamp_ms;
 
 #[derive(Debug, Clone, Default)]
 pub struct Collector {

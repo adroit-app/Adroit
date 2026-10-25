@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 
 use crate::ConversationReader;
 use crate::claude::links::{Collector, Links};
-use crate::claude::metrics::timestamp_ms;
+use crate::time::timestamp_ms;
 
 /// The tools whose calls name no link of the conversation's own: what they
 /// find is the contents of files and of the shell.

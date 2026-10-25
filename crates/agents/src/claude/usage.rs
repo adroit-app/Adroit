@@ -97,13 +97,7 @@ fn epoch_ms(text: &str) -> Option<u64> {
         f if f.bytes().all(|b| b.is_ascii_digit()) => format!("{f:0<3}")[..3].parse().ok()?,
         _ => return None,
     };
-    // Days from the civil date, after Howard Hinnant's days_from_civil.
-    let y = if m <= 2 { y - 1 } else { y };
-    let era = y.div_euclid(400);
-    let yoe = y - era * 400;
-    let doy = (153 * ((m + 9) % 12) + 2) / 5 + d - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let days = era * 146_097 + doe - 719_468;
+    let days = crate::time::days_from_civil(y, m, d);
     let secs = days * 86_400 + h * 3600 + mi * 60 + s - offset_s;
     u64::try_from(secs * 1000 + ms).ok()
 }

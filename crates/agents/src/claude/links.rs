@@ -76,7 +76,7 @@ impl Collector {
             Some("user") => false,
             _ => return,
         };
-        self.now_ms = v["timestamp"].as_str().and_then(super::subagents::epoch_ms);
+        self.now_ms = v["timestamp"].as_str().and_then(crate::time::epoch_ms);
         let origin = &v["origin"];
         if origin["kind"].as_str() == Some("peer")
             && let Some(name) = origin["name"].as_str()
