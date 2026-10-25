@@ -148,21 +148,17 @@ pub(super) fn Overview(
             {
             // A fact is a value to read and copy, drawn as the head's facts are.
             let facts = section.group == Group::About;
+            let at = section.at;
             rsx! {
             div { key: "{section.group.title()}", class: "details-block details-links",
-                {
-                    let at = section.at;
-                    rsx! {
-                        ListRow {
-                            kind: "details-link-heading",
-                            selected: selected == Some(at),
-                            onclick: move |_| app.dispatch(Msg::DetailsClick(at)),
-                            IconView { icon: if section.folded { Icon::ChevronRight } else { Icon::ChevronDown }, size: 12 }
-                            span { class: "details-label", "{section.group.title()}" }
-                            if section.folded {
-                                span { class: "details-link-tag", "{section.count}" }
-                            }
-                        }
+                ListRow {
+                    kind: "details-link-heading",
+                    selected: selected == Some(at),
+                    onclick: move |_| app.dispatch(Msg::DetailsClick(at)),
+                    IconView { icon: if section.folded { Icon::ChevronRight } else { Icon::ChevronDown }, size: 12 }
+                    span { class: "details-label", "{section.group.title()}" }
+                    if section.folded {
+                        span { class: "details-link-tag", "{section.count}" }
                     }
                 }
                 for r in section.rows.into_iter() {
