@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Assemble target/macos/Adroit.app from the release build: the executable,
-# Info.plist with the workspace's version, and the icon drawn from the logo.
+# Info.plist with the workspace's version, the icon drawn from the logo, and
+# the Neovim assets/neovim pins, which the prompt and the console's reader run.
 # Signed, as macOS will not open an app bundle without a seal, by the identity
 # ADROIT_SIGN_IDENTITY names, else by "Adroit Release" when the keychain has
 # it, else ad hoc. Only the same identity keeps what macOS let the app do.
@@ -24,6 +25,13 @@ cp "$root/assets/macos/Info.plist" "$app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version" "$app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $version" "$app/Contents/Info.plist"
 
+# The Neovim archive as it is released, which finds its lib/ and share/ beside
+# bin/, with the licence it is shipped under.
+neovim=$("$root/assets/neovim/fetch.sh")
+mkdir -p "$app/Contents/Resources/neovim"
+cp -R "$neovim/bin" "$neovim/lib" "$neovim/share" "$app/Contents/Resources/neovim/"
+cp "$root/assets/neovim/LICENSE.txt" "$app/Contents/Resources/neovim/LICENSE.txt"
+
 # Quick Look draws the SVG as WebKit would; iconutil wants each size.
 qlmanage -t -s 1024 -o "$work" "$root/assets/logo/adroit-icon.svg" >/dev/null
 for size in 16 32 128 256 512; do
@@ -46,6 +54,13 @@ if [ -z "$identity" ]; then
     echo "no \"Adroit Release\" in the keychain; signing ad hoc, so macOS will ask for its permissions again (just macos-make-identity, then just macos-import-identity)" >&2
   fi
 fi
+# The code the app carries is signed first: sealing the app does not sign
+# what it holds, and a signature the app's does not match is refused.
+while IFS= read -r -d '' code; do
+  if [[ $(file -b "$code") == *Mach-O* ]]; then
+    codesign --force --sign "$identity" "$code"
+  fi
+done < <(find "$app/Contents/Resources/neovim" -type f -print0)
 codesign --force --sign "$identity" "$app"
 rm -rf "$work"
 echo "$app"

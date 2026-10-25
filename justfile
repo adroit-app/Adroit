@@ -37,11 +37,12 @@ test:
 references:
     cargo run -q -p adroit-core --example references
 
-# Everything CI runs.
-ci: fmt-check lint test
+# Everything CI runs, the tests in the Neovim the app carries.
+ci: fmt-check lint
+    just test-neovim "$(assets/neovim/fetch.sh)/bin/nvim"
 
 # Run the tests in the Neovim at `nvim`, as a Neovim release is checked
-# before adroit ships it.
+# before assets/neovim/update.sh pins it for the app to carry.
 test-neovim nvim:
     ADROIT_NVIM={{ nvim }} just test
 

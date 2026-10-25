@@ -331,6 +331,11 @@ started in, whichever profile has it since.
 
 ## Neovim
 
+The prompt and the console's reader run the Neovim the macOS app carries, of
+the version its About page names, or the program `ADROIT_NVIM` names when it
+is set; built from the source, they run `nvim` on `PATH`. A file or a
+directory opened from the window opens in the `nvim` on `PATH`.
+
 The prompt and the console's reader each run in a Neovim of its own, apart
 from the one you use every day and from each other: neither reads another's
 configuration or plugins, and each keeps its history and swap files to

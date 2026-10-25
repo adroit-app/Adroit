@@ -40,7 +40,10 @@ See [the concept](docs/concept.md) for who Adroit is for and the ideas behind it
 
 ## Build and install
 
-Adroit needs Neovim (`nvim`), git, and at least one supported agent on `PATH`:
+Adroit needs git and at least one supported agent on `PATH`. The macOS app
+carries the Neovim its prompt and console reader run; built and run from the
+source, they run `nvim` on `PATH`, or the program `ADROIT_NVIM` names. Opening a
+file in Neovim runs the `nvim` on `PATH` either way.
 
 | Agent       | Program                                               |
 | ----------- | ----------------------------------------------------- |

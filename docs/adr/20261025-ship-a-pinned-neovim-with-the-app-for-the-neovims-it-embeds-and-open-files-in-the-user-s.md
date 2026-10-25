@@ -1,6 +1,6 @@
 # Ship a pinned Neovim with the app for the Neovims it embeds, and open files in the user's
 
-Status: Proposed
+Status: Accepted
 
 ## Context
 
