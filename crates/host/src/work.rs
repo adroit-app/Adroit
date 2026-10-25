@@ -7,96 +7,65 @@ use std::path::PathBuf;
 
 use adroit_model::{Agent, Session, TerminalProgram, TerminalSession};
 use adroit_protocol::{
-    AgentFacts, AgentsWork, Change, ConfigWork, ConsoleWork, DetailsChange, DetailsWork, Event,
-    PastChange, PastWork, PickChange, PickWork, PlaceChange, PlaceWork, PromptChange, PromptWork,
-    Request, SPOKEN, Seq, Sight, TreeChange, TreeWork, WorkPatch, WorkSnapshot, agree,
+    AgentFacts, AgentsWork, Change, ConfigWork, DetailsChange, DetailsWork, Event, PastChange,
+    PickChange, PlaceChange, PromptChange, Request, SPOKEN, Sight, TreeChange, TreeWork, WorkPatch,
+    WorkSnapshot, agree,
 };
 use tokio::sync::{mpsc, watch};
 
 /// Everything the host holds of the work.
 #[derive(Debug, Clone, Default, PartialEq)]
-pub struct Work {
-    seq: Seq,
-    agents: AgentsWork,
-    details: DetailsWork,
-    tree: TreeWork,
-    past: PastWork,
-    pick: PickWork,
-    place: PlaceWork,
-    prompt: PromptWork,
-    config: ConfigWork,
-    console: ConsoleWork,
-}
+pub struct Work(WorkSnapshot);
 
 impl Work {
     /// The work as a window is first shown it.
     pub fn snapshot(&self) -> WorkSnapshot {
-        WorkSnapshot {
-            seq: self.seq,
-            agents: self.agents.clone(),
-            details: self.details.clone(),
-            tree: self.tree.clone(),
-            past: self.past.clone(),
-            pick: self.pick.clone(),
-            place: self.place.clone(),
-            prompt: self.prompt.clone(),
-            config: self.config.clone(),
-            console: self.console.clone(),
-        }
+        self.0.clone()
     }
 
     /// The work before anything is read but the configuration, with what
     /// the agents' adapters tell of them.
     pub fn configured(config: ConfigWork) -> Self {
-        Self {
+        Self(WorkSnapshot {
             agents: agent_facts(),
             config,
-            ..Self::default()
-        }
+            ..WorkSnapshot::default()
+        })
     }
 
     pub fn details(&self) -> &DetailsWork {
-        &self.details
+        &self.0.details
     }
 
     pub fn tree(&self) -> &TreeWork {
-        &self.tree
+        &self.0.tree
     }
 
     /// The work with `change` made; whether that changed it.
     fn apply(&mut self, change: Change) -> bool {
-        match change {
-            Change::Details(change) => self.details.apply(change),
-            Change::Tree(change) => self.tree.apply(change),
-            Change::Past(change) => self.past.apply(change),
-            Change::Pick(change) => self.pick.apply(change),
-            Change::Place(change) => self.place.apply(change),
-            Change::Prompt(change) => self.prompt.apply(change),
-            Change::Config(change) => self.config.apply(change),
-            Change::Console(change) => self.console.apply(change),
-        }
+        self.0.apply(change)
     }
 
     /// The work a window that shows nothing yet is first sent: what every
     /// window is sent whatever it shows, and nothing read for what another
     /// window shows or asked.
     fn common(&self) -> Work {
-        Work {
-            seq: self.seq,
-            agents: self.agents.clone(),
+        Work(WorkSnapshot {
+            seq: self.0.seq,
+            agents: self.0.agents.clone(),
             details: DetailsWork {
                 sessions: BTreeMap::new(),
                 repositories: BTreeMap::new(),
-                ..self.details.clone()
+                ..self.0.details.clone()
             },
             tree: TreeWork {
                 marks: BTreeMap::new(),
                 entries: BTreeMap::new(),
-                ..self.tree.clone()
+                ..self.0.tree.clone()
             },
-            config: self.config.clone(),
-            ..Work::default()
-        }
+            config: self.0.config.clone(),
+            ..WorkSnapshot::default()
+        })
     }
 }
 
@@ -447,7 +416,7 @@ impl Host {
         let now = self.terminals_shown();
         let on_file =
             |id: &u128| {
-                self.work.tree.terminals().iter().any(|t| {
+                self.work.tree().terminals().iter().any(|t| {
                     t.id == *id && t.program == TerminalProgram::Neovim && t.file.is_some()
                 })
             };
@@ -492,7 +461,7 @@ impl Host {
     fn listed(&self, id: Option<&str>) -> Option<Session> {
         let id = id?;
         self.work
-            .tree
+            .tree()
             .sessions()
             .iter()
             .find(|s| s.id == id)
@@ -520,7 +489,7 @@ impl Host {
     /// window's tree.
     fn terminals(&mut self, change: impl Fn(&mut Vec<TerminalSession>)) -> Vec<Sent> {
         let placed = |work: &Work| {
-            let mut listed = work.tree.listed.clone().unwrap_or_default();
+            let mut listed = work.tree().listed.clone().unwrap_or_default();
             change(&mut listed.terminals);
             listed.tree = listed.tree.with_terminals(&listed.terminals);
             Change::from(TreeChange::Listed { listed })
@@ -616,7 +585,7 @@ impl Host {
             changed |= self.work.apply(change);
         }
         if changed {
-            self.work.seq = self.work.seq.next();
+            self.work.0.seq = self.work.0.seq.next();
         }
     }
 
@@ -631,11 +600,11 @@ impl Host {
         if changes.is_empty() {
             return None;
         }
-        work.seq = work.seq.next();
+        work.0.seq = work.0.seq.next();
         Some((
             window,
             Event::Patch(WorkPatch {
-                seq: work.seq,
+                seq: work.0.seq,
                 changes,
             }),
         ))
@@ -645,6 +614,7 @@ impl Host {
 /// What `work` holds of sessions and worktrees none of `sights` shows, to
 /// drop.
 fn left(work: &Work, sights: &[&Sight]) -> Vec<Change> {
+    let work = &work.0;
     let shown = |c: &Change| sights.iter().any(|s| in_sight(c, s));
     let sessions = work
         .details

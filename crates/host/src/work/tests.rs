@@ -380,10 +380,10 @@ fn hello(versions: &[u32]) -> Request {
 
 #[test]
 fn the_host_answers_hello_by_the_versions_both_speak() {
-    let work = Work {
+    let work = Work(WorkSnapshot {
         seq: Seq(4),
         ..Default::default()
-    };
+    });
     let cases = [
         (
             hello(&[1]),
@@ -416,19 +416,19 @@ fn the_host_answers_hello_by_the_versions_both_speak() {
 #[test]
 fn a_window_that_lost_track_is_sent_the_whole_work() {
     let (work, events) = scenario(
-        Work {
+        Work(WorkSnapshot {
             seq: Seq(9),
             ..Default::default()
-        },
+        }),
         [Request::Snapshot],
     );
     assert_eq!(events, vec![snapshot().seq(9).into()]);
     assert_eq!(
         work,
-        Work {
+        Work(WorkSnapshot {
             seq: Seq(9),
             ..Default::default()
-        }
+        })
     );
 }
 
