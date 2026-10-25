@@ -48,6 +48,17 @@ pub enum Op {
     Saved(Option<KeptDrafts>),
 }
 
+async fn put_draft<F, Fut>(drafts: &mut Drafts, opened: &mut bool, text: String, mut put: F)
+where
+    F: FnMut(String) -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    if !put(text.clone()).await {
+        drafts.put_back(text);
+        *opened = false;
+    }
+}
+
 async fn restore_before_op<F, Fut>(
     drafts: &mut Drafts,
     opened: &mut bool,
@@ -200,16 +211,21 @@ pub(crate) fn keeper(nvim: Signal<Option<Arc<Embedded>>>, app: AppCtx) -> Prompt
                         if now == *drafts.shown() {
                             continue;
                         }
-                        images.show(now.clone());
-                        history.reset();
                         let Some(nv) = &nv else {
+                            images.show(now.clone());
+                            history.reset();
                             drafts.turn_to(now);
                             show_images(images.current());
                             continue;
                         };
-                        let taken = nv.take_text().await.unwrap_or_default();
+                        let Ok(taken) = nv.take_text().await else {
+                            deferred.push_front(Op::Show(now));
+                            break;
+                        };
+                        images.show(now.clone());
+                        history.reset();
                         if let Some(text) = drafts.show(now, taken) {
-                            put(text).await;
+                            put_draft(&mut drafts, &mut opened, text, put).await;
                         }
                     }
                     Op::Close(now) => {
@@ -218,7 +234,7 @@ pub(crate) fn keeper(nvim: Signal<Option<Arc<Embedded>>>, app: AppCtx) -> Prompt
                         if nv.is_none() {
                             drafts.turn_to(now);
                         } else if let Some(text) = drafts.close(now) {
-                            put(text).await;
+                            put_draft(&mut drafts, &mut opened, text, put).await;
                         }
                     }
                     Op::Add(tab, lines, reply) => {
@@ -239,14 +255,21 @@ pub(crate) fn keeper(nvim: Signal<Option<Arc<Embedded>>>, app: AppCtx) -> Prompt
                         let Some(nv) = nv.as_ref().filter(|_| tab == *drafts.shown()) else {
                             continue;
                         };
-                        let now = nv.take_text().await.unwrap_or_default();
+                        let Ok(now) = nv.take_text().await else {
+                            deferred.push_front(Op::Recall(tab, back, sent));
+                            break;
+                        };
                         let text = history.step(back, now.clone(), &sent).unwrap_or(now);
-                        put(text).await;
+                        put_draft(&mut drafts, &mut opened, text, put).await;
                     }
                     Op::Take(reply) => {
                         let text = match &nv {
-                            Some(nv) => nv.take_text().await.unwrap_or_default(),
-                            None => String::new(),
+                            Some(nv) => nv.take_text().await.ok(),
+                            None => None,
+                        };
+                        let Some(text) = text else {
+                            deferred.push_front(Op::Take(reply));
+                            break;
                         };
                         let _ = reply.send((drafts.shown().clone(), text, images.take()));
                     }
@@ -300,6 +323,52 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
+
+    #[tokio::test]
+    async fn a_failed_tab_restore_keeps_both_drafts_until_the_prompt_can_take_it() {
+        for closing in [false, true] {
+            let old = Some(Tab::Session("old".into()));
+            let next = Some(Tab::Session("next".into()));
+            let mut drafts = Drafts::restored(BTreeMap::from([(
+                "session:next".into(),
+                "next draft".into(),
+            )]));
+            drafts.turn_to(old);
+            let mut opened = true;
+            let text = if closing {
+                drafts.close(next.clone())
+            } else {
+                drafts.show(next.clone(), "old draft".into())
+            }
+            .unwrap();
+            put_draft(&mut drafts, &mut opened, text, |_| {
+                std::future::ready(false)
+            })
+            .await;
+            assert_eq!(
+                drafts.saved("").get("session:next").map(String::as_str),
+                Some("next draft")
+            );
+            if !closing {
+                assert_eq!(
+                    drafts.saved("").get("session:old").map(String::as_str),
+                    Some("old draft")
+                );
+            }
+            assert!(!opened);
+            let mut restored = String::new();
+            assert!(
+                restore_before_op(&mut drafts, &mut opened, Op::Show(next), |text| {
+                    restored = text;
+                    std::future::ready(true)
+                })
+                .await
+                .is_ok()
+            );
+            assert_eq!(restored, "next draft");
+            assert!(opened);
+        }
+    }
 
     #[tokio::test]
     async fn failed_initial_restore_retains_the_identity_switch_and_take_reply_for_retry() {
