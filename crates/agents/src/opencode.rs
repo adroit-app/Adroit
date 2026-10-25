@@ -272,27 +272,7 @@ impl AgentAdapter for OpenCode {
             let ours = std::mem::replace(&mut config, own);
             merge(&mut config, ours);
         }
-        // The last rule that matches decides: adroit's tools stay allowed
-        // whatever the profile's or the login's rules say of every tool.
-        if let Some(rules) = config.get_mut("permissions").and_then(Value::as_array_mut) {
-            let (ours, others): (Vec<Value>, Vec<Value>) =
-                rules.drain(..).partition(|rule| rule["action"] == TOOLS);
-            rules.extend(others.into_iter().chain(ours));
-            // OpenCode puts every document's rules for all agents before any
-            // document's rules for one, so a rule for the agent run in an
-            // earlier document would still beat these. Its interface sends a
-            // first prompt it is started with before it knows the agent
-            // configured, as its own default, so that one runs too.
-            let rules = rules.clone();
-            let mut agents = serde_json::Map::new();
-            for agent in [config["default_agent"].as_str(), Some(DEFAULT_AGENT)]
-                .into_iter()
-                .flatten()
-            {
-                agents.insert(agent.into(), json!({ "permissions": rules }));
-            }
-            merge(&mut config, json!({ "agents": agents }));
-        }
+        rules_last(&mut config);
         let mut env: Vec<(String, String)> = env.into_iter().chain(self.environment()).collect();
         if config.as_object().is_some_and(|c| !c.is_empty()) {
             env.push((CONFIG.into(), config.to_string()));
@@ -409,6 +389,31 @@ impl AgentAdapter for OpenCode {
 
     fn screen_state(&self, screen: &[String]) -> Option<adroit_model::State> {
         screen::state(screen)
+    }
+}
+
+/// Put adroit's permission rules in `config` after every other: the last
+/// rule that matches decides, so adroit's tools stay allowed whatever the
+/// profile's or the login's rules say of every tool.
+fn rules_last(config: &mut Value) {
+    if let Some(rules) = config.get_mut("permissions").and_then(Value::as_array_mut) {
+        let (ours, others): (Vec<Value>, Vec<Value>) =
+            rules.drain(..).partition(|rule| rule["action"] == TOOLS);
+        rules.extend(others.into_iter().chain(ours));
+        // OpenCode puts every document's rules for all agents before any
+        // document's rules for one, so a rule for the agent run in an
+        // earlier document would still beat these. Its interface sends a
+        // first prompt it is started with before it knows the agent
+        // configured, as its own default, so that one runs too.
+        let rules = rules.clone();
+        let mut agents = serde_json::Map::new();
+        for agent in [config["default_agent"].as_str(), Some(DEFAULT_AGENT)]
+            .into_iter()
+            .flatten()
+        {
+            agents.insert(agent.into(), json!({ "permissions": rules }));
+        }
+        merge(config, json!({ "agents": agents }));
     }
 }
 
