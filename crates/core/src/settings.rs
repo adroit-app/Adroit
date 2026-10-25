@@ -546,8 +546,7 @@ impl Settings {
     /// profile of another agent would find that one instead.
     fn own(&self, agent: Agent) -> AgentProfile {
         let taken = |id: &ProfileId| self.profiles.iter().any(|p| &p.id == id);
-        let id = std::iter::once(agent.key().to_string())
-            .chain((2..).map(|n| format!("{}-{n}", agent.key())))
+        let id = crate::profiles::numbered(agent.key())
             .filter_map(|id| id.parse::<ProfileId>().ok())
             .find(|id| !taken(id))
             .expect("some numbered id is free");

@@ -36,6 +36,11 @@ pub fn login_name(home: Option<&Path>) -> &'static str {
     }
 }
 
+/// `base`, then `base` numbered from 2 on, for the first of them not taken.
+pub(crate) fn numbered(base: &str) -> impl Iterator<Item = String> {
+    std::iter::once(base.to_string()).chain((2..).map(move |n| format!("{base}-{n}")))
+}
+
 pub fn fresh_id(name: &str, fallback: &str, taken: impl Fn(&str) -> bool) -> String {
     let mut slug = String::new();
     for c in name.chars() {
@@ -50,8 +55,7 @@ pub fn fresh_id(name: &str, fallback: &str, taken: impl Fn(&str) -> bool) -> Str
         "" => fallback.to_string(),
         slug => slug.to_string(),
     };
-    std::iter::once(slug.clone())
-        .chain((2..).map(|n| format!("{slug}-{n}")))
+    numbered(&slug)
         .find(|id| !taken(id))
         .expect("some numbered id is free")
 }
@@ -287,8 +291,7 @@ pub fn set_login(
         }
         (Login::Own, None) => {
             let profiles = data.join("adroit").join("profiles");
-            let fresh = std::iter::once(id.to_string())
-                .chain((2..).map(|n| format!("{id}-{n}")))
+            let fresh = numbered(id.as_str())
                 .map(|name| {
                     let written = profiles.join(name);
                     plain(&written)
@@ -417,6 +420,12 @@ pub fn offered_as(profile: &AgentProfile) -> String {
 mod tests {
     use super::*;
     use adroit_model::testing::profile;
+
+    #[test]
+    fn numbered_ids_run_from_the_base_then_count_from_two() {
+        let ids: Vec<String> = numbered("claude").take(3).collect();
+        assert_eq!(ids, ["claude", "claude-2", "claude-3"]);
+    }
 
     fn settings() -> Settings {
         Settings {
