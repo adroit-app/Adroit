@@ -256,6 +256,16 @@ impl<T> Node<T> {
     }
 }
 
+/// Part `a` of `parts` given `want` of the room it shares with part `b`, the
+/// rest left to `b`; neither goes below [`MIN_SIZE`] unless the room is too
+/// small for both, when neither goes below half of it.
+fn share<T>(parts: &mut [(f64, Node<T>)], a: usize, b: usize, want: f64) {
+    let pair = parts[a].0 + parts[b].0;
+    let size = want.clamp(MIN_SIZE.min(pair / 2.0), (pair - MIN_SIZE).max(pair / 2.0));
+    parts[a].0 = size;
+    parts[b].0 = pair - size;
+}
+
 /// A tab of the content: its windows, and which of them has the focus.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ContentTab<T> {
@@ -267,6 +277,17 @@ pub struct ContentTab<T> {
 }
 
 impl<T: Clone + PartialEq> ContentTab<T> {
+    /// A tab, told apart by `id`, of the window `w` alone, focused.
+    fn single(id: u64, w: Window<T>, preview: bool) -> Self {
+        ContentTab {
+            id,
+            focus: w.id,
+            root: Node::Window(w),
+            previous: None,
+            preview,
+        }
+    }
+
     /// Whether the tab is the preview, whose window the next thing looked at
     /// shows instead.
     pub fn is_preview(&self) -> bool {
@@ -331,8 +352,7 @@ impl<T: Clone + PartialEq> ContentTab<T> {
         } else {
             parts[heir].1.first()
         };
-        let root = std::mem::replace(&mut self.root, Node::Split(Axis::Row, Vec::new()));
-        self.root = root.normalized();
+        self.normalize();
         if self.previous == Some(id) {
             self.previous = None;
         }
@@ -348,14 +368,18 @@ impl<T: Clone + PartialEq> ContentTab<T> {
         }
     }
 
+    fn normalize(&mut self) {
+        let root = std::mem::replace(&mut self.root, Node::Split(Axis::Row, Vec::new()));
+        self.root = root.normalized();
+    }
+
     fn insert_beside(&mut self, axis: Axis, window: Window<T>) {
         let path = self.root.path(self.focus).expect("the focus is in the tab");
         let leaf = self.root.at_mut(&path);
         let old = std::mem::replace(leaf, Node::Split(axis, Vec::new()));
         let id = window.id;
         *leaf = Node::Split(axis, vec![(0.5, old), (0.5, Node::Window(window))]);
-        let root = std::mem::replace(&mut self.root, Node::Split(Axis::Row, Vec::new()));
-        self.root = root.normalized();
+        self.normalize();
         self.focus_on(id);
     }
 
@@ -482,19 +506,18 @@ impl<T: Clone + PartialEq> Content<T> {
     /// when that is shown.
     pub fn open_tab(&mut self, thing: T) {
         let w = self.window(thing);
-        let tab = ContentTab {
-            id: w.id,
-            focus: w.id,
-            root: Node::Window(w),
-            previous: None,
-            preview: false,
-        };
         let at = if self.tabs.is_empty() {
             0
         } else {
             (self.current + 1).min(self.ordinary())
         };
-        self.tabs.insert(at, tab);
+        self.tabs.insert(at, ContentTab::single(w.id, w, false));
+        self.show_added(at);
+    }
+
+    /// Show the tab just added at `at`; the only tab is shown with none
+    /// shown before it.
+    fn show_added(&mut self, at: usize) {
         if self.tabs.len() == 1 {
             self.current = 0;
         } else {
@@ -542,18 +565,8 @@ impl<T: Clone + PartialEq> Content<T> {
                     }
                     None => {
                         let w = self.window(thing);
-                        self.tabs.push(ContentTab {
-                            id: w.id,
-                            focus: w.id,
-                            root: Node::Window(w),
-                            previous: None,
-                            preview: true,
-                        });
-                        if self.tabs.len() == 1 {
-                            self.current = 0;
-                        } else {
-                            self.set_current(self.tabs.len() - 1);
-                        }
+                        self.tabs.push(ContentTab::single(w.id, w, true));
+                        self.show_added(self.tabs.len() - 1);
                     }
                 }
             }
@@ -765,11 +778,8 @@ impl<T: Clone + PartialEq> Content<T> {
             return;
         };
         let other = if at + 1 < parts.len() { at + 1 } else { at - 1 };
-        let pair = parts[at].0 + parts[other].0;
-        let size =
-            (parts[at].0 + by).clamp(MIN_SIZE.min(pair / 2.0), (pair - MIN_SIZE).max(pair / 2.0));
-        parts[at].0 = size;
-        parts[other].0 = pair - size;
+        let want = parts[at].0 + by;
+        share(parts, at, other, want);
     }
 
     /// Make the focused window as large along `axis` as the others allow.
@@ -807,10 +817,7 @@ impl<T: Clone + PartialEq> Content<T> {
             return;
         }
         let before: f64 = parts[..border].iter().map(|(s, _)| s).sum();
-        let pair = parts[border].0 + parts[border + 1].0;
-        let size = (at - before).clamp(MIN_SIZE.min(pair / 2.0), (pair - MIN_SIZE).max(pair / 2.0));
-        parts[border].0 = size;
-        parts[border + 1].0 = pair - size;
+        share(parts, border, border + 1, at - before);
     }
 
     /// Move the focused window to a new tab after the shown one, unless it is
@@ -826,16 +833,7 @@ impl<T: Clone + PartialEq> Content<T> {
         let tab_id = self.next;
         self.next += 1;
         let at = (self.current + 1).min(self.ordinary());
-        self.tabs.insert(
-            at,
-            ContentTab {
-                id: tab_id,
-                root: Node::Window(w),
-                focus: id,
-                previous: None,
-                preview: false,
-            },
-        );
+        self.tabs.insert(at, ContentTab::single(tab_id, w, false));
         self.set_current(at);
     }
 
