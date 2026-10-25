@@ -44,6 +44,10 @@ shown: the filter, a name being typed, the picker's query. When the window is
 in front and its keys have strayed elsewhere, it takes them back by itself
 within a second, without a click.
 
+In a text field, the key that ends an input method's composition, as the
+Enter that commits it, only ends the composition: it does not also keep a
+name being typed or close the filter.
+
 An input method that stops answering keys while it seems to compose, so that
 every key vanishes, is reset after a few of them: what it was composing is
 dropped and keys reach the window again. Each time, the window writes how

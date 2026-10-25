@@ -156,6 +156,13 @@ window.addEventListener('keydown', (e) => {
   t.focus();
   onKey(e, true);
 });
+// A text field's key that ends a composition comes, as on the text area,
+// after `compositionend` with key code 229 and no longer composing, which is
+// all Rust would see of it: the Enter that commits the input method's text
+// would also commit the field. It is kept from the page's listeners here.
+window.addEventListener('keydown', (e) => {
+  if (current() && typesIn(e.target) && (e.isComposing || e.keyCode === 229)) e.stopPropagation();
+}, true);
 // The text area sits on the cursor of what has the keys, so the input
 // method draws its composition and opens its candidates there.
 let at = '';
