@@ -1,14 +1,13 @@
 //! Read Codex rollout records into the overview's shared link collector.
 
 use std::collections::HashSet;
-use std::io::{Read, Seek, SeekFrom};
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 use crate::links::{Collector, Links};
 use serde_json::{Value, json};
 
 use crate::ConversationReader;
+use crate::tail::{Tail, Tailed};
 
 pub(super) fn thread_id(id: &str) -> bool {
     id.len() == 36
@@ -57,9 +56,7 @@ pub(super) struct Transcript {
     locate: Option<(PathBuf, String)>,
     cwd: PathBuf,
     home: PathBuf,
-    read_to: u64,
-    inode: Option<u64>,
-    rest: Vec<u8>,
+    tail: Tail,
     found: Collector,
     results: HashSet<String>,
     metrics: super::metrics::Collector,
@@ -72,9 +69,7 @@ impl Transcript {
             locate: None,
             cwd: cwd.into(),
             home: home.into(),
-            read_to: 0,
-            inode: None,
-            rest: Vec::new(),
+            tail: Tail::default(),
             found: Collector::new(cwd, home),
             results: HashSet::new(),
             metrics: super::metrics::Collector::default(),
@@ -88,9 +83,6 @@ impl Transcript {
     }
 
     fn restart(&mut self) {
-        self.read_to = 0;
-        self.inode = None;
-        self.rest.clear();
         self.found = Collector::new(&self.cwd, &self.home);
         self.results.clear();
         self.metrics = super::metrics::Collector::default();
@@ -102,32 +94,18 @@ impl Transcript {
         {
             self.path = find(root, id).unwrap_or_default();
         }
-        let Ok(mut file) = std::fs::File::open(&self.path) else {
-            self.restart();
-            return;
-        };
-        let Ok(meta) = file.metadata() else { return };
-        if meta.len() < self.read_to || self.inode.is_some_and(|ino| ino != meta.ino()) {
-            self.restart();
-        }
-        self.inode = Some(meta.ino());
-        let mut bytes = Vec::new();
-        if file
-            .seek(SeekFrom::Start(self.read_to))
-            .and_then(|_| file.take(meta.len() - self.read_to).read_to_end(&mut bytes))
-            .is_err()
-        {
-            return;
-        }
-        self.read_to += bytes.len() as u64;
-        self.rest.extend(bytes);
-        let Some(end) = self.rest.iter().rposition(|b| *b == b'\n') else {
-            return;
-        };
-        let done: Vec<u8> = self.rest.drain(..=end).collect();
-        for line in String::from_utf8_lossy(&done).lines() {
-            if let Ok(value) = serde_json::from_str::<Value>(line) {
-                self.take(&value);
+        match self.tail.read(&self.path) {
+            Tailed::Missing => self.restart(),
+            Tailed::Unreadable => {}
+            Tailed::Lines {
+                restarted, values, ..
+            } => {
+                if restarted {
+                    self.restart();
+                }
+                for value in values {
+                    self.take(&value);
+                }
             }
         }
     }

@@ -10,6 +10,7 @@ pub mod login;
 pub mod opencode;
 pub mod own_login;
 pub mod pi;
+mod tail;
 #[cfg(test)]
 mod testing;
 mod time;

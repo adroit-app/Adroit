@@ -2,8 +2,6 @@
 //! what it did, as the file grows.
 
 use std::collections::HashSet;
-use std::io::{Read, Seek, SeekFrom};
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 use adroit_model::{ConversationStats, Tokens};
@@ -11,6 +9,7 @@ use serde_json::{Value, json};
 
 use crate::ConversationReader;
 use crate::links::{Collector, Links};
+use crate::tail::{Tail, Tailed};
 use crate::time::timestamp_ms;
 
 /// The tools whose calls name no link of the conversation's own: what they
@@ -23,9 +22,7 @@ pub(super) struct Transcript {
     path: Option<PathBuf>,
     cwd: PathBuf,
     home: PathBuf,
-    read_to: u64,
-    inode: Option<u64>,
-    rest: Vec<u8>,
+    tail: Tail,
     found: Collector,
     /// The calls fed to the collector, whose results it is given too.
     calls: HashSet<String>,
@@ -42,9 +39,7 @@ impl Transcript {
             path: None,
             cwd: cwd.into(),
             home: home.into(),
-            read_to: 0,
-            inode: None,
-            rest: Vec::new(),
+            tail: Tail::default(),
             found: Collector::new(cwd, home),
             calls: HashSet::new(),
             stats: ConversationStats::default(),
@@ -52,9 +47,6 @@ impl Transcript {
     }
 
     fn restart(&mut self) {
-        self.read_to = 0;
-        self.inode = None;
-        self.rest.clear();
         self.found = Collector::new(&self.cwd, &self.home);
         self.calls.clear();
         self.stats = ConversationStats::default();
@@ -64,32 +56,25 @@ impl Transcript {
         if !self.path.as_ref().is_some_and(|p| p.is_file()) {
             self.path = super::sessions::find(&self.root, &self.id);
         }
-        let Some(Ok(mut file)) = self.path.as_ref().map(std::fs::File::open) else {
-            self.restart();
-            return;
+        let read = match &self.path {
+            Some(path) => self.tail.read(path),
+            None => {
+                self.tail = Tail::default();
+                Tailed::Missing
+            }
         };
-        let Ok(meta) = file.metadata() else { return };
-        if meta.len() < self.read_to || self.inode.is_some_and(|ino| ino != meta.ino()) {
-            self.restart();
-        }
-        self.inode = Some(meta.ino());
-        let mut bytes = Vec::new();
-        if file
-            .seek(SeekFrom::Start(self.read_to))
-            .and_then(|_| file.take(meta.len() - self.read_to).read_to_end(&mut bytes))
-            .is_err()
-        {
-            return;
-        }
-        self.read_to += bytes.len() as u64;
-        self.rest.extend(bytes);
-        let Some(end) = self.rest.iter().rposition(|b| *b == b'\n') else {
-            return;
-        };
-        let done: Vec<u8> = self.rest.drain(..=end).collect();
-        for line in String::from_utf8_lossy(&done).lines() {
-            if let Ok(entry) = serde_json::from_str::<Value>(line) {
-                self.take(&entry);
+        match read {
+            Tailed::Missing => self.restart(),
+            Tailed::Unreadable => {}
+            Tailed::Lines {
+                restarted, values, ..
+            } => {
+                if restarted {
+                    self.restart();
+                }
+                for entry in values {
+                    self.take(&entry);
+                }
             }
         }
     }

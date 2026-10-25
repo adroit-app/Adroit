@@ -3,21 +3,16 @@
 
 use std::path::{Path, PathBuf};
 
-use serde_json::Value;
-
 use super::subagents::Subagents;
 use crate::links::{Collector, Links};
+use crate::tail::{Tail, Tailed};
 
 /// A transcript read as it grows: each read takes in only what was written
 /// since the last.
 #[derive(Debug, Clone)]
 pub struct Transcript {
     path: PathBuf,
-    read_to: u64,
-    /// The file read, by its inode, to tell one put in its place.
-    file: Option<u64>,
-    /// The start of a line not written to its end yet.
-    rest: Vec<u8>,
+    tail: Tail,
     found: Collector,
     agents: Subagents,
     metrics: super::metrics::Collector,
@@ -35,9 +30,7 @@ impl Transcript {
             agents: Subagents::new(&path),
             metrics: super::metrics::Collector::default(),
             path,
-            read_to: 0,
-            file: None,
-            rest: Vec::new(),
+            tail: Tail::default(),
             found: Collector::new(cwd, home),
         }
     }
@@ -51,45 +44,26 @@ impl Transcript {
     }
 
     fn read_own(&mut self, exists: &dyn Fn(&Path) -> bool) -> bool {
-        use std::io::{Read, Seek, SeekFrom};
-        use std::os::unix::fs::MetadataExt;
-        let opened = std::fs::File::open(&self.path).and_then(|f| Ok((f.metadata()?, f)));
-        let Ok((meta, file)) = opened else {
-            let had = self.file.is_some();
+        let had = self.tail.opened();
+        let Tailed::Lines {
+            restarted,
+            ended,
+            values,
+        } = self.tail.read(&self.path)
+        else {
+            self.tail = Tail::default();
             self.restart();
             return had;
         };
-        let mut changed = false;
-        if meta.len() < self.read_to || self.file.is_some_and(|ino| ino != meta.ino()) {
+        if restarted {
             self.restart();
-            changed = true;
         }
-        self.file = Some(meta.ino());
-        if meta.len() == self.read_to {
-            return changed;
+        for v in values {
+            self.found.take(&v, exists);
+            self.agents.feed(&v);
+            self.metrics.feed(&v);
         }
-        let mut file = file;
-        let mut new = Vec::new();
-        let read = file
-            .seek(SeekFrom::Start(self.read_to))
-            .and_then(|_| file.take(meta.len() - self.read_to).read_to_end(&mut new));
-        if read.is_err() {
-            return changed;
-        }
-        self.read_to += new.len() as u64;
-        self.rest.extend(new);
-        let Some(end) = self.rest.iter().rposition(|b| *b == b'\n') else {
-            return changed;
-        };
-        let done: Vec<u8> = self.rest.drain(..=end).collect();
-        for line in String::from_utf8_lossy(&done).lines() {
-            if let Ok(v) = serde_json::from_str::<Value>(line) {
-                self.found.take(&v, exists);
-                self.agents.feed(&v);
-                self.metrics.feed(&v);
-            }
-        }
-        true
+        restarted || ended
     }
 
     pub fn links(&self) -> Links {
@@ -105,9 +79,6 @@ impl Transcript {
 
     fn restart(&mut self) {
         self.metrics = super::metrics::Collector::default();
-        self.read_to = 0;
-        self.file = None;
-        self.rest.clear();
         self.agents = Subagents::new(&self.path);
         self.found.clear();
     }
