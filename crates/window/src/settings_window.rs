@@ -122,6 +122,12 @@ impl Pane {
         }
     }
 
+    /// Whether the pane is headed by its title: a profile's page and About
+    /// name themselves.
+    fn titled(self) -> bool {
+        !matches!(self, Pane::Agents | Pane::About)
+    }
+
     fn icon(self) -> Icon {
         match self {
             Pane::General => Icon::AdjustmentsHorizontal,
@@ -166,7 +172,7 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
     });
     let config = use_config();
     let link = use_context::<Link>();
-    let mut pane = use_signal(|| Pane::General);
+    let pane = use_signal(|| Pane::General);
     let mut chosen = use_signal(|| None::<AgentPage>);
     let mut now = use_signal(|| config.peek().settings.clone());
     let mut failed = use_signal(|| None::<String>);
@@ -206,15 +212,7 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
         div { class: "settings",
             nav { class: "settings-nav",
                 for p in Pane::ALL {
-                    button {
-                        key: "{p.title()}",
-                        r#type: "button",
-                        aria_current: if pane() == p { "page" } else { "false" },
-                        class: if pane() == p { "settings-nav-item on" } else { "settings-nav-item" },
-                        onclick: move |_| pane.set(p),
-                        IconView { icon: p.icon(), size: 16 }
-                        "{p.title()}"
-                    }
+                    NavItem { key: "{p.title()}", pane: p, shown: pane }
                     if p == Pane::Agents && pane() == Pane::Agents {
                         for entry in agent_pages::entries(&now()) {
                             button {
@@ -238,18 +236,10 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
                     }
                 }
                 div { class: "settings-nav-spacer" }
-                button {
-                    r#type: "button",
-                    aria_current: if pane() == Pane::About { "page" } else { "false" },
-                    class: if pane() == Pane::About { "settings-nav-item on" } else { "settings-nav-item" },
-                    onclick: move |_| pane.set(Pane::About),
-                    IconView { icon: Pane::About.icon(), size: 16 }
-                    "{Pane::About.title()}"
-                }
+                NavItem { pane: Pane::About, shown: pane }
             }
             main { class: "settings-pane",
-                // A profile's page and About name themselves.
-                if !matches!(pane(), Pane::Agents | Pane::About) {
+                if pane().titled() {
                     header { class: "settings-pane-head",
                         h1 { "{pane().title()}" }
                     }
@@ -280,6 +270,22 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
                     }
                 }
             }
+        }
+    }
+}
+
+/// The sidebar's item for `pane`, on while it is the one `shown`.
+#[component]
+fn NavItem(pane: Pane, shown: Signal<Pane>) -> Element {
+    let on = shown() == pane;
+    rsx! {
+        button {
+            r#type: "button",
+            aria_current: if on { "page" } else { "false" },
+            class: if on { "settings-nav-item on" } else { "settings-nav-item" },
+            onclick: move |_| shown.set(pane),
+            IconView { icon: pane.icon(), size: 16 }
+            "{pane.title()}"
         }
     }
 }
