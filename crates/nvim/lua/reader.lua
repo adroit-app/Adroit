@@ -42,12 +42,16 @@ local function apply()
     vim.keymap.set({ "n", "x" }, lhs, rhs)
     vim.keymap.set({ "n", "x" }, lhs, rhs, { buffer = b })
   end
-  for _, lhs in ipairs({ ":", "Q", "gQ", "ZZ", "ZQ" }) do
-    deny(lhs, "<Nop>")
+  local function deny_all()
+    for _, lhs in ipairs({ ":", "Q", "gQ", "ZZ", "ZQ" }) do
+      deny(lhs, "<Nop>")
+    end
+    deny("<C-w>", function()
+      vim.fn.getcharstr()
+    end)
   end
-  deny("<C-w>", function()
-    vim.fn.getcharstr()
-  end)
+  deny_all()
+  watch_configuration(b, deny_all)
   -- Keys are not the only way: a mapping or a plugin of the user's may open
   -- a window, as `K` opens help.
   vim.api.nvim_create_autocmd({ "WinNew", "TabNew" }, {

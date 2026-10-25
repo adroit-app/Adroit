@@ -17,6 +17,7 @@ pub(crate) const CONSOLE_APPNAME: &str = "adroit/console/nvim";
 /// what it sets against any later change.
 pub(crate) const READER: &str = concat!(
     include_str!("../lua/hold.lua"),
+    include_str!("../lua/config.lua"),
     include_str!("../lua/reader.lua")
 );
 
@@ -162,18 +163,45 @@ mod tests {
         }
     }
 
-    async fn start_configured(init: &str) -> (Embedded, tempfile::TempPath) {
-        let init = crate::embed::user_init(init);
-        let path = init.to_str().unwrap();
-        let e = Embedded::spawn_reader("nvim", &["--clean", "-u", path], 30, 4, |_| {})
+    async fn start_configured(init: &str) -> (Embedded, crate::embed::UserConfig) {
+        let config = crate::embed::UserConfig::new(init);
+        let args = config.args();
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        let e = Embedded::spawn_reader("nvim", &args, 30, 4, |_| {})
             .await
             .expect("nvim on PATH");
-        (e, init)
+        (e, config)
+    }
+
+    #[tokio::test]
+    async fn a_configuration_saved_again_is_read_again_with_the_console_s_filetype_plugins() {
+        let (e, config) = start_configured("vim.g.read = 1").await;
+        e.show(&lines(&["one"]), &[], (0, 0), true, "#101010")
+            .await
+            .unwrap();
+        assert!(e.settles("g:read", Value::from(1)).await);
+        config.write(
+            r#"
+            vim.g.read = 2
+            vim.api.nvim_create_autocmd("FileType", {
+              pattern = "adroit-console",
+              callback = function() vim.b.seen = 1 end,
+            })
+            "#,
+        );
+        assert!(
+            e.settles(
+                "[g:read, get(b:, 'seen', 0)]",
+                Value::from(vec![Value::from(2), Value::from(1)])
+            )
+            .await
+        );
+        assert!(e.settles("&modifiable", Value::from(0)).await);
     }
 
     #[tokio::test]
     async fn the_user_s_configuration_changes_what_adroit_only_suggests() {
-        let (e, _init) = start_configured(
+        let (e, _config) = start_configured(
             r#"
             vim.o.report = 2
             vim.o.showmode = true
@@ -191,7 +219,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_user_s_configuration_cannot_change_what_the_window_relies_on() {
-        let (e, _init) = start_configured(
+        let (e, _config) = start_configured(
             r#"
             vim.o.number = true
             vim.o.laststatus = 2
@@ -238,7 +266,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_window_s_keys_scroll_it_whatever_the_user_mapped_them_to() {
-        let (e, _init) = start_configured(
+        let (e, _config) = start_configured(
             r#"
             vim.keymap.set("n", "<C-e>", "<Nop>")
             vim.keymap.set("n", "<C-y>", "<Nop>")

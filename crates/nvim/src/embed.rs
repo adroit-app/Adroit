@@ -38,6 +38,7 @@ pub enum Event {
 /// any later change.
 pub(crate) const SETUP: &str = concat!(
     include_str!("../lua/hold.lua"),
+    include_str!("../lua/config.lua"),
     include_str!("../lua/prompt.lua")
 );
 
@@ -172,13 +173,40 @@ pub(crate) struct Launch {
     pub(crate) setup: &'static str,
 }
 
-/// A configuration of the user's, kept in a file until the path is dropped.
+/// A configuration of the user's: `init.lua` in a folder of its own, kept
+/// until it is dropped.
 #[cfg(test)]
-pub(crate) fn user_init(lua: &str) -> tempfile::TempPath {
-    use std::io::Write;
-    let mut file = tempfile::Builder::new().suffix(".lua").tempfile().unwrap();
-    file.write_all(lua.as_bytes()).unwrap();
-    file.into_temp_path()
+pub(crate) struct UserConfig(tempfile::TempDir);
+
+#[cfg(test)]
+impl UserConfig {
+    pub(crate) fn new(lua: &str) -> Self {
+        let config = Self(tempfile::tempdir().unwrap());
+        config.write(lua);
+        config
+    }
+
+    pub(crate) fn init(&self) -> std::path::PathBuf {
+        self.0.path().join("init.lua")
+    }
+
+    /// Save `init.lua` anew, as an editor saves it.
+    pub(crate) fn write(&self, lua: &str) {
+        std::fs::write(self.init(), lua).unwrap();
+    }
+
+    /// What starts Neovim on it alone: read as the user's own, as it is
+    /// found when Neovim looks for one.
+    pub(crate) fn args(&self) -> Vec<String> {
+        let init = self.init().to_string_lossy().into_owned();
+        vec![
+            "--clean".into(),
+            "-u".into(),
+            init.clone(),
+            "--cmd".into(),
+            format!("let $MYVIMRC = '{init}'"),
+        ]
+    }
 }
 
 /// A Neovim process attached as this window's UI.
@@ -488,16 +516,68 @@ mod tests {
 
     async fn start_configured(
         init: &str,
-    ) -> (Embedded, mpsc::UnboundedReceiver<Event>, tempfile::TempPath) {
-        let init = user_init(init);
-        let path = init.to_str().unwrap();
+    ) -> (Embedded, mpsc::UnboundedReceiver<Event>, UserConfig) {
+        let config = UserConfig::new(init);
+        let args = config.args();
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
         let (tx, rx) = mpsc::unbounded_channel();
-        let e = Embedded::spawn("nvim", &["--clean", "-u", path], 30, 4, move |ev| {
+        let e = Embedded::spawn("nvim", &args, 30, 4, move |ev| {
             let _ = tx.send(ev);
         })
         .await
         .expect("nvim on PATH");
-        (e, rx, init)
+        (e, rx, config)
+    }
+
+    #[tokio::test]
+    async fn a_configuration_saved_again_is_read_again_and_still_cannot_change_what_the_window_relies_on()
+     {
+        let (e, mut rx, config) = start_configured("vim.g.read = 1").await;
+        assert!(e.settles("g:read", Value::from(1)).await);
+        e.type_text("kept").await.unwrap();
+        wait(&mut rx, |_| e.state().screen().text()[0] == "kept").await;
+        config.write("vim.g.read = 2\nvim.o.cursorline = true\nvim.o.laststatus = 2");
+        assert!(e.settles("g:read", Value::from(2)).await);
+        assert!(
+            e.settles(
+                "[&cursorline, &laststatus]",
+                Value::from(vec![Value::from(1), Value::from(0)])
+            )
+            .await
+        );
+        assert_eq!(e.text().await.unwrap(), "kept");
+    }
+
+    #[tokio::test]
+    async fn a_lua_module_of_the_configuration_is_read_anew_with_it() {
+        // The folder is on 'runtimepath' as Neovim's own configuration folder is.
+        let init = "vim.opt.rtp:prepend(vim.fs.dirname(vim.env.MYVIMRC))\n\
+                    vim.g.read = require('mine').n";
+        let config = UserConfig::new("");
+        let lua = config.init().with_file_name("lua");
+        std::fs::create_dir_all(&lua).unwrap();
+        std::fs::write(lua.join("mine.lua"), "return { n = 1 }").unwrap();
+        config.write(init);
+        let args = config.args();
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        let e = Embedded::spawn("nvim", &args, 30, 4, |_| {}).await.unwrap();
+        assert!(e.settles("g:read", Value::from(1)).await);
+        std::fs::write(lua.join("mine.lua"), "return { n = 2 }").unwrap();
+        assert!(e.settles("g:read", Value::from(2)).await);
+    }
+
+    #[tokio::test]
+    async fn a_configuration_that_fails_when_read_again_leaves_the_prompt_working() {
+        let (e, mut rx, config) = start_configured("vim.g.read = 1").await;
+        assert!(e.settles("g:read", Value::from(1)).await);
+        config.write("error('broken')");
+        // The failure is told, and the prompt still takes text.
+        wait(&mut rx, |_| {
+            e.state().message().is_some_and(|m| m.contains("broken"))
+        })
+        .await;
+        e.type_text("still").await.unwrap();
+        wait(&mut rx, |_| e.state().screen().text()[0] == "still").await;
     }
 
     #[tokio::test]
@@ -511,7 +591,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_user_s_configuration_changes_what_adroit_only_suggests() {
-        let (e, _rx, _init) = start_configured(
+        let (e, _rx, _config) = start_configured(
             r#"
             vim.o.number = true
             vim.o.cursorline = true
@@ -529,7 +609,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_user_s_configuration_cannot_change_what_the_window_relies_on() {
-        let (e, _rx, _init) = start_configured(
+        let (e, _rx, _config) = start_configured(
             r#"
             vim.o.laststatus = 2
             vim.o.showtabline = 2
@@ -570,7 +650,7 @@ mod tests {
 
     #[tokio::test]
     async fn writing_starts_after_the_text_whatever_the_user_mapped_its_keys_to() {
-        let (e, mut rx, _init) = start_configured(
+        let (e, mut rx, _config) = start_configured(
             r#"
             vim.keymap.set({ "n", "i" }, "<C-\\>", "<Nop>")
             vim.keymap.set("n", "G", "<Nop>")

@@ -361,6 +361,13 @@ setting it in `init.lua` or a filetype plugin is enough. `g:adroit` is set
 before the configuration too, for a configuration shared with the everyday
 Neovim to tell where it runs.
 
+A configuration saved while its Neovim runs is read again by it, with what is
+written and the cursor kept: `init.lua`, or a Lua module of the folder's
+`lua/`, which `require` then reads anew. The filetype plugins of the prompt or
+the reader run again after it, and what the window relies on is set again. A
+configuration that fails when read again says so in a message, and what was
+read before stays in force.
+
 Either Neovim that quits is started again; the console read when its
 reader quits is shown live. One that quits as it starts, as a
 broken configuration makes it, or cannot be started is tried again after a
