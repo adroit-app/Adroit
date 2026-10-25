@@ -13,6 +13,10 @@ use adroit_agents as agents;
 
 use crate::{delegation::launch::Delegation, sessions, settings::Settings};
 
+/// The size a program starts at, until a window shows it at its own.
+pub(crate) const COLS: u16 = 120;
+pub(crate) const ROWS: u16 = 40;
+
 #[derive(Debug, Clone, Default)]
 pub struct StartRequest {
     pub agent: Agent,

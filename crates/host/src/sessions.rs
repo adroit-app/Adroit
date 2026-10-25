@@ -127,6 +127,17 @@ pub fn read(session: &adroit_term::Session) -> Option<Kept> {
     }
 }
 
+/// The agent sessions adroit started among `listed`.
+pub fn agents(listed: &[adroit_term::Session]) -> impl Iterator<Item = Session> + '_ {
+    listed
+        .iter()
+        .filter_map(read)
+        .filter_map(|kept| match kept {
+            Kept::Agent(session) => Some(session),
+            Kept::Terminal(_) => None,
+        })
+}
+
 /// The tag that keeps on its daemon session what a session `learned` from
 /// its agent's listing: the session's daemon id, the tag's key and its value.
 pub fn learned_tag((id, learned): (u128, adroit_agents::Learned)) -> (u128, &'static str, String) {
@@ -388,6 +399,29 @@ mod tests {
             status: None,
             sequence: 1,
         }
+    }
+
+    #[test]
+    fn the_agent_sessions_of_a_listing_leave_out_terminals_and_sessions_adroit_did_not_start() {
+        let listed = [
+            kept(
+                1,
+                fix_tags("uuid", &adroit_model::AgentPermissions::Default, 0),
+            ),
+            kept(
+                2,
+                terminal_tags(&TerminalSession {
+                    name: "shell".into(),
+                    cwd: "/api".into(),
+                    ..TerminalSession::default()
+                }),
+            ),
+            kept(3, vec!["other=tag".into()]),
+        ];
+
+        let names: Vec<String> = agents(&listed).map(|s| s.name).collect();
+
+        assert_eq!(names, ["fix"]);
     }
 
     #[test]

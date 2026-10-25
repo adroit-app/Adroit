@@ -10,13 +10,9 @@ use adroit_term::Daemon;
 
 use crate::content::{fresh_name, label_from, label_of};
 use crate::scratch::{self, Moment};
-use crate::sessions::{self, Kept};
+use crate::sessions;
 
 const USAGE: &str = "usage: adroit session start [--dir <path>] [--worktree [--base <rev>]] [--name <name>] [--permissions <default|read_only> | --permissions-file <path>] [--agent <claude|codex|pi|opencode>] [--profile <id>] [--model <model>] [-- <prompt>]";
-
-/// The size a session starts at, until a window shows it at its own.
-const COLS: u16 = 120;
-const ROWS: u16 = 40;
 
 /// What `adroit session start` was asked for.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -98,13 +94,7 @@ async fn start(
         .sessions()
         .await
         .map_err(|e| format!("cannot reach the daemon: {e}"))?;
-    let names: Vec<String> = listed
-        .iter()
-        .filter_map(|s| match sessions::read(s)? {
-            Kept::Agent(c) => Some(c.name),
-            Kept::Terminal(_) => None,
-        })
-        .collect();
+    let names: Vec<String> = sessions::agents(&listed).map(|s| s.name).collect();
     let taken: Vec<&str> = names.iter().map(String::as_str).collect();
     let name = name_for(asked.name.as_deref(), prompt, &taken);
     let cwd = if asked.worktree {
@@ -127,7 +117,7 @@ async fn start(
         started_ms: now_ms(),
         ..Default::default()
     };
-    let program = std::env::current_exe().unwrap_or_else(|_| "adroit".into());
+    let program = crate::work_host::adroit_program();
     let (resolved, recorded) = crate::delegation::app::prepare(
         &crate::delegation::app::root(),
         &settings,
@@ -137,8 +127,8 @@ async fn start(
     )
     .await?;
     let mut spawn = resolved.spawn;
-    spawn.cols = COLS;
-    spawn.rows = ROWS;
+    spawn.cols = crate::execution::COLS;
+    spawn.rows = crate::execution::ROWS;
     let palette = crate::themes::palette_in_force(&settings)?;
     let attach = recorded.clone();
     let started =

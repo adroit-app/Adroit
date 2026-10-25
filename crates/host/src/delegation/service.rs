@@ -301,13 +301,7 @@ async fn start(context: &Context, caller: &Session, start: protocol::Start) -> R
         .ok_or_else(|| Error::new(Code::Invalid, format!("{} is no directory", dir.display())))?;
     let name = {
         let listed = context.daemon.sessions().await.map_err(Error::storage)?;
-        let names: Vec<String> = listed
-            .iter()
-            .filter_map(|s| match crate::sessions::read(s)? {
-                crate::sessions::Kept::Agent(s) => Some(s.name),
-                crate::sessions::Kept::Terminal(_) => None,
-            })
-            .collect();
+        let names: Vec<String> = crate::sessions::agents(&listed).map(|s| s.name).collect();
         let taken: Vec<&str> = names.iter().map(String::as_str).collect();
         crate::start::name_for(start.name.as_deref(), &prompt, &taken)
     };
@@ -349,8 +343,8 @@ async fn start(context: &Context, caller: &Session, start: protocol::Start) -> R
     .await
     .map_err(|error| Error::new(Code::Invalid, error))?;
     let mut spawn = resolved.spawn;
-    spawn.cols = 120;
-    spawn.rows = 40;
+    spawn.cols = crate::execution::COLS;
+    spawn.rows = crate::execution::ROWS;
     let palette = crate::themes::palette_in_force(&settings)
         .map_err(|error| Error::new(Code::Invalid, error))?;
     let attach = recorded.clone();

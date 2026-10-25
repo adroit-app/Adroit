@@ -14,17 +14,13 @@ use adroit_term::Spawn;
 use tokio::sync::watch;
 
 use crate::delegation::app as delegation;
-use crate::execution::{StartRequest, TerminalStartRequest};
+use crate::execution::{COLS, ROWS, StartRequest, TerminalStartRequest};
 use crate::scratch::{self, Moment};
 use crate::serve::Asks;
 use crate::terminal_host::{self, Judged};
 use crate::watch::Watched;
 use crate::work_host::adroit_program;
 use crate::{daemon, held, pasted, programs, sessions, settings};
-
-/// The size a program starts at when the window names none.
-const COLS: u16 = 120;
-const ROWS: u16 = 40;
 
 /// What answers each ask, through `watched` and the terminal host `judged`
 /// stands as.
@@ -256,14 +252,7 @@ async fn delete_login(profile: &ProfileId) -> Result<Answer, String> {
         .sessions()
         .await
         .map_err(|e| e.to_string())?;
-    let running: Vec<adroit_model::Session> = kept
-        .iter()
-        .filter_map(sessions::read)
-        .filter_map(|k| match k {
-            sessions::Kept::Agent(s) => Some(s),
-            sessions::Kept::Terminal(_) => None,
-        })
-        .collect();
+    let running: Vec<adroit_model::Session> = sessions::agents(&kept).collect();
     unused(found.label(), &home, &running)?;
     match tokio::fs::remove_dir_all(&home).await {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
