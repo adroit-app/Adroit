@@ -352,7 +352,9 @@ line, window bar or command line, ignore no events, keep the theme's
 and completion offers what matches without putting it in the text. The
 reader's text stays as the console draws it: unwrapped, unfolded, with nothing
 concealed or beside it, and unable to be changed. Its keys that would leave
-the reader, `:` and Ex mode, quitting, and `<C-w>`, stay without effect. These
+the reader, `:` and Ex mode, quitting, and `<C-w>`, stay without effect in its
+text, and a split or a tab opened in it closes at once; a floating window, as
+a plugin's picker or notification opens, stays, with its own keys. These
 are set again whenever a configuration, a filetype plugin or a plugin changes
 them. The keys the window itself gives these Neovims, to start writing or to
 scroll the reader, work whatever the configuration maps them to. The rest, such as line numbers,

@@ -313,6 +313,64 @@ mod tests {
         }
     }
 
+    /// Opens a floating window over the text, focused, as a picker of a
+    /// plugin's would, and keeps it in `g:float`.
+    const FLOAT: &str = "vim.g.float = vim.api.nvim_open_win(vim.api.nvim_create_buf(false, true), \
+                         true, { relative = 'editor', row = 0, col = 0, width = 10, height = 1 })";
+
+    #[tokio::test]
+    async fn a_floating_window_opened_in_it_stays_open_and_focused() {
+        let (e, _rx) = start().await;
+        e.show(&lines(&["one", "two"]), &[], (0, 0), true, "#101010")
+            .await
+            .unwrap();
+        e.exec(FLOAT, vec![]).await.unwrap();
+        // Long enough for what closes windows to have run.
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(
+            e.eval("[nvim_win_is_valid(g:float), win_getid() == g:float]")
+                .await,
+            Value::from(vec![Value::from(true), Value::from(1)])
+        );
+    }
+
+    #[tokio::test]
+    async fn a_split_opened_beside_a_floating_window_closes_and_the_float_stays() {
+        let (e, _rx) = start().await;
+        e.show(&lines(&["one", "two"]), &[], (0, 0), true, "#101010")
+            .await
+            .unwrap();
+        e.exec(FLOAT, vec![]).await.unwrap();
+        e.exec("vim.cmd('noautocmd wincmd p'); vim.cmd('split')", vec![])
+            .await
+            .unwrap();
+        let layout = "[len(filter(nvim_tabpage_list_wins(0), \
+                      {_, w -> nvim_win_get_config(w).relative == ''})), \
+                      nvim_win_is_valid(g:float), bufnr() == g:adroit_buf]";
+        assert!(
+            e.settles(
+                layout,
+                Value::from(vec![Value::from(1), Value::from(true), Value::from(1)])
+            )
+            .await,
+            "{}",
+            e.eval(layout).await
+        );
+    }
+
+    #[tokio::test]
+    async fn the_keys_it_denies_are_denied_in_its_buffer_alone() {
+        let (e, _rx) = start().await;
+        e.show(&lines(&["one"]), &[], (0, 0), true, "#101010")
+            .await
+            .unwrap();
+        let global = "luaeval('#vim.tbl_filter(function(m) return vim.tbl_contains(\
+                      {\":\", \"Q\", \"gQ\", \"ZZ\", \"ZQ\", \"<C-W>\"}, m.lhs) end, \
+                      vim.api.nvim_get_keymap(\"n\"))')";
+        assert_eq!(e.eval(global).await, Value::from(0));
+        assert_eq!(e.eval("maparg(':', 'n')").await, Value::from("<Nop>"));
+    }
+
     #[tokio::test]
     async fn its_keys_neither_arrange_windows_nor_run_commands_nor_quit() {
         let (e, _rx) = start().await;

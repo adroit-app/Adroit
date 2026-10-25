@@ -36,13 +36,13 @@ local function apply()
   -- The reader is for moving, searching and copying. Commands, Ex mode and
   -- quitting would leave it broken or gone, and windows and tabs arranged in
   -- it would stay. `<C-w>` takes the key after it too, or `<C-w>q` would
-  -- start recording. The buffer's own mappings come after its filetype
-  -- plugins', which would otherwise win over them.
-  local function deny(lhs, rhs)
-    vim.keymap.set({ "n", "x" }, lhs, rhs)
-    vim.keymap.set({ "n", "x" }, lhs, rhs, { buffer = b })
-  end
+  -- start recording. They are the buffer's alone, not global, so that the
+  -- buffers plugins open over it keep the user's own mappings; they are set
+  -- after its filetype plugins', which would otherwise win over them.
   local function deny_all()
+    local function deny(lhs, rhs)
+      vim.keymap.set({ "n", "x" }, lhs, rhs, { buffer = b })
+    end
     for _, lhs in ipairs({ ":", "Q", "gQ", "ZZ", "ZQ" }) do
       deny(lhs, "<Nop>")
     end
@@ -51,20 +51,45 @@ local function apply()
     end)
   end
   deny_all()
+  vim.api.nvim_create_autocmd("FileType", {
+    buffer = b,
+    callback = function()
+      vim.schedule(deny_all)
+    end,
+  })
   watch_configuration()
   -- Keys are not the only way: a mapping or a plugin of the user's may open
-  -- a window, as `K` opens help.
+  -- a window, as `K` opens help. Floating windows stay: they draw over the
+  -- text, as plugins' pickers and notifications do, and leave it in place.
+  local function floating(win)
+    return vim.api.nvim_win_get_config(win).relative ~= ""
+  end
   vim.api.nvim_create_autocmd({ "WinNew", "TabNew" }, {
     callback = function()
       vim.schedule(function()
+        local was = vim.api.nvim_get_current_win()
         if vim.api.nvim_win_is_valid(w) then
+          vim.api.nvim_set_current_tabpage(vim.api.nvim_win_get_tabpage(w))
+        end
+        vim.cmd("silent! tabonly!")
+        if not vim.api.nvim_win_is_valid(w) then
+          w = vim.tbl_filter(function(win)
+            return not floating(win)
+          end, vim.api.nvim_tabpage_list_wins(0))[1]
+        end
+        for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+          if win ~= w and not floating(win) then
+            pcall(vim.api.nvim_win_close, win, true)
+          end
+        end
+        if vim.api.nvim_buf_is_valid(b) and vim.api.nvim_win_get_buf(w) ~= b then
+          vim.api.nvim_win_set_buf(w, b)
+        end
+        if vim.api.nvim_win_is_valid(was) and floating(was) then
+          vim.api.nvim_set_current_win(was)
+        else
           vim.api.nvim_set_current_win(w)
         end
-        vim.cmd("silent! tabonly! | silent! only!")
-        if vim.api.nvim_buf_is_valid(b) then
-          vim.api.nvim_win_set_buf(0, b)
-        end
-        w = vim.api.nvim_get_current_win()
       end)
     end,
   })
