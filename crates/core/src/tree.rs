@@ -153,7 +153,7 @@ pub(crate) fn press(view: &mut TreeView, key: Key) -> Vec<Effect> {
             let Some(row) = current.cloned() else {
                 return Vec::new();
             };
-            if view.folds.is_open(&row) && nav::holds(&row, &view.narrowed) {
+            if view.folds.is_open(&row) && nav::holds(&row) {
                 view.folds.set(&row, false);
                 return Vec::new();
             }
@@ -170,7 +170,7 @@ pub(crate) fn press(view: &mut TreeView, key: Key) -> Vec<Effect> {
             return Vec::new();
         }
         Key::Into => {
-            if let Some(row) = current.filter(|r| nav::holds(r, &view.narrowed)) {
+            if let Some(row) = current.filter(|r| nav::holds(r)) {
                 let row = row.clone();
                 view.folds.set(&row, true);
                 view.into = Some(row);

@@ -3,7 +3,7 @@
 The windows and the work host speak to the terminal host of their instance
 ([the hosts](sessions.md#the-hosts)) in felis's protocol, at the revision of
 felis adroit is built with, and keep tags of adroit's own on each session in
-it: what it runs and where, what it is called, which session started it.
+it: what it runs and where, what it is called, which session opened it.
 Together these are the terminal protocol. Its version is a whole number, raised only when
 what it sends changes shape, so builds that share a version work with each
 other's terminal host.

@@ -32,9 +32,7 @@ pub(crate) fn row_tip(item: &Item) -> &'static str {
         Item::Worktree(_) => {
             "A worktree: a checkout of the repository, on a branch of its own. Enter or l unfolds it while folded, else opens its session; n starts a session in it, s a shell"
         }
-        Item::Session(_) | Item::Waiting(_) => {
-            "A session. Enter opens it, or unfolds the sessions it started while they are folded"
-        }
+        Item::Session(_) | Item::Waiting(_) => "A session. Enter opens it",
         Item::Terminal(_) => {
             "A terminal adroit runs. Enter shows it; closing its tab leaves it running"
         }
@@ -192,7 +190,7 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
             let count = shown
                 .worktrees()
                 .find(|w| &w.worktree.path == path)
-                .map_or(0, |w| nav::under(shown, w, *heading).len());
+                .map_or(0, |w| nav::under(w, *heading).len());
             let count = if count > 0 {
                 count.to_string()
             } else {
@@ -202,16 +200,12 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
         }
         Item::Session(id) => {
             let s = nav::find(t, id).map(|(_, s)| s.clone());
-            let elsewhere = s
-                .as_ref()
-                .and_then(|s| nav::runs_at(t, s))
-                .unwrap_or_default();
             (
                 "",
                 s.as_ref()
                     .map(|s| s.name.clone())
                     .unwrap_or_else(|| id.clone()),
-                elsewhere,
+                String::new(),
                 s.map(|s| glyph(context.completions.read().state(&s))),
             )
         }

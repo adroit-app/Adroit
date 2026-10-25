@@ -1185,7 +1185,6 @@ mod tests {
             id: "n1".into(),
             outgoing: false,
             other: "leader".into(),
-            kind: "message".into(),
             body: "Look around".into(),
             sent_ms: 0,
         };

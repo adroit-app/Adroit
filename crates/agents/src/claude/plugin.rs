@@ -39,9 +39,10 @@ mod tests {
     #[test]
     fn the_skill_names_adroit_s_tools_rather_than_claude_code_s_messaging() {
         let skill = start_session(Path::new("/adroit"));
-        for tool in ["start_session", "send", "sessions", "report", "models"] {
+        for tool in ["start_session", "send", "sessions", "models"] {
             assert!(skill.contains(&format!("`{tool}`")), "{tool}");
         }
+        assert!(!skill.contains("`report`"));
         assert!(!skill.contains("ListAgents"));
         assert!(!skill.contains("SendMessage"));
     }

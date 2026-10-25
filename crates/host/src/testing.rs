@@ -8,7 +8,7 @@
 use adroit_model::Agent;
 use adroit_model::profile::ProfileId;
 
-use crate::delegation::{Message, MessageId, MessageKind, Readiness, Session, SessionId};
+use crate::delegation::{Message, MessageId, Readiness, Session, SessionId};
 
 /// Adroit's record of a running Claude Code session called `name` in
 /// `/repo`, which the user started and which is ready.
@@ -25,7 +25,6 @@ pub fn record(name: &str) -> RecordBuilder {
         conversation: None,
         readiness: Readiness::Ready,
         started_ms: 0,
-        reported: false,
         ended: false,
     })
 }
@@ -57,14 +56,12 @@ impl RecordBuilder {
     }
 }
 
-/// A message without words `sender` sent `recipient`, not delivered yet;
-/// `None` sends it as adroit.
-pub fn message(sender: Option<SessionId>, recipient: SessionId) -> MessageBuilder {
+/// A message without words `sender` sent `recipient`, not delivered yet.
+pub fn message(sender: SessionId, recipient: SessionId) -> MessageBuilder {
     MessageBuilder(Message {
         id: MessageId::new(),
         sender,
         recipient,
-        kind: MessageKind::Message,
         body: String::new(),
         sent_ms: 0,
         delivered: false,
@@ -77,11 +74,6 @@ pub fn message(sender: Option<SessionId>, recipient: SessionId) -> MessageBuilde
 pub struct MessageBuilder(Message);
 
 impl MessageBuilder {
-    pub fn kind(mut self, kind: MessageKind) -> Self {
-        self.0.kind = kind;
-        self
-    }
-
     pub fn body(mut self, body: impl Into<String>) -> Self {
         self.0.body = body.into();
         self

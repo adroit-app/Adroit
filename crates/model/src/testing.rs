@@ -107,7 +107,7 @@ impl SessionBuilder {
         self
     }
 
-    /// The session that started this one.
+    /// The session that opened this one.
     pub fn parent(mut self, id: SessionId) -> Self {
         self.0.parent = Some(id);
         self

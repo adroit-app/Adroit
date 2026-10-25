@@ -174,8 +174,8 @@ windows, and keep running when they close.
   and draw its screens directly ([terminal protocol](terminal-protocol.md)).
 - The work host, `adroit host`, holds the work: it starts and lists every
   session and terminal, reads the files, repositories and settings the windows
-  show, keeps what is written in the prompts, lets sessions start and message
-  sessions ([sessions that start sessions](delegation.md)) and judges how each
+  show, keeps what is written in the prompts, lets sessions open and message
+  sessions ([sessions that open sessions](opening-sessions.md)) and judges how each
   session it started stands. It listens on `$ADROIT_HOST`, or
   `host/host.sock` in the same state folder as the terminal host's `felis`
   folder. Windows and the `adroit` commands reach it there
@@ -234,11 +234,11 @@ resumed a second time: choosing it shows that session.
 Conversations no one wrote a prompt in, and those Codex ran without its own
 interface, are not listed.
 
-## Started by a session
+## Opened by a session
 
-A session can start sessions of its own, message other sessions and report
-back to the one that started it, and `adroit session start` starts one from a
-terminal ([sessions that start sessions](delegation.md)).
+A session can open sessions beside it and talk with other sessions, and
+`adroit session start` starts one from a terminal
+([sessions that open sessions](opening-sessions.md)).
 
 ## Keeping the Mac awake
 

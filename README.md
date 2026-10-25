@@ -88,8 +88,8 @@ override its model and select a permission profile. Sessions already running kee
 adroit session start --agent codex --dir ~/src/api/src -- "Review the API"
 ```
 
-Sessions can also start sessions of their own and message each other
-([details](docs/spec/delegation.md)).
+Sessions can also open sessions beside them and talk with each other
+([details](docs/spec/opening-sessions.md)).
 
 Read-only Codex sessions use its read-only sandbox. Recalling Codex's prompt
 history in the embedded prompt is not yet supported. Use `Ctrl-g i` to operate

@@ -1,4 +1,4 @@
-//! Who started whom and what sessions told each other, kept by the session
+//! Which session opened which and what sessions told each other, kept by the session
 //! daemon so both outlive the window and the sessions.
 use std::fs::{DirBuilder, OpenOptions};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
@@ -9,10 +9,10 @@ use adroit_model::Agent;
 use adroit_model::profile::ProfileId;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
-use super::{Code, Error, Message, MessageId, MessageKind, Readiness, Result, Session, SessionId};
+use super::{Code, Error, Message, MessageId, Readiness, Result, Session, SessionId};
 use crate::settings::Settings;
 
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 
 /// The tables as the first schema made them; a new database is made by it
 /// and then by every step in `MIGRATIONS`, so it ends as one carried forward.
@@ -63,6 +63,12 @@ const MIGRATIONS: &[&str] = &[
          WHERE json_extract(c.value, '$.id') = sessions.connection
      ) WHERE connection <> agent AND json_valid(launch);
      ALTER TABLE sessions DROP COLUMN connection;",
+    // Sessions no longer report to the one that opened them: a report was a
+    // message, and adroit's notices of how a started session stood were
+    // meant for a starter waiting on it.
+    "UPDATE messages SET kind = 'message' WHERE kind = 'report';
+     DELETE FROM messages WHERE kind = 'notice';
+     ALTER TABLE sessions DROP COLUMN reported;",
 ];
 
 /// What the window or the work host knows of a session before its program starts.
@@ -131,18 +137,12 @@ impl Store {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        if let Some(parent) = new.parent {
-            let starter = session(&transaction, parent)?
-                .ok_or_else(|| Error::new(Code::NotFound, "the starting session is unknown"))?;
-            if starter.parent.is_some() {
-                return Err(Error::new(
-                    Code::Refused,
-                    "a session started by another session cannot start sessions; tell the session that started you how to divide the work",
-                ));
-            }
-            if starter.ended {
-                return Err(Error::new(Code::Refused, "the starting session has ended"));
-            }
+        if let Some(parent) = new.parent
+            && session(&transaction, parent)?
+                .ok_or_else(|| Error::new(Code::NotFound, "the opening session is unknown"))?
+                .ended
+        {
+            return Err(Error::new(Code::Refused, "the opening session has ended"));
         }
         let id = SessionId::new();
         let token = format!("{}{}", SessionId::new(), SessionId::new());
@@ -222,8 +222,7 @@ impl Store {
         )
     }
 
-    /// Records how `id` stands while it starts, telling its starter when that
-    /// changed, and returns whether it did.
+    /// Records how `id` stands while it starts, and returns whether that changed.
     pub fn set_readiness(&mut self, id: SessionId, readiness: Readiness) -> Result<bool> {
         let transaction = self
             .connection
@@ -237,33 +236,10 @@ impl Store {
             "UPDATE sessions SET readiness = ?2 WHERE id = ?1",
             params![id.to_string(), readiness.key()],
         )?;
-        if let Some(parent) = current.parent {
-            let body = match readiness {
-                Readiness::Starting => None,
-                // The starter hears of readiness only to know a hold-up it
-                // was told of has cleared; a clean start needs nothing of it.
-                Readiness::Ready if current.readiness == Readiness::Starting => None,
-                Readiness::Ready => Some(format!("{} is ready.", current.name)),
-                Readiness::Waiting => Some(format!(
-                    "{} waits on a dialog in its console for the user to answer.",
-                    current.name
-                )),
-                Readiness::Stalled => Some(format!(
-                    "{} has not become ready and shows no dialog; it may have stalled.",
-                    current.name
-                )),
-            };
-            if let Some(body) = body
-                && !ended(&transaction, parent)?
-            {
-                insert(&transaction, None, parent, MessageKind::Notice, &body)?;
-            }
-        }
         transaction.commit()?;
         Ok(true)
     }
 
-    /// Ends `id`; a started session that never reported tells its starter so.
     pub fn end(&mut self, id: SessionId) -> Result<()> {
         let transaction = self
             .connection
@@ -278,13 +254,6 @@ impl Store {
             "UPDATE sessions SET ended = 1 WHERE id = ?1",
             [id.to_string()],
         )?;
-        if let Some(parent) = current.parent
-            && !current.reported
-            && !ended(&transaction, parent)?
-        {
-            let body = format!("{} ended without reporting.", current.name);
-            insert(&transaction, None, parent, MessageKind::Notice, &body)?;
-        }
         transaction.commit()?;
         Ok(())
     }
@@ -304,36 +273,7 @@ impl Store {
                 format!("{} has ended and cannot be sent to", recipient.name),
             ));
         }
-        let id = insert(&transaction, Some(from), to, MessageKind::Message, body)?;
-        transaction.commit()?;
-        Ok(id)
-    }
-
-    /// Sends `from`'s report to its starter, which is kept even when the
-    /// starter has ended, and marks `from` as reported.
-    pub fn report(&mut self, from: SessionId, body: &str) -> Result<MessageId> {
-        let transaction = self
-            .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let sender = session(&transaction, from)?
-            .ok_or_else(|| Error::new(Code::NotFound, "the session is unknown"))?;
-        let Some(parent) = sender.parent else {
-            return Err(Error::new(
-                Code::Refused,
-                "this session was started by the user and has no session to report to",
-            ));
-        };
-        if sender.reported {
-            return Err(Error::new(
-                Code::Refused,
-                "this session has already reported",
-            ));
-        }
-        let id = insert(&transaction, Some(from), parent, MessageKind::Report, body)?;
-        transaction.execute(
-            "UPDATE sessions SET reported = 1 WHERE id = ?1",
-            [from.to_string()],
-        )?;
+        let id = insert(&transaction, from, to, body)?;
         transaction.commit()?;
         Ok(id)
     }
@@ -373,7 +313,7 @@ impl Store {
             .collect()
     }
 
-    /// Sessions started by sessions that have not ended.
+    /// Sessions opened by sessions that have not ended.
     pub fn running_started(&self) -> Result<usize> {
         let count: i64 = self.connection.query_row(
             "SELECT COUNT(*) FROM sessions WHERE parent IS NOT NULL AND ended = 0",
@@ -394,7 +334,7 @@ impl Store {
     }
 }
 
-const SESSION_COLUMNS: &str = "id, parent, agent, name, cwd, terminal, conversation, readiness, started_ms, reported, ended, profile, home";
+const SESSION_COLUMNS: &str = "id, parent, agent, name, cwd, terminal, conversation, readiness, started_ms, ended, profile, home";
 
 fn read_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Session>> {
     let id: String = row.get(0)?;
@@ -406,10 +346,9 @@ fn read_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Session>> {
     let started_ms: i64 = row.get(8)?;
     let name = row.get(3)?;
     let conversation = row.get(6)?;
-    let reported = row.get(9)?;
-    let ended = row.get(10)?;
-    let profile: String = row.get(11)?;
-    let home: Option<String> = row.get(12)?;
+    let ended = row.get(9)?;
+    let profile: String = row.get(10)?;
+    let home: Option<String> = row.get(11)?;
     Ok((|| {
         Ok(Session {
             id: id.parse().map_err(storage)?,
@@ -430,7 +369,6 @@ fn read_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Session>> {
             readiness: Readiness::from_key(&readiness)
                 .ok_or_else(|| storage(format!("unknown readiness {readiness}")))?,
             started_ms: started_ms as u64,
-            reported,
             ended,
         })
     })())
@@ -447,30 +385,20 @@ fn session(connection: &Connection, id: SessionId) -> Result<Option<Session>> {
         .transpose()
 }
 
-fn ended(connection: &Connection, id: SessionId) -> Result<bool> {
-    Ok(session(connection, id)?.is_none_or(|session| session.ended))
-}
-
-const MESSAGE_COLUMNS: &str = "id, sender, recipient, kind, body, sent_ms, delivered";
+const MESSAGE_COLUMNS: &str = "id, sender, recipient, body, sent_ms, delivered";
 
 fn read_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Message>> {
     let id: String = row.get(0)?;
-    let sender: Option<String> = row.get(1)?;
+    let sender: String = row.get(1)?;
     let recipient: String = row.get(2)?;
-    let kind: String = row.get(3)?;
-    let sent_ms: i64 = row.get(5)?;
-    let body = row.get(4)?;
-    let delivered = row.get(6)?;
+    let sent_ms: i64 = row.get(4)?;
+    let body = row.get(3)?;
+    let delivered = row.get(5)?;
     Ok((|| {
         Ok(Message {
             id: id.parse().map_err(storage)?,
-            sender: sender
-                .map(|sender| sender.parse())
-                .transpose()
-                .map_err(storage)?,
+            sender: sender.parse().map_err(storage)?,
             recipient: recipient.parse().map_err(storage)?,
-            kind: MessageKind::from_key(&kind)
-                .ok_or_else(|| storage(format!("unknown message kind {kind}")))?,
             body,
             sent_ms: sent_ms as u64,
             delivered,
@@ -480,9 +408,8 @@ fn read_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Message>> {
 
 fn insert(
     connection: &Connection,
-    sender: Option<SessionId>,
+    sender: SessionId,
     recipient: SessionId,
-    kind: MessageKind,
     body: &str,
 ) -> Result<MessageId> {
     if body.trim().is_empty() {
@@ -490,12 +417,11 @@ fn insert(
     }
     let id = MessageId::new();
     connection.execute(
-        "INSERT INTO messages (id, sender, recipient, kind, body, sent_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO messages (id, sender, recipient, kind, body, sent_ms) VALUES (?1, ?2, ?3, 'message', ?4, ?5)",
         params![
             id.to_string(),
-            sender.map(|sender| sender.to_string()),
+            sender.to_string(),
             recipient.to_string(),
-            kind.key(),
             body,
             super::now_ms() as i64,
         ],
@@ -627,15 +553,14 @@ mod tests {
     }
 
     #[test]
-    fn a_started_session_cannot_start_sessions() {
+    fn a_session_opened_by_another_opens_sessions_too() {
         let (_dir, mut store) = store();
-        let lead = register(&mut store, None, "lead");
-        let child = register(&mut store, Some(lead), "child");
+        let first = register(&mut store, None, "first");
+        let second = register(&mut store, Some(first), "second");
 
-        let refused = store.register(new(Some(child), "grandchild")).unwrap_err();
+        let third = register(&mut store, Some(second), "third");
 
-        assert_eq!(refused.code, Code::Refused);
-        assert!(refused.message.contains("divide the work"), "{refused:?}");
+        assert_eq!(store.session(third).unwrap().unwrap().parent, Some(second));
     }
 
     #[test]
@@ -706,46 +631,7 @@ mod tests {
     }
 
     #[test]
-    fn a_report_goes_to_the_starter_once() {
-        let (_dir, mut store) = store();
-        let lead = register(&mut store, None, "lead");
-        let child = register(&mut store, Some(lead), "child");
-
-        store.report(child, "done: tests pass").unwrap();
-
-        assert_eq!(bodies(&mut store, lead), ["done: tests pass"]);
-        assert!(store.session(child).unwrap().unwrap().reported);
-        assert_eq!(
-            store.report(child, "again").unwrap_err().code,
-            Code::Refused
-        );
-    }
-
-    #[test]
-    fn a_session_the_user_started_has_no_one_to_report_to() {
-        let (_dir, mut store) = store();
-        let lead = register(&mut store, None, "lead");
-
-        assert_eq!(store.report(lead, "done").unwrap_err().code, Code::Refused);
-    }
-
-    #[test]
-    fn a_report_to_a_starter_that_has_ended_is_kept() {
-        let (_dir, mut store) = store();
-        let lead = register(&mut store, None, "lead");
-        let child = register(&mut store, Some(lead), "child");
-        store.end(lead).unwrap();
-
-        store.report(child, "done").unwrap();
-
-        let kept = store.messages_of(lead).unwrap();
-        assert_eq!(kept.len(), 1);
-        assert_eq!(kept[0].kind, MessageKind::Report);
-        assert_eq!(store.next_undelivered(lead).unwrap(), None);
-    }
-
-    #[test]
-    fn ending_a_session_leaves_the_sessions_it_started_running() {
+    fn ending_a_session_leaves_the_sessions_it_opened_running() {
         let (_dir, mut store) = store();
         let lead = register(&mut store, None, "lead");
         let child = register(&mut store, Some(lead), "child");
@@ -756,24 +642,7 @@ mod tests {
     }
 
     #[test]
-    fn a_started_session_that_ends_without_reporting_tells_its_starter() {
-        let (_dir, mut store) = store();
-        let lead = register(&mut store, None, "lead");
-        let silent = register(&mut store, Some(lead), "silent");
-        let reporting = register(&mut store, Some(lead), "reporting");
-        store.report(reporting, "done").unwrap();
-
-        store.end(silent).unwrap();
-        store.end(reporting).unwrap();
-
-        assert_eq!(
-            bodies(&mut store, lead),
-            ["done", "silent ended without reporting."]
-        );
-    }
-
-    #[test]
-    fn a_starter_hears_how_a_started_session_stands_while_it_starts_and_only_when_that_changes() {
+    fn the_session_that_opened_another_hears_nothing_of_how_it_starts_or_ends() {
         let (_dir, mut store) = store();
         let lead = register(&mut store, None, "lead");
         let child = register(&mut store, Some(lead), "child");
@@ -781,26 +650,13 @@ mod tests {
         assert!(store.set_readiness(child, Readiness::Waiting).unwrap());
         assert!(!store.set_readiness(child, Readiness::Waiting).unwrap());
         assert!(store.set_readiness(child, Readiness::Ready).unwrap());
+        store.end(child).unwrap();
 
-        let heard = bodies(&mut store, lead);
-        assert_eq!(heard.len(), 2);
-        assert!(heard[0].contains("waits on a dialog"), "{heard:?}");
-        assert!(heard[1].contains("is ready"), "{heard:?}");
+        assert!(store.messages_of(lead).unwrap().is_empty());
     }
 
     #[test]
-    fn a_starter_hears_nothing_of_a_session_that_became_ready_without_a_hold_up() {
-        let (_dir, mut store) = store();
-        let lead = register(&mut store, None, "lead");
-        let child = register(&mut store, Some(lead), "child");
-
-        assert!(store.set_readiness(child, Readiness::Ready).unwrap());
-
-        assert!(bodies(&mut store, lead).is_empty());
-    }
-
-    #[test]
-    fn only_started_sessions_still_running_count_against_the_limit() {
+    fn only_sessions_opened_by_sessions_still_running_count_against_the_limit() {
         let (_dir, mut store) = store();
         let lead = register(&mut store, None, "lead");
         register(&mut store, None, "other lead");
@@ -1010,5 +866,45 @@ PRAGMA user_version = 1;
             launch.profiles[1].home.as_deref(),
             Some(Path::new("/Users/me/work"))
         );
+    }
+    #[test]
+    fn a_database_from_when_sessions_reported_to_their_starters_keeps_reports_as_messages_and_drops_adroit_s_notices()
+     {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.sqlite3");
+        let (lead, child) = (SessionId::new(), SessionId::new());
+        {
+            let old = Connection::open(&path).unwrap();
+            old.execute_batch(SCHEMA_1).unwrap();
+            old.execute_batch(MIGRATIONS[0]).unwrap();
+            old.execute_batch(MIGRATIONS[1]).unwrap();
+            old.pragma_update(None, "user_version", 3).unwrap();
+            for (id, parent, reported) in [(lead, None, 0), (child, Some(lead), 1)] {
+                old.execute(
+                    "INSERT INTO sessions (id, token, parent, agent, name, cwd, launch, readiness, started_ms, reported, profile)
+                     VALUES (?1, ?2, ?3, 'claude', 'old', '/repo', '{}', 'ready', 1, ?4, 'claude')",
+                    params![id.to_string(), format!("token-{id}"), parent.map(|p: SessionId| p.to_string()), reported],
+                )
+                .unwrap();
+            }
+            for (sender, kind, body) in [
+                (Some(child), "report", "done"),
+                (None, "notice", "child is ready."),
+            ] {
+                old.execute(
+                    "INSERT INTO messages (id, sender, recipient, kind, body, sent_ms) VALUES (?1, ?2, ?3, ?4, ?5, 1)",
+                    params![MessageId::new().to_string(), sender.map(|s| s.to_string()), lead.to_string(), kind, body],
+                )
+                .unwrap();
+            }
+        }
+
+        let store = Store::open(&path).unwrap();
+
+        store.ensure_current_schema().unwrap();
+        let kept = store.messages_of(lead).unwrap();
+        assert_eq!(kept.len(), 1);
+        assert_eq!((kept[0].sender, kept[0].body.as_str()), (child, "done"));
+        assert_eq!(store.session(child).unwrap().unwrap().parent, Some(lead));
     }
 }

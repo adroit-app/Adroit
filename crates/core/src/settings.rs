@@ -157,7 +157,7 @@ pub struct Settings {
     #[serde(skip)]
     #[schemars(skip)]
     pub unshared: Vec<ProfileId>,
-    /// How sessions started by sessions run.
+    /// How sessions opened by sessions run.
     pub delegation: DelegationSettings,
     /// How large the window draws everything when it opens, from 0.67 to 1.75.
     /// Command 0 comes back to it.
@@ -392,8 +392,8 @@ impl TryFrom<SettingsFile> for Settings {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct DelegationSettings {
-    /// How many sessions started by sessions may run at once, from 0 to 64. Zero
-    /// refuses new starts without ending those already running. Sessions you
+    /// How many sessions opened by sessions may run at once, from 0 to 64. Zero
+    /// refuses new ones without ending those already running. Sessions you
     /// start and terminals do not count.
     pub max_started: usize,
 }

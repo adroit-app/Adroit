@@ -43,13 +43,10 @@ files, whether a window shows that Neovim or not.
 A row of a session, a shell or a Neovim shows the numbers of the content's tabs
 it is shown in, and the row of what the focused window shows stands out.
 
-A session started by another session is listed under the one that started it,
-wherever it runs, inside its starter's Sessions heading and not under its own
-worktree. Its row leads with its name, and names its worktree or directory
-in short when that differs from its starter's and says more than its name.
-Folding a session's row hides the sessions it started. Opening or looking at a folded row, by key or by a click, unfolds it before it opens what it stands for, so every fold can be undone. Once its starter has
-ended, a started session is listed by the directory it runs in, like any
-other. There is one tree: no view lists sessions by role or request.
+A session opened by another session is listed by the directory it runs in,
+like any other; the session it came from is told in its details
+([details](details.md)). There is one tree: no view lists sessions by who
+opened them.
 
 Opening a terminal's row shows it where the key pressed says and moves the
 keys there, as opening a session's row does ([content](content.md#opening)).

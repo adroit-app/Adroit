@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncWriteExt, BufReader};
 
 use super::{
-    Code, Error, Message, MessageKind, Readiness, Result, Session,
+    Code, Error, Message, Readiness, Result, Session,
     launch::CLAUDE_CHANNEL,
     protocol::{self, Command, Request, Response, VERSION},
     store::Store,
@@ -26,7 +26,7 @@ use crate::settings::Settings;
 type SettingsSource = Arc<dyn Fn() -> std::result::Result<Settings, String> + Send + Sync>;
 
 /// How long a session may start without becoming ready or showing a dialog
-/// before its starter is told it may have stalled.
+/// before it shows as stalled.
 const STALL: Duration = Duration::from_secs(60);
 
 /// The tag a terminal carries once its warning about Adroit's channel was
@@ -197,7 +197,7 @@ async fn dispatch(context: &Context, request: Request) -> Result<Value> {
                 "id": caller.id,
                 "name": caller.name,
                 "dir": caller.cwd,
-                "started_by": parent.map(|p| json!({"id": p.id, "name": p.name, "ended": p.ended})),
+                "opened_by": parent.map(|p| json!({"id": p.id, "name": p.name, "ended": p.ended})),
             }))
         }
         Command::StartSession(start) => self::start(context, &caller, start).await,
@@ -211,29 +211,6 @@ async fn dispatch(context: &Context, request: Request) -> Result<Value> {
             let all = context.call(|store| store.sessions()).await?;
             listed(all, &filter).await
         }
-        Command::Report(report) => {
-            let id = context
-                .call(move |store| store.report(caller.id, &report.body))
-                .await?;
-            Ok(json!({"reported": id, "note": "this session ends once this turn is over"}))
-        }
-        Command::StopSession(stop) => {
-            let target = context
-                .call(move |store| store.session(stop.id))
-                .await?
-                .ok_or_else(|| Error::new(Code::NotFound, "no session has that id"))?;
-            if target.parent != Some(caller.id) {
-                return Err(Error::new(
-                    Code::Refused,
-                    "a session can end only the sessions it started",
-                ));
-            }
-            if let Some(terminal) = target.terminal {
-                context.daemon.end(terminal).await.map_err(storage)?;
-            }
-            context.call(move |store| store.end(target.id)).await?;
-            Ok(json!({"ended": target.id}))
-        }
         Command::Models => Ok(serde_json::to_value(
             context.models.lock().expect("the models' lock").view(),
         )
@@ -245,10 +222,7 @@ async fn dispatch(context: &Context, request: Request) -> Result<Value> {
                     let Some(message) = store.next_undelivered(id)? else {
                         return Ok(None);
                     };
-                    let sender = match message.sender {
-                        Some(sender) => store.session(sender)?,
-                        None => None,
-                    };
+                    let sender = store.session(message.sender)?;
                     Ok(Some((message, sender)))
                 })
                 .await?;
@@ -297,26 +271,19 @@ fn from_own_conversation(caller: &Session, thread: Option<&str>) -> Result<()> {
 
 /// What a message reads as when it reaches its recipient's agent.
 pub fn envelope(message: &Message, sender: Option<&Session>) -> String {
-    match (message.kind, sender) {
-        (MessageKind::Notice, _) | (_, None) => format!("[adroit] {}", message.body),
-        (kind, Some(sender)) => format!(
-            "[{}] from {} ({}) working in {}:\n{}",
-            kind.key(),
+    match sender {
+        Some(sender) => format!(
+            "[message] from {} ({}) working in {}:\n{}",
             sender.name,
             sender.id,
             sender.cwd.display(),
             message.body
         ),
+        None => format!("[message] from {}:\n{}", message.sender, message.body),
     }
 }
 
 async fn start(context: &Context, caller: &Session, start: protocol::Start) -> Result<Value> {
-    if caller.parent.is_some() {
-        return Err(Error::new(
-            Code::Refused,
-            "a session started by another session cannot start sessions; tell the session that started you how to divide the work",
-        ));
-    }
     let prompt = start.prompt.trim().to_owned();
     if prompt.is_empty() {
         return Err(Error::new(Code::Invalid, "the prompt is empty"));
@@ -327,7 +294,7 @@ async fn start(context: &Context, caller: &Session, start: protocol::Start) -> R
         return Err(Error::new(
             Code::Refused,
             format!(
-                "{running} started sessions already run, and at most {} may; wait for a report or end one",
+                "{running} sessions opened by sessions already run, and at most {} may; carry on yourself, or ask the user to end one",
                 settings.delegation.max_started
             ),
         ));
@@ -446,7 +413,7 @@ async fn listed(all: Vec<Session>, filter: &protocol::Sessions) -> Result<Value>
         {
             continue;
         }
-        let started_by = session
+        let opened_by = session
             .parent
             .and_then(|parent| all.iter().find(|s| s.id == parent))
             .map(|parent| json!({"id": parent.id, "name": parent.name}));
@@ -457,7 +424,7 @@ async fn listed(all: Vec<Session>, filter: &protocol::Sessions) -> Result<Value>
             "dir": session.cwd,
             "repository": repository,
             "readiness": session.readiness,
-            "started_by": started_by,
+            "opened_by": opened_by,
         }));
     }
     Ok(Value::Array(out))
@@ -587,17 +554,9 @@ impl Watcher {
                 context.call(move |store| store.end(id)).await?;
                 continue;
             }
-            if record.readiness != Readiness::Ready || record.reported {
+            if record.readiness != Readiness::Ready {
                 let screen = context.daemon.visible(terminal).await.map_err(storage)?;
-                if record.readiness != Readiness::Ready {
-                    self.starting(context, &record, native, &screen).await?;
-                }
-                if record.reported && turn_over(record.agent, native.status.as_ref(), &screen) {
-                    context.daemon.end(terminal).await.map_err(storage)?;
-                    let id = record.id;
-                    context.call(move |store| store.end(id)).await?;
-                    continue;
-                }
+                self.starting(context, &record, native, &screen).await?;
             }
             if record.agent == Agent::Codex {
                 self.follow_conversation(context, &record, native);
@@ -731,10 +690,7 @@ fn next_delivery(
     let Some(message) = store.next_undelivered(id)? else {
         return Ok(None);
     };
-    let sender = match message.sender {
-        Some(sender) => store.session(sender)?,
-        None => None,
-    };
+    let sender = store.session(message.sender)?;
     let (Some(launch), Some(recipient)) = (store.launch(id)?, store.session(id)?) else {
         return Ok(None);
     };
@@ -756,22 +712,6 @@ fn readiness(seen: Option<StartupReadiness>, elapsed: Duration) -> Option<Readin
         Some(StartupReadiness::Stalled) => Some(Readiness::Stalled),
         Some(StartupReadiness::Spawned) | None => (elapsed >= STALL).then_some(Readiness::Stalled),
     }
-}
-
-/// Whether the turn a session reported in is over, by what its program says
-/// of itself, or else what its screen shows.
-fn turn_over(agent: Agent, status: Option<&adroit_term::Status>, screen: &[String]) -> bool {
-    let state = match status {
-        Some(status) => adroit_model::State::reported(&status.state, status.kind.as_deref()),
-        None => match adroit_agents::adapter(agent).screen_state(screen) {
-            Some(state) => state,
-            None => return false,
-        },
-    };
-    !matches!(
-        state,
-        adroit_model::State::Working | adroit_model::State::Starting
-    )
 }
 
 /// The keys that confirm Claude Code's warning about loading development
@@ -826,19 +766,6 @@ mod tests {
     }
 
     #[test]
-    fn a_reporting_session_ends_only_once_its_turn_is_over() {
-        let status = |state: &str| adroit_term::Status {
-            state: state.into(),
-            kind: None,
-            msg: None,
-        };
-        assert!(!turn_over(Agent::Claude, Some(&status("working")), &[]));
-        assert!(turn_over(Agent::Claude, Some(&status("idle")), &[]));
-        assert!(turn_over(Agent::Claude, Some(&status("done")), &[]));
-        assert!(!turn_over(Agent::Claude, None, &[]));
-    }
-
-    #[test]
     fn adroit_s_channel_warning_is_left_to_the_user_unless_the_settings_allow_confirming_it() {
         let warning = claude_screen("dev-channels");
         assert_eq!(
@@ -883,22 +810,15 @@ mod tests {
     }
 
     #[test]
-    fn a_message_names_its_sender_and_adroit_s_own_word_names_adroit() {
+    fn a_message_names_its_sender_and_where_it_works() {
         let sender = record("review").build();
-        let message = message(Some(sender.id), SessionId::new())
-            .kind(MessageKind::Report)
-            .body("done")
-            .build();
+        let message = message(sender.id, SessionId::new()).body("done").build();
         let read = envelope(&message, Some(&sender));
-        assert!(read.starts_with("[report] from review"), "{read}");
+        assert!(read.starts_with("[message] from review"), "{read}");
         assert!(read.contains(&sender.id.to_string()), "{read}");
         assert!(read.ends_with("\ndone"), "{read}");
-        let notice = Message {
-            sender: None,
-            kind: MessageKind::Notice,
-            ..message
-        };
-        assert_eq!(envelope(&notice, None), "[adroit] done");
+        let unknown = envelope(&message, None);
+        assert!(unknown.contains(&sender.id.to_string()), "{unknown}");
     }
 
     #[test]

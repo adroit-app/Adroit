@@ -39,8 +39,6 @@ pub enum Command {
     StartSession(Start),
     Send(Send),
     Sessions(Sessions),
-    Report(Report),
-    StopSession(Stop),
     Models,
     /// The oldest message waiting for the caller, as its agent is to read it.
     Next,
@@ -52,18 +50,15 @@ pub enum Command {
 impl Command {
     /// Whether the command acts for the session rather than reading.
     pub fn acts(&self) -> bool {
-        matches!(
-            self,
-            Self::StartSession(_) | Self::Send(_) | Self::Report(_) | Self::StopSession(_)
-        )
+        matches!(self, Self::StartSession(_) | Self::Send(_))
     }
 }
 
-/// Start a session with a first prompt.
+/// Open a session beside you with a first prompt.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Start {
-    /// The complete first prompt: goal, scope, what to check and what to report.
+    /// The complete first prompt: the line of work and all it needs to know of what you know.
     pub prompt: String,
     /// The directory to work in, or to make the worktree of; your own when omitted.
     #[serde(default)]
@@ -109,21 +104,6 @@ pub struct Sessions {
     /// Only sessions working in this directory or below it.
     #[serde(default)]
     pub dir: Option<PathBuf>,
-}
-
-/// Report to the session that started you; this session then ends.
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct Report {
-    /// What was done, where it is, how it was checked and what remains.
-    pub body: String,
-}
-
-/// End a session you started.
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct Stop {
-    pub id: SessionId,
 }
 
 pub(crate) async fn read_frame(reader: &mut (impl AsyncBufRead + Unpin)) -> Result<Vec<u8>> {

@@ -267,7 +267,7 @@ pub(crate) fn open_row(
     let view = &mut state.tree;
     view.selected = Some(item.clone());
     let in_place = matches!(how, None | Some(Opening::Existing | Opening::Preview));
-    let unfolds = nav::unfolds(&item, &view.narrowed, &view.folds);
+    let unfolds = nav::unfolds(&item, &view.folds);
     if in_place && unfolds {
         view.folds.set(&item, true);
         return Vec::new();

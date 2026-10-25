@@ -84,7 +84,7 @@ pub fn link_sections(
                 let icon = if r
                     .ties
                     .iter()
-                    .any(|t| matches!(t, Tie::Started | Tie::StartedBy))
+                    .any(|t| matches!(t, Tie::Opened | Tie::OpenedBy))
                 {
                     Icon::MessagePlus
                 } else {
@@ -152,11 +152,7 @@ pub fn link_sections(
                 if let Some(section) = out.last_mut() {
                     section.rows.push(LinkRow {
                         at,
-                        icon: if n.kind == "report" {
-                            Icon::Check
-                        } else {
-                            Icon::Message
-                        },
+                        icon: Icon::Message,
                         tone: "",
                         label: n.summary().to_owned(),
                         badge: None,
@@ -368,7 +364,7 @@ mod tests {
     #[test]
     fn a_session_row_says_how_it_is_tied_and_whether_it_still_runs() {
         let rows = [
-            related_to("tests", Some("3"), &[Tie::Started, Tie::Received]),
+            related_to("tests", Some("3"), &[Tie::Opened, Tie::Received]),
             related_to("gone", None, &[Tie::Sent]),
         ];
         let drawn = link_sections(
@@ -386,7 +382,7 @@ mod tests {
         assert_eq!(
             shown,
             [
-                (Icon::MessagePlus, "tests", "started · heard from"),
+                (Icon::MessagePlus, "tests", "opened · heard from"),
                 (Icon::Message, "gone", "messaged · not running"),
             ]
         );

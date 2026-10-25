@@ -154,7 +154,7 @@ pub async fn prepare(
 }
 
 /// The sessions `record` messaged or heard from, the most recent first, by
-/// the names they go by in `sessions`; Adroit's own notices name no session.
+/// the names they go by in `sessions`.
 pub fn peers(
     record: SessionId,
     sessions: &[super::Session],
@@ -162,13 +162,14 @@ pub fn peers(
 ) -> Vec<adroit_agents::claude::links::Peer> {
     let mut out: Vec<adroit_agents::claude::links::Peer> = Vec::new();
     for message in messages {
-        let (other, sent) = if message.sender == Some(record) {
-            (Some(message.recipient), true)
+        let (other, sent) = if message.sender == record {
+            (message.recipient, true)
         } else {
             (message.sender, false)
         };
-        let Some(name) = other
-            .and_then(|other| sessions.iter().find(|s| s.id == other))
+        let Some(name) = sessions
+            .iter()
+            .find(|s| s.id == other)
             .map(|s| s.name.clone())
         else {
             continue;
@@ -212,23 +213,24 @@ pub fn notes(
     sessions: &[super::Session],
     messages: &[Message],
 ) -> Vec<crate::details::Note> {
-    let name = |id: Option<SessionId>| {
-        id.and_then(|id| sessions.iter().find(|s| s.id == id))
-            .map_or_else(|| "Adroit".to_owned(), |s| s.name.clone())
+    let name = |id: SessionId| {
+        sessions
+            .iter()
+            .find(|s| s.id == id)
+            .map_or_else(|| id.to_string(), |s| s.name.clone())
     };
     messages
         .iter()
         .map(|message| {
-            let outgoing = message.sender == Some(record);
+            let outgoing = message.sender == record;
             crate::details::Note {
                 id: message.id.to_string(),
                 outgoing,
                 other: if outgoing {
-                    name(Some(message.recipient))
+                    name(message.recipient)
                 } else {
                     name(message.sender)
                 },
-                kind: message.kind.key().into(),
                 body: message.body.clone(),
                 sent_ms: message.sent_ms,
             }
@@ -260,7 +262,7 @@ mod tests {
     }
 
     /// A message delivered from `from` to `to`.
-    fn message(from: Option<SessionId>, to: SessionId) -> Message {
+    fn message(from: SessionId, to: SessionId) -> Message {
         crate::testing::message(from, to).delivered().build()
     }
 
@@ -269,10 +271,9 @@ mod tests {
         let (shown, api, web) = (session("fix"), session("api"), session("web"));
         let all = [shown.clone(), api.clone(), web.clone()];
         let newest_first = [
-            message(Some(web.id), shown.id),
-            message(Some(shown.id), api.id),
-            message(Some(api.id), shown.id),
-            message(None, shown.id),
+            message(web.id, shown.id),
+            message(shown.id, api.id),
+            message(api.id, shown.id),
         ];
         let got = peers(shown.id, &all, &newest_first);
         let got: Vec<_> = got
@@ -283,19 +284,19 @@ mod tests {
     }
 
     #[test]
-    fn a_message_is_listed_with_the_session_on_the_other_end_or_adroit_for_its_notices() {
+    fn a_message_is_listed_with_the_session_on_the_other_end() {
         let (shown, api) = (session("fix"), session("api"));
         let all = [shown.clone(), api.clone()];
         let listed = notes(
             shown.id,
             &all,
-            &[message(Some(shown.id), api.id), message(None, shown.id)],
+            &[message(shown.id, api.id), message(api.id, shown.id)],
         );
         let listed: Vec<_> = listed
             .iter()
             .map(|n| (n.outgoing, n.other.as_str()))
             .collect();
-        assert_eq!(listed, [(true, "api"), (false, "Adroit")]);
+        assert_eq!(listed, [(true, "api"), (false, "api")]);
     }
 
     #[tokio::test]

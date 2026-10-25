@@ -22,12 +22,12 @@ describe.
   verifies that it is still the same process belonging to the session. A zombie has already exited and must be reaped by
   its parent. Processes that cannot be associated with the session are omitted.
   Below, it lists the other sessions it worked with:
-  the one that started it and those it started
-  ([sessions that start sessions](delegation.md)) while they run, then those
+  the one that opened it and those it opened
+  ([sessions that open sessions](opening-sessions.md)) while they run, then those
   it messaged or heard from through Adroit, ended ones included, newest
   first, each saying how the two are tied. Then it lists the messages it sent
   and received through Adroit, newest first, each with who sent it to whom;
-  opening one shows it whole. A report stays listed after the sessions on
+  opening one shows it whole. A message stays listed after the sessions on
   both ends have ended. Then it lists the subagents the session set to work
   through Claude Code: those still at work, the latest first, then the few
   that ended last, each named by what it was last asked about, marked with

@@ -35,11 +35,11 @@ How the console takes keys and draws its cursor.
 
 ## `[delegation]`
 
-How sessions started by sessions run.
+How sessions opened by sessions run.
 
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
-| `delegation.max_started` | integer | `4` | How many sessions started by sessions may run at once, from 0 to 64. Zero refuses new starts without ending those already running. Sessions you start and terminals do not count. |
+| `delegation.max_started` | integer | `4` | How many sessions opened by sessions may run at once, from 0 to 64. Zero refuses new ones without ending those already running. Sessions you start and terminals do not count. |
 
 ## `[details]`
 

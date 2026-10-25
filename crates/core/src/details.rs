@@ -568,10 +568,10 @@ impl Entry {
 /// How another session is tied to the one shown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tie {
-    /// It started the one shown.
-    StartedBy,
-    /// The one shown started it.
-    Started,
+    /// It opened the one shown.
+    OpenedBy,
+    /// The one shown opened it.
+    Opened,
     /// The one shown messaged it.
     Sent,
     /// It messaged the one shown.
@@ -581,8 +581,8 @@ pub enum Tie {
 impl Tie {
     pub fn word(self) -> &'static str {
         match self {
-            Tie::StartedBy => "started this",
-            Tie::Started => "started",
+            Tie::OpenedBy => "opened this",
+            Tie::Opened => "opened",
             Tie::Sent => "messaged",
             Tie::Received => "heard from",
         }
@@ -598,8 +598,8 @@ pub struct Related {
     pub ties: Vec<Tie>,
 }
 
-/// The sessions `shown` worked with, among `sessions`: the one it was started
-/// from, those it started, then those it messaged or heard from, newest
+/// The sessions `shown` worked with, among `sessions`: the one that opened
+/// it, those it opened, then those it messaged or heard from, newest
 /// first, as `peers` gives them.
 pub fn related(shown: &Session, sessions: &[&Session], peers: &[Peer]) -> Vec<Related> {
     let mut out: Vec<Related> = Vec::new();
@@ -621,11 +621,11 @@ pub fn related(shown: &Session, sessions: &[&Session], peers: &[Peer]) -> Vec<Re
     if let Some(parent) = shown.parent
         && let Some(s) = others().find(|s| s.delegation == Some(parent))
     {
-        tie(&s.name, Some(&s.id), Tie::StartedBy);
+        tie(&s.name, Some(&s.id), Tie::OpenedBy);
     }
     if let Some(own) = shown.delegation {
         for s in others().filter(|s| s.parent == Some(own)) {
-            tie(&s.name, Some(&s.id), Tie::Started);
+            tie(&s.name, Some(&s.id), Tie::Opened);
         }
     }
     for p in peers.iter().filter(|p| p.name != shown.name) {
@@ -1778,7 +1778,7 @@ mod tests {
     }
 
     #[test]
-    fn a_session_is_related_to_the_one_it_was_started_from_and_those_it_started() {
+    fn a_session_is_related_to_the_one_that_opened_it_and_those_it_opened() {
         let lead = running("1", "lead", "c-lead", "");
         let shown = running("2", "fix", "c-fix", "c-lead");
         let child = running("3", "tests", "c-tests", "c-fix");
@@ -1787,8 +1787,8 @@ mod tests {
         assert_eq!(
             related(&shown, &all, &[]),
             [
-                tied("lead", Some("1"), &[Tie::StartedBy]),
-                tied("tests", Some("3"), &[Tie::Started]),
+                tied("lead", Some("1"), &[Tie::OpenedBy]),
+                tied("tests", Some("3"), &[Tie::Opened]),
             ]
         );
     }
@@ -1812,13 +1812,13 @@ mod tests {
     }
 
     #[test]
-    fn a_session_both_started_and_messaged_is_listed_once() {
+    fn a_session_both_opened_and_messaged_is_listed_once() {
         let shown = running("2", "fix", "c-fix", "");
         let child = running("3", "tests", "c-tests", "c-fix");
         let all = [&shown, &child];
         assert_eq!(
             related(&shown, &all, &[peer("tests", false, true)]),
-            [tied("tests", Some("3"), &[Tie::Started, Tie::Received])]
+            [tied("tests", Some("3"), &[Tie::Opened, Tie::Received])]
         );
     }
 
@@ -1832,7 +1832,7 @@ mod tests {
 
     #[test]
     fn the_sessions_head_the_overview_and_fold_as_a_group() {
-        let r = [tied("tests", Some("3"), &[Tie::Started])];
+        let r = [tied("tests", Some("3"), &[Tie::Opened])];
         let l = [link(LinkKind::Url, "https://a.dev", None, None)];
         assert_eq!(
             overview(&r, &l, &HashSet::new()),
@@ -1924,7 +1924,7 @@ mod tests {
 
     #[test]
     fn the_subagents_follow_the_sessions_and_fold_as_a_group() {
-        let r = [tied("tests", Some("3"), &[Tie::Started])];
+        let r = [tied("tests", Some("3"), &[Tie::Opened])];
         let l = [link(LinkKind::Url, "https://a.dev", None, None)];
         let a = [
             agent("toolu_1", "Survey", Standing::Running),

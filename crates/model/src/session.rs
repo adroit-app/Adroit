@@ -77,7 +77,7 @@ impl Agent {
 pub struct Session {
     /// Adroit's record of the session, for one Adroit started.
     pub delegation: Option<SessionId>,
-    /// The session that started this one; none for one the user started.
+    /// The session that opened this one; none for one the user started.
     pub parent: Option<SessionId>,
     pub agent: Agent,
     /// The profile it started from, and the folder of that profile's own it

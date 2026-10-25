@@ -58,69 +58,49 @@ impl Drop for Background {
     }
 }
 
-/// The tools a session has: one the user started can start and end sessions,
-/// one started by another can report to it.
-fn tools(started: bool) -> Vec<Value> {
-    use super::protocol::{Report, Send, Sessions, Start, Stop};
+/// The tools every session has, whoever started it.
+fn tools() -> Vec<Value> {
+    use super::protocol::{Send, Sessions, Start};
     let tool = |name: &str, description: &str, schema: schemars::Schema| json!({"name": name, "description": description, "inputSchema": schema});
-    let mut tools = Vec::new();
-    if !started {
-        tools.push(tool(
+    vec![
+        tool(
             "start_session",
-            "Start a session of your own for work that can run apart, runs long, needs its own worktree or another agent, or that the user may want to watch. It runs in its own console the user can step into; its report reaches you as a message.",
+            "Open a session beside you for a separate line of work that needs little of what you know, or when the user asks you to. It answers to the user, not to you, in a console of its own; give it a first prompt that carries what it needs.",
             schemars::schema_for!(Start),
-        ));
-    }
-    tools.push(tool(
-        "send",
-        "Send a message to another session by its id. It reaches that session between its turns and costs it a turn: send only what it has to act on.",
-        schemars::schema_for!(Send),
-    ));
-    tools.push(tool(
-        "sessions",
-        "List the sessions Adroit runs, with where each works and which session started it.",
-        schemars::schema_for!(Sessions),
-    ));
-    if started {
-        tools.push(tool(
-            "report",
-            "Report your finished, checked work to the session that started you. Adroit ends this session after the turn you report in.",
-            schemars::schema_for!(Report),
-        ));
-    } else {
-        tools.push(tool(
-            "stop_session",
-            "End a session you started.",
-            schemars::schema_for!(Stop),
-        ));
-    }
-    tools.push(json!({
-        "name": "models",
-        "description": "List the profiles a session can start from, each with its agent, the folder of its own its login is kept in, if any, and the models it accepts, and which profile a session starts from by default.",
-        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
-    }));
-    tools
+        ),
+        tool(
+            "send",
+            "Send a message to another session by its id: what it should know, or a question about what it knows; never work for it to do. It reaches that session between its turns and costs it a turn: send only what it has to act on or answer, and plan nothing on a reply coming.",
+            schemars::schema_for!(Send),
+        ),
+        tool(
+            "sessions",
+            "List the sessions Adroit runs, with where each works and which session opened it.",
+            schemars::schema_for!(Sessions),
+        ),
+        json!({
+            "name": "models",
+            "description": "List the profiles a session can start from, each with its agent, the folder of its own its login is kept in, if any, and the models it accepts, and which profile a session starts from by default.",
+            "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
+        }),
+    ]
 }
 
-/// The protocol command a tool call asks for, if `started` has that tool.
-fn command(name: &str, arguments: Value, started: bool) -> std::result::Result<Command, String> {
+/// The protocol command a tool call asks for.
+fn command(name: &str, arguments: Value) -> std::result::Result<Command, String> {
     let arguments = if arguments.is_null() {
         json!({})
     } else {
         arguments
     };
     let parsed = |error: serde_json::Error| format!("invalid arguments: {error}");
-    Ok(match (name, started) {
-        ("start_session", false) => {
+    Ok(match name {
+        "start_session" => {
             Command::StartSession(serde_json::from_value(arguments).map_err(parsed)?)
         }
-        ("send", _) => Command::Send(serde_json::from_value(arguments).map_err(parsed)?),
-        ("sessions", _) => Command::Sessions(serde_json::from_value(arguments).map_err(parsed)?),
-        ("report", true) => Command::Report(serde_json::from_value(arguments).map_err(parsed)?),
-        ("stop_session", false) => {
-            Command::StopSession(serde_json::from_value(arguments).map_err(parsed)?)
-        }
-        ("models", _) => Command::Models,
+        "send" => Command::Send(serde_json::from_value(arguments).map_err(parsed)?),
+        "sessions" => Command::Sessions(serde_json::from_value(arguments).map_err(parsed)?),
+        "models" => Command::Models,
         _ => return Err(format!("unknown tool {name}")),
     })
 }
@@ -131,8 +111,8 @@ where
     W: AsyncWrite + Unpin + Send + 'static,
 {
     let output = Arc::new(Mutex::new(output));
-    let context = daemon.ask(Command::Context, None).await?;
-    let started = !context["started_by"].is_null();
+    // Asked first so a session the work host does not know is told at once.
+    daemon.ask(Command::Context, None).await?;
     let mut initialized = false;
     let mut background: Option<Background> = None;
     loop {
@@ -196,12 +176,12 @@ where
                 continue;
             }
             "ping" => json!({}),
-            "tools/list" => json!({"tools": tools(started)}),
+            "tools/list" => json!({"tools": tools()}),
             "tools/call" => {
                 let params = &request["params"];
                 let name = params["name"].as_str().unwrap_or_default();
                 let thread = params["_meta"]["threadId"].as_str().map(String::from);
-                let answer = match command(name, params["arguments"].clone(), started) {
+                let answer = match command(name, params["arguments"].clone()) {
                     Ok(command) => daemon
                         .ask(command, thread)
                         .await
@@ -335,7 +315,6 @@ mod tests {
 
     #[derive(Clone)]
     struct Fake {
-        started: bool,
         asked: Arc<Plain<Vec<String>>>,
         waiting: Arc<Plain<Vec<Value>>>,
         /// How many asks fail more, as while the work host is being replaced.
@@ -343,9 +322,8 @@ mod tests {
     }
 
     impl Fake {
-        fn new(started: bool) -> Self {
+        fn new() -> Self {
             Self {
-                started,
                 asked: Arc::default(),
                 waiting: Arc::default(),
                 away: Arc::default(),
@@ -368,9 +346,7 @@ mod tests {
                 }
             }
             Ok(match command {
-                Command::Context => {
-                    json!({"started_by": if self.started { json!({"id": "x"}) } else { Value::Null }})
-                }
+                Command::Context => json!({"opened_by": null}),
                 Command::Next => self.waiting.lock().unwrap().pop().unwrap_or(Value::Null),
                 Command::Send(send) => json!({"sent_to": send.to}),
                 _ => Value::Null,
@@ -419,9 +395,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_session_the_user_started_can_start_and_end_sessions_but_has_no_one_to_report_to() {
+    async fn every_session_has_the_same_tools_whoever_started_it() {
         let out = exchange(
-            Fake::new(false),
+            Fake::new(),
             false,
             &[
                 rpc(1, "initialize", json!({})),
@@ -432,34 +408,13 @@ mod tests {
         .await;
         assert_eq!(
             names(&out[1]),
-            [
-                "start_session",
-                "send",
-                "sessions",
-                "stop_session",
-                "models"
-            ]
+            ["start_session", "send", "sessions", "models"]
         );
     }
 
     #[tokio::test]
-    async fn a_started_session_can_report_but_not_start_sessions() {
-        let out = exchange(
-            Fake::new(true),
-            false,
-            &[
-                rpc(1, "initialize", json!({})),
-                rpc(2, "tools/list", json!({})),
-            ],
-            Duration::from_millis(100),
-        )
-        .await;
-        assert_eq!(names(&out[1]), ["send", "sessions", "report", "models"]);
-    }
-
-    #[tokio::test]
-    async fn a_tool_a_session_lacks_is_refused_without_asking_the_daemon() {
-        let daemon = Fake::new(true);
+    async fn a_tool_adroit_does_not_offer_is_refused_without_asking_the_daemon() {
+        let daemon = Fake::new();
         let out = exchange(
             daemon.clone(),
             false,
@@ -468,7 +423,7 @@ mod tests {
                 rpc(
                     2,
                     "tools/call",
-                    json!({"name": "start_session", "arguments": {"prompt": "x"}}),
+                    json!({"name": "report", "arguments": {"body": "done"}}),
                 ),
             ],
             Duration::from_millis(100),
@@ -482,7 +437,7 @@ mod tests {
     async fn a_tool_call_is_answered_with_what_the_daemon_says() {
         let to = adroit_model::SessionId::new();
         let out = exchange(
-            Fake::new(false),
+            Fake::new(),
             false,
             &[
                 rpc(1, "initialize", json!({})),
@@ -506,7 +461,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_waiting_message_reaches_claude_code_through_its_channel_and_is_marked_delivered() {
-        let daemon = Fake::new(false);
+        let daemon = Fake::new();
         let id = adroit_model::MessageId::new();
         daemon
             .waiting
@@ -543,7 +498,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_message_still_reaches_claude_code_after_the_work_host_was_away_for_a_while() {
-        let daemon = Fake::new(false);
+        let daemon = Fake::new();
         let lines = [
             rpc(1, "initialize", json!({})),
             json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
@@ -574,7 +529,7 @@ mod tests {
 
     #[tokio::test]
     async fn without_the_channel_messages_are_left_for_codex_s_queue() {
-        let daemon = Fake::new(false);
+        let daemon = Fake::new();
         daemon
             .waiting
             .lock()

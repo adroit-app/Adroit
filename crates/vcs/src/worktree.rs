@@ -1,4 +1,4 @@
-//! New worktrees for started sessions: a jj workspace where the directory
+//! New worktrees for sessions to work in: a jj workspace where the directory
 //! belongs to jj, a Git worktree where it belongs to Git alone.
 use std::{
     ffi::OsStr,

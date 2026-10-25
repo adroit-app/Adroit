@@ -275,7 +275,7 @@ pub(crate) fn perform(
                         tree::terminals(state.host.work.as_ref())
                     ),
                     nav::Opens::Fold
-                ) || nav::unfolds(&item, &state.tree.narrowed, &state.tree.folds) =>
+                ) || nav::unfolds(&item, &state.tree.folds) =>
             {
                 step(state, Msg::TreeKey(TreeKey::Into))
             }

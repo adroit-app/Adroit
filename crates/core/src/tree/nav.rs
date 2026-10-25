@@ -56,7 +56,6 @@ impl Item {
             Item::Workspace(root) => Some(format!("ws:{}", root.display())),
             Item::Worktree(path) => Some(format!("wt:{}", path.display())),
             Item::Heading(path, heading) => Some(format!("{heading:?}:{}", path.display())),
-            Item::Session(id) => Some(format!("session:{id}")),
             Item::File {
                 worktree,
                 path,
@@ -122,7 +121,7 @@ pub fn items(
         }
         if ws.flat() {
             for w in &ws.worktrees {
-                out.extend(headed(tree, w, folds, read));
+                out.extend(headed(w, folds, read));
             }
             continue;
         }
@@ -131,7 +130,7 @@ pub fn items(
             let t_open = folds.is_open(&ti);
             out.push(ti);
             if t_open {
-                out.extend(headed(tree, w, folds, read));
+                out.extend(headed(w, folds, read));
             }
         }
     }
@@ -140,12 +139,7 @@ pub fn items(
 }
 
 /// A worktree's headings, each followed by its rows while it is open.
-fn headed(
-    tree: &Tree,
-    w: &WorktreeNode,
-    folds: &Folds,
-    read: &dyn Fn(&Path) -> Vec<Entry>,
-) -> Vec<Item> {
+fn headed(w: &WorktreeNode, folds: &Folds, read: &dyn Fn(&Path) -> Vec<Entry>) -> Vec<Item> {
     let mut out = Vec::new();
     for heading in Heading::ALL {
         let hi = Item::Heading(w.worktree.path.clone(), heading);
@@ -159,24 +153,10 @@ fn headed(
                 let root = &w.worktree.path;
                 files_in(root, root, folds, read, &mut out);
             }
-            _ => out.extend(
-                under(tree, w, heading)
-                    .into_iter()
-                    .filter(|i| !folded_away(tree, folds, i)),
-            ),
+            _ => out.extend(under(w, heading)),
         }
     }
     out
-}
-
-/// Whether `item` is a started session whose starter's row is folded.
-fn folded_away(tree: &Tree, folds: &Folds, item: &Item) -> bool {
-    let Item::Session(id) = item else {
-        return false;
-    };
-    find(tree, id)
-        .and_then(|(_, s)| starter(tree, s))
-        .is_some_and(|s| !folds.is_open(&Item::Session(s.id.clone())))
 }
 
 /// The entries of `dir` in `worktree`, each open directory followed by its
@@ -211,25 +191,20 @@ fn listed_under(terminal: &TerminalSession) -> Option<Heading> {
 }
 
 /// What runs in a worktree, under one of its headings; Files holds no such
-/// rows. Sessions are each followed by the sessions they started, wherever
-/// those run; a session whose starter is listed is listed under it instead.
-pub fn under(tree: &Tree, w: &WorktreeNode, heading: Heading) -> Vec<Item> {
-    let runs = |heading| {
-        w.terminals
-            .iter()
-            .filter(move |t| listed_under(t) == Some(heading))
-            .map(|t| Item::Terminal(t.id))
-    };
+/// rows.
+pub fn under(w: &WorktreeNode, heading: Heading) -> Vec<Item> {
     match heading {
-        Heading::Sessions => {
-            let mut rows = Vec::new();
-            for session in w.sessions.iter().filter(|s| starter(tree, s).is_none()) {
-                rows.push(Item::Session(session.id.clone()));
-                rows.extend(started_by(tree, session).map(|s| Item::Session(s.id.clone())));
-            }
-            rows
-        }
-        Heading::Terminals => runs(heading).collect(),
+        Heading::Sessions => w
+            .sessions
+            .iter()
+            .map(|s| Item::Session(s.id.clone()))
+            .collect(),
+        Heading::Terminals => w
+            .terminals
+            .iter()
+            .filter(|t| listed_under(t) == Some(heading))
+            .map(|t| Item::Terminal(t.id))
+            .collect(),
         Heading::Files => Vec::new(),
     }
 }
@@ -245,17 +220,9 @@ pub fn depth(tree: &Tree, item: &Item) -> usize {
         Item::Workspace(_) | Item::Waiting(_) => 0,
         Item::Worktree(_) => 1,
         Item::Heading(path, _) => heading_at(path),
-        Item::Session(id) => {
-            let Some(session) = find(tree, id).map(|(_, s)| s) else {
-                return 0;
-            };
-            match starter(tree, session) {
-                Some(s) => find(tree, &s.id).map_or(0, |(p, _)| heading_at(&p.worktree)) + 2,
-                None => tree
-                    .find(id)
-                    .map_or(0, |(_, w, _)| heading_at(&w.worktree.path) + 1),
-            }
-        }
+        Item::Session(id) => tree
+            .find(id)
+            .map_or(0, |(_, w, _)| heading_at(&w.worktree.path) + 1),
         Item::Terminal(id) => tree
             .terminal(*id)
             .map_or(0, |(_, w, _)| heading_at(&w.worktree.path) + 1),
@@ -266,41 +233,6 @@ pub fn depth(tree: &Tree, item: &Item) -> usize {
             heading_at(worktree) + below
         }
     }
-}
-
-/// The session that started `session`, while it is listed in `tree`.
-pub fn starter<'a>(tree: &'a Tree, session: &Session) -> Option<&'a Session> {
-    let parent = session.parent?;
-    tree.sessions()
-        .map(|(_, s)| s)
-        .find(|s| s.delegation == Some(parent))
-}
-
-/// The sessions `session` started that `tree` lists.
-pub fn started_by<'a>(tree: &'a Tree, session: &Session) -> impl Iterator<Item = &'a Session> {
-    let own = session.delegation;
-    tree.sessions()
-        .map(|(_, s)| s)
-        .filter(move |s| own.is_some() && s.parent == own)
-}
-
-/// Where a session listed under its starter runs, in short, when its starter
-/// runs elsewhere: the name of its worktree's directory, or of its own
-/// directory within its starter's worktree. `None` when that is its name.
-pub fn runs_at(tree: &Tree, session: &Session) -> Option<String> {
-    let starter = starter(tree, session)?;
-    if session.cwd == starter.cwd {
-        return None;
-    }
-    let worktree = |s: &Session| tree.find(&s.id).map(|(_, w, _)| w.worktree.path.clone());
-    let own = worktree(session);
-    let place = if own.is_some() && own == worktree(starter) {
-        session.cwd.clone()
-    } else {
-        own.unwrap_or_else(|| session.cwd.clone())
-    };
-    let name = place.file_name()?.to_string_lossy().into_owned();
-    (name != session.name).then_some(name)
 }
 
 /// The row `item` sits under in `list`: the nearest above it one level up.
@@ -578,10 +510,7 @@ pub fn row_of(list: &[Item], tree: &Tree, shown: Option<&Tab>, place: &Place) ->
 fn heading_of(tree: &Tree, shown: Option<&Tab>) -> Option<Item> {
     match shown? {
         Tab::Session(id) => {
-            let (_, w, s) = tree.find(id)?;
-            let w = starter(tree, s)
-                .and_then(|s| tree.find(&s.id))
-                .map_or(w, |(_, w, _)| w);
+            let (_, w, _) = tree.find(id)?;
             Some(Item::Heading(w.worktree.path.clone(), Heading::Sessions))
         }
         Tab::Terminal(id) => {
@@ -664,22 +593,16 @@ pub enum Opens {
     Draft(PathBuf),
 }
 
-/// Whether `item` has rows under it to fold: a session only while it heads
-/// the sessions it started.
-pub fn holds(item: &Item, tree: &Tree) -> bool {
-    match item {
-        Item::Session(id) => find(tree, id).is_some_and(|(_, s)| {
-            starter(tree, s).is_none() && started_by(tree, s).next().is_some()
-        }),
-        _ => item.fold_key().is_some(),
-    }
+/// Whether `item` has rows under it to fold.
+pub fn holds(item: &Item) -> bool {
+    item.fold_key().is_some()
 }
 
 /// Whether opening `item` in place unfolds it instead of what [`opens`]
 /// says: a folded row shows its rows first, as fern's `l` does, so a
-/// worktree or a session, which otherwise open, can be unfolded again.
-pub fn unfolds(item: &Item, tree: &Tree, folds: &Folds) -> bool {
-    holds(item, tree) && !folds.is_open(item)
+/// worktree, which otherwise opens, can be unfolded again.
+pub fn unfolds(item: &Item, folds: &Folds) -> bool {
+    holds(item) && !folds.is_open(item)
 }
 
 /// What opening `item` shows: a file by its kind, in its viewer or in
@@ -959,9 +882,9 @@ mod tests {
         assert_eq!(got, expected);
     }
 
-    /// `a` runs in the main checkout of `api` and started `o`, which runs in
+    /// `a` runs in the main checkout of `api` and opened `o`, which runs in
     /// the `oauth` worktree, and `w`, which runs in `web`.
-    fn delegating_tree(starter_listed: bool) -> Tree {
+    fn opening_tree(opener_listed: bool) -> Tree {
         let starter = adroit_model::SessionId::new();
         let started = |id: &str, cwd: &str| {
             testing::session(id)
@@ -977,76 +900,30 @@ mod tests {
             .cwd("/api")
             .working()
             .delegation(starter);
-        if starter_listed { t.session(a) } else { t }.build()
+        if opener_listed { t.session(a) } else { t }.build()
     }
 
     #[test]
-    fn a_started_session_is_listed_under_its_starter_wherever_it_runs() {
-        let t = delegating_tree(true);
+    fn an_opened_session_is_listed_where_it_runs_whether_the_one_that_opened_it_is_listed_or_not() {
+        let elsewhere = [
+            vec![worktree(OAUTH)],
+            group(OAUTH, &[session("o")], &[]),
+            vec![ws("/web")],
+            group("/web", &[session("w")], &[]),
+        ]
+        .concat();
         assert_eq!(
-            rows(&t, &[], &Folds::default()),
-            [
-                vec![ws("/api"), worktree("/api")],
-                group("/api", &[session("a"), session("o"), session("w")], &[]),
-                vec![worktree(OAUTH)],
-                group(OAUTH, &[], &[]),
-                vec![ws("/web")],
-                group("/web", &[], &[]),
-            ]
-            .concat()
-        );
-        let o = find(&t, "o").unwrap().1;
-        assert_eq!(starter(&t, o).map(|s| s.id.as_str()), Some("a"));
-    }
-
-    #[test]
-    fn a_folded_session_hides_the_sessions_it_started() {
-        let t = delegating_tree(true);
-        let mut folds = Folds::default();
-        folds.set(&session("a"), false);
-        assert_eq!(
-            rows(&t, &[], &folds),
+            rows(&opening_tree(true), &[], &Folds::default()),
             [
                 vec![ws("/api"), worktree("/api")],
                 group("/api", &[session("a")], &[]),
-                vec![worktree(OAUTH)],
-                group(OAUTH, &[], &[]),
-                vec![ws("/web")],
-                group("/web", &[], &[]),
+                elsewhere.clone(),
             ]
             .concat()
         );
-    }
-
-    #[test]
-    fn a_started_session_running_elsewhere_names_the_worktree_s_directory_not_its_path() {
-        let t = delegating_tree(true);
-        let at = |id: &str| runs_at(&t, find(&t, id).unwrap().1);
-        assert_eq!(at("o").as_deref(), Some("oauth"));
-        assert_eq!(at("w").as_deref(), Some("web"));
-        assert_eq!(at("a"), None);
-    }
-
-    #[test]
-    fn a_started_session_named_after_where_it_runs_names_it_once() {
-        let t = delegating_tree(true);
-        let mut o = find(&t, "o").unwrap().1.clone();
-        o.name = "oauth".into();
-        assert_eq!(runs_at(&t, &o), None);
-    }
-
-    #[test]
-    fn a_started_session_whose_starter_has_ended_is_listed_where_it_runs() {
-        let t = delegating_tree(false);
         assert_eq!(
-            rows(&t, &[], &Folds::default()),
-            [
-                vec![ws("/api"), worktree(OAUTH)],
-                group(OAUTH, &[session("o")], &[]),
-                vec![ws("/web")],
-                group("/web", &[session("w")], &[]),
-            ]
-            .concat()
+            rows(&opening_tree(false), &[], &Folds::default()),
+            [vec![ws("/api")], elsewhere].concat()
         );
     }
 
@@ -1560,7 +1437,7 @@ mod tests {
         let t = shelled().with_terminals(&[sh(2, "shell", DEV), nvim, on_file]);
         let w = t.worktrees().find(|w| w.worktree.path == Path::new(DEV));
         let w = w.unwrap();
-        assert_eq!(under(&t, w, Heading::Terminals), [shell(2), shell(6)]);
+        assert_eq!(under(w, Heading::Terminals), [shell(2), shell(6)]);
         let list = rows(&t, &[], &Folds::default());
         assert_eq!(row_above(&list, &shell(6)), Some(shell(2)));
         assert!(!list.contains(&shell(7)));
@@ -1594,7 +1471,7 @@ mod tests {
         let t = shelled().with_terminals(&[sh(2, "shell", DEV), claude]);
         let w = t.worktrees().find(|w| w.worktree.path == Path::new(DEV));
         let w = w.unwrap();
-        assert_eq!(under(&t, w, Heading::Terminals), [shell(2), shell(7)]);
+        assert_eq!(under(w, Heading::Terminals), [shell(2), shell(7)]);
         let list = rows(&t, &[], &Folds::default());
         assert_eq!(row_above(&list, &shell(7)), Some(shell(2)));
     }
@@ -1631,10 +1508,11 @@ mod tests {
     }
 
     #[test]
-    fn a_started_session_sits_a_level_below_its_starter() {
-        let t = delegating_tree(true);
+    fn an_opened_session_sits_as_deep_as_any_session_where_it_runs() {
+        let t = opening_tree(true);
         assert_eq!(depth(&t, &session("a")), 3);
-        assert_eq!(depth(&t, &session("w")), 4);
+        assert_eq!(depth(&t, &session("o")), 3);
+        assert_eq!(depth(&t, &session("w")), 2);
     }
 
     #[test]
@@ -1743,27 +1621,24 @@ mod tests {
 
     #[test]
     fn a_folded_row_unfolds_before_it_opens_whatever_kind_it_is() {
-        let t = delegating_tree(true);
         let folding = [
             ws("/api"),
             worktree(OAUTH),
             sessions_of("/api"),
             files_of("/api"),
             file("/api", "/api/src", true),
-            session("a"),
         ];
         let mut folds = Folds::default();
         for item in &folding {
             folds.set(item, false);
         }
         for item in &folding {
-            assert!(unfolds(item, &t, &folds), "{item:?}");
+            assert!(unfolds(item, &folds), "{item:?}");
         }
     }
 
     #[test]
     fn an_unfolded_row_or_one_that_does_not_fold_opens_as_it_always_does() {
-        let t = delegating_tree(true);
         let mut folds = Folds::default();
         folds.set(&files_of("/api"), true);
         folds.set(&session("o"), false);
@@ -1778,17 +1653,15 @@ mod tests {
             Item::Terminal(3),
             file("/api", "/api/a.rs", false),
         ] {
-            assert!(!unfolds(&item, &t, &folds), "{item:?}");
+            assert!(!unfolds(&item, &folds), "{item:?}");
         }
     }
 
     #[test]
-    fn only_a_session_that_started_sessions_listed_under_it_has_rows_to_fold() {
-        let t = delegating_tree(true);
-        assert!(holds(&session("a"), &t));
-        assert!(!holds(&session("o"), &t));
-        assert!(!holds(&Item::Waiting("a".into()), &t));
-        assert!(holds(&worktree(OAUTH), &t));
+    fn a_session_has_no_rows_to_fold() {
+        assert!(!holds(&session("a")));
+        assert!(!holds(&Item::Waiting("a".into())));
+        assert!(holds(&worktree(OAUTH)));
     }
 
     #[test]

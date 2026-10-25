@@ -359,7 +359,7 @@ fn codex_reaches_adroit_through_its_mcp_server_and_keeps_its_own_instructions() 
         .find(|arg| arg.starts_with("developer_instructions="))
         .unwrap();
     assert!(instructions.contains("Be terse."), "{instructions}");
-    assert!(instructions.contains("report"), "{instructions}");
+    assert!(instructions.contains("start_session"), "{instructions}");
     assert!(
         instructions.contains("/bin/adroit terminal start"),
         "{instructions}"

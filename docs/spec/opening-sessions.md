@@ -1,16 +1,11 @@
-# Sessions that start sessions
+# Sessions that open sessions
 
-Every session Adroit starts can hand work to sessions of its own, send
-messages to any other session Adroit started, and hear back. There is no role
-to choose: the user asks a session for something, and the session decides
-whether to do it itself, give it to its agent's own subagents, or start
-sessions for it. A session started this way is an ordinary session, read and
-steered in its console like any other.
-
-A session the user started from the window, or from `adroit session start` in
-a terminal of their own, can start sessions. A session started by another
-cannot: when its work outgrows it, it tells its starter what it has found and
-how it would divide the rest, and the starter decides.
+Every session Adroit starts can open sessions beside it and talk with any
+other session Adroit started. A session does its own work, giving what can
+run alongside to its agent's own subagents and tools. It opens a session only
+for a separate line of work, and the session it opens is an ordinary one: it
+answers to you, reports to no session, and is read and steered in its console
+like any other. Any session can open sessions, whoever started it.
 
 ## What a session can do
 
@@ -18,7 +13,7 @@ Each session Adroit starts has these as tools of its agent, through an MCP
 server named `adroit`. The tools act as the session that calls them; a session
 cannot act as another.
 
-- **`start_session`** starts a session with a first prompt. It takes the
+- **`start_session`** opens a session with a first prompt. It takes the
   directory to work in (the caller's own when omitted), whether to work in a
   new worktree, the revision that worktree starts from, the profile, the
   agent, the model, the permission profile and a name. It returns the new
@@ -38,12 +33,8 @@ cannot act as another.
   started, running or not yet ready, can be sent to; one that has ended
   cannot.
 - **`sessions`** lists the sessions Adroit runs, each with its id, name,
-  workspace, the directory it runs in, how it stands and which session started
+  workspace, the directory it runs in, how it stands and which session opened
   it. It can be narrowed to one repository or directory.
-- **`report`** sends the caller's report to the session that started it. Once
-  the turn that reported is over, Adroit ends the reporting session. Its
-  worktree, and everything in it, stays.
-- **`stop_session`** ends a session the caller started.
 - **`models`** lists, for each profile a session can start from, its agent,
   the folder of its own its login is kept in, if any, and the models its
   provider reports there, and
@@ -52,11 +43,15 @@ cannot act as another.
   changes. A profile whose provider has not answered has no list, and its
   models are not checked.
 
-At most `max_started` started sessions run at once
+At most `max_started` sessions opened by sessions run at once
 ([settings](settings.md#settingstoml)); a start beyond it is refused with the
 limit named, and sessions the user started never count against it.
 
 ## Messages
+
+Sessions talk as peers. A message tells the recipient what it should know, or
+asks it what it knows; it does not hand it work. The recipient weighs a
+message as it would any other input and still answers to you.
 
 A message is handed to the recipient's agent through its own way of hearing
 from outside: Claude Code's channel, Codex's queue of incoming
@@ -67,13 +62,12 @@ conversation not yet made, as one is before its first prompt is sent, waits
 for it. It reaches the agent between turns and starts one, headed by
 who sent it: the sender's id, name and directory. A message sent while the
 recipient waits on a dialog or is still starting is handed over once it is
-ready. Handing it over is receipt; no acknowledgement is asked for, and
-receipt says nothing about whether the work it asks for was done.
+ready. Handing it over is receipt; no acknowledgement is asked for.
 
-adroit keeps every message and who started whom, so both outlive the window,
-the sessions and the work host that relays them. A report sent to a session that has since ended
-is kept, and shown in the details of both ([details](details.md)). A message
-carries text; larger material is referred to by its path.
+adroit keeps every message and which session opened which, so both outlive
+the window, the sessions and the work host that relays them, and shows them
+in the details of the sessions on both ends ([details](details.md)). A
+message carries text; larger material is referred to by its path.
 
 Sessions Adroit did not start, such as Claude Code sessions in other
 terminals, can neither send nor receive.
@@ -81,15 +75,17 @@ terminals, can neither send nor receive.
 ## What sessions are told
 
 Adroit gives every session it starts the same instructions about these tools.
-A session does work itself by default and starts sessions for work that can
-run apart from the rest, that runs long, that needs a worktree of its own or
-another agent, or that the user may want to watch and step into. A started
-session finishes and checks its work before it reports. Before touching
-something it shares with unrelated sessions in the same repository, such as
-the checkout itself, a branch, or a port, a session tells those sessions what
-it is about to do, and afterwards what it did; it neither waits for their
-answer nor takes a lock. Sessions send only what the recipient has to act on:
-no progress notes and no replies that only acknowledge.
+A session does its work itself, with its agent's own subagents for what runs
+alongside, and carries on what it already knows itself rather than handing it
+on. It opens a session only for a separate line of work that needs little of
+what it knows, or when you ask it to, and writes that session a first prompt
+that carries what it needs. Before touching something it shares with other
+sessions in the same repository, such as the checkout itself, a branch, or a
+port, a session tells those sessions what it is about to do, and afterwards
+what it did; it neither waits for their answer nor takes a lock. A session
+asks another that knows something rather than working it out again, and
+plans nothing on an answer coming. Sessions send only what the recipient has
+to act on or answer: no progress notes and no replies that only acknowledge.
 
 Where the instructions name an `adroit` command, such as `adroit terminal`
 for probes, they name the adroit whose work host started the session by its
@@ -101,13 +97,9 @@ instance of its own.
 
 Adroit watches each session it starts until its agent is ready. When the
 agent waits on a dialog — trust, permissions, a model change, or any dialog
-Adroit cannot name — the session shows it as waiting on you, and the session
-that started it is told; so it is when the session neither becomes ready nor
-shows a dialog for long enough to count as stalled, and when a session it was
-told of either way becomes ready after all. A session that becomes ready
-without either is not announced: its starter next hears from it in its report
-or a message.
-Adroit never answers trust or permission questions for the user.
+Adroit cannot name — the session shows it as waiting on you; so it does when
+it neither becomes ready nor shows a dialog for long enough to count as
+stalled. Adroit never answers trust or permission questions for the user.
 
 Claude Code warns at every launch that Adroit's channel is a development
 channel. Adroit confirms that warning, once a launch and only when it names
@@ -117,10 +109,8 @@ waits for the user like any other dialog.
 
 ## Ending
 
-A session that reports ends after its turn. Ending a session, by the user or
-by its starter, does not end the sessions it started; they run on until they
-report or are ended, and their reports stay readable. Closing the window ends
-nothing.
+A session ends when you end it, or when its agent exits. Ending a session
+ends no other session. Closing the window ends nothing.
 
 ## From a terminal
 
@@ -181,9 +171,8 @@ none follows `--`.
   The provider must match `--agent`; unknown fields are rejected.
 
 Run from a shell inside a session Adroit started, the command acts as that
-session: the new session is started by it, and it is refused when that session
-was itself started by another. When the work host cannot be reached, the command
-fails with a message on standard error and exit status 1.
+session: the new session is opened by it. When the work host cannot be
+reached, the command fails with a message on standard error and exit status 1.
 
 The identity a session acts as comes from its environment. It keeps sessions
 from being mistaken for one another; it does not protect against programs that

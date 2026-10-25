@@ -1,4 +1,4 @@
-//! Sessions that start sessions, message one another and report back.
+//! Sessions that open sessions beside them and message one another.
 use std::{fmt, path::PathBuf};
 
 use adroit_model::Agent;
@@ -44,7 +44,7 @@ impl Readiness {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Session {
     pub id: SessionId,
-    /// The session that started this one; none for a session the user started.
+    /// The session that opened this one; none for a session the user started.
     pub parent: Option<SessionId>,
     pub agent: Agent,
     /// The profile it started from, and the folder of that profile's own it
@@ -57,41 +57,14 @@ pub struct Session {
     pub conversation: Option<String>,
     pub readiness: Readiness,
     pub started_ms: u64,
-    pub reported: bool,
     pub ended: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum MessageKind {
-    Message,
-    Report,
-    /// Adroit's own word about a session, which no session sent.
-    Notice,
-}
-
-impl MessageKind {
-    const ALL: [Self; 3] = [Self::Message, Self::Report, Self::Notice];
-
-    pub fn key(self) -> &'static str {
-        match self {
-            Self::Message => "message",
-            Self::Report => "report",
-            Self::Notice => "notice",
-        }
-    }
-
-    fn from_key(key: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|known| known.key() == key)
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Message {
     pub id: MessageId,
-    pub sender: Option<SessionId>,
+    pub sender: SessionId,
     pub recipient: SessionId,
-    pub kind: MessageKind,
     pub body: String,
     pub sent_ms: u64,
     pub delivered: bool,
