@@ -169,7 +169,7 @@ impl PromptNeovim {
             };
             let wait = restarts.wait(lived);
             if wait.is_zero() {
-                app.notice("Neovim quit; the prompt starts afresh".into());
+                app.notice("Neovim quit; the prompt starts again with what was written".into());
                 continue;
             }
             // One that quits as it starts is not started over and over.
