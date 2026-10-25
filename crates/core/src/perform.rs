@@ -100,13 +100,12 @@ pub(crate) fn perform(
         | Action::TabNext
         | Action::TabPrev
         | Action::TabClose => step(state, Msg::Window(action)),
-        // The key pressed is Neovim's while it shows its completions or its
-        // command line, as Tab is there, and while the prompt has no agent
-        // to send it to.
+        // The key pressed is Neovim's while the prompt has no agent to send
+        // it to.
         Action::ConsoleSend(None)
             if area == Area::Prompt
                 && prompt_runs
-                && (!pane || probe.prompt_owns)
+                && !pane
                 && let Some(key) = key.clone() =>
         {
             vec![Effect::PromptKey(key)]
@@ -155,7 +154,6 @@ pub(crate) fn perform(
                         .is_some_and(|(_, s)| s.adroit_editor));
             vec![Effect::TakeSuggestion {
                 key: key.unwrap_or_else(|| Key::new("Tab")),
-                neovim_owns: probe.prompt_owns,
                 session: pane,
                 hands_back,
                 no_images: state.prompt.images.is_empty(),
@@ -165,15 +163,6 @@ pub(crate) fn perform(
         Action::PromptTakeSuggestion => Vec::new(),
         Action::PromptImages => step(state, Msg::ImagesChoose),
         Action::HistoryPrev | Action::HistoryNext => {
-            // In the prompt the same keys choose among Neovim's completions
-            // and its command-line history.
-            if area == Area::Prompt
-                && prompt_runs
-                && probe.prompt_owns
-                && let Some(key) = key
-            {
-                return vec![Effect::PromptKey(key)];
-            }
             let agent = content::agent_of(state, thing.as_ref());
             let back = action == Action::HistoryPrev;
             let mut effects = step(state, Msg::Recall { back, agent });

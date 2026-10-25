@@ -106,18 +106,16 @@ fn the_scroll_actions_scroll_the_console_s_program_or_else_the_details() {
 }
 
 #[test]
-fn a_key_sent_from_the_prompt_is_neovim_s_while_it_owns_the_keys_or_no_session_takes_it() {
+fn a_key_sent_from_the_prompt_is_neovim_s_while_no_session_takes_it() {
     let send = Action::ConsoleSend(None);
-    // (Neovim owns the keys, a pane shown, the effects)
+    // (a pane shown, the effects)
     let cases = [
-        (true, true, vec![Effect::PromptKey(Key::new("Down"))]),
-        (false, false, vec![Effect::PromptKey(Key::new("Down"))]),
-        (false, true, vec![Effect::PaneKey(Key::new("Down"))]),
+        (false, vec![Effect::PromptKey(Key::new("Down"))]),
+        (true, vec![Effect::PaneKey(Key::new("Down"))]),
     ];
-    for (owns, pane, effects) in cases {
+    for (pane, effects) in cases {
         let probe = Probe {
             pane,
-            prompt_owns: owns,
             ..with_pane()
         };
         let run = showing(Area::Prompt)
@@ -129,7 +127,7 @@ fn a_key_sent_from_the_prompt_is_neovim_s_while_it_owns_the_keys_or_no_session_t
             .filter(|e| matches!(e, Effect::PromptKey(_) | Effect::PaneKey(_)))
             .cloned()
             .collect();
-        assert_eq!(got, effects, "owns={owns} pane={pane}");
+        assert_eq!(got, effects, "pane={pane}");
     }
 }
 
@@ -199,31 +197,22 @@ fn stepping_through_the_prompts_sent_asks_the_host_and_starts_writing() {
         })
     )));
     assert_eq!(effects.last(), Some(&Effect::StartWriting));
-    // Neovim's own list moves instead while it shows one.
-    let owns = Probe {
-        prompt_owns: true,
-        ..with_pane()
-    };
+    // Asked from the prompt's Neovim, with no key of the window's.
     let run = showing(Area::Prompt)
         .send(Msg::PromptRuns(true))
-        .send(perform(Action::HistoryPrev, Some("Up"), owns));
-    assert_eq!(run.last_effects(), [Effect::PromptKey(Key::new("Up"))]);
+        .send(perform(Action::HistoryPrev, None, with_pane()));
+    assert_eq!(run.last_effects().last(), Some(&Effect::StartWriting));
 }
 
 #[test]
 fn tab_in_the_prompt_is_handed_to_the_window_with_what_decides_where_it_goes() {
-    let owns = Probe {
-        prompt_owns: true,
-        ..with_pane()
-    };
     let run = showing(Area::Prompt)
         .send(Msg::PromptRuns(true))
-        .send(perform(Action::PromptTakeSuggestion, None, owns));
+        .send(perform(Action::PromptTakeSuggestion, None, with_pane()));
     assert_eq!(
         run.last_effects(),
         [Effect::TakeSuggestion {
             key: Key::new("Tab"),
-            neovim_owns: true,
             session: true,
             hands_back: false,
             no_images: true,

@@ -177,13 +177,11 @@ pub enum Effect {
     },
     /// Tab pressed in the prompt as `key`: to Neovim, or to the session for
     /// the prompt it suggests, once the window knows whether the prompt is
-    /// empty. `neovim_owns` while Neovim shows its completions or its
-    /// command line, `session` while a session's pane can take the key,
+    /// empty. `session` while a session's pane can take the key,
     /// `hands_back` while that session hands its input back, `no_images`
     /// while none is attached; `tab` is what the focused window shows.
     TakeSuggestion {
         key: Key,
-        neovim_owns: bool,
         session: bool,
         hands_back: bool,
         no_images: bool,

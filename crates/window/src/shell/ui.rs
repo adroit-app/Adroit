@@ -4,6 +4,7 @@
 
 use std::sync::Arc;
 
+use adroit_core::actions::Action;
 use adroit_core::msg::Msg;
 use adroit_term::Pane;
 use dioxus::prelude::*;
@@ -30,6 +31,14 @@ pub(crate) fn use_ui(app: AppCtx, hub: Hub, local: Local) -> Ui {
     let has_images = use_memo(move || !app.prompt.read().images.is_empty());
     // A `/` typed asks for what it offers again, if that is old.
     let commands_wanted = use_callback(move |()| app.dispatch(Msg::CommandsWanted));
+    // What a key or a command of the prompt's Neovim asks for runs as a
+    // binding runs it, once the window's handles are put together below.
+    let handles: CopyValue<Option<Ui>> = use_hook(|| CopyValue::new(None));
+    let asked = use_callback(move |action: Action| {
+        if let Some(ui) = handles.peek().clone() {
+            ui.perform(action, None);
+        }
+    });
     let PromptNeovim {
         nvim,
         prompt_frame,
@@ -42,6 +51,7 @@ pub(crate) fn use_ui(app: AppCtx, hub: Hub, local: Local) -> Ui {
         local.cell_width,
         local.prompt_width,
         commands_wanted,
+        asked,
     );
     let prompts = use_hook(|| prompts::keeper(nvim, app));
     let reader = use_reader(app, &hub, local.frame, local.console_size);
@@ -96,6 +106,13 @@ pub(crate) fn use_ui(app: AppCtx, hub: Hub, local: Local) -> Ui {
     use_context_provider({
         let ui = ui.clone();
         move || ui
+    });
+    use_hook({
+        let ui = ui.clone();
+        move || {
+            let mut handles = handles;
+            handles.set(Some(ui));
+        }
     });
     ui
 }

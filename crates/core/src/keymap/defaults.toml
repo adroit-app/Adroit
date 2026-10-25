@@ -182,12 +182,6 @@
 
 [prompt]
 "Mod+i" = "prompt.images"
-"Tab" = "prompt.take_suggestion"
-"Shift+Tab" = "console.send"
-"Ctrl+c" = "console.send Escape"
-"Ctrl+Enter" = "prompt.send"
-"Ctrl+p" = "prompt.history_prev"
-"Ctrl+n" = "prompt.history_next"
 "F1" = "keys.help"
 
 [viewer]

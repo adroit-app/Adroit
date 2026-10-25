@@ -57,24 +57,17 @@ impl Ui {
                 },
             }
         });
-        let (inserting, prompt_owns) =
-            self.consoles
-                .nvim
-                .peek()
-                .as_ref()
-                .map_or((false, false), |n| {
-                    let s = n.state();
-                    (
-                        s.mode().starts_with("insert"),
-                        s.popup().is_some() || s.mode().starts_with("cmdline"),
-                    )
-                });
+        let inserting = self
+            .consoles
+            .nvim
+            .peek()
+            .as_ref()
+            .is_some_and(|n| n.state().mode().starts_with("insert"));
         Probe {
             pane: pane.is_some(),
             scrolls_itself: pane.as_ref().is_some_and(|p| p.takes_mouse()),
             reader,
             inserting,
-            prompt_owns,
             rows: self.local.console_size.peek().rows,
         }
     }

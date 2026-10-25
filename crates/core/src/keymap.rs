@@ -903,10 +903,28 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_c_in_the_prompt_sends_escape_to_the_agent() {
+    fn the_prompt_leaves_the_keys_of_its_own_actions_to_its_neovim() {
+        for areas in [&[Context::Prompt][..], &[Context::Prompt, Context::Global]] {
+            let prompt = |key| step(&Keymap::defaults(), areas, &[], key);
+            for key in [
+                "Tab",
+                "Shift+Tab",
+                "Ctrl+c",
+                "Ctrl+Enter",
+                "Ctrl+p",
+                "Ctrl+n",
+                "ArrowUp",
+            ] {
+                assert_eq!(prompt(key), Step::Nothing, "{areas:?} {key}");
+            }
+        }
         assert_eq!(
-            step(&Keymap::defaults(), &[Context::Prompt], &[], "Ctrl+c"),
-            Step::Run(Action::ConsoleSend(Some(Chord::parse("Escape").unwrap())))
+            "prompt.take_suggestion".parse(),
+            Ok(Action::PromptTakeSuggestion)
+        );
+        assert_eq!(
+            "console.send Shift+Tab".parse(),
+            Ok(Action::ConsoleSend(Chord::parse("Shift+Tab").ok()))
         );
     }
 
@@ -1080,43 +1098,10 @@ mod tests {
     }
 
     #[test]
-    fn tab_in_the_prompt_takes_a_suggestion_and_shift_tab_goes_to_the_agent_even_while_writing() {
-        for areas in [
-            &[Context::Prompt][..],
-            &[Context::Prompt, Context::Global],
-            &[Context::Draft, Context::Prompt],
-        ] {
-            let prompt = |key| step(&Keymap::defaults(), areas, &[], key);
-            assert_eq!(
-                prompt("Tab"),
-                Step::Run(Action::PromptTakeSuggestion),
-                "{areas:?}"
-            );
-            assert_eq!(
-                prompt("Shift+Tab"),
-                Step::Run(Action::ConsoleSend(None)),
-                "{areas:?}"
-            );
-        }
-        assert_eq!(
-            "prompt.take_suggestion".parse(),
-            Ok(Action::PromptTakeSuggestion)
-        );
-    }
-
-    #[test]
     fn in_the_console_other_text_is_not_typed_into_the_session() {
         for k in ["x", "y", "1", "Space", "/"] {
             assert_eq!(console(&[], k), Step::Nothing, "{k}");
         }
-    }
-
-    #[test]
-    fn in_the_prompt_ctrl_p_ctrl_n_recall_the_prompts_sent_and_the_arrows_stay_neovim_s() {
-        let prompt = |k| step(&Keymap::defaults(), &[Context::Prompt], &[], k);
-        assert_eq!(prompt("Ctrl+p"), Step::Run(Action::HistoryPrev));
-        assert_eq!(prompt("Ctrl+n"), Step::Run(Action::HistoryNext));
-        assert_eq!(prompt("ArrowUp"), Step::Nothing);
     }
 
     #[test]

@@ -157,12 +157,15 @@ alternate screen, leaves nothing scrolled off to read: moving or scrolling past 
 first or last line scrolls the program instead, and the reader follows; `gg` scrolls it to its start. Leaving the reader
 for the live console, or moving to the prompt, returns the session to its
 latest output.
-In the prompt, `Ctrl+c` sends `Escape` to the agent, `Shift+Tab` is sent to it
-as it is, and `Tab` on an empty prompt takes the prompt the agent suggests,
-in insert mode too; both are Neovim's while it shows its completions or its
-command line, or the prompt has no session to send them to. `global` bindings
-apply only outside Neovim's insert mode, but for `Mod` and Command keys and
-the prefix.
+The prompt's own keys are its Neovim's mappings
+([Neovim](settings.md#neovim)): `Ctrl+Enter` sends, `Ctrl+c` sends `Escape`
+to the agent, `Shift+Tab` is sent to it as it is, `Tab` on an empty prompt
+takes the prompt the agent suggests, and `Ctrl+p` and `Ctrl+n` recall the
+prompts sent, in insert and normal mode. `Tab`, `Shift+Tab`, `Ctrl+p` and
+`Ctrl+n` move through Neovim's completions while it shows them, and a key
+meant for the agent is Neovim's while the prompt has no session to send it
+to. `global` bindings apply only outside Neovim's insert mode, but for `Mod`
+and Command keys and the prefix.
 
 ### Keys
 

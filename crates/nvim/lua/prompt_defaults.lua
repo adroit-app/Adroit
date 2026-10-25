@@ -13,6 +13,41 @@ o.cursorline = false
 o.wrap = true
 o.linebreak = true
 vim.opt.fillchars:append({ eob = " " })
+-- adroit's actions, named as a key binding names them, run from the prompt:
+-- `:Adroit prompt.send`. The keys below are only where adroit puts them; a
+-- configuration maps them, or others, as it likes.
+vim.api.nvim_create_user_command("Adroit", function(cmd)
+  vim.rpcnotify(vim.g.adroit_channel, "adroit_action", cmd.args)
+end, { nargs = "+", desc = "Run adroit's action" })
+local function ask(action)
+  return "<Cmd>Adroit " .. action .. "<CR>"
+end
+-- While Neovim shows its completions, the keys that move through them stay
+-- its own.
+local function unless_completing(key, action)
+  return function()
+    return vim.fn.pumvisible() == 1 and key or ask(action)
+  end
+end
+local map = vim.keymap.set
+map({ "i", "n" }, "<C-CR>", ask("prompt.send"), { desc = "Send the prompt" })
+map({ "i", "n" }, "<Tab>", unless_completing("<Tab>", "prompt.take_suggestion"), {
+  expr = true,
+  desc = "Take the session's suggested prompt into an empty prompt",
+})
+map({ "i", "n" }, "<S-Tab>", unless_completing("<S-Tab>", "console.send Shift+Tab"), {
+  expr = true,
+  desc = "Pass Shift+Tab to the session",
+})
+map({ "i", "n" }, "<C-c>", ask("console.send Escape"), { desc = "Pass Escape to the session" })
+map({ "i", "n" }, "<C-p>", unless_completing("<C-p>", "prompt.history_prev"), {
+  expr = true,
+  desc = "Put the prompt sent before in the prompt",
+})
+map({ "i", "n" }, "<C-n>", unless_completing("<C-n>", "prompt.history_next"), {
+  expr = true,
+  desc = "Put the prompt sent after in the prompt",
+})
 -- What is offered after `@`, `/` or `$` is shown as it is typed by Neovim's
 -- own completion, without putting it in the text until it is chosen. A
 -- configuration that completes with a plugin of its own sets

@@ -29,6 +29,9 @@ pub enum Event {
     Shell(bool),
     /// A `/` was typed where it offers commands.
     CommandsWanted,
+    /// A key or a command of the prompt asked for adroit's action, named as
+    /// a key binding names it.
+    Action(String),
 }
 
 /// Turns the user's Neovim into a prompt editor: the frame around the text is
@@ -106,6 +109,11 @@ impl Handler for Listener {
                 }
             }
             "adroit_commands_wanted" => (self.events)(Event::CommandsWanted),
+            "adroit_action" => {
+                if let Some(action) = args.first().and_then(Value::as_str) {
+                    (self.events)(Event::Action(action.to_string()));
+                }
+            }
             "adroit_height" => {
                 if let Some(n) = args.first().and_then(Value::as_u64) {
                     (self.events)(Event::Height(n as usize));
@@ -488,7 +496,20 @@ mod tests {
         })
         .await
         .expect("nvim on PATH");
+        attached(&e).await;
         (e, rx)
+    }
+
+    /// Wait until the prompt's language server is attached, as it is long
+    /// before anyone types.
+    async fn attached(e: &Embedded) {
+        assert!(
+            e.settles(
+                "luaeval('vim.iter(vim.lsp.get_clients({ name = \"adroit\" })):any(function(c) return c.initialized end)')",
+                Value::from(true)
+            )
+            .await
+        );
     }
 
     /// Wait until `done` holds, looking again after each event.
@@ -526,6 +547,7 @@ mod tests {
         })
         .await
         .expect("nvim on PATH");
+        attached(&e).await;
         (e, rx, config)
     }
 
@@ -1141,6 +1163,68 @@ mod tests {
             )
             .await
         );
+    }
+
+    fn asks(ev: &Event, action: &str) -> bool {
+        *ev == Event::Action(action.to_string())
+    }
+
+    #[tokio::test]
+    async fn the_prompt_s_keys_ask_the_window_for_adroit_s_actions() {
+        for (keys, action) in [
+            ("<C-CR>", "prompt.send"),
+            ("<Tab>", "prompt.take_suggestion"),
+            ("<S-Tab>", "console.send Shift+Tab"),
+            ("<C-c>", "console.send Escape"),
+            ("<C-p>", "prompt.history_prev"),
+            ("<C-n>", "prompt.history_next"),
+            ("<Esc><C-CR>", "prompt.send"),
+        ] {
+            let (e, mut rx) = start().await;
+            e.input(keys).await.unwrap();
+            wait(&mut rx, |ev| asks(ev, action)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn the_keys_that_move_through_completions_stay_neovim_s_while_it_shows_them() {
+        let (e, mut rx) = start().await;
+        e.set_candidates(&[
+            Candidate::new("auth/web", "session"),
+            Candidate::new("src/auth.rs", "file"),
+        ])
+        .await
+        .unwrap();
+        e.input("@au").await.unwrap();
+        wait(&mut rx, |_| {
+            e.state().popup().is_some_and(|p| p.items.len() == 2)
+        })
+        .await;
+        e.input("<C-n>").await.unwrap();
+        wait(&mut rx, |ev| {
+            assert!(!matches!(ev, Event::Action(_)), "{ev:?}");
+            e.state().popup().is_some_and(|p| p.selected == Some(1))
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn a_configuration_can_give_the_prompt_s_keys_to_something_else() {
+        let (e, mut rx, _config) = start_configured(
+            r#"
+            vim.keymap.set("i", "<C-p>", function() vim.g.mine = 1 end)
+            vim.keymap.set("i", "<C-s>", "<Cmd>Adroit prompt.send<CR>")
+            "#,
+        )
+        .await;
+        e.input("<C-p>").await.unwrap();
+        assert!(e.settles("get(g:, 'mine', 0)", Value::from(1)).await);
+        e.input("<C-s>").await.unwrap();
+        wait(&mut rx, |ev| {
+            assert!(!asks(ev, "prompt.history_prev"), "{ev:?}");
+            asks(ev, "prompt.send")
+        })
+        .await;
     }
 
     #[tokio::test]

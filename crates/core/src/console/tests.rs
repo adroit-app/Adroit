@@ -479,7 +479,7 @@ fn text_for_a_session_is_written_in_the_prompt_and_an_image_kept_for_it() {
 }
 
 #[test]
-fn ctrl_enter_sends_an_image_pasted_while_the_console_had_the_keys() {
+fn ctrl_enter_reaches_the_prompt_after_an_image_pasted_while_the_console_had_the_keys() {
     let run = window()
         .send(Msg::ImagePasted {
             mime: "image/png".into(),
@@ -490,10 +490,7 @@ fn ctrl_enter_sends_an_image_pasted_while_the_console_had_the_keys() {
     let run = run.send(press(Key::new("Enter").ctrl(), with_pane()));
     assert_eq!(
         run.last_effects(),
-        [Effect::PerformKey(
-            Action::PromptSend,
-            Key::new("Enter").ctrl()
-        )]
+        [Effect::PromptKey(Key::new("Enter").ctrl())]
     );
 }
 

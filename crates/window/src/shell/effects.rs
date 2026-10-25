@@ -44,12 +44,11 @@ impl Ui {
             Effect::SendPrompt(taken) => self.send_prompt(*taken),
             Effect::TakeSuggestion {
                 key,
-                neovim_owns,
                 session,
                 hands_back,
                 no_images,
                 tab,
-            } => self.take_suggestion(key, neovim_owns, session, hands_back, no_images, tab),
+            } => self.take_suggestion(key, session, hands_back, no_images, tab),
             Effect::ConsoleLive => self.console_live(),
             Effect::FilterFocus(on) => self.local.focus_filter(on),
             Effect::Viewer { window, action } => {

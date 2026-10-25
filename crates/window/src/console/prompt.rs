@@ -5,6 +5,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
+use adroit_core::actions::Action;
 use adroit_core::msg::Msg;
 use adroit_nvim::{Embedded, Event as NvimEvent};
 use dioxus::prelude::*;
@@ -32,13 +33,15 @@ pub(crate) struct PromptNeovim {
 
 /// The prompt's Neovim, its card `prompt_width` wide in cells `cell_width`
 /// wide, drawn taller by a row while images are attached. `commands_wanted`
-/// is told when a `/` asks for the agent's commands.
+/// is told when a `/` asks for the agent's commands, and `asked` each action a
+/// key or a command of the prompt asks for.
 pub(crate) fn use_prompt_neovim(
     app: AppCtx,
     has_images: Memo<bool>,
     cell_width: Signal<f64>,
     prompt_width: Signal<f64>,
     commands_wanted: Callback<()>,
+    asked: Callback<Action>,
 ) -> PromptNeovim {
     let prompt = PromptNeovim {
         nvim: use_signal(|| None),
@@ -66,7 +69,7 @@ pub(crate) fn use_prompt_neovim(
         }
     });
     use_hook(move || {
-        spawn(async move { prompt.run(app, has_images, commands_wanted).await });
+        spawn(async move { prompt.run(app, has_images, commands_wanted, asked).await });
     });
     // The prompt's grid is as wide as its box allows.
     use_effect(move || {
@@ -105,7 +108,13 @@ impl PromptNeovim {
         Some(rows)
     }
 
-    async fn run(self, app: AppCtx, has_images: Memo<bool>, commands_wanted: Callback<()>) {
+    async fn run(
+        self,
+        app: AppCtx,
+        has_images: Memo<bool>,
+        commands_wanted: Callback<()>,
+        asked: Callback<Action>,
+    ) {
         let mut nvim = self.nvim;
         let mut restarts = Restarts::default();
         // Whether the status line tells of a Neovim that could not run.
@@ -126,7 +135,7 @@ impl PromptNeovim {
                     let embedded = Arc::new(e);
                     nvim.set(Some(embedded.clone()));
                     app.dispatch(Msg::PromptRuns(true));
-                    self.serve(&embedded, rx, app, has_images, commands_wanted)
+                    self.serve(&embedded, rx, app, has_images, commands_wanted, asked)
                         .await;
                     nvim.set(None);
                     app.dispatch(Msg::PromptRuns(false));
@@ -160,6 +169,7 @@ impl PromptNeovim {
         app: AppCtx,
         has_images: Memo<bool>,
         commands_wanted: Callback<()>,
+        asked: Callback<Action>,
     ) {
         let mut prompt_frame = self.prompt_frame;
         let mut prompt_view = self.prompt_view;
@@ -181,6 +191,10 @@ impl PromptNeovim {
                 NvimEvent::Yank { .. } | NvimEvent::Scrolled { .. } => {}
                 NvimEvent::Shell(on) => app.dispatch(Msg::PromptShell(on)),
                 NvimEvent::CommandsWanted => commands_wanted(()),
+                NvimEvent::Action(name) => match name.parse::<Action>() {
+                    Ok(action) => asked(action),
+                    Err(e) => app.notice(format!("cannot run {name}: {e}")),
+                },
                 NvimEvent::View { top, lines } => {
                     if *prompt_view.peek() != (top, lines) {
                         prompt_view.set((top, lines));

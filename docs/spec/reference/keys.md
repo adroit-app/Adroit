@@ -99,11 +99,11 @@ changes them ([keys](../keys.md)).
 | `console.pass_every_key` |  | send every key as it is until `Escape`; `Ctrl+c` sends `Escape` meanwhile | `console`: `Ctrl+g i`, `Ctrl+g Ctrl+i` |
 | `prompt.focus` | Prompt | give the prompt the keys |  |
 | `prompt.write` |  | give the prompt the keys, and the key pressed with them | `tree`: `i`, `a`<br>`console`: `i`, `a`, `I`, `A`, `o`, `O` |
-| `prompt.send` | Send Prompt | send what the prompt holds | `prompt`: `Ctrl+Enter` |
+| `prompt.send` | Send Prompt | send what the prompt holds |  |
 | `prompt.images` | Select Attached Image | select an attached image | `prompt`: `Mod+i` |
-| `prompt.take_suggestion` |  | on an empty prompt, send the key pressed to the session and then bring the session's input into the prompt, so a prompt Claude Code suggests is taken to edit; an agent whose input cannot be taken back gets the key alone. On a prompt holding text or images, or while Neovim shows its completions or its command line, the key is Neovim's | `prompt`: `Tab` |
-| `prompt.history_prev` |  | put the prompt sent before the one shown in the prompt, to change and send again: those Claude Code recalls with its Up arrow where the focused window's session works. In the prompt, while Neovim shows its completions or its command line, the key is Neovim's | `console`: `ArrowUp`, `Ctrl+p`<br>`prompt`: `Ctrl+p` |
-| `prompt.history_next` |  | put the prompt sent after the one shown in the prompt, as `prompt.history_prev` does | `console`: `ArrowDown`, `Ctrl+n`<br>`prompt`: `Ctrl+n` |
+| `prompt.take_suggestion` |  | on an empty prompt, send the key pressed to the session and then bring the session's input into the prompt, so a prompt Claude Code suggests is taken to edit; an agent whose input cannot be taken back gets the key alone. On a prompt holding text or images, the key, Tab when none, is typed into Neovim |  |
+| `prompt.history_prev` |  | put the prompt sent before the one shown in the prompt, to change and send again: those Claude Code recalls with its Up arrow where the focused window's session works | `console`: `ArrowUp`, `Ctrl+p` |
+| `prompt.history_next` |  | put the prompt sent after the one shown in the prompt, as `prompt.history_prev` does | `console`: `ArrowDown`, `Ctrl+n` |
 | `settings.open` | Settings… | open the Settings window | `global`: `Mod+,` |
 | `daemon.restart` | Restart Session Daemon… | restart the sessions' daemon after asking, ending every session it holds ([details](../sessions.md#the-hosts)) |  |
 | `keys.help` | Keyboard Shortcuts | show every binding in force, area by area, the areas the keys are in first, each with what its action does and whether it repeats; `Escape`, `q` or the key that showed it closes it, and no other key acts behind it | `global`: `F1`<br>`prompt`: `F1` |
@@ -121,7 +121,7 @@ changes them ([keys](../keys.md)).
 | `viewer.back` |  | in a viewer, seek a movie back | `viewer`: `h` |
 | `viewer.forward` |  | in a viewer, seek a movie forward | `viewer`: `l` |
 | `viewer.copy_path` |  | in a viewer, copy the path of the file it shows | `viewer`: `y` |
-| `console.send [<key>]` |  | send the key pressed to the session; with a key named after it, as in `console.send Escape`, send that key instead | `global`: `Ctrl+q .` (`console.send Ctrl+q`)<br>`console`: `Enter`, `ArrowLeft`, `ArrowRight`, `Tab`, `Shift+Tab`, `F2`, `Ctrl+l`, `Ctrl+o`, `Ctrl+t`, `Ctrl+_`, `Ctrl+-` (`console.send Ctrl+_`), `Ctrl+c` (`console.send Escape`), `g Ctrl+c` (`console.send Ctrl+c`)<br>`prompt`: `Shift+Tab`, `Ctrl+c` (`console.send Escape`) |
+| `console.send [<key>]` |  | send the key pressed to the session; with a key named after it, as in `console.send Escape`, send that key instead | `global`: `Ctrl+q .` (`console.send Ctrl+q`)<br>`console`: `Enter`, `ArrowLeft`, `ArrowRight`, `Tab`, `Shift+Tab`, `F2`, `Ctrl+l`, `Ctrl+o`, `Ctrl+t`, `Ctrl+_`, `Ctrl+-` (`console.send Ctrl+_`), `Ctrl+c` (`console.send Escape`), `g Ctrl+c` (`console.send Ctrl+c`) |
 | `tab.go <n>` |  | show the content's tab numbered `n`, from 1 to 8, or the last when there are fewer; 9 shows the last however many there are | `global`: `Ctrl+q 1` (`tab.go 1`), `Ctrl+q 2` (`tab.go 2`), `Ctrl+q 3` (`tab.go 3`), `Ctrl+q 4` (`tab.go 4`), `Ctrl+q 5` (`tab.go 5`), `Ctrl+q 6` (`tab.go 6`), `Ctrl+q 7` (`tab.go 7`), `Ctrl+q 8` (`tab.go 8`), `Ctrl+q 9` (`tab.go 9`), `Mod+1` (`tab.go 1`), `Mod+2` (`tab.go 2`), `Mod+3` (`tab.go 3`), `Mod+4` (`tab.go 4`), `Mod+5` (`tab.go 5`), `Mod+6` (`tab.go 6`), `Mod+7` (`tab.go 7`), `Mod+8` (`tab.go 8`), `Mod+9` (`tab.go 9`) |
 
 ## Default bindings
@@ -311,12 +311,6 @@ changes them ([keys](../keys.md)).
 
 [prompt]
 "Mod+i" = "prompt.images"
-"Tab" = "prompt.take_suggestion"
-"Shift+Tab" = "console.send"
-"Ctrl+c" = "console.send Escape"
-"Ctrl+Enter" = "prompt.send"
-"Ctrl+p" = "prompt.history_prev"
-"Ctrl+n" = "prompt.history_next"
 "F1" = "keys.help"
 
 [viewer]

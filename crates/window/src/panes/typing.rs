@@ -163,7 +163,6 @@ impl Ui {
     pub(crate) fn take_suggestion(
         &self,
         key: Key,
-        neovim_owns: bool,
         session: bool,
         hands_back: bool,
         no_images: bool,
@@ -177,15 +176,16 @@ impl Ui {
         spawn(async move {
             let empty = no_images && nv.text().await.is_ok_and(|t| t.trim().is_empty());
             let goes = PromptTab {
-                neovim_owns,
                 session: pane.is_some(),
                 empty,
                 hands_back,
             }
             .goes();
             let (TabGoes::Session | TabGoes::SessionThenBack, Some(p)) = (&goes, pane) else {
+                // Neovim's own key: the prompt's mapping asked for this, and
+                // must not be asked again.
                 if let Some(n) = notation(&key) {
-                    let _ = nv.input(&n).await;
+                    let _ = nv.press(&n).await;
                 }
                 return;
             };

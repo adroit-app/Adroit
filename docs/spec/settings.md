@@ -360,6 +360,11 @@ setting it in `init.lua` or a filetype plugin is enough. `g:adroit` is set
 before the configuration too, for a configuration shared with the everyday
 Neovim to tell where it runs.
 
+The prompt's keys for adroit's actions ([keys](keys.md#areas)) are
+mappings set before the configuration, which may map those keys, or others,
+as it likes. `:Adroit <action>` runs any action a binding can name, as in
+`:Adroit prompt.send` or `:Adroit console.send Escape`.
+
 What the prompt offers as it is written ([the prompt](prompt.md)) comes from a
 language server named `adroit`, attached to the prompt's buffer inside its
 Neovim, and is shown by Neovim's own completion. A configuration that
