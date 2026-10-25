@@ -142,12 +142,13 @@ impl PromptNeovim {
                     let embedded = Arc::new(e);
                     nvim.set(Some(embedded.clone()));
                     app.dispatch(Msg::PromptRuns(true));
-                    kept = self
+                    let ended = self
                         .serve(&embedded, rx, app, has_images, commands_wanted, asked)
                         .await;
                     nvim.set(None);
                     app.dispatch(Msg::PromptRuns(false));
-                    if kept.is_some() {
+                    kept = ended.left;
+                    if ended.saved {
                         // Asked for, not quit, so not one that cannot start.
                         continue;
                     }
@@ -174,8 +175,7 @@ impl PromptNeovim {
     }
 
     /// Tell the window what the prompt's Neovim does until it quits, or
-    /// until its configuration is saved: then it is quit, and what is written
-    /// in it is given back for the Neovim started next.
+    /// until its configuration is saved and it is quit for it.
     async fn serve(
         &self,
         embedded: &Embedded,
@@ -184,7 +184,8 @@ impl PromptNeovim {
         has_images: Memo<bool>,
         commands_wanted: Callback<()>,
         asked: Callback<Action>,
-    ) -> Option<(String, View)> {
+    ) -> Ended {
+        let mut ended = Ended::default();
         let mut prompt_frame = self.prompt_frame;
         let mut prompt_view = self.prompt_view;
         let mut prompt_height = self.prompt_height;
@@ -210,14 +211,11 @@ impl PromptNeovim {
                     Err(e) => app.notice(format!("cannot run {name}: {e}")),
                 },
                 NvimEvent::ConfigurationSaved => {
-                    let (Ok(text), Ok(view)) = (embedded.text().await, embedded.view().await)
-                    else {
-                        continue;
-                    };
+                    ended.saved = true;
                     let _ = embedded.quit().await;
                     app.notice("The prompt's configuration was saved; it starts again".into());
-                    return Some((text, view));
                 }
+                NvimEvent::Leaving { text, view } => ended.left = Some((text, view)),
                 NvimEvent::View { top, lines } => {
                     if *prompt_view.peek() != (top, lines) {
                         prompt_view.set((top, lines));
@@ -233,6 +231,15 @@ impl PromptNeovim {
                 }
             }
         }
-        None
+        ended
     }
+}
+
+/// How the prompt's Neovim ended.
+#[derive(Default)]
+struct Ended {
+    /// What it held as it quit, for the Neovim started next.
+    left: Option<(String, View)>,
+    /// It was quit as its configuration was saved, not by the user.
+    saved: bool,
 }

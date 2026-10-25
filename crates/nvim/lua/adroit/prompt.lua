@@ -44,6 +44,16 @@ local function apply(chan)
     },
   })
   require("adroit.config").watch()
+  -- Told as Neovim quits, however it is quit, and waited for: what is
+  -- written goes to the Neovim the window starts next.
+  vim.api.nvim_create_autocmd("ExitPre", {
+    callback = function()
+      if vim.api.nvim_buf_is_valid(b) then
+        local text = table.concat(vim.api.nvim_buf_get_lines(b, 0, -1, false), "\n")
+        pcall(vim.rpcrequest, chan, "adroit_leaving", text, vim.fn.winsaveview())
+      end
+    end,
+  })
   server.start(b, function(before)
     return M.offer(chan, before)
   end)

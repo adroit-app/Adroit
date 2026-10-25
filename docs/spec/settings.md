@@ -393,8 +393,9 @@ the console is read, keeps where it was scrolled to and the cursor, showing the
 console as it is then. A configuration that fails says so in a message, as it
 does when the Neovim starts.
 
-Either Neovim that quits is started again; the console read when its
-reader quits is shown live. One that quits as it starts, as a
+Either Neovim that quits is started again. The prompt started again holds
+what was written in it, with the cursor where it was; the console read when
+its reader quits is shown live. One that quits as it starts, as a
 broken configuration makes it, or cannot be started is tried again after a
 wait that grows while it keeps failing, the status line saying so; fixing
 the configuration is enough to bring it back, without restarting adroit.

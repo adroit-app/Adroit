@@ -12,7 +12,7 @@ type Writer = Compat<ChildStdin>;
 pub(crate) type Error = Box<dyn std::error::Error + Send + Sync>;
 
 /// What the embedded Neovim reports to the window.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Event {
     /// A full frame has been drawn.
     Redraw,
@@ -35,6 +35,9 @@ pub enum Event {
     /// The user's configuration was saved, for the window to start Neovim
     /// again on it.
     ConfigurationSaved,
+    /// The prompt's Neovim is about to quit, holding `text` in `view`, for
+    /// the Neovim started next to hold.
+    Leaving { text: String, view: View },
 }
 
 const TAKE_TEXT: &str = include_str!("../lua/take_text.lua");
@@ -60,6 +63,27 @@ struct Listener {
 #[async_trait::async_trait]
 impl Handler for Listener {
     type Writer = Writer;
+
+    /// What Neovim waits for an answer to: told as it quits, so that what it
+    /// tells is taken before it ends.
+    async fn handle_request(
+        &self,
+        name: String,
+        args: Vec<Value>,
+        _nvim: Neovim<Writer>,
+    ) -> Result<Value, Value> {
+        match (name.as_str(), args.first().and_then(Value::as_str)) {
+            ("adroit_leaving", Some(text)) => {
+                let view = View(args.get(1).cloned().unwrap_or(Value::Nil));
+                (self.events)(Event::Leaving {
+                    text: text.to_string(),
+                    view,
+                });
+                Ok(Value::Nil)
+            }
+            _ => Err(Value::from(format!("adroit answers no {name}"))),
+        }
+    }
 
     async fn handle_notify(&self, name: String, args: Vec<Value>, _nvim: Neovim<Writer>) {
         match name.as_str() {
@@ -706,6 +730,27 @@ mod tests {
         })
         .await
         .expect("still running");
+    }
+
+    #[tokio::test]
+    async fn quitting_tells_what_the_prompt_holds_before_it_ends() {
+        for quit in ["<Esc>:q<CR>", "<Esc>ZQ", "<Esc>:qa!<CR>"] {
+            let (e, mut rx) = start().await;
+            e.type_text("kept").await.unwrap();
+            wait(&mut rx, |_| e.state().screen().text()[0] == "kept").await;
+            e.input(quit).await.unwrap();
+            let mut told = None;
+            tokio::time::timeout(Duration::from_secs(10), async {
+                while let Some(ev) = rx.recv().await {
+                    if let Event::Leaving { text, .. } = ev {
+                        told = Some(text);
+                    }
+                }
+            })
+            .await
+            .expect("still running");
+            assert_eq!(told.as_deref(), Some("kept"), "{quit}");
+        }
     }
 
     #[tokio::test]
