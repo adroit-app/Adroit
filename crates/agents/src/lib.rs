@@ -498,14 +498,28 @@ pub trait AgentAdapter: Sync {
     fn dialog_open(&self, _screen: &[String]) -> bool {
         false
     }
-    fn startup_readiness(&self, _screen: &[String]) -> Option<adroit_model::StartupReadiness> {
-        None
+    /// Whether a session just started is ready for its first prompt, as its
+    /// screen shows; by default as [`readiness`] tells from its state.
+    fn startup_readiness(&self, screen: &[String]) -> Option<adroit_model::StartupReadiness> {
+        self.screen_state(screen).and_then(readiness)
     }
     fn screen_state(&self, _screen: &[String]) -> Option<adroit_model::State> {
         None
     }
     fn rename_command(&self, _name: &str) -> Option<String> {
         None
+    }
+}
+
+/// Whether a session whose screen shows `state` has started: ready at its
+/// prompt or in a turn, or held at a question; none while it shows neither.
+pub(crate) fn readiness(state: adroit_model::State) -> Option<adroit_model::StartupReadiness> {
+    use adroit_model::{StartupReadiness, State, Wait};
+    match state {
+        State::Idle | State::Working => Some(StartupReadiness::Ready),
+        State::Waiting(Wait::Permission) => Some(StartupReadiness::AwaitingPermission),
+        State::Waiting(Wait::Input) => Some(StartupReadiness::AwaitingInput),
+        _ => None,
     }
 }
 
@@ -532,6 +546,29 @@ mod tests {
     use super::*;
     use crate::testing::{program, recorded, screen, started};
     use adroit_model::Agent;
+
+    #[test]
+    fn a_screen_s_state_tells_whether_a_session_has_started() {
+        use adroit_model::{StartupReadiness, State, Wait};
+        for (state, readiness_is) in [
+            (State::Idle, Some(StartupReadiness::Ready)),
+            (State::Working, Some(StartupReadiness::Ready)),
+            (
+                State::Waiting(Wait::Permission),
+                Some(StartupReadiness::AwaitingPermission),
+            ),
+            (
+                State::Waiting(Wait::Input),
+                Some(StartupReadiness::AwaitingInput),
+            ),
+            (State::Waiting(Wait::Other("x".into())), None),
+            (State::Starting, None),
+            (State::Done, None),
+            (State::Failed, None),
+        ] {
+            assert_eq!(readiness(state.clone()), readiness_is, "{state:?}");
+        }
+    }
 
     #[tokio::test]
     async fn a_command_run_to_its_end_gives_its_status_and_what_it_printed() {

@@ -407,10 +407,6 @@ impl AgentAdapter for OpenCode {
         screen::dialog_open(screen)
     }
 
-    fn startup_readiness(&self, screen: &[String]) -> Option<adroit_model::StartupReadiness> {
-        screen::startup_readiness(screen)
-    }
-
     fn screen_state(&self, screen: &[String]) -> Option<adroit_model::State> {
         screen::state(screen)
     }

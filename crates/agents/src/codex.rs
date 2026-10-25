@@ -12,20 +12,6 @@ mod usage;
 pub struct Codex;
 
 impl AgentAdapter for Codex {
-    fn startup_readiness(&self, screen: &[String]) -> Option<adroit_model::StartupReadiness> {
-        match self.screen_state(screen) {
-            Some(adroit_model::State::Idle | adroit_model::State::Working) => {
-                Some(adroit_model::StartupReadiness::Ready)
-            }
-            Some(adroit_model::State::Waiting(adroit_model::Wait::Permission)) => {
-                Some(adroit_model::StartupReadiness::AwaitingPermission)
-            }
-            Some(adroit_model::State::Waiting(adroit_model::Wait::Input)) => {
-                Some(adroit_model::StartupReadiness::AwaitingInput)
-            }
-            _ => None,
-        }
-    }
     fn conversation_title_needs_lookup(&self, title: &str) -> bool {
         identity::prefix(title).is_some()
     }

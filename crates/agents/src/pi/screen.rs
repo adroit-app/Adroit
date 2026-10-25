@@ -47,10 +47,7 @@ pub(super) fn startup_readiness(screen: &[String]) -> Option<StartupReadiness> {
     if asks_trust(screen) {
         return Some(StartupReadiness::AwaitingTrust);
     }
-    match state(screen)? {
-        State::Waiting(_) => Some(StartupReadiness::AwaitingInput),
-        _ => Some(StartupReadiness::Ready),
-    }
+    state(screen).and_then(crate::readiness)
 }
 
 pub(super) fn state(screen: &[String]) -> Option<State> {

@@ -2,7 +2,7 @@
 //! box it waits at, the hint to interrupt a turn running, and the permission
 //! it asks for in the prompt's place.
 
-use adroit_model::{StartupReadiness, State, Wait};
+use adroit_model::{State, Wait};
 
 /// Whether `line` is the foot of OpenCode's prompt box, drawn while it takes
 /// a prompt.
@@ -37,13 +37,6 @@ pub(super) fn dialog_open(screen: &[String]) -> bool {
     asks_permission(screen)
 }
 
-pub(super) fn startup_readiness(screen: &[String]) -> Option<StartupReadiness> {
-    match state(screen)? {
-        State::Waiting(_) => Some(StartupReadiness::AwaitingPermission),
-        _ => Some(StartupReadiness::Ready),
-    }
-}
-
 pub(super) fn state(screen: &[String]) -> Option<State> {
     if asks_permission(screen) {
         return Some(State::Waiting(Wait::Permission));
@@ -60,7 +53,9 @@ pub(super) fn state(screen: &[String]) -> Option<State> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::AgentAdapter;
     use crate::testing::{recorded, screen};
+    use adroit_model::StartupReadiness;
 
     #[test]
     fn opencode_is_ready_and_idle_at_its_prompt_at_home_and_after_a_reply() {
@@ -68,7 +63,7 @@ mod tests {
             let shown = recorded(name);
             assert_eq!(state(&shown), Some(State::Idle), "{name}");
             assert_eq!(
-                startup_readiness(&shown),
+                super::super::OpenCode.startup_readiness(&shown),
                 Some(StartupReadiness::Ready),
                 "{name}"
             );
@@ -80,7 +75,10 @@ mod tests {
     fn a_turn_runs_while_the_hint_to_interrupt_it_is_drawn() {
         let shown = recorded("opencode-working");
         assert_eq!(state(&shown), Some(State::Working));
-        assert_eq!(startup_readiness(&shown), Some(StartupReadiness::Ready));
+        assert_eq!(
+            super::super::OpenCode.startup_readiness(&shown),
+            Some(StartupReadiness::Ready)
+        );
         let again = screen("  ┃\n  ╹▀▀▀▀▀▀\n   ■⬝⬝⬝ esc again to interrupt     ctrl+p commands");
         assert_eq!(state(&again), Some(State::Working));
     }
@@ -91,7 +89,7 @@ mod tests {
         assert_eq!(state(&shown), Some(State::Waiting(Wait::Permission)));
         assert!(dialog_open(&shown));
         assert_eq!(
-            startup_readiness(&shown),
+            super::super::OpenCode.startup_readiness(&shown),
             Some(StartupReadiness::AwaitingPermission)
         );
     }
@@ -108,6 +106,6 @@ mod tests {
     #[test]
     fn nothing_is_told_before_opencode_draws_its_prompt() {
         assert_eq!(state(&screen("Starting background server...")), None);
-        assert_eq!(startup_readiness(&[]), None);
+        assert_eq!(super::super::OpenCode.startup_readiness(&[]), None);
     }
 }
