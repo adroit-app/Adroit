@@ -4,9 +4,9 @@ Status: Accepted
 
 ## Context
 
-A started session's terminal can be running while its agent waits on a dialog:
-trusting a directory, a permission, or a warning shown at every launch. Its
-starter and the user would see it as started. Claude Code loads adroit's
+A session's terminal can be running while its agent waits on a dialog:
+trusting a directory, a permission, or a warning shown at every launch. The
+user, and a session that opened it, would see it as started. Claude Code loads adroit's
 channel through its development-channel opt-in and warns about it at every
 launch, and every session adroit starts carries that channel.
 
