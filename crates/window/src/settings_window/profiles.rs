@@ -14,7 +14,8 @@ use adroit_model::profile::{AgentProfile, LoginStanding, ProfileId};
 use adroit_protocol::{AgentsWork, Answer, Ask, Request};
 use dioxus::prelude::*;
 
-use super::{Change, CodexGroup, LaunchGroup, OpenCodeGroup, PiGroup, SessionGroup};
+use super::agents::{CodexGroup, OpenCodeGroup, PiGroup, SessionGroup};
+use super::{Change, LaunchGroup};
 use crate::components::{SettingGroup, SettingRow, SettingsError, TextField};
 use crate::icons::{Icon, IconView};
 use crate::link::{Link, failure, refusal};
