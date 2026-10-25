@@ -14,24 +14,11 @@ pub(super) const ASKED_FOR: Duration = Duration::from_secs(20);
 /// The exit status and output of the command `start` runs in `dir`; none
 /// when it cannot be started or has not ended within `timeout`.
 pub(super) async fn ask(
-    (program, args, env): crate::Started,
+    started: crate::Started,
     dir: &Path,
     timeout: Duration,
 ) -> Option<(Option<i32>, String)> {
-    let child = tokio::process::Command::new(program)
-        .args(args)
-        .envs(env)
-        .current_dir(dir)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .spawn()
-        .ok()?;
-    let out = tokio::time::timeout(timeout, child.wait_with_output())
-        .await
-        .ok()?
-        .ok()?;
+    let out = crate::output(started, dir, timeout).await.ok()??;
     Some((
         out.status.code(),
         String::from_utf8_lossy(&out.stdout).into_owned(),

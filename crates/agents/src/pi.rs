@@ -114,14 +114,12 @@ impl AgentAdapter for Pi {
 
     fn standing(&self, code: Option<i32>, out: &str) -> adroit_model::profile::LoginStanding {
         use adroit_model::profile::LoginStanding;
-        let said = out
-            .match_indices('{')
-            .find_map(|(at, _)| serde_json::from_str::<serde_json::Value>(out[at..].trim()).ok())
-            .and_then(|v| v["status"].as_str().map(String::from));
+        let said =
+            crate::login::first_json(out).and_then(|v| v["status"].as_str().map(String::from));
         match (code, said.as_deref()) {
             (Some(0), Some("ready")) => LoginStanding::LoggedIn,
             (Some(1), Some("not_ready")) => LoginStanding::LoggedOut,
-            (Some(126 | 127), None) => LoginStanding::Missing,
+            (code, None) if crate::login::missing(code) => LoginStanding::Missing,
             _ => LoginStanding::Unknown,
         }
     }

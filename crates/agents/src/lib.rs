@@ -22,12 +22,37 @@ use adroit_model::Agent;
 use adroit_model::config::{CodexOptions, Launch, OpenCodeOptions, PiOptions, SessionOptions};
 use adroit_model::profile::{AgentOptions, AgentProfile, ProfileId};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 /// A command that starts an agent: the program, its arguments and the
 /// variables set for it. What asks an agent something takes a way to make
 /// one from the arguments it needs, so it starts as the user has sessions
 /// start.
 pub type Started = (String, Vec<String>, Vec<(String, String)>);
+
+/// What the command `started` runs in `dir`, its input closed, printed and
+/// how it ended; `None` when it had not ended within `timeout` or could not
+/// be waited for, and is killed.
+pub(crate) async fn output(
+    (program, args, env): Started,
+    dir: &Path,
+    timeout: Duration,
+) -> std::io::Result<Option<std::process::Output>> {
+    use std::process::Stdio;
+    let child = tokio::process::Command::new(program)
+        .args(args)
+        .envs(env)
+        .current_dir(dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()?;
+    Ok(tokio::time::timeout(timeout, child.wait_with_output())
+        .await
+        .ok()
+        .and_then(Result::ok))
+}
 
 /// Each image's path in double quotes, as a terminal pastes a file dragged
 /// onto it, which an agent's input takes as that image attached.
@@ -505,8 +530,37 @@ pub fn launch_in(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::{recorded, screen};
+    use crate::testing::{program, recorded, screen, started};
     use adroit_model::Agent;
+
+    #[tokio::test]
+    async fn a_command_run_to_its_end_gives_its_status_and_what_it_printed() {
+        let (dir, p) = program("cli", "pwd\necho oops >&2\nexit 3");
+        let out = output(started(&p, &[]), dir.path(), Duration::from_secs(5))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(3));
+        let printed = String::from_utf8_lossy(&out.stdout).into_owned();
+        assert_eq!(
+            Path::new(printed.trim()).canonicalize().unwrap(),
+            dir.path().canonicalize().unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_command_that_does_not_end_in_time_gives_nothing() {
+        let (dir, p) = program("cli", "exec sleep 30");
+        let out = output(started(&p, &[]), dir.path(), Duration::from_millis(200)).await;
+        assert!(matches!(out, Ok(None)));
+    }
+
+    #[tokio::test]
+    async fn a_command_that_cannot_start_says_why() {
+        let missing = started(Path::new("/nonexistent/adroit-test-cli"), &[]);
+        let out = output(missing, Path::new("/"), Duration::from_secs(5)).await;
+        assert!(matches!(out, Err(e) if e.kind() == std::io::ErrorKind::NotFound));
+    }
     #[test]
     fn images_are_prepared_for_the_receiving_agent_only_when_sent() {
         let images = vec![

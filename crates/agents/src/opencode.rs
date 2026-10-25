@@ -252,7 +252,7 @@ impl AgentAdapter for OpenCode {
                 true => LoginStanding::LoggedOut,
                 false => LoginStanding::LoggedIn,
             },
-            (Some(126 | 127), None) => LoginStanding::Missing,
+            (code, None) if crate::login::missing(code) => LoginStanding::Missing,
             _ => LoginStanding::Unknown,
         }
     }

@@ -96,14 +96,12 @@ impl AgentAdapter for Claude {
     }
     fn standing(&self, code: Option<i32>, out: &str) -> adroit_model::profile::LoginStanding {
         use adroit_model::profile::LoginStanding;
-        let said = out
-            .match_indices('{')
-            .find_map(|(at, _)| serde_json::from_str::<serde_json::Value>(out[at..].trim()).ok())
+        let said = crate::login::first_json(out)
             .and_then(|v| v.get("loggedIn").and_then(serde_json::Value::as_bool));
         match (code, said) {
             (Some(0), Some(true)) => LoginStanding::LoggedIn,
             (Some(0 | 1), Some(false)) => LoginStanding::LoggedOut,
-            (Some(126 | 127), _) => LoginStanding::Missing,
+            (code, _) if crate::login::missing(code) => LoginStanding::Missing,
             _ => LoginStanding::Unknown,
         }
     }

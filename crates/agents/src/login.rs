@@ -2,7 +2,6 @@
 //! it is logged in, and what starts the CLI's own login in a terminal.
 
 use std::path::Path;
-use std::process::Stdio;
 use std::time::Duration;
 
 use adroit_model::profile::LoginStanding;
@@ -22,38 +21,38 @@ pub fn login(context: &AgentContext) -> Started {
 /// Whether the CLI says `context`'s login is logged in, asked in `dir`.
 pub async fn standing(context: &AgentContext, dir: &Path) -> LoginStanding {
     let adapter = adapter(context.agent());
-    let (program, args, env) = adapter.launch(context, adapter.status_args(context), Vec::new());
-    let child = tokio::process::Command::new(&program)
-        .args(args)
-        .envs(env)
-        .current_dir(dir)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .spawn();
-    let child = match child {
-        Ok(child) => child,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return LoginStanding::Missing,
-        Err(_) => return LoginStanding::Unknown,
-    };
-    match tokio::time::timeout(ASKED_FOR, child.wait_with_output()).await {
-        Ok(Ok(out)) => adapter.standing(out.status.code(), &String::from_utf8_lossy(&out.stdout)),
-        _ => LoginStanding::Unknown,
+    let started = adapter.launch(context, adapter.status_args(context), Vec::new());
+    match crate::output(started, dir, ASKED_FOR).await {
+        Ok(Some(out)) => adapter.standing(out.status.code(), &String::from_utf8_lossy(&out.stdout)),
+        Ok(None) => LoginStanding::Unknown,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => LoginStanding::Missing,
+        Err(_) => LoginStanding::Unknown,
     }
 }
 
 /// What a CLI that answers whether it is logged in by its exit status alone
-/// says: 0 when it is, 1 when it is not; 126 or 127, as a shell and
-/// `adroit in-own-login` end when the program cannot be started, when it is
-/// not installed.
+/// says: 0 when it is, 1 when it is not, and when it is not installed as
+/// [`missing`] tells.
 pub(crate) fn by_status(code: Option<i32>) -> LoginStanding {
     match code {
         Some(0) => LoginStanding::LoggedIn,
         Some(1) => LoginStanding::LoggedOut,
-        Some(126 | 127) => LoginStanding::Missing,
+        code if missing(code) => LoginStanding::Missing,
         _ => LoginStanding::Unknown,
     }
+}
+
+/// Whether a CLI ended with `code` as a shell and `adroit in-own-login` end
+/// when the program cannot be started, 126 or 127: it is not installed.
+pub(crate) fn missing(code: Option<i32>) -> bool {
+    matches!(code, Some(126 | 127))
+}
+
+/// The first JSON object in `out`: a shell that starts the CLI may print
+/// from its startup files ahead of the answer.
+pub(crate) fn first_json(out: &str) -> Option<serde_json::Value> {
+    out.match_indices('{')
+        .find_map(|(at, _)| serde_json::from_str(out[at..].trim()).ok())
 }
 
 #[cfg(test)]
@@ -65,6 +64,25 @@ mod tests {
     use adroit_model::profile::AgentOptions;
 
     use super::*;
+
+    #[test]
+    fn the_first_json_object_is_found_past_what_a_shell_prints_first() {
+        assert_eq!(
+            first_json("welcome {to} the shell\n{\"a\": 1}\n"),
+            Some(serde_json::json!({"a": 1}))
+        );
+        assert_eq!(first_json("fine"), None);
+        assert_eq!(first_json(""), None);
+    }
+
+    #[test]
+    fn a_program_that_cannot_be_started_ends_with_126_or_127() {
+        assert!(missing(Some(126)));
+        assert!(missing(Some(127)));
+        for code in [Some(0), Some(1), Some(2), None] {
+            assert!(!missing(code), "{code:?}");
+        }
+    }
 
     /// A context whose CLI is a script that prints `out` and ends with `code`.
     fn answering(agent: Agent, dir: &Path, out: &str, code: i32) -> AgentContext {
