@@ -1,8 +1,9 @@
+local M = {}
 -- Tells the window whenever the user's configuration is saved: `init.lua`,
 -- or a file under the configuration folder's `lua/`. The window starts this
 -- Neovim again rather than it reading the configuration again, as plugin
 -- managers such as lazy.nvim cannot be set up twice in one Neovim.
-local function watch_configuration()
+function M.watch()
   local init = vim.env.MYVIMRC
   if not init or init == "" then
     init = vim.fs.joinpath(vim.fn.stdpath("config"), "init.lua")
@@ -62,3 +63,5 @@ local function watch_configuration()
   watch(dir, "")
   watch_lua()
 end
+
+return M

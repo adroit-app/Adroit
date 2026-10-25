@@ -109,7 +109,7 @@ impl Reader {
             let (tx, rx) = mpsc::unbounded_channel();
             let size = *self.console_size.peek();
             let started = Embedded::spawn_reader(
-                &super::nvim_program(),
+                &adroit_nvim::program(),
                 &[],
                 size.cols,
                 size.rows,

@@ -13,7 +13,7 @@ use dioxus::prelude::*;
 use tokio::sync::mpsc;
 
 use super::restart::Restarts;
-use super::{mode_of, nvim_program, prompt_rows};
+use super::{mode_of, prompt_rows};
 use crate::bridge::AppCtx;
 
 /// The prompt's Neovim and the grid the window draws it in.
@@ -124,7 +124,7 @@ impl PromptNeovim {
         let mut kept: Option<(String, View)> = None;
         loop {
             let (tx, rx) = mpsc::unbounded_channel();
-            let started = Embedded::spawn(&nvim_program(), &[], 80, 1, move |ev| {
+            let started = Embedded::spawn(&adroit_nvim::program(), &[], 80, 1, move |ev| {
                 let _ = tx.send(ev);
             })
             .await;

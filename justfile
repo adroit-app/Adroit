@@ -19,11 +19,13 @@ fmt-check:
 lint:
     cargo clippy --workspace --all-targets -- -D warnings
 
-# Run the tests.
+# Run the tests, in the Neovim `ADROIT_NVIM` names when it is set.
 test:
     #!/usr/bin/env bash
     set -euo pipefail
     for task_variable in "${!ADROIT_@}"; do
+        # The one the tests are asked to run in, as a Neovim to be shipped is.
+        [[ $task_variable == ADROIT_NVIM ]] && continue
         unset "$task_variable"
     done
     unset CODEX_THREAD_ID
@@ -37,6 +39,11 @@ references:
 
 # Everything CI runs.
 ci: fmt-check lint test
+
+# Run the tests in the Neovim at `nvim`, as a Neovim release is checked
+# before adroit ships it.
+test-neovim nvim:
+    ADROIT_NVIM={{ nvim }} just test
 
 # Build target/macos/Adroit.app, the window as a macOS application.
 [macos]

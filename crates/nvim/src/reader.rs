@@ -11,20 +11,6 @@ use crate::embed::{Embedded, Error, Event, Launch};
 /// Neovim's and the prompt's.
 pub(crate) const CONSOLE_APPNAME: &str = "adroit/console/nvim";
 
-/// Turns the user's Neovim into the console's reader: no frame around the
-/// text, lines kept unwrapped as the terminal shows them, and a yank told to
-/// the window, which copies it. Runs after the user's configuration and holds
-/// what it sets against any later change.
-pub(crate) const READER: &str = concat!(
-    include_str!("../lua/hold.lua"),
-    include_str!("../lua/config.lua"),
-    include_str!("../lua/reader.lua")
-);
-
-/// What the reader is given before the user's configuration, which may change
-/// any of it.
-pub(crate) const READER_DEFAULTS: &str = include_str!("../lua/reader_defaults.lua");
-
 const SHOW: &str = include_str!("../lua/show.lua");
 
 /// A stretch of a line drawn in one colour: the line counted from 0, the
@@ -66,8 +52,8 @@ impl Embedded {
     ) -> Result<Self, Error> {
         let launch = Launch {
             appname: CONSOLE_APPNAME,
-            defaults: READER_DEFAULTS,
-            setup: READER,
+            defaults: "adroit.reader_defaults",
+            setup: "adroit.reader",
         };
         Self::spawn_with(program, args, cols, rows, launch, events).await
     }
@@ -130,7 +116,7 @@ mod tests {
 
     async fn start() -> (Embedded, mpsc::UnboundedReceiver<Event>) {
         let (tx, rx) = mpsc::unbounded_channel();
-        let e = Embedded::spawn_reader("nvim", &["--clean"], 30, 4, move |ev| {
+        let e = Embedded::spawn_reader(&crate::program(), &["--clean"], 30, 4, move |ev| {
             let _ = tx.send(ev);
         })
         .await
@@ -167,7 +153,7 @@ mod tests {
         let config = crate::embed::UserConfig::new(init);
         let args = config.args();
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
-        let e = Embedded::spawn_reader("nvim", &args, 30, 4, |_| {})
+        let e = Embedded::spawn_reader(&crate::program(), &args, 30, 4, |_| {})
             .await
             .expect("nvim on PATH");
         (e, config)
@@ -179,7 +165,7 @@ mod tests {
         let args = config.args();
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let _e = Embedded::spawn_reader("nvim", &args, 30, 4, move |ev| {
+        let _e = Embedded::spawn_reader(&crate::program(), &args, 30, 4, move |ev| {
             let _ = tx.send(ev);
         })
         .await
@@ -436,9 +422,7 @@ mod tests {
             .unwrap();
         let bg = |group: &str| format!("synIDattr(hlID('{group}'), 'bg#')");
         assert!(e.settles(&bg("Normal"), Value::from("#123456")).await);
-        let drawn = e
-            .eval("matchstr(&winhighlight, 'Normal:\\zs[^,]*')")
-            .await;
+        let drawn = e.eval("matchstr(&winhighlight, 'Normal:\\zs[^,]*')").await;
         let drawn = drawn.as_str().unwrap_or_default().to_string();
         assert!(!drawn.is_empty());
         assert!(e.settles(&bg(&drawn), Value::from("#101010")).await);

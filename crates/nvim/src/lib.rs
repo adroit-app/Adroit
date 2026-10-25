@@ -4,10 +4,12 @@
 
 mod embed;
 mod keys;
+mod lua;
 mod reader;
 mod ui;
 
 pub use embed::{Candidate, Embedded, Event, View};
 pub use keys::notation;
+pub use lua::{program, version};
 pub use reader::Mark;
 pub use ui::{Cmdline, Popup, PopupItem, UiState};

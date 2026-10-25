@@ -1,7 +1,12 @@
+-- Turns the user's Neovim into the console's reader: no frame around the
+-- text, lines kept unwrapped as the terminal shows them, and a yank told to
+-- the window, which copies it. Runs after the user's configuration and holds
+-- what it sets against any later change.
+local hold = require("adroit.hold")
 
-local chan = ...
-vim.g.adroit_channel = chan
-local function apply()
+local M = {}
+
+local function apply(chan)
   vim.cmd("silent! enew")
   local b = vim.api.nvim_get_current_buf()
   vim.g.adroit_buf = b
@@ -9,10 +14,10 @@ local function apply()
   -- The window lays the console's images over the text by the console's own
   -- rows and columns, so nothing may stand beside the text, wrap it or draw
   -- a character of it wider.
-  hold(function()
+  hold.hold(function()
     return w
   end, b, {
-    o = held_everywhere(),
+    o = hold.everywhere(),
     bo = {
       buftype = "nofile",
       bufhidden = "hide",
@@ -57,7 +62,7 @@ local function apply()
       vim.schedule(deny_all)
     end,
   })
-  watch_configuration()
+  require("adroit.config").watch()
   -- Keys are not the only way: a mapping or a plugin of the user's may open
   -- a window, as `K` opens help. Floating windows stay: they draw over the
   -- text, as plugins' pickers and notifications do, and leave it in place.
@@ -114,8 +119,20 @@ local function apply()
     end,
   })
 end
-if vim.v.vim_did_enter == 1 then
-  apply()
-else
-  vim.api.nvim_create_autocmd("VimEnter", { once = true, callback = apply })
+
+--- Set the reader up for the window on `chan`, once startup has finished.
+function M.setup(chan)
+  vim.g.adroit_channel = chan
+  if vim.v.vim_did_enter == 1 then
+    apply(chan)
+  else
+    vim.api.nvim_create_autocmd("VimEnter", {
+      once = true,
+      callback = function()
+        apply(chan)
+      end,
+    })
+  end
 end
+
+return M

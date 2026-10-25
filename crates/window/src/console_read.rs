@@ -114,7 +114,7 @@ mod tests {
         let (lines, marks, cursor) = reading(&all, palette.foreground);
         assert_eq!(lines.first().map(String::as_str), Some("line1"));
         assert_eq!(lines.last().map(String::as_str), Some("ready"));
-        let reader = Embedded::spawn_reader("nvim", &["--clean"], 40, 6, |_| {})
+        let reader = Embedded::spawn_reader(&adroit_nvim::program(), &["--clean"], 40, 6, |_| {})
             .await
             .unwrap();
         reader

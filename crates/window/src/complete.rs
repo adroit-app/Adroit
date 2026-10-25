@@ -102,7 +102,7 @@ mod tests {
         )];
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let editor = adroit_nvim::Embedded::spawn(
-            "nvim",
+            &adroit_nvim::program(),
             &["-u", "NONE", "-i", "NONE", "--noplugin"],
             80,
             10,

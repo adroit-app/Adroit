@@ -37,21 +37,6 @@ pub enum Event {
     ConfigurationSaved,
 }
 
-/// Turns the user's Neovim into a prompt editor: the frame around the text is
-/// hidden, the buffer is a scratch buffer of its own filetype, and every text
-/// change reports how many screen lines the text needs. Runs once startup has
-/// finished, after the user's configuration, and holds what it sets against
-/// any later change.
-pub(crate) const SETUP: &str = concat!(
-    include_str!("../lua/hold.lua"),
-    include_str!("../lua/config.lua"),
-    include_str!("../lua/prompt.lua")
-);
-
-/// What the prompt is given before the user's configuration, which may change
-/// any of it.
-pub(crate) const PROMPT_DEFAULTS: &str = include_str!("../lua/prompt_defaults.lua");
-
 const TAKE_TEXT: &str = include_str!("../lua/take_text.lua");
 
 const APPEND: &str = include_str!("../lua/append.lua");
@@ -182,10 +167,11 @@ pub(crate) struct Launch {
     /// The name it runs under, which finds its configuration, plugins and
     /// state in folders of their own.
     pub(crate) appname: &'static str,
-    /// Lua run before the user's configuration, which may change any of it.
+    /// The module of adroit's required before the user's configuration,
+    /// which may change anything it sets.
     pub(crate) defaults: &'static str,
-    /// Lua run once startup has finished, given the window's channel, which
-    /// holds what the window relies on.
+    /// The module of adroit's set up once startup has finished, given the
+    /// window's channel, which holds what the window relies on.
     pub(crate) setup: &'static str,
 }
 
@@ -275,8 +261,8 @@ impl Embedded {
     ) -> Result<Self, Error> {
         let launch = Launch {
             appname: PROMPT_APPNAME,
-            defaults: PROMPT_DEFAULTS,
-            setup: SETUP,
+            defaults: "adroit.prompt_defaults",
+            setup: "adroit.prompt",
         };
         Self::spawn_with(program, args, cols, rows, launch, events).await
     }
@@ -299,7 +285,10 @@ impl Embedded {
         cmd.arg("--embed")
             .env("NVIM_APPNAME", launch.appname)
             .args(["--cmd", "let g:adroit = v:true"])
-            .args(["--cmd", &format!("lua {}", launch.defaults)])
+            .args([
+                "--cmd",
+                &format!("lua {}", crate::lua::require(launch.defaults)),
+            ])
             .args(args)
             .kill_on_drop(true);
         let (nvim, _io, child) = nvim_rs::create::tokio::new_child_cmd(&mut cmd, listener).await?;
@@ -312,8 +301,8 @@ impl Embedded {
         nvim.ui_attach(cols as i64, rows as i64, &opts).await?;
         let info = nvim.get_api_info().await?;
         let channel = info.first().and_then(Value::as_i64).unwrap_or(0);
-        nvim.exec_lua(launch.setup, vec![Value::from(channel)])
-            .await?;
+        let setup = format!("require({:?}).setup(...)", launch.setup);
+        nvim.exec_lua(&setup, vec![Value::from(channel)]).await?;
         Ok(Self {
             nvim,
             state,
@@ -553,7 +542,7 @@ mod tests {
 
     async fn start() -> (Embedded, mpsc::UnboundedReceiver<Event>) {
         let (tx, rx) = mpsc::unbounded_channel();
-        let e = Embedded::spawn("nvim", &["--clean"], 30, 4, move |ev| {
+        let e = Embedded::spawn(&crate::program(), &["--clean"], 30, 4, move |ev| {
             let _ = tx.send(ev);
         })
         .await
@@ -604,7 +593,7 @@ mod tests {
         let args = config.args();
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
         let (tx, rx) = mpsc::unbounded_channel();
-        let e = Embedded::spawn("nvim", &args, 30, 4, move |ev| {
+        let e = Embedded::spawn(&crate::program(), &args, 30, 4, move |ev| {
             let _ = tx.send(ev);
         })
         .await
@@ -656,7 +645,7 @@ mod tests {
         let args = config.args();
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let _e = Embedded::spawn("nvim", &args, 30, 4, move |ev| {
+        let _e = Embedded::spawn(&crate::program(), &args, 30, 4, move |ev| {
             let _ = tx.send(ev);
         })
         .await
@@ -893,7 +882,7 @@ mod tests {
     #[tokio::test]
     async fn a_prompt_grown_to_fit_a_paste_shows_it_from_the_first_line() {
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let e = Embedded::spawn("nvim", &["--clean"], 30, 2, move |ev| {
+        let e = Embedded::spawn(&crate::program(), &["--clean"], 30, 2, move |ev| {
             let _ = tx.send(ev);
         })
         .await
@@ -1001,7 +990,7 @@ mod tests {
         // stay where the text ended.
         let (tx, mut rx) = mpsc::unbounded_channel();
         let e = Embedded::spawn(
-            "nvim",
+            &crate::program(),
             &["--clean", "--cmd", "set virtualedit=all"],
             30,
             4,

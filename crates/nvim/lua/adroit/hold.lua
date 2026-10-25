@@ -1,9 +1,10 @@
+local M = {}
 -- Sets what the window relies on, and sets it again whenever anything changes
 -- it later: a mapping, a plugin, a filetype plugin. It is set again once that
 -- change is done, as setting an option inside its own OptionSet breaks the
 -- plugins that watch it. A value given as a function is asked each time, and
 -- one that answers nil is left alone.
-local function hold(win, buf, settings)
+function M.hold(win, buf, settings)
   local function want(value)
     if type(value) == "function" then
       return value()
@@ -47,7 +48,7 @@ end
 -- or a command line, every row of the grid is the text's; without ignored
 -- events, adroit's own autocommands run; and the colour scheme draws for the
 -- background of the window's theme.
-local function held_everywhere()
+function M.everywhere()
   return {
     laststatus = 0,
     showtabline = 0,
@@ -59,3 +60,5 @@ local function held_everywhere()
     end,
   }
 end
+
+return M
