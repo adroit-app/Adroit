@@ -95,6 +95,8 @@
               pkgs.neovim
               # The extension Pi sessions load; its tests run it in Node.
               pkgs.nodejs
+              # What adroit reads of jj repositories; its tests make them with jj.
+              pkgs.jujutsu
             ]
             ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ pkgs.libiconv ]
             ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.pkg-config ]

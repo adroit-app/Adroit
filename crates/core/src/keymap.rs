@@ -687,12 +687,12 @@ mod tests {
     fn a_binding_to_the_sheets_actions_earlier_versions_had_is_dropped() {
         let map = Keymap::with_user(
             "[details]\n\"J\" = \"sheet.next\"\n\"K\" = \"scroll.up\"\n\
-             [global]\n\"Cmd+4\" = \"details.files\"\n\"Cmd+5\" = \"details.diff\"\n",
+             [global]\n\"Mod+4\" = \"details.files\"\n\"Mod+5\" = \"details.diff\"\n",
         )
         .unwrap();
         for (digit, n) in [("4", 4), ("5", 5)] {
             assert_eq!(
-                map.resolve(&[Context::Global], &[], &Key::new(digit).meta()),
+                map.resolve(&[Context::Global], &[], &press(&format!("Mod+{digit}"))),
                 Step::Run(Action::TabGo(n)),
                 "{digit}"
             );
@@ -826,7 +826,7 @@ mod tests {
             step(&map, &[Context::Tree, Context::Global], &[], "w"),
             Step::Run(Action::SessionPick)
         );
-        let o = Key::new("o").meta();
+        let o = press("Mod+o");
         assert_eq!(
             map.resolve(&[Context::Global], &[], &o),
             Step::Run(Action::SessionResume)

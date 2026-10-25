@@ -564,7 +564,7 @@ fn a_dialog_is_open_while_the_host_saw_one_on_the_screen_of_the_session_shown() 
 
 #[test]
 fn a_command_key_runs_the_window_s_binding_while_a_dialog_takes_every_key() {
-    let stop = || Key::new("Backspace").meta();
+    let stop = || crate::keymap::Chord::parse("Mod+Backspace").unwrap().key();
     let inserting = Probe {
         pane: true,
         inserting: true,
