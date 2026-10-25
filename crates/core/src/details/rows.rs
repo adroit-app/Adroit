@@ -1,4 +1,4 @@
-//! The overview's rows as the panel draws them: grouped under their
+//! The entries as the panel draws them: grouped under their
 //! headings, each with its icon, label and tag.
 
 use std::path::Path;
@@ -21,10 +21,10 @@ pub fn agent_glyph(standing: Standing) -> (&'static str, Icon) {
     }
 }
 
-/// A link as the overview draws it.
+/// An entry as the panel draws it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LinkRow {
-    /// Its place among the overview's rows.
+    /// Its place among the entries.
     pub at: usize,
     pub icon: Icon,
     /// The class that colours its icon; empty for the panel's own colour.
@@ -56,8 +56,8 @@ impl LinkRow {
     }
 }
 
-/// A group of the overview's links as drawn: its heading, at its place among
-/// the overview's rows, and the links shown under it.
+/// A group of entries as drawn: its heading, at its place among the
+/// entries, and the rows shown under it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LinkSection {
     pub group: Group,
@@ -69,7 +69,7 @@ pub struct LinkSection {
     pub more: Option<(usize, usize)>,
 }
 
-/// The overview's `entries` as groups under their headings, paths shown
+/// The `entries` as groups under their headings, paths shown
 /// from `worktree` or `home`, times told at `now_ms`.
 pub fn link_sections(
     entries: &[Entry],
@@ -223,7 +223,7 @@ mod tests {
     }
 
     #[test]
-    fn the_overview_heads_each_group_of_links_and_marks_a_file_edited() {
+    fn resources_head_each_group_of_links_and_mark_a_file_edited() {
         let rows = [
             link(LinkKind::Artifact, "https://claude.ai/artifact/a"),
             link(LinkKind::Url, "https://a.dev"),

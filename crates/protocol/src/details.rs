@@ -23,7 +23,9 @@ pub struct Sight {
     pub session: Option<String>,
     /// Whether the details panel is open.
     pub details: bool,
-    /// Whether the details panel is on its overview.
+    /// Whether the details panel is on a sheet that lists the shown
+    /// session's entries: its overview, agents or resources. Named for the
+    /// overview the sheets were split from, as the wire still calls it.
     pub overview: bool,
     /// The worktree shown and what of its repository the panel lists.
     pub repository: Option<RepositorySight>,

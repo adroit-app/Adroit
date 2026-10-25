@@ -61,7 +61,7 @@ pub(super) fn Overview(
     let process = opened_process(&details, work);
     let entries = match &listing {
         // A row opened stands in for the rows.
-        Some(Listing::Links(entries))
+        Some(Listing::Entries(entries))
             if details.drill.agent().is_none()
                 && details.drill.message().is_none()
                 && details.drill.process().is_none() =>
@@ -76,7 +76,7 @@ pub(super) fn Overview(
         .unwrap_or_default();
     let sections = link_sections(entries, &paths_from, &crate::paths::home(), now_ms);
     let killable = |at: usize| match &listing {
-        Some(Listing::Links(entries)) => match entries.get(at) {
+        Some(Listing::Entries(entries)) => match entries.get(at) {
             Some(Entry::Process(p)) if !p.zombie => session.clone().map(|s| (s, p.clone())),
             _ => None,
         },

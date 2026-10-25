@@ -262,7 +262,7 @@ fn until(ms: u64) -> String {
     }
 }
 
-/// What a link of the overview shows: what it is called, and a word on it.
+/// What a link of Resources shows: what it is called, and a word on it.
 pub fn shown_link(link: &Link, worktree: &Path, home: &Path) -> (String, String) {
     let id = || adroit_model::links::artifact_id(&link.target).unwrap_or(&link.target);
     match link.kind {
@@ -299,7 +299,7 @@ pub fn shown_link(link: &Link, worktree: &Path, home: &Path) -> (String, String)
     }
 }
 
-/// Where an image of the overview came from.
+/// Where an image of Resources came from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Source {
     /// The console drew it: kept by its id, `width` by `height` pixels.
@@ -308,7 +308,7 @@ pub enum Source {
     File { path: String, touch: Touch },
 }
 
-/// An image of the overview.
+/// An image of Resources.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Shot {
     /// What tells it apart from every other row.
@@ -351,7 +351,7 @@ pub fn newest_first(mut shots: Vec<Shot>) -> Vec<Shot> {
     shots
 }
 
-/// What an image of the overview shows: what it is called, and a word on
+/// What an image of Resources shows: what it is called, and a word on
 /// how the session came by it.
 pub fn shown_shot(shot: &Shot, worktree: &Path, home: &Path) -> (String, String) {
     match &shot.source {
@@ -371,7 +371,7 @@ pub fn shown_shot(shot: &Shot, worktree: &Path, home: &Path) -> (String, String)
     }
 }
 
-/// What a subagent of the overview shows: what it is called now, and how it
+/// What a subagent shows: what it is called now, and how it
 /// stands, how long it ran told at `now_ms`.
 pub fn shown_agent(a: &Agent, now_ms: u64) -> (String, String) {
     let label = match (&a.title, a.description.as_str()) {
@@ -468,8 +468,9 @@ pub enum Listing {
     Log(Vec<Commit>),
     Diff(Vec<DiffLine>),
     Error(String),
-    /// The overview's rows, in the order it shows them.
-    Links(Vec<Entry>),
+    /// The rows a sheet lists of the session shown, in the order it shows
+    /// them.
+    Entries(Vec<Entry>),
 }
 
 impl Listing {
@@ -477,13 +478,13 @@ impl Listing {
     pub fn is_list(&self) -> bool {
         matches!(
             self,
-            Listing::Files(_) | Listing::Log(_) | Listing::Links(_)
+            Listing::Files(_) | Listing::Log(_) | Listing::Entries(_)
         )
     }
 
     /// The group whose heading row `at` is under, or is.
     pub fn group_at(&self, at: usize) -> Option<Group> {
-        let Listing::Links(entries) = self else {
+        let Listing::Entries(entries) = self else {
             return None;
         };
         entries.get(..=at)?.iter().rev().find_map(|e| match e {
@@ -492,9 +493,9 @@ impl Listing {
         })
     }
 
-    /// The row of the overview that heads `group`.
+    /// The entry that heads `group`.
     pub fn heading(&self, group: Group) -> Option<usize> {
-        let Listing::Links(entries) = self else {
+        let Listing::Entries(entries) = self else {
             return None;
         };
         entries
@@ -507,13 +508,13 @@ impl Listing {
         match self {
             Listing::Files(files) => files.iter().map(|f| f.path.as_str()).collect(),
             Listing::Log(commits) => commits.iter().map(|c| c.id.as_str()).collect(),
-            Listing::Links(entries) => entries.iter().map(Entry::key).collect(),
+            Listing::Entries(entries) => entries.iter().map(Entry::key).collect(),
             Listing::Diff(_) | Listing::Error(_) => Vec::new(),
         }
     }
 }
 
-/// A group of the overview's links, shown under a heading of its own.
+/// A group of entries, shown under a heading of its own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Group {
     Sessions,
@@ -551,7 +552,7 @@ impl Group {
     }
 }
 
-/// A row of the overview: the heading of a group, or one of its links.
+/// An entry: the heading of a group, or one of its rows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Entry {
     Heading {
@@ -900,9 +901,9 @@ pub fn change_line(view: &View) -> Option<ChangeLine> {
 enum Opened {
     Commit(Commit),
     File(Change),
-    /// A subagent of the overview, by its call, and its description.
+    /// A subagent, by its call, and its description.
     Agent(String, String),
-    /// A message of the overview, by its id, and its first line.
+    /// A message of Agents, by its id, and its first line.
     Message(String, String),
     Process(String, String),
 }
@@ -935,7 +936,7 @@ impl Drill {
         self.sheet
     }
 
-    /// The subagent of the overview opened, by its call.
+    /// The subagent opened, by its call.
     pub fn agent(&self) -> Option<&str> {
         match self.opened.last() {
             Some(Opened::Agent(call, _)) => Some(call),
@@ -1045,7 +1046,7 @@ impl Drill {
         let opened = match listing {
             Listing::Files(files) => Opened::File(files[at].clone()),
             Listing::Log(commits) => Opened::Commit(commits[at].clone()),
-            Listing::Links(entries) => match &entries[at] {
+            Listing::Entries(entries) => match &entries[at] {
                 Entry::Agent(a) => Opened::Agent(a.call.clone(), shown_agent(a, 0).0),
                 Entry::Message(n) => Opened::Message(n.id.clone(), n.summary().to_owned()),
                 Entry::Process(p) => Opened::Process(p.key.clone(), p.name.clone()),
@@ -1094,7 +1095,7 @@ impl Drill {
         let gone = match listing {
             Listing::Error(_) => true,
             Listing::Diff(lines) => lines.is_empty(),
-            Listing::Files(_) | Listing::Log(_) | Listing::Links(_) => false,
+            Listing::Files(_) | Listing::Log(_) | Listing::Entries(_) => false,
         };
         if gone && !self.opened.is_empty() {
             return self.back();
@@ -1148,7 +1149,7 @@ mod tests {
                 Entry::Process(p[0].clone()),
             ]
         );
-        let list = Listing::Links(entries);
+        let list = Listing::Entries(entries);
         assert_eq!(list.group_at(2), Some(Group::Running));
         assert_eq!(list.group_at(9), None);
         assert_eq!(
@@ -1174,7 +1175,7 @@ mod tests {
                 },
             ]
         );
-        let list = Listing::Links(entries);
+        let list = Listing::Entries(entries);
         let mut drill = Drill::new(Sheet::Overview);
         assert!(drill.open_at(&list, 1));
         assert_eq!(drill.process(), Some("process-1"));
@@ -1200,10 +1201,10 @@ mod tests {
             about(&facts, &HashSet::from([Group::About])),
             [heading(Group::About, 2, true)]
         );
-        let list = Listing::Links(about(&facts, &HashSet::new()));
+        let list = Listing::Entries(about(&facts, &HashSet::new()));
         assert_eq!(
             list,
-            Listing::Links(vec![
+            Listing::Entries(vec![
                 heading(Group::About, 2, false),
                 Entry::Fact(facts[0].clone()),
                 Entry::Fact(facts[1].clone()),
@@ -1814,7 +1815,7 @@ mod tests {
     }
 
     fn links(targets: &[&str]) -> Listing {
-        Listing::Links(
+        Listing::Entries(
             targets
                 .iter()
                 .map(|t| Entry::Link(link(LinkKind::Url, t, None, None)))
@@ -1823,7 +1824,7 @@ mod tests {
     }
 
     #[test]
-    fn the_overview_s_links_are_selected_by_their_address_and_open_nothing_inside() {
+    fn links_are_selected_by_their_address_and_open_nothing_inside() {
         let list = links(&["https://a.dev", "https://b.dev"]);
         let mut d = Drill::new(Sheet::Overview);
         assert!(list.is_list());
@@ -1844,7 +1845,7 @@ mod tests {
     }
 
     #[test]
-    fn the_overview_heads_each_group_and_leaves_a_folded_one_its_heading_alone() {
+    fn resources_head_each_group_and_leave_a_folded_one_its_heading_alone() {
         let all = [
             link(
                 LinkKind::Artifact,
@@ -1893,13 +1894,13 @@ mod tests {
             link(LinkKind::File(Touch::Read), "/w/a.rs", None, None),
         ];
         let none = HashSet::new();
-        let open = Listing::Links(resources(&all, &[], &none, &none, usize::MAX));
+        let open = Listing::Entries(resources(&all, &[], &none, &none, usize::MAX));
         assert_eq!(open.heading(Group::Files), Some(2));
         assert_eq!(open.heading(Group::Artifacts), None);
         let mut d = Drill::new(Sheet::Overview);
         d.select(&open, 2);
         let shut = HashSet::from([Group::Links]);
-        let folded = Listing::Links(resources(&all, &[], &shut, &none, usize::MAX));
+        let folded = Listing::Entries(resources(&all, &[], &shut, &none, usize::MAX));
         assert_eq!(d.selected(&folded), Some(1));
     }
 
@@ -2013,7 +2014,7 @@ mod tests {
     }
 
     #[test]
-    fn each_group_of_the_overview_keeps_its_newest_links_up_to_the_cap() {
+    fn each_group_of_links_keeps_its_newest_up_to_the_cap() {
         let all = [
             link(LinkKind::Url, "https://a.dev", None, None),
             link(LinkKind::Url, "https://b.dev", None, None),
@@ -2049,7 +2050,7 @@ mod tests {
             1
         );
         // The row is selected apart from the links and the heading.
-        let listing = Listing::Links(rows);
+        let listing = Listing::Entries(rows);
         let mut d = Drill::new(Sheet::Overview);
         d.select(&listing, 6);
         assert_eq!(d.selected(&listing), Some(6));
@@ -2136,7 +2137,7 @@ mod tests {
         a.title = Some("Rename hover to detail".into());
         assert_eq!(shown_agent(&a, 0).0, "Rename hover to detail");
         let none = HashSet::new();
-        let list = Listing::Links(agents(&[], &[], &[a], &none, &none, usize::MAX));
+        let list = Listing::Entries(agents(&[], &[], &[a], &none, &none, usize::MAX));
         let mut d = Drill::new(Sheet::Overview);
         assert!(d.open_at(&list, 1));
         assert_eq!(d.crumbs(), ["Rename hover to detail"]);
@@ -2152,13 +2153,13 @@ mod tests {
     }
 
     #[test]
-    fn a_subagent_of_the_overview_opens_to_its_own_level_and_back_selects_it() {
+    fn a_subagent_opens_to_its_own_level_and_back_selects_it() {
         let a = [
             agent("toolu_1", "Survey", Standing::Running),
             agent("toolu_2", "Fix", Standing::Done),
         ];
         let none = HashSet::new();
-        let list = Listing::Links(agents(&[], &[], &a, &none, &none, usize::MAX));
+        let list = Listing::Entries(agents(&[], &[], &a, &none, &none, usize::MAX));
         let mut d = Drill::new(Sheet::Overview);
         assert_eq!(d.agent(), None);
         assert!(!d.open(&list), "its heading opens nothing");
@@ -2168,7 +2169,7 @@ mod tests {
         assert!(d.shows_row());
         assert_eq!(d.agent(), Some("toolu_2"));
         assert_eq!(d.crumbs(), ["Fix"]);
-        assert_eq!(d.spot(), None, "the overview is not read through git");
+        assert_eq!(d.spot(), None, "the entries are not read through git");
         assert!(d.back());
         assert_eq!(d.agent(), None);
         assert_eq!(d.selected(&list), Some(2));
@@ -2279,14 +2280,14 @@ mod tests {
     fn an_image_is_selected_apart_from_its_heading_and_opens_nothing_inside() {
         let shots = [drawn(1, 2), image_file("/w/a.png", Some(1))];
         let none = HashSet::new();
-        let list = Listing::Links(resources(&[], &shots, &none, &none, 5));
+        let list = Listing::Entries(resources(&[], &shots, &none, &none, 5));
         assert_eq!(list.heading(Group::Images), Some(0));
         let mut d = Drill::new(Sheet::Overview);
         d.step(&list, 2);
         assert_eq!(d.selected(&list), Some(2));
         assert!(!d.open(&list));
         assert_eq!(d.spot(), None);
-        let moved = Listing::Links(resources(
+        let moved = Listing::Entries(resources(
             &[],
             &[drawn(9, 3), shots[0].clone(), shots[1].clone()],
             &none,

@@ -92,7 +92,7 @@ pub(super) fn Repository(
                     }
                 },
                 // The repository's sheets never read the overview's links.
-                (_, Some(Listing::Links(_))) => rsx! {},
+                (_, Some(Listing::Entries(_))) => rsx! {},
             }
         }
     }

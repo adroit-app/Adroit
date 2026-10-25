@@ -1,5 +1,5 @@
 //! The details panel as the window holds it: how far into which sheet it has
-//! gone, the overview's groups folded or shown whole, what the window shows
+//! gone, the entries' groups folded or shown whole, what the window shows
 //! that the panel reads by, and what the panel asks the work host to read.
 
 use std::collections::HashSet;
@@ -49,9 +49,9 @@ pub struct Told {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Details {
     pub drill: Drill,
-    /// The overview's groups shown by their headings alone.
+    /// The entries' groups shown by their headings alone.
     pub folded: HashSet<Group>,
-    /// The overview's groups shown whole, past their first few.
+    /// The entries' groups shown whole, past their first few.
     pub opened: HashSet<Group>,
     pub shown: Shown,
     /// The work and the spot the selection was last brought in line with.
@@ -96,7 +96,7 @@ pub enum Scroll {
     Bottom,
 }
 
-/// What is done with a row of the overview.
+/// What is done with an entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Use {
     Open,
@@ -174,7 +174,7 @@ pub(crate) fn back(details: &mut Details) -> Vec<Effect> {
     Vec::new()
 }
 
-/// Row `at` of the overview selected, as its menu is opened on it.
+/// Entry `at` selected, as its menu is opened on it.
 pub(crate) fn select(details: &mut Details, work: Option<&WorkSnapshot>, at: usize) -> Vec<Effect> {
     if let Some(l) = entry_listing(details, work) {
         details.drill.select(&l, at);
@@ -194,14 +194,14 @@ pub(crate) fn open_row(
     Vec::new()
 }
 
-/// A row of the overview clicked: it is selected and does what `Enter` on
+/// An entry clicked: it is selected and does what `Enter` on
 /// it would, save that a heading folds or unfolds its group where it is.
 pub(crate) fn click(details: &mut Details, work: Option<&WorkSnapshot>, at: usize) -> Vec<Effect> {
     let Some(l) = entry_listing(details, work) else {
         return Vec::new();
     };
     details.drill.select(&l, at);
-    let Listing::Links(entries) = &l else {
+    let Listing::Entries(entries) = &l else {
         return Vec::new();
     };
     match entries.get(at) {
@@ -219,18 +219,18 @@ pub(crate) fn click(details: &mut Details, work: Option<&WorkSnapshot>, at: usiz
 pub(crate) fn press(details: &mut Details, work: Option<&WorkSnapshot>, key: Key) -> Vec<Effect> {
     let shown = list(details, work);
     match (key, &shown) {
-        // A row opened from the overview shows no list: the keys scroll,
-        // and those that fold go back to the overview.
-        (_, Some(Listing::Links(_))) if details.drill.shows_row() => match key {
+        // A row opened from the entries shows no list: the keys scroll,
+        // and those that fold go back to the entries.
+        (_, Some(Listing::Entries(_))) if details.drill.shows_row() => match key {
             Key::Fold => {
                 details.drill.back();
                 Vec::new()
             }
             _ => scrolled(key),
         },
-        (_, Some(l @ Listing::Links(entries))) => {
+        (_, Some(l @ Listing::Entries(entries))) => {
             let chosen = details.drill.selected(l).map(|at| &entries[at]);
-            pressed_on_overview(details, work, l, chosen, key)
+            pressed_on_entries(details, work, l, chosen, key)
         }
         (Key::Fold, _) => {
             details.drill.back();
@@ -269,7 +269,7 @@ fn scrolled(key: Key) -> Vec<Effect> {
     vec![Effect::ScrollDetails(scroll)]
 }
 
-fn pressed_on_overview(
+fn pressed_on_entries(
     details: &mut Details,
     work: Option<&WorkSnapshot>,
     l: &Listing,
@@ -396,8 +396,8 @@ fn use_related(related: &Related, how: Use) -> Vec<Effect> {
     }
 }
 
-/// Show `shot` in a window of its own, or copy or reveal its file as a file
-/// of the overview is. A drawn image is the console's of `session`.
+/// Show `shot` in a window of its own, or copy or reveal its file as one of
+/// the files of Resources is. A drawn image is the console's of `session`.
 fn use_shot(shot: &Shot, how: Use, session: Option<&str>) -> Vec<Effect> {
     match (&shot.source, how) {
         (_, Use::Open) => vec![Effect::ShowShot {
@@ -486,7 +486,7 @@ pub fn entry_listing(details: &Details, work: Option<&WorkSnapshot>) -> Option<L
         }
         Sheet::Changes | Sheet::Log => return None,
     };
-    (!entries.is_empty()).then_some(Listing::Links(entries))
+    (!entries.is_empty()).then_some(Listing::Entries(entries))
 }
 
 /// The change the worktree shown is on, as the overview tells it: what was
@@ -497,7 +497,7 @@ pub fn overview_change(details: &Details, work: Option<&WorkSnapshot>) -> Option
     (read.spot == Spot::Files(Rev::WorkingCopy)).then(|| View::of(worktree.clone(), read.clone()))
 }
 
-/// The overview's images: what the console `drawn`, and the image files of
+/// The images of Resources: what the console `drawn`, and the image files of
 /// `links` there are small copies of in `read`, newest first.
 fn shots(drawn: &[Shot], links: &Links, read: Option<&SessionRead>) -> Vec<Shot> {
     let files = links.images.iter().filter_map(|f| {
@@ -564,7 +564,7 @@ pub fn usage(details: &Details, work: Option<&WorkSnapshot>, now_ms: u64) -> Vec
     out
 }
 
-/// The subagent of the overview opened.
+/// The subagent opened.
 pub fn opened_agent(
     details: &Details,
     work: Option<&WorkSnapshot>,
@@ -579,7 +579,7 @@ pub fn opened_agent(
         .cloned()
 }
 
-/// The message of the overview opened.
+/// The message opened.
 pub fn opened_note(details: &Details, work: Option<&WorkSnapshot>) -> Option<Note> {
     let id = details.drill.message()?;
     session_read(details, work)?
@@ -590,7 +590,7 @@ pub fn opened_note(details: &Details, work: Option<&WorkSnapshot>) -> Option<Not
         .cloned()
 }
 
-/// The process of the overview opened.
+/// The process opened.
 pub fn opened_process(details: &Details, work: Option<&WorkSnapshot>) -> Option<Process> {
     let key = details.drill.process()?;
     session_read(details, work)?
@@ -635,7 +635,7 @@ pub(crate) fn refresh(details: &mut Details, work: Option<&WorkSnapshot>) {
     }
 }
 
-/// A subagent or process opened that the overview no longer lists is gone
+/// A subagent or process opened that the entries no longer list is gone
 /// back from.
 pub(crate) fn forget_gone(details: &mut Details, work: Option<&DetailsWork>) {
     let read = details
@@ -858,7 +858,7 @@ mod tests {
     }
 
     #[test]
-    fn the_keys_on_the_overview_use_the_row_selected() {
+    fn the_keys_on_the_entries_use_the_row_selected() {
         let links = Links {
             urls: vec![link(LinkKind::Url, "https://a.dev")],
             files: vec![link(LinkKind::File(Touch::Edited), "/w/a.rs")],
@@ -976,8 +976,8 @@ mod tests {
         let folded = all.send(Msg::DetailsClick(0));
         assert!(folded.state().details.opened.is_empty());
         let unfolded = folded.send(Msg::DetailsClick(0));
-        let Some(Listing::Links(entries)) = entries_of(&unfolded) else {
-            panic!("no overview");
+        let Some(Listing::Entries(entries)) = entries_of(&unfolded) else {
+            panic!("no entries");
         };
         assert_eq!(entries.len(), 4);
     }
@@ -996,7 +996,7 @@ mod tests {
         let run = Scenario::new()
             .event(work(read("session-one", processes)))
             .send(shown(Some("session-one"), None));
-        let Some(Listing::Links(entries)) = entries_of(&run) else {
+        let Some(Listing::Entries(entries)) = entries_of(&run) else {
             panic!("processes without transcript links")
         };
         assert!(
@@ -1006,12 +1006,12 @@ mod tests {
         );
         let other = entries_of(&run.send(shown(Some("session-two"), None)));
         assert!(
-            !matches!(other, Some(Listing::Links(e)) if e.iter().any(|e| matches!(e, Entry::Process(_))))
+            !matches!(other, Some(Listing::Entries(e)) if e.iter().any(|e| matches!(e, Entry::Process(_))))
         );
     }
 
     #[test]
-    fn the_overview_lists_drawn_images_of_the_session_shown_after_its_artifacts() {
+    fn resources_list_drawn_images_of_the_session_shown_after_its_artifacts() {
         let links = Links {
             artifacts: vec![link(LinkKind::Artifact, "https://claude.ai/artifact/a")],
             urls: vec![link(LinkKind::Url, "https://a.dev")],
@@ -1026,8 +1026,8 @@ mod tests {
                     drawn: vec![Shot::console(1, 1, 1, 5, None)],
                 }),
             ]);
-        let Some(Listing::Links(entries)) = entries_of(&run) else {
-            panic!("no overview");
+        let Some(Listing::Entries(entries)) = entries_of(&run) else {
+            panic!("no entries");
         };
         let groups: Vec<_> = entries
             .iter()
@@ -1040,7 +1040,7 @@ mod tests {
     }
 
     #[test]
-    fn the_overview_shows_the_image_files_it_has_small_copies_of_newest_first() {
+    fn resources_show_the_image_files_they_have_small_copies_of_newest_first() {
         let image = |path: &str, at_ms: u64| adroit_model::links::ImageFile {
             path: path.into(),
             touch: Touch::Read,
@@ -1103,7 +1103,7 @@ mod tests {
     }
 
     #[test]
-    fn the_overview_lists_links_only_for_the_session_they_were_read_for() {
+    fn resources_list_links_only_for_the_session_they_were_read_for() {
         let links = Links {
             urls: vec![link(LinkKind::Url, "https://a.dev")],
             ..Default::default()
@@ -1170,7 +1170,7 @@ mod tests {
     }
 
     #[test]
-    fn a_subagent_gone_from_the_overview_is_gone_back_from() {
+    fn a_subagent_gone_from_the_entries_is_gone_back_from() {
         let agent = Subagent {
             call: "toolu_1".into(),
             id: None,
@@ -1203,7 +1203,7 @@ mod tests {
     }
 
     #[test]
-    fn the_keys_that_go_back_leave_a_message_opened_for_the_overview() {
+    fn the_keys_that_go_back_leave_a_message_opened_for_its_list() {
         let note = Note {
             id: "n1".into(),
             outgoing: false,
@@ -1227,8 +1227,8 @@ mod tests {
         assert_eq!(local(&scrolled), [Effect::ScrollDetails(Scroll::Down)]);
         let back = scrolled.send(Msg::DetailsKey(Key::Fold));
         assert_eq!(back.state().details.drill.message(), None);
-        let Some(ref l @ Listing::Links(ref entries)) = entries_of(&back) else {
-            panic!("the overview is shown");
+        let Some(ref l @ Listing::Entries(ref entries)) = entries_of(&back) else {
+            panic!("the entries are shown");
         };
         let at = back.state().details.drill.selected(l).unwrap();
         assert!(matches!(&entries[at], Entry::Message(n) if n.id == "n1"));
@@ -1347,8 +1347,8 @@ mod tests {
         let run = Scenario::new()
             .event(work(read("a", SessionRead::default())))
             .send(shown(Some("a"), Some("/w")));
-        let Some(Listing::Links(entries)) = entries_of(&run) else {
-            panic!("no overview");
+        let Some(Listing::Entries(entries)) = entries_of(&run) else {
+            panic!("no entries");
         };
         assert!(matches!(
             entries.as_slice(),
@@ -1359,8 +1359,8 @@ mod tests {
             }]
         ));
         let unfolded = run.send(Msg::DetailsKey(Key::Open));
-        let Some(Listing::Links(entries)) = entries_of(&unfolded) else {
-            panic!("no overview");
+        let Some(Listing::Entries(entries)) = entries_of(&unfolded) else {
+            panic!("no entries");
         };
         let worktree = entries
             .iter()
