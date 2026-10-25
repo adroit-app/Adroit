@@ -17,6 +17,10 @@ const CWD: &str = "adroit.cwd";
 const STARTED: &str = "adroit.started";
 /// The file a Neovim was started on.
 const FILE: &str = "adroit.file";
+/// The resource a terminal stands for.
+const RESOURCE: &str = "adroit.resource";
+/// What a terminal runs.
+const PROGRAM: &str = "adroit.program";
 const COMMAND: &str = "adroit.command";
 const LAST_INPUT: &str = "adroit.last-input";
 const PERMISSIONS: &str = "adroit.permissions";
@@ -77,14 +81,15 @@ pub fn read(session: &adroit_term::Session) -> Option<Kept> {
     let t = &session.tags;
     let name = tags::value(t, NAME).unwrap_or_default();
     let cwd = PathBuf::from(tags::value(t, CWD)?);
-    match tags::value(t, KIND)?.as_str() {
-        kind if adroit_model::Agent::parse(kind).is_some() => Some(Kept::Agent(Session {
+    let kind = tags::value(t, KIND)?;
+    match adroit_model::Agent::parse(&kind) {
+        Some(agent) => Some(Kept::Agent(Session {
             delegation: tags::value(t, SESSION_TAG).and_then(|id| id.parse().ok()),
             parent: tags::value(t, PARENT_TAG).and_then(|id| id.parse().ok()),
-            agent: adroit_model::Agent::parse(kind)?,
+            agent,
             profile: match tags::value(t, PROFILE) {
                 Some(id) => id.parse().ok()?,
-                None => ProfileId::builtin(adroit_model::Agent::parse(kind)?),
+                None => ProfileId::builtin(agent),
             },
             home: tags::value(t, HOME).map(PathBuf::from),
             profile_name: String::new(),
@@ -106,24 +111,19 @@ pub fn read(session: &adroit_term::Session) -> Option<Kept> {
             },
             adroit_editor: tags::value(t, EDITOR).is_some(),
         })),
-        "terminal" => Some(Kept::Terminal(TerminalSession {
+        None if kind == "terminal" => Some(Kept::Terminal(TerminalSession {
             id: session.id,
-            resource_id: tags::value(t, "adroit.resource")?.parse().ok()?,
+            resource_id: tags::value(t, RESOURCE)?.parse().ok()?,
             name,
             cwd,
-            program: match tags::value(t, "adroit.program")?.as_str() {
-                "shell" => TerminalProgram::Shell,
-                "neovim" => TerminalProgram::Neovim,
-                "command" => TerminalProgram::Command,
-                _ => return None,
-            },
+            program: program_of(&tags::value(t, PROGRAM)?)?,
             file: tags::value(t, FILE).map(PathBuf::from),
             command: match tags::value(t, COMMAND) {
                 Some(raw) => serde_json::from_str(&raw).ok()?,
                 None => Vec::new(),
             },
         })),
-        _ => None,
+        None => None,
     }
 }
 
@@ -136,28 +136,9 @@ pub fn learned_tag((id, learned): (u128, adroit_agents::Learned)) -> (u128, &'st
     }
 }
 
-/// The tags a Claude Code session adroit starts or resumes carries, holding
-/// the conversation `conversation` from the moment it is spawned.
-pub fn claude_tags(
-    name: &str,
-    cwd: &std::path::Path,
-    conversation: &str,
-    permissions: &adroit_model::AgentPermissions,
-    started_ms: u64,
-) -> Vec<String> {
-    let mut out = tags::tagged(KIND, "claude");
-    out.extend(tags::tagged(NAME, name));
-    out.extend(tags::tagged(CWD, &cwd.to_string_lossy()));
-    out.extend(tags::tagged(STARTED, &started_ms.to_string()));
-    out.extend(tags::tagged(CONVERSATION, conversation));
-    out.extend(tags::tagged(
-        PERMISSIONS,
-        &serde_json::to_string(permissions).expect("serializable permissions"),
-    ));
-    out
-}
-
-/// Tags for any supported agent; Claude retains its original wire format.
+/// The tags a session of `agent` adroit starts or resumes carries, holding
+/// the conversation `conversation`, if it is known yet, from the moment it
+/// is spawned.
 pub fn agent_tags(
     agent: adroit_model::Agent,
     name: &str,
@@ -166,11 +147,16 @@ pub fn agent_tags(
     permissions: &adroit_model::AgentPermissions,
     started_ms: u64,
 ) -> Vec<String> {
-    let mut out = claude_tags(name, cwd, conversation, permissions, started_ms);
-    out.retain(|t| {
-        !t.starts_with("adroit.kind=")
-            && (!conversation.is_empty() || !t.starts_with("adroit.claude="))
-    });
+    let mut out = tags::tagged(NAME, name);
+    out.extend(tags::tagged(CWD, &cwd.to_string_lossy()));
+    out.extend(tags::tagged(STARTED, &started_ms.to_string()));
+    if !conversation.is_empty() {
+        out.extend(tags::tagged(CONVERSATION, conversation));
+    }
+    out.extend(tags::tagged(
+        PERMISSIONS,
+        &serde_json::to_string(permissions).expect("serializable permissions"),
+    ));
     out.extend(tags::tagged(KIND, agent.key()));
     out
 }
@@ -211,18 +197,8 @@ pub fn terminal_tags(terminal: &TerminalSession) -> Vec<String> {
     let mut out = tags::tagged(KIND, "terminal");
     out.extend(tags::tagged(NAME, &terminal.name));
     out.extend(tags::tagged(CWD, &terminal.cwd.to_string_lossy()));
-    out.extend(tags::tagged(
-        "adroit.resource",
-        &terminal.resource_id.to_string(),
-    ));
-    out.extend(tags::tagged(
-        "adroit.program",
-        match terminal.program {
-            TerminalProgram::Shell => "shell",
-            TerminalProgram::Neovim => "neovim",
-            TerminalProgram::Command => "command",
-        },
-    ));
+    out.extend(tags::tagged(RESOURCE, &terminal.resource_id.to_string()));
+    out.extend(tags::tagged(PROGRAM, program_key(terminal.program)));
     if let Some(file) = &terminal.file {
         out.extend(tags::tagged(FILE, &file.to_string_lossy()));
     }
@@ -233,6 +209,26 @@ pub fn terminal_tags(terminal: &TerminalSession) -> Vec<String> {
         ));
     }
     out
+}
+
+/// How `program` is spelled in a terminal's tag.
+fn program_key(program: TerminalProgram) -> &'static str {
+    match program {
+        TerminalProgram::Shell => "shell",
+        TerminalProgram::Neovim => "neovim",
+        TerminalProgram::Command => "command",
+    }
+}
+
+/// The program a terminal's tag spells as `key`.
+fn program_of(key: &str) -> Option<TerminalProgram> {
+    [
+        TerminalProgram::Shell,
+        TerminalProgram::Neovim,
+        TerminalProgram::Command,
+    ]
+    .into_iter()
+    .find(|program| program_key(*program) == key)
 }
 
 #[cfg(test)]
@@ -373,7 +369,8 @@ mod tests {
         permissions: &adroit_model::AgentPermissions,
         started_ms: u64,
     ) -> Vec<String> {
-        claude_tags(
+        agent_tags(
+            adroit_model::Agent::Claude,
             "fix",
             std::path::Path::new("/api"),
             conversation,
@@ -394,10 +391,23 @@ mod tests {
     }
 
     #[test]
+    fn every_terminal_program_is_read_back_from_its_tag_as_itself() {
+        for program in [
+            TerminalProgram::Shell,
+            TerminalProgram::Neovim,
+            TerminalProgram::Command,
+        ] {
+            assert_eq!(program_of(program_key(program)), Some(program));
+        }
+        assert_eq!(program_of("emacs"), None);
+    }
+
+    #[test]
     fn the_tags_a_session_is_started_with_keep_their_spelling() {
         let permissions = serde_json::to_string(&adroit_model::AgentPermissions::ReadOnly).unwrap();
         assert_eq!(
-            claude_tags(
+            agent_tags(
+                adroit_model::Agent::Claude,
                 "fix",
                 std::path::Path::new("/api"),
                 "uuid",
@@ -405,12 +415,12 @@ mod tests {
                 42,
             ),
             [
-                "adroit.kind=claude".to_string(),
-                "adroit.name=fix".into(),
+                "adroit.name=fix".to_string(),
                 "adroit.cwd=/api".into(),
                 "adroit.started=42".into(),
                 "adroit.claude=uuid".into(),
                 format!("adroit.permissions={permissions}"),
+                "adroit.kind=claude".into(),
             ]
         );
         assert_eq!(
