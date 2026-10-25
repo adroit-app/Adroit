@@ -7,7 +7,8 @@ use std::rc::{Rc, Weak};
 
 use adroit_core::agent_pages::{self, AgentPage};
 use adroit_model::config::{
-    Launch, SessionOptions, format_command, format_env, parse_command, parse_env,
+    Launch, SessionOptions, format_command, format_env, format_list, parse_command, parse_env,
+    parse_list,
 };
 use adroit_model::paths::tilde;
 use adroit_protocol::{AgentsWork, Ask};
@@ -796,13 +797,10 @@ fn PiGroup(
             }
             SettingRow { label: "Tools", hint: "The tools they may use, separated by commas; empty for Pi's own set. Pi asks before no tool call and has no sandbox: a session given bash runs any command.",
                 TextField {
-                    value: "{options.tools.join(\", \")}",
+                    value: "{format_list(&options.tools)}",
                     aria_label: "Tools",
                     placeholder: "read, bash, edit, write",
-                    onchange: move |value: String| {
-                        let given = value.split(',').map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect();
-                        set(PiOptions { tools: given, ..tools.clone() })
-                    },
+                    onchange: move |value: String| set(PiOptions { tools: parse_list(&value), ..tools.clone() }),
                 }
             }
         }
@@ -902,12 +900,9 @@ fn SessionGroup(title: String, options: SessionOptions, set: Callback<SessionOpt
             }
             SettingRow { label: "Tools denied", hint: "Tools they may not use, separated by commas.",
                 TextField {
-                    value: "{options.disallowed_tools.join(\", \")}",
+                    value: "{format_list(&options.disallowed_tools)}",
                     placeholder: "Edit, Write",
-                    onchange: move |value: String| {
-                        let tools = value.split(',').map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect();
-                        set(SessionOptions { disallowed_tools: tools, ..c.clone() })
-                    },
+                    onchange: move |value: String| set(SessionOptions { disallowed_tools: parse_list(&value), ..c.clone() }),
                 }
             }
             SettingRow { label: "Confirm Adroit's channel warning", hint: "Confirm, once a launch, Claude Code's warning about loading development channels when it names Adroit's own channel alone; every other dialog stays yours.",

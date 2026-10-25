@@ -245,12 +245,33 @@ pub fn format_env(env: &BTreeMap<String, String>) -> String {
         .join("\n")
 }
 
+/// Names written separated by commas; a blank one says nothing.
+pub fn parse_list(text: &str) -> Vec<String> {
+    text.split(',')
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+        .collect()
+}
+
+/// `list` written as [`parse_list`] reads it.
+pub fn format_list(list: &[String]) -> String {
+    list.join(", ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn words(w: &[&str]) -> Vec<String> {
         w.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn a_list_is_names_between_commas_with_blank_ones_left_out() {
+        let list = parse_list(" read,bash , ,edit,");
+        assert_eq!(list, words(&["read", "bash", "edit"]));
+        assert_eq!(format_list(&list), "read, bash, edit");
+        assert_eq!(parse_list(""), Vec::<String>::new());
     }
 
     #[test]
