@@ -34,10 +34,13 @@
 .prompt-scroll { position: absolute; top: 10px; bottom: 4px; right: 4px; width: 4px; border-radius: 2px; background: rgba(255,255,255,0.05); }
 .prompt-scroll-thumb { position: absolute; left: 0; right: 0; border-radius: 2px; background: var(--focus-border); }
 .vim-cmdline { font-family: var(--term-font); font-size: var(--term-size); font-weight: var(--term-weight); color: var(--text); padding: 2px 14px; }
-.vim-menu { position: absolute; z-index: 10; background: #21262d; border: 1px solid #3b4450;
+.vim-menu { position: absolute; z-index: 10; background: var(--raised); border: 1px solid var(--line-strong);
   border-radius: 8px; box-shadow: 0 10px 30px var(--shadow); overflow: hidden; }
 .vim-menu-item { display: flex; gap: 10px; padding: 7px 12px; align-items: baseline; }
 .vim-menu-item.selected { background: var(--select); box-shadow: inset 2px 0 0 var(--run); }
 .vim-menu-word { font-family: var(--mono); font-size: 12.5px; color: var(--text); }
 .vim-menu-detail { color: var(--text-3); font-size: 11.5px; margin-left: auto; }
-.vim-menu-info { color: var(--text-2); font-size: 11.5px; padding: 0 12px 8px; white-space: pre-wrap; }
+.vim-menu-info { color: var(--text-2); font-size: 11.5px; padding: 0 12px 8px; white-space: pre-wrap;
+  /* A long note scrolls within a few lines rather than growing the menu,
+     which opens upwards, past the top of the console. */
+  max-height: 4.5em; overflow-y: auto; }
