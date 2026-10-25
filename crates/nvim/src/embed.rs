@@ -567,6 +567,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_lua_module_in_a_folder_made_after_starting_is_read_anew_too() {
+        let (e, _rx, config) = start_configured(
+            "vim.opt.rtp:prepend(vim.fs.dirname(vim.env.MYVIMRC))\n\
+             local ok, mine = pcall(require, 'deep.mine')\n\
+             vim.g.read = ok and mine.n or 0",
+        )
+        .await;
+        assert!(e.settles("g:read", Value::from(0)).await);
+        let deep = config.init().with_file_name("lua").join("deep");
+        std::fs::create_dir_all(&deep).unwrap();
+        std::fs::write(deep.join("mine.lua"), "return { n = 1 }").unwrap();
+        assert!(e.settles("g:read", Value::from(1)).await);
+        std::fs::write(deep.join("mine.lua"), "return { n = 2 }").unwrap();
+        assert!(e.settles("g:read", Value::from(2)).await);
+    }
+
+    #[tokio::test]
     async fn a_configuration_that_fails_when_read_again_leaves_the_prompt_working() {
         let (e, mut rx, config) = start_configured("vim.g.read = 1").await;
         assert!(e.settles("g:read", Value::from(1)).await);
