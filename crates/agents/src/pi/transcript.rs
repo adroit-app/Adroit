@@ -8,7 +8,7 @@ use adroit_model::{ConversationStats, Tokens};
 use serde_json::{Value, json};
 
 use crate::ConversationReader;
-use crate::links::{Collector, Links};
+use crate::links::{Collector, Links, file_call};
 use crate::tail::{Tail, Tailed};
 use crate::time::timestamp_ms;
 
@@ -20,8 +20,6 @@ pub(super) struct Transcript {
     root: PathBuf,
     id: String,
     path: Option<PathBuf>,
-    cwd: PathBuf,
-    home: PathBuf,
     tail: Tail,
     found: Collector,
     /// The calls fed to the collector, whose results it is given too.
@@ -37,8 +35,6 @@ impl Transcript {
             root,
             id,
             path: None,
-            cwd: cwd.into(),
-            home: home.into(),
             tail: Tail::default(),
             found: Collector::new(cwd, home),
             calls: HashSet::new(),
@@ -47,7 +43,7 @@ impl Transcript {
     }
 
     fn restart(&mut self) {
-        self.found = Collector::new(&self.cwd, &self.home);
+        self.found.clear();
         self.calls.clear();
         self.stats = ConversationStats::default();
     }
@@ -82,10 +78,7 @@ impl Transcript {
     // The shared collector owns address recognition, ordering and file
     // labels: Pi's messages are put to it in the shape it reads.
     fn feed(&mut self, timestamp: &Value, role: &str, content: Value) {
-        self.found.feed(
-            &json!({"type":role, "timestamp":timestamp, "message":{"content":content}}).to_string(),
-            &|p| p.is_file(),
-        );
+        self.found.said(role, timestamp, content, &|p| p.is_file());
     }
 
     fn take(&mut self, entry: &Value) {
@@ -146,29 +139,10 @@ impl Transcript {
             return None;
         }
         let arguments = &part["arguments"];
-        let call = match (name, arguments["path"].as_str()) {
-            ("read" | "edit" | "write", Some(path)) => {
-                let name = match name {
-                    "read" => "Read",
-                    "edit" => "Edit",
-                    _ => "Write",
-                };
-                json!({"type":"tool_use", "id":id, "name":name,
-                    "input":{"file_path":self.whole(path)}})
-            }
-            _ => json!({"type":"tool_use", "id":id, "name":name, "input":arguments}),
-        };
+        let call = file_call(id, name, arguments["path"].as_str())
+            .unwrap_or_else(|| json!({"type":"tool_use", "id":id, "name":name, "input":arguments}));
         self.calls.insert(id.into());
         Some(call)
-    }
-
-    fn whole(&self, path: &str) -> String {
-        match path.strip_prefix("~/") {
-            Some(rest) => self.home.join(rest),
-            None => self.cwd.join(path),
-        }
-        .to_string_lossy()
-        .into_owned()
     }
 
     fn count(&mut self, message: &Value) {

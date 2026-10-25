@@ -55,7 +55,6 @@ pub(super) struct Transcript {
     path: PathBuf,
     locate: Option<(PathBuf, String)>,
     cwd: PathBuf,
-    home: PathBuf,
     tail: Tail,
     found: Collector,
     results: HashSet<String>,
@@ -68,7 +67,6 @@ impl Transcript {
             path,
             locate: None,
             cwd: cwd.into(),
-            home: home.into(),
             tail: Tail::default(),
             found: Collector::new(cwd, home),
             results: HashSet::new(),
@@ -83,7 +81,7 @@ impl Transcript {
     }
 
     fn restart(&mut self) {
-        self.found = Collector::new(&self.cwd, &self.home);
+        self.found.clear();
         self.results.clear();
         self.metrics = super::metrics::Collector::default();
     }
@@ -113,12 +111,7 @@ impl Transcript {
     // The shared collector owns address recognition, ordering and file labels.
     // Translate only conversation content, never reasoning or injected context.
     fn feed(&mut self, timestamp: &Value, role: &str, content: Value) {
-        self.found.feed(
-            &json!({"type":role, "timestamp":timestamp,
-            "message":{"content":content}})
-            .to_string(),
-            &|p| p.is_file(),
-        );
+        self.found.said(role, timestamp, content, &|p| p.is_file());
     }
 
     fn file(&mut self, timestamp: &Value, path: &str, edited: bool, cwd: &Path) {

@@ -68,6 +68,21 @@ impl Collector {
         }
     }
 
+    /// Take in a record another agent wrote, put in the shape of the line
+    /// Claude Code writes for `role`: `content` said at `timestamp`.
+    pub(crate) fn said(
+        &mut self,
+        role: &str,
+        timestamp: &Value,
+        content: Value,
+        exists: &dyn Fn(&Path) -> bool,
+    ) {
+        self.take(
+            &serde_json::json!({"type": role, "timestamp": timestamp, "message": {"content": content}}),
+            exists,
+        );
+    }
+
     pub(crate) fn take(&mut self, v: &Value, exists: &dyn Fn(&Path) -> bool) {
         let assistant = match v["type"].as_str() {
             Some("assistant") => true,
@@ -87,13 +102,13 @@ impl Collector {
             return;
         }
         match &v["message"]["content"] {
-            Value::String(s) => self.said(s, assistant, exists),
+            Value::String(s) => self.text(s, assistant, exists),
             Value::Array(items) => {
                 for item in items {
                     match item["type"].as_str() {
                         Some("text") => {
                             if let Some(s) = item["text"].as_str() {
-                                self.said(s, assistant, exists);
+                                self.text(s, assistant, exists);
                             }
                         }
                         Some("tool_use") => self.tool_use(item),
@@ -148,7 +163,7 @@ impl Collector {
         out
     }
 
-    fn said(&mut self, text: &str, assistant: bool, exists: &dyn Fn(&Path) -> bool) {
+    fn text(&mut self, text: &str, assistant: bool, exists: &dyn Fn(&Path) -> bool) {
         if !assistant {
             self.addresses(&without_reminders(text), None);
             return;
@@ -387,6 +402,21 @@ impl Collector {
             }
         }
     }
+}
+
+/// The call `id` of another agent's file tool `name` on `path`, as the
+/// collector reads Claude Code's own; none for a tool that is not one of
+/// them, or a call that names no path.
+pub(crate) fn file_call(id: &str, name: &str, path: Option<&str>) -> Option<Value> {
+    let name = match name {
+        "read" => "Read",
+        "edit" => "Edit",
+        "write" => "Write",
+        _ => return None,
+    };
+    Some(
+        serde_json::json!({"type": "tool_use", "id": id, "name": name, "input": {"file_path": path?}}),
+    )
 }
 
 #[cfg(test)]
@@ -876,5 +906,53 @@ pub(crate) mod tests {
         for no in ["a.rs", "png", "/w/.png", "notes.md", "/w/dir.png/x"] {
             assert!(!is_image(no), "{no}");
         }
+    }
+
+    #[test]
+    fn a_record_said_is_taken_in_as_the_line_it_stands_for() {
+        let mut c = Collector::new("/w", "/home/me");
+        c.said(
+            "assistant",
+            &json!("2026-10-20T00:00:01.000Z"),
+            json!([{"type": "text", "text": "see https://a.dev"}]),
+            &|_| false,
+        );
+        c.said(
+            "user",
+            &Value::Null,
+            json!([{"type": "text", "text": "and https://b.dev"}]),
+            &|_| false,
+        );
+        assert_eq!(targets(&c.links().urls), ["https://b.dev", "https://a.dev"]);
+    }
+
+    #[test]
+    fn an_agent_s_file_tools_are_called_as_claude_code_s_with_the_path_resolved() {
+        let mut c = Collector::new("/w", "/home/me");
+        let calls: Vec<Value> = [
+            ("t1", "read", "src/a.rs"),
+            ("t2", "edit", "~/notes/b.md"),
+            ("t3", "write", "../c.txt"),
+            ("t4", "read", "~"),
+        ]
+        .into_iter()
+        .filter_map(|(id, name, path)| file_call(id, name, Some(path)))
+        .collect();
+        c.said("assistant", &Value::Null, json!(calls), &|_| false);
+        assert_eq!(
+            c.links().files,
+            [
+                file("/w/~", Touch::Read, None),
+                file("/c.txt", Touch::Edited, None),
+                file("/home/me/notes/b.md", Touch::Edited, None),
+                file("/w/src/a.rs", Touch::Read, None),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_tool_that_is_not_a_file_tool_or_names_no_path_is_no_file_call() {
+        assert_eq!(file_call("t1", "bash", Some("/w/a")), None);
+        assert_eq!(file_call("t1", "read", None), None);
     }
 }

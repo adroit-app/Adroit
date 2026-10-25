@@ -11,7 +11,7 @@ use std::time::{Duration, Instant, SystemTime};
 use adroit_model::{ConversationStats, Tokens};
 use serde_json::{Value, json};
 
-use crate::links::{Collector, Links};
+use crate::links::{Collector, Links, file_call};
 use crate::{AgentContext, ConversationReader};
 
 /// The tools whose calls name no link of the conversation's own: what they
@@ -128,12 +128,9 @@ impl Transcript {
         let mut stats = ConversationStats::default();
         for message in exported["messages"].as_array().into_iter().flatten() {
             let at = message["time"]["created"].as_u64();
+            let timestamp = json!(at.map(iso));
             let feed = |found: &mut Collector, role: &str, content: Value| {
-                found.feed(
-                    &json!({"type":role, "timestamp":at.map(iso), "message":{"content":content}})
-                        .to_string(),
-                    &|p| p.is_file(),
-                );
+                found.said(role, &timestamp, content, &|p| p.is_file());
             };
             match message["type"].as_str() {
                 Some("user") => {
@@ -187,18 +184,8 @@ impl Transcript {
         }
         let input = &part["state"]["input"];
         let path = input["filePath"].as_str().or(input["path"].as_str());
-        let call = match (name, path) {
-            ("read" | "edit" | "write", Some(path)) => {
-                let name = match name {
-                    "read" => "Read",
-                    "edit" => "Edit",
-                    _ => "Write",
-                };
-                json!({"type":"tool_use", "id":id, "name":name,
-                    "input":{"file_path":self.whole(path)}})
-            }
-            _ => json!({"type":"tool_use", "id":id, "name":name, "input":input}),
-        };
+        let call = file_call(id, name, path)
+            .unwrap_or_else(|| json!({"type":"tool_use", "id":id, "name":name, "input":input}));
         let state = &part["state"];
         let result = (state["status"] == "completed").then(|| {
             let texts: Vec<Value> = state["content"]
@@ -211,15 +198,6 @@ impl Transcript {
             json!({"type":"tool_result", "tool_use_id":id, "content":texts})
         });
         Some((call, result))
-    }
-
-    fn whole(&self, path: &str) -> String {
-        match path.strip_prefix("~/") {
-            Some(rest) => self.home.join(rest),
-            None => self.cwd.join(path),
-        }
-        .to_string_lossy()
-        .into_owned()
     }
 }
 
