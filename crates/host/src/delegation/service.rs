@@ -492,8 +492,9 @@ struct Watcher {
     delivering: HashSet<SessionId>,
     deliveries: tokio::task::JoinSet<SessionId>,
     /// Codex conversations being looked up from a shortened title.
-    lookups: tokio::task::JoinSet<(SessionId, Option<String>)>,
+    lookups: tokio::task::JoinSet<(SessionId, String, Option<String>)>,
     looking: HashSet<SessionId>,
+    resolved: HashMap<SessionId, (String, String)>,
 }
 
 impl Watcher {
@@ -504,12 +505,10 @@ impl Watcher {
             }
         }
         while let Some(found) = self.lookups.try_join_next() {
-            if let Ok((id, conversation)) = found {
+            if let Ok((id, title, conversation)) = found {
                 self.looking.remove(&id);
                 if let Some(conversation) = conversation {
-                    context
-                        .call(move |store| store.learn_conversation(id, &conversation))
-                        .await?;
+                    self.resolved.insert(id, (title, conversation));
                 }
             }
         }
@@ -518,7 +517,7 @@ impl Watcher {
             .map_err(|_| Error::storage("the terminal daemon did not answer"))?
             .map_err(Error::storage)?;
         let records = context.call(|store| store.sessions()).await?;
-        for record in records.into_iter().filter(|record| !record.ended) {
+        for mut record in records.into_iter().filter(|record| !record.ended) {
             let Some(terminal) = record.terminal else {
                 continue;
             };
@@ -541,8 +540,10 @@ impl Watcher {
                 self.starting(context, &record, native, &screen).await?;
             }
             if record.agent == Agent::Codex {
-                self.follow_conversation(context, &record, native);
-                if record.readiness == Readiness::Ready {
+                let current = self
+                    .follow_conversation(context, &mut record, native)
+                    .await?;
+                if current && record.readiness == Readiness::Ready {
                     self.deliver(context, &record).await?;
                 }
             }
@@ -590,46 +591,56 @@ impl Watcher {
         Ok(())
     }
 
-    fn follow_conversation(
+    async fn follow_conversation(
         &mut self,
         context: &Context,
-        record: &Session,
+        record: &mut Session,
         native: &adroit_term::Session,
-    ) {
+    ) -> Result<bool> {
         let adapter = adroit_agents::adapter(record.agent);
         let Some(title) = native.title.as_deref() else {
-            return;
+            return Ok(false);
         };
         if record
             .conversation
             .as_deref()
             .is_some_and(|known| adapter.conversation_matches_title(title, known))
         {
-            return;
+            self.resolved.remove(&record.id);
+            return Ok(true);
         }
         let id = record.id;
-        if let Some(conversation) = adapter.conversation_title(title) {
-            let store = context.store.clone();
-            // Learned at once: the next delivery must go to this conversation.
-            if let Ok(mut store) = store.lock() {
-                let _ = store.learn_conversation(id, &conversation);
-            }
-            return;
+        let resolved = self
+            .resolved
+            .remove(&id)
+            .filter(|(asked, _)| asked == title)
+            .map(|(_, conversation)| conversation);
+        if let Some(conversation) = adapter.conversation_title(title).or(resolved) {
+            let learned = conversation.clone();
+            context
+                .call(move |store| store.learn_conversation(id, &learned))
+                .await?;
+            record.conversation = Some(conversation);
+            return Ok(true);
         }
         if adapter.conversation_title_needs_lookup(title) && self.looking.insert(id) {
             let (context, title, cwd) = (context.clone(), title.to_owned(), record.cwd.clone());
             let (profile, home) = (record.profile.clone(), record.home.clone());
             self.lookups.spawn(async move {
                 let Ok(Some(launch)) = context.call(move |store| store.launch(id)).await else {
-                    return (id, None);
+                    return (id, title, None);
                 };
                 let Ok(started) = crate::programs::recorded(&launch, &profile, home.as_deref())
                 else {
-                    return (id, None);
+                    return (id, title, None);
                 };
-                (id, adapter.resolve_conversation(started, cwd, title).await)
+                let conversation = adapter
+                    .resolve_conversation(started, cwd, title.clone())
+                    .await;
+                (id, title, conversation)
             });
         }
+        Ok(false)
     }
 
     /// Hands a Codex session its oldest waiting message through Codex's own queue.
@@ -724,6 +735,116 @@ fn channel_warning_keys(
 mod tests {
     use super::*;
     use crate::testing::{message, record};
+
+    fn conversation_watch(
+        title: &str,
+    ) -> (tempfile::TempDir, Context, Session, adroit_term::Session) {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(&dir.path().join("state.sqlite3")).unwrap();
+        let (id, _) = store
+            .register(super::super::store::NewSession {
+                parent: None,
+                agent: Agent::Codex,
+                profile: "codex".parse().unwrap(),
+                home: None,
+                name: "review".into(),
+                cwd: dir.path().into(),
+                launch: Settings::default(),
+                started_ms: 1,
+            })
+            .unwrap();
+        store
+            .learn_conversation(id, "123e4567-e89b-12d3-a456-426614174000")
+            .unwrap();
+        let record = store.known(id).unwrap();
+        let context = Context {
+            store: Arc::new(Mutex::new(store)),
+            models: Default::default(),
+            daemon: Daemon::new(dir.path().join("unused.sock")),
+            program: "/adroit".into(),
+            root: dir.path().into(),
+            settings: Arc::new(|| Ok(Settings::default())),
+        };
+        let native = adroit_term::Session {
+            id: 1,
+            tags: Vec::new(),
+            title: Some(title.into()),
+            exited: false,
+            status: None,
+            sequence: 1,
+        };
+        (dir, context, record, native)
+    }
+
+    #[tokio::test]
+    async fn a_changed_codex_title_updates_the_record_used_by_the_next_delivery() {
+        let next = "123e4567-e89b-12d3-a456-426614174001";
+        let (_dir, context, mut record, native) = conversation_watch(&format!("Codex · {next}"));
+        assert!(
+            Watcher::default()
+                .follow_conversation(&context, &mut record, &native)
+                .await
+                .unwrap()
+        );
+        assert_eq!(record.conversation.as_deref(), Some(next));
+    }
+
+    #[tokio::test]
+    async fn codex_delivery_waits_for_the_current_title_and_discards_an_old_lookup() {
+        let next = "123e4567-e89b-12d3-a457-426614174001";
+        let title = format!("codex | {}...", &next[..29]);
+        let (_dir, context, mut record, mut native) = conversation_watch(&title);
+        let mut watcher = Watcher::default();
+        // Keep the test independent of an installed provider.
+        watcher.looking.insert(record.id);
+        assert!(
+            !watcher
+                .follow_conversation(&context, &mut record, &native)
+                .await
+                .unwrap()
+        );
+        watcher
+            .resolved
+            .insert(record.id, ("old title".into(), next.into()));
+        assert!(
+            !watcher
+                .follow_conversation(&context, &mut record, &native)
+                .await
+                .unwrap()
+        );
+        assert_ne!(record.conversation.as_deref(), Some(next));
+        watcher.resolved.insert(record.id, (title, next.into()));
+        assert!(
+            watcher
+                .follow_conversation(&context, &mut record, &native)
+                .await
+                .unwrap()
+        );
+        assert_eq!(record.conversation.as_deref(), Some(next));
+        assert_eq!(
+            context
+                .store
+                .lock()
+                .unwrap()
+                .known(record.id)
+                .unwrap()
+                .conversation,
+            record.conversation
+        );
+        assert!(
+            watcher
+                .follow_conversation(&context, &mut record, &native)
+                .await
+                .unwrap()
+        );
+        native.title = None;
+        assert!(
+            !watcher
+                .follow_conversation(&context, &mut record, &native)
+                .await
+                .unwrap()
+        );
+    }
 
     fn claude_screen(name: &str) -> Vec<String> {
         let path = format!(
