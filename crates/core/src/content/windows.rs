@@ -252,6 +252,37 @@ fn show_session_in(state: &mut ViewState, id: String, how: Opening) -> Vec<Effec
     Vec::new()
 }
 
+/// Edit the file at `path`, one that need not be under any worktree, in the
+/// Neovim already on it or in one started in its folder, with the keys.
+pub(crate) fn edit_file(state: &mut ViewState, path: std::path::PathBuf) -> Vec<Effect> {
+    let terminals = tree::terminals(state.host.work.as_ref());
+    let folder = path.parent().map(|d| d.to_path_buf()).unwrap_or_default();
+    let item = Item::File {
+        worktree: folder.clone(),
+        path: path.clone(),
+        dir: false,
+    };
+    let open = nav::stands_for(&item, terminals)
+        .into_iter()
+        .find(|t| matches!(t, Tab::Terminal(_)));
+    let content = &mut state.content;
+    match open {
+        Some(tab) => {
+            content.place = Some(Place { worktree: folder });
+            content.windows.open(tab);
+            content.focus = Area::Console;
+            Vec::new()
+        }
+        None => vec![Effect::StartTerminal(TerminalAsk {
+            place: Place { worktree: folder },
+            runs: TerminalProgram::Neovim,
+            file: Some(path),
+            opening: super::Opening::Existing,
+            focus: true,
+        })],
+    }
+}
+
 /// Open a row where `how` says, or as anything else opens a thing when it
 /// says nothing. Only the keys that open or look rather than split fold a row, and on a
 /// folded one they unfold it first. With `take_keys`, the keys go to what

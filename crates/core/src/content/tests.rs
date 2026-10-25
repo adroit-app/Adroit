@@ -844,3 +844,38 @@ fn a_prompt_goes_to_the_session_s_agent_or_that_of_the_profile_chosen_for_a_draf
         Agent::Codex
     );
 }
+
+#[test]
+fn a_file_asked_to_be_edited_starts_a_neovim_on_it_in_its_folder() {
+    let run =
+        listed_with([session("a").cwd("/r")]).send(Msg::EditFile("/c/prompt/nvim/init.lua".into()));
+    assert_eq!(
+        run.last_effects(),
+        [Effect::StartTerminal(TerminalAsk {
+            place: place("/c/prompt/nvim").unwrap(),
+            runs: TerminalProgram::Neovim,
+            file: Some("/c/prompt/nvim/init.lua".into()),
+            opening: Opening::Existing,
+            focus: true,
+        })]
+    );
+}
+
+#[test]
+fn a_file_asked_to_be_edited_shows_the_neovim_already_on_it_with_the_keys() {
+    let nvim = adroit_model::TerminalSession {
+        program: TerminalProgram::Neovim,
+        file: Some("/c/prompt/nvim/init.lua".into()),
+        ..shell(4, "/c/prompt/nvim")
+    };
+    let run = Scenario::new()
+        .event(snapshot().listed(listed().session(session("a").cwd("/r")).terminal(nvim)))
+        .send(Msg::EditFile("/c/prompt/nvim/init.lua".into()));
+    assert_eq!(active(&run), Some(Tab::Terminal(4)));
+    assert_eq!(run.state().content.focus, Area::Console);
+    assert!(
+        !run.last_effects()
+            .iter()
+            .any(|e| matches!(e, Effect::StartTerminal(_)))
+    );
+}

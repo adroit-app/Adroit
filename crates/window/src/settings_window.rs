@@ -31,7 +31,10 @@ use crate::zoom::LEVELS;
 
 mod about;
 mod agents;
+mod neovim;
 mod profiles;
+
+pub(crate) use neovim::use_asks;
 
 thread_local! {
     static OPEN: RefCell<Weak<DesktopService>> = const { RefCell::new(Weak::new()) };
@@ -609,6 +612,7 @@ fn ConsolePane(now: Settings, change: Callback<Change>) -> Element {
                 }
             }
         }
+        neovim::NeovimGroup { name: "console" }
     }
 }
 
@@ -633,6 +637,7 @@ fn PromptPane(now: Settings, change: Callback<Change>) -> Element {
                 }
             }
         }
+        neovim::NeovimGroup { name: "prompt" }
     }
 }
 

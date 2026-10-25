@@ -339,6 +339,10 @@ it starts; their other files are kept in `adroit/prompt/nvim` and
 `adroit/console/nvim` under Neovim's data and state folders. Each has its
 `'background'` set to the theme's, light or dark, as it starts and whenever
 the theme changes, so its colour scheme draws text that shows on the theme.
+The Settings window's Prompt and Console pages name each configuration's
+folder, copy its path, show it in the Finder, and edit its `init.lua` in a
+Neovim of the main window, as a file of the tree is edited; the folder is made
+when it is not there yet.
 
 A configuration can change everything adroit sets in these Neovims except
 what the window relies on. The prompt and the reader have no status line, tab

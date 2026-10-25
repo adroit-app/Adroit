@@ -131,6 +131,7 @@ pub(crate) fn use_input(ui: &Ui) {
         }
     });
     use_menu_bar(ui);
+    crate::settings_window::use_asks(app);
     // Whether the page has the keys, and whether an input method composes
     // there, as it last told.
     let page_focused = use_hook(|| Rc::new(Cell::new(true)));
