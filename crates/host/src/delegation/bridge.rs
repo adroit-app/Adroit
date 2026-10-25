@@ -118,7 +118,7 @@ where
     loop {
         let bytes = tokio::select! {
             frame = async {
-                if input.fill_buf().await.map_err(io)?.is_empty() {
+                if input.fill_buf().await.map_err(Error::storage)?.is_empty() {
                     Ok(None)
                 } else {
                     protocol::read_frame(&mut input).await.map(Some)
@@ -228,7 +228,7 @@ async fn notifications<W: AsyncWrite + Unpin>(
             .filter(|next| !next.is_null())
         {
             let id: adroit_model::MessageId =
-                serde_json::from_value(next["id"].clone()).map_err(io)?;
+                serde_json::from_value(next["id"].clone()).map_err(Error::storage)?;
             let mut meta = json!({"message_id": id.to_string()});
             if let Some(from) = next["from"].as_str() {
                 meta["from"] = json!(from);
@@ -249,11 +249,11 @@ async fn notifications<W: AsyncWrite + Unpin>(
 }
 
 async fn send<W: AsyncWrite + Unpin>(output: &Output<W>, value: Value) -> Result<()> {
-    let mut bytes = serde_json::to_vec(&value).map_err(io)?;
+    let mut bytes = serde_json::to_vec(&value).map_err(Error::storage)?;
     bytes.push(b'\n');
     let mut output = output.lock().await;
-    output.write_all(&bytes).await.map_err(io)?;
-    output.flush().await.map_err(io)
+    output.write_all(&bytes).await.map_err(Error::storage)?;
+    output.flush().await.map_err(Error::storage)
 }
 
 async fn rpc_error<W: AsyncWrite + Unpin>(
@@ -267,10 +267,6 @@ async fn rpc_error<W: AsyncWrite + Unpin>(
         json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}}),
     )
     .await
-}
-
-fn io(error: impl std::fmt::Display) -> Error {
-    Error::new(Code::Storage, error.to_string())
 }
 
 /// `adroit mcp [--channel]`. Returns the process exit code.
@@ -290,7 +286,7 @@ pub fn cli(args: &[String]) -> i32 {
     let result = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
-        .map_err(io)
+        .map_err(Error::storage)
         .and_then(|runtime| {
             runtime.block_on(run(
                 BufReader::new(tokio::io::stdin()),

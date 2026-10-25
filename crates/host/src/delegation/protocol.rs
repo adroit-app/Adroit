@@ -109,7 +109,7 @@ pub struct Sessions {
 pub(crate) async fn read_frame(reader: &mut (impl AsyncBufRead + Unpin)) -> Result<Vec<u8>> {
     let mut frame = Vec::new();
     loop {
-        let available = reader.fill_buf().await.map_err(transport)?;
+        let available = reader.fill_buf().await.map_err(Error::storage)?;
         if available.is_empty() {
             return Err(Error::new(Code::Invalid, "the frame is incomplete"));
         }
@@ -146,11 +146,11 @@ pub async fn ask(
         command,
         thread,
     })
-    .map_err(transport)?;
+    .map_err(Error::storage)?;
     bytes.push(b'\n');
-    write.write_all(&bytes).await.map_err(transport)?;
+    write.write_all(&bytes).await.map_err(Error::storage)?;
     let frame = read_frame(&mut BufReader::new(read)).await?;
-    let response: Response = serde_json::from_slice(&frame).map_err(transport)?;
+    let response: Response = serde_json::from_slice(&frame).map_err(Error::storage)?;
     response.result
 }
 
@@ -174,10 +174,6 @@ async fn connect(socket: &Path) -> std::io::Result<tokio::net::UnixStream> {
             connected => return connected,
         }
     }
-}
-
-fn transport(error: impl std::fmt::Display) -> Error {
-    Error::new(Code::Storage, error.to_string())
 }
 
 #[cfg(test)]

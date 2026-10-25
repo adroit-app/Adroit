@@ -94,6 +94,10 @@ impl Error {
             message: message.into(),
         }
     }
+
+    pub(crate) fn storage(error: impl fmt::Display) -> Self {
+        Self::new(Code::Storage, error.to_string())
+    }
 }
 
 impl fmt::Display for Error {

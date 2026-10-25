@@ -55,7 +55,7 @@ impl Context {
             operation(&mut store)
         })
         .await
-        .map_err(|error| Error::new(Code::Storage, error.to_string()))?
+        .map_err(Error::storage)?
     }
 
     fn settings(&self) -> Result<Settings> {
@@ -92,19 +92,19 @@ impl Service {
             .recursive(true)
             .mode(0o700)
             .create(root)
-            .map_err(storage)?;
-        let metadata = std::fs::symlink_metadata(root).map_err(storage)?;
+            .map_err(Error::storage)?;
+        let metadata = std::fs::symlink_metadata(root).map_err(Error::storage)?;
         // SAFETY: geteuid only reads the current process identity.
         if !metadata.is_dir()
             || metadata.mode() & 0o077 != 0
             || metadata.uid() != unsafe { libc::geteuid() }
         {
-            return Err(storage(
+            return Err(Error::storage(
                 "the delegation directory must be private and owned by the current user",
             ));
         }
-        let claim = File::open(root).map_err(storage)?;
-        claim.try_lock().map_err(storage)?;
+        let claim = File::open(root).map_err(Error::storage)?;
+        claim.try_lock().map_err(Error::storage)?;
         let store = Store::open(&super::app::database(root))?;
         let context = Context {
             store: Arc::new(Mutex::new(store)),
@@ -118,11 +118,11 @@ impl Service {
         match std::fs::remove_file(&socket) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(storage(error)),
+            Err(error) => return Err(Error::storage(error)),
         }
-        let listener = tokio::net::UnixListener::bind(&socket).map_err(storage)?;
+        let listener = tokio::net::UnixListener::bind(&socket).map_err(Error::storage)?;
         std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600))
-            .map_err(storage)?;
+            .map_err(Error::storage)?;
         let serving = context.clone();
         let tasks = vec![
             tokio::spawn(async move { serve(listener, serving).await }),
@@ -169,9 +169,9 @@ async fn reply(stream: tokio::net::UnixStream, context: Context) -> Result<()> {
         version: VERSION,
         result,
     })
-    .map_err(storage)?;
+    .map_err(Error::storage)?;
     bytes.push(b'\n');
-    write.write_all(&bytes).await.map_err(storage)
+    write.write_all(&bytes).await.map_err(Error::storage)
 }
 
 async fn dispatch(context: &Context, request: Request) -> Result<Value> {
@@ -214,7 +214,7 @@ async fn dispatch(context: &Context, request: Request) -> Result<Value> {
         Command::Models => Ok(serde_json::to_value(
             context.models.lock().expect("the models' lock").view(),
         )
-        .map_err(storage)?),
+        .map_err(Error::storage)?),
         Command::Next => {
             let id = caller.id;
             let next = context
@@ -316,7 +316,7 @@ async fn start(context: &Context, caller: &Session, start: protocol::Start) -> R
         .filter(|dir| dir.is_dir())
         .ok_or_else(|| Error::new(Code::Invalid, format!("{} is no directory", dir.display())))?;
     let name = {
-        let listed = context.daemon.sessions().await.map_err(storage)?;
+        let listed = context.daemon.sessions().await.map_err(Error::storage)?;
         let names: Vec<String> = listed
             .iter()
             .filter_map(|s| match crate::sessions::read(s)? {
@@ -537,8 +537,8 @@ impl Watcher {
         }
         let native = tokio::time::timeout(Duration::from_secs(3), context.daemon.sessions())
             .await
-            .map_err(|_| storage("the terminal daemon did not answer"))?
-            .map_err(storage)?;
+            .map_err(|_| Error::storage("the terminal daemon did not answer"))?
+            .map_err(Error::storage)?;
         let records = context.call(|store| store.sessions()).await?;
         for record in records.into_iter().filter(|record| !record.ended) {
             let Some(terminal) = record.terminal else {
@@ -555,7 +555,11 @@ impl Watcher {
                 continue;
             }
             if record.readiness != Readiness::Ready {
-                let screen = context.daemon.visible(terminal).await.map_err(storage)?;
+                let screen = context
+                    .daemon
+                    .visible(terminal)
+                    .await
+                    .map_err(Error::storage)?;
                 self.starting(context, &record, native, &screen).await?;
             }
             if record.agent == Agent::Codex {
@@ -590,12 +594,12 @@ impl Watcher {
                 .daemon
                 .tag(native.id, tags::tagged(CHANNEL_CONFIRMED, "1"), Vec::new())
                 .await
-                .map_err(storage)?;
+                .map_err(Error::storage)?;
             context
                 .daemon
                 .press(native.id, keys)
                 .await
-                .map_err(storage)?;
+                .map_err(Error::storage)?;
             return Ok(());
         }
         let seen = adroit_agents::adapter(record.agent).startup_readiness(screen);
@@ -695,7 +699,7 @@ fn next_delivery(
         return Ok(None);
     };
     let started = crate::programs::recorded(&launch, &recipient.profile, recipient.home.as_deref())
-        .map_err(|e| Error::new(Code::Storage, e))?;
+        .map_err(Error::storage)?;
     Ok(Some((message, sender, started)))
 }
 
@@ -728,10 +732,6 @@ fn channel_warning_keys(
             .is_some_and(|channels| channels == [CLAUDE_CHANNEL])
     };
     (agent == Agent::Claude && allowed && !answered && ours()).then_some(b"\r")
-}
-
-fn storage(error: impl std::fmt::Display) -> Error {
-    Error::new(Code::Storage, error.to_string())
 }
 
 #[cfg(test)]

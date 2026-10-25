@@ -29,7 +29,7 @@ async fn with_store<T: Send + 'static>(
         Store::open(&path).and_then(|mut store| operation(&mut store))
     })
     .await
-    .map_err(|error| super::Error::new(super::Code::Storage, error.to_string()))?
+    .map_err(super::Error::storage)?
 }
 
 /// A session recorded before its program starts, to be told of its terminal.

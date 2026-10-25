@@ -158,7 +158,7 @@ impl Store {
                 new.home.as_ref().map(|home| home.to_string_lossy().into_owned()),
                 new.name,
                 new.cwd.to_string_lossy(),
-                serde_json::to_string(&new.launch).map_err(storage)?,
+                serde_json::to_string(&new.launch).map_err(Error::storage)?,
                 Readiness::Starting.key(),
                 new.started_ms as i64,
             ],
@@ -202,7 +202,7 @@ impl Store {
                 |row| row.get::<_, String>(0),
             )
             .optional()?
-            .map(|launch| serde_json::from_str(&launch).map_err(storage))
+            .map(|launch| serde_json::from_str(&launch).map_err(Error::storage))
             .transpose()
     }
 
@@ -351,23 +351,23 @@ fn read_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Session>> {
     let home: Option<String> = row.get(11)?;
     Ok((|| {
         Ok(Session {
-            id: id.parse().map_err(storage)?,
+            id: id.parse().map_err(Error::storage)?,
             parent: parent
                 .map(|parent| parent.parse())
                 .transpose()
-                .map_err(storage)?,
+                .map_err(Error::storage)?,
             agent: Agent::ALL
                 .into_iter()
                 .find(|known| known.key() == agent)
-                .ok_or_else(|| storage(format!("unknown agent {agent}")))?,
-            profile: profile.parse().map_err(storage)?,
+                .ok_or_else(|| Error::storage(format!("unknown agent {agent}")))?,
+            profile: profile.parse().map_err(Error::storage)?,
             home: home.map(PathBuf::from),
             name,
             cwd: PathBuf::from(cwd),
             terminal: terminal.as_deref().and_then(crate::sessions::id_of),
             conversation,
             readiness: Readiness::from_key(&readiness)
-                .ok_or_else(|| storage(format!("unknown readiness {readiness}")))?,
+                .ok_or_else(|| Error::storage(format!("unknown readiness {readiness}")))?,
             started_ms: started_ms as u64,
             ended,
         })
@@ -396,9 +396,9 @@ fn read_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Message>> {
     let delivered = row.get(5)?;
     Ok((|| {
         Ok(Message {
-            id: id.parse().map_err(storage)?,
-            sender: sender.parse().map_err(storage)?,
-            recipient: recipient.parse().map_err(storage)?,
+            id: id.parse().map_err(Error::storage)?,
+            sender: sender.parse().map_err(Error::storage)?,
+            recipient: recipient.parse().map_err(Error::storage)?,
             body,
             sent_ms: sent_ms as u64,
             delivered,
@@ -451,12 +451,12 @@ fn migrate(connection: &mut Connection) -> Result<()> {
 fn private_database(path: &Path) -> Result<bool> {
     let parent = path
         .parent()
-        .ok_or_else(|| storage("the database path has no directory"))?;
+        .ok_or_else(|| Error::storage("the database path has no directory"))?;
     DirBuilder::new()
         .recursive(true)
         .mode(0o700)
         .create(parent)
-        .map_err(storage)?;
+        .map_err(Error::storage)?;
     match OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -465,14 +465,16 @@ fn private_database(path: &Path) -> Result<bool> {
     {
         Ok(_) => Ok(true),
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            let metadata = std::fs::symlink_metadata(path).map_err(storage)?;
+            let metadata = std::fs::symlink_metadata(path).map_err(Error::storage)?;
             // SAFETY: geteuid only reads the current process identity.
             if !metadata.is_file() || metadata.uid() != unsafe { libc::geteuid() } {
-                return Err(storage("the database must be a regular file of this user"));
+                return Err(Error::storage(
+                    "the database must be a regular file of this user",
+                ));
             }
             Ok(false)
         }
-        Err(error) => Err(storage(error)),
+        Err(error) => Err(Error::storage(error)),
     }
 }
 
@@ -485,13 +487,9 @@ fn newer(schema: i64) -> Error {
     )
 }
 
-fn storage(error: impl std::fmt::Display) -> Error {
-    Error::new(Code::Storage, error.to_string())
-}
-
 impl From<rusqlite::Error> for Error {
     fn from(error: rusqlite::Error) -> Self {
-        storage(format!("cannot update delegation state: {error}"))
+        Error::storage(format!("cannot update delegation state: {error}"))
     }
 }
 
