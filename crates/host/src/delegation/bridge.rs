@@ -249,10 +249,8 @@ async fn notifications<W: AsyncWrite + Unpin>(
 }
 
 async fn send<W: AsyncWrite + Unpin>(output: &Output<W>, value: Value) -> Result<()> {
-    let mut bytes = serde_json::to_vec(&value).map_err(Error::storage)?;
-    bytes.push(b'\n');
     let mut output = output.lock().await;
-    output.write_all(&bytes).await.map_err(Error::storage)?;
+    super::protocol::write_frame(&mut *output, &value).await?;
     output.flush().await.map_err(Error::storage)
 }
 

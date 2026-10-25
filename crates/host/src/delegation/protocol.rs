@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use adroit_model::{Agent, AgentPermissions, MessageId, SessionId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 
 use super::{Code, Error, Result};
 
@@ -126,6 +126,15 @@ pub(crate) async fn read_frame(reader: &mut (impl AsyncBufRead + Unpin)) -> Resu
     }
 }
 
+pub(crate) async fn write_frame(
+    writer: &mut (impl AsyncWrite + Unpin),
+    value: &impl Serialize,
+) -> Result<()> {
+    let mut bytes = serde_json::to_vec(value).map_err(Error::storage)?;
+    bytes.push(b'\n');
+    writer.write_all(&bytes).await.map_err(Error::storage)
+}
+
 /// Asks the work host serving `root` as the session `credential` names.
 pub async fn ask(
     root: &Path,
@@ -140,15 +149,16 @@ pub async fn ask(
         )
     })?;
     let (read, mut write) = stream.into_split();
-    let mut bytes = serde_json::to_vec(&Request {
-        version: VERSION,
-        credential: credential.to_owned(),
-        command,
-        thread,
-    })
-    .map_err(Error::storage)?;
-    bytes.push(b'\n');
-    write.write_all(&bytes).await.map_err(Error::storage)?;
+    write_frame(
+        &mut write,
+        &Request {
+            version: VERSION,
+            credential: credential.to_owned(),
+            command,
+            thread,
+        },
+    )
+    .await?;
     let frame = read_frame(&mut BufReader::new(read)).await?;
     let response: Response = serde_json::from_slice(&frame).map_err(Error::storage)?;
     response.result
@@ -181,6 +191,19 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    async fn a_frame_written_is_read_back_as_one_line() {
+        let mut written = Vec::new();
+
+        write_frame(&mut written, &Value::from("hello"))
+            .await
+            .unwrap();
+
+        assert_eq!(written, b"\"hello\"\n");
+        let read = read_frame(&mut written.as_slice()).await.unwrap();
+        assert_eq!(read, written);
+    }
+
+    #[tokio::test]
     async fn a_request_made_while_the_work_host_is_replaced_waits_for_the_new_one() {
         let dir = tempfile::Builder::new()
             .prefix("adroit-")
@@ -195,13 +218,11 @@ mod tests {
                 let (stream, _) = listener.accept().await.unwrap();
                 let (read, mut write) = stream.into_split();
                 read_frame(&mut BufReader::new(read)).await.unwrap();
-                let mut bytes = serde_json::to_vec(&Response {
+                let answer = Response {
                     version: VERSION,
                     result: Ok(Value::from("answered")),
-                })
-                .unwrap();
-                bytes.push(b'\n');
-                write.write_all(&bytes).await.unwrap();
+                };
+                write_frame(&mut write, &answer).await.unwrap();
             })
         };
         let answer = ask(&root, "credential", Command::Context, None).await;

@@ -13,7 +13,7 @@ use std::{
 use adroit_model::{Agent, ModelCatalog, SessionId, StartupReadiness};
 use adroit_term::{Daemon, tags};
 use serde_json::{Value, json};
-use tokio::io::{AsyncWriteExt, BufReader};
+use tokio::io::BufReader;
 
 use super::{
     Code, Error, Message, Readiness, Result, Session,
@@ -165,13 +165,14 @@ async fn reply(stream: tokio::net::UnixStream, context: Context) -> Result<()> {
             format!("invalid request: {error}"),
         )),
     };
-    let mut bytes = serde_json::to_vec(&Response {
-        version: VERSION,
-        result,
-    })
-    .map_err(Error::storage)?;
-    bytes.push(b'\n');
-    write.write_all(&bytes).await.map_err(Error::storage)
+    protocol::write_frame(
+        &mut write,
+        &Response {
+            version: VERSION,
+            result,
+        },
+    )
+    .await
 }
 
 async fn dispatch(context: &Context, request: Request) -> Result<Value> {
