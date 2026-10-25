@@ -378,26 +378,10 @@ impl AppCtx {
             | Effect::TypeInto { .. }) => self.hand(effect),
             Effect::Perform(action) => self.perform(action, None),
             Effect::PerformKey(action, key) => self.perform(action, Some(key)),
-            Effect::AskInputAfter(after) => {
-                let app = *self;
-                spawn(async move {
-                    tokio::time::sleep(after).await;
-                    app.dispatch(Msg::AskInput);
-                });
-            }
-            Effect::LapsePull { pull, after } => {
-                let app = *self;
-                spawn(async move {
-                    tokio::time::sleep(after).await;
-                    app.dispatch(Msg::PullLapsed(pull));
-                });
-            }
+            Effect::AskInputAfter(after) => self.later(after, Msg::AskInput),
+            Effect::LapsePull { pull, after } => self.later(after, Msg::PullLapsed(pull)),
             Effect::LapseCompose { asked, after } => {
-                let app = *self;
-                spawn(async move {
-                    tokio::time::sleep(after).await;
-                    app.dispatch(Msg::ComposeLapsed(asked));
-                });
+                self.later(after, Msg::ComposeLapsed(asked));
             }
             Effect::KeepLayout(layout) => layout.save(),
             Effect::ScrollKeysHelp(lines) => crate::keys_help_view::scroll(lines),
@@ -405,14 +389,17 @@ impl AppCtx {
                 notice,
                 text,
                 after,
-            } => {
-                let app = *self;
-                spawn(async move {
-                    tokio::time::sleep(after).await;
-                    app.dispatch(Msg::NoticeLapsed { notice, text });
-                });
-            }
+            } => self.later(after, Msg::NoticeLapsed { notice, text }),
             Effect::Host(_) => unreachable!("requests go to the host link"),
+        });
+    }
+
+    /// Dispatch `msg` once `after` has passed.
+    fn later(&self, after: std::time::Duration, msg: Msg) {
+        let app = *self;
+        spawn(async move {
+            tokio::time::sleep(after).await;
+            app.dispatch(msg);
         });
     }
 }
@@ -454,7 +441,6 @@ fn work_host() -> To {
     }
 }
 
-/// Where the tab shown is kept for the next run of the window.
 /// Open another window of this instance, in a process of its own as every
 /// window is.
 fn open_another_window() -> std::io::Result<()> {
