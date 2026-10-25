@@ -362,6 +362,13 @@ setting it in `init.lua` or a filetype plugin is enough. `g:adroit` is set
 before the configuration too, for a configuration shared with the everyday
 Neovim to tell where it runs.
 
+The window draws the command line, messages and the completion menu Neovim
+gives its interface. A plugin that takes them for itself, such as Neovim's
+experimental `vim._core.ui2`, leaves the window without them; noice.nvim
+leaves them to the window but draws notifications over the text. A
+configuration shared with the everyday Neovim leaves such plugins out where
+`g:adroit` is set.
+
 The prompt's keys for adroit's actions ([keys](keys.md#areas)) are
 mappings set before the configuration, which may map those keys, or others,
 as it likes. `:Adroit <action>` runs any action a binding can name, as in
