@@ -4,7 +4,7 @@
 use std::{
     collections::{HashMap, HashSet},
     fs::File,
-    os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt},
+    os::unix::fs::{DirBuilderExt, MetadataExt},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::Duration,
@@ -115,14 +115,7 @@ impl Service {
             settings: Arc::new(settings),
         };
         let socket = protocol::socket(root);
-        match std::fs::remove_file(&socket) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(Error::storage(error)),
-        }
-        let listener = tokio::net::UnixListener::bind(&socket).map_err(Error::storage)?;
-        std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600))
-            .map_err(Error::storage)?;
+        let listener = crate::work_host::bind_private(&socket).map_err(Error::storage)?;
         let serving = context.clone();
         let tasks = vec![
             tokio::spawn(async move { serve(listener, serving).await }),

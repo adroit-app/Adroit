@@ -67,16 +67,7 @@ impl WorkHostServer {
             return Err(Error::Taken(socket.to_path_buf()));
         }
         // What is left is a socket of a host gone before.
-        match std::fs::remove_file(socket) {
-            Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(e.into()),
-        }
-        let listener = tokio::net::UnixListener::bind(socket)?;
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(socket, std::fs::Permissions::from_mode(0o600))?;
-        }
+        let listener = bind_private(socket)?;
         Ok(Self {
             listener,
             socket: socket.to_path_buf(),
@@ -99,6 +90,22 @@ impl WorkHostServer {
             tokio::spawn(async move { served.connection(stream, &hello, stop).await });
         }
     }
+}
+
+/// Listen at `socket` in place of whatever an earlier run left there, open
+/// to no one but this user.
+pub(crate) fn bind_private(socket: &Path) -> std::io::Result<tokio::net::UnixListener> {
+    match std::fs::remove_file(socket) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
+    let listener = tokio::net::UnixListener::bind(socket)?;
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(socket, std::fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(listener)
 }
 
 /// How the work host at `socket` stands against this build.
@@ -339,6 +346,22 @@ mod tests {
             std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
         }
         dir
+    }
+
+    #[tokio::test]
+    async fn a_private_socket_replaces_what_an_earlier_run_left_and_is_open_to_no_one_else() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = short_dir();
+        let socket = dir.path().join("s");
+        std::fs::write(&socket, "left").unwrap();
+
+        let _listener = bind_private(&socket).unwrap();
+
+        let metadata = std::fs::symlink_metadata(&socket).unwrap();
+        assert!(std::os::unix::fs::FileTypeExt::is_socket(
+            &metadata.file_type()
+        ));
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
     }
 
     fn hello_of(build: &str, speaks: &[u32]) -> Hello {
