@@ -20,9 +20,12 @@ and the keys that would go to the prompt stay with the shell.
 
 What is written in the prompt belongs to the session or draft the focused
 window showed while it was written. Focusing a window that shows another puts
-it aside and brings back what was written for that one; nothing written for
-one session is sent to another by moving between windows or tabs. A tab or a
-session's row with something set aside for it is marked.
+it aside and brings back what was written for that one, with the cursor where
+it was left while the window stays open; nothing written for one session is
+sent to another by moving between windows or tabs. Text the prompt is given
+after what it holds, such as a session's input taken back, leaves the cursor
+where it is. A tab or a session's row with something set aside for it is
+marked.
 What is written outlives the window: opened again, each session gets back what
 was written for it, all but a new session's that was never started.
 Each window of an instance has a prompt of its own. What one window writes for

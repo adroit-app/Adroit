@@ -8,14 +8,31 @@ use crate::content::{self, Tab};
 /// The name the text written with nothing open is kept by.
 const NOTHING_OPEN: &str = "nothing";
 
-/// The text kept for the tabs not shown, and which tab the prompt is for.
+/// Where the cursor is in a prompt's text: the line counted from 1, and the
+/// byte in it counted from 0, as Neovim tells it.
+pub type Cursor = (usize, usize);
+
+/// The text kept for the tabs not shown, where the cursor was in it, and
+/// which tab the prompt is for.
 #[derive(Debug, Default)]
 pub struct Drafts {
     shown: Option<Tab>,
     kept: HashMap<Option<Tab>, String>,
+    cursors: HashMap<Option<Tab>, Cursor>,
 }
 
 impl Drafts {
+    /// The cursor is at `at` in the shown tab's text, which is about to be
+    /// taken for another tab to be shown.
+    pub fn leave_cursor(&mut self, at: Cursor) {
+        self.cursors.insert(self.shown.clone(), at);
+    }
+
+    /// Where the cursor was in the text kept for the tab shown, if anywhere.
+    pub fn cursor(&self) -> Option<Cursor> {
+        self.cursors.get(&self.shown).copied()
+    }
+
     /// The tab the prompt is for.
     pub fn shown(&self) -> &Option<Tab> {
         &self.shown
@@ -38,12 +55,21 @@ impl Drafts {
             && !taken.is_empty()
             && !self.kept.contains_key(&now)
         {
+            if let Some(at) = self.cursors.remove(&before) {
+                self.cursors.insert(now, at);
+            }
             return Some(taken);
         }
-        if !taken.is_empty() {
+        if taken.is_empty() {
+            self.cursors.remove(&before);
+        } else {
             self.kept.insert(before, taken);
         }
-        self.kept.remove(&now)
+        let text = self.kept.remove(&now);
+        if text.is_none() {
+            self.cursors.remove(&now);
+        }
+        text
     }
 
     /// The tab shown before closed and `now` is shown: what the prompt holds
@@ -96,7 +122,11 @@ impl Drafts {
                 _ => content::from_kept(&name).map(|tab| (Some(tab), text)),
             })
             .collect();
-        Self { shown: None, kept }
+        Self {
+            shown: None,
+            kept,
+            cursors: HashMap::new(),
+        }
     }
 
     /// `now` is shown while there is no prompt to put its text in: the text
@@ -183,6 +213,43 @@ mod tests {
 
     fn kept(prompts: &[&str]) -> Vec<String> {
         prompts.iter().map(|p| p.to_string()).collect()
+    }
+
+    #[test]
+    fn a_tab_s_cursor_comes_back_with_its_text_when_it_is_shown_again() {
+        let mut d = Drafts::default();
+        d.turn_to(session("a"));
+        d.leave_cursor((2, 3));
+        d.show(session("b"), "one\ntwo".into());
+        assert_eq!(d.cursor(), None);
+        d.leave_cursor((1, 0));
+        assert_eq!(d.show(session("a"), "b's".into()), Some("one\ntwo".into()));
+        assert_eq!(d.cursor(), Some((2, 3)));
+        d.leave_cursor((1, 1));
+        d.show(session("b"), "one\ntwo".into());
+        assert_eq!(d.cursor(), Some((1, 0)));
+    }
+
+    #[test]
+    fn a_tab_left_with_nothing_written_keeps_no_cursor() {
+        let mut d = Drafts::default();
+        d.turn_to(session("a"));
+        d.leave_cursor((1, 4));
+        d.show(session("b"), String::new());
+        d.show(session("a"), String::new());
+        assert_eq!(d.cursor(), None);
+    }
+
+    #[test]
+    fn what_was_written_with_nothing_open_takes_its_cursor_to_the_draft_opened_next() {
+        let mut d = Drafts::default();
+        let draft = Some(Tab::Draft {
+            worktree: "/r".into(),
+            id: adroit_model::DraftId::new(),
+        });
+        d.leave_cursor((1, 2));
+        assert_eq!(d.show(draft, "first".into()), Some("first".into()));
+        assert_eq!(d.cursor(), Some((1, 2)));
     }
 
     #[test]

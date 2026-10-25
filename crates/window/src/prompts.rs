@@ -218,6 +218,9 @@ pub(crate) fn keeper(nvim: Signal<Option<Arc<Embedded>>>, app: AppCtx) -> Prompt
                             show_images(images.current());
                             continue;
                         };
+                        if let Ok(at) = nv.cursor().await {
+                            drafts.leave_cursor(at);
+                        }
                         let Ok(taken) = nv.take_text().await else {
                             deferred.push_front(Op::Show(now));
                             break;
@@ -226,6 +229,9 @@ pub(crate) fn keeper(nvim: Signal<Option<Arc<Embedded>>>, app: AppCtx) -> Prompt
                         history.reset();
                         if let Some(text) = drafts.show(now, taken) {
                             put_draft(&mut drafts, &mut opened, text, put).await;
+                            if let Some(at) = drafts.cursor() {
+                                let _ = nv.set_cursor(at).await;
+                            }
                         }
                     }
                     Op::Close(now) => {

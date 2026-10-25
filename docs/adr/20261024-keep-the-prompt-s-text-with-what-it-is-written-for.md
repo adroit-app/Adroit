@@ -30,6 +30,7 @@ host keeps what is written, so it outlives the window.
 
 - Every change to the prompt's text goes through one place that knows what it
   is for.
-- Undo history and the cursor are not kept across switches.
+- Undo history is not kept across switches. The cursor is, by the window
+  alone, so it does not outlive the window.
 - Two windows writing for the same session do not see each other's text; the
   one kept last is what comes back.

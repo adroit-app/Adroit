@@ -51,6 +51,10 @@ const APPEND: &str = include_str!("../lua/append.lua");
 
 const TEXT: &str = include_str!("../lua/text.lua");
 
+const CURSOR: &str = include_str!("../lua/cursor.lua");
+
+const SET_CURSOR: &str = include_str!("../lua/set_cursor.lua");
+
 #[derive(Clone)]
 struct Listener {
     state: Arc<Mutex<UiState>>,
@@ -393,12 +397,35 @@ impl Embedded {
         self.exec_string(TEXT).await
     }
 
-    /// Add lines after what the prompt holds, or in its place when it is
-    /// empty, with the cursor at their end.
+    /// Add lines after what the prompt holds, the cursor left where it is in
+    /// that, or in its place when it is empty, with the cursor at their end.
     pub async fn append(&self, lines: &[String]) -> Result<(), Error> {
         let list = lines.iter().map(|l| Value::from(l.as_str())).collect();
         self.state().forget_message();
         self.exec(APPEND, vec![Value::Array(list)]).await
+    }
+
+    /// Where the cursor is in the prompt's text: the line counted from 1 and
+    /// the byte from 0.
+    pub async fn cursor(&self) -> Result<(usize, usize), Error> {
+        let at = self.exec_lua(CURSOR, vec![]).await?;
+        let n = |i: usize| {
+            at.as_array()
+                .and_then(|a| a.get(i))
+                .and_then(Value::as_u64)
+                .unwrap_or(0) as usize
+        };
+        Ok((n(0).max(1), n(1)))
+    }
+
+    /// Put the cursor at `at` in the prompt's text, or as near as the text
+    /// lets it.
+    pub async fn set_cursor(&self, (line, byte): (usize, usize)) -> Result<(), Error> {
+        self.exec(
+            SET_CURSOR,
+            vec![Value::from(line as u64), Value::from(byte as u64)],
+        )
+        .await
     }
 
     /// The prompt's text, leaving the prompt empty for the next one.
@@ -813,6 +840,36 @@ mod tests {
         e.append(&["one".into()]).await.unwrap();
         assert_eq!(e.text().await.unwrap(), "draft\none");
     }
+
+    #[tokio::test]
+    async fn taken_back_lines_leave_the_cursor_where_it_is_in_what_is_written() {
+        let (e, mut rx) = start().await;
+        e.type_text("draft").await.unwrap();
+        wait(&mut rx, |_| e.state().screen().text()[0] == "draft").await;
+        e.input("<Esc>0l").await.unwrap();
+        until(&mut rx, || e.state().mode() == "normal").await;
+        e.append(&["one".into()]).await.unwrap();
+        assert_eq!(e.cursor().await.unwrap(), (1, 1));
+    }
+
+    #[tokio::test]
+    async fn taken_back_lines_in_an_empty_prompt_put_the_cursor_at_their_end() {
+        let (e, _rx) = start().await;
+        e.append(&["one".into(), "two".into()]).await.unwrap();
+        assert_eq!(e.cursor().await.unwrap(), (2, 3));
+    }
+
+    #[tokio::test]
+    async fn the_cursor_is_put_where_asked_within_the_text() {
+        let (e, _rx) = start().await;
+        e.append(&["one".into(), "two".into()]).await.unwrap();
+        e.set_cursor((1, 2)).await.unwrap();
+        assert_eq!(e.cursor().await.unwrap(), (1, 2));
+        // A cursor kept for longer text than the prompt now holds stays in it.
+        e.set_cursor((9, 0)).await.unwrap();
+        assert_eq!(e.cursor().await.unwrap(), (2, 0));
+    }
+
     #[tokio::test]
     async fn a_slash_offers_the_commands_beginning_with_what_follows_before_those_holding_it() {
         let (e, mut rx) = start().await;
