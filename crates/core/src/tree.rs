@@ -364,18 +364,14 @@ pub(crate) fn sight(view: &TreeView) -> TreeSight {
 pub fn place_of_tab(tree: &Tree, terminals: &[TerminalSession], tab: &Tab) -> Option<Place> {
     match tab {
         Tab::Session(id) => nav::find(tree, id).map(|(p, _)| p),
-        Tab::Terminal(id) => terminals.iter().find(|s| s.id == *id).map(|s| Place {
-            worktree: s.cwd.clone(),
-        }),
-        Tab::Draft { worktree, .. } => Some(Place {
-            worktree: worktree.clone(),
-        }),
+        Tab::Terminal(id) => terminals
+            .iter()
+            .find(|s| s.id == *id)
+            .map(|s| Place::at(s.cwd.clone())),
+        Tab::Draft { worktree, .. } => Some(Place::at(worktree.clone())),
         Tab::Viewer(path) => {
-            adroit_model::innermost(tree.worktrees().map(|w| &w.worktree.path), path).map(|w| {
-                Place {
-                    worktree: w.clone(),
-                }
-            })
+            adroit_model::innermost(tree.worktrees().map(|w| &w.worktree.path), path)
+                .map(|w| Place::at(w.clone()))
         }
     }
 }
@@ -889,7 +885,7 @@ mod tests {
             .checkout("/r/w", "/r", "b")
             .build();
         let shell = shell(7, "/r/w/src");
-        let place = |w: &str| Some(Place { worktree: w.into() });
+        let place = |w: &str| Some(Place::at(w));
         // (tab, its place)
         let cases = [
             (Tab::Session("a".into()), place("/r/w")),

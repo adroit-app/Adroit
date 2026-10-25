@@ -285,8 +285,7 @@ pub fn next_waiting(inbox: &[InboxItem], current: Option<&str>, forward: bool) -
     let n = inbox.len();
     let at = current.and_then(|c| inbox.iter().position(|i| i.session.id == c));
     let i = match (at, forward) {
-        (Some(i), true) => (i + 1) % n,
-        (Some(i), false) => (i + n - 1) % n,
+        (Some(i), _) => wrap(i, if forward { 1 } else { -1 }, n),
         (None, true) => 0,
         (None, false) => n - 1,
     };
@@ -380,16 +379,18 @@ pub struct Place {
     pub worktree: PathBuf,
 }
 
+impl Place {
+    pub fn at(worktree: impl Into<PathBuf>) -> Place {
+        Place {
+            worktree: worktree.into(),
+        }
+    }
+}
+
 /// Find a session by id, with the place it opens.
 pub fn find<'a>(tree: &'a Tree, id: &str) -> Option<(Place, &'a Session)> {
-    tree.find(id).map(|(_, wt, s)| {
-        (
-            Place {
-                worktree: wt.worktree.path.clone(),
-            },
-            s,
-        )
-    })
+    tree.find(id)
+        .map(|(_, wt, s)| (Place::at(wt.worktree.path.clone()), s))
 }
 
 /// Whether the session `id` names is no longer listed.
@@ -552,22 +553,17 @@ pub fn row_after_switch(
 pub fn place_of(tree: &Tree, item: &Item) -> Option<Place> {
     match item {
         Item::Waiting(id) | Item::Session(id) => find(tree, id).map(|(p, _)| p),
-        Item::Terminal(id) => tree.terminal(*id).map(|(_, _, s)| Place {
-            worktree: s.cwd.clone(),
-        }),
+        Item::Terminal(id) => tree.terminal(*id).map(|(_, _, s)| Place::at(s.cwd.clone())),
         Item::Worktree(path) | Item::Heading(path, _) | Item::File { worktree: path, .. } => {
-            Some(Place {
-                worktree: path.clone(),
-            })
+            Some(Place::at(path.clone()))
         }
         // Not the root itself: a bare repository, a submodule or a separate
         // git directory is named by its git directory.
         Item::Workspace(root) => {
             let ws = tree.workspaces.iter().find(|ws| &ws.root == root)?;
             let main = ws.worktrees.iter().find(|w| w.worktree.is_main());
-            main.or(ws.worktrees.first()).map(|w| Place {
-                worktree: w.worktree.path.clone(),
-            })
+            main.or(ws.worktrees.first())
+                .map(|w| Place::at(w.worktree.path.clone()))
         }
     }
 }
@@ -616,13 +612,8 @@ pub fn opens(item: &Item, tree: &Tree, terminals: &[TerminalSession]) -> Opens {
             path,
             dir: false,
         } => {
-            let at = Some(Place {
-                worktree: worktree.clone(),
-            });
-            let editing = terminals
-                .iter()
-                .find(|t| t.file.as_ref() == Some(path))
-                .map(|t| t.id);
+            let at = Some(Place::at(worktree.clone()));
+            let editing = editing(terminals, path).next().map(|t| t.id);
             if crate::viewers::FileKind::of(path).has_viewer() {
                 Opens::Shows(Tab::Viewer(path.clone()), at)
             } else if let Some(id) = editing {
@@ -636,15 +627,23 @@ pub fn opens(item: &Item, tree: &Tree, terminals: &[TerminalSession]) -> Opens {
         }
         Item::Terminal(id) => Opens::Shows(Tab::Terminal(*id), place_of(tree, item)),
         Item::Worktree(path) => {
-            let p = Place {
-                worktree: path.clone(),
-            };
+            let p = Place::at(path.clone());
             match sessions_in(tree, &p).first() {
                 Some(s) => Opens::Shows(Tab::Session(s.id.clone()), Some(p)),
                 None => Opens::Draft(path.clone()),
             }
         }
     }
+}
+
+/// The Neovims of `terminals` started on the file at `path`.
+fn editing<'a>(
+    terminals: &'a [TerminalSession],
+    path: &'a Path,
+) -> impl Iterator<Item = &'a TerminalSession> {
+    terminals
+        .iter()
+        .filter(move |t| t.file.as_deref() == Some(path))
 }
 
 /// What a window shows of `item`: a file in its viewer or in any Neovim
@@ -656,12 +655,7 @@ pub fn stands_for(item: &Item, terminals: &[TerminalSession]) -> Vec<Tab> {
         Item::File {
             path, dir: false, ..
         } => std::iter::once(Tab::Viewer(path.clone()))
-            .chain(
-                terminals
-                    .iter()
-                    .filter(|t| t.file.as_ref() == Some(path))
-                    .map(|t| Tab::Terminal(t.id)),
-            )
+            .chain(editing(terminals, path).map(|t| Tab::Terminal(t.id)))
             .collect(),
         _ => Vec::new(),
     }
@@ -673,7 +667,7 @@ pub fn edited(item: &Item, terminals: &[TerminalSession]) -> bool {
     match item {
         Item::File {
             path, dir: false, ..
-        } => terminals.iter().any(|t| t.file.as_ref() == Some(path)),
+        } => editing(terminals, path).next().is_some(),
         _ => false,
     }
 }
@@ -858,9 +852,7 @@ mod tests {
     }
 
     fn at(path: &str) -> Place {
-        Place {
-            worktree: path.into(),
-        }
+        Place::at(path)
     }
 
     #[test]
@@ -885,21 +877,21 @@ mod tests {
     /// `a` runs in the main checkout of `api` and opened `o`, which runs in
     /// the `oauth` worktree, and `w`, which runs in `web`.
     fn opening_tree(opener_listed: bool) -> Tree {
-        let starter = adroit_model::SessionId::new();
-        let started = |id: &str, cwd: &str| {
+        let opener = adroit_model::SessionId::new();
+        let opened = |id: &str, cwd: &str| {
             testing::session(id)
                 .cwd(cwd)
                 .working()
                 .delegation(adroit_model::SessionId::new())
-                .parent(starter)
+                .parent(opener)
         };
         let t = repositories()
-            .session(started("o", OAUTH))
-            .session(started("w", "/web"));
+            .session(opened("o", OAUTH))
+            .session(opened("w", "/web"));
         let a = testing::session("a")
             .cwd("/api")
             .working()
-            .delegation(starter);
+            .delegation(opener);
         if opener_listed { t.session(a) } else { t }.build()
     }
 
