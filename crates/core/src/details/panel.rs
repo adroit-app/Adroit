@@ -13,9 +13,8 @@ use adroit_protocol::{
 };
 
 use super::{
-    Drill, Entry, Fact, Gauge, Group, Listing, Related, Sheet, Shot, Source, View, about, capped,
-    context_gauge, gauges, newest_first, overview_shown, related, running, with_agents,
-    with_images, with_notes,
+    Drill, Entry, Fact, Gauge, Group, Listing, Related, Sheet, Shot, Source, View, about, agents,
+    capped, context_gauge, gauges, newest_first, related, resources, running,
 };
 use crate::content::Showing;
 use crate::content::Tab;
@@ -482,22 +481,26 @@ pub fn entry_listing(details: &Details, work: Option<&WorkSnapshot>) -> Option<L
         }
         Sheet::Agents => {
             let notes = read.and_then(|r| r.notes.as_deref()).unwrap_or_default();
-            let entries = overview_shown(&ties()?, &[], folded, opened, d.links_shown);
-            let entries = with_notes(entries, notes, folded, opened, d.links_shown);
-            with_agents(entries, &links.agents, folded)
-        }
-        Sheet::Resources => {
-            let rows: Vec<Link> = links.rows().cloned().collect();
-            let entries = overview_shown(
-                &[],
-                &capped(&rows, d.links_kept),
+            agents(
+                &ties()?,
+                notes,
+                &links.agents,
                 folded,
                 opened,
                 d.links_shown,
-            );
+            )
+        }
+        Sheet::Resources => {
+            let rows: Vec<Link> = links.rows().cloned().collect();
             let mut shots = shots(&details.shown.drawn, links, read);
             shots.truncate(d.links_kept);
-            with_images(entries, &shots, folded, opened, d.links_shown)
+            resources(
+                &capped(&rows, d.links_kept),
+                &shots,
+                folded,
+                opened,
+                d.links_shown,
+            )
         }
         Sheet::Changes | Sheet::Log => return None,
     };

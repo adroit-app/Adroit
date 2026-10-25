@@ -710,78 +710,57 @@ pub fn capped(links: &[Link], kept: usize) -> Vec<Link> {
         .collect()
 }
 
-/// The overview's rows: the `related` sessions under their heading, then
-/// `links`, which come grouped, each group's heading followed by its links;
-/// a `folded` group shows its heading alone.
-/// The overview's rows with every row shown.
-pub fn overview(related: &[Related], links: &[Link], folded: &HashSet<Group>) -> Vec<Entry> {
-    overview_shown(related, links, folded, &HashSet::new(), usize::MAX)
-}
-
-/// [`overview`], each group of links showing its `first` links and a row for
-/// the rest, unless it is among those `opened` to show them all.
-pub fn overview_shown(
+/// The Agents sheet's rows: the `related` sessions, the `notes`, newest
+/// first, and the `agents`, each group under its heading; a `folded` group
+/// shows its heading alone, and the messages show their `first` and a row
+/// for the rest unless the group is among those `opened`.
+pub fn agents(
     related: &[Related],
-    links: &[Link],
-    folded: &HashSet<Group>,
-    opened: &HashSet<Group>,
-    first: usize,
-) -> Vec<Entry> {
-    let mut out = grouped(
-        Group::Sessions,
-        related.iter().cloned().map(Entry::Session).collect(),
-        folded,
-        opened,
-        usize::MAX,
-    );
-    for run in links.chunk_by(|a, b| Group::of(&a.kind) == Group::of(&b.kind)) {
-        out.extend(grouped(
-            Group::of(&run[0].kind),
-            run.iter().cloned().map(Entry::Link).collect(),
-            folded,
-            opened,
-            first,
-        ));
-    }
-    out
-}
-
-/// The overview's `entries` with `notes`, newest first, under their heading
-/// after the sessions; a `folded` group shows its heading alone, and only
-/// the first few show until the group is opened whole.
-pub fn with_notes(
-    mut entries: Vec<Entry>,
     notes: &[Note],
-    folded: &HashSet<Group>,
-    opened: &HashSet<Group>,
-    first: usize,
-) -> Vec<Entry> {
-    let at = entries
-        .iter()
-        .position(|e| e.group() != Group::Sessions)
-        .unwrap_or(entries.len());
-    let rows = notes.iter().cloned().map(Entry::Message).collect();
-    entries.splice(at..at, grouped(Group::Messages, rows, folded, opened, first));
-    entries
-}
-
-/// The overview's `entries` with `agents` under their heading after the
-/// sessions and messages; a `folded` group shows its heading alone.
-pub fn with_agents(
-    mut entries: Vec<Entry>,
     agents: &[Agent],
     folded: &HashSet<Group>,
+    opened: &HashSet<Group>,
+    first: usize,
 ) -> Vec<Entry> {
-    let at = entries
-        .iter()
-        .position(|e| !matches!(e.group(), Group::Sessions | Group::Messages))
-        .unwrap_or(entries.len());
-    let rows = agents.iter().cloned().map(Entry::Agent).collect();
-    entries.splice(
-        at..at,
-        grouped(Group::Agents, rows, folded, &HashSet::new(), usize::MAX),
-    );
-    entries
+    let sessions = related.iter().cloned().map(Entry::Session).collect();
+    let messages = notes.iter().cloned().map(Entry::Message).collect();
+    let subagents = agents.iter().cloned().map(Entry::Agent).collect();
+    [
+        grouped(Group::Sessions, sessions, folded, opened, usize::MAX),
+        grouped(Group::Messages, messages, folded, opened, first),
+        grouped(Group::Agents, subagents, folded, opened, usize::MAX),
+    ]
+    .concat()
+}
+
+/// The Resources sheet's rows: the artifacts of `links`, the `shots`, then
+/// the other addresses and the files, each group under its heading; a
+/// `folded` group shows its heading alone, and one not among those `opened`
+/// shows its `first` and a row for the rest.
+pub fn resources(
+    links: &[Link],
+    shots: &[Shot],
+    folded: &HashSet<Group>,
+    opened: &HashSet<Group>,
+    first: usize,
+) -> Vec<Entry> {
+    let of = |group| {
+        let rows = links
+            .iter()
+            .filter(|l| Group::of(&l.kind) == group)
+            .cloned()
+            .map(Entry::Link)
+            .collect();
+        grouped(group, rows, folded, opened, first)
+    };
+    let images = shots.iter().cloned().map(Entry::Image).collect();
+    [
+        of(Group::Artifacts),
+        grouped(Group::Images, images, folded, opened, first),
+        of(Group::Links),
+        of(Group::Files),
+    ]
+    .concat()
 }
 
 /// What works for the session shown right now, under one heading: the
@@ -818,25 +797,6 @@ pub fn running(
 pub fn about(facts: &[Fact], folded: &HashSet<Group>) -> Vec<Entry> {
     let rows = facts.iter().cloned().map(Entry::Fact).collect();
     grouped(Group::About, rows, folded, &HashSet::new(), usize::MAX)
-}
-
-/// The overview's `entries` with `shots` under their heading after the
-/// artifacts, showing their `first` and a row for the rest unless the group
-/// is among those `opened`; a `folded` group shows its heading alone.
-pub fn with_images(
-    mut entries: Vec<Entry>,
-    shots: &[Shot],
-    folded: &HashSet<Group>,
-    opened: &HashSet<Group>,
-    first: usize,
-) -> Vec<Entry> {
-    let at = entries
-        .iter()
-        .position(|e| matches!(e.group(), Group::Links | Group::Files))
-        .unwrap_or(entries.len());
-    let rows = shots.iter().cloned().map(Entry::Image).collect();
-    entries.splice(at..at, grouped(Group::Images, rows, folded, opened, first));
-    entries
 }
 
 /// `rows` under the heading of `group`, none while there are no rows: a
@@ -1888,7 +1848,8 @@ mod tests {
             link(LinkKind::File(Touch::Edited), "/w/a.rs", None, None),
             link(LinkKind::File(Touch::Read), "/w/b.rs", None, None),
         ];
-        let open = overview(&[], &all, &HashSet::new());
+        let none = HashSet::new();
+        let open = resources(&all, &[], &none, &none, usize::MAX);
         assert_eq!(
             open,
             [
@@ -1902,7 +1863,8 @@ mod tests {
                 Entry::Link(all[4].clone()),
             ]
         );
-        let folded = overview(&[], &all, &HashSet::from([Group::Links, Group::Files]));
+        let shut = HashSet::from([Group::Links, Group::Files]);
+        let folded = resources(&all, &[], &shut, &none, usize::MAX);
         assert_eq!(
             folded,
             [
@@ -1912,7 +1874,7 @@ mod tests {
                 heading(Group::Files, 2, true),
             ]
         );
-        assert!(overview(&[], &[], &HashSet::new()).is_empty());
+        assert!(resources(&[], &[], &none, &none, usize::MAX).is_empty());
     }
 
     #[test]
@@ -1921,12 +1883,14 @@ mod tests {
             link(LinkKind::Url, "https://a.dev", None, None),
             link(LinkKind::File(Touch::Read), "/w/a.rs", None, None),
         ];
-        let open = Listing::Links(overview(&[], &all, &HashSet::new()));
+        let none = HashSet::new();
+        let open = Listing::Links(resources(&all, &[], &none, &none, usize::MAX));
         assert_eq!(open.heading(Group::Files), Some(2));
         assert_eq!(open.heading(Group::Artifacts), None);
         let mut d = Drill::new(Sheet::Overview);
         d.select(&open, 2);
-        let folded = Listing::Links(overview(&[], &all, &HashSet::from([Group::Links])));
+        let shut = HashSet::from([Group::Links]);
+        let folded = Listing::Links(resources(&all, &[], &shut, &none, usize::MAX));
         assert_eq!(d.selected(&folded), Some(1));
     }
 
@@ -2022,20 +1986,19 @@ mod tests {
     }
 
     #[test]
-    fn the_sessions_head_the_overview_and_fold_as_a_group() {
+    fn the_sessions_head_the_agents_sheet_and_fold_as_a_group() {
         let r = [tied("tests", Some("3"), &[Tie::Opened])];
-        let l = [link(LinkKind::Url, "https://a.dev", None, None)];
+        let none = HashSet::new();
         assert_eq!(
-            overview(&r, &l, &HashSet::new()),
+            agents(&r, &[], &[], &none, &none, usize::MAX),
             [
                 heading(Group::Sessions, 1, false),
                 Entry::Session(r[0].clone()),
-                heading(Group::Links, 1, false),
-                Entry::Link(l[0].clone()),
             ]
         );
+        let shut = HashSet::from([Group::Sessions]);
         assert_eq!(
-            overview(&r, &[], &HashSet::from([Group::Sessions])),
+            agents(&r, &[], &[], &shut, &none, usize::MAX),
             [heading(Group::Sessions, 1, true)]
         );
     }
@@ -2058,7 +2021,8 @@ mod tests {
         let all: Vec<Link> = (0..7)
             .map(|i| link(LinkKind::Url, &format!("https://{i}.dev"), None, None))
             .collect();
-        let rows = overview_shown(&[], &all, &HashSet::new(), &HashSet::new(), 5);
+        let none = HashSet::new();
+        let rows = resources(&all, &[], &none, &none, 5);
         assert_eq!(rows.len(), 1 + 5 + 1);
         assert_eq!(
             rows[6],
@@ -2067,28 +2031,12 @@ mod tests {
                 hidden: 2
             }
         );
-        let opened = overview_shown(
-            &[],
-            &all,
-            &HashSet::new(),
-            &HashSet::from([Group::Links]),
-            5,
-        );
+        let opened = resources(&all, &[], &none, &HashSet::from([Group::Links]), 5);
         assert_eq!(opened.len(), 1 + 7);
         // No row for none left over, nor under a folded heading.
+        assert_eq!(resources(&all[..5], &[], &none, &none, 5).len(), 6);
         assert_eq!(
-            overview_shown(&[], &all[..5], &HashSet::new(), &HashSet::new(), 5).len(),
-            6
-        );
-        assert_eq!(
-            overview_shown(
-                &[],
-                &all,
-                &HashSet::from([Group::Links]),
-                &HashSet::new(),
-                5
-            )
-            .len(),
+            resources(&all, &[], &HashSet::from([Group::Links]), &none, 5).len(),
             1
         );
         // The row is selected apart from the links and the heading.
@@ -2114,38 +2062,41 @@ mod tests {
     }
 
     #[test]
-    fn the_subagents_follow_the_sessions_and_fold_as_a_group() {
+    fn the_subagents_follow_the_sessions_and_messages_and_fold_as_a_group() {
         let r = [tied("tests", Some("3"), &[Tie::Opened])];
-        let l = [link(LinkKind::Url, "https://a.dev", None, None)];
+        let n = [Note {
+            id: "n1".into(),
+            outgoing: false,
+            other: "tests".into(),
+            body: "Done.".into(),
+            sent_ms: 0,
+        }];
         let a = [
             agent("toolu_1", "Survey", Standing::Running),
             agent("toolu_2", "Fix", Standing::Done),
         ];
-        let folded = HashSet::new();
+        let none = HashSet::new();
         assert_eq!(
-            with_agents(overview(&r, &l, &folded), &a, &folded),
+            agents(&r, &n, &a, &none, &none, usize::MAX),
             [
                 heading(Group::Sessions, 1, false),
                 Entry::Session(r[0].clone()),
+                heading(Group::Messages, 1, false),
+                Entry::Message(n[0].clone()),
                 heading(Group::Agents, 2, false),
                 Entry::Agent(a[0].clone()),
                 Entry::Agent(a[1].clone()),
-                heading(Group::Links, 1, false),
-                Entry::Link(l[0].clone()),
             ]
         );
         let shut = HashSet::from([Group::Agents]);
         assert_eq!(
-            with_agents(overview(&[], &l, &shut), &a, &shut),
-            [
-                heading(Group::Agents, 2, true),
-                heading(Group::Links, 1, false),
-                Entry::Link(l[0].clone()),
-            ]
+            agents(&[], &[], &a, &shut, &none, usize::MAX),
+            [heading(Group::Agents, 2, true)]
         );
         assert_eq!(
-            with_agents(overview(&[], &l, &folded), &[], &folded),
-            overview(&[], &l, &folded)
+            agents(&r, &[], &[], &none, &none, usize::MAX),
+            agents(&r, &[], &[], &none, &none, 0),
+            "the sessions are not capped"
         );
     }
 
@@ -2176,7 +2127,7 @@ mod tests {
         a.title = Some("Rename hover to detail".into());
         assert_eq!(shown_agent(&a, 0).0, "Rename hover to detail");
         let none = HashSet::new();
-        let list = Listing::Links(with_agents(Vec::new(), &[a], &none));
+        let list = Listing::Links(agents(&[], &[], &[a], &none, &none, usize::MAX));
         let mut d = Drill::new(Sheet::Overview);
         assert!(d.open_at(&list, 1));
         assert_eq!(d.crumbs(), ["Rename hover to detail"]);
@@ -2198,7 +2149,7 @@ mod tests {
             agent("toolu_2", "Fix", Standing::Done),
         ];
         let none = HashSet::new();
-        let list = Listing::Links(with_agents(Vec::new(), &a, &none));
+        let list = Listing::Links(agents(&[], &[], &a, &none, &none, usize::MAX));
         let mut d = Drill::new(Sheet::Overview);
         assert_eq!(d.agent(), None);
         assert!(!d.open(&list), "its heading opens nothing");
@@ -2272,9 +2223,8 @@ mod tests {
         ];
         let shots: Vec<Shot> = (0..3).map(|i| drawn(i, 10 - i)).collect();
         let none = HashSet::new();
-        let entries = overview(&[], &l, &none);
         assert_eq!(
-            with_images(entries.clone(), &shots, &none, &none, 2),
+            resources(&l, &shots, &none, &none, 2),
             [
                 heading(Group::Artifacts, 1, false),
                 Entry::Link(l[0].clone()),
@@ -2290,7 +2240,7 @@ mod tests {
             ]
         );
         let opened = HashSet::from([Group::Images]);
-        let shown = with_images(entries.clone(), &shots, &none, &opened, 2);
+        let shown = resources(&l, &shots, &none, &opened, 2);
         assert_eq!(
             shown
                 .iter()
@@ -2300,25 +2250,33 @@ mod tests {
         );
         let shut = HashSet::from([Group::Images]);
         assert_eq!(
-            with_images(Vec::new(), &shots, &shut, &none, 2),
+            resources(&[], &shots, &shut, &none, 2),
             [heading(Group::Images, 3, true)]
         );
-        assert_eq!(with_images(entries.clone(), &[], &none, &none, 2), entries);
+        assert_eq!(
+            resources(&l, &[], &none, &none, 2),
+            [
+                heading(Group::Artifacts, 1, false),
+                Entry::Link(l[0].clone()),
+                heading(Group::Links, 1, false),
+                Entry::Link(l[1].clone()),
+            ]
+        );
     }
 
     #[test]
     fn an_image_is_selected_apart_from_its_heading_and_opens_nothing_inside() {
         let shots = [drawn(1, 2), image_file("/w/a.png", Some(1))];
         let none = HashSet::new();
-        let list = Listing::Links(with_images(Vec::new(), &shots, &none, &none, 5));
+        let list = Listing::Links(resources(&[], &shots, &none, &none, 5));
         assert_eq!(list.heading(Group::Images), Some(0));
         let mut d = Drill::new(Sheet::Overview);
         d.step(&list, 2);
         assert_eq!(d.selected(&list), Some(2));
         assert!(!d.open(&list));
         assert_eq!(d.spot(), None);
-        let moved = Listing::Links(with_images(
-            Vec::new(),
+        let moved = Listing::Links(resources(
+            &[],
             &[drawn(9, 3), shots[0].clone(), shots[1].clone()],
             &none,
             &none,

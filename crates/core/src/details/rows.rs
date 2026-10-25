@@ -228,7 +228,7 @@ mod tests {
     use adroit_model::links::Link;
 
     use super::*;
-    use crate::details::{Fact, Related, Shot, about, overview, with_agents, with_images};
+    use crate::details::{Fact, Related, Shot, about, agents, resources};
 
     fn related_to(name: &str, id: Option<&str>, ties: &[Tie]) -> Related {
         Related {
@@ -258,7 +258,7 @@ mod tests {
         ];
         let drawn = |folded: &HashSet<Group>| -> Vec<_> {
             link_sections(
-                &overview(&[], &rows, folded),
+                &resources(&rows, &[], folded, &HashSet::new(), usize::MAX),
                 Path::new("/w"),
                 Path::new("/h"),
                 0,
@@ -315,7 +315,7 @@ mod tests {
         ];
         let none = HashSet::new();
         let drawn = link_sections(
-            &with_images(Vec::new(), &shots, &none, &none, 5),
+            &resources(&[], &shots, &none, &none, 5),
             Path::new("/w"),
             Path::new("/h"),
             0,
@@ -351,13 +351,13 @@ mod tests {
             ended_ms: None,
             steps: Vec::new(),
         };
-        let agents = [
+        let subagents = [
             agent(Some("Rename hover to detail"), Some("code-writer")),
             agent(None, None),
         ];
         let none = HashSet::new();
         let drawn = link_sections(
-            &with_agents(Vec::new(), &agents, &none),
+            &agents(&[], &[], &subagents, &none, &none, usize::MAX),
             Path::new("/w"),
             Path::new("/h"),
             0,
@@ -383,7 +383,14 @@ mod tests {
             related_to("gone", None, &[Tie::Sent]),
         ];
         let drawn = link_sections(
-            &overview(&rows, &[], &HashSet::new()),
+            &agents(
+                &rows,
+                &[],
+                &[],
+                &HashSet::new(),
+                &HashSet::new(),
+                usize::MAX,
+            ),
             Path::new("/w"),
             Path::new("/h"),
             0,
