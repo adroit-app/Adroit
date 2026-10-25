@@ -1,5 +1,6 @@
 //! The console's reader as the window runs it: a Neovim of its own, started
-//! again whenever it quits and sized as the console, shown what the console
+//! again whenever it quits or its configuration is saved, and sized as the
+//! console, shown what the console
 //! holds when reading starts and again as it changes while it is read.
 
 use std::rc::Rc;
@@ -7,7 +8,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use adroit_core::msg::Msg;
-use adroit_nvim::{Embedded, Event as NvimEvent, Mark};
+use adroit_nvim::{Embedded, Event as NvimEvent, Mark, View};
 use adroit_term::{Pane, Size};
 use dioxus::prelude::*;
 use tokio::sync::{Notify, mpsc};
@@ -102,6 +103,8 @@ impl Reader {
         let mut restarts = Restarts::default();
         // Whether the status line tells of a reader that could not run.
         let mut told = false;
+        // Where the reader before was, for the one started next.
+        let mut kept: Option<View> = None;
         loop {
             let (tx, rx) = mpsc::unbounded_channel();
             let size = *self.console_size.peek();
@@ -122,9 +125,17 @@ impl Reader {
                         app.status(None);
                     }
                     let born = Instant::now();
-                    self.reader.set(Some(Arc::new(r)));
-                    self.serve(rx).await;
+                    if let Some(view) = kept.take() {
+                        self.read_again(&r, &view).await;
+                    }
+                    let r = Arc::new(r);
+                    self.reader.set(Some(r.clone()));
+                    kept = self.serve(&r, rx).await;
                     self.reader.set(None);
+                    if kept.is_some() {
+                        // Asked for, not quit: reading goes on in the next.
+                        continue;
+                    }
                     app.dispatch(Msg::ReaderQuit);
                     (
                         Some(born.elapsed()),
@@ -147,8 +158,14 @@ impl Reader {
         }
     }
 
-    /// Tell the window what the reader does until it quits.
-    async fn serve(&mut self, mut rx: mpsc::UnboundedReceiver<NvimEvent>) {
+    /// Tell the window what the reader does until it quits, or until its
+    /// configuration is saved: then it is quit, and where it was is given
+    /// back for the reader started next.
+    async fn serve(
+        &mut self,
+        reader: &Embedded,
+        mut rx: mpsc::UnboundedReceiver<NvimEvent>,
+    ) -> Option<View> {
         let app = self.app;
         while let Some(ev) = rx.recv().await {
             match ev {
@@ -160,8 +177,38 @@ impl Reader {
                     Ok(()) => app.notice(format!("Copied {lines} lines")),
                     Err(e) => app.notice(format!("cannot copy: {e}")),
                 },
+                NvimEvent::ConfigurationSaved => {
+                    let Ok(view) = reader.view().await else {
+                        continue;
+                    };
+                    let _ = reader.quit().await;
+                    app.notice("The reader's configuration was saved; it starts again".into());
+                    return Some(view);
+                }
                 _ => {}
             }
+        }
+        None
+    }
+
+    /// Show `reader`, just started, what the console holds, and put it where
+    /// `view` has it, when the console is read.
+    async fn read_again(&self, reader: &Embedded, view: &View) {
+        if !self.app.console.peek().reading {
+            return;
+        }
+        let Some(p) = self.pane() else {
+            return;
+        };
+        let Some((lines, marks, cur, background)) = self.everything(&p).await else {
+            return;
+        };
+        if reader
+            .show(&lines, &marks, cur, false, &background)
+            .await
+            .is_ok()
+        {
+            let _ = reader.set_view(view).await;
         }
     }
 

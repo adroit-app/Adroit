@@ -51,7 +51,7 @@ local function apply()
     end)
   end
   deny_all()
-  watch_configuration(b, deny_all)
+  watch_configuration()
   -- Keys are not the only way: a mapping or a plugin of the user's may open
   -- a window, as `K` opens help.
   vim.api.nvim_create_autocmd({ "WinNew", "TabNew" }, {

@@ -29,6 +29,9 @@ pub enum Event {
     Shell(bool),
     /// A `/` was typed where it offers commands.
     CommandsWanted,
+    /// The user's configuration was saved, for the window to start Neovim
+    /// again on it.
+    ConfigurationSaved,
 }
 
 /// Turns the user's Neovim into a prompt editor: the frame around the text is
@@ -55,6 +58,10 @@ const TEXT: &str = include_str!("../lua/text.lua");
 const CURSOR: &str = include_str!("../lua/cursor.lua");
 
 const SET_CURSOR: &str = include_str!("../lua/set_cursor.lua");
+
+const VIEW: &str = include_str!("../lua/view.lua");
+
+const SET_VIEW: &str = include_str!("../lua/set_view.lua");
 
 #[derive(Clone)]
 struct Listener {
@@ -106,6 +113,7 @@ impl Handler for Listener {
                 }
             }
             "adroit_commands_wanted" => (self.events)(Event::CommandsWanted),
+            "adroit_configuration_saved" => (self.events)(Event::ConfigurationSaved),
             "adroit_height" => {
                 if let Some(n) = args.first().and_then(Value::as_u64) {
                     (self.events)(Event::Height(n as usize));
@@ -207,6 +215,37 @@ impl UserConfig {
             format!("let $MYVIMRC = '{init}'"),
         ]
     }
+}
+
+/// Where a Neovim's window was, its cursor and what it was scrolled to, kept
+/// to be put in another Neovim showing the same text.
+#[derive(Debug, Clone, PartialEq)]
+pub struct View(Value);
+
+/// Save with `save` until `rx` tells of the configuration saved: a watch
+/// is started as the Neovim starts, and the first saves may come before it.
+#[cfg(test)]
+pub(crate) async fn save_until_told(
+    rx: &mut tokio::sync::mpsc::UnboundedReceiver<Event>,
+    save: impl Fn(),
+) {
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            save();
+            let told = tokio::time::timeout(std::time::Duration::from_millis(500), async {
+                while let Some(ev) = rx.recv().await {
+                    if ev == Event::ConfigurationSaved {
+                        return;
+                    }
+                }
+            });
+            if told.await.is_ok() {
+                return;
+            }
+        }
+    })
+    .await
+    .expect("never told");
 }
 
 /// A Neovim process attached as this window's UI.
@@ -462,6 +501,29 @@ impl Embedded {
         self.exec_string(TAKE_TEXT).await
     }
 
+    /// Put `text` in a prompt just started, leaving the message it started
+    /// with shown, as one a configuration failed with must stay seen.
+    pub async fn put_back(&self, text: &str) -> Result<(), Error> {
+        let list = text.split('\n').map(Value::from).collect();
+        self.exec(APPEND, vec![Value::Array(list)]).await
+    }
+
+    /// Where the window is: its cursor and what it is scrolled to.
+    pub async fn view(&self) -> Result<View, Error> {
+        Ok(View(self.exec_lua(VIEW, vec![]).await?))
+    }
+
+    /// Put the window where `view` has it, or as near as the text lets it.
+    pub async fn set_view(&self, view: &View) -> Result<(), Error> {
+        self.exec(SET_VIEW, vec![view.0.clone()]).await
+    }
+
+    /// Have Neovim quit, whatever is left unsaved in it, once it has answered.
+    pub async fn quit(&self) -> Result<(), Error> {
+        self.exec("vim.schedule(function() vim.cmd('qall!') end)", vec![])
+            .await
+    }
+
     /// The string `code` returns; empty for anything else.
     async fn exec_string(&self, code: &str) -> Result<String, Error> {
         Ok(self
@@ -529,72 +591,110 @@ mod tests {
         (e, rx, config)
     }
 
-    #[tokio::test]
-    async fn a_configuration_saved_again_is_read_again_and_still_cannot_change_what_the_window_relies_on()
-     {
-        let (e, mut rx, config) = start_configured("vim.g.read = 1").await;
-        assert!(e.settles("g:read", Value::from(1)).await);
-        e.type_text("kept").await.unwrap();
-        wait(&mut rx, |_| e.state().screen().text()[0] == "kept").await;
-        config.write("vim.g.read = 2\nvim.o.cursorline = true\nvim.o.laststatus = 2");
-        assert!(e.settles("g:read", Value::from(2)).await);
-        assert!(
-            e.settles(
-                "[&cursorline, &laststatus]",
-                Value::from(vec![Value::from(1), Value::from(0)])
-            )
-            .await
-        );
-        assert_eq!(e.text().await.unwrap(), "kept");
+    /// How many times the configuration was told saved over `within`.
+    async fn saves_told(rx: &mut mpsc::UnboundedReceiver<Event>, within: Duration) -> usize {
+        let mut told = 0;
+        let _ = tokio::time::timeout(within, async {
+            while let Some(ev) = rx.recv().await {
+                if ev == Event::ConfigurationSaved {
+                    told += 1;
+                }
+            }
+        })
+        .await;
+        told
     }
 
     #[tokio::test]
-    async fn a_lua_module_of_the_configuration_is_read_anew_with_it() {
-        // The folder is on 'runtimepath' as Neovim's own configuration folder is.
-        let init = "vim.opt.rtp:prepend(vim.fs.dirname(vim.env.MYVIMRC))\n\
-                    vim.g.read = require('mine').n";
+    async fn saving_the_configuration_asks_for_a_restart_and_reads_nothing_itself() {
+        let (e, mut rx, config) = start_configured("vim.g.read = 1").await;
+        assert!(e.settles("g:read", Value::from(1)).await);
+        save_until_told(&mut rx, || config.write("vim.g.read = 2")).await;
+        assert_eq!(e.eval("g:read").await, Value::from(1));
+    }
+
+    #[tokio::test]
+    async fn an_editor_s_save_of_several_writes_asks_for_one_restart() {
+        let (_e, mut rx, config) = start_configured("").await;
+        save_until_told(&mut rx, || config.write("")).await;
+        // The last save's own events, told once.
+        saves_told(&mut rx, Duration::from_millis(300)).await;
+        for n in 0..3 {
+            config.write(&format!("vim.g.read = {n}"));
+        }
+        assert_eq!(saves_told(&mut rx, Duration::from_secs(1)).await, 1);
+    }
+
+    #[tokio::test]
+    async fn saving_a_lua_module_of_the_configuration_asks_for_a_restart_too() {
         let config = UserConfig::new("");
         let lua = config.init().with_file_name("lua");
         std::fs::create_dir_all(&lua).unwrap();
         std::fs::write(lua.join("mine.lua"), "return { n = 1 }").unwrap();
-        config.write(init);
         let args = config.args();
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
-        let e = Embedded::spawn("nvim", &args, 30, 4, |_| {}).await.unwrap();
-        assert!(e.settles("g:read", Value::from(1)).await);
-        std::fs::write(lua.join("mine.lua"), "return { n = 2 }").unwrap();
-        assert!(e.settles("g:read", Value::from(2)).await);
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let _e = Embedded::spawn("nvim", &args, 30, 4, move |ev| {
+            let _ = tx.send(ev);
+        })
+        .await
+        .unwrap();
+        save_until_told(&mut rx, || {
+            std::fs::write(lua.join("mine.lua"), "return { n = 2 }").unwrap()
+        })
+        .await;
     }
 
     #[tokio::test]
-    async fn a_lua_module_in_a_folder_made_after_starting_is_read_anew_too() {
-        let (e, _rx, config) = start_configured(
-            "vim.opt.rtp:prepend(vim.fs.dirname(vim.env.MYVIMRC))\n\
-             local ok, mine = pcall(require, 'deep.mine')\n\
-             vim.g.read = ok and mine.n or 0",
-        )
-        .await;
-        assert!(e.settles("g:read", Value::from(0)).await);
+    async fn a_lua_module_in_a_folder_made_after_starting_asks_for_a_restart_too() {
+        let (_e, mut rx, config) = start_configured("").await;
+        save_until_told(&mut rx, || config.write("")).await;
         let deep = config.init().with_file_name("lua").join("deep");
         std::fs::create_dir_all(&deep).unwrap();
-        std::fs::write(deep.join("mine.lua"), "return { n = 1 }").unwrap();
-        assert!(e.settles("g:read", Value::from(1)).await);
-        std::fs::write(deep.join("mine.lua"), "return { n = 2 }").unwrap();
-        assert!(e.settles("g:read", Value::from(2)).await);
+        wait(&mut rx, |ev| *ev == Event::ConfigurationSaved).await;
+        save_until_told(&mut rx, || {
+            std::fs::write(deep.join("mine.lua"), "return { n = 1 }").unwrap()
+        })
+        .await;
     }
 
     #[tokio::test]
-    async fn a_configuration_that_fails_when_read_again_leaves_the_prompt_working() {
-        let (e, mut rx, config) = start_configured("vim.g.read = 1").await;
-        assert!(e.settles("g:read", Value::from(1)).await);
-        config.write("error('broken')");
-        // The failure is told, and the prompt still takes text.
-        wait(&mut rx, |_| {
+    async fn the_text_and_the_view_of_one_prompt_can_be_put_in_the_next() {
+        let (old, mut rx) = start().await;
+        old.input("one<CR>two<CR>three<Esc>kh").await.unwrap();
+        until(&mut rx, || old.state().mode() == "normal").await;
+        let text = old.text().await.unwrap();
+        let view = old.view().await.unwrap();
+        let at = old.cursor().await.unwrap();
+        old.quit().await.unwrap();
+        let (next, _rx) = start().await;
+        next.put_back(&text).await.unwrap();
+        next.set_view(&view).await.unwrap();
+        assert_eq!(next.text().await.unwrap(), "one\ntwo\nthree");
+        assert_eq!(next.cursor().await.unwrap(), at);
+    }
+
+    #[tokio::test]
+    async fn putting_the_text_back_leaves_what_the_configuration_said_at_start() {
+        let (e, mut rx, _config) = start_configured("error('broken')").await;
+        until(&mut rx, || {
             e.state().message().is_some_and(|m| m.contains("broken"))
         })
         .await;
-        e.type_text("still").await.unwrap();
-        wait(&mut rx, |_| e.state().screen().text()[0] == "still").await;
+        e.put_back("kept").await.unwrap();
+        assert_eq!(e.text().await.unwrap(), "kept");
+        assert!(e.state().message().is_some_and(|m| m.contains("broken")));
+    }
+
+    #[tokio::test]
+    async fn a_neovim_asked_to_quit_ends_what_it_tells() {
+        let (e, mut rx) = start().await;
+        e.quit().await.unwrap();
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while rx.recv().await.is_some() {}
+        })
+        .await
+        .expect("still running");
     }
 
     #[tokio::test]

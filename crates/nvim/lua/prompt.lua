@@ -24,7 +24,7 @@ local function apply()
       readonly = false,
     },
   })
-  watch_configuration(b)
+  watch_configuration()
   -- `@` at the start of a word offers the sessions and files the window sets
   -- in g:adroit_candidates and the entries of the directory typed, walked from
   -- g:adroit_root; `/` there offers the commands in g:adroit_commands.

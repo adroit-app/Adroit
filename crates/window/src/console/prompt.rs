@@ -1,12 +1,13 @@
 //! The prompt's Neovim as the window runs it: started, and started again
-//! when it quits, as `:q` makes it; sized to the prompt card, its rows to
-//! the lines it asks for within the settings' bounds.
+//! when it quits, as `:q` makes it, or when its configuration is saved, with
+//! what is written kept; sized to the prompt card, its rows to the lines it
+//! asks for within the settings' bounds.
 
 use std::sync::Arc;
 use std::time::Instant;
 
 use adroit_core::msg::Msg;
-use adroit_nvim::{Embedded, Event as NvimEvent};
+use adroit_nvim::{Embedded, Event as NvimEvent, View};
 use dioxus::prelude::*;
 use tokio::sync::mpsc;
 
@@ -110,6 +111,8 @@ impl PromptNeovim {
         let mut restarts = Restarts::default();
         // Whether the status line tells of a Neovim that could not run.
         let mut told = false;
+        // What was written in the Neovim before, for the one started next.
+        let mut kept: Option<(String, View)> = None;
         loop {
             let (tx, rx) = mpsc::unbounded_channel();
             let started = Embedded::spawn(&nvim_program(), &[], 80, 1, move |ev| {
@@ -123,13 +126,22 @@ impl PromptNeovim {
                         app.status(None);
                     }
                     let born = Instant::now();
+                    if let Some((text, view)) = kept.take() {
+                        let _ = e.put_back(&text).await;
+                        let _ = e.set_view(&view).await;
+                    }
                     let embedded = Arc::new(e);
                     nvim.set(Some(embedded.clone()));
                     app.dispatch(Msg::PromptRuns(true));
-                    self.serve(&embedded, rx, app, has_images, commands_wanted)
+                    kept = self
+                        .serve(&embedded, rx, app, has_images, commands_wanted)
                         .await;
                     nvim.set(None);
                     app.dispatch(Msg::PromptRuns(false));
+                    if kept.is_some() {
+                        // Asked for, not quit, so not one that cannot start.
+                        continue;
+                    }
                     (
                         Some(born.elapsed()),
                         "Neovim quit as it started".to_string(),
@@ -152,7 +164,9 @@ impl PromptNeovim {
         }
     }
 
-    /// Tell the window what the prompt's Neovim does until it quits.
+    /// Tell the window what the prompt's Neovim does until it quits, or
+    /// until its configuration is saved: then it is quit, and what is written
+    /// in it is given back for the Neovim started next.
     async fn serve(
         &self,
         embedded: &Embedded,
@@ -160,7 +174,7 @@ impl PromptNeovim {
         app: AppCtx,
         has_images: Memo<bool>,
         commands_wanted: Callback<()>,
-    ) {
+    ) -> Option<(String, View)> {
         let mut prompt_frame = self.prompt_frame;
         let mut prompt_view = self.prompt_view;
         let mut prompt_height = self.prompt_height;
@@ -181,6 +195,15 @@ impl PromptNeovim {
                 NvimEvent::Yank { .. } | NvimEvent::Scrolled { .. } => {}
                 NvimEvent::Shell(on) => app.dispatch(Msg::PromptShell(on)),
                 NvimEvent::CommandsWanted => commands_wanted(()),
+                NvimEvent::ConfigurationSaved => {
+                    let (Ok(text), Ok(view)) = (embedded.text().await, embedded.view().await)
+                    else {
+                        continue;
+                    };
+                    let _ = embedded.quit().await;
+                    app.notice("The prompt's configuration was saved; it starts again".into());
+                    return Some((text, view));
+                }
                 NvimEvent::View { top, lines } => {
                     if *prompt_view.peek() != (top, lines) {
                         prompt_view.set((top, lines));
@@ -196,5 +219,6 @@ impl PromptNeovim {
                 }
             }
         }
+        None
     }
 }
