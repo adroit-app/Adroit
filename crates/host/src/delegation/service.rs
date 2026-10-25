@@ -333,6 +333,8 @@ async fn start(context: &Context, caller: &Session, start: protocol::Start) -> R
         started_ms: super::now_ms(),
         ..Default::default()
     };
+    let palette = crate::themes::palette_in_force(&settings)
+        .map_err(|error| Error::new(Code::Invalid, error))?;
     let (resolved, recorded) = super::app::prepare(
         &context.root,
         &settings,
@@ -345,8 +347,6 @@ async fn start(context: &Context, caller: &Session, start: protocol::Start) -> R
     let mut spawn = resolved.spawn;
     spawn.cols = crate::execution::COLS;
     spawn.rows = crate::execution::ROWS;
-    let palette = crate::themes::palette_in_force(&settings)
-        .map_err(|error| Error::new(Code::Invalid, error))?;
     let attach = recorded.clone();
     let started = crate::execution::spawn_headless_prepared(
         &context.daemon,

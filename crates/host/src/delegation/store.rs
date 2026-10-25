@@ -134,6 +134,18 @@ impl Store {
         {
             return Err(Error::new(Code::Refused, "the opening session has ended"));
         }
+        if new.parent.is_some() {
+            let running = running_opened(&transaction)?;
+            let limit = new.launch.delegation.max_started;
+            if running >= limit {
+                return Err(Error::new(
+                    Code::Refused,
+                    format!(
+                        "{running} sessions opened by sessions already run, and at most {limit} may; carry on yourself, or ask the user to end one"
+                    ),
+                ));
+            }
+        }
         let id = SessionId::new();
         let token = format!("{}{}", SessionId::new(), SessionId::new());
         transaction.execute(
@@ -307,12 +319,7 @@ impl Store {
 
     /// Sessions opened by sessions that have not ended.
     pub fn running_opened(&self) -> Result<usize> {
-        let count: i64 = self.connection.query_row(
-            "SELECT COUNT(*) FROM sessions WHERE parent IS NOT NULL AND ended = 0",
-            [],
-            |row| row.get(0),
-        )?;
-        Ok(count as usize)
+        running_opened(&self.connection)
     }
 
     fn update(&mut self, id: SessionId, sql: &str, value: String) -> Result<()> {
@@ -324,6 +331,15 @@ impl Store {
         }
         Ok(())
     }
+}
+
+fn running_opened(connection: &Connection) -> Result<usize> {
+    let count: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM sessions WHERE parent IS NOT NULL AND ended = 0",
+        [],
+        |row| row.get(0),
+    )?;
+    Ok(count as usize)
 }
 
 const SESSION_COLUMNS: &str = "id, parent, agent, name, cwd, terminal, conversation, readiness, started_ms, ended, profile, home";
@@ -685,6 +701,47 @@ mod tests {
         store.end(first).unwrap();
 
         assert_eq!(store.running_opened().unwrap(), 1);
+    }
+
+    #[test]
+    fn concurrent_registrations_cannot_reserve_the_same_last_session_slot() {
+        let (dir, mut store) = store();
+        let parent = register(&mut store, None, "opener");
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let mut requests = Vec::new();
+        for name in ["first", "second"] {
+            let path = dir.path().join("delegation/state.sqlite3");
+            let barrier = barrier.clone();
+            requests.push(std::thread::spawn(move || {
+                let mut store = Store::open(&path).unwrap();
+                let mut session = new(Some(parent), name);
+                session.launch.delegation.max_started = 1;
+                assert_eq!(store.running_opened().unwrap(), 0);
+                barrier.wait();
+                store.register(session)
+            }));
+        }
+        let results: Vec<_> = requests
+            .into_iter()
+            .map(|request| request.join().unwrap())
+            .collect();
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(
+            results
+                .iter()
+                .filter(|result| matches!(result, Err(error) if error.code == Code::Refused))
+                .count(),
+            1
+        );
+        assert_eq!(store.running_opened().unwrap(), 1);
+        let reserved = results.into_iter().find_map(Result::ok).unwrap().0;
+        store.end(reserved).unwrap();
+        let mut next = new(Some(parent), "after failed start");
+        next.launch.delegation.max_started = 1;
+        assert!(store.register(next).is_ok());
+        let mut user_started = new(None, "user started");
+        user_started.launch.delegation.max_started = 0;
+        assert!(store.register(user_started).is_ok());
     }
 
     #[test]
