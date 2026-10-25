@@ -7,7 +7,7 @@ mod keys;
 mod reader;
 mod ui;
 
-pub use embed::{Candidate, Embedded, Event};
+pub use embed::{Candidate, Embedded, Event, View};
 pub use keys::notation;
 pub use reader::Mark;
 pub use ui::{Cmdline, Popup, PopupItem, UiState};

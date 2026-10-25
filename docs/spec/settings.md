@@ -351,7 +351,9 @@ line, window bar or command line, ignore no events, keep the theme's
 `adroit-prompt` or `adroit-console`. The prompt's text can always be changed.
 The reader's text stays as the console draws it: unwrapped, unfolded, with nothing
 concealed or beside it, and unable to be changed. Its keys that would leave
-the reader, `:` and Ex mode, quitting, and `<C-w>`, stay without effect. These
+the reader, `:` and Ex mode, quitting, and `<C-w>`, stay without effect in its
+text, and a split or a tab opened in it closes at once; a floating window, as
+a plugin's picker or notification opens, stays, with its own keys. These
 are set again whenever a configuration, a filetype plugin or a plugin changes
 them. The keys the window itself gives these Neovims, to start writing or to
 scroll the reader, work whatever the configuration maps them to. The rest, such as line numbers,
@@ -371,12 +373,12 @@ Neovim, and is shown by Neovim's own completion. A configuration that
 completes with a plugin of its own sets `g:adroit_autocomplete` to false; the
 plugin finds the offers as that language server's completion.
 
-A configuration saved while its Neovim runs is read again by it, with what is
-written and the cursor kept: `init.lua`, or a Lua module of the folder's
-`lua/`, which `require` then reads anew. The filetype plugins of the prompt or
-the reader run again after it, and what the window relies on is set again. A
-configuration that fails when read again says so in a message, and what was
-read before stays in force.
+A configuration saved while its Neovim runs, `init.lua` or a file under the
+folder's `lua/`, starts that Neovim again, which reads it as it reads it at
+start. The prompt keeps what is written and the cursor, and the reader, while
+the console is read, keeps where it was scrolled to and the cursor, showing the
+console as it is then. A configuration that fails says so in a message, as it
+does when the Neovim starts.
 
 Either Neovim that quits is started again; the console read when its
 reader quits is shown live. One that quits as it starts, as a

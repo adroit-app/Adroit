@@ -174,29 +174,37 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_configuration_saved_again_is_read_again_with_the_console_s_filetype_plugins() {
-        let (e, config) = start_configured("vim.g.read = 1").await;
-        e.show(&lines(&["one"]), &[], (0, 0), true, "#101010")
+    async fn saving_the_configuration_asks_for_a_restart() {
+        let config = crate::embed::UserConfig::new("");
+        let args = config.args();
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let _e = Embedded::spawn_reader("nvim", &args, 30, 4, move |ev| {
+            let _ = tx.send(ev);
+        })
+        .await
+        .unwrap();
+        crate::embed::save_until_told(&mut rx, || config.write("vim.g.read = 2")).await;
+    }
+
+    #[tokio::test]
+    async fn where_one_reader_was_can_be_put_in_the_next_shown_the_same() {
+        let ten: Vec<String> = (1..=10).map(|n| n.to_string()).collect();
+        let (old, _rx) = start().await;
+        old.show(&ten, &[], (9, 0), true, "#101010").await.unwrap();
+        old.input("5kl").await.unwrap();
+        assert!(old.settles("line('.')", Value::from(5)).await);
+        let view = old.view().await.unwrap();
+        let was = old.eval("[line('w0'), line('.'), col('.')]").await;
+        old.quit().await.unwrap();
+        let (next, mut rx) = start().await;
+        next.show(&ten, &[], (9, 0), false, "#101010")
             .await
             .unwrap();
-        assert!(e.settles("g:read", Value::from(1)).await);
-        config.write(
-            r#"
-            vim.g.read = 2
-            vim.api.nvim_create_autocmd("FileType", {
-              pattern = "adroit-console",
-              callback = function() vim.b.seen = 1 end,
-            })
-            "#,
-        );
-        assert!(
-            e.settles(
-                "[g:read, get(b:, 'seen', 0)]",
-                Value::from(vec![Value::from(2), Value::from(1)])
-            )
-            .await
-        );
-        assert!(e.settles("&modifiable", Value::from(0)).await);
+        next.set_view(&view).await.unwrap();
+        assert_eq!(next.eval("[line('w0'), line('.'), col('.')]").await, was);
+        // The window is told where it shows from, for the images over it.
+        wait(&mut rx, |ev| *ev == Event::Scrolled { top: 3, left: 0 }).await;
     }
 
     #[tokio::test]
@@ -303,6 +311,64 @@ mod tests {
                 e.eval(LAYOUT).await
             );
         }
+    }
+
+    /// Opens a floating window over the text, focused, as a picker of a
+    /// plugin's would, and keeps it in `g:float`.
+    const FLOAT: &str = "vim.g.float = vim.api.nvim_open_win(vim.api.nvim_create_buf(false, true), \
+                         true, { relative = 'editor', row = 0, col = 0, width = 10, height = 1 })";
+
+    #[tokio::test]
+    async fn a_floating_window_opened_in_it_stays_open_and_focused() {
+        let (e, _rx) = start().await;
+        e.show(&lines(&["one", "two"]), &[], (0, 0), true, "#101010")
+            .await
+            .unwrap();
+        e.exec(FLOAT, vec![]).await.unwrap();
+        // Long enough for what closes windows to have run.
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(
+            e.eval("[nvim_win_is_valid(g:float), win_getid() == g:float]")
+                .await,
+            Value::from(vec![Value::from(true), Value::from(1)])
+        );
+    }
+
+    #[tokio::test]
+    async fn a_split_opened_beside_a_floating_window_closes_and_the_float_stays() {
+        let (e, _rx) = start().await;
+        e.show(&lines(&["one", "two"]), &[], (0, 0), true, "#101010")
+            .await
+            .unwrap();
+        e.exec(FLOAT, vec![]).await.unwrap();
+        e.exec("vim.cmd('noautocmd wincmd p'); vim.cmd('split')", vec![])
+            .await
+            .unwrap();
+        let layout = "[len(filter(nvim_tabpage_list_wins(0), \
+                      {_, w -> nvim_win_get_config(w).relative == ''})), \
+                      nvim_win_is_valid(g:float), bufnr() == g:adroit_buf]";
+        assert!(
+            e.settles(
+                layout,
+                Value::from(vec![Value::from(1), Value::from(true), Value::from(1)])
+            )
+            .await,
+            "{}",
+            e.eval(layout).await
+        );
+    }
+
+    #[tokio::test]
+    async fn the_keys_it_denies_are_denied_in_its_buffer_alone() {
+        let (e, _rx) = start().await;
+        e.show(&lines(&["one"]), &[], (0, 0), true, "#101010")
+            .await
+            .unwrap();
+        let global = "luaeval('#vim.tbl_filter(function(m) return vim.tbl_contains(\
+                      {\":\", \"Q\", \"gQ\", \"ZZ\", \"ZQ\", \"<C-W>\"}, m.lhs) end, \
+                      vim.api.nvim_get_keymap(\"n\"))')";
+        assert_eq!(e.eval(global).await, Value::from(0));
+        assert_eq!(e.eval("maparg(':', 'n')").await, Value::from("<Nop>"));
     }
 
     #[tokio::test]
