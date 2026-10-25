@@ -406,17 +406,6 @@ fn clip(text: &str) -> String {
     format!("{}…", &text[..end])
 }
 
-/// What `lines` of a session's transcript tell of its subagents.
-pub fn agents<'a>(lines: impl IntoIterator<Item = &'a str>) -> Vec<Agent> {
-    let mut c = Collector::default();
-    for line in lines {
-        if let Ok(v) = serde_json::from_str::<Value>(line) {
-            c.feed(&v);
-        }
-    }
-    c.agents()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -495,7 +484,13 @@ mod tests {
     }
 
     fn read(lines: &[String]) -> Vec<Agent> {
-        agents(lines.iter().map(String::as_str))
+        let mut c = Collector::default();
+        for line in lines {
+            if let Ok(v) = serde_json::from_str::<Value>(line) {
+                c.feed(&v);
+            }
+        }
+        c.agents()
     }
 
     fn standings(agents: &[Agent]) -> Vec<(&str, Standing)> {
