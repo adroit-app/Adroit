@@ -29,6 +29,7 @@ use crate::settings::{Appearance, OptionAsAlt, Settings, ThemeKind};
 use crate::style::SETTINGS_CSS;
 use crate::zoom::LEVELS;
 
+mod about;
 mod profiles;
 
 thread_local! {
@@ -90,9 +91,12 @@ enum Pane {
     Agents,
     Programs,
     Keys,
+    About,
 }
 
 impl Pane {
+    /// The panes of settings, in the order the sidebar lists them; About is
+    /// set apart below them.
     const ALL: [Pane; 7] = [
         Pane::General,
         Pane::Appearance,
@@ -112,6 +116,7 @@ impl Pane {
             Pane::Agents => "Agents",
             Pane::Programs => "Programs",
             Pane::Keys => "Keys",
+            Pane::About => "About",
         }
     }
 
@@ -124,6 +129,7 @@ impl Pane {
             Pane::Agents => Icon::Message,
             Pane::Programs => Icon::Terminal2,
             Pane::Keys => Icon::Keyboard,
+            Pane::About => Icon::InfoCircle,
         }
     }
 }
@@ -140,6 +146,15 @@ pub(crate) fn open_with(how: &str, path: &Path, starter: &str) {
     }
     let mut cmd = tokio::process::Command::new("open");
     cmd.arg(how).arg(path);
+    spawn(async move {
+        let _ = cmd.status().await;
+    });
+}
+
+/// Hand `target`, a folder or an address, to `open`, as the Finder would.
+fn run_open(target: impl AsRef<std::ffi::OsStr>) {
+    let mut cmd = tokio::process::Command::new("open");
+    cmd.arg(target);
     spawn(async move {
         let _ = cmd.status().await;
     });
@@ -273,29 +288,47 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
                         }
                     }
                 }
+                div { class: "settings-nav-spacer" }
+                button {
+                    r#type: "button",
+                    aria_current: if pane() == Pane::About { "page" } else { "false" },
+                    class: if pane() == Pane::About { "settings-nav-item on" } else { "settings-nav-item" },
+                    onclick: move |_| pane.set(Pane::About),
+                    IconView { icon: Pane::About.icon(), size: 16 }
+                    "{Pane::About.title()}"
+                }
             }
             main { class: "settings-pane",
-                SettingsFileError {}
-                if let Some(e) = failed() {
-                    SettingsError { "Could not keep the settings: {e}" }
+                // A profile's page and About name themselves.
+                if !matches!(pane(), Pane::Agents | Pane::About) {
+                    header { class: "settings-pane-head",
+                        h1 { "{pane().title()}" }
+                    }
                 }
-                match pane() {
-                    Pane::General => rsx! { General { now: now(), change } },
-                    Pane::Appearance => rsx! { AppearancePane { now: now(), change } },
-                    Pane::Console => rsx! { ConsolePane { now: now(), change } },
-                    Pane::Prompt => rsx! { PromptPane { now: now(), change } },
-                    Pane::Agents => rsx! {
-                        profiles::AgentsPane {
-                            page: page.clone(),
-                            now: now(),
-                            agents: agents.clone(),
-                            change,
-                            choose: move |to: AgentPage| chosen.set(Some(to)),
-                            left,
-                        }
-                    },
-                    Pane::Programs => rsx! { ProgramsPane { now: now(), change } },
-                    Pane::Keys => rsx! { KeysPane {} },
+                div { class: "settings-measure",
+                    SettingsFileError {}
+                    if let Some(e) = failed() {
+                        SettingsError { "Could not keep the settings: {e}" }
+                    }
+                    match pane() {
+                        Pane::General => rsx! { General { now: now(), change } },
+                        Pane::Appearance => rsx! { AppearancePane { now: now(), change } },
+                        Pane::Console => rsx! { ConsolePane { now: now(), change } },
+                        Pane::Prompt => rsx! { PromptPane { now: now(), change } },
+                        Pane::Agents => rsx! {
+                            profiles::AgentsPane {
+                                page: page.clone(),
+                                now: now(),
+                                agents: agents.clone(),
+                                change,
+                                choose: move |to: AgentPage| chosen.set(Some(to)),
+                                left,
+                            }
+                        },
+                        Pane::Programs => rsx! { ProgramsPane { now: now(), change } },
+                        Pane::Keys => rsx! { KeysPane {} },
+                        Pane::About => rsx! { about::AboutPane {} },
+                    }
                 }
             }
         }
@@ -306,18 +339,6 @@ type Change = Box<dyn FnOnce(&mut Settings)>;
 
 #[component]
 fn General(now: Settings, change: Callback<Change>) -> Element {
-    let config = use_config();
-    let files = {
-        let files = config.read();
-        let files = files.files();
-        let path = |file: Option<&adroit_protocol::ConfigFile>| {
-            file.map(|f| f.path.clone()).unwrap_or_default()
-        };
-        [
-            ("Settings", path(files.settings.as_ref()), ""),
-            ("Key bindings", path(files.keys.as_ref()), KEYS_STARTER),
-        ]
-    };
     rsx! {
         SettingGroup {
             SettingRow { label: "Zoom", hint: "How large the window draws everything when it opens; ⌘0 comes back to it.",
@@ -437,13 +458,6 @@ fn General(now: Settings, change: Callback<Change>) -> Element {
                 }
             }
         }
-        SettingGroup { title: "Files",
-            for (name, path, starter) in files {
-                SettingRow { key: "{name}", label: name, hint: tilde(&path, &home()),
-                    button { onclick: move |_| open_with("-R", &path, starter), "Show in Finder" }
-                }
-            }
-        }
     }
 }
 
@@ -518,12 +532,9 @@ fn AppearancePane(now: Settings, change: Callback<Change>) -> Element {
                 button {
                     onclick: move |_| {
                         let _ = std::fs::create_dir_all(&themes_dir);
-                        let mut cmd = tokio::process::Command::new("open");
-                        cmd.arg(&themes_dir);
-                        spawn(async move {
-                            let _ = cmd.status().await;
-                        });
+                        run_open(&themes_dir);
                     },
+                    IconView { icon: Icon::FolderOpen, size: 14 }
                     "Open"
                 }
             }

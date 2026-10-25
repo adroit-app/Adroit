@@ -4,11 +4,11 @@ use dioxus::prelude::*;
 #[component]
 pub fn SettingGroup(#[props(default)] title: Option<String>, children: Element) -> Element {
     rsx! {
-        section { class: "settings-group",
+        section { class: "settings-section",
             if let Some(title) = title {
-                h2 { "{title}" }
+                h2 { class: "settings-section-title", "{title}" }
             }
-            {children}
+            div { class: "settings-group", {children} }
         }
     }
 }
@@ -43,7 +43,9 @@ pub fn SettingRow(label: String, hint: String, children: Element) -> Element {
 pub fn Toggle(checked: bool, onchange: EventHandler<bool>) -> Element {
     rsx! {
         input {
+            class: "switch",
             r#type: "checkbox",
+            role: "switch",
             checked,
             onchange: move |e| onchange.call(e.checked()),
         }

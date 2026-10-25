@@ -8,7 +8,7 @@ members = ["crates/*"]
 version = "0.0.0"
 edition = "2024"
 license = "MIT"
-repository = "https://github.com/lambdalisue/adroit"
+repository = "https://github.com/adroit-app/Adroit"
 
 [workspace.dependencies]
 adroit-model = { path = "crates/model", version = "0.0.0" }
