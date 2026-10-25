@@ -181,62 +181,38 @@ impl AgentContext {
 
     /// Claude Code's options; nothing chosen for a profile of another agent.
     pub fn claude(&self) -> SessionOptions {
-        match &self.options {
-            AgentOptions::Claude(options) => options.clone(),
-            _ => SessionOptions::default(),
-        }
+        self.options.claude().cloned().unwrap_or_default()
     }
 
     pub fn claude_mut(&mut self) -> Option<&mut SessionOptions> {
-        match &mut self.options {
-            AgentOptions::Claude(options) => Some(options),
-            _ => None,
-        }
+        self.options.claude_mut()
     }
 
     /// Codex's options; nothing chosen for a profile of another agent.
     pub fn codex(&self) -> CodexOptions {
-        match &self.options {
-            AgentOptions::Codex(options) => options.clone(),
-            _ => CodexOptions::default(),
-        }
+        self.options.codex().cloned().unwrap_or_default()
     }
 
     pub fn codex_mut(&mut self) -> Option<&mut CodexOptions> {
-        match &mut self.options {
-            AgentOptions::Codex(options) => Some(options),
-            _ => None,
-        }
+        self.options.codex_mut()
     }
 
     /// Pi's options; nothing chosen for a profile of another agent.
     pub fn pi(&self) -> PiOptions {
-        match &self.options {
-            AgentOptions::Pi(options) => options.clone(),
-            _ => PiOptions::default(),
-        }
+        self.options.pi().cloned().unwrap_or_default()
     }
 
     pub fn pi_mut(&mut self) -> Option<&mut PiOptions> {
-        match &mut self.options {
-            AgentOptions::Pi(options) => Some(options),
-            _ => None,
-        }
+        self.options.pi_mut()
     }
 
     /// OpenCode's options; nothing chosen for a profile of another agent.
     pub fn opencode(&self) -> OpenCodeOptions {
-        match &self.options {
-            AgentOptions::OpenCode(options) => options.clone(),
-            _ => OpenCodeOptions::default(),
-        }
+        self.options.opencode().cloned().unwrap_or_default()
     }
 
     pub fn opencode_mut(&mut self) -> Option<&mut OpenCodeOptions> {
-        match &mut self.options {
-            AgentOptions::OpenCode(options) => Some(options),
-            _ => None,
-        }
+        self.options.opencode_mut()
     }
 }
 

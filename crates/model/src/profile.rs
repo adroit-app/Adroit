@@ -156,6 +156,66 @@ impl AgentOptions {
             Self::OpenCode(options) => &mut options.model,
         }
     }
+
+    /// Claude Code's options; none for another agent's.
+    pub fn claude(&self) -> Option<&SessionOptions> {
+        match self {
+            Self::Claude(options) => Some(options),
+            _ => None,
+        }
+    }
+
+    pub fn claude_mut(&mut self) -> Option<&mut SessionOptions> {
+        match self {
+            Self::Claude(options) => Some(options),
+            _ => None,
+        }
+    }
+
+    /// Codex's options; none for another agent's.
+    pub fn codex(&self) -> Option<&CodexOptions> {
+        match self {
+            Self::Codex(options) => Some(options),
+            _ => None,
+        }
+    }
+
+    pub fn codex_mut(&mut self) -> Option<&mut CodexOptions> {
+        match self {
+            Self::Codex(options) => Some(options),
+            _ => None,
+        }
+    }
+
+    /// Pi's options; none for another agent's.
+    pub fn pi(&self) -> Option<&PiOptions> {
+        match self {
+            Self::Pi(options) => Some(options),
+            _ => None,
+        }
+    }
+
+    pub fn pi_mut(&mut self) -> Option<&mut PiOptions> {
+        match self {
+            Self::Pi(options) => Some(options),
+            _ => None,
+        }
+    }
+
+    /// OpenCode's options; none for another agent's.
+    pub fn opencode(&self) -> Option<&OpenCodeOptions> {
+        match self {
+            Self::OpenCode(options) => Some(options),
+            _ => None,
+        }
+    }
+
+    pub fn opencode_mut(&mut self) -> Option<&mut OpenCodeOptions> {
+        match self {
+            Self::OpenCode(options) => Some(options),
+            _ => None,
+        }
+    }
 }
 
 /// What a session is started from: an agent, where it keeps its login, how
@@ -200,62 +260,38 @@ impl AgentProfile {
 
     /// Claude Code's options, for a Claude Code profile.
     pub fn claude(&self) -> Option<&SessionOptions> {
-        match &self.options {
-            AgentOptions::Claude(options) => Some(options),
-            _ => None,
-        }
+        self.options.claude()
     }
 
     pub fn claude_mut(&mut self) -> Option<&mut SessionOptions> {
-        match &mut self.options {
-            AgentOptions::Claude(options) => Some(options),
-            _ => None,
-        }
+        self.options.claude_mut()
     }
 
     /// Codex's options, for a Codex profile.
     pub fn codex(&self) -> Option<&CodexOptions> {
-        match &self.options {
-            AgentOptions::Codex(options) => Some(options),
-            _ => None,
-        }
+        self.options.codex()
     }
 
     pub fn codex_mut(&mut self) -> Option<&mut CodexOptions> {
-        match &mut self.options {
-            AgentOptions::Codex(options) => Some(options),
-            _ => None,
-        }
+        self.options.codex_mut()
     }
 
     /// Pi's options, for a Pi profile.
     pub fn pi(&self) -> Option<&PiOptions> {
-        match &self.options {
-            AgentOptions::Pi(options) => Some(options),
-            _ => None,
-        }
+        self.options.pi()
     }
 
     pub fn pi_mut(&mut self) -> Option<&mut PiOptions> {
-        match &mut self.options {
-            AgentOptions::Pi(options) => Some(options),
-            _ => None,
-        }
+        self.options.pi_mut()
     }
 
     /// OpenCode's options, for an OpenCode profile.
     pub fn opencode(&self) -> Option<&OpenCodeOptions> {
-        match &self.options {
-            AgentOptions::OpenCode(options) => Some(options),
-            _ => None,
-        }
+        self.options.opencode()
     }
 
     pub fn opencode_mut(&mut self) -> Option<&mut OpenCodeOptions> {
-        match &mut self.options {
-            AgentOptions::OpenCode(options) => Some(options),
-            _ => None,
-        }
+        self.options.opencode_mut()
     }
 }
 
@@ -470,6 +506,27 @@ mod tests {
 
     fn id(text: &str) -> ProfileId {
         text.parse().unwrap()
+    }
+
+    #[test]
+    fn an_agent_s_options_are_handed_out_only_for_that_agent() {
+        let mut pi = AgentOptions::of(Agent::Pi);
+        assert!(pi.pi().is_some());
+        assert!(pi.claude().is_none() && pi.codex().is_none() && pi.opencode().is_none());
+        pi.pi_mut().unwrap().model = "ollama/qwen3".into();
+        assert_eq!(pi.model(), "ollama/qwen3");
+        assert!(pi.claude_mut().is_none() && pi.codex_mut().is_none());
+        assert!(pi.opencode_mut().is_none());
+        for agent in Agent::ALL {
+            let options = AgentOptions::of(agent);
+            let held = [
+                options.claude().is_some(),
+                options.codex().is_some(),
+                options.pi().is_some(),
+                options.opencode().is_some(),
+            ];
+            assert_eq!(held.iter().filter(|h| **h).count(), 1, "{agent:?}");
+        }
     }
 
     #[test]
