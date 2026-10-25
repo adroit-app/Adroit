@@ -33,13 +33,22 @@ pub(super) fn AboutPane() -> Element {
         ]
     };
     let version = build();
+    // The Neovim the prompt and the console's reader run, which a report of
+    // a problem with them needs as much as adroit's own version.
+    let neovim = use_resource(adroit_nvim::version);
+    let neovim = match &*neovim.read() {
+        Some(Some(v)) => format!("Neovim {v}"),
+        Some(None) => "Neovim cannot be run".into(),
+        None => "Neovim …".into(),
+    };
     rsx! {
         div { class: "about",
             div { class: "about-icon", dangerous_inner_html: ICON }
             h1 { class: "about-name", "Adroit" }
             p { class: "about-version", "Version {version}" }
+            p { class: "about-version", "{neovim}" }
             p { class: "about-tagline",
-                "A workspace for Claude Code, Codex, Pi and OpenCode sessions: their own terminal interfaces, prompts in Neovim, Vim-style moves."
+                "An Agent Workspace for people who live in Vim: drive any coding agent in its own terminal interface, by hand and the way you edit."
             }
         }
         SettingGroup { title: "Files",

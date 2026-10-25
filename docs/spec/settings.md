@@ -7,7 +7,8 @@ file they are kept in can be edited by hand as well: a change saved there
 applies within a second. The window also lists the key bindings in force, each
 of which can be changed there
 ([keys](keys.md#changing-them-in-the-settings-window)). Its About page, set
-apart from the settings, tells which build of Adroit is running, opens the
+apart from the settings, tells which build of Adroit is running and which
+version of Neovim its prompt and console reader run, opens the
 files the settings and key bindings are kept in, and leads to the source and
 to where problems are reported.
 
