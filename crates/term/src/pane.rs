@@ -19,7 +19,7 @@ use felis_protocol::messages::{
     MouseEvent, PushMsg, RequestedDims, SessionInfo, SessionToDaemonMsg, ThemeChannel,
 };
 use felis_transport::local::{ReadHalf, WriteHalf};
-use felis_transport::{Delivery, Incoming};
+use felis_transport::{ClientDriver, Delivery, Incoming, Payload};
 use tokio::sync::mpsc;
 
 use crate::daemon::{Daemon, Error, Result, Spawn, spawn_args};
@@ -168,17 +168,22 @@ fn gated(spawn: Spawn) -> Spawn {
     }
 }
 
+/// `spawn` [`gated`], refused as the daemon would refuse it when its program
+/// is missing: behind the gate the daemon starts a shell, which is always
+/// there.
+fn held(spawn: Spawn) -> Result<Spawn> {
+    if !found(&spawn) {
+        return Err(Error::NotFound(spawn.program));
+    }
+    Ok(gated(spawn))
+}
+
 impl Daemon {
     /// Start a session as `spawn` says with its program held back, returning
     /// its id. A pane attached to it tells it the colours; [`Daemon::release`]
     /// then lets the program go, so the first colour it asks for is theirs.
     pub async fn spawn_held(&self, spawn: Spawn) -> Result<u128> {
-        // Behind the gate the daemon starts a shell, which is always there,
-        // so a program missing is told here, as the daemon would have.
-        if !found(&spawn) {
-            return Err(Error::NotFound(spawn.program));
-        }
-        self.spawn(gated(spawn)).await
+        self.spawn(held(spawn)?).await
     }
 
     /// Let the program of a session [`Daemon::spawn_held`] made go.
@@ -324,12 +329,7 @@ impl Pane {
         F: std::future::Future<Output = Result<()>>,
         G: std::future::Future<Output = Result<T>>,
     {
-        // Behind the gate the daemon starts a shell, which is always there,
-        // so a program missing is told here, as the daemon would have.
-        if !found(&spawn) {
-            return Err(Error::NotFound(spawn.program));
-        }
-        let mut args = spawn_args(gated(spawn));
+        let mut args = spawn_args(held(spawn)?);
         args.dims = Some(size.dims());
         let mut conn = daemon.window().await?;
         let info = conn.create_with(args).await?;
@@ -383,85 +383,8 @@ impl Pane {
             },
             closed: false,
         }));
-        let mut conn = conn;
-        let (out, mut queue) = mpsc::unbounded_channel::<WriteRequest>();
-        let waker: Waker = Arc::new(waker);
-        let reading = state.clone();
-        let reader = tokio::spawn(async move {
-            loop {
-                let frame = tokio::select! {
-                    request = queue.recv() => {
-                        match request {
-                            Some(WriteRequest::Frame(frame)) => {
-                                if conn.writer.send_checked_unflushed(frame.frame()).await.is_err()
-                                    || conn.writer.flush().await.is_err()
-                                {
-                                    break;
-                                }
-                            }
-                            Some(WriteRequest::Fence(reply)) => {
-                                let result = conn.input_fence().await.map_err(|error| error.to_string());
-                                let failed = result.is_err();
-                                let _ = reply.send(result);
-                                if failed {
-                                    break;
-                                }
-                            }
-                            None => break,
-                        }
-                        continue;
-                    }
-                    frame = conn.next_frame() => {
-                        match frame {
-                            Ok(Some(frame)) => frame,
-                            _ => break,
-                        }
-                    }
-                };
-                let Ok(incoming) = conn.driver.classify(&frame) else {
-                    break;
-                };
-                let p = match incoming {
-                    Incoming::Payload(p) => p,
-                    Incoming::Control(ConnToClientMsg::Error { .. }) => break,
-                    _ => continue,
-                };
-                let mut s = reading.lock().unwrap();
-                let ok = match p.kind {
-                    MessageKind::Grid => match conn.driver.decode::<GridMsg>(&p) {
-                        Ok(Delivery::Deliver(d)) => s.grid(&d.msg),
-                        Ok(_) => true,
-                        Err(_) => false,
-                    },
-                    MessageKind::Image => match conn.driver.decode::<ImageMsg>(&p) {
-                        Ok(Delivery::Deliver(d)) => s.image(&d.msg),
-                        Ok(_) => true,
-                        Err(_) => false,
-                    },
-                    MessageKind::Push => match conn.driver.decode::<PushMsg>(&p) {
-                        Ok(Delivery::Deliver(d)) => {
-                            if matches!(d.msg, PushMsg::SessionExited { .. }) {
-                                s.exited = true;
-                            }
-                            true
-                        }
-                        Ok(_) => true,
-                        Err(_) => false,
-                    },
-                    _ => true,
-                };
-                let drawn = !s.shadow.is_rehydrating();
-                drop(s);
-                if !ok {
-                    break;
-                }
-                if drawn {
-                    waker();
-                }
-            }
-            reading.lock().unwrap().closed = true;
-            waker();
-        });
+        let (out, queue) = mpsc::unbounded_channel::<WriteRequest>();
+        let reader = tokio::spawn(serve(conn, queue, state.clone(), Arc::new(waker)));
         let pane = Self {
             id,
             last_input_ms: AtomicU64::new(0),
@@ -742,7 +665,96 @@ impl Pane {
     }
 }
 
+/// Write what `queue` asks to `conn` and mirror what it sends into
+/// `reading`, waking `waker` on each change drawn, until either side ends.
+async fn serve(
+    mut conn: Connection<ReadHalf, WriteHalf>,
+    mut queue: mpsc::UnboundedReceiver<WriteRequest>,
+    reading: Arc<Mutex<State>>,
+    waker: Waker,
+) {
+    loop {
+        let frame = tokio::select! {
+            request = queue.recv() => {
+                match request {
+                    Some(WriteRequest::Frame(frame)) => {
+                        if conn.writer.send_checked_unflushed(frame.frame()).await.is_err()
+                            || conn.writer.flush().await.is_err()
+                        {
+                            break;
+                        }
+                    }
+                    Some(WriteRequest::Fence(reply)) => {
+                        let result = conn.input_fence().await.map_err(|error| error.to_string());
+                        let failed = result.is_err();
+                        let _ = reply.send(result);
+                        if failed {
+                            break;
+                        }
+                    }
+                    None => break,
+                }
+                continue;
+            }
+            frame = conn.next_frame() => {
+                match frame {
+                    Ok(Some(frame)) => frame,
+                    _ => break,
+                }
+            }
+        };
+        let Ok(incoming) = conn.driver.classify(&frame) else {
+            break;
+        };
+        let p = match incoming {
+            Incoming::Payload(p) => p,
+            Incoming::Control(ConnToClientMsg::Error { .. }) => break,
+            _ => continue,
+        };
+        let mut s = reading.lock().unwrap();
+        let ok = s.take(&mut conn.driver, &p);
+        let drawn = !s.shadow.is_rehydrating();
+        drop(s);
+        if !ok {
+            break;
+        }
+        if drawn {
+            waker();
+        }
+    }
+    reading.lock().unwrap().closed = true;
+    waker();
+}
+
 impl State {
+    /// Take one message `payload` carries in; `false` when it cannot be, and
+    /// the connection has to end.
+    fn take(&mut self, driver: &mut ClientDriver, payload: &Payload) -> bool {
+        match payload.kind {
+            MessageKind::Grid => match driver.decode::<GridMsg>(payload) {
+                Ok(Delivery::Deliver(d)) => self.grid(&d.msg),
+                Ok(_) => true,
+                Err(_) => false,
+            },
+            MessageKind::Image => match driver.decode::<ImageMsg>(payload) {
+                Ok(Delivery::Deliver(d)) => self.image(&d.msg),
+                Ok(_) => true,
+                Err(_) => false,
+            },
+            MessageKind::Push => match driver.decode::<PushMsg>(payload) {
+                Ok(Delivery::Deliver(d)) => {
+                    if matches!(d.msg, PushMsg::SessionExited { .. }) {
+                        self.exited = true;
+                    }
+                    true
+                }
+                Ok(_) => true,
+                Err(_) => false,
+            },
+            _ => true,
+        }
+    }
+
     /// Take one grid message in; `false` when it cannot be, and the
     /// connection has to end.
     fn grid(&mut self, msg: &GridMsg) -> bool {
