@@ -291,6 +291,32 @@ fn NavItem(pane: Pane, shown: Signal<Pane>) -> Element {
 
 type Change = Box<dyn FnOnce(&mut Settings)>;
 
+/// Options as a group shows them, with what each of its rows makes of them.
+struct Edits<T> {
+    options: Rc<T>,
+    set: Callback<T>,
+}
+
+impl<T: Clone + 'static> Edits<T> {
+    fn new(options: &T, set: Callback<T>) -> Self {
+        Self {
+            options: Rc::new(options.clone()),
+            set,
+        }
+    }
+
+    /// What a row does with a value: the options `edit` makes of it are
+    /// `set`.
+    fn of<V>(&self, edit: impl Fn(&mut T, V) + 'static) -> impl FnMut(V) + 'static {
+        let (options, set) = (self.options.clone(), self.set);
+        move |value| {
+            let mut next = T::clone(&options);
+            edit(&mut next, value);
+            set(next);
+        }
+    }
+}
+
 /// What a number field does with what it holds once left: `set` it on the
 /// settings when it reads as a number, and nothing otherwise.
 fn set_number<T: std::str::FromStr + 'static>(

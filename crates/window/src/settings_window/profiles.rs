@@ -141,6 +141,25 @@ fn PageHead(title: String, #[props(default)] mark: Option<String>) -> Element {
     }
 }
 
+/// A choice among the agents, `chosen` now, called `label`, telling
+/// `onchange` the one chosen.
+#[component]
+fn AgentSelect(label: String, chosen: Agent, onchange: EventHandler<Agent>) -> Element {
+    rsx! {
+        select {
+            aria_label: label,
+            onchange: move |e| {
+                if let Some(a) = Agent::parse(&e.value()) {
+                    onchange.call(a);
+                }
+            },
+            for a in Agent::ALL {
+                option { key: "{a.key()}", value: "{a.key()}", selected: chosen == a, "{a.label()}" }
+            }
+        }
+    }
+}
+
 /// Everything about the profile `id`: its name, agent and login, its new
 /// sessions' options and its launch, and what can be done to it.
 #[component]
@@ -299,17 +318,7 @@ fn ProfilePage(
                 }
             }
             SettingRow { label: "Agent", hint: "Changing it resets the model, options, login and command.",
-                select {
-                    aria_label: "Profile agent",
-                    onchange: move |e| {
-                        if let Some(a) = Agent::parse(&e.value()) {
-                            switch_agent(a);
-                        }
-                    },
-                    for a in Agent::ALL {
-                        option { key: "{a.key()}", value: "{a.key()}", selected: agent == a, "{a.label()}" }
-                    }
-                }
+                AgentSelect { label: "Profile agent", chosen: agent, onchange: move |a: Agent| switch_agent(a) }
             }
             if let Some(said) = reset() {
                 div { class: "settings-row",
@@ -425,17 +434,7 @@ fn NewProfilePage(now: Settings, change: Callback<Change>, choose: Callback<Agen
                 }
             }
             SettingRow { label: "Agent", hint: "",
-                select {
-                    aria_label: "New profile's agent",
-                    onchange: move |e| {
-                        if let Some(a) = Agent::parse(&e.value()) {
-                            agent.set(a);
-                        }
-                    },
-                    for a in Agent::ALL {
-                        option { key: "{a.key()}", value: "{a.key()}", selected: agent() == a, "{a.label()}" }
-                    }
-                }
+                AgentSelect { label: "New profile's agent", chosen: agent(), onchange: move |a: Agent| agent.set(a) }
             }
             div { class: "settings-row",
                 div { class: "settings-row-label" }

@@ -6,6 +6,7 @@ use adroit_model::config::{
 };
 use dioxus::prelude::*;
 
+use super::Edits;
 use crate::components::{Select, SettingGroup, SettingRow, TextArea, TextField, Toggle};
 
 /// The permission modes Claude Code takes, as it names them, with what the
@@ -27,12 +28,7 @@ pub(super) fn CodexGroup(
     options: CodexOptions,
     set: Callback<CodexOptions>,
 ) -> Element {
-    let (model, effort, approval, sandbox) = (
-        options.clone(),
-        options.clone(),
-        options.clone(),
-        options.clone(),
-    );
+    let edits = Edits::new(&options, set);
     rsx! {
         SettingGroup { title: "{title}",
             SettingRow { label: "Model", hint: "Empty to use Codex's own model.",
@@ -40,7 +36,7 @@ pub(super) fn CodexGroup(
                     value: options.model,
                     aria_label: "Model",
                     placeholder: "Codex's own",
-                    onchange: move |value: String| set(CodexOptions { model: value.trim().into(), ..model.clone() }),
+                    onchange: edits.of(|o, value: String| o.model = value.trim().into()),
                 }
             }
             SettingRow { label: "Reasoning effort", hint: "Use a level supported by the selected model, or leave empty for Codex's own.",
@@ -49,7 +45,7 @@ pub(super) fn CodexGroup(
                     aria_label: "Reasoning effort",
                     value: options.reasoning_effort,
                     placeholder: "Codex's own",
-                    onchange: move |value: String| set(CodexOptions { reasoning_effort: value.trim().into(), ..effort.clone() }),
+                    onchange: edits.of(|o, value: String| o.reasoning_effort = value.trim().into()),
                 }
                 datalist { id: "codex-efforts",
                     for value in ["low", "medium", "high", "xhigh", "max", "ultra"] {
@@ -60,13 +56,13 @@ pub(super) fn CodexGroup(
             SettingRow { label: "Approval policy", hint: "When Codex asks before running a command. Never ask keeps sandbox restrictions in place.",
                 Select { label: "Approval policy", value: options.approval_policy,
                     choices: vec![("", "Codex's own"), ("on-request", "Ask when needed"), ("never", "Never ask")],
-                    onchange: move |value| set(CodexOptions { approval_policy: value, ..approval.clone() }),
+                    onchange: edits.of(|o, value: String| o.approval_policy = value),
                 }
             }
             SettingRow { label: "Sandbox", hint: "Where commands can write. Full access removes the sandbox.",
                 Select { label: "Sandbox", value: options.sandbox_mode,
                     choices: vec![("", "Codex's own"), ("read-only", "Read only"), ("workspace-write", "Workspace write"), ("danger-full-access", "Full access")],
-                    onchange: move |value| set(CodexOptions { sandbox_mode: value, ..sandbox.clone() }),
+                    onchange: edits.of(|o, value: String| o.sandbox_mode = value),
                 }
             }
         }
@@ -77,7 +73,7 @@ pub(super) fn CodexGroup(
 /// given, which is all Pi has for permissions.
 #[component]
 pub(super) fn PiGroup(title: String, options: PiOptions, set: Callback<PiOptions>) -> Element {
-    let (model, thinking, tools) = (options.clone(), options.clone(), options.clone());
+    let edits = Edits::new(&options, set);
     rsx! {
         SettingGroup { title: "{title}",
             SettingRow { label: "Model", hint: "As provider/id, the way Pi's --model takes it; empty for Pi's own.",
@@ -85,7 +81,7 @@ pub(super) fn PiGroup(title: String, options: PiOptions, set: Callback<PiOptions
                     value: options.model,
                     aria_label: "Model",
                     placeholder: "Pi's own",
-                    onchange: move |value: String| set(PiOptions { model: value.trim().into(), ..model.clone() }),
+                    onchange: edits.of(|o, value: String| o.model = value.trim().into()),
                 }
             }
             SettingRow { label: "Thinking", hint: "A level the selected model supports, or empty for Pi's own.",
@@ -94,7 +90,7 @@ pub(super) fn PiGroup(title: String, options: PiOptions, set: Callback<PiOptions
                     aria_label: "Thinking",
                     value: options.thinking,
                     placeholder: "Pi's own",
-                    onchange: move |value: String| set(PiOptions { thinking: value.trim().into(), ..thinking.clone() }),
+                    onchange: edits.of(|o, value: String| o.thinking = value.trim().into()),
                 }
                 datalist { id: "pi-thinking",
                     for value in ["off", "minimal", "low", "medium", "high", "xhigh", "max"] {
@@ -107,7 +103,7 @@ pub(super) fn PiGroup(title: String, options: PiOptions, set: Callback<PiOptions
                     value: "{format_list(&options.tools)}",
                     aria_label: "Tools",
                     placeholder: "read, bash, edit, write",
-                    onchange: move |value: String| set(PiOptions { tools: parse_list(&value), ..tools.clone() }),
+                    onchange: edits.of(|o, value: String| o.tools = parse_list(&value)),
                 }
             }
         }
@@ -123,12 +119,7 @@ pub(super) fn OpenCodeGroup(
     options: OpenCodeOptions,
     set: Callback<OpenCodeOptions>,
 ) -> Element {
-    let (model, agent, rules, auto) = (
-        options.clone(),
-        options.clone(),
-        options.clone(),
-        options.clone(),
-    );
+    let edits = Edits::new(&options, set);
     rsx! {
         SettingGroup { title: "{title}",
             SettingRow { label: "Model", hint: "As provider/model, the way OpenCode lists its models; empty for OpenCode's own.",
@@ -136,7 +127,7 @@ pub(super) fn OpenCodeGroup(
                     value: options.model,
                     aria_label: "Model",
                     placeholder: "OpenCode's own",
-                    onchange: move |value: String| set(OpenCodeOptions { model: value.trim().into(), ..model.clone() }),
+                    onchange: edits.of(|o, value: String| o.model = value.trim().into()),
                 }
             }
             SettingRow { label: "Agent", hint: "The primary agent they start as, one of OpenCode's or its login's own; empty for OpenCode's default.",
@@ -145,7 +136,7 @@ pub(super) fn OpenCodeGroup(
                     aria_label: "Agent",
                     value: options.agent,
                     placeholder: "build",
-                    onchange: move |value: String| set(OpenCodeOptions { agent: value.trim().into(), ..agent.clone() }),
+                    onchange: edits.of(|o, value: String| o.agent = value.trim().into()),
                 }
                 datalist { id: "opencode-agents",
                     for value in ["build", "plan"] {
@@ -157,13 +148,13 @@ pub(super) fn OpenCodeGroup(
                 TextArea {
                     value: "{format_rules(&options.permissions)}",
                     placeholder: "ask shell *",
-                    onchange: move |value: String| set(OpenCodeOptions { permissions: parse_rules(&value), ..rules.clone() }),
+                    onchange: edits.of(|o, value: String| o.permissions = parse_rules(&value)),
                 }
             }
             SettingRow { label: "Approve on their own", hint: "Every tool call no rule denies runs without asking, as OpenCode's --auto does.",
                 Toggle {
                     checked: options.auto,
-                    onchange: move |on: bool| set(OpenCodeOptions { auto: on, ..auto.clone() }),
+                    onchange: edits.of(|o, on: bool| o.auto = on),
                 }
             }
         }
@@ -178,12 +169,7 @@ pub(super) fn SessionGroup(
     options: SessionOptions,
     set: Callback<SessionOptions>,
 ) -> Element {
-    let (a, b, c, d) = (
-        options.clone(),
-        options.clone(),
-        options.clone(),
-        options.clone(),
-    );
+    let edits = Edits::new(&options, set);
     let list = format!("models-{}", title.replace(' ', "-"));
     rsx! {
         SettingGroup { title: "{title}",
@@ -192,7 +178,7 @@ pub(super) fn SessionGroup(
                     list: "{list}",
                     value: "{options.model}",
                     placeholder: "Claude Code's own",
-                    onchange: move |value: String| set(SessionOptions { model: value.trim().to_string(), ..a.clone() }),
+                    onchange: edits.of(|o, value: String| o.model = value.trim().to_string()),
                 }
                 datalist { id: "{list}",
                     for m in MODELS {
@@ -202,7 +188,7 @@ pub(super) fn SessionGroup(
             }
             SettingRow { label: "Permission mode", hint: "How they ask before they act.",
                 select {
-                    onchange: move |e| set(SessionOptions { permission_mode: e.value(), ..b.clone() }),
+                    onchange: edits.of(|o, e: Event<FormData>| o.permission_mode = e.value()),
                     for (mode , name) in MODES {
                         option { key: "{mode}", value: "{mode}", selected: options.permission_mode == mode, "{name}" }
                     }
@@ -212,13 +198,13 @@ pub(super) fn SessionGroup(
                 TextField {
                     value: "{format_list(&options.disallowed_tools)}",
                     placeholder: "Edit, Write",
-                    onchange: move |value: String| set(SessionOptions { disallowed_tools: parse_list(&value), ..c.clone() }),
+                    onchange: edits.of(|o, value: String| o.disallowed_tools = parse_list(&value)),
                 }
             }
             SettingRow { label: "Confirm Adroit's channel warning", hint: "Confirm, once a launch, Claude Code's warning about loading development channels when it names Adroit's own channel alone; every other dialog stays yours.",
                 Toggle {
                     checked: options.confirm_channel_warning,
-                    onchange: move |on| set(SessionOptions { confirm_channel_warning: on, ..d.clone() }),
+                    onchange: edits.of(|o, on: bool| o.confirm_channel_warning = on),
                 }
             }
         }
