@@ -14,7 +14,7 @@ use adroit_protocol::{
 
 use super::{
     Drill, Entry, Fact, Gauge, Group, Listing, Related, Sheet, Shot, Source, View, about, agents,
-    capped, context_gauge, gauges, newest_first, related, resources, running,
+    capped, context_gauge, file_link, gauges, newest_first, related, resources, running,
 };
 use crate::content::Showing;
 use crate::content::Tab;
@@ -408,15 +408,7 @@ fn use_shot(shot: &Shot, how: Use, session: Option<&str>) -> Vec<Effect> {
             vec![Effect::Notice("A drawn image has no file to copy".into())]
         }
         (Source::Console { .. }, Use::Reveal) => Vec::new(),
-        (Source::File { path, touch }, how) => use_link(
-            &Link {
-                kind: LinkKind::File(*touch),
-                target: path.clone(),
-                title: None,
-                line: None,
-            },
-            how,
-        ),
+        (Source::File { path, touch }, how) => use_link(&file_link(path, *touch), how),
     }
 }
 

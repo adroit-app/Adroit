@@ -354,16 +354,17 @@ pub fn shown_shot(shot: &Shot, worktree: &Path, home: &Path) -> (String, String)
         Source::Console { width, height, .. } => {
             (format!("Image {width} × {height}"), "drawn".to_string())
         }
-        Source::File { path, touch } => shown_link(
-            &Link {
-                kind: LinkKind::File(*touch),
-                target: path.clone(),
-                title: None,
-                line: None,
-            },
-            worktree,
-            home,
-        ),
+        Source::File { path, touch } => shown_link(&file_link(path, *touch), worktree, home),
+    }
+}
+
+/// The file at `path` as a link, as the session came across it.
+fn file_link(path: &str, touch: Touch) -> Link {
+    Link {
+        kind: LinkKind::File(touch),
+        target: path.to_string(),
+        title: None,
+        line: None,
     }
 }
 
