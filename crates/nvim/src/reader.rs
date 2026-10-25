@@ -428,6 +428,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_console_s_background_is_the_reader_window_s_and_leaves_the_colour_scheme_s() {
+        let (e, _config) =
+            start_configured("vim.api.nvim_set_hl(0, 'Normal', { bg = '#123456' })").await;
+        e.show(&lines(&["one"]), &[], (0, 0), true, "#101010")
+            .await
+            .unwrap();
+        let bg = |group: &str| format!("synIDattr(hlID('{group}'), 'bg#')");
+        assert!(e.settles(&bg("Normal"), Value::from("#123456")).await);
+        let drawn = e
+            .eval("matchstr(&winhighlight, 'Normal:\\zs[^,]*')")
+            .await;
+        let drawn = drawn.as_str().unwrap_or_default().to_string();
+        assert!(!drawn.is_empty());
+        assert!(e.settles(&bg(&drawn), Value::from("#101010")).await);
+    }
+
+    #[tokio::test]
     async fn new_text_keeps_the_cursor_where_the_user_left_it() {
         let (e, mut rx) = start().await;
         e.show(&lines(&["a", "b", "c"]), &[], (2, 0), true, "#101010")

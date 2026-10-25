@@ -14,7 +14,13 @@ vim.bo[b].modifiable = true
 vim.api.nvim_buf_set_lines(b, 0, -1, false, lines)
 vim.bo[b].modifiable = false
 vim.api.nvim_buf_clear_namespace(b, ns, 0, -1)
-vim.api.nvim_set_hl(0, "Normal", { bg = background, fg = vim.api.nvim_get_hl(0, { name = "Normal" }).fg })
+-- The console's background is the reader window's alone; the colour scheme's
+-- `Normal` stays as the configuration set it.
+vim.api.nvim_set_hl(0, "AdroitConsole", {
+  bg = background,
+  fg = vim.api.nvim_get_hl(0, { name = "Normal", link = false }).fg,
+})
+vim.wo.winhighlight = "Normal:AdroitConsole"
 for _, m in ipairs(marks) do
   local group = m[4]
   if vim.fn.hlexists(group) == 0 then
