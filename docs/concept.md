@@ -15,13 +15,16 @@ first word.
 
 A workspace holds every session adroit runs in it. When the workspace is a git
 repository, its worktrees divide it: each session sits under the worktree it
-runs in. A session hands work on when it judges the work calls for it: to its
-agent's own subagents, or to sessions of its own, which usually work in
-worktrees of their own and which you read and steer like any other. You only ask; whether and how the work is
-divided is the session's to decide.
+runs in. A session keeps its work in its own conversation: what can run
+alongside, it gives to its agent's own subagents and tools, whose results come
+back to it. When a separate line of work turns up, one that needs little of
+what the session knows and that you will want to talk through yourself, the
+session can open it as a session beside it, usually in a worktree of its own,
+with a first prompt that carries what it needs. That session answers to you,
+not to the one that opened it.
 
 You see every workspace's sessions in one window, the ones waiting on you
-first, a session started by another listed under it. You read each session
+first. You read each session
 in the agent's real terminal interface, you write to it in your own Neovim,
 and you move around the whole window the way you move around Vim.
 
@@ -41,6 +44,11 @@ rather than like operating a dashboard.
 - **Moving is Vim.** The window is navigated with Vim's grammar: window motions
   between panes, a tree browsed like a file explorer, actions on what is
   selected. Nothing requires the mouse.
+- **Every session talks to you.** A session is one conversation that plans its
+  work, does it and answers to you. Sessions stand beside one another: none
+  reports to another or waits on another's result, and nothing stands between
+  you and any of them. Work that has to come together is brought together by
+  you, or by a session you ask to.
 - **The session comes first.** Starting asks only where: a directory picked
   from those already in use, from the repositories on the machine, or from a
   file tree. Structure is never asked for up front.
@@ -49,7 +57,7 @@ rather than like operating a dashboard.
   window, so closing adroit leaves them running and opening it again finds
   them as they were. A window only shows the work, and any number of windows
   can show it.
-- **adroit keeps no records of its own about sessions but who started whom
+- **adroit keeps no records of its own about sessions but which opened which
   and what they told each other.** Which sessions exist, where they run and
   how they stand come from the hosts that run them and from what their
   programs report; repositories and worktrees come from git. adroit draws them
@@ -58,13 +66,14 @@ rather than like operating a dashboard.
   conversations and the agents inside them come from Claude Code, Codex, Pi
   and OpenCode.
   adroit adds the place, the hands-on feel, and the means for sessions to
-  start and reach one another.
+  open sessions beside them and reach one another.
 
 ## What it does not do
 
 - It does not rebuild Claude Code's interface or replace it with a chat view.
-- It does not orchestrate on its own. Planning and delegation are the
-  sessions' work; adroit keeps no plan, task or verdict, shows where the work
-  stands and gives you the controls.
+- It does not orchestrate, and it is no frame for one session to run others
+  as its workers. Each session plans and does its own work; adroit keeps no
+  plan, task or verdict, shows where the work stands and gives you the
+  controls.
 - It is not an editor or an IDE. Files, logs and diffs are there to be read;
   real editing happens in your usual editor.
