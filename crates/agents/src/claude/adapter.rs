@@ -3,6 +3,17 @@ use adroit_model::config::SessionOptions;
 
 pub struct Claude;
 
+/// What Claude Code's question whether to trust a folder says, in lower case.
+const TRUST_ASKED: &[&str] = &[
+    "trust this project",
+    "trust this folder",
+    "trust this directory",
+    "trust the files in this folder",
+];
+
+/// What Claude Code's question whether to allow a tool says, in lower case.
+const PERMISSION_ASKED: &[&str] = &["do you want to allow", "allow this tool", "permission to"];
+
 impl AgentAdapter for Claude {
     fn startup_readiness(&self, screen: &[String]) -> Option<adroit_model::StartupReadiness> {
         use adroit_model::StartupReadiness;
@@ -19,13 +30,10 @@ impl AgentAdapter for Claude {
             .next_back();
         let decision_question = screen.iter().rposition(|line| {
             let line = line.to_lowercase();
-            line.contains("trust this project")
-                || line.contains("trust this folder")
-                || line.contains("trust this directory")
-                || line.contains("trust the files in this folder")
-                || line.contains("do you want to allow")
-                || line.contains("allow this tool")
-                || line.contains("permission to")
+            TRUST_ASKED
+                .iter()
+                .chain(PERMISSION_ASKED)
+                .any(|phrase| line.contains(phrase))
         });
         if !super::dialog::dialog_open(screen)
             && prompt
@@ -42,19 +50,10 @@ impl AgentAdapter for Claude {
             .collect::<Vec<_>>()
             .join("\n");
         let decision = tail.contains("yes") && tail.contains("no");
-        if decision
-            && (tail.contains("trust this project")
-                || tail.contains("trust this folder")
-                || tail.contains("trust this directory")
-                || tail.contains("trust the files in this folder"))
-        {
+        if decision && TRUST_ASKED.iter().any(|phrase| tail.contains(phrase)) {
             return Some(StartupReadiness::AwaitingTrust);
         }
-        if decision
-            && (tail.contains("do you want to allow")
-                || tail.contains("allow this tool")
-                || tail.contains("permission to"))
-        {
+        if decision && PERMISSION_ASKED.iter().any(|phrase| tail.contains(phrase)) {
             return Some(StartupReadiness::AwaitingPermission);
         }
         super::dialog::dialog_open(screen).then_some(StartupReadiness::AwaitingInput)
