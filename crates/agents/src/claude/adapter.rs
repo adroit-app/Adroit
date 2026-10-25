@@ -177,11 +177,9 @@ impl AgentAdapter for Claude {
         session: &adroit_model::Session,
     ) -> Option<Box<dyn ConversationReader>> {
         let path = super::places::transcript(context, home, &session.cwd, &session.session_id);
-        Some(Box::new(ClaudeConversation(super::links::Transcript::new(
-            path,
-            &session.cwd,
-            home.to_path_buf(),
-        ))))
+        Some(Box::new(ClaudeConversation(
+            super::transcript::Transcript::new(path, &session.cwd, home.to_path_buf()),
+        )))
     }
     fn list_sessions(&self, context: AgentContext) -> Listing {
         Box::pin(async move {
@@ -195,7 +193,7 @@ impl AgentAdapter for Claude {
         own: &mut [adroit_model::Session],
         listed: Vec<adroit_model::Running>,
     ) -> Vec<(u128, Learned)> {
-        crate::claude::follow(Agent::Claude, own, listed)
+        crate::follow(Agent::Claude, own, listed)
     }
     fn resume_args(&self, context: &AgentContext, conversation: &str) -> Option<Vec<String>> {
         Some(super::resume_args(
@@ -250,7 +248,7 @@ impl AgentAdapter for Claude {
     }
 }
 
-struct ClaudeConversation(super::links::Transcript);
+struct ClaudeConversation(super::transcript::Transcript);
 
 impl ConversationReader for ClaudeConversation {
     fn stats(&self) -> adroit_model::ConversationStats {
@@ -283,45 +281,4 @@ fn options(sessions: &SessionOptions) -> super::Options {
 /// variables its launch adds.
 fn asked(context: &AgentContext, args: Vec<String>) -> Started {
     crate::own_login::started(&Claude, context, args, Vec::new())
-}
-
-/// Read `agent`'s `listed` sessions against adroit's `own`: each of `own`
-/// that `agent` runs learns the process that holds its conversation, and
-/// follows that process to the conversation a `/clear`, `/new` or `/resume`
-/// moves it to. What was learned, by each session's daemon id.
-pub(crate) fn follow(
-    agent: Agent,
-    own: &mut [adroit_model::Session],
-    listed: Vec<adroit_model::Running>,
-) -> Vec<(u128, Learned)> {
-    let mut learned = Vec::new();
-    for s in own.iter_mut().filter(|s| s.agent == agent) {
-        let Some(id) = adroit_model::daemon::id_of(&s.id) else {
-            continue;
-        };
-        match s.pid {
-            Some(pid) => {
-                let moved = listed
-                    .iter()
-                    .find(|l| l.pid == pid)
-                    .filter(|l| !l.session_id.is_empty() && l.session_id != s.session_id);
-                if let Some(l) = moved {
-                    s.session_id = l.session_id.clone();
-                    learned.push((id, Learned::Conversation(s.session_id.clone())));
-                }
-            }
-            None => {
-                let holding = listed
-                    .iter()
-                    .filter(|_| !s.session_id.is_empty())
-                    .find(|l| l.session_id == s.session_id)
-                    .map(|l| l.pid);
-                if let Some(pid) = holding {
-                    s.pid = Some(pid);
-                    learned.push((id, Learned::Pid(pid)));
-                }
-            }
-        }
-    }
-    learned
 }

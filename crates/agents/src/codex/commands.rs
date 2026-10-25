@@ -1,4 +1,4 @@
-use crate::claude::commands::Command;
+use crate::commands::Command;
 
 fn skills(reply: &serde_json::Value, dir: &std::path::Path) -> Vec<Command> {
     let mut seen = std::collections::HashSet::new();

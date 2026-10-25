@@ -10,7 +10,7 @@ use adroit_model::{ConversationStats, Tokens};
 use serde_json::{Value, json};
 
 use crate::ConversationReader;
-use crate::claude::links::{Collector, Links};
+use crate::links::{Collector, Links};
 use crate::time::timestamp_ms;
 
 /// The tools whose calls name no link of the conversation's own: what they
@@ -228,7 +228,7 @@ impl ConversationReader for Transcript {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::claude::links::{Kind, Touch};
+    use crate::links::{Kind, Touch};
     use crate::testing::append;
 
     fn entry(message: Value) -> String {

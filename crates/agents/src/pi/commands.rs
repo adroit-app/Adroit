@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use crate::claude::commands::Command;
+use crate::commands::Command;
 
 /// The commands `data` lists: those extensions, prompt templates and skills
 /// add, by the name typed after `/`.

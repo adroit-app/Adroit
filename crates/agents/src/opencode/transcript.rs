@@ -11,7 +11,7 @@ use std::time::{Duration, Instant, SystemTime};
 use adroit_model::{ConversationStats, Tokens};
 use serde_json::{Value, json};
 
-use crate::claude::links::{Collector, Links};
+use crate::links::{Collector, Links};
 use crate::{AgentContext, ConversationReader};
 
 /// The tools whose calls name no link of the conversation's own: what they
@@ -289,7 +289,7 @@ impl ConversationReader for Transcript {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::claude::links::{Kind, Touch};
+    use crate::links::{Kind, Touch};
     use adroit_model::Agent;
 
     /// A reader of `exported`, as an `opencode` standing in for OpenCode's

@@ -176,21 +176,17 @@ impl AgentAdapter for Codex {
             home,
         )))
     }
-    fn commands(
-        &self,
-        context: AgentContext,
-        dir: PathBuf,
-    ) -> Probe<crate::claude::commands::Command> {
+    fn commands(&self, context: AgentContext, dir: PathBuf) -> Probe<crate::commands::Command> {
         Box::pin(async move {
             commands::probe(
                 launch_in(&context, vec!["app-server".into()], Vec::new()),
                 &dir,
-                crate::claude::commands::PROBE_TIMEOUT,
+                crate::commands::PROBE_TIMEOUT,
             )
             .await
         })
     }
-    fn builtin_commands(&self) -> Vec<crate::claude::commands::Command> {
+    fn builtin_commands(&self) -> Vec<crate::commands::Command> {
         commands::builtins()
     }
     fn models_within(
@@ -208,12 +204,12 @@ impl AgentAdapter for Codex {
             .await
         })
     }
-    fn usage(&self, context: AgentContext, home: PathBuf) -> Probe<crate::claude::usage::Limit> {
+    fn usage(&self, context: AgentContext, home: PathBuf) -> Probe<crate::usage::Limit> {
         Box::pin(async move {
             usage::probe(
                 launch_in(&context, vec!["app-server".into()], Vec::new()),
                 &home,
-                crate::claude::usage::PROBE_TIMEOUT,
+                crate::usage::PROBE_TIMEOUT,
             )
             .await
         })

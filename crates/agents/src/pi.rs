@@ -136,18 +136,14 @@ impl AgentAdapter for Pi {
         }
     }
 
-    fn builtin_commands(&self) -> Vec<crate::claude::commands::Command> {
+    fn builtin_commands(&self) -> Vec<crate::commands::Command> {
         commands::builtins()
     }
 
-    fn commands(
-        &self,
-        context: AgentContext,
-        dir: PathBuf,
-    ) -> Probe<crate::claude::commands::Command> {
+    fn commands(&self, context: AgentContext, dir: PathBuf) -> Probe<crate::commands::Command> {
         Box::pin(async move {
             let start = launch_in(&context, rpc::args(&context), Vec::new());
-            commands::probe(start, &dir, crate::claude::commands::PROBE_TIMEOUT).await
+            commands::probe(start, &dir, crate::commands::PROBE_TIMEOUT).await
         })
     }
 
@@ -189,7 +185,7 @@ impl AgentAdapter for Pi {
         own: &mut [adroit_model::Session],
         listed: Vec<adroit_model::Running>,
     ) -> Vec<(u128, Learned)> {
-        crate::claude::follow(Agent::Pi, own, listed)
+        crate::follow(Agent::Pi, own, listed)
     }
 
     fn resume_args(&self, context: &AgentContext, conversation: &str) -> Option<Vec<String>> {

@@ -3,7 +3,9 @@
 
 pub mod claude;
 mod codex;
+pub mod commands;
 mod delivery;
+pub mod links;
 pub mod login;
 pub mod opencode;
 pub mod own_login;
@@ -11,6 +13,7 @@ pub mod pi;
 #[cfg(test)]
 mod testing;
 mod time;
+pub mod usage;
 pub use delivery::{DeliveryFailure, DeliveryFuture};
 pub use own_login::conflict;
 
@@ -49,6 +52,47 @@ pub(crate) fn kept_in(
             ..past
         })
         .collect()
+}
+
+/// Read `agent`'s `listed` sessions against adroit's `own`: each of `own`
+/// that `agent` runs learns the process that holds its conversation, and
+/// follows that process to the conversation a `/clear`, `/new` or `/resume`
+/// moves it to. What was learned, by each session's daemon id.
+pub(crate) fn follow(
+    agent: Agent,
+    own: &mut [adroit_model::Session],
+    listed: Vec<adroit_model::Running>,
+) -> Vec<(u128, Learned)> {
+    let mut learned = Vec::new();
+    for s in own.iter_mut().filter(|s| s.agent == agent) {
+        let Some(id) = adroit_model::daemon::id_of(&s.id) else {
+            continue;
+        };
+        match s.pid {
+            Some(pid) => {
+                let moved = listed
+                    .iter()
+                    .find(|l| l.pid == pid)
+                    .filter(|l| !l.session_id.is_empty() && l.session_id != s.session_id);
+                if let Some(l) = moved {
+                    s.session_id = l.session_id.clone();
+                    learned.push((id, Learned::Conversation(s.session_id.clone())));
+                }
+            }
+            None => {
+                let holding = listed
+                    .iter()
+                    .filter(|_| !s.session_id.is_empty())
+                    .find(|l| l.session_id == s.session_id)
+                    .map(|l| l.pid);
+                if let Some(pid) = holding {
+                    s.pid = Some(pid);
+                    learned.push((id, Learned::Pid(pid)));
+                }
+            }
+        }
+    }
+    learned
 }
 
 /// `program` as a shell reads it back as one word, for what tells an agent
@@ -199,7 +243,7 @@ type ContextProbe = std::pin::Pin<Box<dyn std::future::Future<Output = Option<(u
 
 /// A provider reader produces the details the overview can display.
 pub trait ConversationReader: Send {
-    fn read(&mut self) -> crate::claude::links::Links;
+    fn read(&mut self) -> crate::links::Links;
     fn stats(&self) -> adroit_model::ConversationStats {
         adroit_model::ConversationStats::default()
     }
@@ -333,19 +377,15 @@ pub trait AgentAdapter: Sync {
     fn usage_url(&self) -> Option<&'static str> {
         None
     }
-    fn builtin_commands(&self) -> Vec<crate::claude::commands::Command> {
+    fn builtin_commands(&self) -> Vec<crate::commands::Command> {
         Vec::new()
     }
-    fn commands(
-        &self,
-        _context: AgentContext,
-        _dir: PathBuf,
-    ) -> Probe<crate::claude::commands::Command> {
+    fn commands(&self, _context: AgentContext, _dir: PathBuf) -> Probe<crate::commands::Command> {
         Box::pin(async { None })
     }
     /// The models the provider accepts, asked of it in `dir` as `context` starts it.
     fn models(&self, context: AgentContext, dir: PathBuf) -> Probe<adroit_model::ProviderModel> {
-        self.models_within(context, dir, crate::claude::commands::PROBE_TIMEOUT)
+        self.models_within(context, dir, crate::commands::PROBE_TIMEOUT)
     }
     /// [`AgentAdapter::models`], given up after `timeout`.
     fn models_within(
@@ -356,7 +396,7 @@ pub trait AgentAdapter: Sync {
     ) -> Probe<adroit_model::ProviderModel> {
         Box::pin(async { None })
     }
-    fn usage(&self, _context: AgentContext, _home: PathBuf) -> Probe<crate::claude::usage::Limit> {
+    fn usage(&self, _context: AgentContext, _home: PathBuf) -> Probe<crate::usage::Limit> {
         Box::pin(async { None })
     }
     /// How full the context of `session`'s conversation, run on `model`, is,

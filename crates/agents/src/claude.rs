@@ -8,7 +8,6 @@ use tokio::process::Command;
 
 mod adapter;
 pub use adapter::Claude;
-pub(crate) use adapter::follow;
 pub mod commands;
 pub mod context;
 mod control;
@@ -21,6 +20,7 @@ mod past;
 pub mod places;
 pub(crate) mod plugin;
 pub mod subagents;
+mod transcript;
 pub mod usage;
 
 #[derive(Debug, thiserror::Error)]

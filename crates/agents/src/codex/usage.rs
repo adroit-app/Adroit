@@ -1,4 +1,4 @@
-use crate::claude::usage::{Limit, Severity, Window};
+use crate::usage::{Limit, Severity, Window};
 use serde_json::Value;
 use std::path::Path;
 use std::time::Duration;
@@ -194,7 +194,7 @@ exec sleep 30
         let got = probe(
             started(Path::new("codex"), &["app-server"]),
             &std::env::temp_dir(),
-            crate::claude::usage::PROBE_TIMEOUT,
+            crate::usage::PROBE_TIMEOUT,
         )
         .await
         .expect("Codex account limits");

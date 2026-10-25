@@ -5,7 +5,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
-use crate::claude::links::{Collector, Links};
+use crate::links::{Collector, Links};
 use serde_json::{Value, json};
 
 use crate::ConversationReader;
@@ -343,7 +343,7 @@ impl ConversationReader for Transcript {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::claude::links::{Kind, Touch};
+    use crate::links::{Kind, Touch};
     use crate::testing::append;
     use serde_json::{Value, json};
 
