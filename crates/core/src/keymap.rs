@@ -258,10 +258,15 @@ impl Keymap {
 
     /// The first keys bound to `action` in `ctx`, written as in the file.
     pub fn keys_for(&self, ctx: Context, action: &Action) -> Option<String> {
+        self.first_bound(ctx, action).map(|seq| show_sequence(seq))
+    }
+
+    /// The first sequence bound to `action` in `ctx`.
+    fn first_bound(&self, ctx: Context, action: &Action) -> Option<&Vec<Chord>> {
         self.bindings
             .iter()
             .find(|(c, _, a)| *c == ctx && a == action)
-            .map(|(_, seq, _)| show_sequence(seq))
+            .map(|(_, seq, _)| seq)
     }
 
     /// Every sequence bound to `action` in `ctx`, in the order of the file.
@@ -284,12 +289,7 @@ impl Keymap {
     pub fn keys_for_all(&self, ctx: Context, actions: &[Action]) -> Option<String> {
         let seqs: Vec<&Vec<Chord>> = actions
             .iter()
-            .map(|a| {
-                self.bindings
-                    .iter()
-                    .find(|(c, _, b)| *c == ctx && b == a)
-                    .map(|(_, s, _)| s)
-            })
+            .map(|a| self.first_bound(ctx, a))
             .collect::<Option<_>>()?;
         let first = &seqs.first()?[0];
         if seqs.iter().all(|s| s.len() == 2 && s[0] == *first) {
