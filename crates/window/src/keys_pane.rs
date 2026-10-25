@@ -3,6 +3,7 @@
 //! them; either way changed, taken away or put back in place, and written
 //! into the user's file as it is changed.
 
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -31,6 +32,16 @@ fn read_file(config: &Config) -> String {
         Some(FileText::Read { text }) => text.clone(),
         _ => String::new(),
     }
+}
+
+/// Where the keys file is, as the work host last read it.
+pub(crate) fn keys_path(config: &Config) -> PathBuf {
+    config
+        .files()
+        .keys
+        .as_ref()
+        .map(|f| f.path.clone())
+        .unwrap_or_default()
 }
 
 /// How the bindings are listed.
@@ -93,13 +104,7 @@ pub fn KeysPane() -> Element {
         }
         Err(e) => failed.set(Some(e)),
     };
-    let path = config
-        .read()
-        .files()
-        .keys
-        .as_ref()
-        .map(|f| f.path.clone())
-        .unwrap_or_default();
+    let path = keys_path(&config.read());
     rsx! {
         div { class: "keys-bar",
             div { class: "segmented", role: "tablist",

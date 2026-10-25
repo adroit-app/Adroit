@@ -10,6 +10,7 @@ use crate::build::build;
 use crate::components::{SettingGroup, SettingRow};
 use crate::feed::use_config;
 use crate::icons::{Icon, IconView};
+use crate::keys_pane::keys_path;
 use crate::paths::home;
 
 const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
@@ -21,13 +22,14 @@ pub(super) fn AboutPane() -> Element {
     let config = use_config();
     let files = {
         let config = config.read();
-        let files = config.files();
-        let path = |file: Option<&adroit_protocol::ConfigFile>| {
-            file.map(|f| f.path.clone()).unwrap_or_default()
-        };
+        let settings = config.files().settings.as_ref();
         [
-            ("Settings", path(files.settings.as_ref()), ""),
-            ("Key bindings", path(files.keys.as_ref()), KEYS_STARTER),
+            (
+                "Settings",
+                settings.map(|f| f.path.clone()).unwrap_or_default(),
+                "",
+            ),
+            ("Key bindings", keys_path(&config), KEYS_STARTER),
         ]
     };
     let version = build();
