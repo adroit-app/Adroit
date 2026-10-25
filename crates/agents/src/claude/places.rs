@@ -13,14 +13,7 @@ pub(crate) fn config_dir(context: &AgentContext) -> Option<PathBuf> {
     context
         .home
         .clone()
-        .or_else(|| {
-            context
-                .launch
-                .env
-                .get("CLAUDE_CONFIG_DIR")
-                .map(PathBuf::from)
-        })
-        .or_else(|| std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from))
+        .or_else(|| context.variable("CLAUDE_CONFIG_DIR"))
 }
 
 /// Where Claude Code keeps its state: in `config`, else in the home

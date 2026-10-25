@@ -303,8 +303,7 @@ fn root(context: &AgentContext, home: &Path) -> PathBuf {
     context
         .home
         .clone()
-        .or_else(|| context.launch.env.get("CODEX_HOME").map(PathBuf::from))
-        .or_else(|| std::env::var_os("CODEX_HOME").map(PathBuf::from))
+        .or_else(|| context.variable("CODEX_HOME"))
         .unwrap_or_else(|| home.join(".codex"))
 }
 

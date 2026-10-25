@@ -21,16 +21,13 @@ pub(super) fn root(context: &AgentContext, home: &Path) -> PathBuf {
     if let Some(dir) = &context.home {
         return dir.join("sessions");
     }
-    let set = |name: &str| {
-        context
-            .launch
-            .env
-            .get(name)
-            .map(PathBuf::from)
-            .or_else(|| std::env::var_os(name).map(PathBuf::from))
-    };
-    set("PI_CODING_AGENT_SESSION_DIR")
-        .or_else(|| set("PI_CODING_AGENT_DIR").map(|dir| dir.join("sessions")))
+    context
+        .variable("PI_CODING_AGENT_SESSION_DIR")
+        .or_else(|| {
+            context
+                .variable("PI_CODING_AGENT_DIR")
+                .map(|dir| dir.join("sessions"))
+        })
         .unwrap_or_else(|| home.join(".pi").join("agent").join("sessions"))
 }
 

@@ -179,6 +179,16 @@ impl AgentContext {
         self.options.agent()
     }
 
+    /// The path the variable `name` holds as the agent is started: as the
+    /// launch sets it, else as adroit's own environment does.
+    pub(crate) fn variable(&self, name: &str) -> Option<PathBuf> {
+        self.launch
+            .env
+            .get(name)
+            .map(PathBuf::from)
+            .or_else(|| std::env::var_os(name).map(PathBuf::from))
+    }
+
     /// Claude Code's options; nothing chosen for a profile of another agent.
     pub fn claude(&self) -> SessionOptions {
         self.options.claude().cloned().unwrap_or_default()
@@ -522,6 +532,21 @@ mod tests {
     use super::*;
     use crate::testing::{program, recorded, screen, started};
     use adroit_model::Agent;
+
+    #[test]
+    fn a_variable_is_the_launch_s_before_adroit_s_own() {
+        let mut context = AgentContext::builtin(Agent::Codex);
+        assert_eq!(
+            context.variable("HOME"),
+            std::env::var_os("HOME").map(PathBuf::from)
+        );
+        assert_eq!(context.variable("ADROIT_TEST_NEVER_SET"), None);
+        context
+            .launch
+            .env
+            .insert("HOME".into(), "/launch/home".into());
+        assert_eq!(context.variable("HOME"), Some("/launch/home".into()));
+    }
 
     #[test]
     fn a_screen_s_state_tells_whether_a_session_has_started() {
