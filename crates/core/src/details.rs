@@ -727,40 +727,21 @@ pub fn overview_shown(
     opened: &HashSet<Group>,
     first: usize,
 ) -> Vec<Entry> {
-    let mut out = Vec::new();
-    if !related.is_empty() {
-        let shut = folded.contains(&Group::Sessions);
-        out.push(Entry::Heading {
-            group: Group::Sessions,
-            count: related.len(),
-            folded: shut,
-        });
-        if !shut {
-            out.extend(related.iter().cloned().map(Entry::Session));
-        }
-    }
+    let mut out = grouped(
+        Group::Sessions,
+        related.iter().cloned().map(Entry::Session).collect(),
+        folded,
+        opened,
+        usize::MAX,
+    );
     for run in links.chunk_by(|a, b| Group::of(&a.kind) == Group::of(&b.kind)) {
-        let group = Group::of(&run[0].kind);
-        let shut = folded.contains(&group);
-        out.push(Entry::Heading {
-            group,
-            count: run.len(),
-            folded: shut,
-        });
-        if !shut {
-            let shown = if opened.contains(&group) {
-                run.len()
-            } else {
-                first.min(run.len())
-            };
-            out.extend(run[..shown].iter().cloned().map(Entry::Link));
-            if shown < run.len() {
-                out.push(Entry::More {
-                    group,
-                    hidden: run.len() - shown,
-                });
-            }
-        }
+        out.extend(grouped(
+            Group::of(&run[0].kind),
+            run.iter().cloned().map(Entry::Link).collect(),
+            folded,
+            opened,
+            first,
+        ));
     }
     out
 }
@@ -775,35 +756,12 @@ pub fn with_notes(
     opened: &HashSet<Group>,
     first: usize,
 ) -> Vec<Entry> {
-    if notes.is_empty() {
-        return entries;
-    }
     let at = entries
         .iter()
         .position(|e| e.group() != Group::Sessions)
         .unwrap_or(entries.len());
-    let group = Group::Messages;
-    let shut = folded.contains(&group);
-    let mut rows = vec![Entry::Heading {
-        group,
-        count: notes.len(),
-        folded: shut,
-    }];
-    if !shut {
-        let shown = if opened.contains(&group) {
-            notes.len()
-        } else {
-            first.min(notes.len())
-        };
-        rows.extend(notes[..shown].iter().cloned().map(Entry::Message));
-        if shown < notes.len() {
-            rows.push(Entry::More {
-                group,
-                hidden: notes.len() - shown,
-            });
-        }
-    }
-    entries.splice(at..at, rows);
+    let rows = notes.iter().cloned().map(Entry::Message).collect();
+    entries.splice(at..at, grouped(Group::Messages, rows, folded, opened, first));
     entries
 }
 
@@ -814,23 +772,15 @@ pub fn with_agents(
     agents: &[Agent],
     folded: &HashSet<Group>,
 ) -> Vec<Entry> {
-    if agents.is_empty() {
-        return entries;
-    }
     let at = entries
         .iter()
         .position(|e| !matches!(e.group(), Group::Sessions | Group::Messages))
         .unwrap_or(entries.len());
-    let shut = folded.contains(&Group::Agents);
-    let mut rows = vec![Entry::Heading {
-        group: Group::Agents,
-        count: agents.len(),
-        folded: shut,
-    }];
-    if !shut {
-        rows.extend(agents.iter().cloned().map(Entry::Agent));
-    }
-    entries.splice(at..at, rows);
+    let rows = agents.iter().cloned().map(Entry::Agent).collect();
+    entries.splice(
+        at..at,
+        grouped(Group::Agents, rows, folded, &HashSet::new(), usize::MAX),
+    );
     entries
 }
 
@@ -860,10 +810,48 @@ pub fn running(
         )
         .chain(processes.iter().cloned().map(Entry::Process))
         .collect();
+    grouped(Group::Running, rows, folded, opened, first)
+}
+
+/// The `facts` that change little, under their heading; a `folded` group
+/// shows its heading alone.
+pub fn about(facts: &[Fact], folded: &HashSet<Group>) -> Vec<Entry> {
+    let rows = facts.iter().cloned().map(Entry::Fact).collect();
+    grouped(Group::About, rows, folded, &HashSet::new(), usize::MAX)
+}
+
+/// The overview's `entries` with `shots` under their heading after the
+/// artifacts, showing their `first` and a row for the rest unless the group
+/// is among those `opened`; a `folded` group shows its heading alone.
+pub fn with_images(
+    mut entries: Vec<Entry>,
+    shots: &[Shot],
+    folded: &HashSet<Group>,
+    opened: &HashSet<Group>,
+    first: usize,
+) -> Vec<Entry> {
+    let at = entries
+        .iter()
+        .position(|e| matches!(e.group(), Group::Links | Group::Files))
+        .unwrap_or(entries.len());
+    let rows = shots.iter().cloned().map(Entry::Image).collect();
+    entries.splice(at..at, grouped(Group::Images, rows, folded, opened, first));
+    entries
+}
+
+/// `rows` under the heading of `group`, none while there are no rows: a
+/// `folded` group shows its heading alone, and one not among those `opened`
+/// shows its `first` rows and a row for the rest.
+fn grouped(
+    group: Group,
+    rows: Vec<Entry>,
+    folded: &HashSet<Group>,
+    opened: &HashSet<Group>,
+    first: usize,
+) -> Vec<Entry> {
     if rows.is_empty() {
         return Vec::new();
     }
-    let group = Group::Running;
     let shut = folded.contains(&group);
     let mut out = vec![Entry::Heading {
         group,
@@ -883,65 +871,6 @@ pub fn running(
         }
     }
     out
-}
-
-/// The `facts` that change little, under their heading; a `folded` group
-/// shows its heading alone.
-pub fn about(facts: &[Fact], folded: &HashSet<Group>) -> Vec<Entry> {
-    if facts.is_empty() {
-        return Vec::new();
-    }
-    let shut = folded.contains(&Group::About);
-    let mut out = vec![Entry::Heading {
-        group: Group::About,
-        count: facts.len(),
-        folded: shut,
-    }];
-    if !shut {
-        out.extend(facts.iter().cloned().map(Entry::Fact));
-    }
-    out
-}
-
-/// The overview's `entries` with `shots` under their heading after the
-/// artifacts, showing their `first` and a row for the rest unless the group
-/// is among those `opened`; a `folded` group shows its heading alone.
-pub fn with_images(
-    mut entries: Vec<Entry>,
-    shots: &[Shot],
-    folded: &HashSet<Group>,
-    opened: &HashSet<Group>,
-    first: usize,
-) -> Vec<Entry> {
-    if shots.is_empty() {
-        return entries;
-    }
-    let at = entries
-        .iter()
-        .position(|e| matches!(e.group(), Group::Links | Group::Files))
-        .unwrap_or(entries.len());
-    let shut = folded.contains(&Group::Images);
-    let mut rows = vec![Entry::Heading {
-        group: Group::Images,
-        count: shots.len(),
-        folded: shut,
-    }];
-    if !shut {
-        let shown = if opened.contains(&Group::Images) {
-            shots.len()
-        } else {
-            first.min(shots.len())
-        };
-        rows.extend(shots[..shown].iter().cloned().map(Entry::Image));
-        if shown < shots.len() {
-            rows.push(Entry::More {
-                group: Group::Images,
-                hidden: shots.len() - shown,
-            });
-        }
-    }
-    entries.splice(at..at, rows);
-    entries
 }
 
 /// What was read for a spot, and which worktree it was about.
