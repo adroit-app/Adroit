@@ -34,8 +34,7 @@ Neovim reports.
 
 ## Consequences
 
-- Neovim must be installed on the work host's machine, and the prompt starts
-  with it.
+- A Neovim must be on the work host's machine, and the prompt starts with it.
 - The work host reads and fills the prompt's text through Neovim's API, so
   sending, keeping a tab's text and recalling history do not depend on keys or
   on the window.
