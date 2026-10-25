@@ -49,6 +49,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub struct WorkHostServer {
     listener: tokio::net::UnixListener,
     socket: PathBuf,
+    _claim: std::fs::File,
 }
 
 impl Drop for WorkHostServer {
@@ -63,6 +64,22 @@ impl WorkHostServer {
     pub async fn bind(socket: impl AsRef<Path>) -> Result<Self> {
         let socket = socket.as_ref();
         adroit_term::own_dir(socket)?;
+        let mut claim_path = socket.as_os_str().to_os_string();
+        claim_path.push(".lock");
+        use std::os::unix::fs::OpenOptionsExt;
+        // Kept on disk: unlinking a lock file would let two owners lock
+        // different inodes while both believe they own this socket.
+        let claim = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(claim_path)?;
+        claim.try_lock().map_err(|error| match error {
+            std::fs::TryLockError::WouldBlock => Error::Taken(socket.to_path_buf()),
+            std::fs::TryLockError::Error(error) => Error::Io(error),
+        })?;
         if tokio::net::UnixStream::connect(socket).await.is_ok() {
             return Err(Error::Taken(socket.to_path_buf()));
         }
@@ -71,6 +88,7 @@ impl WorkHostServer {
         Ok(Self {
             listener,
             socket: socket.to_path_buf(),
+            _claim: claim,
         })
     }
 
@@ -483,6 +501,45 @@ mod tests {
         let _first = WorkHostServer::bind(&socket).await.unwrap();
         let second = WorkHostServer::bind(&socket).await;
         assert!(matches!(second, Err(Error::Taken(_))));
+    }
+
+    #[tokio::test]
+    async fn a_host_start_waits_for_an_owner_that_has_not_bound_its_socket_yet() {
+        let dir = short_dir();
+        let socket = dir.path().join("h.sock");
+        let claim = std::fs::File::create(dir.path().join("h.sock.lock")).unwrap();
+        claim.try_lock().unwrap();
+        assert!(matches!(
+            WorkHostServer::bind(&socket).await,
+            Err(Error::Taken(_))
+        ));
+        assert!(!socket.exists());
+        drop(claim);
+        assert!(WorkHostServer::bind(&socket).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn simultaneous_host_starts_leave_one_reachable_listener() {
+        let dir = short_dir();
+        let socket = dir.path().join("h.sock");
+        let mut starts = tokio::task::JoinSet::new();
+        for _ in 0..32 {
+            let socket = socket.clone();
+            starts.spawn(async move { WorkHostServer::bind(socket).await });
+        }
+        let mut owners = Vec::new();
+        while let Some(started) = starts.join_next().await {
+            match started.unwrap() {
+                Ok(owner) => owners.push(owner),
+                Err(Error::Taken(_)) => {}
+                Err(error) => panic!("{error}"),
+            }
+        }
+        assert_eq!(owners.len(), 1);
+        assert!(tokio::net::UnixStream::connect(&socket).await.is_ok());
+        drop(owners);
+        assert!(!socket.exists());
+        assert!(WorkHostServer::bind(&socket).await.is_ok());
     }
 
     #[tokio::test]
