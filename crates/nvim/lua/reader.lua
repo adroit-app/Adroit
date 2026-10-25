@@ -2,40 +2,50 @@
 local chan = ...
 vim.g.adroit_channel = chan
 local function apply()
-  local o = vim.o
-  o.laststatus = 0
-  o.showtabline = 0
-  o.ruler = false
-  o.showmode = false
-  o.cmdheight = 0
-  o.shortmess = o.shortmess .. "IcF"
-  -- The window tells of a copy itself.
-  o.report = 99999
   vim.cmd("silent! enew")
   local b = vim.api.nvim_get_current_buf()
   vim.g.adroit_buf = b
-  vim.bo[b].buftype = "nofile"
-  vim.bo[b].bufhidden = "hide"
-  vim.bo[b].swapfile = false
-  vim.bo[b].filetype = "adroit-console"
-  vim.bo[b].modifiable = false
   local w = vim.api.nvim_get_current_win()
-  vim.wo[w].number = false
-  vim.wo[w].relativenumber = false
-  vim.wo[w].signcolumn = "no"
-  vim.wo[w].foldcolumn = "0"
-  vim.wo[w].statuscolumn = ""
-  vim.wo[w].wrap = false
-  vim.wo[w].list = false
-  vim.opt_local.fillchars:append({ eob = " " })
+  -- The window lays the console's images over the text by the console's own
+  -- rows and columns, so nothing may stand beside the text, wrap it or draw
+  -- a character of it wider.
+  hold(function()
+    return w
+  end, b, {
+    o = held_everywhere(),
+    bo = {
+      buftype = "nofile",
+      bufhidden = "hide",
+      swapfile = false,
+      filetype = "adroit-console",
+      modifiable = false,
+    },
+    wo = {
+      number = false,
+      relativenumber = false,
+      signcolumn = "no",
+      foldcolumn = "0",
+      statuscolumn = "",
+      wrap = false,
+      list = false,
+      foldenable = false,
+      conceallevel = 0,
+      eventignorewin = "",
+    },
+  })
   -- The reader is for moving, searching and copying. Commands, Ex mode and
   -- quitting would leave it broken or gone, and windows and tabs arranged in
   -- it would stay. `<C-w>` takes the key after it too, or `<C-w>q` would
-  -- start recording.
-  for _, lhs in ipairs({ ":", "Q", "gQ", "ZZ", "ZQ" }) do
-    vim.keymap.set({ "n", "x" }, lhs, "<Nop>")
+  -- start recording. The buffer's own mappings come after its filetype
+  -- plugins', which would otherwise win over them.
+  local function deny(lhs, rhs)
+    vim.keymap.set({ "n", "x" }, lhs, rhs)
+    vim.keymap.set({ "n", "x" }, lhs, rhs, { buffer = b })
   end
-  vim.keymap.set({ "n", "x" }, "<C-w>", function()
+  for _, lhs in ipairs({ ":", "Q", "gQ", "ZZ", "ZQ" }) do
+    deny(lhs, "<Nop>")
+  end
+  deny("<C-w>", function()
     vim.fn.getcharstr()
   end)
   -- Keys are not the only way: a mapping or a plugin of the user's may open

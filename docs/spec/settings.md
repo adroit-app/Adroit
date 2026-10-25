@@ -340,6 +340,23 @@ it starts; their other files are kept in `adroit/prompt/nvim` and
 `'background'` set to the theme's, light or dark, as it starts and whenever
 the theme changes, so its colour scheme draws text that shows on the theme.
 
+A configuration can change everything adroit sets in these Neovims except
+what the window relies on. The prompt and the reader have no status line, tab
+line, window bar or command line, ignore no events, keep the theme's
+`'background'`, and hold their text in a scratch buffer of the filetype
+`adroit-prompt` or `adroit-console`. The prompt's text can always be changed,
+and completion offers what matches without putting it in the text. The
+reader's text stays as the console draws it: unwrapped, unfolded, with nothing
+concealed or beside it, and unable to be changed. Its keys that would leave
+the reader, `:` and Ex mode, quitting, and `<C-w>`, stay without effect. These
+are set again whenever a configuration, a filetype plugin or a plugin changes
+them. The keys the window itself gives these Neovims, to start writing or to
+scroll the reader, work whatever the configuration maps them to. The rest, such as line numbers,
+completion options or messages, is set before the configuration is read, so
+setting it in `init.lua` or a filetype plugin is enough. `g:adroit` is set
+before the configuration too, for a configuration shared with the everyday
+Neovim to tell where it runs.
+
 Either Neovim that quits is started again; the console read when its
 reader quits is shown live. One that quits as it starts, as a
 broken configuration makes it, or cannot be started is tried again after a

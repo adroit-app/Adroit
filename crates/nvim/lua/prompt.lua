@@ -2,30 +2,28 @@
 local chan = ...
 vim.g.adroit_channel = chan
 local function apply()
-  local o = vim.o
-  o.laststatus = 0
-  o.showtabline = 0
-  o.ruler = false
-  o.showmode = false
-  o.cmdheight = 0
-  o.shortmess = o.shortmess .. "IcF"
   vim.cmd("silent! enew")
   local b = vim.api.nvim_get_current_buf()
   vim.g.adroit_buf = b
-  vim.bo[b].buftype = "nofile"
-  vim.bo[b].bufhidden = "hide"
-  vim.bo[b].swapfile = false
-  vim.bo[b].filetype = "adroit-prompt"
   local w = vim.api.nvim_get_current_win()
-  vim.wo[w].number = false
-  vim.wo[w].relativenumber = false
-  vim.wo[w].signcolumn = "no"
-  vim.wo[w].foldcolumn = "0"
-  vim.wo[w].statuscolumn = ""
-  vim.wo[w].cursorline = false
-  vim.wo[w].wrap = true
-  vim.wo[w].linebreak = true
-  vim.opt_local.fillchars:append({ eob = " " })
+  hold(function()
+    return w
+  end, b, {
+    o = vim.tbl_extend("force", held_everywhere(), {
+      -- Typing after `@` or `/` offers what matches without putting it in the
+      -- text, and the window takes the one chosen.
+      completeopt = "menuone,noinsert",
+    }),
+    wo = { eventignorewin = "" },
+    bo = {
+      buftype = "nofile",
+      bufhidden = "hide",
+      swapfile = false,
+      filetype = "adroit-prompt",
+      modifiable = true,
+      readonly = false,
+    },
+  })
   -- `@` at the start of a word offers the sessions and files the window sets
   -- in g:adroit_candidates and the entries of the directory typed, walked from
   -- g:adroit_root; `/` there offers the commands in g:adroit_commands.
@@ -144,7 +142,6 @@ local function apply()
       return offer_commands(s, typed, "$")
     end
   end
-  vim.o.completeopt = "menuone,noinsert"
   vim.api.nvim_create_autocmd({ "TextChangedI", "TextChangedP" }, { buffer = b, callback = offer })
   -- Told on every change, from wherever it comes: typed, pasted, or set by
   -- the window.

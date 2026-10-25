@@ -4,7 +4,7 @@
 
 use rmpv::Value;
 
-use crate::embed::{Embedded, Error, Event};
+use crate::embed::{Embedded, Error, Event, Launch};
 
 /// The name the console's reader runs under, so its configuration, plugins
 /// and state are found in folders of their own, apart from the everyday
@@ -13,8 +13,16 @@ pub(crate) const CONSOLE_APPNAME: &str = "adroit/console/nvim";
 
 /// Turns the user's Neovim into the console's reader: no frame around the
 /// text, lines kept unwrapped as the terminal shows them, and a yank told to
-/// the window, which copies it.
-pub(crate) const READER: &str = include_str!("../lua/reader.lua");
+/// the window, which copies it. Runs after the user's configuration and holds
+/// what it sets against any later change.
+pub(crate) const READER: &str = concat!(
+    include_str!("../lua/hold.lua"),
+    include_str!("../lua/reader.lua")
+);
+
+/// What the reader is given before the user's configuration, which may change
+/// any of it.
+pub(crate) const READER_DEFAULTS: &str = include_str!("../lua/reader_defaults.lua");
 
 const SHOW: &str = include_str!("../lua/show.lua");
 
@@ -55,7 +63,12 @@ impl Embedded {
         rows: u16,
         events: impl Fn(Event) + Send + Sync + 'static,
     ) -> Result<Self, Error> {
-        Self::spawn_with(program, args, cols, rows, CONSOLE_APPNAME, READER, events).await
+        let launch = Launch {
+            appname: CONSOLE_APPNAME,
+            defaults: READER_DEFAULTS,
+            setup: READER,
+        };
+        Self::spawn_with(program, args, cols, rows, launch, events).await
     }
 
     /// Show `lines` with their `marks` on `background`. With `follow`, the
@@ -149,15 +162,95 @@ mod tests {
         }
     }
 
-    /// Wait, at most two seconds, for `expr` to be `want`.
-    async fn settles(e: &Embedded, expr: &str, want: Value) -> bool {
-        tokio::time::timeout(Duration::from_secs(2), async {
-            while e.eval(expr).await != want {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .is_ok()
+    async fn start_configured(init: &str) -> (Embedded, tempfile::TempPath) {
+        let init = crate::embed::user_init(init);
+        let path = init.to_str().unwrap();
+        let e = Embedded::spawn_reader("nvim", &["--clean", "-u", path], 30, 4, |_| {})
+            .await
+            .expect("nvim on PATH");
+        (e, init)
+    }
+
+    #[tokio::test]
+    async fn the_user_s_configuration_changes_what_adroit_only_suggests() {
+        let (e, _init) = start_configured(
+            r#"
+            vim.o.report = 2
+            vim.o.showmode = true
+            "#,
+        )
+        .await;
+        assert!(
+            e.settles(
+                "[&report, &showmode]",
+                Value::from(vec![Value::from(2), Value::from(1)])
+            )
+            .await
+        );
+    }
+
+    #[tokio::test]
+    async fn the_user_s_configuration_cannot_change_what_the_window_relies_on() {
+        let (e, _init) = start_configured(
+            r#"
+            vim.o.number = true
+            vim.o.laststatus = 2
+            vim.o.foldenable = true
+            vim.o.foldmethod = "indent"
+            vim.o.conceallevel = 2
+            vim.o.winbar = "bar"
+            vim.keymap.set("n", ":", ":")
+            vim.api.nvim_create_autocmd("FileType", {
+              pattern = "adroit-console",
+              callback = function()
+                vim.wo.wrap = true
+                vim.bo.modifiable = true
+                vim.keymap.set("n", ":", ":", { buffer = true })
+              end,
+            })
+            "#,
+        )
+        .await;
+        let held = "[&number, &laststatus, &wrap, &modifiable, &foldenable, &conceallevel, \
+                    &winbar, maparg(':', 'n')]";
+        let want = Value::from(vec![
+            Value::from(0),
+            Value::from(0),
+            Value::from(0),
+            Value::from(0),
+            Value::from(0),
+            Value::from(0),
+            Value::from(""),
+            Value::from("<Nop>"),
+        ]);
+        assert!(e.settles(held, want.clone()).await);
+        e.exec("vim.wo.number = true; vim.wo.signcolumn = 'yes'", vec![])
+            .await
+            .unwrap();
+        assert!(
+            e.settles(
+                "[&number, &signcolumn]",
+                Value::from(vec![Value::from(0), Value::from("no")])
+            )
+            .await
+        );
+    }
+
+    #[tokio::test]
+    async fn the_window_s_keys_scroll_it_whatever_the_user_mapped_them_to() {
+        let (e, _init) = start_configured(
+            r#"
+            vim.keymap.set("n", "<C-e>", "<Nop>")
+            vim.keymap.set("n", "<C-y>", "<Nop>")
+            "#,
+        )
+        .await;
+        let text: Vec<String> = (1..=10).map(|n| n.to_string()).collect();
+        e.show(&text, &[], (0, 0), true, "#101010").await.unwrap();
+        e.press("3<C-e>").await.unwrap();
+        assert!(e.settles("line('w0')", Value::from(4)).await);
+        e.press("2<C-y>").await.unwrap();
+        assert!(e.settles("line('w0')", Value::from(2)).await);
     }
 
     /// Windows, tabs, and whether the console's buffer is the one shown.
@@ -177,7 +270,7 @@ mod tests {
         for cmd in ["split", "vnew", "tabnew", "help"] {
             e.exec(&format!("vim.cmd('{cmd}')"), vec![]).await.unwrap();
             assert!(
-                settles(&e, LAYOUT, alone()).await,
+                e.settles(LAYOUT, alone()).await,
                 "{cmd}: {}",
                 e.eval(LAYOUT).await
             );

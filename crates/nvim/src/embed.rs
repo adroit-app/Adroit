@@ -34,8 +34,16 @@ pub enum Event {
 /// Turns the user's Neovim into a prompt editor: the frame around the text is
 /// hidden, the buffer is a scratch buffer of its own filetype, and every text
 /// change reports how many screen lines the text needs. Runs once startup has
-/// finished, so the user's configuration is already loaded.
-pub(crate) const SETUP: &str = include_str!("../lua/prompt.lua");
+/// finished, after the user's configuration, and holds what it sets against
+/// any later change.
+pub(crate) const SETUP: &str = concat!(
+    include_str!("../lua/hold.lua"),
+    include_str!("../lua/prompt.lua")
+);
+
+/// What the prompt is given before the user's configuration, which may change
+/// any of it.
+pub(crate) const PROMPT_DEFAULTS: &str = include_str!("../lua/prompt_defaults.lua");
 
 const TAKE_TEXT: &str = include_str!("../lua/take_text.lua");
 
@@ -148,6 +156,27 @@ fn candidate_list(candidates: &[Candidate]) -> Value {
 /// Neovim's and the console reader's.
 pub(crate) const PROMPT_APPNAME: &str = "adroit/prompt/nvim";
 
+/// How one of adroit's Neovims is started.
+pub(crate) struct Launch {
+    /// The name it runs under, which finds its configuration, plugins and
+    /// state in folders of their own.
+    pub(crate) appname: &'static str,
+    /// Lua run before the user's configuration, which may change any of it.
+    pub(crate) defaults: &'static str,
+    /// Lua run once startup has finished, given the window's channel, which
+    /// holds what the window relies on.
+    pub(crate) setup: &'static str,
+}
+
+/// A configuration of the user's, kept in a file until the path is dropped.
+#[cfg(test)]
+pub(crate) fn user_init(lua: &str) -> tempfile::TempPath {
+    use std::io::Write;
+    let mut file = tempfile::Builder::new().suffix(".lua").tempfile().unwrap();
+    file.write_all(lua.as_bytes()).unwrap();
+    file.into_temp_path()
+}
+
 /// A Neovim process attached as this window's UI.
 pub struct Embedded {
     nvim: Neovim<Writer>,
@@ -165,18 +194,21 @@ impl Embedded {
         rows: u16,
         events: impl Fn(Event) + Send + Sync + 'static,
     ) -> Result<Self, Error> {
-        Self::spawn_with(program, args, cols, rows, PROMPT_APPNAME, SETUP, events).await
+        let launch = Launch {
+            appname: PROMPT_APPNAME,
+            defaults: PROMPT_DEFAULTS,
+            setup: SETUP,
+        };
+        Self::spawn_with(program, args, cols, rows, launch, events).await
     }
 
-    /// Start `program` as [`Embedded::spawn`] does, under `appname`, made
-    /// ready by `setup`, a Lua chunk given the window's channel.
+    /// Start `program` as [`Embedded::spawn`] does, as `launch` has it.
     pub(crate) async fn spawn_with(
         program: &str,
         args: &[&str],
         cols: u16,
         rows: u16,
-        appname: &str,
-        setup: &str,
+        launch: Launch,
         events: impl Fn(Event) + Send + Sync + 'static,
     ) -> Result<Self, Error> {
         let state = Arc::new(Mutex::new(UiState::default()));
@@ -186,8 +218,9 @@ impl Embedded {
         };
         let mut cmd = Command::new(program);
         cmd.arg("--embed")
-            .env("NVIM_APPNAME", appname)
+            .env("NVIM_APPNAME", launch.appname)
             .args(["--cmd", "let g:adroit = v:true"])
+            .args(["--cmd", &format!("lua {}", launch.defaults)])
             .args(args)
             .kill_on_drop(true);
         let (nvim, _io, child) = nvim_rs::create::tokio::new_child_cmd(&mut cmd, listener).await?;
@@ -200,7 +233,8 @@ impl Embedded {
         nvim.ui_attach(cols as i64, rows as i64, &opts).await?;
         let info = nvim.get_api_info().await?;
         let channel = info.first().and_then(Value::as_i64).unwrap_or(0);
-        nvim.exec_lua(setup, vec![Value::from(channel)]).await?;
+        nvim.exec_lua(launch.setup, vec![Value::from(channel)])
+            .await?;
         Ok(Self {
             nvim,
             state,
@@ -239,6 +273,18 @@ impl Embedded {
             .unwrap()
     }
 
+    /// Wait, at most two seconds, for `expr` to be `want`.
+    #[cfg(test)]
+    pub(crate) async fn settles(&self, expr: &str, want: Value) -> bool {
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            while self.eval(expr).await != want {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .is_ok()
+    }
+
     async fn exec_lua(&self, lua: &str, args: Vec<Value>) -> Result<Value, Error> {
         let lua = lua.to_string();
         self.ask(move |n| async move { n.exec_lua(&lua, args).await })
@@ -268,14 +314,26 @@ impl Embedded {
             .await
     }
 
+    /// Type keys in Neovim's notation as Neovim's own keys, whatever the user
+    /// mapped them to, in order with the keys typed before and after them.
+    pub async fn press(&self, keys: &str) -> Result<(), Error> {
+        // `<Cmd>` cannot be mapped, and the keys it feeds go right after it
+        // without mappings; Neovim's API has no input that skips mappings.
+        let keys = keys.replace('\'', "''").replace('<', "<lt>");
+        self.input(&format!(
+            "<Cmd>call feedkeys(nvim_replace_termcodes('{keys}', v:true, v:false, v:true), 'ni')<CR>"
+        ))
+        .await
+    }
+
     /// Leave whatever mode the prompt is in and start writing after its text.
     pub async fn start_writing(&self) -> Result<(), Error> {
-        self.input("<C-\\><C-N>GA").await
+        self.press("<C-\\><C-N>GA").await
     }
 
     /// Go back to normal mode, from whatever mode the prompt is in.
     pub async fn stop_writing(&self) -> Result<(), Error> {
-        self.input("<C-\\><C-N>").await
+        self.press("<C-\\><C-N>").await
     }
 
     /// Type text as if from the keyboard: a `<` in it is a `<`, not the start
@@ -324,7 +382,7 @@ impl Embedded {
     pub async fn set_light(&self, light: bool) -> Result<(), Error> {
         let background = Value::from(if light { "light" } else { "dark" });
         self.exec(
-            "if vim.o.background ~= ... then vim.o.background = ... end",
+            "vim.g.adroit_background = ...; if vim.o.background ~= ... then vim.o.background = ... end",
             vec![background],
         )
         .await
@@ -401,6 +459,20 @@ mod tests {
         .expect("timed out");
     }
 
+    async fn start_configured(
+        init: &str,
+    ) -> (Embedded, mpsc::UnboundedReceiver<Event>, tempfile::TempPath) {
+        let init = user_init(init);
+        let path = init.to_str().unwrap();
+        let (tx, rx) = mpsc::unbounded_channel();
+        let e = Embedded::spawn("nvim", &["--clean", "-u", path], 30, 4, move |ev| {
+            let _ = tx.send(ev);
+        })
+        .await
+        .expect("nvim on PATH");
+        (e, rx, init)
+    }
+
     #[tokio::test]
     async fn it_keeps_its_configuration_and_state_apart_from_the_everyday_neovim() {
         let (e, _rx) = start().await;
@@ -408,6 +480,92 @@ mod tests {
             let path = e.stdpath(kind).await;
             assert!(path.ends_with("adroit/prompt/nvim"), "{kind}: {path}");
         }
+    }
+
+    #[tokio::test]
+    async fn the_user_s_configuration_changes_what_adroit_only_suggests() {
+        let (e, _rx, _init) = start_configured(
+            r#"
+            vim.o.number = true
+            vim.o.cursorline = true
+            vim.api.nvim_create_autocmd("FileType", {
+              pattern = "adroit-prompt",
+              callback = function() vim.wo.wrap = false end,
+            })
+            "#,
+        )
+        .await;
+        assert!(e.settles("&number", Value::from(1)).await);
+        assert!(e.settles("&cursorline", Value::from(1)).await);
+        assert!(e.settles("&wrap", Value::from(0)).await);
+    }
+
+    #[tokio::test]
+    async fn the_user_s_configuration_cannot_change_what_the_window_relies_on() {
+        let (e, _rx, _init) = start_configured(
+            r#"
+            vim.o.laststatus = 2
+            vim.o.showtabline = 2
+            vim.o.cmdheight = 1
+            vim.o.completeopt = "menu"
+            vim.o.eventignore = "TextChanged"
+            vim.o.winbar = "bar"
+            vim.o.modifiable = false
+            vim.api.nvim_create_autocmd("FileType", {
+              pattern = "adroit-prompt",
+              callback = function() vim.bo.buftype = "" end,
+            })
+            "#,
+        )
+        .await;
+        let held = "[&laststatus, &showtabline, &cmdheight, &completeopt, &eventignore, \
+                    &winbar, &modifiable, &buftype, &filetype]";
+        let want = Value::from(vec![
+            Value::from(0),
+            Value::from(0),
+            Value::from(0),
+            Value::from("menuone,noinsert"),
+            Value::from(""),
+            Value::from(""),
+            Value::from(1),
+            Value::from("nofile"),
+            Value::from("adroit-prompt"),
+        ]);
+        assert!(e.settles(held, want.clone()).await);
+        e.exec(
+            "vim.o.laststatus = 2; vim.bo.buftype = ''; vim.bo.filetype = 'text'",
+            vec![],
+        )
+        .await
+        .unwrap();
+        assert!(e.settles(held, want).await);
+    }
+
+    #[tokio::test]
+    async fn writing_starts_after_the_text_whatever_the_user_mapped_its_keys_to() {
+        let (e, mut rx, _init) = start_configured(
+            r#"
+            vim.keymap.set({ "n", "i" }, "<C-\\>", "<Nop>")
+            vim.keymap.set("n", "G", "<Nop>")
+            vim.keymap.set("n", "A", "<Nop>")
+            "#,
+        )
+        .await;
+        e.input("one<CR>two<Esc>k0").await.unwrap();
+        until(&mut rx, || e.state().mode() == "normal").await;
+        e.start_writing().await.unwrap();
+        e.input("!").await.unwrap();
+        until(&mut rx, || e.state().screen().text()[1] == "two!").await;
+        e.stop_writing().await.unwrap();
+        until(&mut rx, || e.state().mode() == "normal").await;
+    }
+
+    #[tokio::test]
+    async fn the_theme_s_background_is_kept_whatever_changes_it() {
+        let (e, _rx) = start().await;
+        e.set_light(true).await.unwrap();
+        e.exec("vim.o.background = 'dark'", vec![]).await.unwrap();
+        assert!(e.settles("&background", Value::from("light")).await);
     }
 
     #[tokio::test]

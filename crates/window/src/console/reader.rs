@@ -223,7 +223,7 @@ impl Reader {
             let Some((lines, marks, cur, background)) = reader.everything(&p).await else {
                 return;
             };
-            let _ = r.input("<C-\\><C-N>").await;
+            let _ = r.press("<C-\\><C-N>").await;
             if r.show(&lines, &marks, cur, true, &background).await.is_ok() {
                 reader.app.dispatch(Msg::ReadingStarted);
                 let _ = r.input(&keys.concat()).await;
@@ -256,7 +256,7 @@ impl Reader {
             format!("{}<C-e>", -lines)
         };
         spawn(async move {
-            let _ = r.input(&keys).await;
+            let _ = r.press(&keys).await;
         });
     }
 
