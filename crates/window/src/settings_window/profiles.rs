@@ -57,6 +57,21 @@ fn attempt<T: 'static>(
     }
 }
 
+/// Make `edit` to the profile `id` the change; a profile gone by then is
+/// left gone.
+fn edit_profile(
+    change: Callback<Change>,
+    id: &ProfileId,
+    edit: impl FnOnce(&mut AgentProfile) + 'static,
+) {
+    let id = id.clone();
+    change(Box::new(move |s: &mut Settings| {
+        if let Ok(p) = profiles::profile_mut(s, &id) {
+            edit(p);
+        }
+    }));
+}
+
 /// The folders that exist, written as the system writes them through their
 /// links, for a login's folder to be written once that way.
 fn canonical(path: &Path) -> Option<PathBuf> {
@@ -316,14 +331,7 @@ fn ProfilePage(
                     options,
                     set: {
                         let id = profile.id.clone();
-                        move |options: SessionOptions| {
-                            let id = id.clone();
-                            change(Box::new(move |s: &mut Settings| {
-                                if let Ok(p) = profiles::profile_mut(s, &id) {
-                                    p.options = AgentOptions::Claude(options);
-                                }
-                            }))
-                        }
+                        move |options: SessionOptions| edit_profile(change, &id, move |p| p.options = AgentOptions::Claude(options))
                     },
                 }
             },
@@ -334,14 +342,7 @@ fn ProfilePage(
                     options,
                     set: {
                         let id = profile.id.clone();
-                        move |options: CodexOptions| {
-                            let id = id.clone();
-                            change(Box::new(move |s: &mut Settings| {
-                                if let Ok(p) = profiles::profile_mut(s, &id) {
-                                    p.options = AgentOptions::Codex(options);
-                                }
-                            }))
-                        }
+                        move |options: CodexOptions| edit_profile(change, &id, move |p| p.options = AgentOptions::Codex(options))
                     },
                 }
             },
@@ -352,14 +353,7 @@ fn ProfilePage(
                     options,
                     set: {
                         let id = profile.id.clone();
-                        move |options: PiOptions| {
-                            let id = id.clone();
-                            change(Box::new(move |s: &mut Settings| {
-                                if let Ok(p) = profiles::profile_mut(s, &id) {
-                                    p.options = AgentOptions::Pi(options);
-                                }
-                            }))
-                        }
+                        move |options: PiOptions| edit_profile(change, &id, move |p| p.options = AgentOptions::Pi(options))
                     },
                 }
             },
@@ -370,14 +364,7 @@ fn ProfilePage(
                     options,
                     set: {
                         let id = profile.id.clone();
-                        move |options: OpenCodeOptions| {
-                            let id = id.clone();
-                            change(Box::new(move |s: &mut Settings| {
-                                if let Ok(p) = profiles::profile_mut(s, &id) {
-                                    p.options = AgentOptions::OpenCode(options);
-                                }
-                            }))
-                        }
+                        move |options: OpenCodeOptions| edit_profile(change, &id, move |p| p.options = AgentOptions::OpenCode(options))
                     },
                 }
             },
@@ -392,14 +379,7 @@ fn ProfilePage(
                 launch: profile.launch.clone(),
                 set: {
                     let id = profile.id.clone();
-                    move |launch: Launch| {
-                        let id = id.clone();
-                        change(Box::new(move |s: &mut Settings| {
-                            if let Ok(p) = profiles::profile_mut(s, &id) {
-                                p.launch = launch;
-                            }
-                        }))
-                    }
+                    move |launch: Launch| edit_profile(change, &id, move |p| p.launch = launch)
                 },
             }
         }
