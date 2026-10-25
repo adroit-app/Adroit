@@ -16,6 +16,7 @@ use super::socket::use_window_socket;
 use super::ui::{Ui, use_ui};
 use crate::bridge::{AppCtx, use_app};
 use crate::bundled_font::{faces, use_bundled_font};
+use crate::components::SettingsFileError;
 use crate::hosts::use_hosts;
 use crate::input::{KeysField, use_input};
 use crate::panes::{use_console_sizes, use_hub, use_redraws_told, use_shown_images};
@@ -62,10 +63,7 @@ fn App() -> Element {
         RootStyle {}
         div { class: "app",
             KeysField {}
-            settings_window::SettingsLoadError { error: app.config.read().settings_error.clone() }
-            settings_window::SettingsNotice {
-                notice: adroit_core::profiles::unshared_notice(&app.config.read().settings),
-            }
+            SettingsFileError { config: app.config }
             Header { ontoggle: move |side| app.dispatch(Msg::PanelToggle(side)) }
             Body {}
             DaemonBanner {}

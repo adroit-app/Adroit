@@ -18,7 +18,8 @@ use dioxus::prelude::*;
 
 use crate::bridge::run_detached;
 use crate::components::{
-    NumberField, Select, SettingGroup, SettingRow, SettingsError, TextArea, TextField, Toggle,
+    NumberField, Select, SettingGroup, SettingRow, SettingsError, SettingsFileError, TextArea,
+    TextField, Toggle,
 };
 use crate::feed::{root_style, use_config};
 use crate::fonts;
@@ -156,47 +157,6 @@ fn run_open(target: impl AsRef<std::ffi::OsStr>) {
 const KEYS_STARTER: &str =
     "# Key bindings over the defaults, area by area, as in\n# [tree]\n# \"J\" = \"cursor.down\"\n";
 
-/// Why the settings cannot be had, while they cannot, as the file reads now.
-#[component]
-fn SettingsFileError() -> Element {
-    let config = use_config();
-    rsx! {
-        SettingsLoadError { error: config.read().settings_error.clone() }
-        SettingsNotice { notice: adroit_core::profiles::unshared_notice(&config.read().settings) }
-    }
-}
-
-/// `notice`, what came of reading the settings that the user is to know of,
-/// told over the window.
-#[component]
-pub fn SettingsNotice(notice: Option<String>) -> Element {
-    rsx! {
-        if let Some(notice) = notice {
-            div {
-                class: "settings-error",
-                role: "status",
-                style: "padding: 12px; color: var(--wait); white-space: pre-wrap; flex: none; max-height: 30vh; overflow: auto; user-select: text",
-                "{notice}"
-            }
-        }
-    }
-}
-
-/// `error`, why the settings cannot be had, told over the window.
-#[component]
-pub fn SettingsLoadError(error: Option<String>) -> Element {
-    rsx! {
-        if let Some(error) = error {
-            div {
-                class: "settings-error",
-                role: "alert",
-                style: "padding: 12px; color: var(--fail, #f08080); white-space: pre-wrap; flex: none; max-height: 30vh; overflow: auto; user-select: text",
-                "{error}. Fix the configuration file before saving settings."
-            }
-        }
-    }
-}
-
 /// The settings, `agents` being what the work host tells of each agent.
 #[component]
 fn SettingsWindow(agents: AgentsWork) -> Element {
@@ -295,7 +255,7 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
                     }
                 }
                 div { class: "settings-measure",
-                    SettingsFileError {}
+                    SettingsFileError { config }
                     if let Some(e) = failed() {
                         SettingsError { "Could not keep the settings: {e}" }
                     }

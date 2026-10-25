@@ -1,6 +1,7 @@
 //! Pieces of markup the windows draw alike, each drawn by one component so
 //! the classes the stylesheets rule are written in one place.
 
+mod banner;
 mod button;
 mod crumbs;
 mod dialog;
@@ -14,6 +15,7 @@ mod marks;
 mod section;
 mod state_glyph;
 
+pub use banner::*;
 pub use button::*;
 pub use crumbs::*;
 pub use dialog::*;
