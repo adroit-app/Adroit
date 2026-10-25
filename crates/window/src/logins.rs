@@ -52,12 +52,34 @@ pub(crate) fn stale(known: Option<&Login>, now: Instant) -> bool {
 /// terminal `after` has ended when one is named: a login terminal still
 /// open is still waited for.
 pub(crate) fn asking(known: Option<&Login>, after: Option<u128>) -> Login {
-    match (after, known) {
-        (Some(terminal), _) | (None, Some(&Login::LoggingIn(terminal))) => {
-            Login::LoggingIn(terminal)
+    waited(known.and_then(Login::waiting), after).map_or(Login::Asking, Login::LoggingIn)
+}
+
+impl Login {
+    /// The login terminal waited for, while one is.
+    fn waiting(&self) -> Option<u128> {
+        match self {
+            Login::LoggingIn(terminal) => Some(*terminal),
+            Login::Asking | Login::Is(..) => None,
         }
-        _ => Login::Asking,
     }
+}
+
+/// The login terminal an ask that waits for the terminal `after`, when one
+/// is named, waits for, `waiting` being the one waited for already.
+pub(crate) fn waited(waiting: Option<u128>, after: Option<u128>) -> Option<u128> {
+    after.or(waiting)
+}
+
+/// The login terminal `waiting` while it is waited for still once an ask
+/// that waited for the terminal `after` is answered, `standing` when the
+/// CLI gave one.
+pub(crate) fn still_waited(
+    waiting: Option<u128>,
+    after: Option<u128>,
+    standing: Option<LoginStanding>,
+) -> Option<u128> {
+    waiting.filter(|&terminal| !ends_wait(terminal, after, standing))
 }
 
 /// What is known of a login known as `known` once its CLI answered
@@ -70,12 +92,8 @@ pub(crate) fn answered(
     standing: LoginStanding,
     at: Instant,
 ) -> Login {
-    match known {
-        Some(Login::LoggingIn(terminal)) if !ends_wait(*terminal, after, Some(standing)) => {
-            Login::LoggingIn(*terminal)
-        }
-        _ => Login::Is(standing, at),
-    }
+    still_waited(known.and_then(Login::waiting), after, Some(standing))
+        .map_or(Login::Is(standing, at), Login::LoggingIn)
 }
 
 /// Whether an answer, `standing` when the CLI gave one, ends the wait for
@@ -110,12 +128,11 @@ pub(crate) fn ask(app: AppCtx, profile: ProfileId, after: Option<u128>) {
                 logins.insert(profile, next);
             }
             // Asked again when a draft shows it next.
-            _ => match known {
-                Some(Login::LoggingIn(terminal)) if !ends_wait(terminal, after, None) => {}
-                _ => {
+            _ => {
+                if still_waited(known.and_then(|k| k.waiting()), after, None).is_none() {
                     logins.remove(&profile);
                 }
-            },
+            }
         }
     });
 }
@@ -158,6 +175,24 @@ mod tests {
             asking(Some(&Login::LoggingIn(7)), Some(8)),
             Login::LoggingIn(8)
         );
+    }
+
+    #[test]
+    fn an_ask_waits_for_the_terminal_it_names_or_else_the_one_waited_for() {
+        assert_eq!(waited(None, None), None);
+        assert_eq!(waited(None, Some(7)), Some(7));
+        assert_eq!(waited(Some(7), None), Some(7));
+        assert_eq!(waited(Some(7), Some(8)), Some(8));
+    }
+
+    #[test]
+    fn a_terminal_waited_for_is_waited_for_still_until_an_answer_ends_the_wait() {
+        use LoginStanding::*;
+        assert_eq!(still_waited(None, Some(7), Some(LoggedOut)), None);
+        assert_eq!(still_waited(Some(7), Some(7), Some(LoggedOut)), None);
+        assert_eq!(still_waited(Some(7), None, Some(LoggedIn)), None);
+        assert_eq!(still_waited(Some(7), None, Some(LoggedOut)), Some(7));
+        assert_eq!(still_waited(Some(7), Some(6), None), Some(7));
     }
 
     #[test]

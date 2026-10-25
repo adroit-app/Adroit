@@ -19,6 +19,7 @@ use super::{Change, LaunchGroup};
 use crate::components::{SettingGroup, SettingRow, SettingsError, TextField};
 use crate::icons::{Icon, IconView};
 use crate::link::{Link, failure, refusal};
+use crate::logins;
 use crate::settings::{AgentOptions, Settings};
 
 /// A change to the profiles that may be refused, with what came of it when
@@ -580,6 +581,16 @@ enum Probed {
     Failed(String),
 }
 
+impl Probed {
+    /// The login terminal waited for, while one is.
+    fn waiting(&self) -> Option<u128> {
+        match self {
+            Probed::LoggingIn(terminal) => Some(*terminal),
+            Probed::Asking | Probed::Is(_) | Probed::Failed(_) => None,
+        }
+    }
+}
+
 /// Ask the work host whether the profile `key` names is logged in where it
 /// keeps its login, once the terminal `after` has ended when one is named,
 /// into `probed`.
@@ -589,10 +600,7 @@ fn probe(
     key: (ProfileId, Option<PathBuf>),
     after: Option<u128>,
 ) {
-    let waited = match (after, probed.peek().get(&key)) {
-        (Some(terminal), _) | (None, Some(&Probed::LoggingIn(terminal))) => Some(terminal),
-        _ => None,
-    };
+    let waited = logins::waited(probed.peek().get(&key).and_then(Probed::waiting), after);
     probed.write().insert(
         key.clone(),
         waited.map_or(Probed::Asking, Probed::LoggingIn),
@@ -607,14 +615,10 @@ fn probe(
             answer => (Probed::Failed(refusal(answer)), None),
         };
         let mut probed = probed.write();
-        // A login terminal still open is waited for still, unless this
-        // answer came once it ended or says the login is done.
-        if let Some(Probed::LoggingIn(terminal)) = probed.get(&key)
-            && !crate::logins::ends_wait(*terminal, after, standing)
-        {
-            return;
+        let waiting = probed.get(&key).and_then(Probed::waiting);
+        if logins::still_waited(waiting, after, standing).is_none() {
+            probed.insert(key, got);
         }
-        probed.insert(key, got);
     });
 }
 
@@ -690,9 +694,9 @@ fn LoginRow(
             format!("{} didn't say whether it is logged in.", agent.label())
         }
         Some(Probed::Failed(why)) => why.clone(),
-        Some(Probed::Is(LoginStanding::LoggedOut)) => crate::logins::without_login(agent)
-            .unwrap_or_default()
-            .to_string(),
+        Some(Probed::Is(LoginStanding::LoggedOut)) => {
+            logins::without_login(agent).unwrap_or_default().to_string()
+        }
         _ => String::new(),
     };
     let whose = match &home {
