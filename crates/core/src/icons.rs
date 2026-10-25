@@ -125,6 +125,7 @@ icons! {
     Terminal => "terminal",
     Terminal2 => "terminal-2",
     TransferIn => "transfer-in",
+    UsersGroup => "users-group",
     X => "x",
     ZoomIn => "zoom-in",
     ZoomOut => "zoom-out",

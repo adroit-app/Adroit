@@ -33,7 +33,7 @@ pub struct Fact {
     pub tone: Option<&'static str>,
 }
 
-/// What the overview says about the session `s` and its conversation, at
+/// What the overview's head says of how the session `s` stands now, at
 /// `now_ms` since the Unix epoch.
 pub fn overview_facts(
     s: &Session,
@@ -65,11 +65,12 @@ pub fn overview_facts(
     if let Some(started) = s.started_ms {
         out.push(plain("Started", ago(now_ms.saturating_sub(started))));
     }
-    out.extend(
-        conversation_facts(stats, last_input_ms, now_ms)
-            .into_iter()
-            .map(|(label, value)| plain(label, value)),
-    );
+    if let Some(at) = last_input_ms.max(stats.last_user_ms) {
+        out.push(plain(
+            "Last input",
+            format!("{} ago", lasted(now_ms.saturating_sub(at))),
+        ));
+    }
     out
 }
 
@@ -94,19 +95,42 @@ pub fn started_from_facts(s: &Session, settings: &crate::settings::Settings) -> 
     ]
 }
 
-/// Conversation facts omit fields the provider has not reported.
-fn conversation_facts(
+/// What the overview's About says of the session `s`: the totals of its
+/// conversation, what it started from as `settings` name it, the
+/// `workspace` and `worktree` it works in, and its conversation's ID.
+pub fn about_facts(
+    s: &Session,
     stats: &adroit_model::ConversationStats,
-    last_input_ms: Option<u64>,
-    now_ms: u64,
-) -> Vec<(&'static str, String)> {
-    let mut out = Vec::new();
-    if let Some(at) = last_input_ms.max(stats.last_user_ms) {
-        out.push((
-            "Last input",
-            format!("{} ago", lasted(now_ms.saturating_sub(at))),
-        ));
+    settings: &crate::settings::Settings,
+    workspace: Option<&Path>,
+    worktree: Option<&Path>,
+) -> Vec<Fact> {
+    let plain = |label, value| Fact {
+        label,
+        value,
+        tone: None,
+    };
+    let mut out: Vec<Fact> = conversation_totals(stats)
+        .into_iter()
+        .map(|(label, value)| plain(label, value))
+        .collect();
+    out.extend(started_from_facts(s, settings));
+    if let Some(root) = workspace {
+        out.push(plain("Workspace", root.display().to_string()));
     }
+    if let Some(w) = worktree {
+        out.push(plain("Worktree", w.display().to_string()));
+    }
+    if !s.session_id.is_empty() {
+        out.push(plain("Conversation", s.session_id.clone()));
+    }
+    out
+}
+
+/// The conversation's totals, leaving out what the provider has not
+/// reported.
+fn conversation_totals(stats: &adroit_model::ConversationStats) -> Vec<(&'static str, String)> {
+    let mut out = Vec::new();
     if let Some(t) = stats.tokens {
         let mut used = vec![
             format!("{} in", tokens(t.input)),
@@ -391,24 +415,43 @@ fn lasted(ms: u64) -> String {
 /// What the details panel shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sheet {
-    /// The session shown, where it works, and the artifacts, links and files
-    /// its conversation brought up, each opening outside adroit.
+    /// How the session shown stands now: the change it is on, what works
+    /// for it, and what changes little.
     Overview,
     /// The files the working copy changes, each opening its diff.
     Changes,
     /// The recent commits, or jj's stack, each opening the files it changed.
     Log,
+    /// The sessions, messages and subagents the session worked with.
+    Agents,
+    /// The artifacts, images, links and files its conversation brought up,
+    /// each opening outside adroit.
+    Resources,
 }
 
 impl Sheet {
-    pub const ALL: [Sheet; 3] = [Sheet::Overview, Sheet::Changes, Sheet::Log];
+    pub const ALL: [Sheet; 5] = [
+        Sheet::Overview,
+        Sheet::Changes,
+        Sheet::Log,
+        Sheet::Agents,
+        Sheet::Resources,
+    ];
 
     pub fn title(self) -> &'static str {
         match self {
             Sheet::Overview => "Overview",
             Sheet::Changes => "Changes",
             Sheet::Log => "Log",
+            Sheet::Agents => "Agents",
+            Sheet::Resources => "Resources",
         }
+    }
+
+    /// Whether it lists rows of the session shown, rather than what was read
+    /// of the worktree.
+    pub fn lists_entries(self) -> bool {
+        matches!(self, Sheet::Overview | Sheet::Agents | Sheet::Resources)
     }
 
     /// The sheet `delta` places along, wrapping around.
@@ -438,6 +481,17 @@ impl Listing {
         )
     }
 
+    /// The group whose heading row `at` is under, or is.
+    pub fn group_at(&self, at: usize) -> Option<Group> {
+        let Listing::Links(entries) = self else {
+            return None;
+        };
+        entries.get(..=at)?.iter().rev().find_map(|e| match e {
+            Entry::Heading { group, .. } => Some(*group),
+            _ => None,
+        })
+    }
+
     /// The row of the overview that heads `group`.
     pub fn heading(&self, group: Group) -> Option<usize> {
         let Listing::Links(entries) = self else {
@@ -465,7 +519,8 @@ pub enum Group {
     Sessions,
     Messages,
     Agents,
-    Processes,
+    Running,
+    About,
     Artifacts,
     Images,
     Links,
@@ -486,7 +541,8 @@ impl Group {
             Group::Sessions => "Sessions",
             Group::Messages => "Messages",
             Group::Agents => "Subagents",
-            Group::Processes => "Processes",
+            Group::Running => "Running",
+            Group::About => "About",
             Group::Artifacts => "Artifacts",
             Group::Images => "Images",
             Group::Links => "Links",
@@ -507,6 +563,7 @@ pub enum Entry {
     Message(Note),
     Agent(Agent),
     Process(adroit_model::Process),
+    Fact(Fact),
     Link(Link),
     Image(Shot),
     /// The row standing for a group's links not shown, which shows them all.
@@ -525,7 +582,8 @@ impl Entry {
                 Group::Sessions => "\0sessions",
                 Group::Messages => "\0messages",
                 Group::Agents => "\0agents",
-                Group::Processes => "\0processes",
+                Group::Running => "\0running",
+                Group::About => "\0about",
                 Group::Artifacts => "\0artifacts",
                 Group::Images => "\0images",
                 Group::Links => "\0links",
@@ -535,13 +593,15 @@ impl Entry {
             Entry::Message(n) => n.id.as_str(),
             Entry::Agent(a) => a.call.as_str(),
             Entry::Process(p) => &p.key,
+            Entry::Fact(f) => f.label,
             Entry::Link(l) => l.target.as_str(),
             Entry::Image(s) => s.key.as_str(),
             Entry::More { group, .. } => match group {
                 Group::Sessions => "\0more sessions",
                 Group::Messages => "\0more messages",
                 Group::Agents => "\0more agents",
-                Group::Processes => "\0more processes",
+                Group::Running => "\0more running",
+                Group::About => "\0more about",
                 Group::Artifacts => "\0more artifacts",
                 Group::Images => "\0more images",
                 Group::Links => "\0more links",
@@ -557,7 +617,8 @@ impl Entry {
             Entry::Session(_) => Group::Sessions,
             Entry::Message(_) => Group::Messages,
             Entry::Agent(_) => Group::Agents,
-            Entry::Process(_) => Group::Processes,
+            Entry::Process(_) => Group::Running,
+            Entry::Fact(_) => Group::About,
             Entry::Link(l) => Group::of(&l.kind),
             Entry::Image(_) => Group::Images,
             Entry::More { group, .. } => *group,
@@ -773,44 +834,73 @@ pub fn with_agents(
     entries
 }
 
-/// Live processes appear as a foldable group after related sessions and subagents.
-pub fn with_processes(
-    mut entries: Vec<Entry>,
+/// What works for the session shown right now, under one heading: the
+/// `related` sessions that still run, the `agents` still at work and its
+/// `processes`, showing their `first` and a row for the rest unless the
+/// group is among those `opened`; a `folded` group shows its heading alone.
+pub fn running(
+    related: &[Related],
+    agents: &[Agent],
     processes: &[adroit_model::Process],
     folded: &HashSet<Group>,
     opened: &HashSet<Group>,
     first: usize,
 ) -> Vec<Entry> {
-    if processes.is_empty() {
-        return entries;
-    }
-    let at = entries
+    let rows: Vec<Entry> = related
         .iter()
-        .position(|e| !matches!(e.group(), Group::Sessions | Group::Messages | Group::Agents))
-        .unwrap_or(entries.len());
-    let group = Group::Processes;
+        .filter(|r| r.id.is_some())
+        .cloned()
+        .map(Entry::Session)
+        .chain(
+            agents
+                .iter()
+                .filter(|a| a.standing == Standing::Running)
+                .cloned()
+                .map(Entry::Agent),
+        )
+        .chain(processes.iter().cloned().map(Entry::Process))
+        .collect();
+    if rows.is_empty() {
+        return Vec::new();
+    }
+    let group = Group::Running;
     let shut = folded.contains(&group);
-    let mut rows = vec![Entry::Heading {
+    let mut out = vec![Entry::Heading {
         group,
-        count: processes.len(),
+        count: rows.len(),
         folded: shut,
     }];
     if !shut {
         let shown = if opened.contains(&group) {
-            processes.len()
+            rows.len()
         } else {
-            first.min(processes.len())
+            first.min(rows.len())
         };
-        rows.extend(processes[..shown].iter().cloned().map(Entry::Process));
-        if shown < processes.len() {
-            rows.push(Entry::More {
-                group,
-                hidden: processes.len() - shown,
-            });
+        let hidden = rows.len() - shown;
+        out.extend(rows.into_iter().take(shown));
+        if hidden > 0 {
+            out.push(Entry::More { group, hidden });
         }
     }
-    entries.splice(at..at, rows);
-    entries
+    out
+}
+
+/// The `facts` that change little, under their heading; a `folded` group
+/// shows its heading alone.
+pub fn about(facts: &[Fact], folded: &HashSet<Group>) -> Vec<Entry> {
+    if facts.is_empty() {
+        return Vec::new();
+    }
+    let shut = folded.contains(&Group::About);
+    let mut out = vec![Entry::Heading {
+        group: Group::About,
+        count: facts.len(),
+        folded: shut,
+    }];
+    if !shut {
+        out.extend(facts.iter().cloned().map(Entry::Fact));
+    }
+    out
 }
 
 /// The overview's `entries` with `shots` under their heading after the
@@ -880,6 +970,43 @@ impl View {
     }
 }
 
+/// The change the overview says the worktree is on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangeLine {
+    pub short: String,
+    /// Its description's first line.
+    pub subject: String,
+    /// How many files it changes, in words.
+    pub files: String,
+}
+
+/// What the overview says of the change `view` lists the files of; none
+/// until its revision is known.
+pub fn change_line(view: &View) -> Option<ChangeLine> {
+    let Listing::Files(files) = &view.listing else {
+        return None;
+    };
+    let revision = view.revision.as_ref()?;
+    let subject = revision
+        .description
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .trim();
+    Some(ChangeLine {
+        short: revision.short.clone(),
+        subject: if subject.is_empty() {
+            "(no description)".into()
+        } else {
+            subject.to_string()
+        },
+        files: match files.len() {
+            0 => "no changes".into(),
+            n => plural(n as u64, "file", "files"),
+        },
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Opened {
     Commit(Commit),
@@ -945,7 +1072,7 @@ impl Drill {
     pub fn spot(&self) -> Option<Spot> {
         let rev = |c: &Commit| Rev::Commit(c.id.clone());
         Some(match (self.sheet, self.opened.as_slice()) {
-            (Sheet::Overview, _) => return None,
+            (Sheet::Overview | Sheet::Agents | Sheet::Resources, _) => return None,
             (Sheet::Changes, []) => Spot::Files(Rev::WorkingCopy),
             (Sheet::Changes, [Opened::File(f), ..]) => Spot::Diff(Rev::WorkingCopy, f.clone()),
             (Sheet::Log, []) => Spot::Log,
@@ -1093,62 +1220,103 @@ mod tests {
     use adroit_model::testing::{SessionBuilder, session};
     use adroit_model::{Session, State, Wait};
 
+    fn process(pid: u32) -> adroit_model::Process {
+        adroit_model::Process {
+            key: format!("process-{pid}"),
+            pid,
+            name: format!("command-{pid}"),
+            ..Default::default()
+        }
+    }
+
     #[test]
-    fn processes_fold_expand_and_open_with_the_same_overview_navigation() {
-        let rows: Vec<_> = (1..=3)
-            .map(|pid| adroit_model::Process {
-                key: format!("process-{pid}"),
-                pid,
-                name: format!("command-{pid}"),
-                ..Default::default()
-            })
-            .collect();
-        let folded = HashSet::new();
-        let entries = with_processes(Vec::new(), &rows, &folded, &folded, 1);
-        assert!(matches!(
-            entries[0],
-            Entry::Heading {
-                group: Group::Processes,
-                count: 3,
-                folded: false
-            }
-        ));
-        assert!(matches!(entries[1], Entry::Process(_)));
-        assert!(matches!(
-            entries[2],
-            Entry::More {
-                group: Group::Processes,
-                hidden: 2
-            }
-        ));
+    fn running_lists_the_live_sessions_subagents_and_processes_under_one_heading() {
+        let r = [
+            tied("lead", Some("1"), &[Tie::OpenedBy]),
+            tied("gone", None, &[Tie::Sent]),
+        ];
+        let a = [
+            agent("toolu_1", "Survey", Standing::Running),
+            agent("toolu_2", "Fix", Standing::Done),
+        ];
+        let p = [process(1)];
+        let none = HashSet::new();
+        let entries = running(&r, &a, &p, &none, &none, 5);
+        assert_eq!(
+            entries,
+            [
+                heading(Group::Running, 3, false),
+                Entry::Session(r[0].clone()),
+                Entry::Agent(a[0].clone()),
+                Entry::Process(p[0].clone()),
+            ]
+        );
+        let list = Listing::Links(entries);
+        assert_eq!(list.group_at(2), Some(Group::Running));
+        assert_eq!(list.group_at(9), None);
+        assert_eq!(
+            running(&r, &a, &p, &HashSet::from([Group::Running]), &none, 5),
+            [heading(Group::Running, 3, true)]
+        );
+        assert!(running(&r[1..], &a[1..], &[], &none, &none, 5).is_empty());
+    }
+
+    #[test]
+    fn running_shows_its_first_few_and_opens_a_process_and_back_to_it() {
+        let rows: Vec<_> = (1..=3).map(process).collect();
+        let none = HashSet::new();
+        let entries = running(&[], &[], &rows, &none, &none, 1);
+        assert_eq!(
+            entries,
+            [
+                heading(Group::Running, 3, false),
+                Entry::Process(rows[0].clone()),
+                Entry::More {
+                    group: Group::Running,
+                    hidden: 2
+                },
+            ]
+        );
         let list = Listing::Links(entries);
         let mut drill = Drill::new(Sheet::Overview);
         assert!(drill.open_at(&list, 1));
         assert_eq!(drill.process(), Some("process-1"));
         assert!(drill.back());
         assert_eq!(drill.selected(&list), Some(1));
+        let opened = HashSet::from([Group::Running]);
+        assert_eq!(running(&[], &[], &rows, &none, &opened, 1).len(), 4);
+    }
+
+    fn fact(label: &'static str, value: &str) -> Fact {
+        Fact {
+            label,
+            value: value.into(),
+            tone: None,
+        }
+    }
+
+    #[test]
+    fn about_is_a_group_of_facts_that_opens_nothing() {
+        let facts = [fact("Worktree", "/w"), fact("Conversation", "c-1")];
         assert_eq!(
-            with_processes(
-                Vec::new(),
-                &rows,
-                &HashSet::from([Group::Processes]),
-                &folded,
-                1
-            )
-            .len(),
-            1
+            about(&facts, &HashSet::from([Group::About])),
+            [heading(Group::About, 2, true)]
         );
+        let list = Listing::Links(about(&facts, &HashSet::new()));
         assert_eq!(
-            with_processes(
-                Vec::new(),
-                &rows,
-                &folded,
-                &HashSet::from([Group::Processes]),
-                1
-            )
-            .len(),
-            4
+            list,
+            Listing::Links(vec![
+                heading(Group::About, 2, false),
+                Entry::Fact(facts[0].clone()),
+                Entry::Fact(facts[1].clone()),
+            ])
         );
+        let mut d = Drill::new(Sheet::Overview);
+        d.select(&list, 2);
+        assert_eq!(d.selected(&list), Some(2));
+        assert!(!d.open(&list));
+        assert_eq!(list.group_at(2), Some(Group::About));
+        assert!(about(&[], &HashSet::new()).is_empty());
     }
 
     fn stats() -> adroit_model::ConversationStats {
@@ -1167,12 +1335,31 @@ mod tests {
     }
 
     #[test]
-    fn conversation_facts_are_the_latest_user_operation_and_the_totals() {
-        let got = conversation_facts(&stats(), Some(5000), 17000);
+    fn the_last_input_is_the_latest_user_operation() {
+        let s = session("s").build();
+        let input = |last: Option<u64>, stats: &adroit_model::ConversationStats, now| {
+            overview_facts(&s, stats, last, now)
+                .into_iter()
+                .find(|f| f.label == "Last input")
+                .map(|f| f.value)
+        };
         assert_eq!(
-            got,
+            input(Some(5000), &stats(), 17000).as_deref(),
+            Some("12 s ago")
+        );
+        assert_eq!(
+            input(Some(20000), &stats(), 17000).as_deref(),
+            Some("0 s ago")
+        );
+        let none = adroit_model::ConversationStats::default();
+        assert_eq!(input(None, &none, 0), None);
+    }
+
+    #[test]
+    fn conversation_totals_are_the_tokens_and_the_counts() {
+        assert_eq!(
+            conversation_totals(&stats()),
             [
-                ("Last input", "12 s ago".to_string()),
                 (
                     "Tokens used",
                     "12.3M in · 45.2k out · 10.1M cached".to_string()
@@ -1180,11 +1367,7 @@ mod tests {
                 ("Activity", "12 prompts · 340 tools".to_string()),
             ]
         );
-        assert!(
-            conversation_facts(&adroit_model::ConversationStats::default(), None, 0).is_empty()
-        );
-        let future = conversation_facts(&stats(), Some(20000), 17000);
-        assert!(future.contains(&("Last input", "0 s ago".into())));
+        assert!(conversation_totals(&adroit_model::ConversationStats::default()).is_empty());
     }
 
     #[test]
@@ -1215,7 +1398,7 @@ mod tests {
             tool_calls: 1,
             ..stats()
         };
-        let got = conversation_facts(&quiet, None, 0);
+        let got = conversation_totals(&quiet);
         assert!(got.contains(&("Tokens used", "900 in · 20 out".into())));
         assert!(got.contains(&("Activity", "1 prompt · 1 tool".into())));
         let silent = adroit_model::ConversationStats {
@@ -1224,7 +1407,7 @@ mod tests {
             tool_calls: 0,
             ..stats()
         };
-        let got = conversation_facts(&silent, None, 0);
+        let got = conversation_totals(&silent);
         assert!(
             !got.iter()
                 .any(|(k, _)| *k == "Tokens used" || *k == "Activity")
@@ -1258,17 +1441,7 @@ mod tests {
             .build();
         let now = 1_000_000 + 12 * 60_000 + 5_000;
         let got = overview_facts(&s, &stats(), Some(now - 12_000), now);
-        assert_eq!(
-            labels(&got),
-            [
-                "Model",
-                "State",
-                "Started",
-                "Last input",
-                "Tokens used",
-                "Activity"
-            ]
-        );
+        assert_eq!(labels(&got), ["Model", "State", "Started", "Last input"]);
         assert_eq!(got[0].value, "model-name");
         assert_eq!(got[0].tone, None);
         assert_eq!(got[1].value, "working");
@@ -1348,6 +1521,53 @@ mod tests {
                 ("Login", "This profile's own".to_string())
             ]
         );
+    }
+
+    #[test]
+    fn about_tells_the_totals_where_the_session_started_from_and_works_and_its_conversation() {
+        let settings = crate::settings::Settings::default();
+        let s = session("s").session_id("c-1").build();
+        let got = about_facts(
+            &s,
+            &stats(),
+            &settings,
+            Some(Path::new("/w")),
+            Some(Path::new("/w/.claude/worktrees/x")),
+        );
+        assert_eq!(
+            labels(&got),
+            [
+                "Tokens used",
+                "Activity",
+                "Profile",
+                "Login",
+                "Workspace",
+                "Worktree",
+                "Conversation"
+            ]
+        );
+        let value = |facts: &[Fact], label| {
+            facts
+                .iter()
+                .find(|f| f.label == label)
+                .map(|f| f.value.clone())
+        };
+        assert_eq!(value(&got, "Workspace").as_deref(), Some("/w"));
+        assert_eq!(
+            value(&got, "Worktree").as_deref(),
+            Some("/w/.claude/worktrees/x")
+        );
+        assert_eq!(value(&got, "Conversation").as_deref(), Some("c-1"));
+        assert!(got.iter().all(|f| f.tone.is_none()));
+        // Nothing reported, no workspace and no conversation yet.
+        let bare = about_facts(
+            &session("s").session_id("").build(),
+            &adroit_model::ConversationStats::default(),
+            &settings,
+            None,
+            Some(Path::new("/w")),
+        );
+        assert_eq!(labels(&bare), ["Profile", "Login", "Worktree"]);
     }
 
     fn limit(window: Window, percent: f64, resets_ms: Option<u64>) -> Limit {
@@ -1430,8 +1650,21 @@ mod tests {
     #[test]
     fn sheets_step_around_in_both_directions() {
         assert_eq!(Sheet::Overview.step(1), Sheet::Changes);
-        assert_eq!(Sheet::Log.step(1), Sheet::Overview);
-        assert_eq!(Sheet::Overview.step(-1), Sheet::Log);
+        assert_eq!(Sheet::Log.step(1), Sheet::Agents);
+        assert_eq!(Sheet::Resources.step(1), Sheet::Overview);
+        assert_eq!(Sheet::Overview.step(-1), Sheet::Resources);
+    }
+
+    #[test]
+    fn the_sheets_of_the_session_list_rows_and_are_read_from_its_conversation() {
+        let lists = |s: Sheet| s.lists_entries();
+        assert!(lists(Sheet::Overview));
+        assert!(lists(Sheet::Agents));
+        assert!(lists(Sheet::Resources));
+        assert!(!lists(Sheet::Changes));
+        assert!(!lists(Sheet::Log));
+        assert_eq!(Drill::new(Sheet::Agents).spot(), None);
+        assert_eq!(Drill::new(Sheet::Resources).spot(), None);
     }
 
     fn change(status: &str, path: &str) -> Change {
@@ -1554,6 +1787,35 @@ mod tests {
         let fewer = files(&["new"]);
         assert!(!d.refreshed(&fewer));
         assert_eq!(d.selected(&fewer), Some(0));
+    }
+
+    #[test]
+    fn the_change_line_tells_the_first_line_of_the_description_and_the_files_it_changes() {
+        let view = |listing: Listing, description: Option<&str>| View {
+            spot: Spot::Files(Rev::WorkingCopy),
+            worktree: "/w".into(),
+            listing,
+            revision: description.map(|d| adroit_model::repository::Revision {
+                id: "wmmo-full".into(),
+                short: "wmmo".into(),
+                description: d.into(),
+            }),
+        };
+        let line = |l, d| change_line(&view(l, d)).map(|c| (c.short, c.subject, c.files));
+        assert_eq!(
+            line(files(&["a.rs", "b.rs"]), Some("core: keep it\n\nWhy.")),
+            Some(("wmmo".into(), "core: keep it".into(), "2 files".into()))
+        );
+        assert_eq!(
+            line(files(&["a.rs"]), Some("")),
+            Some(("wmmo".into(), "(no description)".into(), "1 file".into()))
+        );
+        assert_eq!(line(files(&[]), Some("x")).unwrap().2, "no changes");
+        assert_eq!(line(files(&["a.rs"]), None), None);
+        assert_eq!(
+            line(Listing::Error("not a repository".into()), Some("x")),
+            None
+        );
     }
 
     #[test]
@@ -1752,7 +2014,7 @@ mod tests {
     }
 
     /// A session `id` whose record is `own`, started by the one whose record is `from`.
-    fn running(id: &str, name: &str, own: &str, from: &str) -> Session {
+    fn live(id: &str, name: &str, own: &str, from: &str) -> Session {
         let s = session(id).name(name);
         let s = record(own).into_iter().fold(s, SessionBuilder::delegation);
         record(from)
@@ -1779,10 +2041,10 @@ mod tests {
 
     #[test]
     fn a_session_is_related_to_the_one_that_opened_it_and_those_it_opened() {
-        let lead = running("1", "lead", "c-lead", "");
-        let shown = running("2", "fix", "c-fix", "c-lead");
-        let child = running("3", "tests", "c-tests", "c-fix");
-        let other = running("4", "other", "c-other", "c-lead");
+        let lead = live("1", "lead", "c-lead", "");
+        let shown = live("2", "fix", "c-fix", "c-lead");
+        let child = live("3", "tests", "c-tests", "c-fix");
+        let other = live("4", "other", "c-other", "c-lead");
         let all = [&lead, &shown, &child, &other];
         assert_eq!(
             related(&shown, &all, &[]),
@@ -1795,8 +2057,8 @@ mod tests {
 
     #[test]
     fn a_peer_is_found_by_its_name_and_one_running_nowhere_is_kept_by_name() {
-        let shown = running("2", "fix", "c-fix", "");
-        let api = running("5", "api", "c-api", "");
+        let shown = live("2", "fix", "c-fix", "");
+        let api = live("5", "api", "c-api", "");
         let all = [&shown, &api];
         assert_eq!(
             related(
@@ -1813,8 +2075,8 @@ mod tests {
 
     #[test]
     fn a_session_both_opened_and_messaged_is_listed_once() {
-        let shown = running("2", "fix", "c-fix", "");
-        let child = running("3", "tests", "c-tests", "c-fix");
+        let shown = live("2", "fix", "c-fix", "");
+        let child = live("3", "tests", "c-tests", "c-fix");
         let all = [&shown, &child];
         assert_eq!(
             related(&shown, &all, &[peer("tests", false, true)]),
@@ -1824,8 +2086,8 @@ mod tests {
 
     #[test]
     fn a_session_is_not_related_to_itself_and_one_adroit_keeps_no_record_of_to_none() {
-        let shown = running("2", "fix", "", "");
-        let stray = running("3", "stray", "c-stray", "");
+        let shown = live("2", "fix", "", "");
+        let stray = live("3", "stray", "c-stray", "");
         let all = [&shown, &stray];
         assert!(related(&shown, &all, &[peer("fix", true, false)]).is_empty());
     }

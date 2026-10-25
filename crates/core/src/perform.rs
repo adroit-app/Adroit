@@ -346,10 +346,16 @@ pub(crate) fn perform(
             _ => Vec::new(),
         },
         Action::Refresh => step(state, Msg::Relist),
-        Action::DetailsOverview | Action::DetailsChanges | Action::DetailsLog => {
+        Action::DetailsOverview
+        | Action::DetailsChanges
+        | Action::DetailsLog
+        | Action::DetailsAgents
+        | Action::DetailsResources => {
             let sheet = match action {
                 Action::DetailsChanges => Sheet::Changes,
                 Action::DetailsLog => Sheet::Log,
+                Action::DetailsAgents => Sheet::Agents,
+                Action::DetailsResources => Sheet::Resources,
                 _ => Sheet::Overview,
             };
             let mut effects = step(state, Msg::DetailsSheet(sheet));

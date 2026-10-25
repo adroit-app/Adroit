@@ -26,6 +26,8 @@ pub(crate) fn sheet_action(sheet: Sheet) -> Action {
         Sheet::Overview => Action::DetailsOverview,
         Sheet::Changes => Action::DetailsChanges,
         Sheet::Log => Action::DetailsLog,
+        Sheet::Agents => Action::DetailsAgents,
+        Sheet::Resources => Action::DetailsResources,
     }
 }
 
@@ -33,7 +35,6 @@ pub(crate) fn sheet_action(sheet: Sheet) -> Action {
 pub(crate) fn DetailsPanel(
     /// The worktree the details describe, while a window shows something.
     worktree: Option<PathBuf>,
-    workspace_root: Option<PathBuf>,
     /// What the worktree is, for the changes and the log.
     kind: Worktree,
     /// When the shown session last took input through its console.
@@ -55,7 +56,7 @@ pub(crate) fn DetailsPanel(
         loop {
             tokio::time::sleep(Duration::from_secs(2)).await;
             let d = app.details.peek();
-            if d.shown.open && d.drill.sheet() == Sheet::Overview {
+            if d.shown.open && d.drill.sheet().lists_entries() {
                 clock.set(now_ms());
             }
         }
@@ -98,15 +99,14 @@ pub(crate) fn DetailsPanel(
                     if let Some(icon) = sheet_action(s).icon() {
                         IconView { icon, size: 13 }
                     }
-                    "{s.title()}"
+                    span { class: "panel-tab-label", "{s.title()}" }
                 }
             }
         }
         div { class: "details-scroll",
-            if sheet_now == Sheet::Overview {
+            if sheet_now.lists_entries() {
                 Overview {
                     worktree: worktree.clone(),
-                    workspace_root,
                     live_input_ms,
                     now_ms: clock(),
                     back_keys: back_keys.clone(),

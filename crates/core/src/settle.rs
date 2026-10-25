@@ -42,6 +42,7 @@ const RULES: &[Rule] = &[
     details_shown,
     details_told,
     details_usage,
+    details_about,
     details_refreshed,
     details_gone,
     picker_offered,
@@ -234,6 +235,26 @@ fn details_usage(state: &mut ViewState, _: &mut Vec<Effect>) {
     };
     let facts = state.host.work.as_ref().and_then(|w| w.agents.of(agent));
     details::follow_usage(&mut state.details, tab.as_ref(), account, facts);
+}
+
+/// The overview's About tells of the session shown as the settings name its
+/// profile, and of the workspace and worktree it works in.
+fn details_about(state: &mut ViewState, _: &mut Vec<Effect>) {
+    let work = state.host.work.as_ref();
+    let d = &state.details;
+    let about = details::shown_session(d, work)
+        .map(|s| {
+            let stats = details::stats(d, work).unwrap_or_default();
+            let worktree = d.shown.worktree.as_deref();
+            let workspace = worktree
+                .and_then(|w| tree::listed(work).workspace_of(w))
+                .map(|w| w.root.as_path());
+            details::about_facts(s, &stats, &state.config.settings, workspace, worktree)
+        })
+        .unwrap_or_default();
+    if state.details.shown.about != about {
+        state.details.shown.about = about;
+    }
 }
 
 /// What the host read again for the spot the details panel shows moves its

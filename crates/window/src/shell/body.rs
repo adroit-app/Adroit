@@ -128,7 +128,7 @@ fn DetailsSide(focused: bool, shown: bool) -> Element {
     let _ = (ui.local.attached)();
     let current = app.content.read().described().cloned();
     let active = app.content.read().active().cloned();
-    let (workspace_root, outside_git) = {
+    let outside_git = {
         let host = app.host.read();
         let work = host.work.as_ref();
         let tree = adroit_core::tree::listed(work);
@@ -137,13 +137,12 @@ fn DetailsSide(focused: bool, shown: bool) -> Element {
             .and_then(|p| tree.workspace_of(&p.worktree));
         // A workspace outside git may still be a jj repository, which the
         // details panel reads through jj.
-        let outside_git = current.as_ref().is_some_and(|p| {
+        current.as_ref().is_some_and(|p| {
             let jj = work
                 .and_then(|w| w.place.of(&p.worktree))
                 .is_some_and(|r| r.jj);
             workspace.is_some_and(|w| !w.git) && !jj
-        });
-        (workspace.map(|w| w.root.clone()), outside_git)
+        })
     };
     let live_input_ms = active.as_ref().and_then(|tab| {
         ui.hub
@@ -176,7 +175,6 @@ fn DetailsSide(focused: bool, shown: bool) -> Element {
             onmousedown: move |_| app.dispatch(Msg::Focus(Area::Details)),
             details::DetailsPanel {
                 worktree: current.as_ref().map(|p| p.worktree.clone()),
-                workspace_root,
                 kind: if outside_git { details::Worktree::OutsideGit } else { details::Worktree::Repository },
                 live_input_ms,
                 agent,

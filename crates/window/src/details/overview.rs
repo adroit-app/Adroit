@@ -1,6 +1,6 @@
-//! The overview: what the session shown is and where it works, then the
-//! sessions, messages, subagents, processes, images and links it came
-//! across, grouped under headings; or the row opened from them.
+//! The sheets of the session shown: the overview's head, how it stands and
+//! the change it is on, and on each sheet its rows grouped under headings;
+//! or the row opened from them.
 
 use std::path::PathBuf;
 
@@ -14,8 +14,8 @@ use super::subagent::SubagentView;
 use crate::bridge::AppCtx;
 use crate::components::{Fact, Facts, ListRow, Section};
 use crate::details::{
-    Details, Entry, Listing, link_sections, opened_agent, opened_note, opened_process,
-    overview_facts, overview_listing, shown_session, stats,
+    Details, Entry, Group, Listing, Sheet, change_line, entry_listing, link_sections, opened_agent,
+    opened_note, opened_process, overview_change, overview_facts, shown_session, stats,
 };
 use crate::icons::{Icon, IconView};
 
@@ -33,7 +33,6 @@ pub(crate) struct LinkMenu {
 pub(super) fn Overview(
     /// Where the shown session's paths are told from.
     worktree: Option<PathBuf>,
-    workspace_root: Option<PathBuf>,
     /// When the shown session last took input through its console.
     live_input_ms: Option<u64>,
     /// Now, as the facts that tell how long ago are told.
@@ -47,16 +46,15 @@ pub(super) fn Overview(
     let host = app.host.read();
     let work = host.work.as_ref();
     let session = shown_session(&details, work).cloned();
-    let facts = session.as_ref().map(|s| {
+    let head = details.drill.sheet() == Sheet::Overview;
+    let facts = session.as_ref().filter(|_| head).map(|s| {
         let stats = stats(&details, work).unwrap_or_default();
-        let mut facts = overview_facts(s, &stats, s.last_input_ms.max(live_input_ms), now_ms);
-        facts.extend(adroit_core::details::started_from_facts(
-            s,
-            &app.config.read().settings,
-        ));
-        facts
+        overview_facts(s, &stats, s.last_input_ms.max(live_input_ms), now_ms)
     });
-    let listing = overview_listing(&details, work);
+    let change = overview_change(&details, work)
+        .filter(|_| head)
+        .and_then(|v| change_line(&v));
+    let listing = entry_listing(&details, work);
     let selected = listing.as_ref().and_then(|l| details.drill.selected(l));
     let agent = opened_agent(&details, work);
     let note = opened_note(&details, work);
@@ -102,14 +100,17 @@ pub(super) fn Overview(
                 }
             }
         }
-        if let Some(root) = &workspace_root {
-            Section { label: "Workspace",
-                span { class: "details-path", "{root.display()}" }
-            }
-        }
-        if let Some(w) = &worktree {
-            Section { label: "Worktree",
-                span { class: "details-path", "{w.display()}" }
+        if let Some(change) = change {
+            div { class: "details-block details-links",
+                ListRow {
+                    kind: "details-link details-change",
+                    title: "{change.subject}",
+                    onclick: move |_| app.dispatch(Msg::DetailsSheet(Sheet::Changes)),
+                    IconView { icon: Icon::GitCommit, size: 13 }
+                    span { class: "commit-mark", "{change.short}" }
+                    span { class: "list-row-name", "{change.subject}" }
+                    span { class: "details-link-tag", "{change.files}" }
+                }
             }
         }
         if let Some(agent) = agent {
@@ -144,6 +145,10 @@ pub(super) fn Overview(
             }
         }
         for section in sections.into_iter() {
+            {
+            // A fact is a value to read and copy, drawn as the head's facts are.
+            let facts = section.group == Group::About;
+            rsx! {
             div { key: "{section.group.title()}", class: "details-block details-links",
                 {
                     let at = section.at;
@@ -164,7 +169,11 @@ pub(super) fn Overview(
                     {
                         let (at, file) = (r.at, r.file);
                         let kill = killable(at);
-                        let kind = if r.thumb.is_some() { "details-link details-image" } else { "details-link" };
+                        let kind = match (facts, r.thumb.is_some()) {
+                            (true, _) => "details-link details-fact",
+                            (false, true) => "details-link details-image",
+                            (false, false) => "details-link",
+                        };
                         rsx! {
                             ListRow { key: "{r.target}",
                                 kind,
@@ -173,21 +182,28 @@ pub(super) fn Overview(
                                 onclick: move |_| app.dispatch(Msg::DetailsClick(at)),
                                 oncontextmenu: move |e: Event<MouseData>| {
                                     e.prevent_default();
-                                    let p = e.client_coordinates();
-                                    on_menu.call(LinkMenu { x: p.x, y: p.y, at, file });
+                                    if !facts {
+                                        let p = e.client_coordinates();
+                                        on_menu.call(LinkMenu { x: p.x, y: p.y, at, file });
+                                    }
                                 },
-                                if let Some(thumb) = &r.thumb {
+                                if facts {
+                                    span { class: "details-facts-key", "{r.label}" }
+                                    span { class: "list-row-name details-facts-value", "{r.tag}" }
+                                } else if let Some(thumb) = &r.thumb {
                                     img { class: "details-thumb", src: "{thumb}", alt: "" }
                                 } else if r.tone.is_empty() {
                                     IconView { icon: r.icon, size: 13 }
                                 } else {
                                     span { class: "{r.tone}", IconView { icon: r.icon, size: 13 } }
                                 }
-                                span { class: "list-row-name", "{r.label}" }
+                                if !facts {
+                                    span { class: "list-row-name", "{r.label}" }
+                                }
                                 if let Some(b) = &r.badge {
                                     span { class: "commit-mark details-link-badge", "{b}" }
                                 }
-                                if !r.tag.is_empty() {
+                                if !facts && !r.tag.is_empty() {
                                     span { class: "details-link-tag", "{r.tag}" }
                                 }
                                 if let Some(kill) = kill {
@@ -218,6 +234,8 @@ pub(super) fn Overview(
                         span { class: "details-link-tag", "{hidden} more" }
                     }
                 }
+            }
+            }
             }
         }
     }

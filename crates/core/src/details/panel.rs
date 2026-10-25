@@ -6,16 +6,16 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use adroit_model::links::{Kind as LinkKind, Link, Links};
-use adroit_model::repository::Spot;
+use adroit_model::repository::{Rev, Spot};
 use adroit_model::{ConversationStats, Note, Process, Session};
 use adroit_protocol::{
     Account, AgentFacts, DetailsWork, RepositorySight, Seq, SessionRead, Sight, WorkSnapshot,
 };
 
 use super::{
-    Drill, Entry, Gauge, Group, Listing, Related, Sheet, Shot, Source, View, capped, context_gauge,
-    gauges, newest_first, overview_shown, related, with_agents, with_images, with_notes,
-    with_processes,
+    Drill, Entry, Fact, Gauge, Group, Listing, Related, Sheet, Shot, Source, View, about, capped,
+    context_gauge, gauges, newest_first, overview_shown, related, running, with_agents,
+    with_images, with_notes,
 };
 use crate::content::Showing;
 use crate::content::Tab;
@@ -36,6 +36,8 @@ pub struct Shown {
     /// The images the shown session's console drew.
     pub drawn: Vec<Shot>,
     pub settings: DetailsSettings,
+    /// What the overview's About says of the session shown.
+    pub about: Vec<Fact>,
 }
 
 /// What the window tells the details panel of what it shows, beyond the
@@ -61,7 +63,8 @@ impl Default for Details {
     fn default() -> Self {
         Self {
             drill: Drill::new(Sheet::Overview),
-            folded: HashSet::new(),
+            // What changes little stays out of the way until it is asked for.
+            folded: HashSet::from([Group::About]),
             opened: HashSet::new(),
             shown: Shown::default(),
             refreshed: None,
@@ -174,7 +177,7 @@ pub(crate) fn back(details: &mut Details) -> Vec<Effect> {
 
 /// Row `at` of the overview selected, as its menu is opened on it.
 pub(crate) fn select(details: &mut Details, work: Option<&WorkSnapshot>, at: usize) -> Vec<Effect> {
-    if let Some(l) = overview_listing(details, work) {
+    if let Some(l) = entry_listing(details, work) {
         details.drill.select(&l, at);
     }
     Vec::new()
@@ -195,7 +198,7 @@ pub(crate) fn open_row(
 /// A row of the overview clicked: it is selected and does what `Enter` on
 /// it would, save that a heading folds or unfolds its group where it is.
 pub(crate) fn click(details: &mut Details, work: Option<&WorkSnapshot>, at: usize) -> Vec<Effect> {
-    let Some(l) = overview_listing(details, work) else {
+    let Some(l) = entry_listing(details, work) else {
         return Vec::new();
     };
     details.drill.select(&l, at);
@@ -290,12 +293,15 @@ fn pressed_on_overview(
     chosen: Option<&Entry>,
     key: Key,
 ) -> Vec<Effect> {
-    // A heading folds and unfolds as a workspace's row does; a link folds the
-    // group it is in.
+    // A heading folds and unfolds as a workspace's row does; a row folds the
+    // group it is listed under.
     let folds = match (chosen, key) {
         (Some(Entry::Heading { group, folded, .. }), Key::Open) => Some((*group, !folded)),
-        (Some(Entry::Heading { group, .. }), Key::Fold) => Some((*group, true)),
-        (Some(row), Key::Fold) => Some((row.group(), true)),
+        (Some(_), Key::Fold) => details
+            .drill
+            .selected(l)
+            .and_then(|at| l.group_at(at))
+            .map(|group| (group, true)),
         _ => None,
     };
     let how = match key {
@@ -307,7 +313,7 @@ fn pressed_on_overview(
     match (folds, how, chosen) {
         (Some((group, shut)), ..) => {
             fold(details, group, shut);
-            if let Some(now) = overview_listing(details, work)
+            if let Some(now) = entry_listing(details, work)
                 && let Some(at) = now.heading(group)
             {
                 details.drill.select(&now, at);
@@ -359,6 +365,7 @@ fn used(details: &Details, entry: &Entry, how: Use) -> Vec<Effect> {
         Entry::Session(r) => use_related(r, how),
         Entry::Process(p) => copied(how, &p.command, "Copied the process command".into()),
         Entry::Message(n) => copied(how, &n.body, "Copied the message".into()),
+        Entry::Fact(f) => copied(how, &f.value, format!("Copied {}", f.value)),
         Entry::Agent(a) => copied(
             how,
             &a.prompt,
@@ -444,49 +451,65 @@ pub fn shown_session<'a>(details: &Details, work: Option<&'a WorkSnapshot>) -> O
     crate::tree::nav::find(work?.tree.tree(), id).map(|(_, s)| s)
 }
 
-/// The overview's rows for the session shown, once something was read
-/// for it.
-pub fn overview_listing(details: &Details, work: Option<&WorkSnapshot>) -> Option<Listing> {
+/// The rows the sheet shown lists of the session shown, while it lists any;
+/// none on a sheet read from the worktree.
+pub fn entry_listing(details: &Details, work: Option<&WorkSnapshot>) -> Option<Listing> {
     let shown = shown_session(details, work)?;
     let read = session_read(details, work);
-    let links = read.and_then(|r| r.links.as_ref());
-    let processes = read.and_then(|r| r.processes.as_ref());
-    let notes = read.and_then(|r| r.notes.as_deref()).unwrap_or_default();
-    if links.is_none() && processes.is_none() && notes.is_empty() {
-        return None;
-    }
     let empty = Links::default();
-    let links = links.unwrap_or(&empty);
-    let rows: Vec<Link> = links.rows().cloned().collect();
-    let sessions: Vec<&Session> = work?.tree.tree().sessions().map(|(_, s)| s).collect();
-    let ties = related(shown, &sessions, &links.peers);
+    let links = read.and_then(|r| r.links.as_ref()).unwrap_or(&empty);
+    let ties = || {
+        let sessions: Vec<&Session> = work?.tree.tree().sessions().map(|(_, s)| s).collect();
+        Some(related(shown, &sessions, &links.peers))
+    };
     let (folded, opened) = (&details.folded, &details.opened);
     let d = &details.shown.settings;
-    let entries = overview_shown(
-        &ties,
-        &capped(&rows, d.links_kept),
-        folded,
-        opened,
-        d.links_shown,
-    );
-    let mut shots = shots(&details.shown.drawn, links, read);
-    shots.truncate(d.links_kept);
-    let entries = with_notes(entries, notes, folded, opened, d.links_shown);
-    let entries = with_agents(entries, &links.agents, folded);
-    let entries = with_processes(
-        entries,
-        processes.map(Vec::as_slice).unwrap_or_default(),
-        folded,
-        opened,
-        d.links_shown,
-    );
-    Some(Listing::Links(with_images(
-        entries,
-        &shots,
-        folded,
-        opened,
-        d.links_shown,
-    )))
+    let entries = match details.drill.sheet() {
+        Sheet::Overview => {
+            let processes = read
+                .and_then(|r| r.processes.as_deref())
+                .unwrap_or_default();
+            let mut entries = running(
+                &ties()?,
+                &links.agents,
+                processes,
+                folded,
+                opened,
+                d.links_shown,
+            );
+            entries.extend(about(&details.shown.about, folded));
+            entries
+        }
+        Sheet::Agents => {
+            let notes = read.and_then(|r| r.notes.as_deref()).unwrap_or_default();
+            let entries = overview_shown(&ties()?, &[], folded, opened, d.links_shown);
+            let entries = with_notes(entries, notes, folded, opened, d.links_shown);
+            with_agents(entries, &links.agents, folded)
+        }
+        Sheet::Resources => {
+            let rows: Vec<Link> = links.rows().cloned().collect();
+            let entries = overview_shown(
+                &[],
+                &capped(&rows, d.links_kept),
+                folded,
+                opened,
+                d.links_shown,
+            );
+            let mut shots = shots(&details.shown.drawn, links, read);
+            shots.truncate(d.links_kept);
+            with_images(entries, &shots, folded, opened, d.links_shown)
+        }
+        Sheet::Changes | Sheet::Log => return None,
+    };
+    (!entries.is_empty()).then_some(Listing::Links(entries))
+}
+
+/// The change the worktree shown is on, as the overview tells it: what was
+/// read of the working copy's files, while it was.
+pub fn overview_change(details: &Details, work: Option<&WorkSnapshot>) -> Option<View> {
+    let worktree = details.shown.worktree.as_ref()?;
+    let read = work?.details.repositories.get(worktree)?;
+    (read.spot == Spot::Files(Rev::WorkingCopy)).then(|| View::of(worktree.clone(), read.clone()))
 }
 
 /// The overview's images: what the console `drawn`, and the image files of
@@ -507,11 +530,11 @@ pub fn repository(details: &Details, work: Option<&WorkSnapshot>) -> Option<View
     (read.spot == spot).then(|| View::of(worktree.clone(), read.clone()))
 }
 
-/// The list the panel's cursor moves through: the overview's rows, or the
+/// The list the panel's cursor moves through: the session's rows, or the
 /// changes or log read; none while the panel shows no list.
 pub fn list(details: &Details, work: Option<&WorkSnapshot>) -> Option<Listing> {
-    if details.drill.sheet() == Sheet::Overview {
-        return overview_listing(details, work);
+    if details.drill.sheet().lists_entries() {
+        return entry_listing(details, work);
     }
     repository(details, work)
         .map(|v| v.listing)
@@ -594,17 +617,20 @@ pub fn opened_process(details: &Details, work: Option<&WorkSnapshot>) -> Option<
 }
 
 /// What the host keeps read for the panel: the shown session's
-/// conversation and processes, the spot of the worktree shown, and the
-/// account's usage.
+/// conversation and processes, the spot of the worktree shown, or the
+/// change it is on for the overview, and the account's usage.
 pub(crate) fn sight(details: &Details) -> Sight {
     let shown = &details.shown;
+    let sheet = details.drill.sheet();
+    let spot = details
+        .drill
+        .spot()
+        .or_else(|| (sheet == Sheet::Overview).then_some(Spot::Files(Rev::WorkingCopy)));
     Sight {
         session: shown.session.clone(),
         details: shown.open,
-        overview: details.drill.sheet() == Sheet::Overview,
-        repository: details
-            .drill
-            .spot()
+        overview: sheet.lists_entries(),
+        repository: spot
             .zip(shown.worktree.clone())
             .map(|(spot, worktree)| RepositorySight { worktree, spot }),
         usage: shown.usage.clone(),
@@ -753,8 +779,8 @@ mod tests {
             .collect()
     }
 
-    fn overview_of(run: &Scenario) -> Option<Listing> {
-        overview_listing(&run.state().details, run.state().host.work.as_ref())
+    fn entries_of(run: &Scenario) -> Option<Listing> {
+        entry_listing(&run.state().details, run.state().host.work.as_ref())
     }
 
     #[test]
@@ -779,7 +805,11 @@ mod tests {
         assert_eq!(
             sights,
             [
-                (Some("a".into()), true, None),
+                (
+                    Some("a".into()),
+                    true,
+                    Some(("/w".into(), Spot::Files(Rev::WorkingCopy)))
+                ),
                 (Some("a".into()), false, Some(("/w".into(), Spot::Log))),
                 (None, false, Some(("/w".into(), Spot::Log))),
             ]
@@ -827,9 +857,12 @@ mod tests {
             (vec![], Sheet::Overview),
             (vec![Msg::DetailsSheet(Sheet::Changes)], Sheet::Changes),
             (vec![Msg::DetailsSheetStep(1)], Sheet::Changes),
-            (vec![Msg::DetailsSheetStep(-1)], Sheet::Log),
+            (vec![Msg::DetailsSheetStep(-1)], Sheet::Resources),
             (
-                vec![Msg::DetailsSheet(Sheet::Log), Msg::DetailsSheetStep(1)],
+                vec![
+                    Msg::DetailsSheet(Sheet::Resources),
+                    Msg::DetailsSheetStep(1),
+                ],
                 Sheet::Overview,
             ),
         ];
@@ -874,7 +907,7 @@ mod tests {
         for (keys, want) in cases {
             let run = Scenario::new()
                 .event(work(read("a", with_links(links.clone()))))
-                .send(shown(Some("a"), None))
+                .send_all([shown(Some("a"), None), Msg::DetailsSheet(Sheet::Resources)])
                 .send_all(keys.iter().copied().map(Msg::DetailsKey));
             assert_eq!(local(&run), want, "{keys:?}");
         }
@@ -892,12 +925,12 @@ mod tests {
         };
         let running = Scenario::new()
             .event(work(read("a", with_links(peers("b")))))
-            .send(shown(Some("a"), None))
+            .send_all([shown(Some("a"), None), Msg::DetailsSheet(Sheet::Agents)])
             .send_all([Msg::DetailsKey(Key::Down), Msg::DetailsKey(Key::Open)]);
         assert_eq!(local(&running), [Effect::ShowSession("b".into())]);
         let gone = Scenario::new()
             .event(work(read("a", with_links(peers("gone")))))
-            .send(shown(Some("a"), None))
+            .send_all([shown(Some("a"), None), Msg::DetailsSheet(Sheet::Agents)])
             .send(Msg::DetailsClick(1));
         assert_eq!(local(&gone), [Effect::Notice("gone is not running".into())]);
         let revealed = gone.send(Msg::DetailsKey(Key::Reveal));
@@ -915,14 +948,14 @@ mod tests {
         };
         let run = Scenario::new()
             .event(work(read("a", with_links(links))))
-            .send(shown(Some("a"), None))
+            .send_all([shown(Some("a"), None), Msg::DetailsSheet(Sheet::Resources)])
             .send_all([Msg::DetailsKey(Key::Down), Msg::DetailsKey(Key::Fold)]);
         let d = &run.state().details;
-        assert_eq!(d.folded, HashSet::from([Group::Links]));
-        let listing = overview_of(&run).unwrap();
+        assert!(d.folded.contains(&Group::Links));
+        let listing = entries_of(&run).unwrap();
         assert_eq!(d.drill.selected(&listing), listing.heading(Group::Links));
         let unfolded = run.send(Msg::DetailsKey(Key::Open));
-        assert!(unfolded.state().details.folded.is_empty());
+        assert!(!unfolded.state().details.folded.contains(&Group::Links));
     }
 
     #[test]
@@ -951,14 +984,14 @@ mod tests {
                 "[details]\nlinks_shown = 2\n",
             ))
             .event(work(read("a", with_links(links))))
-            .send(shown(Some("a"), None));
+            .send_all([shown(Some("a"), None), Msg::DetailsSheet(Sheet::Resources)]);
         // Rows: heading, two files, the row to show all.
         let all = run.send(Msg::DetailsClick(3));
         assert_eq!(all.state().details.opened, HashSet::from([Group::Files]));
         let folded = all.send(Msg::DetailsClick(0));
         assert!(folded.state().details.opened.is_empty());
         let unfolded = folded.send(Msg::DetailsClick(0));
-        let Some(Listing::Links(entries)) = overview_of(&unfolded) else {
+        let Some(Listing::Links(entries)) = entries_of(&unfolded) else {
             panic!("no overview");
         };
         assert_eq!(entries.len(), 4);
@@ -978,7 +1011,7 @@ mod tests {
         let run = Scenario::new()
             .event(work(read("session-one", processes)))
             .send(shown(Some("session-one"), None));
-        let Some(Listing::Links(entries)) = overview_of(&run) else {
+        let Some(Listing::Links(entries)) = entries_of(&run) else {
             panic!("processes without transcript links")
         };
         assert!(
@@ -986,7 +1019,10 @@ mod tests {
                 .iter()
                 .any(|e| matches!(e, Entry::Process(p) if p.pid == 123))
         );
-        assert!(overview_of(&run.send(shown(Some("session-two"), None))).is_none());
+        let other = entries_of(&run.send(shown(Some("session-two"), None)));
+        assert!(
+            !matches!(other, Some(Listing::Links(e)) if e.iter().any(|e| matches!(e, Entry::Process(_))))
+        );
     }
 
     #[test]
@@ -1000,11 +1036,12 @@ mod tests {
             .event(work(read("s1", with_links(links))))
             .send_all([
                 shown(Some("s1"), None),
+                Msg::DetailsSheet(Sheet::Resources),
                 told(Told {
                     drawn: vec![Shot::console(1, 1, 1, 5, None)],
                 }),
             ]);
-        let Some(Listing::Links(entries)) = overview_of(&run) else {
+        let Some(Listing::Links(entries)) = entries_of(&run) else {
             panic!("no overview");
         };
         let groups: Vec<_> = entries
@@ -1086,8 +1123,9 @@ mod tests {
             urls: vec![link(LinkKind::Url, "https://a.dev")],
             ..Default::default()
         };
+        let resources = |id: Option<&str>| [shown(id, None), Msg::DetailsSheet(Sheet::Resources)];
         let run = Scenario::new().event(work(read("s1", with_links(links))));
-        assert!(overview_of(&run.send(shown(Some("s1"), None))).is_some());
+        assert!(entries_of(&run.send_all(resources(Some("s1")))).is_some());
         let run = Scenario::new().event(work(read(
             "s1",
             with_links(Links {
@@ -1095,9 +1133,9 @@ mod tests {
                 ..Default::default()
             }),
         )));
-        assert!(overview_of(&run.send(shown(Some("s2"), None))).is_none());
+        assert!(entries_of(&run.send_all(resources(Some("s2")))).is_none());
         let run = Scenario::new().event(work(read("s1", SessionRead::default())));
-        assert!(overview_of(&run.send(shown(None, None))).is_none());
+        assert!(entries_of(&run.send_all(resources(None))).is_none());
     }
 
     #[test]
@@ -1197,14 +1235,14 @@ mod tests {
                     ..Default::default()
                 },
             )))
-            .send(shown(Some("a"), None))
+            .send_all([shown(Some("a"), None), Msg::DetailsSheet(Sheet::Agents)])
             .send_all([Msg::DetailsKey(Key::Down), Msg::DetailsKey(Key::Open)]);
         assert_eq!(opened.state().details.drill.message(), Some("n1"));
         let scrolled = opened.send(Msg::DetailsKey(Key::Down));
         assert_eq!(local(&scrolled), [Effect::ScrollDetails(Scroll::Down)]);
         let back = scrolled.send(Msg::DetailsKey(Key::Fold));
         assert_eq!(back.state().details.drill.message(), None);
-        let Some(ref l @ Listing::Links(ref entries)) = overview_of(&back) else {
+        let Some(ref l @ Listing::Links(ref entries)) = entries_of(&back) else {
             panic!("the overview is shown");
         };
         let at = back.state().details.drill.selected(l).unwrap();
@@ -1317,5 +1355,113 @@ mod tests {
         };
         follow_usage(&mut details, Some(&draft), codex, None);
         assert_eq!(details.shown.usage, None, "nothing told of the agent");
+    }
+
+    #[test]
+    fn about_is_folded_until_unfolded_and_copies_the_fact_selected() {
+        let run = Scenario::new()
+            .event(work(read("a", SessionRead::default())))
+            .send(shown(Some("a"), Some("/w")));
+        let Some(Listing::Links(entries)) = entries_of(&run) else {
+            panic!("no overview");
+        };
+        assert!(matches!(
+            entries.as_slice(),
+            [Entry::Heading {
+                group: Group::About,
+                folded: true,
+                ..
+            }]
+        ));
+        let unfolded = run.send(Msg::DetailsKey(Key::Open));
+        let Some(Listing::Links(entries)) = entries_of(&unfolded) else {
+            panic!("no overview");
+        };
+        let worktree = entries
+            .iter()
+            .position(|e| matches!(e, Entry::Fact(f) if f.label == "Worktree"))
+            .expect("the worktree is told");
+        let copied = unfolded
+            .send(Msg::DetailsSelect(worktree))
+            .send(Msg::DetailsKey(Key::Copy));
+        assert_eq!(
+            local(&copied),
+            [Effect::Copy {
+                text: "/w".into(),
+                done: "Copied /w".into(),
+            }]
+        );
+        let opened = copied.send(Msg::DetailsKey(Key::Open));
+        assert_eq!(local(&opened), []);
+    }
+
+    #[test]
+    fn a_row_under_running_folds_running() {
+        let processes = SessionRead {
+            processes: Some(vec![Process {
+                key: "process-1".into(),
+                pid: 1,
+                name: "server".into(),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        };
+        let run = Scenario::new()
+            .event(work(read("a", processes)))
+            .send(shown(Some("a"), None))
+            .send_all([Msg::DetailsKey(Key::Down), Msg::DetailsKey(Key::Fold)]);
+        assert!(run.state().details.folded.contains(&Group::Running));
+        let listing = entries_of(&run).unwrap();
+        assert_eq!(
+            run.state().details.drill.selected(&listing),
+            listing.heading(Group::Running)
+        );
+    }
+
+    #[test]
+    fn the_overview_tells_the_change_the_worktree_is_on_from_its_files_read() {
+        let files = RepositoryRead {
+            spot: Spot::Files(Rev::WorkingCopy),
+            listing: Ok(Read::Files(Vec::new())),
+            revision: Some(adroit_model::repository::Revision {
+                id: "x-full".into(),
+                short: "x".into(),
+                description: "core: keep it\n\nWhy.".into(),
+            }),
+        };
+        let run = Scenario::new()
+            .event(work(DetailsWork::default()))
+            .send(shown(Some("a"), Some("/w")))
+            .event(patch(2).change(DetailsChange::Repository {
+                worktree: "/w".into(),
+                read: files,
+            }));
+        let change = overview_change(&run.state().details, run.state().host.work.as_ref());
+        assert_eq!(
+            change.and_then(|v| v.revision).map(|r| r.short),
+            Some("x".into())
+        );
+        let log = run.send(Msg::DetailsSheet(Sheet::Log));
+        assert_eq!(
+            watched(&log)
+                .last()
+                .unwrap()
+                .repository
+                .as_ref()
+                .unwrap()
+                .spot,
+            Spot::Log
+        );
+    }
+
+    #[test]
+    fn the_agents_and_resources_sheets_are_read_from_the_conversation_and_not_the_worktree() {
+        for sheet in [Sheet::Agents, Sheet::Resources] {
+            let run =
+                Scenario::new().send_all([shown(Some("a"), Some("/w")), Msg::DetailsSheet(sheet)]);
+            let sight = watched(&run).last().cloned().unwrap();
+            assert!(sight.overview, "{sheet:?}");
+            assert_eq!(sight.repository, None, "{sheet:?}");
+        }
     }
 }

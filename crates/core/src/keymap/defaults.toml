@@ -146,6 +146,8 @@
 "1" = "details.overview"
 "2" = "details.changes"
 "3" = "details.log"
+"4" = "details.agents"
+"5" = "details.resources"
 "Ctrl+d" = "scroll.half_down"
 "Ctrl+u" = "scroll.half_up"
 

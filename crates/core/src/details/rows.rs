@@ -148,6 +148,21 @@ pub fn link_sections(
                     });
                 }
             }
+            Entry::Fact(f) => {
+                if let Some(section) = out.last_mut() {
+                    section.rows.push(LinkRow {
+                        at,
+                        icon: Icon::InfoCircle,
+                        tone: "",
+                        label: f.label.to_string(),
+                        badge: None,
+                        tag: f.value.clone(),
+                        target: f.value.clone(),
+                        file: false,
+                        thumb: None,
+                    });
+                }
+            }
             Entry::Message(n) => {
                 if let Some(section) = out.last_mut() {
                     section.rows.push(LinkRow {
@@ -213,7 +228,7 @@ mod tests {
     use adroit_model::links::Link;
 
     use super::*;
-    use crate::details::{Related, Shot, overview, with_agents, with_images};
+    use crate::details::{Fact, Related, Shot, about, overview, with_agents, with_images};
 
     fn related_to(name: &str, id: Option<&str>, ties: &[Tie]) -> Related {
         Related {
@@ -385,6 +400,27 @@ mod tests {
                 (Icon::MessagePlus, "tests", "opened · heard from"),
                 (Icon::Message, "gone", "messaged · not running"),
             ]
+        );
+    }
+
+    #[test]
+    fn a_fact_row_is_named_by_its_label_and_shows_its_value() {
+        let facts = [Fact {
+            label: "Worktree",
+            value: "/w/x".into(),
+            tone: None,
+        }];
+        let drawn = link_sections(
+            &about(&facts, &HashSet::new()),
+            Path::new("/w"),
+            Path::new("/h"),
+            0,
+        );
+        assert_eq!(drawn[0].group, Group::About);
+        let row = &drawn[0].rows[0];
+        assert_eq!(
+            (row.at, row.label.as_str(), row.tag.as_str(), row.file),
+            (1, "Worktree", "/w/x", false)
         );
     }
 

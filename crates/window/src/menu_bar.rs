@@ -115,6 +115,8 @@ pub fn sections() -> Vec<Section> {
                 Run(Action::DetailsOverview),
                 Run(Action::DetailsChanges),
                 Run(Action::DetailsLog),
+                Run(Action::DetailsAgents),
+                Run(Action::DetailsResources),
                 Separator,
                 Run(Action::Filter),
                 Run(Action::WorktreesToggle),

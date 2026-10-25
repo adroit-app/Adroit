@@ -1,46 +1,27 @@
 # The details panel
 
 The details panel tells about what the content's focused window shows, and the
-worktree it is in, on the sheets Overview, Changes and Log
+worktree it is in, on the sheets Overview, Changes, Log, Agents and Resources
 ([content](content.md)). It follows the focus from window to window and from
 tab to tab, not the tree's selection; with nothing open, it has nothing to
 describe.
 
 ## Sheets
 
-- **Overview** names the session the focused window shows, how it stands, and the workspace and
-  worktree it works in. Conversation facts include the latest model, elapsed
-  time since the last user input, the tokens the whole conversation has used,
-  and its prompt and tool call counts.
-  Input sent through Adroit includes answers to approvals and choices; its
-  latest time stays with the running session when the window closes. Unreported metrics are omitted. The Processes group lists live
-  work processes belonging to the session. The agent and its supporting
-  runtimes are excluded from both the list and kill targets; work processes
-  launched through those runtimes remain available. Opening one
-  shows its command, process ID, parent, memory and working directory. Killing
-  one from its row or its details opens a confirmation dialog. Confirming
-  verifies that it is still the same process belonging to the session. A zombie has already exited and must be reaped by
-  its parent. Processes that cannot be associated with the session are omitted.
-  Below, it lists the other sessions it worked with:
-  the one that opened it and those it opened
-  ([sessions that open sessions](opening-sessions.md)) while they run, then those
-  it messaged or heard from through Adroit, ended ones included, newest
-  first, each saying how the two are tied. Then it lists the messages it sent
-  and received through Adroit, newest first, each with who sent it to whom;
-  opening one shows it whole. A message stays listed after the sessions on
-  both ends have ended. Then it lists the subagents the session set to work
-  through Claude Code: those still at work, the latest first, then the few
-  that ended last, each named by what it was last asked about, marked with
-  what kind it is, and saying how it stands and for how long it has run or
-  ran. After them it lists what the session's conversation brought up,
-  newest first, for Claude Code, Codex, Pi and OpenCode alike: the claude.ai artifacts, the
-  images, the other web addresses, and the files it wrote or edited, read, or
-  named in a reply where such a file exists, each saying how the session came
-  across it. An address inside
-  a file it wrote, read or searched is the file's, not brought up. The images
-  are those the session's console drew and the image files it came across
-  that still exist, together, each beside a small picture of it. A shell or a
-  draft has no conversation and lists none.
+- **Overview** tells how the session the focused window shows stands now. At
+  its head are the session's name, its state, the latest model, when it
+  started and how long ago it last took input. Input sent through Adroit
+  includes answers to approvals and choices; its latest time stays with the
+  running session when the window closes. Below them is the change the
+  worktree is on: its description's first line and how many files it
+  changes; a click on it shows Changes.
+  Under Running are what works for the session right now: the subagents
+  still at work, its live work processes, and the sessions tied to it that
+  still run. Under About, folded until it is unfolded, are the facts that
+  change little: the tokens the whole conversation has used, its prompt and
+  tool call counts, the profile and the login it started from, the workspace
+  and the worktree, and the conversation's ID. Copying a fact copies its
+  value. What was not reported is left out.
 - **Changes** shows the current jj change’s full description, or the HEAD
   commit’s full message in Git, alongside the files the worktree changes.
   Opening a file shows its diff.
@@ -49,27 +30,57 @@ describe.
   running off the end leads to a change not listed. Opening a change lists
   the files it changed, and opening one of those shows its diff in that
   change.
+- **Agents** lists the other agents the session worked with. First the other
+  sessions: the one that opened it and those it opened
+  ([sessions that open sessions](opening-sessions.md)) while they run, then
+  those it messaged or heard from through Adroit, ended ones included,
+  newest first, each saying how the two are tied. Then the messages it sent
+  and received through Adroit, newest first, each with who sent it to whom;
+  opening one shows it whole. A message stays listed after the sessions on
+  both ends have ended. Then the subagents the session set to work through
+  Claude Code: those still at work, the latest first, then the few that ended
+  last, each named by what it was last asked about, marked with what kind it
+  is, and saying how it stands and for how long it has run or ran.
+- **Resources** lists what the session's conversation brought up, newest
+  first, for Claude Code, Codex, Pi and OpenCode alike: the claude.ai
+  artifacts, the images, the other web addresses, and the files it wrote or
+  edited, read, or named in a reply where such a file exists, each saying how
+  the session came across it. An address inside a file it wrote, read or
+  searched is the file's, not brought up. The images are those the session's
+  console drew and the image files it came across that still exist,
+  together, each beside a small picture of it.
 
-Opening a session of the overview shows it, wherever it runs; one that runs
-no more is listed by its name and says so. Copying one copies its name.
+A shell or a draft has no conversation, and Overview, Agents and Resources
+show nothing for it.
 
-Each kind of link shows its newest few, five unless the settings say
-otherwise ([settings](settings.md#settingstoml)), and a row that shows the
-rest; opened, it shows them all until the group is folded or adroit runs
-again.
+A work process is one the session started; the agent and its supporting
+runtimes are excluded from both the list and kill targets, while work
+processes launched through those runtimes remain available. Processes that
+cannot be associated with the session are omitted. Opening one shows its
+command, process ID, parent, memory and working directory. Killing one from
+its row or its details opens a confirmation dialog. Confirming verifies that
+it is still the same process belonging to the session. A zombie has already
+exited and must be reaped by its parent.
+
+Opening a session of a sheet shows it, wherever it runs; one that runs no
+more is listed by its name and says so. Copying one copies its name.
+
+Each group shows its newest few, five unless the settings say otherwise
+([settings](settings.md#settingstoml)), and a row that shows the rest;
+opened, it shows them all until the group is folded or adroit runs again.
 
 A subagent is named as the session last summed up a message it sent it, or
 by the description it was started with before any. Opening one shows what it
 was started as, what it was asked, the latest steps it took, and, once it
 ended, what it reported. Copying one copies what it was asked.
 
-Opening an image of the overview shows it whole in a window of its own,
+Opening an image of Resources shows it whole in a window of its own,
 named for it, the image fit within the window; opening it again brings that
 window forward. `Escape` or `Cmd+W` closes it. An image the console drew is
 kept while adroit runs, after the console has let it go, the newest few of
 each session; it has no file to copy or reveal.
 
-Opening a link of the overview hands it to macOS: an address opens in the
+Opening a link of Resources hands it to macOS: an address opens in the
 default browser, a file in the app that opens it. A right click on a link
 also offers to copy it, its address or its file's path, and on a file to
 reveal it in the Finder. A click on a group's heading folds the group under it
@@ -122,7 +133,7 @@ A worktree inside a jj repository, a colocated one too, is read through jj:
   ancestors of `@`, the most recent ones.
 
 Reading a jj repository runs jj, which records the working copy into `@` as
-any jj command does. It is read only while Changes or Log is shown. When jj
+any jj command does. It is read only while Overview, Changes or Log is shown. When jj
 cannot be run, the repository is read through git instead.
 
 ## In a git repository
@@ -136,10 +147,10 @@ cannot be run, the repository is read through git instead.
 
 In a list, `j` and `k` move, `gg` and `G` go to the first and the last row,
 `Enter` or `l` opens the selected row, and `h`, `Escape` or `Backspace` go
-back. In the overview, the same keys move over its headings and rows and
-open a link, an image or a subagent; on a heading, `Enter` or `l` folds or unfolds its
-group, the keys that go back fold the group of what is selected, and `y`
-copies the selected row. In a subagent opened, the keys that go back go back
-to the overview. In a diff, a subagent opened or an overview without links,
-`j`, `k`, `gg` and `G` scroll, and in every sheet `Ctrl+d` and `Ctrl+u` scroll by half a page. `1`, `2`
-and `3` show the sheets ([keys](keys.md)).
+back. In Overview, Agents and Resources, the same keys move over their headings
+and rows and open a link, an image, a message, a process or a subagent; on a
+heading, `Enter` or `l` folds or unfolds its group, the keys that go back fold
+the group of what is selected, and `y` copies the selected row. In a row
+opened, the keys that go back go back to its sheet. In a diff or a row
+opened, `j`, `k`, `gg` and `G` scroll, and in every sheet `Ctrl+d` and
+`Ctrl+u` scroll by half a page. `1` to `5` show the sheets ([keys](keys.md)).

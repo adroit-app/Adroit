@@ -60,10 +60,10 @@ approvals and sandbox for each launch. Claude's model,
 permission mode and denied tools do not apply to Codex.
 
 Codex sessions started by Adroit list their conversation's artifacts, images,
-links and files in the [overview](details.md). The list follows the current
+links and files in the [Resources sheet](details.md). The list follows the current
 conversation, including after switching conversations in Codex.
 For a Codex session already running when Adroit was updated, run
-`/title app-name thread-id` in Codex to enable the overview's conversation list.
+`/title app-name thread-id` in Codex to enable the Resources sheet.
 
 Codex prompt history in the embedded prompt is not available. Codex menus, approvals and questions take keys
 directly while they are open. Use Codex's own interface for its commands and
@@ -83,7 +83,7 @@ its thinking level and its tools for each launch. Pi asks whether to trust a
 project's own files before its interface starts; the session shows it as
 waiting on you, and shows Pi's login dialog as waiting on a login.
 
-Pi sessions list their conversation's links and files in the overview, and
+Pi sessions list their conversation's links and files in the Resources sheet, and
 follow the conversation the session moves to with `/new` or `/resume`. Their
 prompt history is the prompts sent in the session's directory, as Pi keeps
 them. Renaming in Adroit renames the Pi session with `/name`, and a message
@@ -106,8 +106,8 @@ account usage to show. Adroit can override its model, as `provider/model`,
 for each launch. A permission OpenCode asks for shows the session as waiting
 on you.
 
-OpenCode sessions list their conversation's links and files in the overview,
-read through OpenCode itself. A message with a leading `!` runs as a shell
+OpenCode sessions list their conversation's links and files in the Resources
+sheet, read through OpenCode itself. A message with a leading `!` runs as a shell
 line in OpenCode.
 
 ## Instances
