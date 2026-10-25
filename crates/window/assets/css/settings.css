@@ -24,7 +24,7 @@ button:focus-visible { outline: 2px solid var(--run); outline-offset: 2px; }
 /* Prose set the width of a wide window is not read, so the column stops and centres. */
 .settings-measure, .settings-pane-head { max-width: 680px; margin-inline: auto; }
 .settings-measure { padding-top: 20px; }
-/* The pane's name stays while the pane scrolls under it. */
+/* The pane's name stays while the pane scrolls under it; a top padding on the pane would show the rows above it. */
 .settings-pane-head { position: sticky; top: 0; z-index: 1; padding: 22px 0 12px; background: var(--ground);
   border-bottom: 1px solid var(--line); }
 .settings-pane-head + .settings-measure { padding-top: 16px; }
@@ -56,7 +56,7 @@ button.primary { background: var(--wait-tint); color: var(--wait); font-weight: 
 .settings-error { color: var(--fail); margin-bottom: 12px; user-select: text; }
 @media (max-width: 760px) {
   .settings-nav { width: 155px; }
-  .settings-pane { padding: 20px 18px; }
+  .settings-pane { padding-inline: 18px; padding-bottom: 20px; }
   .settings-row { gap: 8px; }
   .settings-row-label { flex-basis: 100%; }
   .settings-row-control { max-width: 100%; }
