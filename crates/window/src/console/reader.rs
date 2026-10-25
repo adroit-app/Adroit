@@ -134,6 +134,15 @@ impl Reader {
                     self.reader.set(None);
                     if kept.is_some() {
                         // Asked for, not quit: reading goes on in the next.
+                        let wait = restarts.saved(born.elapsed());
+                        if !wait.is_zero() {
+                            app.status(Some(format!(
+                                "the reader's configuration is saved as Neovim starts; trying again in {}s",
+                                wait.as_secs()
+                            )));
+                            told = true;
+                            tokio::time::sleep(wait).await;
+                        }
                         continue;
                     }
                     app.dispatch(Msg::ReaderQuit);

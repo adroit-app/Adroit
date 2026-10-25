@@ -391,7 +391,9 @@ folder's `lua/`, starts that Neovim again, which reads it as it reads it at
 start. The prompt keeps what is written and the cursor, and the reader, while
 the console is read, keeps where it was scrolled to and the cursor, showing the
 console as it is then. A configuration that fails says so in a message, as it
-does when the Neovim starts.
+does when the Neovim starts. One that saves itself as its Neovim starts is
+read again at once only the first times in a row; after them each start
+waits as one that quits as it starts does.
 
 Either Neovim that quits is started again. The prompt started again holds
 what was written in it, with the cursor where it was; the console read when

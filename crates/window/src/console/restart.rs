@@ -19,7 +19,17 @@ const LONGEST_WAIT: Duration = Duration::from_secs(60);
 #[derive(Debug, Default)]
 pub(crate) struct Restarts {
     failed: u32,
+    /// Starts in a row ended by a configuration saved as Neovim started.
+    saved_at_start: u32,
 }
+
+/// How long a Neovim has to live for a save of its configuration to be taken
+/// as the user's, and not as the configuration writing itself as it starts.
+const SAVED_SETTLE: Duration = Duration::from_secs(1);
+
+/// How many starts in a row a configuration may end by saving itself before
+/// the next start waits.
+const SAVED_AT_ONCE: u32 = 2;
 
 impl Restarts {
     /// How long to wait before starting the Neovim again, once it lived for
@@ -35,6 +45,23 @@ impl Restarts {
             .min(LONGEST_WAIT);
         self.failed += 1;
         wait
+    }
+
+    /// How long to wait before starting the Neovim again, once it lived for
+    /// `lived` and was quit as its configuration was saved: no time, unless
+    /// saves keep ending it as it starts, as a configuration that writes
+    /// itself would, when it waits as one that quits as it starts.
+    pub(crate) fn saved(&mut self, lived: Duration) -> Duration {
+        if lived >= SAVED_SETTLE {
+            self.saved_at_start = 0;
+            self.failed = 0;
+            return Duration::ZERO;
+        }
+        self.saved_at_start += 1;
+        if self.saved_at_start <= SAVED_AT_ONCE {
+            return Duration::ZERO;
+        }
+        self.wait(Some(lived))
     }
 }
 
@@ -71,6 +98,25 @@ mod tests {
         r.wait(QUICK);
         assert_eq!(r.wait(LONG), Duration::ZERO);
         assert_eq!(r.wait(QUICK), Duration::from_secs(1));
+    }
+
+    #[test]
+    fn a_neovim_started_again_on_a_saved_configuration_starts_at_once() {
+        let mut r = Restarts::default();
+        for _ in 0..10 {
+            assert_eq!(r.saved(Duration::from_secs(5)), Duration::ZERO);
+        }
+    }
+
+    #[test]
+    fn a_configuration_saved_as_neovim_starts_waits_once_it_keeps_doing_so() {
+        let mut r = Restarts::default();
+        let quick = Duration::from_millis(300);
+        let waits: Vec<u64> = (0..6).map(|_| r.saved(quick).as_secs()).collect();
+        assert_eq!(waits, [0, 0, 1, 2, 4, 8]);
+        // A save the user makes later starts it at once again.
+        assert_eq!(r.saved(Duration::from_secs(5)), Duration::ZERO);
+        assert_eq!(r.saved(quick), Duration::ZERO);
     }
 
     #[test]

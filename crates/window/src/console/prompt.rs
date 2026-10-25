@@ -149,7 +149,15 @@ impl PromptNeovim {
                     app.dispatch(Msg::PromptRuns(false));
                     kept = ended.left;
                     if ended.saved {
-                        // Asked for, not quit, so not one that cannot start.
+                        let wait = restarts.saved(born.elapsed());
+                        if !wait.is_zero() {
+                            app.status(Some(format!(
+                                "the prompt's configuration is saved as Neovim starts; trying again in {}s",
+                                wait.as_secs()
+                            )));
+                            told = true;
+                            tokio::time::sleep(wait).await;
+                        }
                         continue;
                     }
                     (
