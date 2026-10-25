@@ -248,6 +248,7 @@ async fn delete_login(profile: &ProfileId) -> Result<Answer, String> {
             home.display()
         ));
     }
+    unused_by_profiles(found, &settings)?;
     let kept = daemon::daemon()
         .sessions()
         .await
@@ -271,7 +272,11 @@ fn unused(
 ) -> Result<(), String> {
     let using: Vec<&str> = running
         .iter()
-        .filter(|s| s.home.as_deref() == Some(home))
+        .filter(|s| {
+            s.home
+                .as_deref()
+                .is_some_and(|other| overlapping_logins(home, other))
+        })
         .map(|s| match s.name.trim() {
             "" => s.id.as_str(),
             named => named,
@@ -289,6 +294,44 @@ fn unused(
         using.join(", "),
         home.display()
     ))
+}
+
+fn resolved_login(path: &std::path::Path) -> PathBuf {
+    if let Ok(path) = path.canonicalize() {
+        return path;
+    }
+    match (path.parent(), path.file_name()) {
+        (Some(parent), Some(name)) => resolved_login(parent).join(name),
+        _ => path.to_path_buf(),
+    }
+}
+
+fn overlapping_logins(a: &std::path::Path, b: &std::path::Path) -> bool {
+    let (a, b) = (resolved_login(a), resolved_login(b));
+    a.starts_with(&b) || b.starts_with(&a)
+}
+
+fn unused_by_profiles(
+    deleting: &adroit_model::profile::AgentProfile,
+    settings: &settings::Settings,
+) -> Result<(), String> {
+    let Some(home) = &deleting.home else {
+        return Ok(());
+    };
+    if let Some(other) = settings.profiles.iter().find(|other| {
+        other.id != deleting.id
+            && other
+                .home
+                .as_deref()
+                .is_some_and(|other| overlapping_logins(home, other))
+    }) {
+        return Err(format!(
+            "{} keeps its login in an overlapping folder; delete {} without its folder",
+            other.label(),
+            deleting.label()
+        ));
+    }
+    Ok(())
 }
 
 /// Start a terminal, listed in the tree as any other, that runs the CLI's
@@ -439,6 +482,54 @@ fn save_keys(text: &str) -> Result<Answer, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deleting_a_login_preserves_running_logins_nested_under_it_or_reached_by_an_alias() {
+        use adroit_model::testing::session;
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("work");
+        let nested = home.join("other");
+        std::fs::create_dir_all(&nested).unwrap();
+        let alias = dir.path().join("alias");
+        std::os::unix::fs::symlink(&nested, &alias).unwrap();
+        for path in [&nested, &alias] {
+            let running = [session("a")
+                .profile("other", Some(path.to_str().unwrap()))
+                .build()];
+            assert!(unused("Work", &home, &running).is_err(), "{path:?}");
+        }
+    }
+
+    #[test]
+    fn deleting_a_login_preserves_other_configured_logins_even_when_none_run() {
+        use adroit_model::testing::profile;
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("work");
+        std::fs::create_dir(&home).unwrap();
+        let alias = dir.path().join("alias");
+        std::os::unix::fs::symlink(&home, &alias).unwrap();
+        for other in [
+            home.join("child"),
+            alias.join("not-created"),
+            home.clone(),
+            dir.path().to_path_buf(),
+        ] {
+            let deleting = profile("work", adroit_model::Agent::Claude)
+                .home(&home)
+                .build();
+            let settings = settings::Settings {
+                profiles: vec![
+                    deleting.clone(),
+                    profile("other", adroit_model::Agent::Codex)
+                        .home(other)
+                        .build(),
+                ],
+                ..Default::default()
+            };
+            assert!(unused_by_profiles(&deleting, &settings).is_err());
+        }
+        assert!(!overlapping_logins(&home, &dir.path().join("work-other")));
+    }
 
     #[test]
     fn a_login_s_folder_is_not_deleted_while_sessions_run_in_it_and_says_which() {
