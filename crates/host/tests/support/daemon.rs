@@ -42,32 +42,17 @@ fn fixture_processes_explicitly_drop_the_callers_assignment_environment() {
         .filter(|(_, value)| value.is_none())
         .map(|(name, _)| name.to_string_lossy().into_owned())
         .collect();
-    for name in [
-        "ADROIT_CONTROL_TOKEN",
-        "ADROIT_CONTROL_ROOT",
-        "ADROIT_TASK_ID",
-        "ADROIT_ATTEMPT_ID",
-        "CODEX_THREAD_ID",
-    ] {
-        assert!(removed.contains(name), "the fixture must remove {name}");
+    let callers = std::env::vars_os()
+        .map(|(name, _)| name.to_string_lossy().into_owned())
+        .filter(|name| name.starts_with("ADROIT_"));
+    for name in callers.chain(["CODEX_THREAD_ID".to_string()]) {
+        assert!(removed.contains(&name), "the fixture must remove {name}");
     }
 }
 
 fn fixture_command() -> tokio::process::Command {
     let mut command = tokio::process::Command::new(std::env::current_exe().unwrap());
-    for name in [
-        "ADROIT_CONTROL_TOKEN",
-        "ADROIT_CONTROL_ROOT",
-        "ADROIT_SESSION_ID",
-        "ADROIT_SESSION_GENERATION",
-        "ADROIT_LEADER_ID",
-        "ADROIT_RUN_ID",
-        "ADROIT_TASK_ID",
-        "ADROIT_ATTEMPT_ID",
-        "CODEX_THREAD_ID",
-    ] {
-        command.env_remove(name);
-    }
+    command.env_remove("CODEX_THREAD_ID");
     let names = std::env::vars_os().map(|(name, _)| name.to_string_lossy().into_owned());
     for name in names.filter(|name| name.starts_with("ADROIT_")) {
         command.env_remove(name);

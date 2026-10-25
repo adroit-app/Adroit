@@ -594,7 +594,7 @@ mod tests {
     }
 
     #[test]
-    fn a_started_session_is_read_back_with_the_session_that_started_it() {
+    fn an_opened_session_is_read_back_with_the_session_that_opened_it() {
         let parent = adroit_model::SessionId::new();
         let delegation = crate::delegation::launch::Delegation::new(
             adroit_model::SessionId::new(),

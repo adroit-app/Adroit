@@ -64,8 +64,8 @@ const MIGRATIONS: &[&str] = &[
      ) WHERE connection <> agent AND json_valid(launch);
      ALTER TABLE sessions DROP COLUMN connection;",
     // Sessions no longer report to the one that opened them: a report was a
-    // message, and adroit's notices of how a started session stood were
-    // meant for a starter waiting on it.
+    // message, and adroit's notices of how an opened session stood were
+    // meant for a session waiting on it, which none does any more.
     "UPDATE messages SET kind = 'message' WHERE kind = 'report';
      DELETE FROM messages WHERE kind = 'notice';
      ALTER TABLE sessions DROP COLUMN reported;",
@@ -306,7 +306,7 @@ impl Store {
     }
 
     /// Sessions opened by sessions that have not ended.
-    pub fn running_started(&self) -> Result<usize> {
+    pub fn running_opened(&self) -> Result<usize> {
         let count: i64 = self.connection.query_row(
             "SELECT COUNT(*) FROM sessions WHERE parent IS NOT NULL AND ended = 0",
             [],
@@ -554,7 +554,7 @@ mod tests {
     #[test]
     fn a_registered_session_acts_with_its_credential_and_no_other() {
         let (_dir, mut store) = store();
-        let (id, token) = store.register(new(None, "lead")).unwrap();
+        let (id, token) = store.register(new(None, "opener")).unwrap();
 
         assert_eq!(store.authenticate(&token).unwrap(), id);
         assert_eq!(
@@ -566,7 +566,7 @@ mod tests {
     #[test]
     fn a_session_that_has_ended_no_longer_acts() {
         let (_dir, mut store) = store();
-        let (id, token) = store.register(new(None, "lead")).unwrap();
+        let (id, token) = store.register(new(None, "opener")).unwrap();
         store.end(id).unwrap();
 
         assert_eq!(store.authenticate(&token).unwrap_err().code, Code::Refused);
@@ -609,12 +609,12 @@ mod tests {
     #[test]
     fn any_session_can_message_an_unrelated_one() {
         let (_dir, mut store) = store();
-        let lead = register(&mut store, None, "lead");
-        let child = register(&mut store, Some(lead), "child");
+        let opener = register(&mut store, None, "opener");
+        let opened = register(&mut store, Some(opener), "opened");
         let other = register(&mut store, None, "other");
 
         store
-            .send(child, other, "I am about to rebase main")
+            .send(opened, other, "I am about to rebase main")
             .unwrap();
 
         assert_eq!(bodies(&mut store, other), ["I am about to rebase main"]);
@@ -653,38 +653,38 @@ mod tests {
     #[test]
     fn ending_a_session_leaves_the_sessions_it_opened_running() {
         let (_dir, mut store) = store();
-        let lead = register(&mut store, None, "lead");
-        let child = register(&mut store, Some(lead), "child");
+        let opener = register(&mut store, None, "opener");
+        let opened = register(&mut store, Some(opener), "opened");
 
-        store.end(lead).unwrap();
+        store.end(opener).unwrap();
 
-        assert!(!store.session(child).unwrap().unwrap().ended);
+        assert!(!store.session(opened).unwrap().unwrap().ended);
     }
 
     #[test]
     fn the_session_that_opened_another_hears_nothing_of_how_it_starts_or_ends() {
         let (_dir, mut store) = store();
-        let lead = register(&mut store, None, "lead");
-        let child = register(&mut store, Some(lead), "child");
+        let opener = register(&mut store, None, "opener");
+        let opened = register(&mut store, Some(opener), "opened");
 
-        assert!(store.set_readiness(child, Readiness::Waiting).unwrap());
-        assert!(!store.set_readiness(child, Readiness::Waiting).unwrap());
-        assert!(store.set_readiness(child, Readiness::Ready).unwrap());
-        store.end(child).unwrap();
+        assert!(store.set_readiness(opened, Readiness::Waiting).unwrap());
+        assert!(!store.set_readiness(opened, Readiness::Waiting).unwrap());
+        assert!(store.set_readiness(opened, Readiness::Ready).unwrap());
+        store.end(opened).unwrap();
 
-        assert!(store.messages_of(lead).unwrap().is_empty());
+        assert!(store.messages_of(opener).unwrap().is_empty());
     }
 
     #[test]
     fn only_sessions_opened_by_sessions_still_running_count_against_the_limit() {
         let (_dir, mut store) = store();
-        let lead = register(&mut store, None, "lead");
-        register(&mut store, None, "other lead");
-        let first = register(&mut store, Some(lead), "first");
-        register(&mut store, Some(lead), "second");
+        let opener = register(&mut store, None, "opener");
+        register(&mut store, None, "other opener");
+        let first = register(&mut store, Some(opener), "first");
+        register(&mut store, Some(opener), "second");
         store.end(first).unwrap();
 
-        assert_eq!(store.running_started().unwrap(), 1);
+        assert_eq!(store.running_opened().unwrap(), 1);
     }
 
     #[test]
@@ -719,7 +719,7 @@ mod tests {
         let (id, _) = store
             .register(NewSession {
                 launch,
-                ..new(None, "lead")
+                ..new(None, "opener")
             })
             .unwrap();
 
@@ -892,14 +892,14 @@ PRAGMA user_version = 1;
      {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("state.sqlite3");
-        let (lead, child) = (SessionId::new(), SessionId::new());
+        let (opener, opened) = (SessionId::new(), SessionId::new());
         {
             let old = Connection::open(&path).unwrap();
             old.execute_batch(SCHEMA_1).unwrap();
             old.execute_batch(MIGRATIONS[0]).unwrap();
             old.execute_batch(MIGRATIONS[1]).unwrap();
             old.pragma_update(None, "user_version", 3).unwrap();
-            for (id, parent, reported) in [(lead, None, 0), (child, Some(lead), 1)] {
+            for (id, parent, reported) in [(opener, None, 0), (opened, Some(opener), 1)] {
                 old.execute(
                     "INSERT INTO sessions (id, token, parent, agent, name, cwd, launch, readiness, started_ms, reported, profile)
                      VALUES (?1, ?2, ?3, 'claude', 'old', '/repo', '{}', 'ready', 1, ?4, 'claude')",
@@ -908,12 +908,12 @@ PRAGMA user_version = 1;
                 .unwrap();
             }
             for (sender, kind, body) in [
-                (Some(child), "report", "done"),
+                (Some(opened), "report", "done"),
                 (None, "notice", "child is ready."),
             ] {
                 old.execute(
                     "INSERT INTO messages (id, sender, recipient, kind, body, sent_ms) VALUES (?1, ?2, ?3, ?4, ?5, 1)",
-                    params![MessageId::new().to_string(), sender.map(|s| s.to_string()), lead.to_string(), kind, body],
+                    params![MessageId::new().to_string(), sender.map(|s| s.to_string()), opener.to_string(), kind, body],
                 )
                 .unwrap();
             }
@@ -922,9 +922,9 @@ PRAGMA user_version = 1;
         let store = Store::open(&path).unwrap();
 
         store.ensure_current_schema().unwrap();
-        let kept = store.messages_of(lead).unwrap();
+        let kept = store.messages_of(opener).unwrap();
         assert_eq!(kept.len(), 1);
-        assert_eq!((kept[0].sender, kept[0].body.as_str()), (child, "done"));
-        assert_eq!(store.session(child).unwrap().unwrap().parent, Some(lead));
+        assert_eq!((kept[0].sender, kept[0].body.as_str()), (opened, "done"));
+        assert_eq!(store.session(opened).unwrap().unwrap().parent, Some(opener));
     }
 }

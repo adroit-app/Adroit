@@ -273,7 +273,7 @@ async fn start(context: &Context, caller: &Session, start: protocol::Start) -> R
         return Err(Error::new(Code::Invalid, "the prompt is empty"));
     }
     let settings = context.settings()?;
-    let running = context.call(|store| store.running_started()).await?;
+    let running = context.call(|store| store.running_opened()).await?;
     if running >= settings.delegation.max_started {
         return Err(Error::new(
             Code::Refused,
