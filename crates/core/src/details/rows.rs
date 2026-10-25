@@ -39,6 +39,23 @@ pub struct LinkRow {
     pub thumb: Option<Arc<str>>,
 }
 
+impl LinkRow {
+    /// A row in the panel's own colour, with no badge, file or small copy.
+    fn plain(at: usize, icon: Icon, label: String, tag: String, target: String) -> LinkRow {
+        LinkRow {
+            at,
+            icon,
+            tone: "",
+            label,
+            badge: None,
+            tag,
+            target,
+            file: false,
+            thumb: None,
+        }
+    }
+}
+
 /// A group of the overview's links as drawn: its heading, at its place among
 /// the overview's rows, and the links shown under it.
 #[derive(Debug, Clone, PartialEq)]
@@ -62,24 +79,28 @@ pub fn link_sections(
 ) -> Vec<LinkSection> {
     let mut out: Vec<LinkSection> = Vec::new();
     for (at, entry) in entries.iter().enumerate() {
-        match entry {
+        let row = match entry {
             Entry::More { hidden, .. } => {
                 if let Some(section) = out.last_mut() {
                     section.more = Some((at, *hidden));
                 }
+                None
             }
             Entry::Heading {
                 group,
                 count,
                 folded,
-            } => out.push(LinkSection {
-                group: *group,
-                at,
-                count: *count,
-                folded: *folded,
-                rows: Vec::new(),
-                more: None,
-            }),
+            } => {
+                out.push(LinkSection {
+                    group: *group,
+                    at,
+                    count: *count,
+                    folded: *folded,
+                    rows: Vec::new(),
+                    more: None,
+                });
+                None
+            }
             Entry::Session(r) => {
                 let icon = if r
                     .ties
@@ -94,19 +115,13 @@ pub fn link_sections(
                 if r.id.is_none() {
                     tag.push("not running");
                 }
-                if let Some(section) = out.last_mut() {
-                    section.rows.push(LinkRow {
-                        at,
-                        icon,
-                        tone: "",
-                        label: r.name.clone(),
-                        badge: None,
-                        tag: tag.join(" · "),
-                        target: r.name.clone(),
-                        file: false,
-                        thumb: None,
-                    });
-                }
+                Some(LinkRow::plain(
+                    at,
+                    icon,
+                    r.name.clone(),
+                    tag.join(" · "),
+                    r.name.clone(),
+                ))
             }
             Entry::Image(shot) => {
                 let (label, tag) = shown_shot(shot, worktree, home);
@@ -114,85 +129,49 @@ pub fn link_sections(
                     Source::File { path, .. } => (path.clone(), true),
                     Source::Console { .. } => (label.clone(), false),
                 };
-                if let Some(section) = out.last_mut() {
-                    section.rows.push(LinkRow {
-                        at,
-                        icon: Icon::Photo,
-                        tone: "",
-                        label,
-                        badge: None,
-                        tag,
-                        target,
-                        file,
-                        thumb: shot.thumb.clone(),
-                    });
-                }
+                Some(LinkRow {
+                    file,
+                    thumb: shot.thumb.clone(),
+                    ..LinkRow::plain(at, Icon::Photo, label, tag, target)
+                })
             }
-            Entry::Process(p) => {
-                if let Some(section) = out.last_mut() {
-                    section.rows.push(LinkRow {
-                        at,
-                        icon: Icon::Terminal2,
-                        tone: if p.zombie { "state-glyph fail" } else { "" },
-                        label: p.name.clone(),
-                        badge: None,
-                        tag: format!(
-                            "{} · {:.0} MiB{}",
-                            p.pid,
-                            p.memory as f64 / (1024.0 * 1024.0),
-                            if p.zombie { " · zombie" } else { "" }
-                        ),
-                        target: format!("PID {} · {}", p.pid, p.command),
-                        file: false,
-                        thumb: None,
-                    });
-                }
-            }
-            Entry::Fact(f) => {
-                if let Some(section) = out.last_mut() {
-                    section.rows.push(LinkRow {
-                        at,
-                        icon: Icon::InfoCircle,
-                        tone: "",
-                        label: f.label.to_string(),
-                        badge: None,
-                        tag: f.value.clone(),
-                        target: f.value.clone(),
-                        file: false,
-                        thumb: None,
-                    });
-                }
-            }
-            Entry::Message(n) => {
-                if let Some(section) = out.last_mut() {
-                    section.rows.push(LinkRow {
-                        at,
-                        icon: Icon::Message,
-                        tone: "",
-                        label: n.summary().to_owned(),
-                        badge: None,
-                        tag: n.tag(now_ms),
-                        target: n.body.clone(),
-                        file: false,
-                        thumb: None,
-                    });
-                }
-            }
+            Entry::Process(p) => Some(LinkRow {
+                tone: if p.zombie { "state-glyph fail" } else { "" },
+                ..LinkRow::plain(
+                    at,
+                    Icon::Terminal2,
+                    p.name.clone(),
+                    format!(
+                        "{} · {:.0} MiB{}",
+                        p.pid,
+                        p.memory as f64 / (1024.0 * 1024.0),
+                        if p.zombie { " · zombie" } else { "" }
+                    ),
+                    format!("PID {} · {}", p.pid, p.command),
+                )
+            }),
+            Entry::Fact(f) => Some(LinkRow::plain(
+                at,
+                Icon::InfoCircle,
+                f.label.to_string(),
+                f.value.clone(),
+                f.value.clone(),
+            )),
+            Entry::Message(n) => Some(LinkRow::plain(
+                at,
+                Icon::Message,
+                n.summary().to_owned(),
+                n.tag(now_ms),
+                n.body.clone(),
+            )),
             Entry::Agent(a) => {
                 let (label, tag) = shown_agent(a, now_ms);
-                if let Some(section) = out.last_mut() {
-                    section.rows.push(LinkRow {
-                        at,
-                        icon: agent_glyph(a.standing).1,
-                        tone: agent_glyph(a.standing).0,
-                        label,
-                        badge: a.kind.clone(),
-                        tag,
-                        target: a.call.clone(),
-                        file: false,
-                        thumb: None,
-                    });
-                }
+                let (tone, icon) = agent_glyph(a.standing);
+                Some(LinkRow {
+                    tone,
+                    badge: a.kind.clone(),
+                    ..LinkRow::plain(at, icon, label, tag, a.call.clone())
+                })
             }
             Entry::Link(link) => {
                 let icon = match link.kind {
@@ -202,20 +181,16 @@ pub fn link_sections(
                     LinkKind::File(_) => Icon::File,
                 };
                 let (label, tag) = shown_link(link, worktree, home);
-                if let Some(section) = out.last_mut() {
-                    section.rows.push(LinkRow {
-                        at,
-                        icon,
-                        tone: "",
-                        label,
-                        badge: None,
-                        tag,
-                        target: link.target.clone(),
-                        file: matches!(link.kind, LinkKind::File(_)),
-                        thumb: None,
-                    });
-                }
+                Some(LinkRow {
+                    file: matches!(link.kind, LinkKind::File(_)),
+                    ..LinkRow::plain(at, icon, label, tag, link.target.clone())
+                })
             }
+        };
+        if let Some(row) = row
+            && let Some(section) = out.last_mut()
+        {
+            section.rows.push(row);
         }
     }
     out
