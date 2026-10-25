@@ -120,13 +120,13 @@ impl Delegation {
         }
         tags
     }
+}
 
-    /// What the session is told, naming `program`, the adroit that starts
-    /// it, by its whole path: a session in another repository may not find
-    /// `adroit` on its `PATH`.
-    pub fn instructions(&self, program: &Path) -> String {
-        INSTRUCTIONS.replace("@ADROIT@", &adroit_agents::shell_word(program))
-    }
+/// What every session is told, naming `program`, the adroit that starts it,
+/// by its whole path: a session in another repository may not find `adroit`
+/// on its `PATH`.
+pub fn instructions(program: &Path) -> String {
+    INSTRUCTIONS.replace("@ADROIT@", &adroit_agents::shell_word(program))
 }
 
 /// What every session is told of Adroit's tools, whoever started it.
@@ -191,17 +191,8 @@ mod tests {
     }
 
     #[test]
-    fn every_session_is_told_the_same_whoever_started_it() {
-        let program = Path::new("/bin/adroit");
-        assert_eq!(
-            delegation(None).instructions(program),
-            delegation(Some(SessionId::new())).instructions(program)
-        );
-    }
-
-    #[test]
     fn a_session_is_told_to_keep_its_own_work_and_open_sessions_only_for_a_separate_line_of_it() {
-        let told = delegation(None).instructions(Path::new("/bin/adroit"));
+        let told = instructions(Path::new("/bin/adroit"));
         assert!(told.contains("Do your work yourself"), "{told}");
         assert!(told.contains("separate line of work"), "{told}");
         assert!(told.contains("answers to the user"), "{told}");
@@ -210,32 +201,27 @@ mod tests {
 
     #[test]
     fn a_session_is_told_to_ask_a_session_that_knows_and_never_to_hand_it_work() {
-        let told = delegation(None).instructions(Path::new("/bin/adroit"));
+        let told = instructions(Path::new("/bin/adroit"));
         assert!(told.contains("ask the session that knows"), "{told}");
         assert!(told.contains("never hand it work"), "{told}");
     }
 
     #[test]
     fn every_session_is_told_how_to_coordinate_with_sessions_it_shares_a_repository_with() {
-        for parent in [None, Some(SessionId::new())] {
-            let told = delegation(parent).instructions(Path::new("/bin/adroit"));
-            assert!(told.contains("call `sessions`"), "{told}");
-        }
+        let told = instructions(Path::new("/bin/adroit"));
+        assert!(told.contains("call `sessions`"), "{told}");
     }
 
     #[test]
     fn every_session_is_told_to_run_probes_in_adroit_terminals_rather_than_hidden_ones() {
-        for parent in [None, Some(SessionId::new())] {
-            let told = delegation(parent).instructions(Path::new("/bin/adroit"));
-            assert!(told.contains("`/bin/adroit terminal start`"), "{told}");
-            assert!(told.contains("tmux"), "{told}");
-        }
+        let told = instructions(Path::new("/bin/adroit"));
+        assert!(told.contains("`/bin/adroit terminal start`"), "{told}");
+        assert!(told.contains("tmux"), "{told}");
     }
 
     #[test]
     fn every_session_is_told_the_adroit_that_started_it_by_its_whole_path() {
-        let told = delegation(None)
-            .instructions(Path::new("/Applications/Adroit.app/Contents/MacOS/adroit"));
+        let told = instructions(Path::new("/Applications/Adroit.app/Contents/MacOS/adroit"));
         assert!(
             told.contains("/Applications/Adroit.app/Contents/MacOS/adroit terminal start"),
             "{told}"
@@ -245,7 +231,7 @@ mod tests {
 
     #[test]
     fn an_adroit_path_with_spaces_is_quoted_for_the_shell() {
-        let told = delegation(None).instructions(Path::new("/My Apps/adroit"));
+        let told = instructions(Path::new("/My Apps/adroit"));
         assert!(
             told.contains("`'/My Apps/adroit' terminal start`"),
             "{told}"

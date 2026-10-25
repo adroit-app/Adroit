@@ -212,11 +212,10 @@ pub fn resolve(
     let mut args = adapter.integration_args(adroit_program, &crate::paths::instance_state());
     if let Some(delegation) = &request.delegation {
         args.extend(delegation.args(request.agent, adroit_program));
+        let told = crate::delegation::launch::instructions(adroit_program);
         let instructions = match (&request.developer_instructions, request.agent) {
-            (Some(base), Agent::Codex) => {
-                format!("{base}\n\n{}", delegation.instructions(adroit_program))
-            }
-            _ => delegation.instructions(adroit_program),
+            (Some(base), Agent::Codex) => format!("{base}\n\n{told}"),
+            _ => told,
         };
         args.extend(adapter.instruction_args(&instructions));
     }

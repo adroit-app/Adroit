@@ -757,23 +757,6 @@ fn details_in_sight(change: &DetailsChange, sight: &Sight) -> bool {
     }
 }
 
-/// The window a host run without one speaks as, in [`scenario`].
-pub const LONE: WindowId = WindowId(1);
-
-/// A host run without a window: `requests` in turn, as one window asks
-/// them, the work they leave and every event they draw for that window,
-/// for tests to read.
-pub fn scenario(work: Work, requests: impl IntoIterator<Item = Request>) -> (Work, Vec<Event>) {
-    let mut host = Host::new(work);
-    let events = requests
-        .into_iter()
-        .flat_map(|request| host.handle(LONE, request))
-        .filter(|(to, _)| *to == LONE)
-        .map(|(_, event)| event)
-        .collect();
-    (host.work, events)
-}
-
 #[cfg(test)]
 mod tests {
     use adroit_model::links::Links;
@@ -787,6 +770,22 @@ mod tests {
     };
 
     use super::*;
+
+    /// The window a host run without one speaks as, in [`scenario`].
+    const LONE: WindowId = WindowId(1);
+
+    /// A host run without a window: `requests` in turn, as one window asks
+    /// them, the work they leave and every event they draw for that window.
+    fn scenario(work: Work, requests: impl IntoIterator<Item = Request>) -> (Work, Vec<Event>) {
+        let mut host = Host::new(work);
+        let events = requests
+            .into_iter()
+            .flat_map(|request| host.handle(LONE, request))
+            .filter(|(to, _)| *to == LONE)
+            .map(|(_, event)| event)
+            .collect();
+        (host.work, events)
+    }
 
     /// A host as the one window [`LONE`] is served by it.
     trait Lone {

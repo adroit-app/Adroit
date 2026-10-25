@@ -56,7 +56,7 @@ impl Recorded {
 
 /// Records the session `request` starts, started by `parent` or by the user,
 /// and gives the request what it needs to reach other sessions.
-pub async fn record(
+async fn record(
     root: &Path,
     settings: &Settings,
     request: &mut StartRequest,
@@ -93,11 +93,6 @@ pub async fn record(
 /// Records that the user ended `id`.
 pub async fn ended(root: &Path, id: SessionId) -> Result<()> {
     with_store(root, move |store| store.end(id)).await
-}
-
-/// What `id` sent and received, the newest first, for its details.
-pub async fn messages_of(root: &Path, id: SessionId) -> Result<Vec<Message>> {
-    with_store(root, move |store| store.messages_of(id)).await
 }
 
 /// The settings `id` was started with, as Adroit recorded them.
