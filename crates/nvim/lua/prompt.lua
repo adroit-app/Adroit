@@ -9,11 +9,7 @@ local function apply()
   hold(function()
     return w
   end, b, {
-    o = vim.tbl_extend("force", held_everywhere(), {
-      -- Typing after `@` or `/` offers what matches without putting it in the
-      -- text, and the window takes the one chosen.
-      completeopt = "menuone,noinsert",
-    }),
+    o = held_everywhere(),
     wo = { eventignorewin = "" },
     bo = {
       buftype = "nofile",
@@ -107,7 +103,7 @@ local function apply()
         out[#out + 1] = item(c, c.word .. " ")
       end
     end
-    vim.fn.complete(s + 1, out)
+    return s + 1, out
   end
   local function offer_commands(s, typed, sigil)
     if typed == "" then
@@ -126,10 +122,11 @@ local function apply()
       end
     end
     vim.list_extend(first, then_)
-    vim.fn.complete(s, first)
+    return s, first
   end
-  local function offer()
-    local before = vim.api.nvim_get_current_line():sub(1, vim.fn.col(".") - 1)
+  -- What is offered for `before`, the line up to the cursor: the byte the
+  -- text chosen goes from, counted from 1, and what to choose from.
+  local function offer(before)
     local s, typed = word_start(before, "@[^%s@]*$")
     if s then
       return offer_paths(s, typed)
@@ -143,7 +140,82 @@ local function apply()
       return offer_commands(s, typed, "$")
     end
   end
-  vim.api.nvim_create_autocmd({ "TextChangedI", "TextChangedP" }, { buffer = b, callback = offer })
+  -- What is offered is served as a language server's completion, so that
+  -- whichever completion the configuration runs, Neovim's own or a plugin's,
+  -- shows it. Every answer is incomplete: what matches is found anew as more
+  -- is typed, by any part of a path rather than by its start.
+  local TRIGGERS = { "@", "/", "$" }
+  local function items(params)
+    local line = params.position.line
+    local col = params.position.character
+    local before = (vim.api.nvim_buf_get_lines(b, line, line + 1, false)[1] or ""):sub(1, col)
+    local start, offered = offer(before)
+    local out = {}
+    for i, o in ipairs(offered or {}) do
+      out[i] = {
+        label = o.abbr,
+        filterText = before:sub(start),
+        sortText = string.format("%05d", i),
+        detail = o.menu,
+        documentation = o.info ~= "" and o.info or nil,
+        textEdit = {
+          range = { start = { line = line, character = start - 1 }, ["end"] = params.position },
+          newText = o.word,
+        },
+      }
+    end
+    return { isIncomplete = true, items = out }
+  end
+  local function serve(dispatchers)
+    local closing, id = false, 0
+    local answers = {
+      initialize = function()
+        return {
+          capabilities = {
+            positionEncoding = "utf-8",
+            completionProvider = { triggerCharacters = TRIGGERS },
+          },
+          serverInfo = { name = "adroit" },
+        }
+      end,
+      ["textDocument/completion"] = items,
+      shutdown = function()
+        return vim.NIL
+      end,
+    }
+    return {
+      request = function(method, params, callback, notify_reply)
+        id = id + 1
+        local answer = answers[method]
+        local mine = id
+        vim.schedule(function()
+          if answer then
+            callback(nil, answer(params))
+          else
+            callback({ code = -32601, message = "adroit serves no " .. method })
+          end
+          if notify_reply then
+            notify_reply(mine)
+          end
+        end)
+        return true, mine
+      end,
+      notify = function(method)
+        if method == "exit" then
+          closing = true
+          dispatchers.on_exit(0, 15)
+        end
+        return true
+      end,
+      is_closing = function()
+        return closing
+      end,
+      terminate = function()
+        closing = true
+      end,
+    }
+  end
+  vim.lsp.start({ name = "adroit", cmd = serve }, { bufnr = b })
   -- Told on every change, from wherever it comes: typed, pasted, or set by
   -- the window.
   local shell = false

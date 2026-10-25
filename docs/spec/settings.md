@@ -348,9 +348,8 @@ A configuration can change everything adroit sets in these Neovims except
 what the window relies on. The prompt and the reader have no status line, tab
 line, window bar or command line, ignore no events, keep the theme's
 `'background'`, and hold their text in a scratch buffer of the filetype
-`adroit-prompt` or `adroit-console`. The prompt's text can always be changed,
-and completion offers what matches without putting it in the text. The
-reader's text stays as the console draws it: unwrapped, unfolded, with nothing
+`adroit-prompt` or `adroit-console`. The prompt's text can always be changed.
+The reader's text stays as the console draws it: unwrapped, unfolded, with nothing
 concealed or beside it, and unable to be changed. Its keys that would leave
 the reader, `:` and Ex mode, quitting, and `<C-w>`, stay without effect. These
 are set again whenever a configuration, a filetype plugin or a plugin changes
@@ -360,6 +359,12 @@ completion options or messages, is set before the configuration is read, so
 setting it in `init.lua` or a filetype plugin is enough. `g:adroit` is set
 before the configuration too, for a configuration shared with the everyday
 Neovim to tell where it runs.
+
+What the prompt offers as it is written ([the prompt](prompt.md)) comes from a
+language server named `adroit`, attached to the prompt's buffer inside its
+Neovim, and is shown by Neovim's own completion. A configuration that
+completes with a plugin of its own sets `g:adroit_autocomplete` to false; the
+plugin finds the offers as that language server's completion.
 
 A configuration saved while its Neovim runs is read again by it, with what is
 written and the cursor kept: `init.lua`, or a Lua module of the folder's

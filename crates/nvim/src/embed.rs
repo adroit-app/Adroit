@@ -612,6 +612,7 @@ mod tests {
             r#"
             vim.o.number = true
             vim.o.cursorline = true
+            vim.o.completeopt = "menu"
             vim.api.nvim_create_autocmd("FileType", {
               pattern = "adroit-prompt",
               callback = function() vim.wo.wrap = false end,
@@ -621,6 +622,7 @@ mod tests {
         .await;
         assert!(e.settles("&number", Value::from(1)).await);
         assert!(e.settles("&cursorline", Value::from(1)).await);
+        assert!(e.settles("&completeopt", Value::from("menu")).await);
         assert!(e.settles("&wrap", Value::from(0)).await);
     }
 
@@ -631,7 +633,6 @@ mod tests {
             vim.o.laststatus = 2
             vim.o.showtabline = 2
             vim.o.cmdheight = 1
-            vim.o.completeopt = "menu"
             vim.o.eventignore = "TextChanged"
             vim.o.winbar = "bar"
             vim.o.modifiable = false
@@ -642,13 +643,12 @@ mod tests {
             "#,
         )
         .await;
-        let held = "[&laststatus, &showtabline, &cmdheight, &completeopt, &eventignore, \
+        let held = "[&laststatus, &showtabline, &cmdheight, &eventignore, \
                     &winbar, &modifiable, &buftype, &filetype]";
         let want = Value::from(vec![
             Value::from(0),
             Value::from(0),
             Value::from(0),
-            Value::from("menuone,noinsert"),
             Value::from(""),
             Value::from(""),
             Value::from(1),
@@ -1058,6 +1058,105 @@ mod tests {
                 .is_some_and(|p| p.items[0].menu == "Review code" && p.items[0].info == "[pr]")
         })
         .await;
+    }
+
+    /// What the prompt's language server answers for completion where the
+    /// cursor is: each item's label, the text it puts and the byte it puts
+    /// it from.
+    async fn served(e: &Embedded) -> Value {
+        e.exec_lua(
+            r#"
+            local b = vim.g.adroit_buf
+            local params = vim.lsp.util.make_position_params(0, "utf-8")
+            local got = vim.lsp.buf_request_sync(b, "textDocument/completion", params, 2000)
+            local out = {}
+            for _, response in pairs(got or {}) do
+              for _, item in ipairs(response.result.items) do
+                out[#out + 1] = {
+                  item.label,
+                  item.textEdit.newText,
+                  item.textEdit.range.start.character,
+                }
+              end
+            end
+            return out
+            "#,
+            vec![],
+        )
+        .await
+        .unwrap()
+    }
+
+    fn item(label: &str, text: &str, from: i64) -> Value {
+        Value::from(vec![
+            Value::from(label),
+            Value::from(text),
+            Value::from(from),
+        ])
+    }
+
+    #[tokio::test]
+    async fn a_completion_plugin_is_offered_what_the_prompt_offers_by_its_language_server() {
+        let (e, mut rx) = start().await;
+        e.set_candidates(&[
+            Candidate::new("auth/web", "session"),
+            Candidate::new("src/auth.rs", "file"),
+            Candidate::new("README.md", "file"),
+        ])
+        .await
+        .unwrap();
+        e.input("see @au").await.unwrap();
+        wait(&mut rx, |_| e.state().screen().text()[0] == "see @au").await;
+        assert_eq!(
+            served(&e).await,
+            Value::from(vec![
+                item("auth/web", "auth/web ", 5),
+                item("src/auth.rs", "src/auth.rs ", 5),
+            ])
+        );
+    }
+
+    #[tokio::test]
+    async fn a_command_is_served_in_place_of_the_slash_that_starts_it() {
+        let (e, mut rx) = start().await;
+        e.set_commands(&[Candidate::new("/review", "Review code")])
+            .await
+            .unwrap();
+        e.input("then /r").await.unwrap();
+        wait(&mut rx, |_| e.state().screen().text()[0] == "then /r").await;
+        assert_eq!(
+            served(&e).await,
+            Value::from(vec![item("/review", "/review ", 5)])
+        );
+    }
+
+    #[tokio::test]
+    async fn the_language_server_asks_to_be_asked_after_an_at_sign_a_slash_or_a_dollar() {
+        let (e, _rx) = start().await;
+        let triggers = Value::from(vec![Value::from("@"), Value::from("/"), Value::from("$")]);
+        assert!(
+            e.settles(
+                "luaeval('vim.lsp.get_clients({ name = \"adroit\", bufnr = vim.g.adroit_buf })[1].server_capabilities.completionProvider.triggerCharacters')",
+                triggers
+            )
+            .await
+        );
+    }
+
+    #[tokio::test]
+    async fn a_configuration_can_leave_completing_to_a_plugin_of_its_own() {
+        let (e, mut rx, _config) = start_configured("vim.g.adroit_autocomplete = false").await;
+        e.set_candidates(&[Candidate::new("auth/web", "session")])
+            .await
+            .unwrap();
+        e.input("@au").await.unwrap();
+        wait(&mut rx, |_| e.state().screen().text()[0] == "@au").await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(e.state().popup().is_none());
+        assert_eq!(
+            served(&e).await,
+            Value::from(vec![item("auth/web", "auth/web ", 1)])
+        );
     }
 
     /// A worktree holding `src/lib.rs`, `src/main.rs`, `README.md` and a
