@@ -260,20 +260,20 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::CursorUp, "cursor.up", "move the selection in the tree to the previous row; in the details panel, in the list it shows, or scroll what else it shows").says("Select the previous row"),
     S::new(A::CursorFirst, "cursor.first", "move the selection in the tree to the first row; in the details panel, in the list it shows, or scroll what else it shows").says("Select the first row"),
     S::new(A::CursorLast, "cursor.last", "move the selection in the tree to the last row; in the details panel, in the list it shows, or scroll what else it shows").says("Select the last row"),
-    S::new(A::CursorGo, "cursor.go", "open the selected session, shell, worktree or file: go to a window showing it, in any tab, keeping the preview when that shows it, or else open it in a new tab after the one shown, and move to it, or to the prompt of a session not started yet; on a folded row, a worktree or a session holding others too, unfold it instead; fold or unfold a workspace, a heading or a directory; in the details panel, open the selected row")
+    S::new(A::CursorGo, "cursor.go", "open the selected session, shell, worktree or file: go to a window showing it, in any tab, keeping the preview when that shows it, or else open it in a new tab after the one shown, and move to it, or to the prompt of a session not started yet; on a folded row, a worktree or a session holding others too, unfold it instead; fold or unfold a workspace, a heading or a directory; in the details panel, open the selected row, an image of Resources as a file is opened, the keys staying in the panel")
         .says("Open it")
         .icon(Icon::ArrowRight)
         .row("Open", Go),
-    S::new(A::CursorSplit, "cursor.split", "open the selected session, shell, worktree or file as `cursor.go` does, in a new window split off the focused one, below it")
+    S::new(A::CursorSplit, "cursor.split", "open the selected session, shell, worktree or file as `cursor.go` does, in a new window split off the focused one, below it; in the details panel, the selected image of Resources")
         .icon(Icon::LayoutRows)
         .row("Open in a split below", Go),
-    S::new(A::CursorVsplit, "cursor.vsplit", "open the selected session, shell, worktree or file as `cursor.go` does, in a new window split off the focused one, beside it")
+    S::new(A::CursorVsplit, "cursor.vsplit", "open the selected session, shell, worktree or file as `cursor.go` does, in a new window split off the focused one, beside it; in the details panel, the selected image of Resources")
         .icon(Icon::LayoutColumns)
         .row("Open in a split beside", Go),
-    S::new(A::CursorTab, "cursor.tab", "open the selected session, shell, worktree or file as `cursor.go` does, in a new tab after the one shown, though a window shows it already")
+    S::new(A::CursorTab, "cursor.tab", "open the selected session, shell, worktree or file as `cursor.go` does, in a new tab after the one shown, though a window shows it already; in the details panel, the selected image of Resources")
         .icon(Icon::BrowserPlus)
         .row("Open in a new tab", Go),
-    S::new(A::CursorShow, "cursor.show", "look at the selected session, shell, worktree or file: show the tab already showing it and close the preview, or else show it in the preview, with the keys staying in the tree; go into a workspace, a heading, a directory or a folded row instead: unfold it and go to its first row once it is listed; in the details panel, open the selected row")
+    S::new(A::CursorShow, "cursor.show", "look at the selected session, shell, worktree or file: show the tab already showing it and close the preview, or else show it in the preview, with the keys staying in the tree; go into a workspace, a heading, a directory or a folded row instead: unfold it and go to its first row once it is listed; in the details panel, look at the selected image of Resources in the preview, the keys staying in the panel, or open any other row")
         .says("Look at it in the preview")
         .icon(Icon::Eye)
         .row("Preview", Go),

@@ -31,7 +31,6 @@ impl Ui {
             Effect::OpenLogin { profile } => self.open_login(profile),
             Effect::StartDraft(start) => self.start_draft(*start),
             Effect::TypeInto { tab, typing } => self.type_into_tab(tab, typing),
-            Effect::ShowShot { shot, session } => self.show_shot(&shot, &session),
             Effect::Palette(colours) => self.repaint(&colours),
             // A session no longer listed has nothing to show; its pane is
             // closed, and the images its console drew are not kept.

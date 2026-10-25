@@ -84,7 +84,7 @@ pub fn entries(target: &Target, session: Option<&Session>) -> Vec<(Action, &'sta
             .collect(),
         Target::Tab(Tab::Terminal(_)) => vec![close_tab, stop_terminal],
         Target::Tab(Tab::Draft { .. }) => Vec::new(),
-        Target::Tab(Tab::Viewer(_)) => vec![close_tab],
+        Target::Tab(Tab::Viewer(_) | Tab::Drawn { .. }) => vec![close_tab],
         Target::Link { file, .. } => [Action::CursorGo, Action::CursorCopy]
             .map(offer)
             .into_iter()

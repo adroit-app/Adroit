@@ -204,4 +204,6 @@ animation shows the frame the program last showed.
 
 The images a session's console drew are listed in the Resources sheet
 of the details panel, and stay listed after the console lets them go
-([details](details.md)).
+([details](details.md)). Opened from there, one is shown in the image viewer
+like an image file, in a window of the content; its tab is not kept for the
+next run.

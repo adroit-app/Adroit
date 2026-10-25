@@ -19,7 +19,7 @@ use dioxus::prelude::*;
 
 use crate::bridge::AppCtx;
 use crate::shell::Ui;
-use crate::{image_window, keys, menu_bar, nav, settings_window};
+use crate::{keys, menu_bar, nav, settings_window};
 
 /// How long the window waits before it runs [`INPUT`] again, once the keys
 /// it listened for are lost.
@@ -330,7 +330,7 @@ fn use_menu_bar(ui: &Ui) {
             // Closing acts on the window in front, as macOS's own Close does,
             // so it does not reach behind Settings to a tab.
             if matches!(action, Action::TabClose | Action::WindowClose)
-                && (settings_window::close_in_front() || image_window::close_in_front())
+                && settings_window::close_in_front()
             {
                 return;
             }

@@ -8,12 +8,13 @@ use adroit_core::msg::Msg;
 use adroit_core::tree as tree_view;
 use dioxus::prelude::*;
 
-use super::bodies::{FocusedBody, UnfocusedBody, ViewerWindow};
+use super::bodies::{DrawnWindow, FocusedBody, UnfocusedBody, ViewerWindow};
 use super::tabs_bar::TabsBar;
 use super::window::{ContentWindow, WindowBorder, window_strip};
 use crate::actions::Action;
 use crate::bridge::AppCtx;
-use crate::content::{Tab, WindowId};
+use crate::content::{Tab, WindowId, thing_name};
+use crate::pictures::Gallery;
 use crate::viewers;
 use adroit_core::overlay::context_menu::Target;
 
@@ -25,6 +26,8 @@ use adroit_core::overlay::context_menu::Target;
 pub(crate) fn ContentPanel(
     focused: bool,
     viewer_command: ReadSignal<Option<(WindowId, viewers::Command)>>,
+    /// The images the consoles drew, which a drawn image's window shows.
+    gallery: ReadSignal<Gallery>,
     completions: ReadSignal<Completions>,
     drafted: ReadSignal<HashSet<Tab>>,
     boxes: Signal<HashMap<WindowId, (f64, f64)>>,
@@ -67,6 +70,22 @@ pub(crate) fn ContentPanel(
                             key: "{id}",
                             window: id,
                             path: path.clone(),
+                            commands: viewer_command,
+                            on_close: move |_| app.dispatch(Msg::Window(Action::WindowQuit)),
+                        }
+                    }
+                } else if let Tab::Drawn {
+                    session, id: image, ..
+                } = &shows
+                {
+                    rsx! {
+                        DrawnWindow {
+                            key: "{id}",
+                            window: id,
+                            session: session.clone(),
+                            id: *image,
+                            name: thing_name(t, terms, &shows),
+                            gallery,
                             commands: viewer_command,
                             on_close: move |_| app.dispatch(Msg::Window(Action::WindowQuit)),
                         }

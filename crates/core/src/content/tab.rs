@@ -18,13 +18,24 @@ pub enum Tab {
     Draft { worktree: PathBuf, id: DraftId },
     /// A file shown in the viewer of its kind.
     Viewer(PathBuf),
+    /// An image `session`'s console drew, `width` by `height` pixels, shown
+    /// in the image viewer from the copy the window keeps by `id`.
+    Drawn {
+        session: String,
+        id: u64,
+        width: u32,
+        height: u32,
+    },
 }
 
 /// Whether the prompt is shown under the console of a window showing `tab`, or
 /// with nothing open: a shell takes every key in the console itself, and a
 /// viewer has no console.
 pub fn shows_prompt(tab: Option<&Tab>) -> bool {
-    !matches!(tab, Some(Tab::Terminal(_) | Tab::Viewer(_)))
+    !matches!(
+        tab,
+        Some(Tab::Terminal(_) | Tab::Viewer(_) | Tab::Drawn { .. })
+    )
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -163,13 +174,13 @@ pub fn fresh_name(label: &str, taken: &[&str]) -> String {
 }
 
 /// How a tab is kept for the next run of the window. A draft holds nothing
-/// to come back to, and a viewer opens again from the tree in a moment, so
-/// neither is kept.
+/// to come back to, a viewer opens again from the tree in a moment, and an
+/// image drawn is gone with the window that kept it, so none is kept.
 pub fn kept_name(tab: &Tab) -> Option<String> {
     match tab {
         Tab::Session(id) => Some(format!("session:{id}")),
         Tab::Terminal(id) => Some(format!("terminal:{id:x}")),
-        Tab::Draft { .. } | Tab::Viewer(_) => None,
+        Tab::Draft { .. } | Tab::Viewer(_) | Tab::Drawn { .. } => None,
     }
 }
 
@@ -231,20 +242,26 @@ mod tests {
     }
 
     #[test]
-    fn a_shell_shows_no_prompt_and_a_session_a_draft_or_nothing_open_does() {
+    fn a_shell_or_a_viewer_shows_no_prompt_and_a_session_a_draft_or_nothing_open_does() {
         let draft = Tab::Draft {
             worktree: PathBuf::from("/w"),
             id: Default::default(),
         };
         assert!(!shows_prompt(Some(&Tab::Terminal(1))));
         assert!(!shows_prompt(Some(&Tab::Viewer("/a.png".into()))));
+        assert!(!shows_prompt(Some(&Tab::Drawn {
+            session: "a".into(),
+            id: 1,
+            width: 2,
+            height: 2,
+        })));
         assert!(shows_prompt(Some(&Tab::Session("a".into()))));
         assert!(shows_prompt(Some(&draft)));
         assert!(shows_prompt(None));
     }
 
     #[test]
-    fn a_session_s_or_a_shell_s_tab_is_kept_by_name_and_a_draft_s_is_not() {
+    fn a_session_s_or_a_shell_s_tab_is_kept_by_name_and_a_draft_s_or_a_drawn_image_s_is_not() {
         for tab in [Tab::Session("ab12".into()), Tab::Terminal(0xff)] {
             let name = kept_name(&tab).unwrap();
             assert_eq!(from_kept(&name), Some(tab), "{name}");
@@ -254,6 +271,13 @@ mod tests {
             id: Default::default(),
         };
         assert_eq!(kept_name(&draft), None);
+        let drawn = Tab::Drawn {
+            session: "a".into(),
+            id: 1,
+            width: 2,
+            height: 2,
+        };
+        assert_eq!(kept_name(&drawn), None);
         assert_eq!(from_kept("shell:not hex"), None);
         assert_eq!(from_kept("something else"), None);
     }

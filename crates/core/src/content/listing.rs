@@ -134,7 +134,7 @@ pub(crate) fn listed(state: &mut ViewState) -> Vec<Effect> {
             Tab::Terminal(id) => kept_shells.iter().find(|s| s.id == *id).map(|s| Place {
                 worktree: s.cwd.clone(),
             }),
-            Tab::Draft { .. } | Tab::Viewer(_) => None,
+            Tab::Draft { .. } | Tab::Viewer(_) | Tab::Drawn { .. } => None,
         };
         view.windows = Content::from_kept(kept, |name| {
             from_kept(&name).filter(|tab| at(tab).is_some())

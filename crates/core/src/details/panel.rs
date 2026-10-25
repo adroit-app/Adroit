@@ -16,8 +16,7 @@ use super::{
     Drill, Entry, Fact, Gauge, Group, Listing, Related, Sheet, Shot, Source, View, about, agents,
     capped, context_gauge, file_link, gauges, newest_first, related, resources, running,
 };
-use crate::content::Showing;
-use crate::content::Tab;
+use crate::content::{Opening, Showing, Tab};
 use crate::effect::Effect;
 use crate::settings::DetailsSettings;
 
@@ -80,6 +79,10 @@ pub enum Key {
     Last,
     /// Go to, open or show the row selected, as `Enter` does.
     Open,
+    /// Open the row selected as `how` says: an image goes where it says,
+    /// and any other row opens as with [`Key::Open`] when `how` opens in
+    /// place, and not at all otherwise.
+    OpenIn(Opening),
     Fold,
     Copy,
     Reveal,
@@ -99,7 +102,7 @@ pub enum Scroll {
 /// What is done with an entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Use {
-    Open,
+    Open(Opening),
     Copy,
     Reveal,
 }
@@ -140,11 +143,14 @@ pub(crate) fn follow_settings(details: &mut Details, open: bool, settings: &Deta
 /// one worktree means nothing in another, so a new worktree takes the panel
 /// back to its sheet's top.
 pub(crate) fn follow(details: &mut Details, showing: &Showing) {
+    let worktree = showing.place.as_ref().map(|p| p.worktree.clone());
+    // A file or an image looked at from the panel leaves it on the session
+    // it came from, so the next one can be picked.
     let session = match &showing.tab {
-        Some(Tab::Session(id)) => Some(id.clone()),
+        Some(Tab::Session(id) | Tab::Drawn { session: id, .. }) => Some(id.clone()),
+        Some(Tab::Viewer(_)) if worktree == details.shown.worktree => details.shown.session.clone(),
         _ => None,
     };
-    let worktree = showing.place.as_ref().map(|p| p.worktree.clone());
     if worktree != details.shown.worktree {
         details.drill = Drill::new(details.drill.sheet());
         details.shown.worktree = worktree;
@@ -209,7 +215,7 @@ pub(crate) fn click(details: &mut Details, work: Option<&WorkSnapshot>, at: usiz
             fold(details, *group, !folded);
             Vec::new()
         }
-        Some(entry) => opened(details, &l, entry),
+        Some(entry) => opened(details, &l, entry, Opening::Existing),
         None => Vec::new(),
     }
 }
@@ -236,7 +242,7 @@ pub(crate) fn press(details: &mut Details, work: Option<&WorkSnapshot>, key: Key
             details.drill.back();
             Vec::new()
         }
-        (Key::Open, Some(l)) => {
+        (Key::Open | Key::OpenIn(Opening::Existing | Opening::Preview), Some(l)) => {
             details.drill.open(l);
             Vec::new()
         }
@@ -253,7 +259,7 @@ fn moved(details: &mut Details, l: &Listing, key: Key) -> Vec<Effect> {
         Key::Up => details.drill.step(l, -1),
         Key::First => details.drill.first(l),
         Key::Last => details.drill.last(l),
-        Key::Open | Key::Fold | Key::Copy | Key::Reveal => {}
+        Key::Open | Key::OpenIn(_) | Key::Fold | Key::Copy | Key::Reveal => {}
     }
     Vec::new()
 }
@@ -279,7 +285,10 @@ fn pressed_on_entries(
     // A heading folds and unfolds as a workspace's row does; a row folds the
     // group it is listed under.
     let folds = match (chosen, key) {
-        (Some(Entry::Heading { group, folded, .. }), Key::Open) => Some((*group, !folded)),
+        (
+            Some(Entry::Heading { group, folded, .. }),
+            Key::Open | Key::OpenIn(Opening::Existing | Opening::Preview),
+        ) => Some((*group, !folded)),
         (Some(_), Key::Fold) => details
             .drill
             .selected(l)
@@ -288,7 +297,8 @@ fn pressed_on_entries(
         _ => None,
     };
     let how = match key {
-        Key::Open => Some(Use::Open),
+        Key::Open => Some(Use::Open(Opening::Existing)),
+        Key::OpenIn(how) => Some(Use::Open(how)),
         Key::Copy => Some(Use::Copy),
         Key::Reveal => Some(Use::Reveal),
         _ => None,
@@ -303,7 +313,7 @@ fn pressed_on_entries(
             }
             Vec::new()
         }
-        (None, Some(Use::Open), Some(entry)) => opened(details, l, entry),
+        (None, Some(Use::Open(how)), Some(entry)) => opened(details, l, entry, how),
         (None, Some(how), Some(entry)) => used(details, entry, how),
         (None, Some(_), None) => Vec::new(),
         _ => moved(details, l, key),
@@ -313,8 +323,11 @@ fn pressed_on_entries(
 /// `entry` of `l` opened: the row for a group's rest shows the group whole,
 /// a subagent, message or process opens to a level of its own, and any
 /// other row is used.
-fn opened(details: &mut Details, l: &Listing, entry: &Entry) -> Vec<Effect> {
+fn opened(details: &mut Details, l: &Listing, entry: &Entry, how: Opening) -> Vec<Effect> {
+    let in_place = matches!(how, Opening::Existing | Opening::Preview);
     match entry {
+        Entry::Image(_) => used(details, entry, Use::Open(how)),
+        _ if !in_place => Vec::new(),
         Entry::More { group, .. } => {
             details.opened.insert(*group);
             Vec::new()
@@ -323,7 +336,7 @@ fn opened(details: &mut Details, l: &Listing, entry: &Entry) -> Vec<Effect> {
             details.drill.open(l);
             Vec::new()
         }
-        entry => used(details, entry, Use::Open),
+        entry => used(details, entry, Use::Open(how)),
     }
 }
 
@@ -362,7 +375,7 @@ fn copied(how: Use, text: &str, done: String) -> Vec<Effect> {
             text: text.to_owned(),
             done,
         }],
-        Use::Open | Use::Reveal => Vec::new(),
+        Use::Open(_) | Use::Reveal => Vec::new(),
     }
 }
 
@@ -370,7 +383,7 @@ fn copied(how: Use, text: &str, done: String) -> Vec<Effect> {
 /// the Finder.
 fn use_link(link: &Link, how: Use) -> Vec<Effect> {
     match how {
-        Use::Open => vec![Effect::Open(link.target.clone())],
+        Use::Open(_) => vec![Effect::Open(link.target.clone())],
         Use::Reveal if matches!(link.kind, LinkKind::File(_)) => {
             vec![Effect::Reveal(link.target.clone())]
         }
@@ -386,8 +399,8 @@ fn use_link(link: &Link, how: Use) -> Vec<Effect> {
 /// addresses it by.
 fn use_related(related: &Related, how: Use) -> Vec<Effect> {
     match (how, &related.id) {
-        (Use::Open, Some(id)) => vec![Effect::ShowSession(id.clone())],
-        (Use::Open, None) => vec![Effect::Notice(format!("{} is not running", related.name))],
+        (Use::Open(_), Some(id)) => vec![Effect::ShowSession(id.clone())],
+        (Use::Open(_), None) => vec![Effect::Notice(format!("{} is not running", related.name))],
         (Use::Copy, _) => vec![Effect::Copy {
             text: related.name.clone(),
             done: format!("Copied {}", related.name),
@@ -396,13 +409,26 @@ fn use_related(related: &Related, how: Use) -> Vec<Effect> {
     }
 }
 
-/// Show `shot` in a window of its own, or copy or reveal its file as one of
-/// the files of Resources is. A drawn image is the console's of `session`.
+/// Show `shot` in the content where `how` says, a file in its viewer, or copy
+/// or reveal its file as one of the files of Resources is. A drawn image is
+/// the console's of `session`.
 fn use_shot(shot: &Shot, how: Use, session: Option<&str>) -> Vec<Effect> {
     match (&shot.source, how) {
-        (_, Use::Open) => vec![Effect::ShowShot {
-            shot: shot.clone(),
-            session: session.unwrap_or_default().to_owned(),
+        (Source::Console { id, width, height }, Use::Open(how)) => session
+            .map(|session| Effect::Show {
+                thing: Tab::Drawn {
+                    session: session.to_owned(),
+                    id: *id,
+                    width: *width,
+                    height: *height,
+                },
+                how,
+            })
+            .into_iter()
+            .collect(),
+        (Source::File { path, .. }, Use::Open(how)) => vec![Effect::Show {
+            thing: Tab::Viewer(path.into()),
+            how,
         }],
         (Source::Console { .. }, Use::Copy) => {
             vec![Effect::Notice("A drawn image has no file to copy".into())]
@@ -665,6 +691,7 @@ mod tests {
     };
 
     use super::*;
+    use crate::content::Axis;
     use crate::msg::Msg;
     use crate::scenario::Scenario;
     use crate::testing::{ListedBuilder, SnapshotBuilder, listed, patch, snapshot};
@@ -1440,5 +1467,143 @@ mod tests {
             assert!(sight.overview, "{sheet:?}");
             assert_eq!(sight.repository, None, "{sheet:?}");
         }
+    }
+
+    /// Resources of `a` listing an image its console drew and, older, an
+    /// image file: rows Images heading, the drawn one, the file.
+    fn with_images() -> Scenario {
+        let read_now = SessionRead {
+            links: Some(Links {
+                images: vec![adroit_model::links::ImageFile {
+                    path: "/w/plot.png".into(),
+                    touch: Touch::Edited,
+                    at_ms: Some(1),
+                }],
+                ..Default::default()
+            }),
+            thumbs: BTreeMap::from([("/w/plot.png".to_string(), None)]),
+            ..Default::default()
+        };
+        Scenario::new().event(work(read("a", read_now))).send_all([
+            shown(Some("a"), Some("/w")),
+            Msg::DetailsSheet(Sheet::Resources),
+            told(Told {
+                drawn: vec![Shot::console(7, 64, 32, 5, None)],
+            }),
+        ])
+    }
+
+    fn drawn_tab() -> Tab {
+        Tab::Drawn {
+            session: "a".into(),
+            id: 7,
+            width: 64,
+            height: 32,
+        }
+    }
+
+    #[test]
+    fn opening_an_image_shows_it_in_the_content_where_the_key_says() {
+        let (drawn, file) = (drawn_tab(), Tab::Viewer("/w/plot.png".into()));
+        // (keys, what is shown, how)
+        let cases = [
+            (vec![Key::Down, Key::Open], &drawn, Opening::Existing),
+            (
+                vec![Key::Down, Key::OpenIn(Opening::Preview)],
+                &drawn,
+                Opening::Preview,
+            ),
+            (
+                vec![Key::Down, Key::OpenIn(Opening::Split(Axis::Row))],
+                &drawn,
+                Opening::Split(Axis::Row),
+            ),
+            (
+                vec![Key::Last, Key::OpenIn(Opening::Tab)],
+                &file,
+                Opening::Tab,
+            ),
+            (
+                vec![Key::Last, Key::OpenIn(Opening::Split(Axis::Column))],
+                &file,
+                Opening::Split(Axis::Column),
+            ),
+        ];
+        for (keys, thing, how) in cases {
+            let run = with_images().send_all(keys.iter().copied().map(Msg::DetailsKey));
+            assert_eq!(
+                local(&run),
+                [Effect::Show {
+                    thing: thing.clone(),
+                    how
+                }],
+                "{keys:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_click_on_an_image_opens_it_as_its_key_does() {
+        let run = with_images().send(Msg::DetailsClick(2));
+        assert_eq!(
+            local(&run),
+            [Effect::Show {
+                thing: Tab::Viewer("/w/plot.png".into()),
+                how: Opening::Existing,
+            }]
+        );
+    }
+
+    #[test]
+    fn only_an_image_opens_in_a_split_or_a_tab_and_any_row_is_looked_at_as_it_is_opened() {
+        let links = Links {
+            urls: vec![link(LinkKind::Url, "https://a.dev")],
+            ..Default::default()
+        };
+        // (key on the address, effects)
+        let cases = [
+            (
+                Key::OpenIn(Opening::Preview),
+                vec![Effect::Open("https://a.dev".into())],
+            ),
+            (Key::OpenIn(Opening::Split(Axis::Row)), vec![]),
+            (Key::OpenIn(Opening::Tab), vec![]),
+        ];
+        for (key, want) in cases {
+            let run = Scenario::new()
+                .event(work(read("a", with_links(links.clone()))))
+                .send_all([shown(Some("a"), None), Msg::DetailsSheet(Sheet::Resources)])
+                .send_all([Msg::DetailsKey(Key::Down), Msg::DetailsKey(key)]);
+            assert_eq!(local(&run), want, "{key:?}");
+        }
+    }
+
+    #[test]
+    fn the_panel_stays_on_the_session_while_one_of_its_images_is_looked_at() {
+        for thing in [drawn_tab(), Tab::Viewer("/w/plot.png".into())] {
+            let run = with_images().send(Msg::Show {
+                thing: thing.clone(),
+                place: None,
+                how: Some(Opening::Preview),
+            });
+            assert_eq!(
+                run.state().details.shown.session.as_deref(),
+                Some("a"),
+                "{thing:?}"
+            );
+            assert!(entries_of(&run).is_some(), "{thing:?}");
+        }
+    }
+
+    #[test]
+    fn a_file_shown_in_another_worktree_describes_no_session() {
+        let run = with_images().send(Msg::Show {
+            thing: Tab::Viewer("/elsewhere/a.png".into()),
+            place: Some(Place {
+                worktree: "/elsewhere".into(),
+            }),
+            how: None,
+        });
+        assert_eq!(run.state().details.shown.session, None);
     }
 }

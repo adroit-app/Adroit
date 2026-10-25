@@ -309,6 +309,11 @@ impl AppCtx {
             }
             Effect::Notice(text) => self.notice(text),
             Effect::ShowSession(id) => self.dispatch(Msg::ShowSession(id)),
+            Effect::Show { thing, how } => self.dispatch(Msg::Show {
+                thing,
+                place: None,
+                how: Some(how),
+            }),
             Effect::KeepContent(kept) => {
                 let path = content_path();
                 if let Some(dir) = path.parent() {
@@ -339,8 +344,7 @@ impl AppCtx {
                     self.notice(format!("cannot open another window: {e}"));
                 }
             }
-            effect @ (Effect::ShowShot { .. }
-            | Effect::Viewer { .. }
+            effect @ (Effect::Viewer { .. }
             | Effect::TakeSuggestion { .. }
             | Effect::EndShell(_)
             | Effect::FilterFocus(_)

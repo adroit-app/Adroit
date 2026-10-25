@@ -113,6 +113,7 @@ pub(crate) fn FocusedBody() -> Element {
             .unwrap_or_default(),
         Some(Tab::Draft { .. }) => "new session".into(),
         Some(Tab::Viewer(path)) => file_name(path),
+        Some(Tab::Drawn { width, height, .. }) => format!("Image {width} × {height}"),
         None => "new scratch session".into(),
     };
     let draft_options = active_tab

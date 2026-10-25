@@ -42,7 +42,7 @@ pub(crate) fn perform(
     let thing = state.content.active().cloned();
     // The focused window's viewer takes the viewer's actions.
     if area == Area::Console
-        && let Some(Tab::Viewer(_)) = &thing
+        && let Some(Tab::Viewer(_) | Tab::Drawn { .. }) = &thing
         && let Some(action) = ViewerAction::of(&action)
         && let Some(window) = state.content.windows.focused_window()
     {
@@ -232,18 +232,7 @@ pub(crate) fn perform(
         {
             // In the details panel, the cursor moves through a list shown
             // and scrolls anything else.
-            let key = match action {
-                Action::CursorDown => Some(details::Key::Down),
-                Action::CursorUp => Some(details::Key::Up),
-                Action::CursorFirst => Some(details::Key::First),
-                Action::CursorLast => Some(details::Key::Last),
-                Action::CursorGo | Action::CursorShow => Some(details::Key::Open),
-                Action::CursorFold => Some(details::Key::Fold),
-                Action::CursorCopy => Some(details::Key::Copy),
-                Action::CursorReveal => Some(details::Key::Reveal),
-                _ => None,
-            };
-            match key {
+            match details_key(action) {
                 Some(key) => step(state, Msg::DetailsKey(key)),
                 None => Vec::new(),
             }
@@ -379,6 +368,27 @@ pub(crate) fn perform(
             effects
         }
     }
+}
+
+/// The key on the details panel's list `action` presses: the tree's ways of
+/// opening a row open its row the same ways.
+fn details_key(action: Action) -> Option<details::Key> {
+    let key = match action {
+        Action::CursorDown => details::Key::Down,
+        Action::CursorUp => details::Key::Up,
+        Action::CursorFirst => details::Key::First,
+        Action::CursorLast => details::Key::Last,
+        Action::CursorGo => details::Key::Open,
+        Action::CursorShow => details::Key::OpenIn(Opening::Preview),
+        Action::CursorSplit => details::Key::OpenIn(Opening::Split(Axis::Column)),
+        Action::CursorVsplit => details::Key::OpenIn(Opening::Split(Axis::Row)),
+        Action::CursorTab => details::Key::OpenIn(Opening::Tab),
+        Action::CursorFold => details::Key::Fold,
+        Action::CursorCopy => details::Key::Copy,
+        Action::CursorReveal => details::Key::Reveal,
+        _ => return None,
+    };
+    Some(key)
 }
 
 /// Open a row where `how` says, or as anything else opens a thing when it

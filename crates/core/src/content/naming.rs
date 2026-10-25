@@ -28,6 +28,7 @@ pub fn thing_name(tree: &Tree, terminals: &[TerminalSession], thing: &Tab) -> St
             .unwrap_or_default(),
         Tab::Draft { .. } => "new session".into(),
         Tab::Viewer(path) => file_name(path),
+        Tab::Drawn { width, height, .. } => format!("Image {width} × {height}"),
     }
 }
 
@@ -38,7 +39,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_thing_is_called_by_its_session_s_shell_s_or_file_s_name() {
+    fn a_thing_is_called_by_its_session_s_shell_s_or_file_s_name_and_a_drawn_image_by_its_size() {
         let tree = testing::tree()
             .session(testing::session("a").name("fix").cwd("/r"))
             .build();
@@ -54,6 +55,15 @@ mod tests {
             (Tab::Terminal(8), ""),
             (Tab::draft("/r"), "new session"),
             (Tab::Viewer("/r/src/a.rs".into()), "a.rs"),
+            (
+                Tab::Drawn {
+                    session: "a".into(),
+                    id: 1,
+                    width: 64,
+                    height: 32,
+                },
+                "Image 64 × 32",
+            ),
         ];
         for (thing, want) in cases {
             assert_eq!(

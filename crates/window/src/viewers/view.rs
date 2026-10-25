@@ -13,7 +13,7 @@ use dioxus::prelude::*;
 use super::pdf;
 use super::serve::{self, Scope};
 use adroit_core::viewers::FileKind;
-use adroit_core::viewers::{Effect, Media, Scroll, ViewerAction, ViewerState};
+use adroit_core::viewers::{Effect, ImageState, Media, Scroll, ViewerAction, ViewerState};
 
 /// The viewers' look, put in the page with each viewer.
 pub const CSS: &str = include_str!("../../assets/css/viewer.css");
@@ -387,6 +387,68 @@ fn ViewerOf(
             div { class: "viewer-status",
                 span { class: "name", "{name}" }
                 span { "{detail}" }
+            }
+        }
+    }
+}
+
+/// An image a console drew, named `name`, in the image viewer, drawn from
+/// `src`, the copy the window keeps, or saying it is gone once that is.
+#[component]
+pub fn DrawnViewer(
+    src: Option<Arc<str>>,
+    name: String,
+    command: ReadSignal<Option<Command>>,
+    on_close: EventHandler<()>,
+) -> Element {
+    let prefix = use_hook(|| format!("adroit-viewer-{}", NEXT.fetch_add(1, Ordering::Relaxed)));
+    let box_id = format!("{prefix}-box");
+    let mut state = use_signal(ImageState::default);
+    let last = use_hook(|| Rc::new(Cell::new(command.peek().map_or(0, |c| c.seq))));
+    use_effect({
+        let box_id = box_id.clone();
+        move || {
+            let Some(cmd) = command() else {
+                return;
+            };
+            if cmd.seq == last.get() {
+                return;
+            }
+            last.set(cmd.seq);
+            let mut now = ViewerState::Image(state());
+            let effect = now.apply(cmd.action);
+            if let ViewerState::Image(s) = now {
+                state.set(s);
+            }
+            match effect {
+                Effect::Scroll(s) => {
+                    document::eval(&scroll_script(&box_id, s));
+                }
+                Effect::Close => on_close.call(()),
+                // A drawn image has no path to copy, and nothing to play.
+                Effect::CopyPath | Effect::Media(_) | Effect::Redraw | Effect::Nothing => {}
+            }
+        }
+    });
+    let zoom = state().zoom;
+    let pct = zoom.factor() * 100.0;
+    let body = match src {
+        Some(src) => rsx! {
+            div { class: "viewer-stage", style: "width: {pct}%; height: {pct}%;",
+                img { class: "viewer-fit", src: "{src}", alt: "{name}" }
+            }
+        },
+        None => rsx! {
+            ViewerEmpty { "This image is no longer kept" }
+        },
+    };
+    rsx! {
+        div { class: "viewer",
+            style { {CSS} }
+            div { id: "{box_id}", class: "viewer-box", {body} }
+            div { class: "viewer-status",
+                span { class: "name", "{name}" }
+                span { "{zoom.percent()}%" }
             }
         }
     }

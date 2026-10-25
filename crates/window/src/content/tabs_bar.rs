@@ -57,7 +57,7 @@ pub(super) fn TabsBar(
                             .is_some_and(|o| o.permissions == AgentPermissions::ReadOnly);
                         (None, session_mark(reader))
                     }
-                    Tab::Terminal(_) | Tab::Viewer(_) => (None, None),
+                    Tab::Terminal(_) | Tab::Viewer(_) | Tab::Drawn { .. } => (None, None),
                 };
                 let name = thing_name(t, terms, &shows);
                 (

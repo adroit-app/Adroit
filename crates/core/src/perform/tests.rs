@@ -425,3 +425,51 @@ fn only_a_draft_changes_its_profile() {
         Some("Only a session not started yet can change its profile")
     );
 }
+
+#[test]
+fn in_the_details_panel_the_tree_s_ways_of_opening_open_the_row_the_same_ways() {
+    // (action, the key it presses on the panel's list)
+    let cases = [
+        (Action::CursorGo, details::Key::Open),
+        (Action::CursorShow, details::Key::OpenIn(Opening::Preview)),
+        (
+            Action::CursorSplit,
+            details::Key::OpenIn(Opening::Split(Axis::Column)),
+        ),
+        (
+            Action::CursorVsplit,
+            details::Key::OpenIn(Opening::Split(Axis::Row)),
+        ),
+        (Action::CursorTab, details::Key::OpenIn(Opening::Tab)),
+    ];
+    for (action, want) in cases {
+        assert_eq!(details_key(action.clone()), Some(want), "{action:?}");
+    }
+    assert_eq!(details_key(Action::CursorClose), None);
+}
+
+#[test]
+fn a_drawn_image_s_window_takes_the_viewer_s_actions() {
+    let drawn = Tab::Drawn {
+        session: "a".into(),
+        id: 7,
+        width: 64,
+        height: 32,
+    };
+    let run = showing(Area::Console).send(show(drawn)).send(perform(
+        Action::ViewerZoomIn,
+        None,
+        Probe::default(),
+    ));
+    assert!(
+        matches!(
+            run.last_effects(),
+            [Effect::Viewer {
+                action: ViewerAction::ZoomIn,
+                ..
+            }]
+        ),
+        "{:?}",
+        run.last_effects()
+    );
+}

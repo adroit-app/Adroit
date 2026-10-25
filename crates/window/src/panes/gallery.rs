@@ -1,17 +1,11 @@
 //! The images the consoles drew: kept as they are drawn, listed in the
-//! details panel for the session shown, and shown in a window of their own.
-
-use std::path::PathBuf;
-use std::sync::Arc;
+//! details panel for the session shown, and handed whole to the image viewer.
 
 use adroit_core::msg::Msg;
 use adroit_model::time::now_ms;
-use adroit_protocol::{Answer, Ask};
 use dioxus::prelude::*;
 
-use crate::content::Tab;
-use crate::details::{self, Shot, Source};
-use crate::image_window;
+use crate::details;
 use crate::nav;
 use crate::pictures::{self, Gallery};
 use crate::shell::Ui;
@@ -62,59 +56,16 @@ pub(crate) fn use_shown_images(ui: &Ui) {
         let host = app.host.read();
         adroit_core::tree::listed(host.work.as_ref()).clone()
     });
-    let active = use_memo(move || app.content.read().active().cloned());
+    // The panel's session rather than the focused window's, which may show
+    // one of its images.
+    let session = use_memo(move || app.details.read().shown.session.clone());
     use_effect(move || {
-        let drawn = match &*active.read() {
-            Some(Tab::Session(id)) if nav::find(&tree.read(), id).is_some() => {
+        let drawn = match &*session.read() {
+            Some(id) if nav::find(&tree.read(), id).is_some() => {
                 pictures::drawn(&gallery.read().store, id)
             }
             _ => Vec::new(),
         };
         app.dispatch(Msg::DetailsShown(Box::new(details::Told { drawn })));
     });
-}
-
-impl Ui {
-    /// Show `shot` of the overview in a window of its own. A drawn image is
-    /// found among those kept for `session`; a file too large to read here
-    /// is shown by macOS's own viewer.
-    pub(crate) fn show_shot(&self, shot: &Shot, session: &str) {
-        match &shot.source {
-            Source::Console { id, width, height } => {
-                let gallery = self.local.gallery.peek();
-                let Some(kept) = gallery.store.find(session, *id) else {
-                    return;
-                };
-                image_window::open(
-                    &shot.key,
-                    &format!("Image {width} × {height}"),
-                    pictures::kept_shown(kept),
-                    Some((*width, *height)),
-                );
-            }
-            Source::File { path, .. } => {
-                let (key, path) = (shot.key.clone(), PathBuf::from(path));
-                let asked = self.app.ask(Ask::Picture {
-                    path: path.clone(),
-                    whole: true,
-                });
-                spawn(async move {
-                    let shown = match asked.await {
-                        Answer::Picture { url } => url.map(Arc::from),
-                        _ => None,
-                    };
-                    match shown {
-                        Some(src) => {
-                            let title = path.file_name().map_or_else(
-                                || path.display().to_string(),
-                                |n| n.to_string_lossy().into_owned(),
-                            );
-                            image_window::open(&key, &title, src, None);
-                        }
-                        None => crate::bridge::open([path.display().to_string()]),
-                    }
-                });
-            }
-        }
-    }
 }

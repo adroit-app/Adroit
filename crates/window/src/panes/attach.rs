@@ -29,7 +29,7 @@ fn kept_id(tab: &Tab) -> Option<u128> {
     match tab {
         Tab::Session(id) => sessions::id_of(id),
         Tab::Terminal(id) => Some(*id),
-        Tab::Draft { .. } | Tab::Viewer(_) => None,
+        Tab::Draft { .. } | Tab::Viewer(_) | Tab::Drawn { .. } => None,
     }
 }
 
@@ -149,7 +149,7 @@ impl Ui {
         self.hub.panes.borrow_mut().retain(|tab, _| match tab {
             Tab::Session(id) => sessions.contains(id),
             Tab::Terminal(id) => terminals.contains(id),
-            Tab::Draft { .. } | Tab::Viewer(_) => true,
+            Tab::Draft { .. } | Tab::Viewer(_) | Tab::Drawn { .. } => true,
         });
         let mut gallery = self.local.gallery;
         let gone = gallery

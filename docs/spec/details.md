@@ -4,7 +4,9 @@ The details panel tells about what the content's focused window shows, and the
 worktree it is in, on the sheets Overview, Changes, Log, Agents and Resources
 ([content](content.md)). It follows the focus from window to window and from
 tab to tab, not the tree's selection; with nothing open, it has nothing to
-describe.
+describe. A window showing an image a session's console drew is described as
+that session, and one showing a file in the worktree already described keeps
+the session described before.
 
 ## Sheets
 
@@ -74,11 +76,15 @@ by the description it was started with before any. Opening one shows what it
 was started as, what it was asked, the latest steps it took, and, once it
 ended, what it reported. Copying one copies what it was asked.
 
-Opening an image of Resources shows it whole in a window of its own,
-named for it, the image fit within the window; opening it again brings that
-window forward. `Escape` or `Cmd+W` closes it. An image the console drew is
-kept while adroit runs, after the console has let it go, the newest few of
-each session; it has no file to copy or reveal.
+An image of Resources opens in the content as a file of the tree does: opened,
+looked at in the preview, or opened in a split or a new tab, by the same
+actions ([viewers](content.md#viewers)). An image file opens in the image
+viewer; an image the console drew opens in the image viewer too, named for its
+size. The keys stay in the panel, and the panel stays on the session while one
+of its images is shown, so the next one can be picked. An image the console
+drew is kept while adroit runs, after the console has let it go, the newest
+few of each session; it has no file to copy or reveal, and its window says
+so once it is no longer kept.
 
 Opening a link of Resources hands it to macOS: an address opens in the
 default browser, a file in the app that opens it. A right click on a link

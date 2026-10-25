@@ -102,6 +102,7 @@ pub(crate) fn Body() -> Element {
             ContentPanel {
                 focused: matches!(area, Area::Console | Area::Prompt),
                 viewer_command: local.viewer_command,
+                gallery: local.gallery,
                 completions,
                 drafted,
                 boxes: local.win_boxes,

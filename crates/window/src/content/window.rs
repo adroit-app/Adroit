@@ -55,7 +55,12 @@ pub(super) fn window_strip(
         ),
         Tab::Terminal(id) => StripMark::Terminal(runs_of(terminals, *id)),
         Tab::Draft { .. } => StripMark::Draft,
-        Tab::Viewer(path) => {
+        Tab::Viewer(_) | Tab::Drawn { .. } => {
+            // A drawn image is marked as a picture file is, being kept as one.
+            let path = match shows {
+                Tab::Viewer(path) => path.as_path(),
+                _ => std::path::Path::new("drawn.png"),
+            };
             let icon = file_icons::find(path, file_icons::Kind::File);
             let colour = icon
                 .colour

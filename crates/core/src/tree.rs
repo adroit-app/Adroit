@@ -373,6 +373,7 @@ pub fn place_of_tab(tree: &Tree, terminals: &[TerminalSession], tab: &Tab) -> Op
             adroit_model::innermost(tree.worktrees().map(|w| &w.worktree.path), path)
                 .map(|w| Place::at(w.clone()))
         }
+        Tab::Drawn { session, .. } => nav::find(tree, session).map(|(p, _)| p),
     }
 }
 
@@ -398,6 +399,7 @@ pub fn crumbs(showing: &Showing, work: Option<&WorkSnapshot>) -> Option<Crumbs> 
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default(),
+        Tab::Drawn { width, height, .. } => format!("Image {width} × {height}"),
     };
     Some(Crumbs {
         workspace,
@@ -894,6 +896,15 @@ mod tests {
             (Tab::draft(PathBuf::from("/x")), place("/x")),
             (Tab::Viewer("/r/w/src/a.rs".into()), place("/r/w")),
             (Tab::Viewer("/elsewhere/a.rs".into()), None),
+            (
+                Tab::Drawn {
+                    session: "a".into(),
+                    id: 1,
+                    width: 2,
+                    height: 2,
+                },
+                place("/r/w"),
+            ),
         ];
         for (tab, want) in cases {
             assert_eq!(

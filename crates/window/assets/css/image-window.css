@@ -1,4 +1,0 @@
-html, body { margin: 0; height: 100%; background: var(--ground, #0f1114); overflow: hidden; }
-#main { height: 100%; }
-.viewer { height: 100%; display: flex; align-items: center; justify-content: center; outline: none; }
-.viewer img { max-width: 100%; max-height: 100%; object-fit: contain; }

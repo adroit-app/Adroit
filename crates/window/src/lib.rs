@@ -20,7 +20,6 @@ pub mod editor;
 mod feed;
 mod hosts;
 mod icons;
-mod image_window;
 mod input;
 mod installed_fonts;
 pub use adroit_core::keymap;

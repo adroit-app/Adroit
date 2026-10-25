@@ -10,8 +10,8 @@ use std::path::PathBuf;
 use adroit_model::Key;
 
 use crate::actions::Action;
-use crate::content::{Tab, TerminalAsk, WindowId};
-use crate::details::{Scroll, Shot};
+use crate::content::{Opening, Tab, TerminalAsk, WindowId};
+use crate::details::Scroll;
 use crate::layout::Layout;
 use crate::prompt::send::{Start, Taken};
 use crate::viewers::ViewerAction;
@@ -34,9 +34,9 @@ pub enum Effect {
     ScrollDetails(Scroll),
     /// Show the session by this id in the middle.
     ShowSession(String),
-    /// Show an image of the overview in a window of its own; one the console
-    /// drew is the console's of `session`.
-    ShowShot { shot: Shot, session: String },
+    /// Show `thing` in the content as `how` says, the keys staying where
+    /// they are.
+    Show { thing: Tab, how: Opening },
     /// Tell the user this in the status line.
     Notice(String),
 

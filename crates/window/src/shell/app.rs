@@ -22,7 +22,7 @@ use crate::input::{KeysField, use_input};
 use crate::panes::{use_console_sizes, use_hub, use_redraws_told, use_shown_images};
 use crate::picker::Picker;
 use crate::style::CSS;
-use crate::{image_window, menu_bar, settings_window, themes};
+use crate::{menu_bar, settings_window, themes};
 
 /// Open the window.
 pub fn launch(build: crate::Build) {
@@ -58,7 +58,6 @@ fn App() -> Element {
     use_effects(&ui);
     use_input(&ui);
     use_drop(settings_window::close);
-    use_drop(image_window::close_all);
     rsx! {
         RootStyle {}
         div { class: "app",

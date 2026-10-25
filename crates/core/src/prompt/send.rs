@@ -215,7 +215,7 @@ fn go(state: &mut ViewState, taken: Taken) -> Vec<Effect> {
                 taken,
             }))]
         }
-        Some(Tab::Terminal(_) | Tab::Viewer(_)) | None => {
+        Some(Tab::Terminal(_) | Tab::Viewer(_) | Tab::Drawn { .. }) | None => {
             state.prompt.sending = None;
             vec![restore(taken)]
         }

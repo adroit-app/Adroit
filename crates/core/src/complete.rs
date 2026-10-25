@@ -56,7 +56,7 @@ pub fn commands_dir(tree: &Tree, tab: Option<&Tab>, place: Option<&Place>) -> Op
     match tab {
         Some(Tab::Session(id)) => nav::find(tree, id).map(|(_, s)| s.cwd.clone()),
         Some(Tab::Draft { worktree, .. }) => Some(worktree.clone()),
-        Some(Tab::Terminal(_) | Tab::Viewer(_)) => None,
+        Some(Tab::Terminal(_) | Tab::Viewer(_) | Tab::Drawn { .. }) => None,
         None => place.map(|p| p.worktree.clone()),
     }
 }
