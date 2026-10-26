@@ -35,9 +35,16 @@ async fn answer(watched: &Watched, judged: &watch::Sender<Judged>, ask: Ask) -> 
     if matches!(
         &ask,
         Ask::StartSession(_) | Ask::StartTerminal(_) | Ask::OpenLogin { .. } | Ask::Run { .. }
-    ) && let Err(text) = terminal_host::judged(judged.subscribe()).await
-    {
-        return Answer::Failed { text };
+    ) {
+        let prepared = terminal_host::judged(judged.subscribe()).await;
+        let starts = match &ask {
+            Ask::Run { args, .. } => args.get(1).is_some_and(|op| op == "start"),
+            _ => true,
+        };
+        // Existing terminals can be used even when preparing terminfo failed.
+        if starts && let Err(text) = prepared {
+            return Answer::Failed { text };
+        }
     }
     let answered = match ask {
         Ask::StartSession(start) => start_session(watched, *start).await,

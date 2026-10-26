@@ -117,6 +117,15 @@ impl Drop for Hosts {
 
 #[test]
 fn the_headless_cli_keeps_a_terminal_through_replacing_its_work_host() {
+    kept_through_restart(false);
+}
+
+#[test]
+fn existing_terminals_remain_usable_when_a_replacement_work_host_cannot_prepare_terminfo() {
+    kept_through_restart(true);
+}
+
+fn kept_through_restart(break_terminfo: bool) {
     let hosts = Hosts::new();
     let terminal = hosts.run(&[
         "terminal",
@@ -131,7 +140,7 @@ fn the_headless_cli_keeps_a_terminal_through_replacing_its_work_host() {
         "--",
         "/bin/sh",
         "-c",
-        "printf 'before-restart\\n'; while IFS= read -r line; do printf '%s\\n' \"$line\"; done",
+        "printf 'before-restart\\n'; while IFS= read -r line; do printf 'reply:%s\\n' \"$line\"; done",
     ]);
     let id = terminal["resource_id"].as_str().unwrap();
     let stopped = isolated(hosts.0.path())
@@ -139,6 +148,11 @@ fn the_headless_cli_keeps_a_terminal_through_replacing_its_work_host() {
         .output()
         .unwrap();
     assert!(stopped.status.success());
+    if break_terminfo {
+        let terminfo = hosts.0.path().join("state/adroit/terminfo");
+        std::fs::rename(&terminfo, terminfo.with_extension("kept")).unwrap();
+        std::fs::write(&terminfo, "not a directory").unwrap();
+    }
     let input = hosts.run(&[
         "terminal",
         "input",
@@ -156,12 +170,36 @@ fn the_headless_cli_keeps_a_terminal_through_replacing_its_work_host() {
         screen = hosts
             .run(&["terminal", "screen", "--terminal", id, "--json"])
             .to_string();
-        if screen.contains("before-restart") && screen.contains("after-restart") {
+        if screen.contains("before-restart") && screen.contains("reply:after-restart") {
             break;
         }
         std::thread::sleep(Duration::from_millis(20));
     }
     assert!(screen.contains("before-restart"), "{screen}");
-    assert!(screen.contains("after-restart"), "{screen}");
+    assert!(screen.contains("reply:after-restart"), "{screen}");
+    let listed = hosts.run(&["terminal", "list", "--json"]);
+    assert_eq!(listed.as_array().unwrap().len(), 1);
+    if break_terminfo {
+        let marker = hosts.0.path().join("must-not-start");
+        let output = isolated(hosts.0.path())
+            .args([
+                "terminal",
+                "start",
+                "--program",
+                "command",
+                "--json",
+                "--",
+                "/usr/bin/touch",
+                marker.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .contains("cannot install the terminal's description")
+        );
+        assert!(!marker.exists());
+    }
     hosts.run(&["terminal", "stop", "--terminal", id, "--json"]);
 }
