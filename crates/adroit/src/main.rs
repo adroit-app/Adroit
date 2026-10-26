@@ -48,12 +48,34 @@ fn main() {
         Some(Command::Session(rest)) => std::process::exit(adroit_host::session_cli(&rest)),
         Some(Command::Mcp(rest)) => std::process::exit(adroit_host::delegation::bridge::cli(&rest)),
         Some(Command::Terminal(rest)) => std::process::exit(adroit_host::terminal_cli(&rest)),
-        Some(Command::Editor(rest)) => std::process::exit(adroit_window::editor::cli(&rest)),
+        Some(Command::Editor(rest)) => std::process::exit(editor(&rest)),
         Some(Command::Daemon(asked)) => std::process::exit(adroit_host::daemon_cli(asked)),
         Some(Command::Host(asked)) => std::process::exit(adroit_host::host_cli(asked)),
         Some(Command::Window { .. }) => {}
         Some(Command::InOwnLogin(_)) => unreachable!("run before the instance is settled"),
     }
+    window(new);
+}
+
+#[cfg(feature = "desktop")]
+fn editor(args: &[String]) -> i32 {
+    adroit_window::editor::cli(args)
+}
+
+#[cfg(not(feature = "desktop"))]
+fn editor(_: &[String]) -> i32 {
+    eprintln!("adroit: this build has no window to take editor input");
+    2
+}
+
+#[cfg(not(feature = "desktop"))]
+fn window(_: bool) {
+    eprintln!("adroit: this build has no window; use `adroit host` to serve the work");
+    std::process::exit(2);
+}
+
+#[cfg(feature = "desktop")]
+fn window(new: bool) {
     match adroit_window::open_window(new) {
         // An open window came to the front.
         Ok(false) => return,

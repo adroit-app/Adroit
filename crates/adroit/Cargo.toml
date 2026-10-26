@@ -6,10 +6,14 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = ["desktop"]
+desktop = ["dep:adroit-window"]
+
 [dependencies]
 adroit-agents.workspace = true
 adroit-host.workspace = true
-adroit-window.workspace = true
+adroit-window = { workspace = true, optional = true }
 
 [dev-dependencies]
 adroit-model.workspace = true

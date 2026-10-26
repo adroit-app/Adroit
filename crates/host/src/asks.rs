@@ -32,6 +32,13 @@ pub(crate) fn asks(watched: Watched, judged: Arc<watch::Sender<Judged>>) -> Asks
 }
 
 async fn answer(watched: &Watched, judged: &watch::Sender<Judged>, ask: Ask) -> Answer {
+    if matches!(
+        &ask,
+        Ask::StartSession(_) | Ask::StartTerminal(_) | Ask::OpenLogin { .. } | Ask::Run { .. }
+    ) && let Err(text) = terminal_host::judged(judged.subscribe()).await
+    {
+        return Answer::Failed { text };
+    }
     let answered = match ask {
         Ask::StartSession(start) => start_session(watched, *start).await,
         Ask::StartTerminal(start) => start_terminal(watched, *start).await,

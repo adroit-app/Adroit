@@ -40,6 +40,12 @@ references:
 # Everything CI runs, the tests in the Neovim the app carries.
 ci: fmt-check lint
     just test-neovim "$(assets/neovim/fetch.sh)/bin/nvim"
+    just test-headless
+
+# The executable for a work machine, with no desktop runtime linked.
+test-headless:
+    cargo clippy -p adroit --all-targets --no-default-features -- -D warnings
+    cargo test -p adroit --no-default-features --test headless
 
 # Run the tests in the Neovim at `nvim`, as a Neovim release is checked
 # before assets/neovim/update.sh pins it for the app to carry.

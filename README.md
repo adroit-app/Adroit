@@ -204,6 +204,19 @@ just fmt   # format every source
 just ci    # format check, lint and tests, as in CI
 ```
 
+For a machine that only runs the hosts and session commands, build without the
+desktop window:
+
+```sh
+nix develop -c cargo build --release -p adroit --no-default-features
+```
+
+That executable serves `adroit host` and `adroit daemon` and runs the session,
+terminal and MCP commands. It refuses requests to open a window or take editor
+input. It reaches local sockets; SSH connection support is not included.
+`just test-headless` checks this build, including a terminal kept through replacing
+its work host.
+
 The tests isolate their state and remove inherited Adroit assignment variables,
 so they can run from an Adroit session. Native integration tests need permission
 to create temporary Unix sockets.

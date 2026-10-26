@@ -163,6 +163,11 @@ receives `"shown"`.
 
 ## The hosts
 
+The hosts and session commands can be built without the desktop window. That
+build never opens a window, and refuses the window's editor integration. Its
+sessions and terminals have the same lifetime as those started by the desktop
+build.
+
 Two processes of adroit's own run each instance's work, apart from the
 windows, and keep running when they close.
 
