@@ -30,6 +30,8 @@ pub enum Error {
     NotFound(String),
     #[error("the daemon at {0} did not start")]
     NotStarted(PathBuf),
+    #[error("the daemon at {0} is forwarded; manage it on its host")]
+    Forwarded(PathBuf),
     #[error("{0} is not a folder of yours alone, as a host's socket needs")]
     OpenFolder(PathBuf),
     #[error("{0}")]
@@ -86,6 +88,7 @@ pub struct Spawn {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Daemon {
     socket: PathBuf,
+    forwarded: bool,
 }
 
 /// The id as the daemon takes it in a request.
@@ -97,6 +100,25 @@ impl Daemon {
     pub fn new(socket: impl Into<PathBuf>) -> Self {
         Self {
             socket: socket.into(),
+            forwarded: false,
+        }
+    }
+
+    /// A terminal endpoint reached through a transport on this machine.
+    /// Its identity and generation must be verified by the transport's owner.
+    /// Local process discovery and daemon lifecycle operations are refused.
+    pub fn forwarded(socket: impl Into<PathBuf>) -> Self {
+        Self {
+            socket: socket.into(),
+            forwarded: true,
+        }
+    }
+
+    fn require_local(&self) -> Result<()> {
+        if self.forwarded {
+            Err(Error::Forwarded(self.socket.clone()))
+        } else {
+            Ok(())
         }
     }
 
@@ -133,6 +155,7 @@ impl Daemon {
     /// Make sure a daemon answers, starting `program` with `args` apart
     /// from adroit when none does.
     pub async fn start(&self, program: &Path, args: &[String]) -> Result<()> {
+        self.require_local()?;
         if self.ops().await.is_ok() {
             return Ok(());
         }
@@ -147,14 +170,20 @@ impl Daemon {
         Err(Error::NotStarted(self.socket.clone()))
     }
 
-    /// The process listening at the socket, whatever it answers, if any does.
+    /// The local daemon's process, whatever it answers, if any does.
+    /// A forwarded endpoint never identifies its transport as that process.
     pub fn pid(&self) -> Option<u32> {
-        listening(&self.socket)
+        if self.forwarded {
+            None
+        } else {
+            listening(&self.socket)
+        }
     }
 
     /// Stop the daemon, ending every session it holds, and wait until its
     /// process is gone; whether one was listening to stop.
     pub async fn stop(&self) -> Result<bool> {
+        self.require_local()?;
         // A daemon from before felis could be asked to stop, or one too busy
         // to answer, is signalled instead.
         stop_listening(&self.socket, || async {
