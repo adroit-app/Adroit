@@ -213,9 +213,25 @@ nix develop -c cargo build --release -p adroit --no-default-features
 
 That executable serves `adroit host` and `adroit daemon` and runs the session,
 terminal and MCP commands. It refuses requests to open a window or take editor
-input. It reaches local sockets; SSH connection support is not included.
+input. On the work machine it reaches that machine's native sockets.
 `just test-headless` checks this build, including a terminal kept through replacing
 its work host.
+
+To use a window on another Mac, run the terminal host, the work host and the
+gateway as services on the work machine. `adroit remote enable` registers all
+three as the user's services, with the PATH the login shell has. The service
+environment must find the agents, git, jj and any programs its sessions use.
+On macOS, run it with the `adroit` inside Adroit.app. Replacing the work host
+leaves terminals running; replacing the terminal host ends its programs.
+
+Pair the client with the work machine: run `adroit connect pair <address>` on
+the client, then `adroit remote pair` on the work machine and type the code the
+client shows. The client adds a profile for the work machine; open it from the
+profile menu, or check its connection with `adroit connect` first. Pairing is
+also available from the profile management window, which lists the work
+machines announcing themselves on the local network.
+See [remote hosts](docs/spec/remote-execution.md) for the configuration, recovery
+workflow and the remote window's restrictions.
 
 The tests isolate their state and remove inherited Adroit assignment variables,
 so they can run from an Adroit session. Native integration tests need permission
