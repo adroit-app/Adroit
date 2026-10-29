@@ -1,0 +1,24 @@
+[package]
+name = "adroit-net"
+description = "Adroit's own network connection to a work machine: keys, pinned TLS, pairing and the gateway"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+libc.workspace = true
+mdns-sd.workspace = true
+hkdf.workspace = true
+hmac.workspace = true
+ring.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+rustls.workspace = true
+sha2.workspace = true
+spake2.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-rustls.workspace = true
