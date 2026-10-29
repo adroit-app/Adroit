@@ -46,8 +46,8 @@ function M.serve(complete)
           serverInfo = { name = M.NAME },
         }
       end,
-      ["textDocument/completion"] = function(params)
-        return complete(params)
+      ["textDocument/completion"] = function(params, done)
+        return complete(params, done)
       end,
       shutdown = function()
         return vim.NIL
@@ -58,14 +58,28 @@ function M.serve(complete)
         id = id + 1
         local mine = id
         local answer = answers[method]
-        vim.schedule(function()
-          if answer then
-            callback(nil, answer(params))
-          else
-            callback({ code = -32601, message = M.NAME .. " serves no " .. method })
+        local answered = false
+        local function done(result)
+          if answered then
+            return
           end
+          answered = true
+          callback(nil, result)
           if notify_reply then
             notify_reply(mine)
+          end
+        end
+        vim.schedule(function()
+          if answer then
+            local result = answer(params, done)
+            if result ~= nil then
+              done(result)
+            end
+          else
+            callback({ code = -32601, message = M.NAME .. " serves no " .. method })
+            if notify_reply then
+              notify_reply(mine)
+            end
           end
         end)
         return true, mine
@@ -92,14 +106,19 @@ end
 function M.start(buf, offer)
   return vim.lsp.start({
     name = M.NAME,
-    cmd = M.serve(function(params)
+    cmd = M.serve(function(params, done)
       local line, col = params.position.line, params.position.character
       local before = (vim.api.nvim_buf_get_lines(buf, line, line + 1, false)[1] or ""):sub(1, col)
-      local offered = offer(before)
-      if not offered then
-        return { isIncomplete = true, items = {} }
+      local function finish(offered)
+        return offered and M.items(offered, before, params.position) or { isIncomplete = true, items = {} }
       end
-      return M.items(offered, before, params.position)
+      local offered, pending = offer(before, function(result)
+        done(finish(result))
+      end)
+      if pending then
+        return nil
+      end
+      return finish(offered)
     end),
   }, { bufnr = buf })
 end

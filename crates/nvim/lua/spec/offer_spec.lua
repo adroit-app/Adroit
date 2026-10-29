@@ -38,18 +38,20 @@ describe("after an at sign", function()
     eq(nil, offer.at("mail@au", { candidates = candidates }))
   end)
 
-  it("offers the sessions, then the worktree's entries, without hidden ones", function()
-    local offered = offer.at("@", { candidates = { c("fix", "session") }, root = worktree() })
+  it("offers sessions before entries supplied by the host", function()
+    local offered = offer.at("@", { candidates = { c("fix", "session") }, root = worktree(), path_entries = { c("src/", "dir"), c("README.md", "file") } })
     eq({ "fix ", "src/", "README.md " }, words(offered))
   end)
 
   it("offers a directory's entries after its slash", function()
-    eq({ "src/main.rs " }, words(offer.at("@src/m", { root = worktree() })))
+    eq({ "src/main.rs " }, words(offer.at("@src/m", { root = worktree(), path_entries = { c("src/main.rs", "file") } })))
   end)
 
   it("walks from the root of the disk after an at sign and a slash", function()
     local dir = worktree()
-    eq({ dir .. "/src/" }, words(offer.at("@" .. dir .. "/sr", {})))
+    local offered = offer.at("@" .. dir .. "/sr", { path_entries = { c(dir .. "/src/", "dir") } })
+    eq({ dir .. "/src/" }, words(offered))
+    eq(dir .. "/sr", offered.paths)
   end)
 
   it("walks nothing without a root", function()
@@ -59,6 +61,7 @@ describe("after an at sign", function()
   it("finds a tracked file by any part of its path, and an entry and a file once", function()
     local from = { candidates = { c("README.md", "file"), c("src/main.rs", "file") }, root = worktree() }
     eq({ "src/main.rs " }, words(offer.at("@ma", from)))
+    from.path_entries = { c("README.md", "file") }
     eq({ "README.md ", "src/main.rs " }, words(offer.at("@R", from)))
   end)
 

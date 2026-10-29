@@ -27,6 +27,7 @@ pub(crate) fn Header(ontoggle: EventHandler<Side>) -> Element {
     };
     rsx! {
         div { class: "header",
+            crate::environment_profiles::ProfileMenu {}
             span {
                 class: if layout.show_sidebar { "pane-toggle on" } else { "pane-toggle" },
                 title: "Show or hide the tree (⌘B)",

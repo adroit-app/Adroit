@@ -29,6 +29,12 @@ pub enum Event {
     Shell(bool),
     /// A `/` was typed where it offers commands.
     CommandsWanted,
+    /// The prompt needs directory entries from the work host.
+    PathsWanted {
+        id: u64,
+        root: String,
+        typed: String,
+    },
     /// A key or a command of the prompt asked for adroit's action, named as
     /// a key binding names it.
     Action(String),
@@ -125,6 +131,19 @@ impl Handler for Listener {
                 }
             }
             "adroit_commands_wanted" => (self.events)(Event::CommandsWanted),
+            "adroit_paths_wanted" => {
+                if let (Some(id), Some(root), Some(typed)) = (
+                    args.first().and_then(Value::as_u64),
+                    args.get(1).and_then(Value::as_str),
+                    args.get(2).and_then(Value::as_str),
+                ) {
+                    (self.events)(Event::PathsWanted {
+                        id,
+                        root: root.into(),
+                        typed: typed.into(),
+                    });
+                }
+            }
             "adroit_action" => {
                 if let Some(action) = args.first().and_then(Value::as_str) {
                     (self.events)(Event::Action(action.to_string()));
@@ -270,6 +289,7 @@ pub(crate) async fn save_until_told(
 pub struct Embedded {
     nvim: Neovim<Writer>,
     state: Arc<Mutex<UiState>>,
+    input: adroit_term::InputPermission,
     _child: Child,
 }
 
@@ -311,7 +331,10 @@ impl Embedded {
             .args(["--cmd", "let g:adroit = v:true"])
             .args([
                 "--cmd",
-                &format!("lua {}", crate::lua::require(launch.defaults)),
+                &format!(
+                    "lua {}; require('adroit.config').prepare()",
+                    crate::lua::require(launch.defaults)
+                ),
             ])
             .args(args)
             .kill_on_drop(true);
@@ -330,6 +353,7 @@ impl Embedded {
         Ok(Self {
             nvim,
             state,
+            input: adroit_term::InputPermission::default(),
             _child: child,
         })
     }
@@ -394,10 +418,19 @@ impl Embedded {
 
     /// Type keys in Neovim's notation.
     pub async fn input(&self, keys: &str) -> Result<(), Error> {
+        let Some(ticket) = self.input.ticket() else {
+            return Ok(());
+        };
+        let input = self.input.clone();
         self.state().forget_message();
         let keys = keys.to_string();
-        self.ask(move |n| async move { n.input(&keys).await })
-            .await?;
+        self.ask(move |n| async move {
+            if !input.allows(ticket) {
+                return Ok(0);
+            }
+            n.input(&keys).await
+        })
+        .await?;
         Ok(())
     }
 
@@ -436,10 +469,19 @@ impl Embedded {
 
     /// Put text into the prompt as text, whatever mode it is in.
     pub async fn paste(&self, text: &str) -> Result<(), Error> {
+        let Some(ticket) = self.input.ticket() else {
+            return Ok(());
+        };
+        let input = self.input.clone();
         self.state().forget_message();
         let text = text.to_string();
-        self.ask(move |n| async move { n.paste(&text, false, -1).await })
-            .await?;
+        self.ask(move |n| async move {
+            if !input.allows(ticket) {
+                return Ok(false);
+            }
+            n.paste(&text, false, -1).await
+        })
+        .await?;
         Ok(())
     }
 
@@ -466,7 +508,21 @@ impl Embedded {
         let root = root
             .map(|p| p.to_string_lossy().into_owned())
             .unwrap_or_default();
-        self.set_var("adroit_root", Value::from(root)).await
+        self.exec(
+            "require('adroit.prompt').root(...)",
+            vec![Value::from(root)],
+        )
+        .await
+        .map(|_| ())
+    }
+
+    pub async fn set_paths(&self, id: u64, paths: &[Candidate]) -> Result<(), Error> {
+        self.exec(
+            "require('adroit.prompt').paths(...)",
+            vec![Value::from(id), candidate_list(paths)],
+        )
+        .await
+        .map(|_| ())
     }
 
     /// Tell Neovim whether the window's theme is light, so its colour
@@ -483,6 +539,31 @@ impl Embedded {
     /// The prompt's text.
     pub async fn text(&self) -> Result<String, Error> {
         self.exec_string(TEXT).await
+    }
+
+    pub async fn freeze_prompt(&self, frozen: bool) -> Result<(), Error> {
+        if frozen {
+            self.input.set(false);
+        }
+        let result = self
+            .exec(
+                "require('adroit.prompt').freeze(...)",
+                vec![Value::from(frozen)],
+            )
+            .await;
+        if !frozen && result.is_ok() {
+            self.input.set(true);
+        }
+        result
+    }
+
+    pub async fn consume_text(&self, text: &str) -> Result<bool, Error> {
+        self.exec_lua(
+            "return require('adroit.prompt').consume(...)",
+            vec![Value::from(text)],
+        )
+        .await
+        .map(|value| value.as_bool().unwrap_or(false))
     }
 
     /// Add lines after what the prompt holds, the cursor left where it is in
@@ -1395,14 +1476,90 @@ mod tests {
             .map(|p| p.items.iter().map(|i| i.word.clone()).collect())
     }
 
+    async fn paths(
+        e: &Embedded,
+        rx: &mut tokio::sync::mpsc::UnboundedReceiver<Event>,
+        typed: &str,
+        candidates: &[Candidate],
+    ) {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if let Some(Event::PathsWanted {
+                    id,
+                    typed: requested,
+                    ..
+                }) = rx.recv().await
+                    && requested == typed
+                {
+                    e.set_paths(id, candidates).await.unwrap();
+                    break;
+                }
+            }
+        })
+        .await
+        .unwrap();
+    }
+
     #[tokio::test]
-    async fn an_at_sign_offers_the_sessions_then_the_worktree_s_entries_without_hidden_ones() {
+    async fn path_offers_use_host_answers_without_reading_even_an_absolute_local_directory() {
+        let (e, mut rx) = start().await;
+        let dir = worktree("host-only");
+        e.exec("vim.fn.readdir = function() error('local filesystem read') end; vim.fn.isdirectory = function() error('local filesystem read') end", vec![]).await.unwrap();
+        let typed = format!("{}/", dir.display());
+        e.input(&format!("@{typed}")).await.unwrap();
+        paths(
+            &e,
+            &mut rx,
+            &typed,
+            &[Candidate::new(format!("{typed}remote-only.rs"), "file")],
+        )
+        .await;
+        wait(&mut rx, |_| {
+            words(&e).is_some_and(|words| words == [format!("{typed}remote-only.rs")])
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn a_frozen_prompt_keeps_its_text_until_that_exact_send_is_consumed() {
+        let (e, mut rx) = start().await;
+        e.input("original").await.unwrap();
+        wait(&mut rx, |_| e.state().screen().text()[0] == "original").await;
+        e.freeze_prompt(true).await.unwrap();
+        e.input("forbidden").await.unwrap();
+        assert!(e.settles("&modifiable", Value::from(0)).await);
+        assert_eq!(e.text().await.unwrap(), "original");
+        assert!(!e.consume_text("older").await.unwrap());
+        assert_eq!(e.text().await.unwrap(), "original");
+        assert!(e.consume_text("original").await.unwrap());
+        assert_eq!(e.text().await.unwrap(), "");
+        assert!(e.settles("&modifiable", Value::from(0)).await);
+        e.put_back("restored\n\n").await.unwrap();
+        assert_eq!(e.text().await.unwrap(), "restored\n\n");
+        assert_eq!(e.take_text().await.unwrap(), "restored\n\n");
+        e.freeze_prompt(false).await.unwrap();
+        e.input("new").await.unwrap();
+        wait(&mut rx, |_| e.state().screen().text()[0] == "new").await;
+    }
+
+    #[tokio::test]
+    async fn an_at_sign_offers_sessions_before_the_host_s_directory_entries() {
         let (e, mut rx) = start().await;
         e.set_candidates(&[Candidate::new("fix", "session")])
             .await
             .unwrap();
         e.set_root(Some(&worktree("top"))).await.unwrap();
         e.input("@").await.unwrap();
+        paths(
+            &e,
+            &mut rx,
+            "",
+            &[
+                Candidate::new("src/", "dir"),
+                Candidate::new("README.md", "file"),
+            ],
+        )
+        .await;
         wait(&mut rx, |_| {
             words(&e).is_some_and(|w| w == ["fix", "src/", "README.md"])
         })
@@ -1414,6 +1571,13 @@ mod tests {
         let (e, mut rx) = start().await;
         e.set_root(Some(&worktree("inside"))).await.unwrap();
         e.input("@src/m").await.unwrap();
+        paths(
+            &e,
+            &mut rx,
+            "src/m",
+            &[Candidate::new("src/main.rs", "file")],
+        )
+        .await;
         wait(&mut rx, |_| words(&e).is_some_and(|w| w == ["src/main.rs"])).await;
         e.input("<C-y>").await.unwrap();
         wait(&mut rx, |_| e.state().popup().is_none()).await;
@@ -1425,8 +1589,19 @@ mod tests {
         let (e, mut rx) = start().await;
         e.set_root(Some(&worktree("walk"))).await.unwrap();
         e.input("@sr").await.unwrap();
+        paths(&e, &mut rx, "sr", &[Candidate::new("src/", "dir")]).await;
         wait(&mut rx, |_| words(&e).is_some_and(|w| w == ["src/"])).await;
         e.input("<C-y>").await.unwrap();
+        paths(
+            &e,
+            &mut rx,
+            "src/",
+            &[
+                Candidate::new("src/lib.rs", "file"),
+                Candidate::new("src/main.rs", "file"),
+            ],
+        )
+        .await;
         wait(&mut rx, |_| {
             words(&e).is_some_and(|w| w == ["src/lib.rs", "src/main.rs"])
         })
@@ -1440,6 +1615,13 @@ mod tests {
         let dir = worktree("absolute");
         e.input(&format!("@{}/sr", dir.display())).await.unwrap();
         let want = format!("{}/src/", dir.display());
+        paths(
+            &e,
+            &mut rx,
+            &format!("{}/sr", dir.display()),
+            &[Candidate::new(want.clone(), "dir")],
+        )
+        .await;
         wait(&mut rx, |_| words(&e).is_some_and(|w| w == [want.clone()])).await;
     }
 
@@ -1454,8 +1636,10 @@ mod tests {
         .unwrap();
         e.set_root(Some(&worktree("tracked"))).await.unwrap();
         e.input("@ma").await.unwrap();
+        paths(&e, &mut rx, "ma", &[]).await;
         wait(&mut rx, |_| words(&e).is_some_and(|w| w == ["src/main.rs"])).await;
         e.input("<BS><BS>R").await.unwrap();
+        paths(&e, &mut rx, "R", &[Candidate::new("README.md", "file")]).await;
         // The entry and the tracked file are one.
         wait(&mut rx, |_| {
             words(&e).is_some_and(|w| w == ["README.md", "src/main.rs"])

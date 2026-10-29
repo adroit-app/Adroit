@@ -1,6 +1,6 @@
 -- What the prompt offers as it is written. `@` at the start of a word offers
 -- the sessions and files in `from.candidates` and the entries of the
--- directory typed, walked from `from.root`; `/` there offers the commands in
+-- directory typed, supplied by the work host; `/` there offers the commands in
 -- `from.commands`, and `$` the skills among them.
 local M = {}
 
@@ -19,51 +19,14 @@ local function item(c, word)
   return { word = word, abbr = c.word, menu = c.menu, info = c.info or "" }
 end
 
-local function entries(dir)
-  local ok, names = pcall(vim.fn.readdir, dir)
-  if not ok then
-    return {}
-  end
-  local out = {}
-  for _, name in ipairs(names) do
-    -- Hidden entries are left to be typed, as a shell's completion does.
-    if name:sub(1, 1) ~= "." then
-      out[#out + 1] = { name = name, dir = vim.fn.isdirectory(dir .. "/" .. name) == 1 }
+local function paths(entries, out, seen)
+  for i, e in ipairs(entries or {}) do
+    if i > M.LIMIT then
+      break
     end
-  end
-  table.sort(out, function(x, y)
-    if x.dir ~= y.dir then
-      return x.dir
-    end
-    return x.name:lower() < y.name:lower()
-  end)
-  return out
-end
-
-local function paths(typed, root, out, seen)
-  local cut = typed:match(".*()/")
-  local head = cut and typed:sub(1, cut) or ""
-  local want = typed:sub(#head + 1):lower()
-  local dir
-  if head:sub(1, 1) == "/" then
-    dir = head
-  elseif root and root ~= "" then
-    dir = root .. "/" .. head
-  else
-    return
-  end
-  local n = 0
-  for _, e in ipairs(entries(dir)) do
-    if e.name:sub(1, #want):lower() == want then
-      local path = head .. e.name .. (e.dir and "/" or "")
-      seen[path] = true
-      -- A directory takes no space after it, so completing goes on inside.
-      out[#out + 1] = { word = e.dir and path or path .. " ", abbr = path, menu = e.dir and "dir" or "file", info = "" }
-      n = n + 1
-      if n >= M.LIMIT then
-        return
-      end
-    end
+    seen[e.word] = true
+    -- A directory takes no space after it, so completing goes on inside.
+    out[#out + 1] = item(e, e.menu == "dir" and e.word or e.word .. " ")
   end
 end
 
@@ -82,7 +45,7 @@ local function offer_paths(typed, from)
   for _, c in ipairs(sessions) do
     out[#out + 1] = item(c, c.word .. " ")
   end
-  paths(typed, from.root, out, seen)
+  paths(from.path_entries, out, seen)
   for _, c in ipairs(files) do
     if not seen[c.word] then
       out[#out + 1] = item(c, c.word .. " ")
@@ -115,7 +78,12 @@ end
 function M.at(before, from)
   local s, typed = word_start(before, "@[^%s@]*$")
   if s then
-    return { start = s + 1, items = offer_paths(typed, from), wants_commands = false }
+    return {
+      start = s + 1,
+      items = offer_paths(typed, from),
+      wants_commands = false,
+      paths = (typed:sub(1, 1) == "/" or (from.root and from.root ~= "")) and typed or nil,
+    }
   end
   for _, sigil in ipairs({ "/", "$" }) do
     local pattern = "%" .. sigil .. "[^%s%" .. sigil .. "]*$"

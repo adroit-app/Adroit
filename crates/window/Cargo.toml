@@ -8,6 +8,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+adroit-connect.workspace = true
 adroit-core.workspace = true
 adroit-model.workspace = true
 adroit-nvim.workspace = true

@@ -77,6 +77,12 @@ impl Default for PromptView {
     }
 }
 
+impl PromptView {
+    pub fn is_sending(&self) -> bool {
+        self.sending.is_some()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 struct Recall {
     asked: u64,
@@ -156,6 +162,7 @@ pub(crate) fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         Msg::PromptEmpty => send::nothing_taken(state),
         Msg::PromptTaken(taken) => send::taken(state, *taken),
         Msg::PromptWent(ok) => send::sent(state, ok),
+        Msg::PromptRetained => send::retained(state),
         Msg::ComposeLapsed(asked) => send::lapsed(state, asked),
         Msg::ImageSelect(path) => {
             let effects = step(state, Msg::Focus(Area::Prompt));

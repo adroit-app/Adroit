@@ -1,6 +1,8 @@
 //! What is written in the prompt for each tab. The prompt holds the shown
 //! tab's text; the others' is kept aside until their tab is shown again.
 
+pub(crate) mod remote;
+
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -33,6 +35,14 @@ pub enum Op {
     /// The shown tab's text, with the tab it was written for, leaving the
     /// prompt empty.
     Take(oneshot::Sender<Taken>),
+    Consume(
+        adroit_connect::journal::PromptContext,
+        oneshot::Sender<bool>,
+    ),
+    Recover(
+        adroit_connect::journal::PromptContext,
+        oneshot::Sender<bool>,
+    ),
     Attach(PathBuf),
     RemoveImage(PathBuf),
     RestoreImages(Option<Tab>, Vec<PathBuf>),
@@ -88,7 +98,7 @@ async fn kept_drafts(app: AppCtx) -> Option<KeptDrafts> {
     loop {
         match app.ask(Ask::Drafts).await {
             Answer::Drafts(drafts) => return Some(*drafts),
-            Answer::Failed { text } if text == GONE => {
+            answer if retry_drafts(app.remote_status().is_some(), &answer) => {
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
             Answer::Failed { text } => {
@@ -101,6 +111,10 @@ async fn kept_drafts(app: AppCtx) -> Option<KeptDrafts> {
             }
         }
     }
+}
+
+fn retry_drafts(remote: bool, answer: &Answer) -> bool {
+    matches!(answer, Answer::Failed { text } if remote || text == GONE)
 }
 
 /// Send the work host what changed of `now` since `kept`, telling the keeper
@@ -184,9 +198,8 @@ pub(crate) fn keeper(nvim: Signal<Option<Arc<Embedded>>>, app: AppCtx) -> Prompt
                 let put = |text: String| {
                     let nv = nv.clone();
                     async move {
-                        let lines: Vec<String> = text.lines().map(String::from).collect();
                         match nv {
-                            Some(nv) => nv.append(&lines).await.is_ok(),
+                            Some(nv) => nv.put_back(&text).await.is_ok(),
                             None => false,
                         }
                     }
@@ -205,6 +218,10 @@ pub(crate) fn keeper(nvim: Signal<Option<Arc<Embedded>>>, app: AppCtx) -> Prompt
                 } else {
                     op
                 };
+                if opened && kept.is_some() && !*app.drafts_ready.peek() {
+                    let mut ready = app.drafts_ready;
+                    ready.set(true);
+                }
                 let checkpoint_due = matches!(&op, Op::Save);
                 match op {
                     Op::Show(now) => {
@@ -270,6 +287,7 @@ pub(crate) fn keeper(nvim: Signal<Option<Arc<Embedded>>>, app: AppCtx) -> Prompt
                     }
                     Op::Take(reply) => {
                         let text = match &nv {
+                            Some(nv) if app.remote_status().is_some() => nv.text().await.ok(),
                             Some(nv) => nv.take_text().await.ok(),
                             None => None,
                         };
@@ -277,7 +295,47 @@ pub(crate) fn keeper(nvim: Signal<Option<Arc<Embedded>>>, app: AppCtx) -> Prompt
                             deferred.push_front(Op::Take(reply));
                             break;
                         };
-                        let _ = reply.send((drafts.shown().clone(), text, images.take()));
+                        let attachments = if app.remote_status().is_some() {
+                            images.current().to_vec()
+                        } else {
+                            images.take()
+                        };
+                        let _ = reply.send((drafts.shown().clone(), text, attachments));
+                    }
+                    Op::Consume(context, reply) => {
+                        let tab = remote::target(&context);
+                        let handled = if drafts.shown() == &tab {
+                            match &nv {
+                                Some(nv) => nv.consume_text(&context.text).await.is_ok(),
+                                None => false,
+                            }
+                        } else {
+                            drafts.consume_hidden(&tab, &context.text);
+                            true
+                        };
+                        if handled {
+                            images.consume(&tab, &context.images);
+                        }
+                        // A newer draft is deliberately preserved.
+                        let _ = reply.send(handled);
+                    }
+                    Op::Recover(context, reply) => {
+                        let restored = if drafts.shown() == &remote::target(&context) {
+                            match &nv {
+                                Some(nv) => match nv.text().await {
+                                    Ok(text) if text == context.text => true,
+                                    Ok(text) if text.is_empty() => put(context.text.clone()).await,
+                                    _ => false,
+                                },
+                                None => false,
+                            }
+                        } else {
+                            false
+                        };
+                        if restored && images.current().is_empty() {
+                            images.add(context.images);
+                        }
+                        let _ = reply.send(restored);
                     }
                     Op::Save => {}
                     Op::Saved(saved) => {
@@ -329,6 +387,17 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
+
+    #[test]
+    fn remote_draft_loading_retries_initial_connection_failures() {
+        let offline = Answer::Failed {
+            text: "The remote host is disconnected; the request was not sent".into(),
+        };
+        assert!(retry_drafts(true, &offline));
+        assert!(!retry_drafts(false, &offline));
+        assert!(retry_drafts(false, &Answer::Failed { text: GONE.into() }));
+        assert!(!retry_drafts(true, &Answer::Drafts(Box::default())));
+    }
 
     #[tokio::test]
     async fn a_failed_tab_restore_keeps_both_drafts_until_the_prompt_can_take_it() {

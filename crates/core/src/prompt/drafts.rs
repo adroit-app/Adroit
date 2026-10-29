@@ -38,6 +38,16 @@ impl Drafts {
         &self.shown
     }
 
+    /// Remove a hidden draft only when it still holds the sent text.
+    pub fn consume_hidden(&mut self, tab: &Option<Tab>, text: &str) -> bool {
+        if *tab == self.shown || self.kept.get(tab).is_some_and(|kept| kept != text) {
+            return false;
+        }
+        self.kept.remove(tab);
+        self.cursors.remove(tab);
+        true
+    }
+
     /// Keep `text` for the tab shown again: what [`Drafts::first`] gave when
     /// the prompt could not take it.
     pub fn put_back(&mut self, text: String) {
@@ -205,6 +215,19 @@ impl History {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn consuming_a_sent_hidden_draft_preserves_newer_text_and_the_shown_tab() {
+        let mut drafts = super::Drafts::default();
+        let tab = Some(crate::content::Tab::Session("session".into()));
+        drafts.add(&tab, &["sent".into()]);
+        assert!(!drafts.consume_hidden(&tab, "old"));
+        assert!(drafts.consume_hidden(&tab, "sent"));
+        assert_eq!(drafts.show(tab.clone(), "shown".into()), None);
+        assert!(!drafts.consume_hidden(&tab, "sent"));
+        assert_eq!(drafts.show(None, "newer".into()), Some("shown".into()));
+        assert!(!drafts.consume_hidden(&tab, "sent"));
+        assert_eq!(drafts.show(tab, "shown".into()), Some("newer".into()));
+    }
     use super::*;
 
     fn session(id: &str) -> Option<Tab> {

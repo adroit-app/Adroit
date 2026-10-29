@@ -249,10 +249,35 @@ pub(crate) fn sent(state: &mut ViewState, ok: bool) -> Vec<Effect> {
     }
 }
 
+pub(crate) fn retained(state: &mut ViewState) -> Vec<Effect> {
+    state.prompt.sending = None;
+    Vec::new()
+}
+
 fn restore(taken: Taken) -> Effect {
     Effect::PromptRestore {
         tab: taken.tab,
         text: taken.text,
         images: taken.images,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_prompt_kept_in_place_is_not_appended_again_when_its_send_is_retained() {
+        let mut state = ViewState::default();
+        state.prompt.sending = Some(Sending::Handed(Taken {
+            text: "original".into(),
+            ..Default::default()
+        }));
+        let effects = step(&mut state, Msg::PromptRetained);
+        assert!(state.prompt.sending.is_none());
+        assert!(
+            effects.is_empty(),
+            "retaining must not restore a duplicate: {effects:?}"
+        );
     }
 }

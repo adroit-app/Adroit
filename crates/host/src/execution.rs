@@ -17,6 +17,26 @@ use crate::{delegation::launch::Delegation, sessions, settings::Settings};
 pub(crate) const COLS: u16 = 120;
 pub(crate) const ROWS: u16 = 40;
 
+pub(crate) fn spawn_may_have_happened(error: &adroit_term::Error) -> bool {
+    !matches!(
+        error,
+        adroit_term::Error::NotFound(_)
+            | adroit_term::Error::OpenFolder(_)
+            | adroit_term::Error::Forwarded(_)
+            | adroit_term::Error::InputDisabled
+    )
+}
+
+pub(crate) fn spawn_failure(error: &adroit_term::Error) -> String {
+    if crate::remote::active() && spawn_may_have_happened(error) {
+        format!(
+            "terminal startup outcome is unknown; inspect the work before starting again: {error}"
+        )
+    } else {
+        error.to_string()
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct StartRequest {
     pub agent: Agent,
@@ -136,7 +156,8 @@ pub fn resolve_terminal(
         file,
         command,
     };
-    let tags = sessions::terminal_tags(&terminal);
+    let mut tags = sessions::terminal_tags(&terminal);
+    tags.extend(crate::environment::tags());
     ResolvedTerminalLaunch {
         terminal,
         spawn: Spawn {
@@ -157,7 +178,7 @@ pub async fn spawn_headless(
 ) -> Result<u128, String> {
     spawn_headless_prepared(daemon, spawn, palette, |_| async { Ok(()) })
         .await
-        .map_err(|error| error.to_string())
+        .map_err(|error| spawn_failure(&error))
 }
 
 pub async fn spawn_headless_prepared<F>(
@@ -244,6 +265,10 @@ pub fn resolve(
         env.retain(|(name, _)| !crate::env::reserved_delegation(name));
         env.extend(delegation.environment());
     }
+    env.retain(|(name, _)| name != crate::environment::ENV);
+    if let Some(context) = crate::environment::current() {
+        env.push((crate::environment::ENV.into(), context.id.clone()));
+    }
     let started_ms = if request.started_ms == 0 {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -265,6 +290,7 @@ pub fn resolve(
         context.home.as_deref(),
     ));
     tags.extend(sessions::editor_tags(&env));
+    tags.extend(crate::environment::tags());
     if let Some(delegation) = &request.delegation {
         tags.extend(delegation.tags());
     }
@@ -415,4 +441,23 @@ pub fn deliver(
     envelope: String,
 ) -> DeliveryFuture {
     agents::adapter(context.agent()).deliver(context, cwd, conversation, envelope)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stopping_a_failed_start_does_not_prove_its_expired_gate_never_ran_the_program() {
+        use adroit_term::Error;
+        assert!(!spawn_may_have_happened(&Error::NotFound("missing".into())));
+        assert!(!spawn_may_have_happened(&Error::InputDisabled));
+        assert!(spawn_may_have_happened(&Error::Io(std::io::Error::other(
+            "lost reply"
+        ))));
+        assert!(spawn_may_have_happened(&Error::PreparationAborted {
+            session: 7,
+            reason: "recording failed after the gate expired".into()
+        }));
+    }
 }

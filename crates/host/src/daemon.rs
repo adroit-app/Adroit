@@ -8,7 +8,7 @@ use adroit_term::Daemon;
 use crate::awake::{self, Assertion, Keeper};
 use crate::cli::DaemonCommand;
 use crate::paths::state_dir;
-use crate::standing::{build, say_when_listening};
+use crate::standing::{SAY_AGAIN, build, keep_saying, say_when_listening};
 use crate::work_host::{self, adroit_program};
 
 /// Where the terminal host of the instance listens.
@@ -18,7 +18,7 @@ pub fn socket() -> PathBuf {
 
 /// The daemon the window talks to.
 pub fn daemon() -> Daemon {
-    Daemon::new(socket())
+    Daemon::new(socket()).with_startup_lease(crate::work_host::adroit_program())
 }
 
 /// The arguments that have adroit serve the daemon at its socket.
@@ -68,10 +68,14 @@ pub fn terminfo_dirs(dir: &Path, given: Option<&str>) -> String {
 /// Neovim terminal gets only this, so the editor it opens stays the user's.
 pub fn terminal_env() -> Vec<(String, String)> {
     let given = std::env::var("TERMINFO_DIRS").ok();
-    vec![(
+    let mut env = vec![(
         "TERMINFO_DIRS".into(),
         terminfo_dirs(&terminfo_dir(), given.as_deref()),
-    )]
+    )];
+    if let Some(context) = crate::environment::current() {
+        env.push((crate::environment::ENV.into(), context.id.clone()));
+    }
+    env
 }
 
 /// What every agent session's environment holds, whoever starts it: its
@@ -145,12 +149,45 @@ pub fn cli(asked: DaemonCommand) -> i32 {
 
 fn serve(rt: &tokio::runtime::Runtime) -> adroit_term::Result<()> {
     let mut keeper = Keeper::new(|| Assertion::take(awake::NAME));
-    // The setting is read from its file each time, as the window that
-    // changes it is another process, which may not be open.
-    let running = move |n| keeper.keep(awake::wanted(n, crate::settings::load().keep_awake));
     rt.block_on(async {
-        tokio::spawn(async { say_when_listening(&daemon(), &build(), adroit_term::SPEAKS).await });
-        Daemon::serve(&socket(), AWAKE_EVERY, running).await
+        crate::environment::spawn(async {
+            let daemon = daemon();
+            let build = build();
+            say_when_listening(&daemon, &build, adroit_term::SPEAKS).await;
+            keep_saying(&daemon, &build, adroit_term::SPEAKS, SAY_AGAIN).await
+        });
+        let monitor = async {
+            loop {
+                if let Ok(sessions) = daemon().sessions().await {
+                    let mut counts = std::collections::BTreeMap::new();
+                    for session in sessions.into_iter().filter(|s| !s.exited) {
+                        let scope =
+                            adroit_term::tags::value(&session.tags, crate::environment::TAG);
+                        *counts.entry(scope).or_insert(0) += 1;
+                    }
+                    keeper.keep(awake::environments_wanted(&counts, |scope| {
+                        let Some(scope) = scope else {
+                            return crate::settings::load().keep_awake;
+                        };
+                        if !adroit_model::paths::is_instance(scope) {
+                            return true;
+                        }
+                        let file = adroit_model::paths::instance_state()
+                            .join("environments")
+                            .join(scope)
+                            .join("config/settings.toml");
+                        crate::settings::Settings::read(&crate::config::file(&file))
+                            .map_or(true, |settings| settings.keep_awake)
+                    }));
+                }
+                tokio::time::sleep(AWAKE_EVERY).await;
+            }
+        };
+        let service_socket = socket();
+        tokio::select! {
+            result = Daemon::serve(&service_socket, AWAKE_EVERY, |_| {}) => result,
+            () = monitor => unreachable!(),
+        }
     })
 }
 

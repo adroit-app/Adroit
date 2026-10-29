@@ -40,6 +40,15 @@ impl Attachments {
         self.kept.remove(&self.shown).unwrap_or_default()
     }
 
+    /// Remove the sent attachments while preserving any changed selection.
+    pub fn consume(&mut self, tab: &Option<Tab>, sent: &[PathBuf]) -> bool {
+        if self.kept.get(tab).map(Vec::as_slice).unwrap_or_default() != sent {
+            return false;
+        }
+        self.kept.remove(tab);
+        true
+    }
+
     pub fn restore(&mut self, tab: Option<Tab>, images: Vec<PathBuf>) {
         self.kept.entry(tab).or_default().splice(0..0, images);
     }
@@ -146,6 +155,17 @@ pub fn image_key(images: &[PathBuf], selected: Option<&PathBuf>, key: &Key) -> O
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn consuming_attachments_only_removes_the_exact_sent_set() {
+        let mut images = super::Attachments::default();
+        images.add(vec![std::path::PathBuf::from("/sent.png")]);
+        assert!(!images.consume(&None, &[]));
+        assert!(images.consume(&None, &[std::path::PathBuf::from("/sent.png")]));
+        assert!(images.current().is_empty());
+        images.add(vec![std::path::PathBuf::from("/new.png")]);
+        assert!(!images.consume(&None, &[std::path::PathBuf::from("/sent.png")]));
+        assert_eq!(images.current(), &[std::path::PathBuf::from("/new.png")]);
+    }
     use super::*;
 
     #[test]

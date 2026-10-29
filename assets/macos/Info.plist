@@ -24,5 +24,11 @@
   <true/>
   <key>LSApplicationCategoryType</key>
   <string>public.app-category.developer-tools</string>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>Adroit reaches and announces work machines paired with this computer on your local network.</string>
+  <key>NSBonjourServices</key>
+  <array>
+    <string>_adroit._tcp</string>
+  </array>
 </dict>
 </plist>

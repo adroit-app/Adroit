@@ -13,6 +13,15 @@ pub enum Command {
         new: bool,
     },
     Version,
+    Connect,
+    /// Pair this client with the work machine at `address`, shown to its
+    /// operator as `name`.
+    Pair {
+        address: String,
+        name: Option<String>,
+    },
+    /// List the work machines announcing themselves on the local network.
+    Discover,
     /// A subcommand, and the arguments that follow it.
     Terminal(Vec<String>),
     /// Serve a session's `adroit` MCP server on standard input and output.
@@ -24,6 +33,89 @@ pub enum Command {
     InOwnLogin(Vec<String>),
     Daemon(DaemonCommand),
     Host(HostCommand),
+    Remote {
+        operation: RemoteCommand,
+        instance: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RemoteCommand {
+    Host,
+    Daemon,
+    Info,
+    /// Let paired clients reach the hosts over the network.
+    Gateway {
+        listen: Option<String>,
+        /// Whether it announces itself on the local network.
+        advertise: bool,
+    },
+    /// Approve a client's pairing request with the code it shows.
+    Pair,
+    Devices,
+    /// Forget the paired client whose fingerprint starts with this.
+    Revoke(String),
+    /// Run the hosts and the gateway as the user's services.
+    Enable {
+        listen: Option<String>,
+        advertise: bool,
+    },
+    Disable,
+}
+
+fn remote(args: &[String]) -> Option<Command> {
+    let (name, mut rest) = args.split_first()?;
+    let mut operation = match name.as_str() {
+        "host" => RemoteCommand::Host,
+        "daemon" => RemoteCommand::Daemon,
+        "info" => RemoteCommand::Info,
+        "gateway" => RemoteCommand::Gateway {
+            listen: None,
+            advertise: true,
+        },
+        "pair" => RemoteCommand::Pair,
+        "devices" => RemoteCommand::Devices,
+        "enable" => RemoteCommand::Enable {
+            listen: None,
+            advertise: true,
+        },
+        "disable" => RemoteCommand::Disable,
+        "revoke" => {
+            let (prefix, after) = rest.split_first()?;
+            rest = after;
+            RemoteCommand::Revoke(prefix.clone())
+        }
+        _ => return None,
+    };
+    let mut instance = None;
+    while let [option, after @ ..] = rest {
+        rest = after;
+        match (option.as_str(), &mut operation) {
+            (
+                "--no-advertise",
+                RemoteCommand::Gateway { advertise, .. } | RemoteCommand::Enable { advertise, .. },
+            ) if *advertise => *advertise = false,
+            ("--instance", _) if instance.is_none() => {
+                let (value, after) = rest.split_first().filter(|(v, _)| is_instance(v))?;
+                instance = Some(value.clone());
+                rest = after;
+            }
+            (
+                "--listen",
+                RemoteCommand::Gateway { listen, .. } | RemoteCommand::Enable { listen, .. },
+            ) if listen.is_none() => {
+                let (value, after) = rest.split_first()?;
+                value.parse::<std::net::SocketAddr>().ok()?;
+                *listen = Some(value.clone());
+                rest = after;
+            }
+            _ => return None,
+        }
+    }
+    Some(Command::Remote {
+        operation,
+        instance,
+    })
 }
 
 /// What `adroit daemon` is asked to do with the daemon of the instance.
@@ -59,7 +151,7 @@ pub enum HostCommand {
     Restart,
 }
 
-pub const USAGE: &str = "usage: adroit [[--instance <name>] [--new-window] | --version | terminal … | mcp … | editor … | session … | daemon [stop | restart] | host [stop | restart]]";
+pub const USAGE: &str = "usage: adroit [[--instance <name>] [--new-window] | --version | connect [--check | discover | pair <address> [--name <name>]] | terminal … | mcp … | editor … | session … | daemon [stop | restart] | host [stop | restart] | remote <daemon|host|info|gateway [--listen <address>] [--no-advertise]|pair|devices|revoke <fingerprint>|enable [--listen <address>] [--no-advertise]|disable> [--instance <name>]]";
 
 /// The command `args` ask for; `None` for one adroit does not know, which
 /// must not open a window: a program that ran an older adroit's subcommand
@@ -78,10 +170,28 @@ pub fn command(args: &[String]) -> Option<Command> {
         }),
         Some("--instance" | "--new-window") => window(args),
         Some("--version") if args.len() == 1 => Some(Command::Version),
+        Some("connect") if args.len() == 1 || args == ["connect", "--check"] => {
+            Some(Command::Connect)
+        }
+        Some("connect") => match &args[1..] {
+            [verb] if verb == "discover" => Some(Command::Discover),
+            [verb, address] if verb == "pair" => Some(Command::Pair {
+                address: address.clone(),
+                name: None,
+            }),
+            [verb, address, option, name] if verb == "pair" && option == "--name" => {
+                Some(Command::Pair {
+                    address: address.clone(),
+                    name: Some(name.clone()),
+                })
+            }
+            _ => None,
+        },
         Some("mcp") => Some(Command::Mcp(rest())),
         Some("terminal") => Some(Command::Terminal(rest())),
         Some("editor") => Some(Command::Editor(rest())),
         Some("session") => Some(Command::Session(rest())),
+        Some("remote") => remote(&args[1..]),
         Some(adroit_agents::own_login::SUBCOMMAND) => Some(Command::InOwnLogin(rest())),
         Some("daemon") => match &args[1..] {
             [] => Some(Command::Daemon(DaemonCommand::Serve)),
@@ -240,5 +350,158 @@ mod tests {
         assert_eq!(asked(&["--bogus"]), None);
         assert_eq!(asked(&["daemon", "extra"]), None);
         assert_eq!(asked(&["daemon", "stop", "extra"]), None);
+    }
+
+    #[test]
+    fn remote_services_and_discovery_are_selected_without_opening_a_window() {
+        for (name, operation) in [
+            ("host", RemoteCommand::Host),
+            ("daemon", RemoteCommand::Daemon),
+            ("info", RemoteCommand::Info),
+        ] {
+            assert_eq!(
+                asked(&["remote", name]),
+                Some(Command::Remote {
+                    operation: operation.clone(),
+                    instance: None
+                })
+            );
+            assert_eq!(
+                asked(&["remote", name, "--instance", "ai"]),
+                Some(Command::Remote {
+                    operation,
+                    instance: Some("ai".into())
+                })
+            );
+        }
+        assert_eq!(asked(&["remote", "info", "--instance", "../other"]), None);
+        assert_eq!(asked(&["remote", "stop"]), None);
+    }
+
+    #[test]
+    fn the_gateway_and_its_clients_are_managed_from_remote_subcommands() {
+        let remote = |operation| {
+            Some(Command::Remote {
+                operation,
+                instance: None,
+            })
+        };
+        assert_eq!(
+            asked(&["remote", "gateway"]),
+            remote(RemoteCommand::Gateway {
+                listen: None,
+                advertise: true
+            })
+        );
+        assert_eq!(
+            asked(&["remote", "gateway", "--listen", "192.168.1.5:47130"]),
+            remote(RemoteCommand::Gateway {
+                listen: Some("192.168.1.5:47130".into()),
+                advertise: true,
+            })
+        );
+        assert_eq!(
+            asked(&[
+                "remote",
+                "gateway",
+                "--instance",
+                "ai",
+                "--listen",
+                "[::]:1"
+            ]),
+            Some(Command::Remote {
+                operation: RemoteCommand::Gateway {
+                    listen: Some("[::]:1".into()),
+                    advertise: true,
+                },
+                instance: Some("ai".into())
+            })
+        );
+        assert_eq!(asked(&["remote", "pair"]), remote(RemoteCommand::Pair));
+        assert_eq!(
+            asked(&["remote", "devices"]),
+            remote(RemoteCommand::Devices)
+        );
+        assert_eq!(
+            asked(&["remote", "revoke", "0123abcd"]),
+            remote(RemoteCommand::Revoke("0123abcd".into()))
+        );
+        assert_eq!(asked(&["remote", "revoke"]), None);
+        assert_eq!(
+            asked(&["remote", "pair", "123456"]),
+            None,
+            "no code in argv"
+        );
+        assert_eq!(asked(&["remote", "gateway", "--listen", "nowhere"]), None);
+        assert_eq!(
+            asked(&["remote", "enable"]),
+            remote(RemoteCommand::Enable {
+                listen: None,
+                advertise: true
+            })
+        );
+        assert_eq!(
+            asked(&["remote", "enable", "--listen", "10.0.0.2:47130"]),
+            remote(RemoteCommand::Enable {
+                listen: Some("10.0.0.2:47130".into()),
+                advertise: true,
+            })
+        );
+        assert_eq!(
+            asked(&["remote", "disable"]),
+            remote(RemoteCommand::Disable)
+        );
+        assert_eq!(
+            asked(&["remote", "disable", "--listen", "10.0.0.2:1"]),
+            None
+        );
+        assert_eq!(
+            asked(&[
+                "remote",
+                "gateway",
+                "--no-advertise",
+                "--listen",
+                "10.0.0.2:1"
+            ]),
+            remote(RemoteCommand::Gateway {
+                listen: Some("10.0.0.2:1".into()),
+                advertise: false
+            })
+        );
+        assert_eq!(
+            asked(&["remote", "enable", "--no-advertise"]),
+            remote(RemoteCommand::Enable {
+                listen: None,
+                advertise: false
+            })
+        );
+        assert_eq!(asked(&["remote", "pair", "--no-advertise"]), None);
+        assert_eq!(
+            asked(&["remote", "gateway", "--no-advertise", "--no-advertise"]),
+            None
+        );
+    }
+
+    #[test]
+    fn a_client_pairs_with_a_work_machine_by_its_address() {
+        assert_eq!(
+            asked(&["connect", "pair", "work-box.local:47130"]),
+            Some(Command::Pair {
+                address: "work-box.local:47130".into(),
+                name: None
+            })
+        );
+        assert_eq!(
+            asked(&["connect", "pair", "10.0.0.2:47130", "--name", "desk"]),
+            Some(Command::Pair {
+                address: "10.0.0.2:47130".into(),
+                name: Some("desk".into())
+            })
+        );
+        assert_eq!(asked(&["connect", "pair"]), None);
+        assert_eq!(asked(&["connect", "pair", "a:1", "--name"]), None);
+        assert_eq!(asked(&["connect"]), Some(Command::Connect));
+        assert_eq!(asked(&["connect", "discover"]), Some(Command::Discover));
+        assert_eq!(asked(&["connect", "discover", "x"]), None);
     }
 }

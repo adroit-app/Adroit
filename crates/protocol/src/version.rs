@@ -21,6 +21,12 @@ pub fn agree(ours: &[Version], theirs: &[Version]) -> Option<Version> {
 pub struct Hello {
     pub speaks: Vec<Version>,
     pub build: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<crate::RemoteEndpoint>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal: Option<crate::RemoteEndpoint>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mutation_epoch: Option<u64>,
 }
 
 /// What a window does with the work host listening.
@@ -71,6 +77,9 @@ mod tests {
         Hello {
             speaks: speaks.to_vec(),
             build: build.into(),
+            endpoint: None,
+            terminal: None,
+            mutation_epoch: None,
         }
     }
 

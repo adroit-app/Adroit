@@ -8,6 +8,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::work::set;
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PathEntry {
+    pub path: String,
+    pub directory: bool,
+}
+
 /// The name of a host the work is on. Every place is on the work host's
 /// own machine for now, which is named [`HostName::local`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]

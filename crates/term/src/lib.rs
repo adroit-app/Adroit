@@ -2,9 +2,11 @@
 //! drawing, and keys as the daemon takes them.
 
 mod daemon;
+pub mod gate;
 mod input;
 mod palette;
 mod pane;
+mod permission;
 pub mod picture;
 mod presence;
 mod screen;
@@ -16,6 +18,7 @@ pub use daemon::{
 pub use input::{Input, Key};
 pub use palette::{Palette, Rgb};
 pub use pane::{Drawn, Pane, Picture, Size, runnable};
+pub use permission::InputPermission;
 pub use presence::Presence;
 pub use screen::{Cursor, CursorShape, Line, Part, Run, Screen, Style, block, set_apart};
 

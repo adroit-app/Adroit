@@ -11,11 +11,11 @@ use dioxus::desktop::window;
 use dioxus::prelude::*;
 use tokio::sync::mpsc::UnboundedSender;
 
-use super::run_open;
+use super::{open_with, run_open};
 use crate::bridge::AppCtx;
 use crate::components::{SettingGroup, SettingRow};
-use crate::feed::use_config;
 use crate::icons::{Icon, IconView};
+use crate::link::Link;
 use crate::paths::home;
 
 thread_local! {
@@ -62,17 +62,13 @@ pub(crate) fn folder(settings: &Path, name: &str) -> PathBuf {
 /// The configuration of the Neovim `name`, `prompt` or `console`.
 #[component]
 pub(super) fn NeovimGroup(name: &'static str) -> Element {
-    let config = use_config();
-    let dir = {
-        let config = config.read();
-        let settings = config.files().settings.as_ref();
-        folder(&settings.map(|f| f.path.clone()).unwrap_or_default(), name)
-    };
+    let remote = use_context::<Link>().remote_status().is_some();
+    let dir = folder(&crate::paths::config_dir().join("settings.toml"), name);
     let mut copied = use_signal(|| false);
     let shown = tilde(&dir, &home());
     rsx! {
         SettingGroup { title: "Neovim",
-            SettingRow { label: "Configuration", hint: "{shown}",
+            SettingRow { label: "Configuration on this computer", hint: "{shown}",
                 button {
                     title: "Copy the folder's path",
                     onclick: {
@@ -101,10 +97,14 @@ pub(super) fn NeovimGroup(name: &'static str) -> Element {
                     onclick: move |_| {
                         // Neovim starts in the folder, which has to be there.
                         let _ = std::fs::create_dir_all(&dir);
-                        ask_main(Msg::EditFile(dir.join("init.lua")));
+                        if remote {
+                            open_with("-t", &dir.join("init.lua"), "");
+                        } else {
+                            ask_main(Msg::EditFile(dir.join("init.lua")));
+                        }
                     },
                     IconView { icon: Icon::Code, size: 14 }
-                    "Edit init.lua"
+                    if remote { "Edit locally" } else { "Edit init.lua" }
                 }
             }
         }

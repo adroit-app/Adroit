@@ -10,6 +10,7 @@ pub(crate) mod header;
 mod local;
 pub(crate) mod overlays;
 pub(crate) mod panels;
+mod remote;
 mod socket;
 pub(crate) mod status_bar;
 mod ui;

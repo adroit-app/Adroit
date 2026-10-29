@@ -49,7 +49,7 @@ impl Context {
         operation: impl FnOnce(&mut Store) -> Result<T> + Send + 'static,
     ) -> Result<T> {
         let store = self.store.clone();
-        tokio::task::spawn_blocking(move || {
+        crate::environment::spawn_blocking(move || {
             let mut store = store.lock().expect("the store's lock");
             store.ensure_current_schema()?;
             operation(&mut store)
@@ -115,12 +115,13 @@ impl Service {
             settings: Arc::new(settings),
         };
         let socket = protocol::socket(root);
+        adroit_term::own_dir(&socket).map_err(Error::storage)?;
         let listener = crate::work_host::bind_private(&socket).map_err(Error::storage)?;
         let serving = context.clone();
         let tasks = vec![
-            tokio::spawn(async move { serve(listener, serving).await }),
-            tokio::spawn(supervise(context.clone())),
-            tokio::spawn(watch_models(context)),
+            crate::environment::spawn(async move { serve(listener, serving).await }),
+            crate::environment::spawn(supervise(context.clone())),
+            crate::environment::spawn(watch_models(context)),
         ];
         Ok(Self {
             tasks,
@@ -140,7 +141,7 @@ async fn serve(listener: tokio::net::UnixListener, context: Context) {
             continue;
         };
         let context = context.clone();
-        tokio::spawn(async move {
+        crate::environment::spawn(async move {
             let _permit = permit;
             let _ = reply(stream, context).await;
         });
@@ -356,10 +357,15 @@ async fn start(context: &Context, caller: &Session, start: protocol::Start) -> R
     )
     .await;
     if let Err(error) = started {
-        recorded.failed().await;
+        if !crate::remote::active() || !crate::execution::spawn_may_have_happened(&error) {
+            recorded.failed().await;
+        }
         return Err(Error::new(
             Code::Storage,
-            format!("cannot start {name}: {error}"),
+            format!(
+                "cannot start {name}: {}",
+                crate::execution::spawn_failure(&error)
+            ),
         ));
     }
     Ok(json!({"id": recorded.id, "name": name, "dir": cwd}))

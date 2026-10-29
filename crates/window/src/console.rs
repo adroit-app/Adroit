@@ -175,6 +175,9 @@ pub fn ConsoleScreen(tab: Tab, frame: Signal<u64>, cell_width: f64, focused: boo
     let ch = use_cell_height();
     let _ = frame();
     let hub = use_context::<Hub>();
+    let remote = use_context::<crate::bridge::AppCtx>()
+        .remote_status()
+        .is_some();
     let pane = hub.panes.borrow().get(&tab).cloned();
     let Some(pane) = pane else {
         return rsx! {
@@ -209,7 +212,7 @@ pub fn ConsoleScreen(tab: Tab, frame: Signal<u64>, cell_width: f64, focused: boo
             ScreenView { screen, cell_width, show_cursor: focused, pictures }
             Clicks { cell_width, onclick: { let pane = pane.clone(); move |(col, row)| pane.click(col, row) } }
         }
-        if pane.exited() {
+        if if remote { pane.program_exited() } else { pane.exited() } {
             EmptyState { kind: "detached", title: "Ended",
                 div { "What ran here has exited." }
             }

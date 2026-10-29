@@ -25,7 +25,7 @@ async fn with_store<T: Send + 'static>(
     operation: impl FnOnce(&mut Store) -> Result<T> + Send + 'static,
 ) -> Result<T> {
     let path = database(root);
-    tokio::task::spawn_blocking(move || {
+    crate::environment::spawn_blocking(move || {
         Store::open(&path).and_then(|mut store| operation(&mut store))
     })
     .await

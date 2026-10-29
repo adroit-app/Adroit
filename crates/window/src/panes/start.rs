@@ -225,6 +225,52 @@ impl Ui {
                 rows: size.rows,
             };
             let failed = |e| format!("cannot start {name}: {e}");
+            if app.remote_status().is_some() {
+                let Some(context) = crate::prompts::remote::context(&taken) else {
+                    app.dispatch(Msg::PromptRetained);
+                    return;
+                };
+                match app
+                    .ask_prompt(Ask::StartSession(Box::new(start)), context.clone())
+                    .await
+                {
+                    Answer::Session { id } => {
+                        let cleanup = ui.finish_remote_prompt(&context, true).await;
+                        app.dispatch(Msg::Relist);
+                        match cleanup {
+                            Ok(()) => {
+                                app.dispatch(Msg::Replace {
+                                    from: draft,
+                                    to: Tab::Session(id.clone()),
+                                });
+                                app.dispatch(Msg::PromptWent(true));
+                            }
+                            Err(text) => {
+                                app.status(Some(format!("The session started; {text}")));
+                                app.dispatch(Msg::PromptRetained);
+                            }
+                        }
+                        if let Some(terminal) = sessions::id_of(&id)
+                            && let Err(error) =
+                                attach_held(app, &ui.hub, terminal, Tab::Session(id), size).await
+                        {
+                            app.status(Some(format!(
+                                "The session started, but its console could not attach: {error}"
+                            )));
+                        }
+                    }
+                    answer => {
+                        if matches!(answer, Answer::Failed { .. })
+                            && let Err(text) = ui.finish_remote_prompt(&context, false).await
+                        {
+                            app.status(Some(text));
+                        }
+                        app.status(Some(format!("The draft is retained: {answer:?}")));
+                        app.dispatch(Msg::PromptRetained);
+                    }
+                }
+                return;
+            }
             match ui.start_session(start, failed).await {
                 Ok(id) => {
                     app.dispatch(Msg::Relist);

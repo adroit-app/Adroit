@@ -323,7 +323,7 @@ fn use_menu_bar(ui: &Ui) {
             // Closing acts on the window in front, as macOS's own Close does,
             // so it does not reach behind Settings to a tab.
             if matches!(action, Action::TabClose | Action::WindowClose)
-                && settings_window::close_in_front()
+                && (settings_window::close_in_front() || crate::profile_manager::close_in_front())
             {
                 return;
             }

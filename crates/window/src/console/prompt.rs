@@ -139,6 +139,9 @@ impl PromptNeovim {
                         let _ = e.put_back(&text).await;
                         let _ = e.set_view(&view).await;
                     }
+                    if app.remote_status().is_some() {
+                        let _ = e.freeze_prompt(true).await;
+                    }
                     let embedded = Arc::new(e);
                     nvim.set(Some(embedded.clone()));
                     app.dispatch(Msg::PromptRuns(true));
@@ -197,6 +200,42 @@ impl PromptNeovim {
         let mut prompt_frame = self.prompt_frame;
         let mut prompt_view = self.prompt_view;
         let mut prompt_height = self.prompt_height;
+        let (paths, mut path_queries) =
+            tokio::sync::watch::channel::<Option<(u64, String, String)>>(None);
+        if let Some(embedded) = self.nvim.peek().clone() {
+            spawn(async move {
+                while path_queries.changed().await.is_ok() {
+                    let Some((id, root, typed)) = path_queries.borrow_and_update().clone() else {
+                        continue;
+                    };
+                    let root = (!root.is_empty()).then(|| adroit_protocol::HostPath::local(root));
+                    let answer = tokio::time::timeout(
+                        std::time::Duration::from_secs(2),
+                        app.ask(adroit_protocol::Ask::PathEntries { root, typed }),
+                    )
+                    .await;
+                    let entries = match answer {
+                        Ok(adroit_protocol::Answer::PathEntries { entries }) => entries
+                            .into_iter()
+                            .map(|entry| {
+                                adroit_nvim::Candidate::new(
+                                    entry.path,
+                                    if entry.directory { "dir" } else { "file" },
+                                )
+                            })
+                            .collect::<Vec<_>>(),
+                        _ => Vec::new(),
+                    };
+                    match path_queries.has_changed() {
+                        Ok(false) => {
+                            let _ = embedded.set_paths(id, &entries).await;
+                        }
+                        Ok(true) => {}
+                        Err(_) => break,
+                    }
+                }
+            });
+        }
         let rows = *self.prompt_rows.peek() as u16;
         let cols = *self.prompt_cols.peek();
         let _ = embedded.resize(cols, rows).await;
@@ -214,6 +253,9 @@ impl PromptNeovim {
                 NvimEvent::Yank { .. } | NvimEvent::Scrolled { .. } => {}
                 NvimEvent::Shell(on) => app.dispatch(Msg::PromptShell(on)),
                 NvimEvent::CommandsWanted => commands_wanted(()),
+                NvimEvent::PathsWanted { id, root, typed } => {
+                    let _ = paths.send(Some((id, root, typed)));
+                }
                 NvimEvent::Action(name) => match name.parse::<Action>() {
                     Ok(action) => asked(action),
                     Err(e) => app.notice(format!("cannot run {name}: {e}")),

@@ -86,7 +86,7 @@ pub fn overview_facts(
 fn started_from_facts(s: &Session, settings: &crate::settings::Settings) -> Vec<Fact> {
     vec![
         Fact::plain(
-            "Profile",
+            "Agent setup",
             settings.started_as(s.agent, &s.profile, s.home.as_deref(), &s.profile_name),
         ),
         Fact::plain(
@@ -1393,7 +1393,7 @@ mod tests {
         assert_eq!(
             shown(&work),
             [
-                ("Profile", "Claude Code · Claude Work".to_string()),
+                ("Agent setup", "Claude Code · Claude Work".to_string()),
                 ("Login", "This profile's own".to_string())
             ]
         );
@@ -1401,7 +1401,7 @@ mod tests {
         assert_eq!(
             shown(&own),
             [
-                ("Profile", "Claude Code · claude".to_string()),
+                ("Agent setup", "Claude Code · claude".to_string()),
                 ("Login", "Your terminal's".to_string())
             ]
         );
@@ -1413,7 +1413,7 @@ mod tests {
         assert_eq!(
             shown(&gone),
             [
-                ("Profile", "Claude Code · Claude Old".to_string()),
+                ("Agent setup", "Claude Code · Claude Old".to_string()),
                 ("Login", "This profile's own".to_string())
             ]
         );
@@ -1435,7 +1435,7 @@ mod tests {
             [
                 "Tokens used",
                 "Activity",
-                "Profile",
+                "Agent setup",
                 "Login",
                 "Workspace",
                 "Worktree",
@@ -1463,7 +1463,7 @@ mod tests {
             None,
             Some(Path::new("/w")),
         );
-        assert_eq!(labels(&bare), ["Profile", "Login", "Worktree"]);
+        assert_eq!(labels(&bare), ["Agent setup", "Login", "Worktree"]);
     }
 
     fn limit(window: Window, percent: f64, resets_ms: Option<u64>) -> Limit {

@@ -269,7 +269,7 @@ fn lock(host: &Mutex<Host>) -> MutexGuard<'_, Host> {
 /// The watcher of the configuration, which the windows work by from the
 /// first, run in the background for as long as the process lives.
 pub fn start_config(watched: Watched) {
-    tokio::spawn(config::watch(watched));
+    crate::environment::spawn(config::watch(watched));
 }
 
 /// Every watcher, run in the background for as long as the process lives.
@@ -284,28 +284,28 @@ pub fn start(watched: Watched) {
         )
     };
     if let Some(jobs) = jobs {
-        tokio::spawn(crate::jobs::run(watched.clone(), jobs));
+        crate::environment::spawn(crate::jobs::run(watched.clone(), jobs));
     }
     if let Some(histories) = histories {
-        tokio::spawn(history::watch(watched.clone(), histories));
+        crate::environment::spawn(history::watch(watched.clone(), histories));
     }
     if let Some(redraws) = redraws {
-        tokio::spawn(dialog::watch(watched.clone(), redraws));
+        crate::environment::spawn(dialog::watch(watched.clone(), redraws));
     }
     if let Some(quits) = quits {
-        tokio::spawn(crate::jobs::quit(quits));
+        crate::environment::spawn(crate::jobs::quit(quits));
     }
-    tokio::spawn(sessions::watch(watched.clone()));
-    tokio::spawn(marks::watch(watched.clone()));
-    tokio::spawn(past::watch(watched.clone()));
-    tokio::spawn(offers::watch(watched.clone()));
-    tokio::spawn(commands::watch(watched.clone()));
-    tokio::spawn(place::watch(watched.clone()));
-    tokio::spawn(entries::watch(watched.clone()));
-    tokio::spawn(repository::watch(watched.clone()));
-    tokio::spawn(conversation::watch(watched.clone()));
-    tokio::spawn(context::watch(watched.clone()));
-    tokio::spawn(usage::watch(watched.clone()));
-    tokio::spawn(processes::watch(watched.clone()));
-    tokio::spawn(system::watch(watched));
+    crate::environment::spawn(sessions::watch(watched.clone()));
+    crate::environment::spawn(marks::watch(watched.clone()));
+    crate::environment::spawn(past::watch(watched.clone()));
+    crate::environment::spawn(offers::watch(watched.clone()));
+    crate::environment::spawn(commands::watch(watched.clone()));
+    crate::environment::spawn(place::watch(watched.clone()));
+    crate::environment::spawn(entries::watch(watched.clone()));
+    crate::environment::spawn(repository::watch(watched.clone()));
+    crate::environment::spawn(conversation::watch(watched.clone()));
+    crate::environment::spawn(context::watch(watched.clone()));
+    crate::environment::spawn(usage::watch(watched.clone()));
+    crate::environment::spawn(processes::watch(watched.clone()));
+    crate::environment::spawn(system::watch(watched));
 }

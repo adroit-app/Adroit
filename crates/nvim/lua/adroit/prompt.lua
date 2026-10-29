@@ -9,17 +9,116 @@ local offer = require("adroit.offer")
 local server = require("adroit.server")
 
 local M = {}
+local path_id, path_query = 0, nil
 
---- What the prompt offers for `before`, from what the window set, asking the
---- window on `chan` for the commands anew when a bare sigil is typed.
-function M.offer(chan, before)
-  local offered = offer.at(before, {
+local function buffer()
+  local b = vim.g.adroit_buf
+  return b and vim.api.nvim_buf_is_valid(b) and b or vim.api.nvim_get_current_buf()
+end
+
+function M.freeze(frozen)
+  vim.g.adroit_prompt_frozen = frozen
+  vim.bo[buffer()].modifiable = not frozen
+end
+
+--- Window-owned edits remain possible while user input is frozen.
+function M.edit(action, ...)
+  local frozen = vim.g.adroit_prompt_frozen == true
+  M.freeze(false)
+  local ok, result = pcall(action, ...)
+  M.freeze(frozen)
+  if not ok then
+    error(result)
+  end
+  return result
+end
+
+function M.consume(text)
+  local b = buffer()
+  if table.concat(vim.api.nvim_buf_get_lines(b, 0, -1, false), "\n") ~= text then
+    return false
+  end
+  return M.edit(function()
+    vim.api.nvim_buf_set_lines(b, 0, -1, false, {})
+    if vim.api.nvim_get_current_buf() == b then
+      vim.api.nvim_win_set_cursor(0, { 1, 0 })
+    end
+    return true
+  end)
+end
+
+local function available(before, entries)
+  return offer.at(before, {
     candidates = vim.g.adroit_candidates,
     commands = vim.g.adroit_commands,
     root = vim.g.adroit_root,
+    path_entries = entries,
   })
+end
+
+local function complete_paths(query, entries)
+  local waiters = query.waiters
+  query.waiters = {}
+  for _, waiter in ipairs(waiters) do
+    waiter.done(entries and available(waiter.before, entries) or nil)
+  end
+end
+
+function M.root(root)
+  if (vim.g.adroit_root or "") ~= root and path_query then
+    complete_paths(path_query, nil)
+    path_query = nil
+  end
+  vim.g.adroit_root = root
+end
+
+--- An answer for the exact query; late answers cannot populate another root.
+function M.paths(id, entries)
+  local query = path_query
+  if not query or query.id ~= id or query.ready then
+    return
+  end
+  if query.root ~= (vim.g.adroit_root or "") then
+    complete_paths(query, nil)
+    path_query = nil
+    return
+  end
+  query.entries, query.ready, query.updated = entries, true, vim.uv.now()
+  complete_paths(query, entries)
+end
+
+--- What the prompt offers for `before`, from what the window set, asking the
+--- window on `chan` for the commands anew when a bare sigil is typed.
+function M.offer(chan, before, done)
+  local query = path_query
+  local offered = available(before)
   if offered and offered.wants_commands then
     vim.rpcnotify(chan, "adroit_commands_wanted")
+  end
+  if offered and offered.paths then
+    local root, typed = vim.g.adroit_root or "", offered.paths
+    if not query or query.root ~= root or query.typed ~= typed or (query.ready and vim.uv.now() - query.updated > 1000) then
+      if query then
+        complete_paths(query, nil)
+      end
+      path_id = path_id + 1
+      query = { id = path_id, root = root, typed = typed, waiters = {} }
+      path_query = query
+      vim.rpcnotify(chan, "adroit_paths_wanted", query.id, root, typed)
+      vim.defer_fn(function()
+        M.paths(query.id, {})
+      end, 2000)
+    end
+    if query.ready then
+      return available(before, query.entries)
+    end
+    if done then
+      if #query.waiters >= 16 then
+        return offered
+      end
+      query.waiters[#query.waiters + 1] = { before = before, done = done }
+      return nil, true
+    end
   end
   return offered
 end
@@ -39,7 +138,9 @@ local function apply(chan)
       bufhidden = "hide",
       swapfile = false,
       filetype = "adroit-prompt",
-      modifiable = true,
+      modifiable = function()
+        return vim.g.adroit_prompt_frozen ~= true
+      end,
       readonly = false,
     },
   })
@@ -54,8 +155,8 @@ local function apply(chan)
       end
     end,
   })
-  server.start(b, function(before)
-    return M.offer(chan, before)
+  server.start(b, function(before, done)
+    return M.offer(chan, before, done)
   end)
   -- Told on every change, from wherever it comes: typed, pasted, or set by
   -- the window.

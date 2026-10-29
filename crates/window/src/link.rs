@@ -16,6 +16,17 @@ use adroit_protocol::client::{Connection, ask_stop, hello};
 use adroit_protocol::{Answer, Ask, Event, Request, SPOKEN, Told, WorkHost, judge};
 use tokio::sync::{mpsc, oneshot};
 
+mod events;
+mod remote;
+pub(crate) use events::Events;
+pub(crate) use remote::{Phase as RemotePhase, Status as RemoteStatus};
+
+#[derive(Clone)]
+enum Sending {
+    Local(mpsc::UnboundedSender<Request>),
+    Remote(remote::Sender),
+}
+
 /// What an ask in flight is answered when the host goes before answering.
 pub(crate) const GONE: &str = "The work host went away before it answered; try again";
 
@@ -42,22 +53,80 @@ type Waiting = Arc<Mutex<HashMap<u64, oneshot::Sender<Answer>>>>;
 /// The window's end of the link, shared by the windows it opens beside it.
 #[derive(Clone)]
 pub(crate) struct Link {
-    requests: mpsc::UnboundedSender<Request>,
+    requests: Sending,
     asked: Arc<AtomicU64>,
     waiting: Waiting,
+    daemon: adroit_term::Daemon,
 }
 
 impl Link {
+    pub(crate) fn selected(to: To, path: &Path) -> (Link, Events, std::sync::mpsc::Receiver<()>) {
+        let selected = adroit_connect::profiles::active().and_then(|binding| {
+            binding.map_or_else(|| adroit_connect::Target::load(path), |b| Ok(b.target))
+        });
+        match selected {
+            Ok(adroit_connect::Target::Local) => Self::open(to),
+            Ok(target) => remote::open(adroit_connect::Remote::new(&target)),
+            Err(text) => remote::open(Err(text)),
+        }
+    }
+
+    pub(crate) fn daemon(&self) -> adroit_term::Daemon {
+        self.daemon.clone()
+    }
+    pub(crate) fn remote_status(&self) -> Option<RemoteStatus> {
+        match &self.requests {
+            Sending::Local(_) => None,
+            Sending::Remote(sender) => Some(sender.status()),
+        }
+    }
+    pub(crate) fn retry_remote(&self) {
+        if let Sending::Remote(sender) = &self.requests {
+            sender.retry();
+        }
+    }
+    pub(crate) fn query_remote(&self, stamp: adroit_protocol::MutationStamp) {
+        if let Sending::Remote(sender) = &self.requests {
+            sender.query(stamp);
+        }
+    }
+    pub(crate) fn resolve_remote(
+        &self,
+        stamp: adroit_protocol::MutationStamp,
+        checked: bool,
+    ) -> impl Future<Output = Result<(), String>> + use<> {
+        let sender = match &self.requests {
+            Sending::Remote(sender) => Some(sender.clone()),
+            Sending::Local(_) => None,
+        };
+        async move {
+            match sender {
+                Some(sender) => sender.resolve(stamp, checked).await,
+                None => Err("This window uses local execution".into()),
+            }
+        }
+    }
+    pub(crate) fn remote_draft(
+        &self,
+        stamp: adroit_protocol::MutationStamp,
+        forget: bool,
+        checked: bool,
+    ) -> impl Future<Output = Result<(), String>> + use<> {
+        let sender = match &self.requests {
+            Sending::Remote(sender) => Some(sender.clone()),
+            _ => None,
+        };
+        async move {
+            match sender {
+                Some(sender) => sender.draft(stamp, forget, checked).await,
+                None => Err("This window uses local execution".into()),
+            }
+        }
+    }
     /// Keep a link to the work host `to` on a thread of its own: the link,
     /// what the host tells the window, and what is told once the window has
     /// first been sent the work.
-    pub(crate) fn open(
-        to: To,
-    ) -> (
-        Link,
-        mpsc::UnboundedReceiver<Event>,
-        std::sync::mpsc::Receiver<()>,
-    ) {
+    pub(crate) fn open(to: To) -> (Link, Events, std::sync::mpsc::Receiver<()>) {
         let (requests, asked) = mpsc::unbounded_channel();
         let (told, events) = mpsc::unbounded_channel();
         let (greeted, first) = std::sync::mpsc::channel();
@@ -84,28 +153,46 @@ impl Link {
             eprintln!("adroit: cannot reach the work host: {e}");
         }
         let link = Link {
-            requests,
+            requests: Sending::Local(requests),
             asked: Arc::default(),
             waiting,
+            daemon: adroit_term::Daemon::new(adroit_model::paths::terminal_host_socket()),
         };
-        (link, events, first)
+        (link, Events::Local(events), first)
     }
 
     /// Send `request`, now or once the host answers again.
     pub(crate) fn send(&self, request: Request) {
         // A link whose thread is gone has nothing to send through.
-        let _ = self.requests.send(request);
+        match &self.requests {
+            Sending::Local(sender) => {
+                let _ = sender.send(request);
+            }
+            Sending::Remote(sender) => sender.send(request, &self.waiting),
+        }
     }
 
     /// Ask `ask`, now or once the host answers again, and what came of it.
     pub(crate) fn ask(&self, ask: Ask) -> impl Future<Output = Answer> + use<> {
+        self.ask_with_prompt(ask, None)
+    }
+
+    pub(crate) fn ask_with_prompt(
+        &self,
+        ask: Ask,
+        prompt: Option<adroit_connect::journal::PromptContext>,
+    ) -> impl Future<Output = Answer> + use<> {
         let asked = self.asked.fetch_add(1, Ordering::Relaxed) + 1;
         let (answer, answered) = oneshot::channel();
         lock(&self.waiting).insert(asked, answer);
-        self.send(Request::Ask {
+        let request = Request::Ask {
             asked,
             ask: Box::new(ask),
-        });
+        };
+        match &self.requests {
+            Sending::Remote(sender) => sender.send_prompt(request, prompt, &self.waiting),
+            Sending::Local(_) => self.send(request),
+        }
         async move {
             answered
                 .await
@@ -390,6 +477,9 @@ mod tests {
                 let hello = Hello {
                     speaks: SPOKEN.to_vec(),
                     build: BUILD.into(),
+                    endpoint: None,
+                    terminal: None,
+                    mutation_epoch: None,
                 };
                 if write.write_all(encode(&hello).as_bytes()).await.is_err() {
                     continue;
@@ -436,7 +526,7 @@ mod tests {
         }))
     }
 
-    async fn told(events: &mut mpsc::UnboundedReceiver<Event>) -> Event {
+    async fn told(events: &mut Events) -> Event {
         tokio::time::timeout(Duration::from_secs(5), events.recv())
             .await
             .expect("nothing was told")

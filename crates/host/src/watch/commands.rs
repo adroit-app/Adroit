@@ -78,7 +78,7 @@ fn ask(watched: &Watched, caches: &Caches, sight: CommandsSight) {
         return;
     }
     let (watched, caches) = (watched.clone(), caches.clone());
-    tokio::spawn(async move {
+    crate::environment::spawn(async move {
         let got = match super::asked_in(&watched.seen(), sight.agent, sight.home.as_deref()).await {
             Some(context) => adapter.commands(context, sight.dir.clone()).await,
             None => None,

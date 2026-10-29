@@ -13,10 +13,13 @@ desktop = ["dep:adroit-window"]
 [dependencies]
 adroit-agents.workspace = true
 adroit-host.workspace = true
+adroit-connect.workspace = true
 adroit-window = { workspace = true, optional = true }
 
 [dev-dependencies]
 adroit-model.workspace = true
+adroit-net.workspace = true
+adroit-protocol = { workspace = true, features = ["client"] }
 adroit-term.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true

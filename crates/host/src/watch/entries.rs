@@ -15,7 +15,7 @@ use crate::work::Seen;
 pub(super) async fn watch(mut watched: Watched) {
     loop {
         let dirs = listed_dirs(&watched.seen());
-        let read = tokio::task::spawn_blocking(move || {
+        let read = crate::environment::spawn_blocking(move || {
             dirs.into_iter()
                 .map(|dir| {
                     let entries = read(&dir);

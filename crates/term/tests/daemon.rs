@@ -192,6 +192,41 @@ async fn keys_pressed_without_a_window_reach_the_program() {
 }
 
 #[tokio::test]
+async fn another_host_input_waits_until_a_paused_prompt_is_complete() {
+    let (d, _dir) = daemon().await;
+    let id = d
+        .spawn(sh(
+            "printf ready; while IFS= read -r line; do printf 'reply:%s\\n' \"$line\"; done",
+        ))
+        .await
+        .unwrap();
+    let pane = attach(&d, id).await;
+    until(&pane, |t| t[0].starts_with("ready")).await;
+    let sending = d.clone();
+    let prompt = tokio::spawn(async move {
+        sending
+            .input(
+                id,
+                &[
+                    Input::Text("first".into()),
+                    Input::Pause(Duration::from_millis(300)),
+                    Input::Key(Key::new("Enter")),
+                ],
+            )
+            .await
+            .unwrap();
+    });
+    until(&pane, |t| t.iter().any(|l| l.contains("first"))).await;
+    d.press(id, b"intruder\r").await.unwrap();
+    prompt.await.unwrap();
+    let text = until(&pane, |t| t.iter().any(|l| l.contains("reply:intruder")))
+        .await
+        .join("\n");
+    assert!(text.contains("reply:first"), "{text}");
+    assert!(!text.contains("reply:firstintruder"), "{text}");
+}
+
+#[tokio::test]
 async fn input_without_a_window_reaches_the_program_in_order() {
     let (d, _dir) = daemon().await;
     let id = d

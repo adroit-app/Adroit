@@ -146,7 +146,7 @@ pub async fn read_sessions(
     let kept = daemon.sessions().await.map_err(|e| e.to_string())?;
     let (mut own, mut kept_shells) = (Vec::new(), Vec::new());
     let mut learned = Vec::new();
-    for s in &kept {
+    for s in kept.iter().filter(|s| crate::environment::owns(&s.tags)) {
         match sessions::read(s) {
             Some(Kept::Agent(mut c)) => {
                 if sessions::earlier_connection(s).is_some()

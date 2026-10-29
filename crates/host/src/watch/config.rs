@@ -5,7 +5,6 @@
 use std::time::Duration;
 
 use adroit_protocol::ConfigChange;
-use tokio::sync::broadcast::error::RecvError;
 
 use super::Watched;
 use crate::settings;
@@ -19,16 +18,15 @@ pub(super) async fn watch(watched: Watched) {
     let config = watched.host().work().snapshot().config;
     let (mut last, mut configured) = (config.settings, config.configured);
     loop {
-        let by_window = tokio::select! {
-            _ = tokio::time::sleep(EVERY) => false,
-            told = saved.recv() => !matches!(told, Err(RecvError::Closed)),
+        tokio::select! {
+            _ = tokio::time::sleep(EVERY) => {},
+            _ = saved.recv() => {},
         };
-        let Ok(config) = tokio::task::spawn_blocking(crate::config::files).await else {
+        let Ok(config) = crate::environment::spawn_blocking(crate::config::files).await else {
             continue;
         };
-        // The Settings window took in what it saved itself.
-        if !by_window
-            && config.settings != last
+        // A notification can belong to another environment.
+        if config.settings != last
             && let Some(file) = &config.settings
         {
             settings::take_in(file);
@@ -36,7 +34,7 @@ pub(super) async fn watch(watched: Watched) {
         last = config.settings.clone();
         // The theme's file is read only for a theme newly named.
         let made = configured.clone();
-        let Ok(made) = tokio::task::spawn_blocking(move || {
+        let Ok(made) = crate::environment::spawn_blocking(move || {
             crate::config::configured(
                 &settings::current(),
                 crate::appearance::system(),
@@ -61,5 +59,45 @@ pub(super) async fn watch(watched: Watched) {
             .chain(config.keys.map(|file| ConfigChange::Keys { file }))
             .chain([ConfigChange::Configured { configured: made }]);
         watched.record(files);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::environment::{Environment, run};
+    use std::sync::{Arc, Mutex};
+
+    #[tokio::test]
+    async fn another_environments_save_does_not_hide_an_external_settings_edit() {
+        let root = tempfile::tempdir().unwrap();
+        let work = Environment::at("work", root.path()).unwrap();
+        let personal = Environment::at("personal", root.path()).unwrap();
+        let watched = Watched::new(
+            Arc::new(Mutex::new(crate::work::Host::default())),
+            Arc::new(|_, _| {}),
+        );
+        let task = crate::environment::spawn(run(Some(work.clone()), watch(watched)));
+        tokio::task::yield_now().await;
+        run(Some(work.clone()), async {
+            std::fs::create_dir_all(crate::paths::config_dir()).unwrap();
+            std::fs::write(settings::path(), "scratch_dir = '/external-work'\n").unwrap();
+        })
+        .await;
+        run(Some(personal), async {
+            settings::set(settings::current()).unwrap();
+        })
+        .await;
+        let result = run(Some(work), async {
+            tokio::time::timeout(Duration::from_millis(800), async {
+                while settings::current().scratch_dir != "/external-work" {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+        })
+        .await;
+        task.abort();
+        result.unwrap();
     }
 }

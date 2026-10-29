@@ -51,6 +51,22 @@ pub fn install(program: &Path, windows: &Path) -> std::io::Result<PathBuf> {
     }
     std::fs::write(&path, script(program, windows))?;
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))?;
+    if let Ok(Some(binding)) = adroit_connect::profiles::active()
+        && binding.target == adroit_connect::Target::Local
+    {
+        let service = adroit_model::paths::instance_dir(
+            &adroit_model::paths::state_dir(),
+            binding.work_instance.as_deref().unwrap_or("default"),
+        );
+        let base = binding.scope.map_or_else(
+            || service.clone(),
+            |scope| service.join("environments").join(scope).join("state"),
+        );
+        let alias = editor_script(&base.join("windows"));
+        std::fs::create_dir_all(alias.parent().expect("editor script parent"))?;
+        std::fs::write(&alias, script(program, windows))?;
+        std::fs::set_permissions(alias, std::fs::Permissions::from_mode(0o755))?;
+    }
     Ok(path)
 }
 
@@ -70,13 +86,43 @@ pub fn cli(args: &[String]) -> i32 {
         eprintln!("usage: adroit editor <file>");
         return 2;
     };
-    let answer = ask_each(
-        &windows(),
-        &Request::Editor {
-            path: PathBuf::from(path),
-        },
-        |r| matches!(r, Response::Taken(_)),
-    );
+    let scope = std::env::var("ADROIT_ENVIRONMENT").ok();
+    let mut candidates = if scope.is_some() {
+        Vec::new()
+    } else {
+        vec![windows()]
+    };
+    {
+        let work_instance =
+            std::env::var("ADROIT_WORK_INSTANCE").unwrap_or_else(|_| crate::paths::instance());
+        let instances = crate::paths::state_dir().join("adroit/instances");
+        let mut states = vec![crate::paths::state_dir().join("adroit")];
+        states.extend(
+            std::fs::read_dir(instances)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .map(|entry| entry.path()),
+        );
+        for state in states {
+            if let Ok(Some(binding)) = adroit_connect::profiles::Binding::load(&state)
+                && binding.scope == scope
+                && binding.target == adroit_connect::Target::Local
+                && binding.work_instance.as_deref().unwrap_or("default") == work_instance
+            {
+                candidates.push(state.join("windows"));
+            }
+        }
+    }
+    let answer = candidates.iter().find_map(|windows| {
+        ask_each(
+            windows,
+            &Request::Editor {
+                path: PathBuf::from(path),
+            },
+            |r| matches!(r, Response::Taken(_)),
+        )
+    });
     if answer.is_some() {
         return 0;
     }

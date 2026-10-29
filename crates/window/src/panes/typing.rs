@@ -55,6 +55,22 @@ impl Ui {
     pub(crate) fn take_prompt(&self) {
         let (app, ui) = (self.app, self.clone());
         spawn(async move {
+            if let Some(status) = app.remote_status() {
+                if !status.writable
+                    || !*app.drafts_ready.peek()
+                    || !matches!(app.active(), Some(Tab::Session(_) | Tab::Draft { .. }))
+                {
+                    app.status(Some(
+                        "Connect and open a session or draft before sending a remote prompt".into(),
+                    ));
+                    app.dispatch(Msg::PromptRetained);
+                    return;
+                }
+                let nv = ui.consoles.nvim.peek().clone();
+                if let Some(nv) = nv {
+                    let _ = nv.freeze_prompt(true).await;
+                }
+            }
             let (give, given) = oneshot::channel();
             let taken = match ui.consoles.prompts.send(Op::Take(give)) {
                 Ok(()) => given.await.ok(),
@@ -113,6 +129,40 @@ impl Ui {
     pub(crate) fn send_prompt(&self, taken: Taken) {
         let (app, ui) = (self.app, self.clone());
         spawn(async move {
+            if app.remote_status().is_some() {
+                let Some(context) = crate::prompts::remote::context(&taken) else {
+                    app.dispatch(Msg::PromptRetained);
+                    return;
+                };
+                let Some(Tab::Session(session)) = taken.tab.clone() else {
+                    app.dispatch(Msg::PromptRetained);
+                    return;
+                };
+                let answer = app
+                    .ask_prompt(
+                        adroit_protocol::Ask::SubmitPrompt {
+                            session,
+                            agent: taken.agent,
+                            text: taken.text,
+                            images: taken.images,
+                        },
+                        context.clone(),
+                    )
+                    .await;
+                let sent = matches!(answer, adroit_protocol::Answer::Done);
+                if (sent || matches!(answer, adroit_protocol::Answer::Failed { .. }))
+                    && let Err(text) = ui.finish_remote_prompt(&context, sent).await
+                {
+                    app.status(Some(text));
+                }
+                if sent {
+                    app.dispatch(Msg::PromptWent(true));
+                } else {
+                    app.status(Some(format!("The prompt is retained: {answer:?}")));
+                    app.dispatch(Msg::PromptRetained);
+                }
+                return;
+            }
             let Some(tab) = taken.tab.clone() else {
                 app.dispatch(Msg::PromptWent(false));
                 return;

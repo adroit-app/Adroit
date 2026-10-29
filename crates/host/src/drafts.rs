@@ -3,7 +3,7 @@
 //! the changes are made one at a time to what is kept, so windows writing
 //! at once lose nothing of each other's.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use adroit_protocol::{DraftChanges, Drafts};
@@ -43,6 +43,31 @@ pub fn change(directory: &Path, changes: DraftChanges) -> Result<(), String> {
     let mut drafts = load(directory)?;
     drafts.apply(changes);
     keep(directory, &drafts)
+}
+
+/// Clear exactly the prompt sent, leaving anything written after it intact.
+pub fn consume(
+    directory: &Path,
+    key: &str,
+    text: &str,
+    images: &[PathBuf],
+) -> Result<bool, String> {
+    let _keeping = KEEPING
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut drafts = load(directory)?;
+    if !drafts.text.contains_key(key) && !drafts.images.contains_key(key) {
+        return Ok(true);
+    }
+    if drafts.text.get(key).map_or("", String::as_str) != text
+        || drafts.images.get(key).map_or(&[][..], Vec::as_slice) != images
+    {
+        return Ok(false);
+    }
+    drafts.text.remove(key);
+    drafts.images.remove(key);
+    keep(directory, &drafts)?;
+    Ok(true)
 }
 
 /// Write `drafts` in `directory` whole, or not at all.
@@ -86,6 +111,30 @@ mod tests {
             text: BTreeMap::from([(key.to_string(), Some(text.to_string()))]),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn consuming_a_confirmed_prompt_preserves_a_newer_text_or_attachment() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        change(root, written("session:a", "original")).unwrap();
+        assert!(consume(root, "session:a", "original", &[]).unwrap());
+        assert!(load(root).unwrap().text.is_empty());
+        assert!(consume(root, "session:a", "original", &[]).unwrap());
+        change(root, written("session:a", "newer")).unwrap();
+        assert!(!consume(root, "session:a", "original", &[]).unwrap());
+        assert_eq!(load(root).unwrap().text["session:a"], "newer");
+        change(
+            root,
+            DraftChanges {
+                images: BTreeMap::from([("session:a".into(), Some(vec!["/new.png".into()]))]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(!consume(root, "session:a", "newer", &[]).unwrap());
+        assert!(consume(root, "session:a", "newer", &["/new.png".into()]).unwrap());
+        assert!(load(root).unwrap().images.is_empty());
     }
 
     #[test]

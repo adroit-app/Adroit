@@ -55,7 +55,10 @@ pub(crate) fn open(agents: AgentsWork, link: Link) {
         .with_custom_head(format!("<style>{SETTINGS_CSS}</style>"))
         .with_window(
             WindowBuilder::new()
-                .with_title("Settings")
+                .with_title(format!(
+                    "Settings · {}",
+                    crate::environment_profiles::active_name()
+                ))
                 .with_maximizable(false)
                 .with_inner_size(LogicalSize::new(820.0, 580.0))
                 .with_min_inner_size(LogicalSize::new(640.0, 420.0)),
@@ -88,6 +91,7 @@ pub fn close_in_front() -> bool {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Pane {
+    Window,
     General,
     Appearance,
     Console,
@@ -101,18 +105,27 @@ enum Pane {
 impl Pane {
     /// The panes of settings, in the order the sidebar lists them; About is
     /// set apart below them.
-    const ALL: [Pane; 7] = [
+    const ALL: [Pane; 8] = [
         Pane::General,
         Pane::Appearance,
-        Pane::Console,
-        Pane::Prompt,
         Pane::Agents,
         Pane::Programs,
         Pane::Keys,
+        Pane::Window,
+        Pane::Console,
+        Pane::Prompt,
     ];
+
+    fn available_offline(self) -> bool {
+        matches!(
+            self,
+            Pane::Window | Pane::Console | Pane::Prompt | Pane::About
+        )
+    }
 
     fn title(self) -> &'static str {
         match self {
+            Pane::Window => "Window",
             Pane::General => "General",
             Pane::Appearance => "Appearance",
             Pane::Console => "Console",
@@ -132,6 +145,7 @@ impl Pane {
 
     fn icon(self) -> Icon {
         match self {
+            Pane::Window => Icon::AdjustmentsHorizontal,
             Pane::General => Icon::AdjustmentsHorizontal,
             Pane::Appearance => Icon::SunMoon,
             Pane::Console => Icon::Terminal,
@@ -175,6 +189,22 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
     let config = use_config();
     let link = use_context::<Link>();
     let pane = use_signal(|| Pane::General);
+    let mut remote = use_signal(|| link.remote_status());
+    use_future({
+        let link = link.clone();
+        move || {
+            let link = link.clone();
+            async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    let next = link.remote_status();
+                    if *remote.peek() != next {
+                        remote.set(next);
+                    }
+                }
+            }
+        }
+    });
     let mut chosen = use_signal(|| None::<AgentPage>);
     let mut now = use_signal(|| config.peek().settings.clone());
     let mut failed = use_signal(|| None::<String>);
@@ -184,6 +214,21 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
     let change = move |f: Change| {
         let mut next = now.peek().clone();
         f(&mut next);
+        if crate::client_settings::Preferences::of(&next)
+            != crate::client_settings::Preferences::of(&now.peek())
+        {
+            failed.set(crate::client_settings::save(&next).err());
+            if failed.peek().is_none() {
+                now.set(next);
+            }
+            return;
+        }
+        if link.remote_status().is_some_and(|status| !status.writable) {
+            failed.set(Some(
+                "Reconnect to the work machine before editing this profile's work settings".into(),
+            ));
+            return;
+        }
         // A change refused leaves the file as the user wrote it.
         if next == *now.peek() {
             return;
@@ -191,7 +236,15 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
         // Shown at once; the host sends the settings as it kept them.
         now.set(next.clone());
         let saved = toml::to_string_pretty(&next)
-            .map(|text| link.ask(Ask::SaveSettings { text }))
+            .map(|text| {
+                let expected = config
+                    .peek()
+                    .files()
+                    .settings
+                    .as_ref()
+                    .map_or(adroit_protocol::FileText::Missing, |file| file.text.clone());
+                link.ask(Ask::SaveSettingsChecked { text, expected })
+            })
             .map_err(|e| e.to_string());
         spawn(async move {
             failed.set(match saved {
@@ -213,24 +266,28 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
         style { "{root_style}" }
         div { class: "settings",
             nav { class: "settings-nav",
+                p { class: "settings-nav-heading", "{crate::environment_profiles::active_name()}" }
                 for p in Pane::ALL {
-                    NavItem { key: "{p.title()}", pane: p, shown: pane }
-                    if p == Pane::Agents && pane() == Pane::Agents {
-                        for entry in agent_pages::entries(&now()) {
-                            button {
-                                key: "{entry.page:?}",
-                                r#type: "button",
-                                class: if entry.page == page { "settings-nav-item settings-agent on" } else { "settings-nav-item settings-agent" },
-                                aria_current: if entry.page == page { "page" } else { "false" },
-                                title: if entry.default { format!("{}, used for new sessions", entry.label) } else { entry.label.clone() },
-                                onclick: {
-                                    let to = entry.page.clone();
-                                    move |_| chosen.set(Some(to.clone()))
-                                },
-                                span { class: "settings-nav-label", "{entry.label}" }
-                                if entry.default {
-                                    span { class: "settings-nav-mark", aria_label: "Used for new sessions",
-                                        IconView { icon: Icon::Check, size: 12 }
+                    div { key: "{p.title()}",
+                        if p == Pane::Window { p { class: "settings-nav-heading", "This computer · all profiles" } }
+                        NavItem { pane: p, shown: pane }
+                        if p == Pane::Agents && pane() == Pane::Agents {
+                            for entry in agent_pages::entries(&now()) {
+                                button {
+                                    key: "{entry.page:?}",
+                                    r#type: "button",
+                                    class: if entry.page == page { "settings-nav-item settings-agent on" } else { "settings-nav-item settings-agent" },
+                                    aria_current: if entry.page == page { "page" } else { "false" },
+                                    title: if entry.default { format!("{}, used for new sessions", entry.label) } else { entry.label.clone() },
+                                    onclick: {
+                                        let to = entry.page.clone();
+                                        move |_| chosen.set(Some(to.clone()))
+                                    },
+                                    span { class: "settings-nav-label", "{entry.label}" }
+                                    if entry.default {
+                                        span { class: "settings-nav-mark", aria_label: "Used for new sessions",
+                                            IconView { icon: Icon::Check, size: 12 }
+                                        }
                                     }
                                 }
                             }
@@ -247,11 +304,24 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
                     }
                 }
                 div { class: "settings-measure",
+                    if pane() != Pane::About {
+                        p { class: "settings-agent-note", role: "status",
+                            if pane().available_offline() {
+                                "Saved on this computer for all profiles."
+                            } else if let Some(status) = remote() {
+                                "Work settings on {status.host}, for this profile."
+                            } else {
+                                "Work settings for this profile on this computer."
+                            }
+                        }
+                    }
                     SettingsFileError { config }
                     if let Some(e) = failed() {
                         SettingsError { "Could not keep the settings: {e}" }
                     }
+                    fieldset { class: "settings-fields", disabled: remote().is_some_and(|s| !s.writable) && !pane().available_offline(),
                     match pane() {
+                        Pane::Window => rsx! { WindowPane { now: now(), change } },
                         Pane::General => rsx! { General { now: now(), change } },
                         Pane::Appearance => rsx! { AppearancePane { now: now(), change } },
                         Pane::Console => rsx! { ConsolePane { now: now(), change } },
@@ -269,6 +339,7 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
                         Pane::Programs => rsx! { ProgramsPane { now: now(), change } },
                         Pane::Keys => rsx! { KeysPane {} },
                         Pane::About => rsx! { about::AboutPane {} },
+                    }
                     }
                 }
             }
@@ -335,32 +406,16 @@ fn set_number<T: std::str::FromStr + 'static>(
 
 #[component]
 fn General(now: Settings, change: Callback<Change>) -> Element {
+    let remote = use_context::<Link>().remote_status().is_some();
     rsx! {
         SettingGroup {
-            SettingRow { label: "Zoom", hint: "How large the window draws everything when it opens; ⌘0 comes back to it.",
-                select {
-                    onchange: move |e| {
-                        if let Ok(z) = e.value().parse::<f64>() {
-                            change(Box::new(move |s: &mut Settings| s.zoom = z));
-                        }
-                    },
-                    for l in LEVELS {
-                        option { key: "{l}", value: "{l}", selected: (l - now.zoom).abs() < 1e-9, "{(l * 100.0).round()}%" }
-                    }
-                }
-            }
-            SettingRow { label: "Keep the Mac awake", hint: "While a session or a shell runs, even with the window closed; the display still sleeps.",
+            SettingRow { label: if remote { "Keep the work machine awake" } else { "Keep the Mac awake" }, hint: "While a session or a shell runs on the work machine, even with the window closed; the display still sleeps.",
                 Toggle {
                     checked: now.keep_awake,
                     onchange: move |on| change(Box::new(move |s: &mut Settings| s.keep_awake = on)),
                 }
             }
-            SettingRow { label: "Notify when a session waits", hint: "A notification when a session starts waiting on you while the window is not in front.",
-                Toggle {
-                    checked: now.notify_waiting,
-                    onchange: move |on| change(Box::new(move |s: &mut Settings| s.notify_waiting = on)),
-                }
-            }
+
         }
         SettingGroup { title: "Starting sessions",
             SettingRow { label: "Scratch folder", hint: "Where scratch sessions run, each in a folder of its own; empty for adroit's own.",
@@ -471,6 +526,7 @@ const APPEARANCES: [(Appearance, &str); 3] = [
 
 #[component]
 fn AppearancePane(now: Settings, change: Callback<Change>) -> Element {
+    let remote = use_context::<Link>().remote_status().is_some();
     let config = use_config();
     let made = config.read().files().configured.clone().unwrap_or_default();
     let of = |kind: ThemeKind| -> Vec<String> {
@@ -488,7 +544,7 @@ fn AppearancePane(now: Settings, change: Callback<Change>) -> Element {
     let themes_dir = made.themes_dir;
     rsx! {
         SettingGroup {
-            SettingRow { label: "Appearance", hint: "System follows macOS as it turns light or dark, now {system}; Light and Dark keep to one theme.",
+            SettingRow { label: "Appearance", hint: "System follows the work machine's appearance, now {system}; Light and Dark keep to one theme.",
                 select {
                     onchange: move |e| {
                         let chosen = APPEARANCES
@@ -516,9 +572,12 @@ fn AppearancePane(now: Settings, change: Callback<Change>) -> Element {
                     onchange: move |theme: String| change(Box::new(move |s: &mut Settings| s.dark_theme = theme)),
                 }
             }
-            SettingRow { label: "Themes folder", hint: tilde(&themes_dir, &home()),
+            SettingRow { label: "Themes folder", hint: if remote { themes_dir.display().to_string() } else { tilde(&themes_dir, &home()) },
                 button {
+                    disabled: remote,
+                    title: if remote { "Manage themes on the work machine" } else { "Open the themes folder" },
                     onclick: move |_| {
+                        if remote { return; }
                         let _ = std::fs::create_dir_all(&themes_dir);
                         run_open(&themes_dir);
                     },
@@ -721,6 +780,54 @@ fn LaunchGroup(
                     onchange: move |value: String| set(Launch { env: parse_env(&value), ..c.clone() }),
                 }
             }
+        }
+    }
+}
+
+#[component]
+fn WindowPane(now: Settings, change: Callback<Change>) -> Element {
+    rsx! { SettingGroup {
+            SettingRow { label: "Zoom", hint: "How large the window draws everything when it opens; ⌘0 comes back to it.",
+                select {
+                    onchange: move |e| {
+                        if let Ok(z) = e.value().parse::<f64>() {
+                            change(Box::new(move |s: &mut Settings| s.zoom = z));
+                        }
+                    },
+                    for l in LEVELS {
+                        option { key: "{l}", value: "{l}", selected: (l - now.zoom).abs() < 1e-9, "{(l * 100.0).round()}%" }
+                    }
+                }
+            }
+            SettingRow { label: "Notify when a session waits", hint: "A notification when a session starts waiting on you while the window is not in front.",
+                Toggle {
+                    checked: now.notify_waiting,
+                    onchange: move |on| change(Box::new(move |s: &mut Settings| s.notify_waiting = on)),
+                }
+            }
+    } }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn disconnected_profiles_keep_computer_preferences_editable() {
+        for pane in [Pane::Window, Pane::Console, Pane::Prompt, Pane::About] {
+            assert!(pane.available_offline(), "{pane:?} should remain available");
+        }
+        for pane in [
+            Pane::General,
+            Pane::Appearance,
+            Pane::Agents,
+            Pane::Programs,
+            Pane::Keys,
+        ] {
+            assert!(
+                !pane.available_offline(),
+                "{pane:?} edits work-machine settings"
+            );
         }
     }
 }

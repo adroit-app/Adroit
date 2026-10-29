@@ -20,8 +20,15 @@ use crate::input::Event as _;
 use crate::screen::{Overrides, screen_of_lines};
 use crate::{Input, Palette, Screen};
 
+enum Sending {
+    Message(felis_protocol::messages::InputMsg),
+    Pause(Duration),
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("terminal input is disabled for this connection")]
+    InputDisabled,
     #[error("{0}")]
     Connect(#[from] ConnectError),
     #[error("{0}")]
@@ -88,7 +95,9 @@ pub struct Spawn {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Daemon {
     socket: PathBuf,
-    forwarded: bool,
+    pub(crate) forwarded: bool,
+    pub(crate) startup_lease: Option<PathBuf>,
+    pub(crate) input: Option<crate::InputPermission>,
 }
 
 /// The id as the daemon takes it in a request.
@@ -101,6 +110,8 @@ impl Daemon {
         Self {
             socket: socket.into(),
             forwarded: false,
+            startup_lease: None,
+            input: None,
         }
     }
 
@@ -111,6 +122,8 @@ impl Daemon {
         Self {
             socket: socket.into(),
             forwarded: true,
+            startup_lease: None,
+            input: None,
         }
     }
 
@@ -120,6 +133,11 @@ impl Daemon {
         } else {
             Ok(())
         }
+    }
+
+    pub fn with_input(mut self, permission: crate::InputPermission) -> Self {
+        self.input = Some(permission);
+        self
     }
 
     pub fn socket(&self) -> &Path {
@@ -293,7 +311,7 @@ impl Daemon {
     /// attached, returning once the session has taken them.
     pub async fn press(&self, id: u128, bytes: &[u8]) -> Result<()> {
         use felis_protocol::messages::InputMsg;
-        self.send_input(id, &[InputMsg::KeyBytes(bytes.to_vec())])
+        self.send_input(id, &[Sending::Message(InputMsg::KeyBytes(bytes.to_vec()))])
             .await
     }
 
@@ -306,22 +324,35 @@ impl Daemon {
         let msgs = input
             .iter()
             .map(|i| match i {
-                Input::Text(text) => Ok(InputMsg::KeyBytes(text.as_bytes().to_vec())),
-                Input::Paste(text) => Ok(InputMsg::Paste(text.as_bytes().to_vec())),
+                Input::Text(text) => Ok(Sending::Message(InputMsg::KeyBytes(
+                    text.as_bytes().to_vec(),
+                ))),
+                Input::Paste(text) => {
+                    Ok(Sending::Message(InputMsg::Paste(text.as_bytes().to_vec())))
+                }
                 Input::Key(key) => key
                     .event()
-                    .map(InputMsg::Key)
+                    .map(|key| Sending::Message(InputMsg::Key(key)))
                     .ok_or_else(|| Error::Unsent(key.key.clone())),
+                Input::Pause(wait) => Ok(Sending::Pause(*wait)),
             })
             .collect::<Result<Vec<_>>>()?;
         self.send_input(id, &msgs).await
     }
 
-    async fn send_input(
-        &self,
-        id: u128,
-        msgs: &[felis_protocol::messages::InputMsg],
-    ) -> Result<()> {
+    async fn send_input(&self, id: u128, msgs: &[Sending]) -> Result<()> {
+        tokio::time::timeout(Duration::from_secs(30), self.send_input_inner(id, msgs))
+            .await
+            .map_err(|_| Error::Protocol("terminal input confirmation timed out".into()))?
+    }
+
+    async fn send_input_inner(&self, id: u128, msgs: &[Sending]) -> Result<()> {
+        let ticket = match &self.input {
+            Some(permission) => Some(permission.ticket().ok_or(Error::InputDisabled)?),
+            None => None,
+        };
+        let lease = crate::input::lease(&self.socket, id);
+        let _held = lease.lock().await;
         use felis_protocol::messages::SessionToDaemonMsg;
         let mut conn = self.ops().await?;
         conn.attach(id, AttachIntent::Deliberate).await?;
@@ -329,7 +360,18 @@ impl Daemon {
         // the daemon finds the connection's outbox full.
         rehydrated(&mut conn).await?;
         for msg in msgs {
-            conn.writer.send_unflushed(msg).await.map_err(proto)?;
+            if let Some(ticket) = ticket
+                && !self.input.as_ref().unwrap().allows(ticket)
+            {
+                return Err(Error::InputDisabled);
+            }
+            match msg {
+                Sending::Message(msg) => conn.writer.send_unflushed(msg).await.map_err(proto)?,
+                Sending::Pause(wait) => {
+                    conn.input_fence().await?;
+                    tokio::time::sleep(*wait).await;
+                }
+            }
         }
         conn.input_fence().await?;
         conn.writer

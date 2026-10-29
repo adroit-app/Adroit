@@ -36,7 +36,7 @@ async fn read() -> Offers {
     // Claude Code's state file can run to megabytes, and every directory it
     // names is looked at: not on a runtime thread.
     let (recent, (ghq, ghq_roots), listed) = tokio::join!(
-        tokio::task::spawn_blocking(move || {
+        crate::environment::spawn_blocking(move || {
             // Every login Claude Code runs in keeps its own.
             let mut recent: Vec<PathBuf> = Vec::new();
             let logins = crate::programs::logins(&crate::settings::current());
@@ -59,7 +59,7 @@ async fn read() -> Offers {
                 (Vec::new(), Vec::new())
             }
         },
-        tokio::task::spawn_blocking({
+        crate::environment::spawn_blocking({
             let roots = listed_roots.clone();
             move || folders_in(&roots)
         }),

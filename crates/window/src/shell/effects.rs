@@ -191,6 +191,9 @@ impl Ui {
                 let _ = prompts.send(Op::Sent);
             }
             Effect::PromptRestore { tab, text, images } => {
+                if self.app.remote_status().is_some() {
+                    return;
+                }
                 let lines: Vec<String> = text.lines().map(String::from).collect();
                 let _ = prompts.send(Op::RestoreImages(tab.clone(), images));
                 let _ = prompts.send(Op::Add(tab, lines, None));

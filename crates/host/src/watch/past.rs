@@ -13,7 +13,7 @@ pub(super) async fn watch(mut watched: Watched) {
     loop {
         for sight in distinct(&watched.sights(), |s| s.past.clone()) {
             let dir = sight.dir.clone();
-            let read = tokio::task::spawn_blocking(move || {
+            let read = crate::environment::spawn_blocking(move || {
                 let (settings, home) = (crate::settings::current(), crate::paths::home());
                 let pasts = crate::programs::logins(&settings)
                     .iter()

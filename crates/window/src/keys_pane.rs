@@ -80,6 +80,7 @@ impl View {
 pub fn KeysPane() -> Element {
     let config = use_config();
     let link = use_context::<Link>();
+    let remote = link.remote_status().is_some();
     let link = use_hook(move || CopyValue::new(link));
     let mut text = use_signal(|| read_file(&config.peek()));
     let mut filter = use_signal(String::new);
@@ -130,7 +131,7 @@ pub fn KeysPane() -> Element {
                 value: "{filter}",
                 oninput: move |e| filter.set(e.value()),
             }
-            button { onclick: move |_| crate::settings_window::open_with("-t", &path, STARTER), "Open keys.toml" }
+            button { disabled: remote, title: if remote { "Edit this file on the work machine, or use the bindings editor below" } else { "Open the keys file" }, onclick: move |_| if !remote { crate::settings_window::open_with("-t", &path, STARTER); }, "Open keys.toml" }
             if confirm_reset() {
                 button {
                     class: "danger",

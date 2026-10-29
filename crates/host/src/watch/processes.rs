@@ -17,7 +17,7 @@ pub(super) async fn watch(mut watched: Watched) {
         for (session, _) in shown {
             let id = session.id.clone();
             let mut sampler = samplers.remove(&id).unwrap_or_default();
-            if let Ok((next, processes)) = tokio::task::spawn_blocking(move || {
+            if let Ok((next, processes)) = crate::environment::spawn_blocking(move || {
                 let rows = sampler.sample(&session);
                 (sampler, rows)
             })

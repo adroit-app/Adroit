@@ -15,7 +15,10 @@ pub const KEPT_FOR: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
 /// Where pasted images are kept.
 pub fn dir() -> PathBuf {
-    state_dir().join("adroit").join("pasted")
+    crate::environment::current().map_or_else(
+        || state_dir().join("adroit").join("pasted"),
+        |c| c.root.join("state/pasted"),
+    )
 }
 
 #[derive(Debug)]

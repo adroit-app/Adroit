@@ -12,6 +12,27 @@ pub enum Input {
     /// Text pasted, bracketed when the program asks for it.
     Paste(String),
     Key(Key),
+    /// Wait after the preceding input has reached the terminal host.
+    Pause(std::time::Duration),
+}
+
+pub(crate) fn lease(socket: &std::path::Path, id: u128) -> std::sync::Arc<tokio::sync::Mutex<()>> {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex, OnceLock, Weak};
+    type Leases = HashMap<(std::path::PathBuf, u128), Weak<tokio::sync::Mutex<()>>>;
+    static LEASES: OnceLock<Mutex<Leases>> = OnceLock::new();
+    let mut leases = LEASES
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    leases.retain(|_, lease| lease.strong_count() != 0);
+    let key = (socket.to_owned(), id);
+    if let Some(lease) = leases.get(&key).and_then(Weak::upgrade) {
+        return lease;
+    }
+    let lease = Arc::new(tokio::sync::Mutex::new(()));
+    leases.insert(key, Arc::downgrade(&lease));
+    lease
 }
 
 /// A key press as felis takes it.

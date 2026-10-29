@@ -10,7 +10,7 @@ use adroit_core::msg::Msg;
 use adroit_term::Size;
 use dioxus::prelude::*;
 
-use super::ensure_pane;
+use super::{ensure_pane, needs_attach};
 use crate::content::{Tab, WindowId, shows_prompt};
 use crate::shell::Ui;
 
@@ -23,6 +23,25 @@ const CONSOLE_GAP: f64 = SCREEN_TOP + 14.0 + 8.0;
 
 /// The width and height of one cell, measured with the console's own font.
 const MEASURE: &str = include_str!("../../assets/js/measure.js");
+
+/// A recovered transport need not change the active tab or the work tree.
+/// Keep failed attachments retryable without depending on either changing.
+fn use_attach_retries(wanted: impl Fn() -> bool + 'static) -> Signal<u64> {
+    let mut retry = use_signal(|| 0);
+    let wanted = use_hook(|| std::rc::Rc::new(wanted));
+    use_future(move || {
+        let wanted = wanted.clone();
+        async move {
+            loop {
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                if wanted() {
+                    *retry.write() += 1;
+                }
+            }
+        }
+    });
+    retry
+}
 
 /// The console's height left to its terminal, with the prompt card of this
 /// height under it, if one is shown.
@@ -97,6 +116,22 @@ pub(crate) fn use_console_sizes(ui: &Ui) {
     let (mut cell_width, mut cell_height) = (local.cell_width, local.cell_height);
     let (mut console_box, mut console_size) = (local.console_box, local.console_size);
     let mut attached = local.attached;
+    let retry = use_attach_retries({
+        let hub = ui.hub.clone();
+        move || {
+            if !app
+                .remote_status()
+                .is_some_and(|status| status.phase == crate::link::RemotePhase::Connected)
+            {
+                return false;
+            }
+            app.content.peek().windows.current().is_some_and(|tab| {
+                tab.windows()
+                    .iter()
+                    .any(|window| needs_attach(&window.shows, &hub.panes))
+            })
+        }
+    });
     // The font the console is drawn by, and the zoom, which the console is
     // measured again for.
     let face = use_memo(move || {
@@ -192,7 +227,7 @@ pub(crate) fn use_console_sizes(ui: &Ui) {
             let boxes = local.win_boxes.read().clone();
             let cw = cell_width();
             let ch = cell_height();
-            let _ = (face(), tree.read(), attached());
+            let _ = (face(), tree.read(), attached(), retry());
             for (id, shows) in windows {
                 let Some(&(width, height)) = boxes.get(&id).filter(|(w, _)| *w > 0.0) else {
                     continue;
@@ -223,7 +258,7 @@ pub(crate) fn use_console_sizes(ui: &Ui) {
                 .unwrap_or_else(|| *console_size.read());
             // Read, so a session listed only now is attached to once it is,
             // and one attached is sized to the console as it is by then.
-            let _ = (tree.read(), attached());
+            let _ = (tree.read(), attached(), retry());
             let me = tab.clone();
             let pane = ensure_pane(app, &hub, &tab, size, move || {
                 *attached.write() += 1;
@@ -271,5 +306,62 @@ mod tests {
             cell: (8.0, 20.0),
         };
         assert_eq!(measured.fitted(Some(&Tab::Session("a".into()))), None);
+    }
+
+    #[tokio::test]
+    async fn recovered_transport_retries_attachment_without_a_tab_or_snapshot_change() {
+        use std::cell::Cell;
+        use std::rc::Rc;
+
+        #[derive(Clone)]
+        struct State {
+            connected: Rc<Cell<bool>>,
+            detached: Rc<Cell<bool>>,
+            attempts: Rc<Cell<usize>>,
+        }
+        #[component]
+        fn Frame() -> Element {
+            let state = use_context::<State>();
+            let wanted = state.clone();
+            let retry = use_attach_retries(move || wanted.connected.get() && wanted.detached.get());
+            use_effect(move || {
+                let _ = retry();
+                state.attempts.set(state.attempts.get() + 1);
+            });
+            rsx! {}
+        }
+        async fn settle(dom: &mut VirtualDom) {
+            let until = tokio::time::Instant::now() + Duration::from_millis(650);
+            while tokio::time::Instant::now() < until {
+                let _ = tokio::time::timeout_at(until, dom.wait_for_work()).await;
+                dom.render_immediate(&mut dioxus::core::NoOpMutations);
+            }
+        }
+        let state = State {
+            connected: Rc::new(Cell::new(false)),
+            detached: Rc::new(Cell::new(true)),
+            attempts: Rc::new(Cell::new(0)),
+        };
+        let mut dom = VirtualDom::new(Frame).with_root_context(state.clone());
+        dom.rebuild_in_place();
+        settle(&mut dom).await;
+        let first = state.attempts.get();
+        state.connected.set(true);
+        settle(&mut dom).await;
+        assert!(
+            state.attempts.get() > first,
+            "the detached pane was never retried"
+        );
+        let retried = state.attempts.get();
+        settle(&mut dom).await;
+        assert!(
+            state.attempts.get() > retried,
+            "a failed attach was never retried"
+        );
+        state.detached.set(false);
+        settle(&mut dom).await;
+        let live = state.attempts.get();
+        settle(&mut dom).await;
+        assert_eq!(state.attempts.get(), live, "a live pane was attached again");
     }
 }

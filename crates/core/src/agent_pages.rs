@@ -41,7 +41,7 @@ pub fn entries(settings: &Settings) -> Vec<Entry> {
         ..Entry::plain(AgentPage::Profile(p.id.clone()), p.label())
     });
     profiles
-        .chain([Entry::plain(AgentPage::NewProfile, "New profile")])
+        .chain([Entry::plain(AgentPage::NewProfile, "New agent setup")])
         .collect()
 }
 
@@ -102,7 +102,7 @@ mod tests {
                 row("claude", false),
                 row("Claude Work", true),
                 row("codex", false),
-                row("New profile", false),
+                row("New agent setup", false),
             ]
         );
     }

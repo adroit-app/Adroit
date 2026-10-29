@@ -99,7 +99,16 @@ pub struct Claimed {
 /// instead, and nothing is claimed. A socket left by a window that has gone
 /// is taken over; one another window still answers on is left alone.
 /// Windows opening together take turns, so no two claim one number.
+#[cfg(test)]
 pub fn claim(windows: &Path, new: bool) -> std::io::Result<Option<Claimed>> {
+    claim_with(windows, new, || Ok(()))
+}
+
+fn claim_with(
+    windows: &Path,
+    new: bool,
+    before_first: impl FnOnce() -> std::io::Result<()>,
+) -> std::io::Result<Option<Claimed>> {
     std::fs::create_dir_all(windows)?;
     // The folder is locked, not a file beside the sockets: a lock file is
     // what a cleaner of old files takes away, and two windows then hold
@@ -108,6 +117,9 @@ pub fn claim(windows: &Path, new: bool) -> std::io::Result<Option<Claimed>> {
     turn.lock()?;
     if !new && ask_each(windows, &Request::Show, |r| *r == Response::Shown).is_some() {
         return Ok(None);
+    }
+    if open_numbers(windows).is_empty() {
+        before_first()?;
     }
     for number in 1.. {
         let socket = window_socket(windows, number);
@@ -130,7 +142,17 @@ static LISTENER: Mutex<Option<UnixListener>> = Mutex::new(None);
 /// unless `new`, bring an open window to the front instead. Whether this
 /// process is to open the window.
 pub fn open_window(new: bool) -> std::io::Result<bool> {
-    let Some(claimed) = claim(&windows(), new)? else {
+    let active = adroit_model::paths::instance_state().join("execution.toml");
+    let Some(claimed) = claim_with(&windows(), new, || {
+        if adroit_connect::profiles::active()
+            .map_err(std::io::Error::other)?
+            .is_none()
+        {
+            adroit_connect::activate_saved(&active).map_err(std::io::Error::other)?;
+        }
+        Ok(())
+    })?
+    else {
         return Ok(false);
     };
     let _ = CLAIMED.set(claimed.number);
@@ -439,4 +461,46 @@ mod tests {
         let _two = UnixListener::bind(window_socket(&windows, 2)).unwrap();
         assert!(first_open(&windows, 2));
     }
+}
+#[test]
+fn a_next_connection_waits_until_every_old_window_has_closed() {
+    let dir = tempfile::Builder::new()
+        .prefix("adroit-target-")
+        .tempdir_in("/tmp")
+        .unwrap();
+    let active = adroit_connect::execution_path(dir.path(), "default").unwrap();
+    let windows = active.parent().unwrap().join("windows");
+    let remote = adroit_connect::Target::Native {
+        address: "work.local:47130".into(),
+        server: "ab".repeat(32),
+    };
+    remote.save_next(&active).unwrap();
+    let activate = || adroit_connect::activate_saved(&active).map_err(std::io::Error::other);
+    let first = claim_with(&windows, true, activate).unwrap().unwrap();
+    assert_eq!(adroit_connect::Target::load(&active).unwrap(), remote);
+    adroit_connect::Target::Local.save_next(&active).unwrap();
+    let second = claim_with(&windows, true, activate).unwrap().unwrap();
+    drop(first);
+    let third = claim_with(&windows, true, activate).unwrap().unwrap();
+    assert_eq!(
+        adroit_connect::Target::load(&active).unwrap(),
+        remote,
+        "filling a window-number hole activated the next choice"
+    );
+    drop(second);
+    drop(third);
+    // A parallel pre-exec fixture may briefly inherit these listeners.
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while !open_numbers(&windows).is_empty() {
+        assert!(
+            std::time::Instant::now() < until,
+            "closed windows stayed live"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let _reopened = claim_with(&windows, true, activate).unwrap().unwrap();
+    assert_eq!(
+        adroit_connect::Target::load(&active).unwrap(),
+        adroit_connect::Target::Local
+    );
 }

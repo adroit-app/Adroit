@@ -58,12 +58,14 @@ fn App() -> Element {
     use_effects(&ui);
     use_input(&ui);
     use_drop(settings_window::close);
+    use_drop(crate::profile_manager::close);
     rsx! {
         RootStyle {}
         div { class: "app",
             KeysField {}
             SettingsFileError { config: app.config }
             Header { ontoggle: move |side| app.dispatch(Msg::PanelToggle(side)) }
+            super::remote::RemoteConnection {}
             Body {}
             DaemonBanner {}
             Footer {}

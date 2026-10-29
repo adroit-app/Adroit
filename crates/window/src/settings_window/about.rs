@@ -11,6 +11,7 @@ use crate::components::{SettingGroup, SettingRow};
 use crate::feed::use_config;
 use crate::icons::{Icon, IconView};
 use crate::keys_pane::keys_path;
+use crate::link::Link;
 use crate::paths::home;
 
 const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
@@ -19,6 +20,7 @@ const ICON: &str = include_str!("../../../../assets/logo/adroit-icon.svg");
 
 #[component]
 pub(super) fn AboutPane() -> Element {
+    let remote = use_context::<Link>().remote_status().is_some();
     let config = use_config();
     let files = {
         let config = config.read();
@@ -53,18 +55,20 @@ pub(super) fn AboutPane() -> Element {
         }
         SettingGroup { title: "Files",
             for (name, path, starter) in files {
-                SettingRow { key: "{name}", label: name, hint: tilde(&path, &home()),
+                SettingRow { key: "{name}", label: name, hint: if remote { path.display().to_string() } else { tilde(&path, &home()) },
                     button {
+                        disabled: remote,
                         title: "Open in the text editor",
                         onclick: {
                             let path = path.clone();
-                            move |_| open_with("-t", &path, starter)
+                            move |_| if !remote { open_with("-t", &path, starter); }
                         },
                         IconView { icon: Icon::FilePencil, size: 14 }
                         "Open"
                     }
                     button {
-                        onclick: move |_| open_with("-R", &path, starter),
+                        disabled: remote,
+                        onclick: move |_| if !remote { open_with("-R", &path, starter); },
                         IconView { icon: Icon::FolderOpen, size: 14 }
                         "Show in Finder"
                     }

@@ -4,7 +4,8 @@
 
 use std::path::{Path, PathBuf};
 
-use adroit_model::paths::{USER_EDITOR, editor_script, instance_state, windows_dir};
+use crate::paths::instance_state;
+use adroit_model::paths::{USER_EDITOR, editor_script, windows_dir};
 
 /// The script of this instance's windows, whether or not it is written.
 pub fn current_script() -> PathBuf {

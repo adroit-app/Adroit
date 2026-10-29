@@ -1,4 +1,28 @@
 local M = {}
+
+-- The prompt and reader can start together on a fresh account. Neovim's
+-- manifest loader does not tolerate another process making a shared ancestor.
+local function ensure_directory(path)
+  local stat = vim.uv.fs_stat(path)
+  if stat then
+    assert(stat.type == "directory", path .. " is not a directory")
+    return
+  end
+  local parent = vim.fs.dirname(path)
+  if parent and parent ~= path then
+    ensure_directory(parent)
+  end
+  local ok, err, code = vim.uv.fs_mkdir(path, 448)
+  if not ok then
+    stat = vim.uv.fs_stat(path)
+    assert(code == "EEXIST" and stat and stat.type == "directory", err)
+  end
+end
+
+function M.prepare()
+  ensure_directory(vim.fn.stdpath("data"))
+end
+
 -- Tells the window whenever the user's configuration is saved: `init.lua`,
 -- or a file under the configuration folder's `lua/`. The window starts this
 -- Neovim again rather than it reading the configuration again, as plugin

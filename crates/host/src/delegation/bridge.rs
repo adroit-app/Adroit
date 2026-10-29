@@ -143,7 +143,9 @@ where
         if method == "notifications/initialized" {
             if channel && background.is_none() {
                 let (output, daemon) = (output.clone(), daemon.clone());
-                background = Some(Background(tokio::spawn(notifications(output, daemon))));
+                background = Some(Background(crate::environment::spawn(notifications(
+                    output, daemon,
+                ))));
             }
             continue;
         }
@@ -358,7 +360,8 @@ mod tests {
         stdin.write_all(&input).await.unwrap();
         let (client, server) = tokio::io::duplex(1 << 20);
         let (_, write) = tokio::io::split(server);
-        let running = tokio::spawn(run(BufReader::new(served), write, daemon, channel));
+        let running =
+            crate::environment::spawn(run(BufReader::new(served), write, daemon, channel));
         tokio::time::sleep(wait).await;
         running.abort();
         drop(stdin);

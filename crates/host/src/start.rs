@@ -136,10 +136,17 @@ async fn start(
             attach.attach(id).await
         })
         .await;
-    if started.is_err() {
+    if started.as_ref().is_err_and(|error| {
+        !crate::remote::active() || !crate::execution::spawn_may_have_happened(error)
+    }) {
         recorded.failed().await;
     }
-    started.map_err(|e| format!("cannot start {name}: {e}"))?;
+    started.map_err(|e| {
+        format!(
+            "cannot start {name}: {}",
+            crate::execution::spawn_failure(&e)
+        )
+    })?;
     Ok(name)
 }
 
@@ -321,19 +328,44 @@ pub(crate) async fn run(
     args: &[String],
     cwd: &std::path::Path,
     input: Option<String>,
-) -> (Result<String, String>, i32) {
+) -> crate::command::Output {
+    use crate::command::Output;
     let Some(asked) = asked(args) else {
-        return (Err(USAGE.into()), 2);
+        return Output {
+            wrote: Err(USAGE.into()),
+            code: 2,
+            effects_possible: false,
+        };
     };
-    let started = match prepared(asked, input, cwd) {
-        Ok(p) => start(&crate::daemon::daemon(), &p.asked, p.dir, &p.prompt)
-            .await
-            .map_err(Failure::Run),
-        Err(failure) => Err(failure),
+    let prepared = match prepared(asked, input, cwd) {
+        Ok(prepared) => prepared,
+        Err(failure) => {
+            return Output {
+                wrote: Err(failure.text().to_string()),
+                code: failure.code(),
+                effects_possible: false,
+            };
+        }
     };
+    let started = start(
+        &crate::daemon::daemon(),
+        &prepared.asked,
+        prepared.dir,
+        &prepared.prompt,
+    )
+    .await
+    .map_err(Failure::Run);
     match started {
-        Ok(name) => (Ok(name), 0),
-        Err(failure) => (Err(failure.text().to_string()), failure.code()),
+        Ok(name) => Output {
+            wrote: Ok(name),
+            code: 0,
+            effects_possible: true,
+        },
+        Err(failure) => Output {
+            wrote: Err(failure.text().to_string()),
+            code: failure.code(),
+            effects_possible: true,
+        },
     }
 }
 

@@ -43,7 +43,7 @@ pub(crate) fn use_hub(app: AppCtx, local: Local) -> Hub {
         let panes: Panes = Rc::new(RefCell::new(HashMap::new()));
         spawn(redraw_woken(app, local, panes.clone(), woken));
         Hub {
-            daemon: adroit_term::Daemon::new(adroit_model::paths::terminal_host_socket()),
+            daemon: app.daemon(),
             panes,
             attaching: Rc::new(RefCell::new(HashSet::new())),
             wake,
@@ -85,7 +85,14 @@ async fn redraw_woken(
                     keep_drawn(local.gallery, id.clone(), drawn);
                 }
             }
-            let gone = panes.borrow().get(tab).is_some_and(|p| p.exited());
+            let remote = app.remote_status().is_some();
+            let gone = panes.borrow().get(tab).is_some_and(|p| {
+                if remote {
+                    p.program_exited()
+                } else {
+                    p.exited()
+                }
+            });
             if let (Tab::Terminal(id), true) = (tab, gone) {
                 close_shell(app, &panes, *id);
             }

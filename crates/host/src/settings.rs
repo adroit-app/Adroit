@@ -44,13 +44,15 @@ pub fn try_load() -> Result<Settings, String> {
 }
 
 fn load_path(path: &Path) -> Settings {
-    read_path(path).unwrap_or_else(|error| {
-        eprintln!("adroit: {error}");
-        Settings {
-            delegation: DelegationSettings { max_started: 0 },
-            ..Settings::default()
-        }
-    })
+    read_path(path).unwrap_or_else(recover)
+}
+
+pub(crate) fn recover(error: String) -> Settings {
+    eprintln!("adroit: {error}");
+    Settings {
+        delegation: DelegationSettings { max_started: 0 },
+        ..Settings::default()
+    }
 }
 
 pub fn save(settings: &Settings) -> Result<(), String> {
@@ -78,6 +80,13 @@ pub static SETTINGS: LazyLock<RwLock<Settings>> = LazyLock::new(|| RwLock::new(l
 pub static CHANGED: LazyLock<broadcast::Sender<()>> = LazyLock::new(|| broadcast::channel(16).0);
 
 pub fn current() -> Settings {
+    if let Some(context) = crate::environment::current() {
+        return context
+            .settings
+            .read()
+            .map(|s| s.clone())
+            .unwrap_or_default();
+    }
     SETTINGS.read().map(|s| s.clone()).unwrap_or_default()
 }
 
@@ -87,7 +96,11 @@ pub fn current() -> Settings {
 pub fn take_in(file: &adroit_protocol::ConfigFile) {
     match read(file) {
         Ok(next) if next != current() => {
-            if let Ok(mut s) = SETTINGS.write() {
+            if let Ok(mut s) = crate::environment::current()
+                .as_ref()
+                .map_or(&*SETTINGS, |c| &c.settings)
+                .write()
+            {
                 *s = next;
             }
         }
@@ -101,7 +114,11 @@ pub fn take_in(file: &adroit_protocol::ConfigFile) {
 pub fn set(next: Settings) -> Result<(), String> {
     let next = next.sane();
     save(&next)?;
-    if let Ok(mut s) = SETTINGS.write() {
+    if let Ok(mut s) = crate::environment::current()
+        .as_ref()
+        .map_or(&*SETTINGS, |c| &c.settings)
+        .write()
+    {
         *s = next;
     }
     let _ = CHANGED.send(());

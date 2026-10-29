@@ -287,10 +287,19 @@ pub fn cli(args: &[String]) -> i32 {
 
 /// `adroit terminal <args>` as the work host runs it for a command run in
 /// `cwd`: what it prints, or why it failed, with its exit code.
-pub(crate) async fn run(args: &[String], cwd: &std::path::Path) -> (Result<String, String>, i32) {
+pub(crate) async fn run(args: &[String], cwd: &std::path::Path) -> crate::command::Output {
+    use crate::command::Output;
     let Some((operation, json)) = parse(args) else {
-        return (Err(USAGE.into()), 2);
+        return Output {
+            wrote: Err(USAGE.into()),
+            code: 2,
+            effects_possible: false,
+        };
     };
+    let effects_possible = matches!(
+        operation,
+        Operation::Input(..) | Operation::Stop(..) | Operation::Start { .. }
+    );
     let done = tokio::time::timeout(
         std::time::Duration::from_secs(10),
         execute(&crate::daemon::daemon(), operation, json, cwd),
@@ -300,7 +309,11 @@ pub(crate) async fn run(args: &[String], cwd: &std::path::Path) -> (Result<Strin
         Err("the terminal command timed out; a requested start may have completed".into())
     });
     let code = if done.is_ok() { 0 } else { 1 };
-    (done, code)
+    Output {
+        wrote: done,
+        code,
+        effects_possible,
+    }
 }
 
 #[cfg(test)]

@@ -14,7 +14,7 @@ pub(super) async fn watch(watched: Watched, mut asks: UnboundedReceiver<HistoryA
         let project = ask.project.clone();
         let context = super::asked_in(&watched.seen(), ask.agent, ask.home.as_deref()).await;
         // An agent's history can run to megabytes: not on a runtime thread.
-        let sent = tokio::task::spawn_blocking(move || match context {
+        let sent = crate::environment::spawn_blocking(move || match context {
             Some(context) => {
                 adroit_agents::adapter(ask.agent).history(&context, &crate::paths::home(), &project)
             }

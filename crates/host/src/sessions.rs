@@ -75,6 +75,14 @@ pub fn note_input(session: &mut Session, at: u64) -> Option<(u128, &'static str,
 /// What `session` is, by its tags; `None` for one adroit did not start, and
 /// for one whose program has exited, which is gone but for a moment.
 pub fn read(session: &adroit_term::Session) -> Option<Kept> {
+    if !crate::environment::owns(&session.tags) {
+        return None;
+    }
+    read_any_environment(session)
+}
+
+/// All environments are considered when protecting a login from deletion.
+pub fn read_any_environment(session: &adroit_term::Session) -> Option<Kept> {
     if session.exited {
         return None;
     }

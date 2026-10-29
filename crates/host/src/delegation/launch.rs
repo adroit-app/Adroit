@@ -87,6 +87,8 @@ impl Delegation {
                     TOKEN_ENV,
                     ROOT_ENV,
                     "ADROIT_INSTANCE",
+                    "ADROIT_ENVIRONMENT",
+                    "ADROIT_WORK_INSTANCE",
                     "XDG_STATE_HOME",
                     "XDG_CONFIG_HOME",
                     "XDG_DATA_HOME",
@@ -173,6 +175,16 @@ mod tests {
             .position(|arg| arg == "--dangerously-load-development-channels")
             .unwrap();
         assert_eq!(args[channel + 1], CLAUDE_CHANNEL);
+    }
+
+    #[test]
+    fn codex_mcp_keeps_the_inherited_local_work_route() {
+        let args = delegation(None).args(Agent::Codex, Path::new("/bin/adroit"));
+        let variables = args
+            .iter()
+            .find(|arg| arg.starts_with("mcp_servers.adroit.env_vars="))
+            .unwrap();
+        assert!(variables.contains("ADROIT_WORK_INSTANCE"));
     }
 
     #[test]

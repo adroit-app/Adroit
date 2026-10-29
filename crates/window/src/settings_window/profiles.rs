@@ -174,6 +174,7 @@ fn ProfilePage(
     left: Signal<LeftHomes>,
     told: Signal<Option<(AgentPage, String)>>,
 ) -> Element {
+    let remote = use_context::<Link>().remote_status().is_some();
     let refused = use_signal(|| None::<String>);
     let mut reset = use_signal(|| None::<String>);
     let deleting = use_signal(|| false);
@@ -200,9 +201,17 @@ fn ProfilePage(
     let duplicate = {
         let id = id.clone();
         move |_| {
+            if remote {
+                return;
+            }
             let id = id.clone();
             let op: Attempt<ProfileId> = Rc::new(move |s| {
-                profiles::duplicate_profile(s, &id, &adroit_model::paths::data_dir(), canonical)
+                profiles::duplicate_profile(
+                    s,
+                    &id,
+                    &crate::environment_profiles::work_data_dir()?,
+                    canonical,
+                )
             });
             if let Some(copy) = attempt(change, refused, op) {
                 choose(AgentPage::Profile(copy));
@@ -213,6 +222,9 @@ fn ProfilePage(
         let (id, home) = (id.clone(), profile.home.clone());
         let mut left = left;
         move |login: Login| {
+            if remote {
+                return;
+            }
             let login = match login {
                 Login::Own if home.is_none() => left
                     .peek()
@@ -228,7 +240,7 @@ fn ProfilePage(
                     s,
                     &op_id,
                     login.clone(),
-                    &adroit_model::paths::data_dir(),
+                    &crate::environment_profiles::work_data_dir()?,
                     canonical,
                 )
             }));
@@ -245,7 +257,20 @@ fn ProfilePage(
             }
         }
     };
-    let folder = profiles::login_folder(&profile, &adroit_model::paths::data_dir(), canonical);
+    let folder = if remote {
+        profile
+            .home
+            .clone()
+            .map_or(LoginFolder::Terminal, LoginFolder::Kept)
+    } else {
+        match crate::environment_profiles::work_data_dir() {
+            Ok(data) => profiles::login_folder(&profile, &data, canonical),
+            Err(_) => profile
+                .home
+                .clone()
+                .map_or(LoginFolder::Terminal, LoginFolder::Kept),
+        }
+    };
     rsx! {
         PageHead {
             title: profile.label().to_string(),
@@ -271,7 +296,8 @@ fn ProfilePage(
                     " Use for new sessions"
                 }
             }
-            button { r#type: "button", onclick: duplicate,
+            button { r#type: "button", onclick: duplicate, disabled: remote,
+                title: if remote { "Duplicate agent setups on the work machine to allocate their login folders there" } else { "Duplicate agent setup" },
                 IconView { icon: Icon::Copy, size: 13 }
                 " Duplicate"
             }
@@ -308,7 +334,7 @@ fn ProfilePage(
             SettingRow { label: "Name", hint: "",
                 TextField {
                     value: "{profile.name}",
-                    aria_label: "Profile name",
+                    aria_label: "Agent setup name",
                     onchange: {
                         let id = id.clone();
                         move |name: String| {
@@ -319,7 +345,7 @@ fn ProfilePage(
                 }
             }
             SettingRow { label: "Agent", hint: "Changing it resets the model, options, login and command.",
-                AgentSelect { label: "Profile agent", chosen: agent, onchange: move |a: Agent| switch_agent(a) }
+                AgentSelect { label: "Agent", chosen: agent, onchange: move |a: Agent| switch_agent(a) }
             }
             if let Some(said) = reset() {
                 div { class: "settings-row",
@@ -411,9 +437,9 @@ fn NewProfilePage(now: Settings, change: Callback<Change>, choose: Callback<Agen
         }
     };
     rsx! {
-        PageHead { title: "New profile" }
+        PageHead { title: "New agent setup" }
         p { class: "settings-agent-note",
-            "A profile is an agent, where it keeps its login and how its new sessions start. A draft picks one before its first prompt."
+            "An agent setup selects a program installed in this working profile, its login and how new sessions start."
         }
         if let Some(why) = refused() {
             SettingsError { "{why}" }
@@ -423,7 +449,7 @@ fn NewProfilePage(now: Settings, change: Callback<Change>, choose: Callback<Agen
                 input {
                     class: "settings-command",
                     r#type: "text",
-                    aria_label: "New profile's name",
+                    aria_label: "New agent setup's name",
                     placeholder: "Work",
                     value: "{name}",
                     oninput: move |e| name.set(e.value()),
@@ -435,14 +461,14 @@ fn NewProfilePage(now: Settings, change: Callback<Change>, choose: Callback<Agen
                 }
             }
             SettingRow { label: "Agent", hint: "",
-                AgentSelect { label: "New profile's agent", chosen: agent(), onchange: move |a: Agent| agent.set(a) }
+                AgentSelect { label: "New agent setup's agent", chosen: agent(), onchange: move |a: Agent| agent.set(a) }
             }
             div { class: "settings-row",
                 div { class: "settings-row-label" }
                 div { class: "settings-row-control",
                     button { r#type: "button", class: "primary", onclick: move |_| create(),
                         IconView { icon: Icon::Plus, size: 13 }
-                        " Create profile"
+                        " Create agent setup"
                     }
                 }
             }
@@ -550,9 +576,9 @@ fn DeleteProfile(
                     disabled: busy(),
                     onclick: confirm,
                     if with_folder() && matches!(folder, LoginFolder::Deletable(_)) {
-                        "Delete profile and folder"
+                        "Delete agent setup and folder"
                     } else {
-                        "Delete profile"
+                        "Delete agent setup"
                     }
                 }
                 button {
@@ -658,6 +684,7 @@ fn LoginRow(
     probed: Signal<Probes>,
 ) -> Element {
     let link = use_context::<Link>();
+    let remote = link.remote_status().is_some();
     {
         let link = link.clone();
         // Asked again for each login the row comes to show, as the
@@ -687,7 +714,7 @@ fn LoginRow(
     };
     let said = match &now {
         Some(Probed::Is(LoginStanding::Missing)) => format!(
-            "{} isn't installed. Install it, or set the profile's launch command.",
+            "{} isn't installed. Install it, or set the agent setup's launch command.",
             agent.label()
         ),
         Some(Probed::Is(LoginStanding::Unknown)) => {
@@ -699,16 +726,20 @@ fn LoginRow(
         }
         _ => String::new(),
     };
-    let whose = match &home {
-        None => format!(
-            "{} as it runs in your terminal: logging in or out there changes it here too.",
-            agent.label()
-        ),
-        Some(folder) => format!(
-            "Kept apart from your terminal's in {}. {} logs in itself; Adroit keeps no passwords.",
-            tilde(folder, &crate::paths::home()),
-            agent.label()
-        ),
+    let whose = if remote {
+        "This login belongs to the work machine. Log in there using this profile's CLI and account. Login selection and interactive login terminals are unavailable from a remote window.".to_string()
+    } else {
+        match &home {
+            None => format!(
+                "{} as it runs in your terminal: logging in or out there changes it here too.",
+                agent.label()
+            ),
+            Some(folder) => format!(
+                "Kept apart from your terminal's in {}. {} logs in itself; Adroit keeps no passwords.",
+                tilde(folder, &crate::paths::home()),
+                agent.label()
+            ),
+        }
     };
     let hint = format!("{whose} {said}").trim().to_string();
     let logged_out = matches!(now, Some(Probed::Is(LoginStanding::LoggedOut)));
@@ -722,7 +753,8 @@ fn LoginRow(
     rsx! {
         SettingRow { label: "Login", hint,
             select {
-                aria_label: "Profile login",
+                disabled: remote,
+                aria_label: "Agent login",
                 onchange: move |e: Event<FormData>| {
                     choose_login.call(match e.value().as_str() {
                         OWN => Login::Own,
@@ -747,7 +779,7 @@ fn LoginRow(
                     onclick: move |_| c.send(Request::EndTerminal { id: terminal }),
                     "Cancel"
                 }
-            } else {
+            } else if !remote {
                 button {
                     r#type: "button",
                     class: if logged_out { "primary" } else { "" },

@@ -13,8 +13,11 @@ name = "adroit"
 version = "0.0.0"
 dependencies = [
  "adroit-agents",
+ "adroit-connect",
  "adroit-host",
  "adroit-model",
+ "adroit-net",
+ "adroit-protocol",
  "adroit-term",
  "adroit-window",
  "serde_json",
@@ -34,6 +37,23 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "adroit-connect"
+version = "0.0.0"
+dependencies = [
+ "adroit-model",
+ "adroit-net",
+ "adroit-protocol",
+ "adroit-term",
+ "libc",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "toml 1.1.8+spec-1.1.0",
  "uuid",
 ]
 
@@ -62,6 +82,7 @@ dependencies = [
  "adroit-agents",
  "adroit-core",
  "adroit-model",
+ "adroit-net",
  "adroit-nvim",
  "adroit-protocol",
  "adroit-term",
@@ -174,6 +195,7 @@ dependencies = [
 name = "adroit-window"
 version = "0.0.0"
 dependencies = [
+ "adroit-connect",
  "adroit-core",
  "adroit-model",
  "adroit-nvim",

@@ -12,6 +12,24 @@ use crate::{DraftChanges, Drafts, HostPath};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Ask {
+    PathEntries {
+        root: Option<HostPath>,
+        typed: String,
+    },
+    Apply {
+        stamp: crate::MutationStamp,
+        request: Box<crate::Request>,
+    },
+    MutationStatus {
+        stamp: crate::MutationStamp,
+    },
+    MutationEpoch,
+    SubmitPrompt {
+        session: String,
+        agent: Agent,
+        text: String,
+        images: Vec<PathBuf>,
+    },
     /// Start a session with its program held back until the session is
     /// released.
     StartSession(Box<SessionStart>),
@@ -24,21 +42,42 @@ pub enum Ask {
     /// session it holds.
     RestartTerminalHost,
     /// Keep an image pasted into the prompt, of `mime`, its bytes in base64.
-    KeepImage { mime: String, data: String },
+    KeepImage {
+        mime: String,
+        data: String,
+    },
     /// Keep a copy of the image file at `path`, dropped on the prompt.
-    KeepImageFile { path: PathBuf },
+    KeepImageFile {
+        path: PathBuf,
+    },
     /// Make the settings those `text` writes in `settings.toml`'s format.
-    SaveSettings { text: String },
+    SaveSettings {
+        text: String,
+    },
+    SaveSettingsChecked {
+        text: String,
+        expected: crate::FileText,
+    },
     /// Make `text` the key bindings over the defaults, as `keys.toml` holds
     /// them.
-    SaveKeys { text: String },
+    SaveKeys {
+        text: String,
+    },
     /// What is written in the prompts, as kept.
     Drafts,
     /// Keep what a window changed of what is written in the prompts.
     KeepDrafts(Box<DraftChanges>),
+    ConsumeDraft {
+        key: String,
+        text: String,
+        images: Vec<PathBuf>,
+    },
     /// The image file at `path` as a `data:` URL: whole, or as the small copy
     /// a list draws.
-    Picture { path: PathBuf, whole: bool },
+    Picture {
+        path: PathBuf,
+        whole: bool,
+    },
     /// Whether the profile `profile` is logged in, as the CLI it starts says
     /// where it runs it, asked once the terminal `after`, when one is named,
     /// has ended.
@@ -136,6 +175,21 @@ impl Ask {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Answer {
+    Unconfirmed {
+        text: String,
+    },
+    DraftConsumed {
+        cleared: bool,
+    },
+    PathEntries {
+        entries: Vec<crate::PathEntry>,
+    },
+    Mutation {
+        status: crate::MutationState,
+    },
+    MutationEpoch {
+        epoch: u64,
+    },
     /// The session started, by its id, held until released.
     Session {
         id: String,

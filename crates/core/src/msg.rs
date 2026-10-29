@@ -314,6 +314,8 @@ pub enum Msg {
     PromptTaken(Box<Taken>),
     /// The prompt handed over to send went, or did not.
     PromptWent(bool),
+    /// A send ended while its original text stayed in the prompt.
+    PromptRetained,
     /// The host has been asked long enough to compose the prompt numbered so.
     ComposeLapsed(u64),
 

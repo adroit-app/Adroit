@@ -28,16 +28,21 @@ impl From<Standing> for TerminalHostStanding {
 /// stands.
 pub(crate) async fn start(judged: &watch::Sender<Judged>) {
     let compiled =
-        tokio::task::spawn_blocking(|| daemon::install_terminfo(&daemon::terminfo_dir())).await;
+        crate::environment::spawn_blocking(|| daemon::install_terminfo(&daemon::terminfo_dir()))
+            .await;
     let mut failed = match compiled {
         Ok(Err(e)) => Some(format!("cannot install the terminal's description: {e}")),
         _ => None,
     };
     let terminal_host = daemon::daemon();
-    if let Err(e) = terminal_host
-        .start(&adroit_program(), &daemon::serve_args())
-        .await
-    {
+    let started = if crate::remote::active() {
+        terminal_host.sessions().await.map(|_| ())
+    } else {
+        terminal_host
+            .start(&adroit_program(), &daemon::serve_args())
+            .await
+    };
+    if let Err(e) = started {
         failed = Some(format!("cannot start the sessions' daemon: {e}"));
     }
     let stands = standing::settled(&terminal_host).await;
@@ -52,6 +57,12 @@ pub(crate) async fn start(judged: &watch::Sender<Judged>) {
 pub(crate) async fn restart(
     judged: &watch::Sender<Judged>,
 ) -> Result<TerminalHostStanding, String> {
+    if crate::remote::active() || crate::environment::current().is_some() {
+        return Err(
+            "manage the remote terminal service on its host; it is not restarted by a window"
+                .into(),
+        );
+    }
     let terminal_host = daemon::daemon();
     terminal_host
         .restart(&adroit_program(), &daemon::serve_args())

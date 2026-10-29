@@ -33,6 +33,15 @@ fn kept_id(tab: &Tab) -> Option<u128> {
     }
 }
 
+/// Missing panes include an initial attachment that failed during an outage.
+pub(super) fn needs_attach(tab: &Tab, panes: &Panes) -> bool {
+    kept_id(tab).is_some()
+        && panes
+            .borrow()
+            .get(tab)
+            .is_none_or(|pane| pane.exited() && !pane.program_exited())
+}
+
 /// The pane a tab shows, attaching to its session when there is none yet:
 /// `None` until the attach lands, when the tab is woken and `attached` told.
 pub(crate) fn ensure_pane(
@@ -168,4 +177,18 @@ impl Ui {
 pub(crate) fn close_shell(app: AppCtx, panes: &Panes, id: u128) {
     panes.borrow_mut().remove(&Tab::Terminal(id));
     app.dispatch(Msg::ShellClosed(id));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_failed_first_attach_stays_retryable_without_a_cached_pane() {
+        let panes = Panes::default();
+        assert!(needs_attach(&Tab::Terminal(1), &panes));
+        assert!(needs_attach(&Tab::Session(sessions::hex(1)), &panes));
+        assert!(!needs_attach(&Tab::Session("external".into()), &panes));
+        assert!(!needs_attach(&Tab::Viewer("/tmp/file".into()), &panes));
+    }
 }

@@ -46,9 +46,11 @@ pub(crate) async fn hold(id: u128) {
     HELD.lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .hold(id);
-    tokio::spawn(async move {
+    crate::environment::spawn(async move {
         tokio::time::sleep(AT_MOST).await;
-        release(id).await;
+        // The terminal-owned lease expires independently. A late Enter would
+        // reach the program after that lease has already let it go.
+        take(id);
     });
 }
 

@@ -11,6 +11,15 @@ pub fn wanted(running: usize, keep_awake: bool) -> bool {
     keep_awake && running > 0
 }
 
+pub fn environments_wanted(
+    running: &std::collections::BTreeMap<Option<String>, usize>,
+    preference: impl Fn(Option<&str>) -> bool,
+) -> bool {
+    running
+        .iter()
+        .any(|(scope, count)| wanted(*count, preference(scope.as_deref())))
+}
+
 /// Holds what `take` gives, dropping it to let go, while it is wanted.
 pub struct Keeper<T> {
     take: fn() -> Option<T>,
@@ -191,5 +200,24 @@ mod tests {
         keeper.keep(true);
         assert!(keeper.held.is_none());
         assert_eq!(TRIED.load(Ordering::SeqCst), 2);
+    }
+}
+
+#[cfg(test)]
+mod environment_tests {
+    use super::*;
+    #[test]
+    fn only_environments_with_running_work_contribute_their_awake_preference() {
+        let work_only = [(Some("work".to_string()), 1)].into_iter().collect();
+        assert!(!environments_wanted(&work_only, |scope| scope.is_none()));
+        let mixed = [
+            (Some("work".to_string()), 1),
+            (Some("personal".to_string()), 1),
+        ]
+        .into_iter()
+        .collect();
+        assert!(environments_wanted(&mixed, |scope| scope == Some("personal")));
+        let ended = [(Some("personal".to_string()), 0)].into_iter().collect();
+        assert!(!environments_wanted(&ended, |_| true));
     }
 }

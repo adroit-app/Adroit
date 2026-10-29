@@ -9,6 +9,7 @@ publish = false
 
 [dependencies]
 adroit-agents.workspace = true
+adroit-net.workspace = true
 adroit-core.workspace = true
 adroit-model.workspace = true
 adroit-nvim.workspace = true
@@ -23,6 +24,7 @@ rusqlite.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tempfile.workspace = true
 sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
 toml.workspace = true
 thiserror.workspace = true

@@ -114,15 +114,26 @@ struct State {
 
 /// A window onto one session.
 enum WriteRequest {
-    Frame(OutgoingFrame),
+    Frames {
+        frames: Vec<OutgoingFrame>,
+        input: Option<u64>,
+    },
     Fence(tokio::sync::oneshot::Sender<std::result::Result<(), String>>),
+}
+
+struct QueuedWrite {
+    request: WriteRequest,
+    _slot: Option<tokio::sync::OwnedSemaphorePermit>,
 }
 
 pub struct Pane {
     id: u128,
     last_input_ms: AtomicU64,
+    input: crate::InputPermission,
     state: Arc<Mutex<State>>,
-    out: mpsc::UnboundedSender<WriteRequest>,
+    out: mpsc::UnboundedSender<QueuedWrite>,
+    slots: Option<Arc<tokio::sync::Semaphore>>,
+    waker: Waker,
     reader: tokio::task::JoinHandle<()>,
 }
 
@@ -178,16 +189,55 @@ fn held(spawn: Spawn) -> Result<Spawn> {
     Ok(gated(spawn))
 }
 
+fn held_by(daemon: &Daemon, spawn: Spawn) -> Result<Spawn> {
+    if let Some(program) = &daemon.startup_lease {
+        if !found(&spawn) {
+            return Err(Error::NotFound(spawn.program));
+        }
+        return crate::gate::leased(spawn, program, std::time::Duration::from_secs(10));
+    }
+    held(spawn)
+}
+
 impl Daemon {
+    /// Use this executable's startup lease for every held program, including
+    /// programs started with an unshown pane.
+    pub fn with_startup_lease(mut self, program: std::path::PathBuf) -> Self {
+        self.startup_lease = Some(program);
+        self
+    }
     /// Start a session as `spawn` says with its program held back, returning
     /// its id. A pane attached to it tells it the colours; [`Daemon::release`]
     /// then lets the program go, so the first colour it asks for is theirs.
     pub async fn spawn_held(&self, spawn: Spawn) -> Result<u128> {
-        self.spawn(held(spawn)?).await
+        self.spawn(held_by(self, spawn)?).await
+    }
+
+    /// Hold a program with a terminal-owned deadline, independent of the work host.
+    pub async fn spawn_held_for(
+        &self,
+        spawn: Spawn,
+        program: &std::path::Path,
+        timeout: std::time::Duration,
+    ) -> Result<u128> {
+        if !found(&spawn) {
+            return Err(Error::NotFound(spawn.program));
+        }
+        self.spawn(crate::gate::leased(spawn, program, timeout)?)
+            .await
     }
 
     /// Let the program of a session [`Daemon::spawn_held`] made go.
     pub async fn release(&self, id: u128) -> Result<()> {
+        if let Some(socket) = self
+            .sessions()
+            .await?
+            .iter()
+            .find(|s| s.id == id)
+            .and_then(|s| crate::tags::value(&s.tags, "adroit:startup-lease"))
+        {
+            return crate::gate::release(std::path::Path::new(&socket)).await;
+        }
         self.press(id, RELEASE).await
     }
 }
@@ -236,7 +286,15 @@ impl Pane {
     ) -> Result<Self> {
         let mut conn = daemon.window().await?;
         let info = conn.attach(id, AttachIntent::Deliberate).await?;
-        Ok(Self::over(conn, &info, size, palette, waker))
+        Ok(Self::over(
+            conn,
+            &info,
+            size,
+            palette,
+            waker,
+            daemon.input.clone().unwrap_or_default(),
+            daemon.forwarded,
+        ))
     }
 
     /// Start a session as `spawn` says, at `size` rather than the size it
@@ -329,7 +387,7 @@ impl Pane {
         F: std::future::Future<Output = Result<()>>,
         G: std::future::Future<Output = Result<T>>,
     {
-        let mut args = spawn_args(held(spawn)?);
+        let mut args = spawn_args(held_by(daemon, spawn)?);
         args.dims = Some(size.dims());
         let mut conn = daemon.window().await?;
         let info = conn.create_with(args).await?;
@@ -345,7 +403,15 @@ impl Pane {
             };
         }
         let waker = waker_for(info.id);
-        let pane = Self::over(conn, &info, size, palette, waker);
+        let pane = Self::over(
+            conn,
+            &info,
+            size,
+            palette,
+            waker,
+            daemon.input.clone().unwrap_or_default(),
+            daemon.forwarded,
+        );
         let before = match before_release(info.id).await {
             Ok(before) => before,
             Err(error) => {
@@ -353,8 +419,13 @@ impl Pane {
                 return Err(error);
             }
         };
-        pane.send(InputMsg::KeyBytes(RELEASE.to_vec()));
-        pane.input_fence().await?;
+        if daemon.startup_lease.is_some() {
+            pane.input_fence().await?;
+            daemon.release(info.id).await?;
+        } else {
+            pane.send(InputMsg::KeyBytes(RELEASE.to_vec()));
+            pane.input_fence().await?;
+        }
         Ok((pane, before))
     }
 
@@ -365,6 +436,8 @@ impl Pane {
         size: Size,
         palette: &Palette,
         waker: impl Fn() + Send + Sync + 'static,
+        input: crate::InputPermission,
+        forwarded: bool,
     ) -> Self {
         let id = info.id;
         let state = Arc::new(Mutex::new(State {
@@ -383,13 +456,23 @@ impl Pane {
             },
             closed: false,
         }));
-        let (out, queue) = mpsc::unbounded_channel::<WriteRequest>();
-        let reader = tokio::spawn(serve(conn, queue, state.clone(), Arc::new(waker)));
+        let (out, queue) = mpsc::unbounded_channel::<QueuedWrite>();
+        let waker: Waker = Arc::new(waker);
+        let reader = tokio::spawn(serve(
+            conn,
+            queue,
+            state.clone(),
+            waker.clone(),
+            input.clone(),
+        ));
         let pane = Self {
             id,
             last_input_ms: AtomicU64::new(0),
+            input,
             state,
             out,
+            slots: forwarded.then(|| Arc::new(tokio::sync::Semaphore::new(32))),
+            waker,
             reader,
         };
         pane.send_session(&theme(palette));
@@ -428,25 +511,75 @@ impl Pane {
 
     async fn input_fence(&self) -> Result<()> {
         let (reply, accepted) = tokio::sync::oneshot::channel();
-        self.out
-            .send(WriteRequest::Fence(reply))
-            .map_err(|_| Error::Protocol("the terminal writer stopped".into()))?;
+        if !self.queue(WriteRequest::Fence(reply)) {
+            return Err(Error::Protocol(
+                "the terminal writer stopped or is overloaded".into(),
+            ));
+        }
         accepted
             .await
             .map_err(|_| Error::Protocol("the terminal stopped before accepting input".into()))?
             .map_err(Error::Protocol)
     }
 
-    fn send(&self, msg: InputMsg) {
-        if let Ok(frame) = OutgoingFrame::input(&msg) {
-            let _ = self.out.send(WriteRequest::Frame(frame));
+    fn send(&self, msg: InputMsg) -> bool {
+        self.send_many(std::iter::once(msg))
+    }
+
+    fn send_many(&self, messages: impl IntoIterator<Item = InputMsg>) -> bool {
+        let mut input = None;
+        let mut frames = Vec::new();
+        for msg in messages {
+            if matches!(
+                msg,
+                InputMsg::KeyBytes(_)
+                    | InputMsg::Paste(_)
+                    | InputMsg::Mouse(_)
+                    | InputMsg::Key(_)
+                    | InputMsg::FocusChange { .. }
+            ) {
+                let Some(ticket) = self.input.ticket() else {
+                    return false;
+                };
+                input = Some(ticket);
+            }
+            if let Ok(frame) = OutgoingFrame::input(&msg) {
+                frames.push(frame);
+            } else {
+                return false;
+            }
         }
+        self.queue(WriteRequest::Frames { frames, input })
     }
 
     fn send_session(&self, msg: &SessionToDaemonMsg) {
         if let Ok(frame) = OutgoingFrame::ordered(msg) {
-            let _ = self.out.send(WriteRequest::Frame(frame));
+            self.queue(WriteRequest::Frames {
+                frames: vec![frame],
+                input: None,
+            });
         }
+    }
+
+    fn queue(&self, request: WriteRequest) -> bool {
+        let slot = match &self.slots {
+            Some(slots) => match slots.clone().try_acquire_owned() {
+                Ok(slot) => Some(slot),
+                Err(_) => {
+                    self.reader.abort();
+                    self.state.lock().unwrap().closed = true;
+                    (self.waker)();
+                    return false;
+                }
+            },
+            None => None,
+        };
+        self.out
+            .send(QueuedWrite {
+                request,
+                _slot: slot,
+            })
+            .is_ok()
     }
 
     /// The screen as the view is scrolled now.
@@ -518,12 +651,17 @@ impl Pane {
     /// Send a key, as the program's modes ask; `false` when the key never
     /// reaches a program.
     pub fn key(&self, key: &Key) -> bool {
+        if self.input.ticket().is_none() {
+            return false;
+        }
         match key.event() {
             Some(e) => {
                 self.to_bottom();
-                self.send(InputMsg::Key(e));
-                self.record_input();
-                true
+                let sent = self.send(InputMsg::Key(e));
+                if sent {
+                    self.record_input();
+                }
+                sent
             }
             None => false,
         }
@@ -531,18 +669,24 @@ impl Pane {
 
     /// Send text as if it were typed.
     pub fn type_text(&self, text: &str) {
+        if self.input.ticket().is_none() {
+            return;
+        }
         self.to_bottom();
-        self.send(InputMsg::KeyBytes(text.as_bytes().to_vec()));
-        if !text.is_empty() {
+        if self.send(InputMsg::KeyBytes(text.as_bytes().to_vec())) && !text.is_empty() {
             self.record_input();
         }
     }
 
     /// Paste text, bracketed when the program asks for it.
     pub fn paste(&self, text: &str) {
+        if self.input.ticket().is_none() {
+            return;
+        }
         self.to_bottom();
-        self.send(InputMsg::Paste(text.as_bytes().to_vec()));
-        self.record_input();
+        if self.send(InputMsg::Paste(text.as_bytes().to_vec())) {
+            self.record_input();
+        }
     }
 
     /// Show the bottom again, as a terminal does when typed into.
@@ -561,8 +705,12 @@ impl Pane {
     }
 
     fn mouse(&self, button: MouseButton, action: MouseAction, col: usize, row: usize) {
+        self.send(Self::mouse_message(button, action, col, row));
+    }
+
+    fn mouse_message(button: MouseButton, action: MouseAction, col: usize, row: usize) -> InputMsg {
         let at = |n: usize| u16::try_from(n + 1).unwrap_or(u16::MAX);
-        self.send(InputMsg::Mouse(MouseEvent {
+        InputMsg::Mouse(MouseEvent {
             button: Some(button),
             action,
             mods: InputMods::empty(),
@@ -570,13 +718,13 @@ impl Pane {
             y: at(row),
             px: 0,
             py: 0,
-        }));
+        })
     }
 
     /// Click the cell at `col` and `row`, counted from 0, for a program
     /// that asked for the mouse.
     pub fn click(&self, col: usize, row: usize) {
-        if self.takes_mouse() {
+        if self.input.ticket().is_some() && self.takes_mouse() {
             self.record_input();
         }
         self.mouse(MouseButton::Left, MouseAction::Press, col, row);
@@ -592,23 +740,25 @@ impl Pane {
             (s.shadow.mouse_protocol_active(), s.shadow.alt_screen())
         };
         let notches = lines.unsigned_abs().min(200);
-        if notches > 0 && (mouse || alternate) {
+        if notches > 0 && (mouse || alternate) && self.input.ticket().is_some() {
             self.record_input();
         }
         if mouse {
-            let button = if lines > 0 {
-                MouseButton::WheelUp
-            } else {
-                MouseButton::WheelDown
-            };
-            for _ in 0..notches {
-                self.mouse(button, MouseAction::Press, col, row);
-            }
+            self.send_many((0..notches).map(|_| {
+                Self::mouse_message(
+                    if lines > 0 {
+                        MouseButton::WheelUp
+                    } else {
+                        MouseButton::WheelDown
+                    },
+                    MouseAction::Press,
+                    col,
+                    row,
+                )
+            }));
         } else if alternate {
             let arrow = Key::new(if lines > 0 { "ArrowUp" } else { "ArrowDown" });
-            for _ in 0..notches {
-                self.key(&arrow);
-            }
+            self.send_many((0..notches).map(|_| InputMsg::Key(arrow.event().unwrap())));
         } else {
             self.scroll(lines);
         }
@@ -663,37 +813,45 @@ impl Pane {
         let s = self.state.lock().unwrap();
         s.exited || s.closed
     }
+
+    /// Whether the terminal host confirmed the program's exit.
+    pub fn program_exited(&self) -> bool {
+        self.state.lock().unwrap().exited
+    }
 }
 
 /// Write what `queue` asks to `conn` and mirror what it sends into
 /// `reading`, waking `waker` on each change drawn, until either side ends.
 async fn serve(
     mut conn: Connection<ReadHalf, WriteHalf>,
-    mut queue: mpsc::UnboundedReceiver<WriteRequest>,
+    mut queue: mpsc::UnboundedReceiver<QueuedWrite>,
     reading: Arc<Mutex<State>>,
     waker: Waker,
+    input: crate::InputPermission,
 ) {
     loop {
         let frame = tokio::select! {
-            request = queue.recv() => {
-                match request {
-                    Some(WriteRequest::Frame(frame)) => {
-                        if conn.writer.send_checked_unflushed(frame.frame()).await.is_err()
-                            || conn.writer.flush().await.is_err()
-                        {
-                            break;
+            queued = queue.recv() => {
+                let Some(queued) = queued else { break; };
+                let written = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                match queued.request {
+                    WriteRequest::Frames { frames, input: ticket } => {
+                        if ticket.is_some_and(|ticket| !input.allows(ticket)) { return false; }
+                        for frame in frames {
+                            if ticket.is_some_and(|ticket| !input.allows(ticket)) { return false; }
+                            if conn.writer.send_checked_unflushed(frame.frame()).await.is_err() { return false; }
                         }
+                        conn.writer.flush().await.is_ok()
                     }
-                    Some(WriteRequest::Fence(reply)) => {
+                    WriteRequest::Fence(reply) => {
                         let result = conn.input_fence().await.map_err(|error| error.to_string());
                         let failed = result.is_err();
                         let _ = reply.send(result);
-                        if failed {
-                            break;
-                        }
+                        !failed
                     }
-                    None => break,
                 }
+                }).await;
+                if !matches!(written, Ok(true)) { break; }
                 continue;
             }
             frame = conn.next_frame() => {

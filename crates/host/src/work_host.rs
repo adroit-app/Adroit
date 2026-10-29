@@ -28,6 +28,9 @@ pub fn hello_of_ours() -> Hello {
     Hello {
         speaks: SPOKEN.to_vec(),
         build: build(),
+        endpoint: crate::remote::ours().cloned(),
+        terminal: crate::remote::terminal().cloned(),
+        mutation_epoch: None,
     }
 }
 
@@ -96,6 +99,7 @@ impl WorkHostServer {
     /// `served`, until one asks this host to stop.
     pub async fn serve(&self, hello: Hello, served: Served) {
         let (stop, mut stopped) = tokio::sync::mpsc::channel::<()>(1);
+        let permits = std::sync::Arc::new(tokio::sync::Semaphore::new(32));
         loop {
             let stream = tokio::select! {
                 accepted = self.listener.accept() => match accepted {
@@ -105,7 +109,13 @@ impl WorkHostServer {
                 _ = stopped.recv() => return,
             };
             let (hello, served, stop) = (hello.clone(), served.clone(), stop.clone());
-            tokio::spawn(async move { served.connection(stream, &hello, stop).await });
+            let Ok(permit) = permits.clone().try_acquire_owned() else {
+                continue;
+            };
+            crate::environment::spawn(async move {
+                let _permit = permit;
+                served.connection(stream, &hello, stop).await
+            });
         }
     }
 }
@@ -208,7 +218,23 @@ pub fn run_command(args: Vec<String>, input: Option<String>) -> i32 {
 /// One of another build is asked all the same when it shares a version
 /// with this one: a command is not to replace the host a window works with.
 async fn asked(socket: &Path, ask: Ask) -> std::result::Result<Answer, String> {
+    if crate::remote::active() {
+        return tokio::time::timeout(Duration::from_secs(30), asked_inner(socket, ask))
+            .await
+            .map_err(|_| {
+                "the remote command timed out; its outcome is unknown and it was not retried"
+                    .to_string()
+            })?;
+    }
+    asked_inner(socket, ask).await
+}
+
+async fn asked_inner(socket: &Path, ask: Ask) -> std::result::Result<Answer, String> {
     match hello(socket).await {
+        None if crate::remote::active() => return Err(
+            "the remote work host is unavailable; its service must be started on the work machine"
+                .into(),
+        ),
         None => start(socket, &adroit_program(), &serve_args())
             .await
             .map_err(|e| e.to_string())?,
@@ -219,6 +245,61 @@ async fn asked(socket: &Path, ask: Ask) -> std::result::Result<Answer, String> {
         .await
         .map_err(|e| format!("cannot reach the work host: {e}"))?;
     let gone = |e: std::io::Error| format!("the work host went away: {e}");
+    let ask = if crate::remote::active() {
+        connection
+            .requests
+            .send(&Request::Hello {
+                versions: SPOKEN.to_vec(),
+            })
+            .await
+            .map_err(gone)?;
+        loop {
+            match connection.events.next().await.map_err(gone)? {
+                Some(Event::Welcome { .. }) => break,
+                Some(Event::Refused { .. }) | None => {
+                    return Err("the remote work host refused the protocol".into());
+                }
+                _ => {}
+            }
+        }
+        let request = Request::Ask {
+            asked: 1,
+            ask: Box::new(ask),
+        };
+        if request.mutates() {
+            let work = connection
+                .hello
+                .endpoint
+                .as_ref()
+                .ok_or("missing remote work identity")?;
+            let terminal = connection
+                .hello
+                .terminal
+                .as_ref()
+                .ok_or("missing remote terminal identity")?;
+            let stamp = adroit_protocol::MutationStamp {
+                instance: work.instance.clone(),
+                work: work.generation.clone(),
+                terminal: terminal.generation.clone(),
+                epoch: connection
+                    .hello
+                    .mutation_epoch
+                    .ok_or("missing remote mutation epoch")?,
+                id: crate::remote::random().map_err(|e| e.to_string())?,
+            };
+            Ask::Apply {
+                stamp,
+                request: Box::new(request),
+            }
+        } else {
+            let Request::Ask { ask, .. } = request else {
+                unreachable!()
+            };
+            *ask
+        }
+    } else {
+        ask
+    };
     connection
         .requests
         .send(&Request::Ask {
@@ -229,7 +310,15 @@ async fn asked(socket: &Path, ask: Ask) -> std::result::Result<Answer, String> {
         .map_err(gone)?;
     while let Some(event) = connection.events.next().await.map_err(gone)? {
         if let Event::Answer { asked: 1, answer } = event {
-            return Ok(answer);
+            return match answer {
+                Answer::Mutation {
+                    status: adroit_protocol::MutationState::Result { answer },
+                } => Ok(*answer),
+                Answer::Mutation { status } => Err(format!(
+                    "remote command outcome is {status:?}; it was not retried"
+                )),
+                answer => Ok(answer),
+            };
         }
     }
     Err("the work host went away before it answered".into())
@@ -281,7 +370,7 @@ async fn serve(socket: &Path) -> Result<()> {
     let served = Served::new(host, |watched| crate::asks::asks(watched, judged.clone()));
     let watched = served.watched();
     crate::watch::start_config(watched.clone());
-    tokio::spawn(async move {
+    crate::environment::spawn(async move {
         crate::terminal_host::start(&judged).await;
         crate::watch::start(watched);
     });
@@ -290,6 +379,20 @@ async fn serve(socket: &Path) -> Result<()> {
         () = delegation() => {}
     }
     Ok(())
+}
+
+pub(crate) fn environment_served() -> Served {
+    let host = crate::work::Host::new(crate::work::Work::configured(crate::config::read()));
+    let judged = std::sync::Arc::new(tokio::sync::watch::Sender::new(None));
+    let served = Served::new(host, |watched| crate::asks::asks(watched, judged.clone()));
+    let watched = served.watched();
+    crate::watch::start_config(watched.clone());
+    crate::environment::spawn(async move {
+        crate::terminal_host::start(&judged).await;
+        crate::watch::start(watched);
+        delegation().await;
+    });
+    served
 }
 
 /// `adroit host`: serve as the work host at the socket until stopped, or
@@ -386,6 +489,9 @@ mod tests {
         Hello {
             speaks: speaks.iter().copied().map(Version).collect(),
             build: build.into(),
+            endpoint: None,
+            terminal: None,
+            mutation_epoch: None,
         }
     }
 
@@ -449,7 +555,7 @@ mod tests {
         let dir = short_dir();
         let socket = dir.path().join("h.sock");
         let server = WorkHostServer::bind(&socket).await.unwrap();
-        let serving = tokio::spawn(async move {
+        let serving = crate::environment::spawn(async move {
             server.serve(hello_of_ours(), served()).await;
         });
         let mut stream = tokio::net::UnixStream::connect(&socket).await.unwrap();
@@ -466,7 +572,7 @@ mod tests {
         let dir = short_dir();
         let socket = dir.path().join("h.sock");
         let server = WorkHostServer::bind(&socket).await.unwrap();
-        let serving = tokio::spawn(async move {
+        let serving = crate::environment::spawn(async move {
             server.serve(hello_of_ours(), served()).await;
         });
         {
@@ -484,7 +590,7 @@ mod tests {
         let dir = short_dir();
         let socket = dir.path().join("h.sock");
         let server = WorkHostServer::bind(&socket).await.unwrap();
-        let serving = tokio::spawn(async move {
+        let serving = crate::environment::spawn(async move {
             server.serve(hello_of_ours(), served()).await;
         });
         ask_stop(&socket).await.unwrap();
@@ -602,7 +708,7 @@ mod tests {
         let dir = short_dir();
         let socket = dir.path().join("h.sock");
         let server = WorkHostServer::bind(&socket).await.unwrap();
-        tokio::spawn(async move { server.serve(hello_of_ours(), served).await });
+        crate::environment::spawn(async move { server.serve(hello_of_ours(), served).await });
         (dir, socket)
     }
 

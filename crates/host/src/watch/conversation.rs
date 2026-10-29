@@ -44,7 +44,7 @@ pub(super) async fn watch(mut watched: Watched) {
                 continue;
             };
             let mut kept = std::mem::take(&mut thumbs);
-            let read = tokio::task::spawn_blocking(move || {
+            let read = crate::environment::spawn_blocking(move || {
                 let mut reader = reader;
                 let (links, stats) = sample_conversation(&mut *reader, overview);
                 let links = links.map(|mut links| {

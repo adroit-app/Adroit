@@ -14,7 +14,7 @@ use adroit_term::Spawn;
 use tokio::sync::watch;
 
 use crate::delegation::app as delegation;
-use crate::execution::{COLS, ROWS, StartRequest, TerminalStartRequest};
+use crate::execution::{COLS, ROWS, StartRequest, TerminalStartRequest, spawn_may_have_happened};
 use crate::scratch::{self, Moment};
 use crate::serve::Asks;
 use crate::terminal_host::{self, Judged};
@@ -47,6 +47,18 @@ async fn answer(watched: &Watched, judged: &watch::Sender<Judged>, ask: Ask) -> 
         }
     }
     let answered = match ask {
+        Ask::PathEntries { root, typed } => crate::completion::read(root, typed)
+            .await
+            .map(|entries| Answer::PathEntries { entries }),
+        Ask::Apply { .. } | Ask::MutationStatus { .. } | Ask::MutationEpoch => {
+            Err("mutation admission belongs to the work connection".into())
+        }
+        Ask::SubmitPrompt {
+            session,
+            agent,
+            text,
+            images,
+        } => submit_prompt(&session, agent, &text, &images).await,
         Ask::StartSession(start) => start_session(watched, *start).await,
         Ask::StartTerminal(start) => start_terminal(watched, *start).await,
         Ask::TerminalHost => terminal_host::judged(judged.subscribe())
@@ -58,15 +70,18 @@ async fn answer(watched: &Watched, judged: &watch::Sender<Judged>, ask: Ask) -> 
             restarted.map(|standing| Answer::TerminalHost { standing })
         }
         Ask::KeepImage { mime, data } => keep_image(&mime, &data),
-        Ask::KeepImageFile { path } => tokio::task::spawn_blocking(move || keep_image_file(&path))
-            .await
-            .map_err(|e| e.to_string())
-            .and_then(|kept| kept),
+        Ask::KeepImageFile { path } => {
+            crate::environment::spawn_blocking(move || keep_image_file(&path))
+                .await
+                .map_err(|e| e.to_string())
+                .and_then(|kept| kept)
+        }
         Ask::SaveSettings { text } => save_settings(text),
+        Ask::SaveSettingsChecked { text, expected } => save_settings_checked(text, expected),
         Ask::SaveKeys { text } => save_keys(&text),
         Ask::Drafts => {
             let dir = crate::paths::instance_state();
-            tokio::task::spawn_blocking(move || crate::drafts::load(&dir))
+            crate::environment::spawn_blocking(move || crate::drafts::load(&dir))
                 .await
                 .map_err(|e| e.to_string())
                 .and_then(|kept| kept)
@@ -74,11 +89,21 @@ async fn answer(watched: &Watched, judged: &watch::Sender<Judged>, ask: Ask) -> 
         }
         Ask::KeepDrafts(changes) => {
             let dir = crate::paths::instance_state();
-            tokio::task::spawn_blocking(move || crate::drafts::change(&dir, *changes))
+            crate::environment::spawn_blocking(move || crate::drafts::change(&dir, *changes))
                 .await
                 .map_err(|e| e.to_string())
                 .and_then(|kept| kept)
                 .map(|()| Answer::Done)
+        }
+        Ask::ConsumeDraft { key, text, images } => {
+            let dir = crate::paths::instance_state();
+            crate::environment::spawn_blocking(move || {
+                crate::drafts::consume(&dir, &key, &text, &images)
+            })
+            .await
+            .map_err(|e| e.to_string())
+            .and_then(|result| result)
+            .map(|cleared| Answer::DraftConsumed { cleared })
         }
         Ask::Picture { path, whole } => Ok(picture(path, whole).await),
         Ask::Run { args, cwd, input } => Ok(run(&args, &cwd, input).await),
@@ -98,23 +123,71 @@ async fn answer(watched: &Watched, judged: &watch::Sender<Judged>, ask: Ask) -> 
     answered.unwrap_or_else(|text| Answer::Failed { text })
 }
 
+async fn submit_prompt(
+    session: &str,
+    agent: adroit_model::Agent,
+    text: &str,
+    images: &[PathBuf],
+) -> Result<Answer, String> {
+    let id = sessions::id_of(session).ok_or("invalid session ID")?;
+    let listed = daemon::daemon()
+        .sessions()
+        .await
+        .map_err(|e| e.to_string())?;
+    let actual = sessions::agents(&listed)
+        .find(|s| s.id == session)
+        .ok_or("the prompt's session no longer exists")?;
+    if actual.agent != agent {
+        return Err("the prompt's agent does not match the session".into());
+    }
+    let composed = crate::compose::compose(0, agent, text, images);
+    if composed.image_missing {
+        return Err("a prompt attachment is missing on the work machine".into());
+    }
+    match type_prompt(id, &composed.typing).await {
+        Ok(()) => Ok(Answer::Done),
+        Err(text) => Ok(Answer::Unconfirmed { text }),
+    }
+}
+
+fn failed_spawn(error: adroit_term::Error, context: &str) -> Result<Answer, String> {
+    let text = format!("{context}: {error}");
+    if crate::remote::active() && spawn_may_have_happened(&error) {
+        Ok(Answer::Unconfirmed { text })
+    } else {
+        Err(text)
+    }
+}
+
+pub(crate) async fn type_prompt(id: u128, steps: &[adroit_protocol::Typing]) -> Result<(), String> {
+    use adroit_protocol::Typing;
+    use adroit_term::Input;
+    let daemon = daemon::daemon();
+    let input: Vec<_> = steps
+        .iter()
+        .map(|step| match step {
+            Typing::Text { text } => Input::Text(text.clone()),
+            Typing::Paste { text } => Input::Paste(text.clone()),
+            Typing::Key { name } => Input::Key(adroit_model::Key::new(name)),
+            Typing::Pause { ms } => Input::Pause(std::time::Duration::from_millis((*ms).min(5000))),
+        })
+        .collect();
+    daemon.input(id, &input).await.map_err(|e| e.to_string())
+}
+
 /// The command `adroit <args>` run as in `cwd` with `input` on its standard
 /// input: what it wrote, and its exit status.
 async fn run(args: &[String], cwd: &std::path::Path, input: Option<String>) -> Answer {
-    let (wrote, code) = match args.split_first() {
+    let output = match args.split_first() {
         Some((command, rest)) if command == "session" => crate::start::run(rest, cwd, input).await,
         Some((command, rest)) if command == "terminal" => crate::terminals::run(rest, cwd).await,
-        _ => (Err(format!("the work host runs no command {args:?}")), 2),
+        _ => crate::command::Output {
+            wrote: Err(format!("the work host runs no command {args:?}")),
+            code: 2,
+            effects_possible: false,
+        },
     };
-    let (stdout, stderr) = match wrote {
-        Ok(out) => (out, String::new()),
-        Err(error) => (String::new(), error),
-    };
-    Answer::Ran {
-        stdout,
-        stderr,
-        code,
-    }
+    output.answer(crate::remote::active())
 }
 
 /// The path of `place`, which has to be on this host's own machine: no
@@ -185,12 +258,20 @@ async fn start_session(watched: &Watched, start: SessionStart) -> Result<Answer,
     let id = match terminal_host.spawn_held(spawn).await {
         Ok(id) => id,
         Err(e) => {
+            if crate::remote::active() && spawn_may_have_happened(&e) {
+                return failed_spawn(e, &format!("cannot {verb} {name}"));
+            }
             recorded.failed().await;
             return Err(format!("cannot {verb} {name}: {e}"));
         }
     };
     if let Err(e) = recorded.attach(id).await {
         let _ = terminal_host.end(id).await;
+        if crate::remote::active() {
+            return Ok(Answer::Unconfirmed {
+                text: format!("cannot confirm starting {name}: {e}"),
+            });
+        }
         return Err(format!("cannot {verb} {name}: {e}"));
     }
     held::hold(id).await;
@@ -219,10 +300,10 @@ async fn start_terminal(watched: &Watched, start: TerminalStart) -> Result<Answe
         &programs::login_shell(),
     );
     (resolved.spawn.cols, resolved.spawn.rows) = size(start.cols, start.rows);
-    let id = daemon::daemon()
-        .spawn_held(resolved.spawn)
-        .await
-        .map_err(|e| e.to_string())?;
+    let id = match daemon::daemon().spawn_held(resolved.spawn).await {
+        Ok(id) => id,
+        Err(error) => return failed_spawn(error, "cannot start the terminal"),
+    };
     held::hold(id).await;
     resolved.terminal.id = id;
     watched.terminal_opened(resolved.terminal.clone());
@@ -255,7 +336,7 @@ async fn delete_login(profile: &ProfileId) -> Result<Answer, String> {
             found.label()
         ));
     };
-    let data = adroit_model::paths::data_dir();
+    let data = crate::paths::data_dir();
     if !adroit_core::profiles::made_by_adroit(&home, &data, |p| std::fs::canonicalize(p).ok()) {
         return Err(format!(
             "{} is not a folder adroit made, so it is left as it is; delete it yourself if it is to go",
@@ -267,7 +348,13 @@ async fn delete_login(profile: &ProfileId) -> Result<Answer, String> {
         .sessions()
         .await
         .map_err(|e| e.to_string())?;
-    let running: Vec<adroit_model::Session> = sessions::agents(&kept).collect();
+    let running: Vec<adroit_model::Session> = kept
+        .iter()
+        .filter_map(|s| match sessions::read_any_environment(s) {
+            Some(sessions::Kept::Agent(session)) => Some(session),
+            _ => None,
+        })
+        .collect();
     unused(found.label(), &home, &running)?;
     match tokio::fs::remove_dir_all(&home).await {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
@@ -378,7 +465,10 @@ async fn open_login(
     };
     let (cols, rows) = size(cols, rows);
     let spawn = Spawn {
-        tags: sessions::terminal_tags(&terminal),
+        tags: sessions::terminal_tags(&terminal)
+            .into_iter()
+            .chain(crate::environment::tags())
+            .collect(),
         program,
         args,
         cwd,
@@ -386,10 +476,10 @@ async fn open_login(
         cols,
         rows,
     };
-    let id = daemon::daemon()
-        .spawn_held(spawn)
-        .await
-        .map_err(|e| e.to_string())?;
+    let id = match daemon::daemon().spawn_held(spawn).await {
+        Ok(id) => id,
+        Err(error) => return failed_spawn(error, "cannot start the login terminal"),
+    };
     held::hold(id).await;
     // Settings, which opens it too, shows no terminal to wait for; the
     // host's own presence has told the program the theme already.
@@ -458,7 +548,7 @@ fn save_settings(text: String) -> Result<Answer, String> {
 
 /// The image file at `path`, whole or as its small copy.
 async fn picture(path: std::path::PathBuf, whole: bool) -> Answer {
-    let url = tokio::task::spawn_blocking(move || {
+    let url = crate::environment::spawn_blocking(move || {
         if whole {
             crate::pictures::file_shown(&path)
         } else {
@@ -491,6 +581,26 @@ fn save_keys(text: &str) -> Result<Answer, String> {
     std::fs::write(&path, text).map_err(failed)?;
     let _ = settings::CHANGED.send(());
     Ok(Answer::Done)
+}
+
+fn save_settings_checked(text: String, expected: FileText) -> Result<Answer, String> {
+    let path = settings::path();
+    std::fs::create_dir_all(path.parent().ok_or("Settings path has no parent")?)
+        .map_err(|e| e.to_string())?;
+    use std::os::unix::fs::OpenOptionsExt;
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .mode(0o600)
+        .open(path.with_extension("lock"))
+        .map_err(|e| e.to_string())?;
+    lock.lock().map_err(|e| e.to_string())?;
+    if crate::config::file(&path).text != expected {
+        return Err("Settings changed in another window; reload before saving".into());
+    }
+    save_settings(text)
 }
 
 #[cfg(test)]

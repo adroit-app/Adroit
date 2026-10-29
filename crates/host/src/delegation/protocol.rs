@@ -12,7 +12,18 @@ pub const VERSION: u32 = 1;
 pub const MAX_FRAME: usize = 1024 * 1024;
 
 pub fn socket(root: &Path) -> PathBuf {
-    root.join("delegation.sock")
+    use std::os::unix::ffi::OsStrExt;
+    let path = root.join("delegation.sock");
+    if path.as_os_str().as_bytes().len() < 104 {
+        return path;
+    }
+    // Only the endpoint is shortened; credentials and records stay in their private root.
+    let mut hash = 0x6c62272e07bb014262b821756295c58du128;
+    for byte in root.as_os_str().as_bytes() {
+        hash = (hash ^ u128::from(*byte)).wrapping_mul(0x1000000000000000000013b);
+    }
+    let uid = unsafe { libc::geteuid() };
+    PathBuf::from(format!("/tmp/adroit-{uid}/d{hash:032x}.sock"))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -212,7 +223,7 @@ mod tests {
         let root = dir.path().to_path_buf();
         let replacing = {
             let root = root.clone();
-            tokio::spawn(async move {
+            crate::environment::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                 let listener = tokio::net::UnixListener::bind(socket(&root)).unwrap();
                 let (stream, _) = listener.accept().await.unwrap();
@@ -228,5 +239,24 @@ mod tests {
         let answer = ask(&root, "credential", Command::Context, None).await;
         assert_eq!(answer.unwrap(), Value::from("answered"));
         replacing.await.unwrap();
+    }
+}
+
+#[cfg(test)]
+mod environment_socket_tests {
+    use super::*;
+    #[test]
+    fn long_profile_roots_have_short_distinct_sockets() {
+        use std::os::unix::ffi::OsStrExt;
+        let root = PathBuf::from(format!(
+            "/Users/person/.local/state/adroit/environments/{}/state/delegation",
+            "a".repeat(32)
+        ));
+        assert!(socket(&root).as_os_str().as_bytes().len() < 104);
+        assert_ne!(socket(&root), socket(&root.with_file_name("other")));
+        assert_eq!(
+            socket(Path::new("/tmp/short")),
+            Path::new("/tmp/short/delegation.sock")
+        );
     }
 }

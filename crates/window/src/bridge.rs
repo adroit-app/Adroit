@@ -21,13 +21,12 @@ use adroit_core::state::ViewState;
 use adroit_core::tree::TreeView;
 use adroit_core::update::step;
 use adroit_model::Key;
-use adroit_protocol::{Answer, Ask, Event, Request};
+use adroit_protocol::{Answer, Ask, Request};
 use dioxus::core::{Runtime, current_scope_id};
 use dioxus::prelude::*;
-use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::layout::{Kept as _, Layout};
-use crate::link::{Link, To};
+use crate::link::{Events, Link, To};
 use crate::paths::{home, instance_state};
 
 /// How long the window waits for the work before it is first drawn, so it
@@ -112,6 +111,7 @@ pub(crate) struct AppCtx {
     pub(crate) overlays: Signal<Overlays>,
     pub(crate) console: Signal<ConsoleView>,
     pub(crate) prompt: Signal<PromptView>,
+    pub(crate) drafts_ready: Signal<bool>,
     /// What the window knows of each profile's login.
     pub(crate) logins: Signal<crate::logins::Logins>,
     /// The effects whose state `App` still holds, and what runs them.
@@ -127,7 +127,8 @@ pub(crate) struct AppCtx {
 /// with the work host linked and its events fed back as messages.
 pub(crate) fn use_app() -> AppCtx {
     use_hook(|| {
-        let (link, mut events, first) = Link::open(work_host());
+        let (link, mut events, first) =
+            Link::selected(work_host(), &instance_state().join("execution.toml"));
         let link = Rc::new(link);
         // Drawn without the work, should the host not answer in time.
         let _ = first.recv_timeout(FIRST_WORK);
@@ -163,6 +164,8 @@ pub(crate) fn use_app() -> AppCtx {
             &mut events,
             [Msg::ContentOpened { kept, scratch }],
         ));
+        crate::client_settings::apply(&mut view.config.settings);
+        view.chrome.zoom = view.config.settings.zoom;
         let app = AppCtx {
             chrome: Signal::new(view.chrome.clone()),
             config: Signal::new(view.config.clone()),
@@ -174,6 +177,7 @@ pub(crate) fn use_app() -> AppCtx {
             overlays: Signal::new(view.overlays.clone()),
             console: Signal::new(view.console.clone()),
             prompt: Signal::new(view.prompt.clone()),
+            drafts_ready: Signal::new(false),
             logins: Signal::new(Default::default()),
             handed: CopyValue::new(Handoff::default()),
             performer: CopyValue::new(None),
@@ -184,6 +188,12 @@ pub(crate) fn use_app() -> AppCtx {
         provide_context(app);
         app.run(effects);
         spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                app.refresh_client_settings();
+            }
+        });
+        spawn(async move {
             while let Some(event) = events.recv().await {
                 app.dispatch(Msg::Host(event));
             }
@@ -193,14 +203,65 @@ pub(crate) fn use_app() -> AppCtx {
 }
 
 impl AppCtx {
+    pub(crate) fn daemon(&self) -> adroit_term::Daemon {
+        self.link.read().daemon()
+    }
+    pub(crate) fn remote_status(&self) -> Option<crate::link::RemoteStatus> {
+        self.link.read().remote_status()
+    }
+    pub(crate) fn retry_remote(&self) {
+        self.link.read().retry_remote();
+    }
+    pub(crate) fn query_remote(&self, stamp: adroit_protocol::MutationStamp) {
+        self.link.read().query_remote(stamp);
+    }
+    pub(crate) fn remote_draft(
+        &self,
+        stamp: adroit_protocol::MutationStamp,
+        forget: bool,
+        checked: bool,
+    ) -> impl std::future::Future<Output = Result<(), String>> + use<> {
+        self.link.read().remote_draft(stamp, forget, checked)
+    }
+    pub(crate) fn resolve_remote(
+        &self,
+        stamp: adroit_protocol::MutationStamp,
+        checked: bool,
+    ) -> impl std::future::Future<Output = Result<(), String>> + use<> {
+        self.link.read().resolve_remote(stamp, checked)
+    }
     /// `msg` applied to the view state, the slices it changed shown, and
     /// what it asks carried out. Called from handlers and tasks, never while
     /// rendering.
     pub(crate) fn dispatch(&self, msg: Msg) {
         let mut view = self.view;
-        let effects = step(&mut view.write(), msg);
+        let from_host = matches!(msg, Msg::Host(_));
+        let mut effects = step(&mut view.write(), msg);
+        if from_host {
+            crate::client_settings::apply(&mut view.write().config.settings);
+            let zoom = view.read().config.settings.zoom;
+            view.write().chrome.zoom = zoom;
+            for effect in &mut effects {
+                if let Effect::Zoom(level) = effect {
+                    *level = zoom;
+                }
+            }
+        }
         self.publish();
         as_from(self.scope, || self.run(effects));
+    }
+
+    fn refresh_client_settings(&self) {
+        let mut view = self.view;
+        let mut next = view.read().config.settings.clone();
+        crate::client_settings::apply(&mut next);
+        if next != view.read().config.settings {
+            let zoom = next.zoom;
+            view.write().config.settings = next;
+            view.write().chrome.zoom = zoom;
+            self.publish();
+            let _ = dioxus::desktop::window().webview.zoom(zoom);
+        }
     }
 
     fn publish(&self) {
@@ -241,6 +302,14 @@ impl AppCtx {
     /// Ask the host `ask`, and what came of it.
     pub(crate) fn ask(&self, ask: Ask) -> impl std::future::Future<Output = Answer> + use<> {
         self.link.read().ask(ask)
+    }
+
+    pub(crate) fn ask_prompt(
+        &self,
+        ask: Ask,
+        prompt: adroit_connect::journal::PromptContext,
+    ) -> impl std::future::Future<Output = Answer> + use<> {
+        self.link.read().ask_with_prompt(ask, Some(prompt))
     }
 
     /// Hand the effects whose state still lives in `App` to `run`: the
@@ -285,8 +354,30 @@ impl AppCtx {
             Effect::Zoom(level) => {
                 let _ = dioxus::desktop::window().webview.zoom(level);
             }
-            Effect::Open(target) => open([target]),
-            Effect::Reveal(path) => open(["-R".into(), path]),
+            Effect::Open(target) => {
+                if self.remote_status().is_some()
+                    && !target.starts_with("https://")
+                    && !target.starts_with("http://")
+                {
+                    self.notice(
+                        "Opening a remote path in a local application is unavailable".into(),
+                    );
+                } else {
+                    open([target]);
+                }
+            }
+            Effect::Reveal(path) => {
+                if self.remote_status().is_some() {
+                    self.notice(
+                        "This path is on the work machine and cannot be revealed here".into(),
+                    );
+                } else {
+                    open(["-R".into(), path]);
+                }
+            }
+            Effect::Viewer { .. } if self.remote_status().is_some() => {
+                self.notice("Remote file previews are unavailable".into())
+            }
             Effect::Copy { text, done } => {
                 let told = match crate::clipboard::copy_to_clipboard(&text) {
                     Ok(()) => done,
@@ -543,7 +634,7 @@ fn as_from<O>(scope: ScopeId, run: impl FnOnce() -> O) -> O {
 fn pump(
     view: &mut ViewState,
     link: &dyn HostLink,
-    events: &mut UnboundedReceiver<Event>,
+    events: &mut Events,
     msgs: impl IntoIterator<Item = Msg>,
 ) -> Vec<Effect> {
     let mut queue: std::collections::VecDeque<Msg> = msgs.into_iter().collect();
@@ -572,6 +663,7 @@ fn run(effects: Vec<Effect>, link: &dyn HostLink, mut local: impl FnMut(Effect))
 mod tests {
     use adroit_core::host::Link;
     use adroit_core::zoom::Step;
+    use adroit_protocol::Event;
     use adroit_protocol::testing::snapshot;
     use adroit_protocol::{ConfigFile, ConfigWork, FileText, SPOKEN, WorkSnapshot, agree};
     use tokio::sync::mpsc::UnboundedSender;
@@ -601,7 +693,7 @@ mod tests {
     struct Window {
         view: ViewState,
         link: Answering,
-        events: UnboundedReceiver<Event>,
+        events: Events,
         drawn: Vec<Effect>,
     }
 
@@ -625,7 +717,7 @@ mod tests {
             let mut window = Self {
                 view: ViewState::default(),
                 link,
-                events,
+                events: Events::Local(events),
                 drawn: Vec::new(),
             };
             window.dispatch(Msg::Opened {

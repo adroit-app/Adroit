@@ -159,7 +159,7 @@ fn ProfileChoices(
 ) -> Element {
     let chosen = profiles.iter().find(|p| p.id == current).cloned();
     rsx! {
-        label { class: "launch-form-label", r#for: "launch-profile", "Profile" }
+        label { class: "launch-form-label", r#for: "launch-profile", "Agent setup" }
         div {
             class: "launch-form-agent",
             onmousedown: move |event| event.stop_propagation(),

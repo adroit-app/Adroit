@@ -146,6 +146,37 @@ pub(crate) async fn say_when_listening(daemon: &Daemon, build: &str, speaks: &[u
     }
 }
 
+/// How often a terminal host says again what it speaks: well within the
+/// days after which systems clean files nobody touched from `/tmp`, where a
+/// remote terminal host's socket lives.
+pub(crate) const SAY_AGAIN: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+/// Say `build` and the versions again every `every` while this process still
+/// listens, so a statement a cleaner removed is restored before a work host
+/// reads it.
+pub(crate) async fn keep_saying(
+    daemon: &Daemon,
+    build: &str,
+    speaks: &[u32],
+    every: std::time::Duration,
+) {
+    let me = std::process::id();
+    loop {
+        tokio::time::sleep(every).await;
+        if daemon.pid() != Some(me) {
+            return;
+        }
+        let said = Said {
+            pid: me,
+            build: build.into(),
+            speaks: speaks.to_vec(),
+        };
+        if let Err(e) = say(daemon.socket(), &said) {
+            eprintln!("adroit: cannot say what the terminal host speaks: {e}");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -245,13 +276,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn what_a_cleaner_removed_from_beside_the_socket_is_said_again() {
+        let dir = short_dir();
+        let socket = dir.path().join("d.sock");
+        let _listening = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let daemon = Daemon::new(&socket);
+        say_when_listening(&daemon, "0.3.0", &[1]).await;
+        std::fs::remove_file(says_path(&socket)).unwrap();
+        let keeping = {
+            let daemon = daemon.clone();
+            crate::environment::spawn(async move {
+                keep_saying(&daemon, "0.3.0", &[1], std::time::Duration::from_millis(20)).await
+            })
+        };
+        let mut said_again = false;
+        for _ in 0..100 {
+            if super::said(&socket).is_some() {
+                said_again = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        keeping.abort();
+        assert!(said_again);
+        assert_eq!(standing(&daemon), Standing::Compatible);
+    }
+
+    #[tokio::test]
     async fn a_terminal_host_just_started_is_given_a_moment_to_say_its_versions() {
         let dir = short_dir();
         let socket = dir.path().join("d.sock");
         let _listening = std::os::unix::net::UnixListener::bind(&socket).unwrap();
         let saying = {
             let socket = socket.clone();
-            tokio::spawn(async move {
+            crate::environment::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_millis(150)).await;
                 let said = said(std::process::id(), &build(), adroit_term::SPEAKS).unwrap();
                 say(&socket, &said).unwrap();
