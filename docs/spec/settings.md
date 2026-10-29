@@ -1,16 +1,17 @@
 # Settings
 
 Adroit's settings are changed in its Settings window, opened with Command
-comma or the gear in the window's header. Each change applies at once, to
-every window, and is kept for the next run; there is nothing to save. The
-file they are kept in can be edited by hand as well: a change saved there
-applies within a second. The window also lists the key bindings in force, each
-of which can be changed there
-([keys](keys.md#changing-them-in-the-settings-window)). Its About page, set
-apart from the settings, tells which build of Adroit is running and which
-version of Neovim its prompt and console reader run, opens the
-files the settings and key bindings are kept in, and leads to the source and
-to where problems are reported.
+comma or the gear in the header. It configures the open [working environment](profiles.md);
+profile creation and connection management open separately from the main window's
+profile menu.
+Agents, programs and working paths belong to the open environment. Window, Console and Prompt hold the client's display, input and embedded
+Neovim preferences; console themes remain work settings under Appearance.
+Changes apply to windows using the same settings owner and remain for the next
+run. A stale save is refused rather than overwriting newer work settings.
+
+The descriptions below retain the existing work-settings file format. Its
+`[[profiles]]` tables describe agent setups inside an environment, not the
+working environments selected in the main window.
 
 ## settings.toml
 
@@ -34,7 +35,7 @@ settings, a command written there as a shell would split it.
 Agents holds the [profiles](#profiles). Programs holds the shell and Neovim
 options.
 
-### Profiles in the Settings window
+### Agent setups in the Settings window
 
 Under Agents the sidebar lists every profile, marking the one new sessions
 start from, then a new profile. Each entry opens a page of its own, by
@@ -128,6 +129,8 @@ that kind, so the look stays as it was; it is dropped the next time the file is
 written.
 
 ## Profiles
+
+These are agent launch setups within the open working environment.
 
 A session starts from a profile, which names the agent it starts, where the
 agent keeps its login, how the agent is launched and the agent's own options
