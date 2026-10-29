@@ -168,6 +168,15 @@ build never opens a window, and refuses the window's editor integration. Its
 sessions and terminals have the same lifetime as those started by the desktop
 build.
 
+`adroit remote daemon` and `adroit remote host` run as independent services,
+with `--instance <name>` selecting their instance. Start the terminal service
+before the work service. Each instance has a persistent identity, and each
+host incarnation has a new private socket that is never reused. `adroit remote
+info` describes the currently running pair and refuses stale discovery.
+Session commands started in these services discover the current work host
+again, so replacing it does not leave them addressing its previous socket.
+Replacing a terminal service ends its sessions; a window never replaces it.
+
 Two processes of adroit's own run each instance's work, apart from the
 windows, and keep running when they close.
 
