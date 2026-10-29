@@ -1106,8 +1106,8 @@ fn the_cli_pairs_a_client_by_the_code_it_shows_and_saves_a_profile() {
         .spawn()
         .unwrap();
     let client_lines = lines_of(client.stdout.take().unwrap());
-    let shown = line_with(&client_lines, "type this code");
-    let code = shown.split_whitespace().last().unwrap().to_string();
+    // Asked before the operator allows pairing, the client waits for it.
+    line_with(&client_lines, "not accepting pairing requests");
 
     let mut operator = isolated(hosts.0.path())
         .args(["remote", "pair"])
@@ -1117,6 +1117,8 @@ fn the_cli_pairs_a_client_by_the_code_it_shows_and_saves_a_profile() {
         .spawn()
         .unwrap();
     let operator_lines = lines_of(operator.stdout.take().unwrap());
+    let shown = line_with(&client_lines, "Type this code");
+    let code = shown.split_whitespace().last().unwrap().to_string();
     let request = line_with(&operator_lines, "Request from");
     assert!(request.contains("\"laptop\""), "{request}");
     let mut typing = operator.stdin.take().unwrap();

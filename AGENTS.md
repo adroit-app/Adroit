@@ -45,7 +45,7 @@ Run `just ci` before reporting a change as done. CI runs the same recipe.
 | `crates/core/examples/` | `references`, which writes `docs/spec/reference/` from the code |
 | `crates/model/` | the data every part shares: sessions, places, the tree they form, agents' launch settings, with test builders |
 | `crates/protocol/` | what the window and the work host say to each other: requests, events, the work they describe, the versions they speak |
-| `crates/connect/` | the selected work machine, pairing with it, finding it and the way through its gateway to both hosts |
+| `crates/connect/` | the selected work machine, pairing with it, finding it and the way through its gateway to both hosts; serving this computer to paired clients |
 | `crates/net/` | adroit's own network connection to a work machine: the keys each side keeps and TLS that pins them |
 | `crates/host/` | the work host, `adroit host`: the work, the sessions and shells it starts in the terminal host, delegation, its socket, and the commands that ask it |
 | `crates/host/themes/` | the console themes adroit comes with |

@@ -1,70 +1,20 @@
 //! The gateway that lets paired clients reach this instance's hosts over the
 //! network, and the private socket its operator manages it through.
 
-use adroit_net::{Fingerprint, Gateway, Hosts, HostsNow, Identity, Pairing, PeerFile};
-use serde::{Deserialize, Serialize};
+use adroit_net::{
+    Admin, AdminAnswer, Fingerprint, Gateway, GatewayFiles, Hosts, HostsNow, Identity,
+    PAIRING_PERIOD, Pairing, PeerFile, Waiting, ask_gateway,
+};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, UnixListener, UnixStream};
 
 /// The port a gateway listens on unless told otherwise.
 pub const DEFAULT_PORT: u16 = 47130;
-/// How long `adroit remote pair` keeps pairing open.
-pub const PAIRING_PERIOD: Duration = Duration::from_secs(10 * 60);
 const MAX_ADMIN_LINE: u64 = 4096;
-
-/// What the operator asks the running gateway.
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "op", rename_all = "snake_case")]
-pub enum Admin {
-    Open { seconds: u64 },
-    Close,
-    Requests,
-    Approve { id: u64, code: String },
-    Reject { id: u64 },
-    Revoke { fingerprint: Fingerprint },
-    Status,
-}
-
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Answer {
-    Done,
-    Requests(Vec<Waiting>),
-    Paired(Fingerprint),
-    Status {
-        server: Fingerprint,
-        listening: Vec<String>,
-        open: bool,
-    },
-    Failed(String),
-}
-
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Waiting {
-    pub id: u64,
-    pub name: String,
-    pub client: Fingerprint,
-}
-
-/// Where a gateway keeps its key, its paired clients and its admin socket.
-pub struct Files {
-    pub key: PathBuf,
-    pub peers: PathBuf,
-    pub admin: PathBuf,
-}
-
-impl Files {
-    pub fn in_dir(dir: &Path) -> Self {
-        Self {
-            key: dir.join("gateway.key"),
-            peers: dir.join("peers.json"),
-            admin: dir.join("gateway.sock"),
-        }
-    }
-}
 
 /// A gateway serving its listeners and its admin socket.
 pub struct Running {
@@ -72,6 +22,14 @@ pub struct Running {
     pub listening: Vec<std::net::SocketAddr>,
     tasks: Vec<tokio::task::JoinHandle<()>>,
     admin: PathBuf,
+    announcing: Arc<AtomicBool>,
+}
+
+impl Running {
+    /// Tells the operator, when asked, whether it announces itself now.
+    pub fn announcing(&self, announcing: bool) {
+        self.announcing.store(announcing, Ordering::Relaxed);
+    }
 }
 
 impl Drop for Running {
@@ -83,7 +41,7 @@ impl Drop for Running {
 
 /// Starts a gateway with the files in `files`, listening on `listen`.
 pub async fn start(
-    files: &Files,
+    files: &GatewayFiles,
     listen: &[std::net::SocketAddr],
     hosts: Arc<dyn Hosts>,
 ) -> std::io::Result<Running> {
@@ -111,12 +69,14 @@ pub async fn start(
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&files.admin, std::fs::Permissions::from_mode(0o600))?;
     }
+    let announcing = Arc::new(AtomicBool::new(false));
     let served = Arc::new(Served {
         server: identity.fingerprint(),
         listening: listening.clone(),
         pairing,
         peers,
         gateway,
+        announcing: announcing.clone(),
     });
     tasks.push(tokio::spawn(async move {
         while let Ok((stream, _)) = admin.accept().await {
@@ -131,22 +91,8 @@ pub async fn start(
         listening,
         tasks,
         admin: files.admin.clone(),
+        announcing,
     })
-}
-
-/// Asks the gateway whose admin socket is `socket`.
-pub async fn ask(socket: &Path, admin: &Admin) -> std::io::Result<Answer> {
-    let stream = UnixStream::connect(socket).await?;
-    let (read, mut write) = stream.into_split();
-    let mut line = serde_json::to_vec(admin).map_err(std::io::Error::other)?;
-    line.push(b'\n');
-    write.write_all(&line).await?;
-    let mut answer = String::new();
-    BufReader::new(read)
-        .take(1024 * 1024)
-        .read_line(&mut answer)
-        .await?;
-    serde_json::from_str(&answer).map_err(std::io::Error::other)
 }
 
 /// The hosts of this instance, found through their discovery files.
@@ -170,7 +116,7 @@ pub fn cli(operation: crate::cli::RemoteCommand) -> i32 {
     let done = (|| -> std::io::Result<i32> {
         std::fs::create_dir_all(dir.parent().unwrap_or(Path::new("/")))?;
         crate::remote::private_dir(&dir, true)?;
-        let files = Files::in_dir(&dir);
+        let files = GatewayFiles::in_dir(&dir);
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?;
@@ -190,7 +136,11 @@ pub fn cli(operation: crate::cli::RemoteCommand) -> i32 {
     })
 }
 
-async fn serve(files: &Files, listen: Option<String>, advertise: bool) -> std::io::Result<i32> {
+async fn serve(
+    files: &GatewayFiles,
+    listen: Option<String>,
+    advertise: bool,
+) -> std::io::Result<i32> {
     let addresses: Vec<std::net::SocketAddr> = match listen {
         Some(address) => vec![address.parse().map_err(std::io::Error::other)?],
         // Every interface: a client is let in only with a paired key, so a
@@ -218,6 +168,7 @@ async fn serve(files: &Files, listen: Option<String>, advertise: bool) -> std::i
         let name = format!("Adroit on {}", adroit_net::host_name());
         match adroit_net::advertise(&name, running.server, port) {
             Ok(announced) => {
+                running.announcing(true);
                 tokio::spawn(watch_announcing());
                 Some(announced)
             }
@@ -282,13 +233,13 @@ fn short(fingerprint: &Fingerprint) -> String {
     fingerprint.to_string()[..16].to_string()
 }
 
-async fn pair(files: &Files) -> std::io::Result<i32> {
+async fn pair(files: &GatewayFiles) -> std::io::Result<i32> {
     let not_running = |error: std::io::Error| {
         std::io::Error::other(format!(
             "cannot reach the gateway ({error}); start it with `adroit remote gateway`"
         ))
     };
-    ask(
+    ask_gateway(
         &files.admin,
         &Admin::Open {
             seconds: PAIRING_PERIOD.as_secs(),
@@ -296,24 +247,24 @@ async fn pair(files: &Files) -> std::io::Result<i32> {
     )
     .await
     .map_err(not_running)?;
-    if let Answer::Status {
+    if let AdminAnswer::Status {
         server, listening, ..
-    } = ask(&files.admin, &Admin::Status).await?
+    } = ask_gateway(&files.admin, &Admin::Status).await?
     {
         println!("This work machine is {}", short(&server));
         println!("Listening on {}", listening.join(", "));
     }
     println!("Waiting for a pairing request; press Ctrl-C to stop.");
     let result = loop {
-        let waiting = match ask(&files.admin, &Admin::Requests).await? {
-            Answer::Requests(waiting) => waiting,
-            Answer::Failed(text) => break Err(std::io::Error::other(text)),
+        let waiting = match ask_gateway(&files.admin, &Admin::Requests).await? {
+            AdminAnswer::Requests(waiting) => waiting,
+            AdminAnswer::Failed(text) => break Err(std::io::Error::other(text)),
             _ => break Err(std::io::Error::other("unexpected answer")),
         };
         let Some(request) = waiting.into_iter().next() else {
             if !matches!(
-                ask(&files.admin, &Admin::Status).await?,
-                Answer::Status { open: true, .. }
+                ask_gateway(&files.admin, &Admin::Status).await?,
+                AdminAnswer::Status { open: true, .. }
             ) {
                 break Err(std::io::Error::other(
                     "pairing closed before a request came",
@@ -338,14 +289,14 @@ async fn pair(files: &Files) -> std::io::Result<i32> {
         .await
         .map_err(std::io::Error::other)??;
         let Some(typed) = typed else {
-            ask(&files.admin, &Admin::Reject { id: request.id }).await?;
+            ask_gateway(&files.admin, &Admin::Reject { id: request.id }).await?;
             break Err(std::io::Error::other(
                 "the input closed before a code was typed",
             ));
         };
         let typed = typed.trim();
         if typed.is_empty() {
-            ask(&files.admin, &Admin::Reject { id: request.id }).await?;
+            ask_gateway(&files.admin, &Admin::Reject { id: request.id }).await?;
             println!("Refused.");
             continue;
         }
@@ -353,20 +304,20 @@ async fn pair(files: &Files) -> std::io::Result<i32> {
             id: request.id,
             code: typed.to_string(),
         };
-        match ask(&files.admin, &approve).await? {
-            Answer::Paired(client) => {
+        match ask_gateway(&files.admin, &approve).await? {
+            AdminAnswer::Paired(client) => {
                 println!("Paired \"{}\" ({})", request.name, short(&client));
                 break Ok(0);
             }
-            Answer::Failed(text) => println!("Not paired: {text}"),
+            AdminAnswer::Failed(text) => println!("Not paired: {text}"),
             _ => println!("Not paired."),
         }
     };
-    let _ = ask(&files.admin, &Admin::Close).await;
+    let _ = ask_gateway(&files.admin, &Admin::Close).await;
     result
 }
 
-fn devices(files: &Files) -> std::io::Result<i32> {
+fn devices(files: &GatewayFiles) -> std::io::Result<i32> {
     let peers = PeerFile::open(&files.peers)
         .map_err(std::io::Error::other)?
         .list();
@@ -379,7 +330,7 @@ fn devices(files: &Files) -> std::io::Result<i32> {
     Ok(0)
 }
 
-async fn revoke(files: &Files, prefix: &str) -> std::io::Result<i32> {
+async fn revoke(files: &GatewayFiles, prefix: &str) -> std::io::Result<i32> {
     if prefix.len() < 8 {
         return Err(std::io::Error::other(
             "name at least the first 8 characters of the fingerprint",
@@ -398,20 +349,9 @@ async fn revoke(files: &Files, prefix: &str) -> std::io::Result<i32> {
             "more than one paired client starts with that; give more of it"
         }));
     };
-    let revoke = Admin::Revoke {
-        fingerprint: paired.fingerprint,
-    };
-    match ask(&files.admin, &revoke).await {
-        Ok(Answer::Done) => {}
-        Ok(Answer::Failed(text)) => return Err(std::io::Error::other(text)),
-        Ok(_) => return Err(std::io::Error::other("unexpected answer")),
-        // With no gateway running there is no connection to end.
-        Err(_) => {
-            peers
-                .revoke(&paired.fingerprint)
-                .map_err(std::io::Error::other)?;
-        }
-    }
+    adroit_net::revoke_paired(files, paired.fingerprint)
+        .await
+        .map_err(std::io::Error::other)?;
     println!(
         "Revoked \"{}\" ({})",
         paired.name,
@@ -426,6 +366,7 @@ struct Served {
     pairing: Arc<Pairing>,
     peers: Arc<PeerFile>,
     gateway: Arc<Gateway>,
+    announcing: Arc<AtomicBool>,
 }
 
 impl Served {
@@ -438,28 +379,29 @@ impl Served {
             .await?;
         let answer = match serde_json::from_str::<Admin>(&line) {
             Ok(admin) => self.handle(admin).await,
-            Err(error) => Answer::Failed(error.to_string()),
+            Err(error) => AdminAnswer::Failed(error.to_string()),
         };
         let mut line = serde_json::to_vec(&answer).map_err(std::io::Error::other)?;
         line.push(b'\n');
         write.write_all(&line).await
     }
 
-    async fn handle(&self, admin: Admin) -> Answer {
+    async fn handle(&self, admin: Admin) -> AdminAnswer {
         match admin {
             Admin::Open { seconds } => {
                 self.pairing.open(Duration::from_secs(seconds));
-                Answer::Done
+                AdminAnswer::Done
             }
             Admin::Close => {
                 self.pairing.close();
-                Answer::Done
+                AdminAnswer::Done
             }
-            Admin::Requests => Answer::Requests(
+            Admin::Requests => AdminAnswer::Requests(
                 self.pairing
                     .requests()
                     .into_iter()
                     .map(|request| Waiting {
+                        paired: adroit_net::Peers::admits(&*self.peers, &request.client),
                         id: request.id,
                         name: request.name,
                         client: request.client,
@@ -478,32 +420,33 @@ impl Served {
                     match self.pairing.approve(id, code).await {
                         Ok(client) => {
                             eprintln!("adroit: paired \"{name}\" ({client})");
-                            Answer::Paired(client)
+                            AdminAnswer::Paired(client)
                         }
                         Err(error) => {
                             eprintln!("adroit: did not pair \"{name}\": {error}");
-                            Answer::Failed(error.to_string())
+                            AdminAnswer::Failed(error.to_string())
                         }
                     }
                 }
-                Err(error) => Answer::Failed(error.to_string()),
+                Err(error) => AdminAnswer::Failed(error.to_string()),
             },
             Admin::Reject { id } => match self.pairing.reject(id) {
-                Ok(()) => Answer::Done,
-                Err(error) => Answer::Failed(error.to_string()),
+                Ok(()) => AdminAnswer::Done,
+                Err(error) => AdminAnswer::Failed(error.to_string()),
             },
             Admin::Revoke { fingerprint } => match self.peers.revoke(&fingerprint) {
                 Ok(_) => {
                     eprintln!("adroit: revoked {fingerprint} and ended its connections");
                     self.gateway.disconnect(&fingerprint);
-                    Answer::Done
+                    AdminAnswer::Done
                 }
-                Err(error) => Answer::Failed(error.to_string()),
+                Err(error) => AdminAnswer::Failed(error.to_string()),
             },
-            Admin::Status => Answer::Status {
+            Admin::Status => AdminAnswer::Status {
                 server: self.server,
                 listening: self.listening.iter().map(ToString::to_string).collect(),
                 open: self.pairing.is_open(),
+                announcing: self.announcing.load(Ordering::Relaxed),
             },
         }
     }
@@ -526,12 +469,12 @@ mod tests {
         }
     }
 
-    async fn started() -> (tempfile::TempDir, Files, Running) {
+    async fn started() -> (tempfile::TempDir, GatewayFiles, Running) {
         let dir = tempfile::Builder::new()
             .prefix("ag-")
             .tempdir_in("/tmp")
             .unwrap();
-        let files = Files::in_dir(dir.path());
+        let files = GatewayFiles::in_dir(dir.path());
         let running = start(&files, &["127.0.0.1:0".parse().unwrap()], Arc::new(NoHosts))
             .await
             .unwrap();
@@ -553,6 +496,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_operator_is_told_whether_the_gateway_announces_itself() {
+        let (_dir, files, running) = started().await;
+        let announcing = || async {
+            match ask_gateway(&files.admin, &Admin::Status).await.unwrap() {
+                AdminAnswer::Status { announcing, .. } => announcing,
+                answer => panic!("{answer:?}"),
+            }
+        };
+        assert!(!announcing().await);
+        running.announcing(true);
+        assert!(announcing().await);
+    }
+
+    #[tokio::test]
     async fn the_gateway_keeps_its_key_across_starts() {
         let (_dir, files, running) = started().await;
         let first = running.server;
@@ -567,14 +524,14 @@ mod tests {
     async fn the_operator_pairs_a_client_through_the_admin_socket() {
         let (_dir, files, running) = started().await;
         assert!(matches!(
-            ask(&files.admin, &Admin::Status).await.unwrap(),
-            Answer::Status { open: false, .. }
+            ask_gateway(&files.admin, &Admin::Status).await.unwrap(),
+            AdminAnswer::Status { open: false, .. }
         ));
         assert_eq!(
-            ask(&files.admin, &Admin::Open { seconds: 60 })
+            ask_gateway(&files.admin, &Admin::Open { seconds: 60 })
                 .await
                 .unwrap(),
-            Answer::Done
+            AdminAnswer::Done
         );
         let client = Identity::generate().unwrap();
         let code = adroit_net::PairingCode::generate();
@@ -583,12 +540,12 @@ mod tests {
             let (client, code) = (client.clone(), code.clone());
             tokio::spawn(async move {
                 let stream = tokio::net::TcpStream::connect(address).await.unwrap();
-                adroit_net::pair(&client, stream, "laptop", &code).await
+                adroit_net::pair(&client, stream, "laptop", &code, || {}).await
             })
         };
         let waiting = loop {
-            if let Answer::Requests(mut waiting) =
-                ask(&files.admin, &Admin::Requests).await.unwrap()
+            if let AdminAnswer::Requests(mut waiting) =
+                ask_gateway(&files.admin, &Admin::Requests).await.unwrap()
                 && let Some(waiting) = waiting.pop()
             {
                 break waiting;
@@ -597,7 +554,8 @@ mod tests {
         };
         assert_eq!(waiting.name, "laptop");
         assert_eq!(waiting.client, client.fingerprint());
-        let approved = ask(
+        assert!(!waiting.paired, "a client asking first is not paired");
+        let approved = ask_gateway(
             &files.admin,
             &Admin::Approve {
                 id: waiting.id,
@@ -606,11 +564,41 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(approved, Answer::Paired(client.fingerprint()));
+        assert_eq!(approved, AdminAnswer::Paired(client.fingerprint()));
         assert_eq!(asking.await.unwrap().unwrap(), running.server);
         let peers = PeerFile::open(&files.peers).unwrap().list();
         assert_eq!(peers.len(), 1);
         assert_eq!(peers[0].fingerprint, client.fingerprint());
+    }
+
+    #[tokio::test]
+    async fn the_operator_sees_a_paired_client_asking_again_as_paired() {
+        let (_dir, files, running) = started().await;
+        let client = Identity::generate().unwrap();
+        PeerFile::open(&files.peers)
+            .unwrap()
+            .enroll(client.fingerprint(), "laptop")
+            .unwrap();
+        ask_gateway(&files.admin, &Admin::Open { seconds: 60 })
+            .await
+            .unwrap();
+        let address = running.listening[0];
+        let asking = tokio::spawn(async move {
+            let stream = tokio::net::TcpStream::connect(address).await.unwrap();
+            let code = adroit_net::PairingCode::generate();
+            adroit_net::pair(&client, stream, "laptop", &code, || {}).await
+        });
+        let waiting = loop {
+            if let AdminAnswer::Requests(mut waiting) =
+                ask_gateway(&files.admin, &Admin::Requests).await.unwrap()
+                && let Some(waiting) = waiting.pop()
+            {
+                break waiting;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        };
+        assert!(waiting.paired);
+        asking.abort();
     }
 
     #[tokio::test]
@@ -628,7 +616,7 @@ mod tests {
         );
         assert!(remote.info().await.is_ok());
         assert_eq!(
-            ask(
+            ask_gateway(
                 &files.admin,
                 &Admin::Revoke {
                     fingerprint: client.fingerprint()
@@ -636,7 +624,7 @@ mod tests {
             )
             .await
             .unwrap(),
-            Answer::Done
+            AdminAnswer::Done
         );
         assert!(PeerFile::open(&files.peers).unwrap().list().is_empty());
         assert!(remote.info().await.is_err());
@@ -650,8 +638,8 @@ mod tests {
         let mut answer = String::new();
         BufReader::new(stream).read_line(&mut answer).await.unwrap();
         assert!(matches!(
-            serde_json::from_str::<Answer>(&answer).unwrap(),
-            Answer::Failed(_)
+            serde_json::from_str::<AdminAnswer>(&answer).unwrap(),
+            AdminAnswer::Failed(_)
         ));
     }
 }

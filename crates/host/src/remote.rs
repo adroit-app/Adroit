@@ -24,7 +24,7 @@ pub fn terminal() -> Option<&'static RemoteEndpoint> {
     TERMINAL.get()
 }
 pub(crate) fn root() -> PathBuf {
-    crate::paths::instance_state().join("remote")
+    adroit_model::paths::remote_dir(&crate::paths::instance_state())
 }
 
 fn invalid(error: impl std::fmt::Display) -> std::io::Error {

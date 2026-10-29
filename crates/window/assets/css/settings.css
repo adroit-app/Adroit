@@ -28,6 +28,10 @@ button:focus-visible { outline: 2px solid var(--run); outline-offset: 2px; }
 /* The code is read aloud or copied by eye to another machine, so it stands out. */
 .pairing-code { padding: 10px 14px; font-size: 13px; line-height: 1.6; }
 .pairing-code strong { font: 600 22px/1.4 var(--mono); letter-spacing: 0.08em; user-select: text; }
+/* Addresses and keys are typed or compared on another machine, so they can be selected. */
+/* Serving this computer is not a profile, so it stays apart at the foot of the list. */
+.environment-profile-foot { margin-top: auto; padding-top: 12px; display: flex; flex-direction: column; gap: 4px; }
+.serving-detail { color: var(--text-2); font-size: 12px; user-select: text; overflow-wrap: anywhere; }
 /* Prose set the width of a wide window is not read, so the column stops and centres. */
 .settings-measure, .settings-pane-head { max-width: 680px; margin-inline: auto; }
 .settings-measure { padding-top: 20px; }

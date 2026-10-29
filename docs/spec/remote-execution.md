@@ -12,8 +12,8 @@ on Linux, so they keep running without a terminal and start again with the
 machine; `--listen` and `--no-advertise` are passed to the gateway. Each runs as a service of its
 own, so restarting the work host or the gateway leaves the terminal host
 running. They start with the PATH the user's login shell had when they were
-enabled. Enabling again restarts the services whose PATH or options changed
-and leaves the others running. On Linux they run without a
+enabled. Enabling again restarts the services whose PATH or options changed,
+starts those that stopped, and leaves the others running. On Linux they run without a
 login only when the user has enabled lingering, which `adroit remote enable`
 reports rather than changes. `adroit remote disable` stops and removes them.
 On macOS, enable them with the `adroit` inside Adroit.app and allow Adroit to
@@ -87,12 +87,26 @@ network, on every interface at port 47130 unless `--listen` names an address.
 It never starts, stops or replaces a host, and it keeps serving across a
 replaced work host.
 
-To pair, run `adroit connect pair <address>` on the client. It shows a code.
-On the work machine, run `adroit remote pair` and type that code when the
-client's request appears. The client then adds a profile for the work machine.
-Pairing stays open for a limited time and closes once a client has paired. A
-wrong code pairs nothing, and the client shows a new code for its next
-attempt. Neither machine sends the code over the network.
+To pair, run `adroit connect pair <address>` on the client. On the work
+machine, run `adroit remote pair` and type the code the client shows once its
+request appears. The client then has a profile for the work machine. The
+Profiles window does both sides: on the client, pairing a work machine shows
+the code; on the work machine, Accept connections turns the services on and
+off, chooses whether the gateway announces itself, allows pairing, takes the
+code for each request, and lists and revokes the paired clients. Turning it
+off stops what paired clients started there and leaves the machine's own work
+running. Every window manages the same services, those of the default
+instance, since a machine serves one gateway on its port. A machine can pair
+with its own gateway like with any other.
+
+Pairing stays open for a limited time and closes once a client has paired.
+Until the work machine allows pairing, the client says so and keeps asking;
+it shows its code once the operator can see the request. The operator sees
+one request per client: a client asking again replaces its request, and one
+that stopped asking leaves the list. A client already paired is shown as such,
+and pairing it again keeps it paired. A wrong code pairs nothing, and the
+client asks again with a new code. Neither machine sends the code over the
+network.
 
 A paired work machine is known by its key, not its address: it stays the same
 machine when its address changes, and another machine at its address is

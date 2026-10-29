@@ -17,11 +17,12 @@ profile editor creates another profile, leaving the original environment alone.
 
 Profiles can use this computer or a work machine this computer paired with
 ([paired work machines](remote-execution.md#paired-work-machines)).
-Profile management can pair a profile with a work machine: it lists the work
-machines heard on the local network or takes an address, shows the code to
-type on the work machine, and once that is done, the profile uses the work
-machine when it is saved. Pairing from the command line adds a profile of its
-own. A profile can switch between its paired work machine and the other
+Profile management can pair with a work machine: it lists the work machines
+heard on the local network or takes an address, shows the code to type on the
+work machine, and once that is done, saves a profile for the work machine,
+named after it unless a new profile's name was typed. Pairing again with a
+machine that already has a profile selects that profile. Pairing from the
+command line adds a profile of its own too. A profile can switch between its paired work machine and the other
 connections. Connection testing does
 not select or create a work environment.
 A profile can be saved before its work machine or agents are available.

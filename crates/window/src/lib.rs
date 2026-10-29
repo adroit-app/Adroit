@@ -44,6 +44,7 @@ mod pictures;
 pub mod prompts;
 pub mod rename;
 use adroit_core::settings;
+mod serving_pane;
 mod settings_window;
 mod shell;
 mod style;

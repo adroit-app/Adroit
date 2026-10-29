@@ -1,5 +1,6 @@
 //! Reach a work machine over a network through adroit's own connection.
 
+mod admin;
 mod discovery;
 mod gateway;
 mod key;
@@ -7,6 +8,7 @@ mod pair;
 mod peers;
 mod tls;
 
+pub use admin::*;
 pub use discovery::*;
 pub use gateway::*;
 pub use key::*;
@@ -38,6 +40,8 @@ pub enum Error {
     OtherServer,
     #[error("nothing answered at {0}")]
     Unreachable(String),
+    #[error("the gateway: {0}")]
+    Gateway(String),
 }
 
 impl From<std::io::Error> for Error {

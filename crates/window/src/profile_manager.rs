@@ -145,12 +145,66 @@ impl Choice {
         Ok(target)
     }
 
+    /// Shows `kind`; pairing starts from the machine paired before, which is
+    /// the one to pair again after it forgot this computer.
+    fn choose(&mut self, kind: Kind) {
+        self.kind = kind;
+        if kind == Kind::Pairing
+            && self.pairing.is_empty()
+            && let Some((address, _)) = &self.paired
+        {
+            self.pairing = address.clone();
+        }
+    }
+
     /// Takes the work machine pairing answered with as this profile's.
     fn paired_with(&mut self, target: Target) {
         if let Target::Native { address, server } = target {
             self.paired = Some((address, server));
             self.kind = Kind::Paired;
         }
+    }
+}
+
+/// `catalog` with `name` and `target` saved to `path`: in place for the
+/// profile `selected` when its connection is `target`, as a profile of its own
+/// otherwise; with the saved profile's id.
+fn save(
+    catalog: &Catalog,
+    path: &std::path::Path,
+    selected: Option<&str>,
+    name: &str,
+    target: Target,
+) -> Result<(Catalog, String), String> {
+    let mut next = catalog.clone();
+    let revision = next.revision;
+    let mut profile = next
+        .profiles
+        .iter()
+        .find(|p| Some(p.id.as_str()) == selected && p.target == target)
+        .cloned()
+        .unwrap_or_else(|| Profile::new(name, target));
+    profile.name = name.trim().into();
+    match next.profiles.iter_mut().find(|p| p.id == profile.id) {
+        Some(old) => *old = profile.clone(),
+        None => next.profiles.push(profile.clone()),
+    }
+    next.save(path, revision)?;
+    Ok((next, profile.id))
+}
+
+/// A name for the work machine at `address`: its host, without the port, or
+/// what a loopback address means.
+fn machine_name(address: &str) -> String {
+    let host = address.rsplit_once(':').map_or(address, |(host, _)| host);
+    let host = host.trim_matches(['[', ']']);
+    let loopback = host == "localhost"
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback());
+    match loopback {
+        true => "This computer's gateway".into(),
+        false => host.to_string(),
     }
 }
 
@@ -177,8 +231,12 @@ fn ProfileEditor() -> Element {
     let mut busy = use_signal(|| false);
     let mut removing = use_signal(|| false);
     let mut heard = use_signal(Vec::<adroit_connect::Heard>::new);
-    let mut pair_code = use_signal(|| None::<String>);
+    let mut pair_step = use_signal(|| None::<adroit_connect::PairingStep>);
+    // Kept past the next code, so the person knows why the code changed.
+    let mut mismatched = use_signal(|| false);
     let mut pairing = use_signal(|| None::<dioxus::core::Task>);
+    let mut serving = use_signal(|| false);
+    let mut looking = use_signal(|| false);
     let archived = catalog
         .read()
         .as_ref()
@@ -215,25 +273,42 @@ fn ProfileEditor() -> Element {
             nav { class: "environment-profile-list", aria_label: "Profiles",
                 if let Ok(catalog) = &*catalog.read() {
                     for profile in &catalog.profiles {
-                        button { r#type: "button", aria_pressed: Some(&profile.id) == selected.read().as_ref(), class: if Some(&profile.id) == selected.read().as_ref() { "environment-profile on" } else { "environment-profile" },
+                        button { r#type: "button", aria_pressed: !serving() && Some(&profile.id) == selected.read().as_ref(), class: if !serving() && Some(&profile.id) == selected.read().as_ref() { "environment-profile on" } else { "environment-profile" },
                             onclick: {
                                 let profile = profile.clone();
-                                move |_| { selected.set(Some(profile.id.clone())); name.set(profile.name.clone()); choice.set(Choice::from(profile.target.clone())); error.set(None); notice.set(None); removing.set(false); }
+                                move |_| { serving.set(false); selected.set(Some(profile.id.clone())); name.set(profile.name.clone()); choice.set(Choice::from(profile.target.clone())); error.set(None); notice.set(None); removing.set(false); }
                             },
                             span { "{profile.name}" }
                             small { if profile.archived { "Removed · select to restore" } else if matches!(profile.target, Target::Local) { "This computer" } else if let Target::Native { address, .. } = &profile.target { "{address}" } }
                         }
                     }
                 }
-                button { r#type: "button", class: "environment-profile new", onclick: move |_| { selected.set(None); name.set(String::new()); choice.set(Choice::from(Target::Local)); error.set(None); notice.set(None); removing.set(false); }, "+ New profile" }
+                button { r#type: "button", class: "environment-profile new", onclick: move |_| { serving.set(false); selected.set(None); name.set(String::new()); choice.set(Choice::from(Target::Local)); error.set(None); notice.set(None); removing.set(false); }, "+ New profile" }
+                div { class: "environment-profile-foot",
+                    h2 { class: "settings-nav-heading", "This computer" }
+                    button { r#type: "button", aria_pressed: serving(), class: if serving() { "environment-profile on" } else { "environment-profile" }, onclick: move |_| serving.set(true),
+                        span { "Accept connections" }
+                        small { "Let others work here" }
+                    }
+                }
             }
+            if serving() {
+                main { class: "profile-editor",
+                    // Pairing with this computer's own gateway needs the code
+                    // while its request is answered here.
+                    if let Some(adroit_connect::PairingStep::Shown { code }) = pair_step.read().clone() {
+                        p { class: "pairing-code", aria_live: "polite", "This computer is pairing with {choice.read().pairing}. Its code: " strong { "{code}" } }
+                    }
+                    crate::serving_pane::ServingPane {}
+                }
+            } else {
             main { class: "profile-editor",
                 SettingGroup { title: if selected().is_none() { "New profile" } else { "Profile" },
                     SettingRow { label: "Name", hint: "",
                         TextField { aria_label: "Profile name", value: name(), placeholder: "Work", onchange: move |value| name.set(value) }
                     }
                     SettingRow { label: "Connection", hint: "Agents and working files stay on this computer or the work machine you choose.",
-                        select { aria_label: "Profile connection", disabled: busy() || pair_code.read().is_some(), onchange: move |e| { choice.write().kind = Kind::from_value(&e.value()); notice.set(None); },
+                        select { aria_label: "Profile connection", disabled: busy() || pairing.read().is_some(), onchange: move |e| { choice.write().choose(Kind::from_value(&e.value())); notice.set(None); },
                             option { value: Kind::Local.value(), selected: choice.read().kind == Kind::Local, "This computer" }
                             if let Some((address, _)) = choice.read().paired.clone() {
                                 option { value: Kind::Paired.value(), selected: choice.read().kind == Kind::Paired, "Paired work machine at {address}" }
@@ -244,48 +319,57 @@ fn ProfileEditor() -> Element {
                 }
                 if choice.read().kind == Kind::Pairing {
                     SettingGroup { title: "Pair a work machine",
-                        SettingRow { label: "Address", hint: "The work machine's address and port. On it, run adroit remote enable once, then adroit remote pair.",
-                            TextField { aria_label: "Work machine address", value: choice.read().pairing.clone(), placeholder: "work-box.local:47130", onchange: move |value| { choice.write().pairing = value; } }
-                        }
-                        SettingRow { label: "On this network", hint: "Work machines that announce themselves here.",
-                            div { class: "paired-machines",
-                                for found in heard.read().clone() {
-                                    button { r#type: "button", disabled: pair_code.read().is_some(), title: "Key {found.key}", onclick: { let address = found.address.clone(); move |_| choice.write().pairing = address.clone() }, "{found.name} · {found.address}" }
-                                }
-                                button { r#type: "button", disabled: busy() || pair_code.read().is_some(), onclick: move |_| {
-                                    busy.set(true); error.set(None);
-                                    spawn(async move {
-                                        match adroit_connect::discover().await {
-                                            Ok(found) if found.is_empty() => notice.set(Some("No work machine announced itself on this network. Enter its address instead.".into())),
-                                            Ok(found) => heard.set(found),
-                                            Err(why) => error.set(Some(why)),
-                                        }
-                                        busy.set(false);
-                                    });
-                                }, if busy() { "Looking…" } else { "Look for work machines" } }
+                        SettingRow { label: "Address", hint: "The work machine's address and port. On it, turn on Accept connections and allow pairing in Profiles.",
+                            // Kept on every key, so Pair is enabled as soon as an address is typed.
+                            input { class: "settings-command", r#type: "text", aria_label: "Work machine address", placeholder: "work-box.local:47130", spellcheck: false, autocomplete: "off",
+                                disabled: pairing.read().is_some(),
+                                value: choice.read().pairing.clone(),
+                                oninput: move |e| { choice.write().pairing = e.value(); },
                             }
-                        }
-                        if let Some(code) = pair_code.read().clone() {
-                            p { class: "pairing-code", aria_live: "polite", "Type this code on the work machine, where adroit remote pair shows this computer's request: " strong { "{code}" } }
-                        }
-                        div { class: "settings-page-actions",
                             if pairing.read().is_some() {
                                 button { r#type: "button", onclick: move |_| {
                                     if let Some(task) = pairing.write().take() { task.cancel(); }
-                                    pair_code.set(None);
+                                    pair_step.set(None);
+                                    mismatched.set(false);
                                 }, "Cancel" }
                             } else {
                                 button { r#type: "button", class: "primary", disabled: busy() || choice.read().pairing.trim().is_empty(), onclick: move |_| {
                                     error.set(None); notice.set(None);
                                     let address = choice.peek().pairing.trim().to_string();
                                     let task = spawn(async move {
-                                        let result = adroit_connect::pair_with(&address, None, |code| pair_code.set(Some(code))).await;
-                                        pair_code.set(None);
+                                        let result = adroit_connect::pair_with(&address, None, |step| {
+                                            if step == adroit_connect::PairingStep::Mismatched { mismatched.set(true); }
+                                            pair_step.set(Some(step));
+                                        }).await;
+                                        pair_step.set(None);
+                                        mismatched.set(false);
                                         pairing.set(None);
                                         match result {
                                             Ok(target) => {
-                                                choice.write().paired_with(target);
-                                                notice.set(Some(format!("Paired with the work machine at {address}. Save the profile to use it.")));
+                                                choice.write().paired_with(target.clone());
+                                                // Pairing is what the operator came for, so its
+                                                // profile is kept without a second step.
+                                                let named = match (selected.peek().is_none(), name.peek().trim()) {
+                                                    (true, typed) if !typed.is_empty() => typed.to_string(),
+                                                    _ => machine_name(&address),
+                                                };
+                                                let saved = catalog.peek().as_ref().map_err(Clone::clone).and_then(|catalog| {
+                                                    // Pairing again keeps the machine's profile; pairing
+                                                    // from another profile adds one beside it.
+                                                    match catalog.profiles.iter().find(|p| p.target == target) {
+                                                        Some(known) => Ok((catalog.clone(), known.id.clone())),
+                                                        None => save(catalog, &Catalog::path(), None, &named, target),
+                                                    }
+                                                });
+                                                match saved {
+                                                    Ok((next, id)) => {
+                                                        selected.set(Some(id));
+                                                        name.set(named.clone());
+                                                        catalog.set(Ok(next));
+                                                        notice.set(Some(format!("Paired with the work machine at {address} and saved it as {named}. Open it to work there.")));
+                                                    }
+                                                    Err(why) => error.set(Some(why)),
+                                                }
                                             }
                                             Err(why) => error.set(Some(why)),
                                         }
@@ -294,8 +378,47 @@ fn ProfileEditor() -> Element {
                                 }, "Pair" }
                             }
                         }
+                        SettingRow { label: "On this network", hint: "Work machines that announce themselves here.",
+                            div { class: "paired-machines",
+                                for found in heard.read().clone() {
+                                    button { r#type: "button", disabled: pairing.read().is_some(), title: "Key {found.key}", onclick: { let address = found.address.clone(); move |_| choice.write().pairing = address.clone() }, "{found.name} · {found.address}" }
+                                }
+                                button { r#type: "button", disabled: looking() || pairing.read().is_some(), onclick: move |_| {
+                                    looking.set(true); error.set(None);
+                                    spawn(async move {
+                                        match adroit_connect::discover().await {
+                                            Ok(found) if found.is_empty() => notice.set(Some("No work machine announced itself on this network. Enter its address instead.".into())),
+                                            Ok(found) => heard.set(found),
+                                            Err(why) => error.set(Some(why)),
+                                        }
+                                        looking.set(false);
+                                    });
+                                }, if looking() { "Looking…" } else { "Look for work machines" } }
+                            }
+                        }
+                        match pair_step.read().clone() {
+                            Some(adroit_connect::PairingStep::NotAccepting) => rsx! {
+                                p { class: "pairing-code", aria_live: "polite", "Waiting for the work machine to allow pairing. On it, open Profiles, choose Accept connections and press Allow pairing." }
+                            },
+                            Some(adroit_connect::PairingStep::Shown { code }) => rsx! {
+                                p { class: "pairing-code", aria_live: "polite",
+                                    if mismatched() { "That was not the code, so this is a new one. " }
+                                    "On the work machine, type this code beside this computer's request: "
+                                    strong { "{code}" }
+                                }
+                            },
+                            Some(adroit_connect::PairingStep::Mismatched) => rsx! {
+                                p { class: "pairing-code", aria_live: "polite", "That was not the code. Asking again with a new one…" }
+                            },
+                            None => rsx! {},
+                        }
                     }
+                    // Where pairing is shown, so its outcome is seen without scrolling.
+                    if let Some(why) = error() { SettingsError { "{why}" } }
+                    if let Some(text) = notice() { p { class: "settings-agent-note", role: "status", "{text}" } }
                 }
+                // Nothing is saved or tested until pairing answered; it saves the profile itself.
+                if choice.read().kind != Kind::Pairing {
                 if target_changed { p { class: "settings-agent-note", "This connection will be saved as a new profile. The original profile, agents and running sessions stay where they are." } }
                 div { class: "settings-page-actions profile-actions",
                     button { r#type: "button", disabled: busy(), onclick: move |_| {
@@ -317,13 +440,8 @@ fn ProfileEditor() -> Element {
                     button { r#type: "button", class: "primary", disabled: busy(), onclick: move |_| {
                         let result = (|| {
                             let target = choice.read().target()?;
-                            let mut next = catalog.peek().as_ref().map_err(Clone::clone)?.clone();
-                            let revision = next.revision;
-                            let mut profile = next.profiles.iter().find(|p| Some(&p.id) == selected.peek().as_ref() && p.target == target).cloned().unwrap_or_else(|| Profile::new(&name(), target));
-                            profile.name = name().trim().into();
-                            if let Some(old) = next.profiles.iter_mut().find(|p| p.id == profile.id) { *old = profile.clone(); } else { next.profiles.push(profile.clone()); }
-                            next.save(&Catalog::path(), revision)?;
-                            selected.set(Some(profile.id));
+                            let (next, id) = save(catalog.peek().as_ref().map_err(Clone::clone)?, &Catalog::path(), selected.peek().as_deref(), &name(), target)?;
+                            selected.set(Some(id));
                             catalog.set(Ok(next));
                             Ok::<_, String>(())
                         })();
@@ -336,6 +454,10 @@ fn ProfileEditor() -> Element {
                                 && let Some(profile) = catalog.profiles.iter().find(|p| Some(&p.id) == selected.peek().as_ref()) { error.set(crate::environment_profiles::open(profile, false).err()); }
                         }, "Open profile" }
                     }
+                }
+                // Beside the buttons, so what they did is seen without scrolling.
+                if let Some(why) = error() { SettingsError { "{why}" } }
+                if let Some(text) = notice() { p { class: "settings-agent-note", role: "status", "{text}" } }
                 }
                 div { class: "profile-management",
                     SettingGroup { title: "Profile actions",
@@ -392,14 +514,13 @@ fn ProfileEditor() -> Element {
                     }
                 }
                 }
-                if let Some(why) = error() { SettingsError { "{why}" } }
-                if let Some(text) = notice() { p { class: "settings-agent-note", role: "status", "{text}" } }
                 if choice.read().kind != Kind::Local {
                     details { class: "connection-help settings-advanced",
                         summary { "Remote feature availability" }
                         p { "Remote console typing, local Finder/editor actions on remote files and interactive login terminals are currently unavailable. Log in to your agents on the work machine and check their status under this profile's Agents." }
                     }
                 }
+            }
             }
         }
     }
@@ -432,5 +553,46 @@ mod tests {
         choice.kind = Kind::Pairing;
         choice.kind = Kind::Paired;
         assert_eq!(choice.target().unwrap(), paired());
+    }
+
+    #[test]
+    fn pairing_again_starts_from_the_address_of_the_machine_paired_before() {
+        let mut choice = Choice::from(paired());
+        choice.choose(Kind::Pairing);
+        assert_eq!(choice.pairing, "work-box.local:47130");
+        choice.pairing = "other.local:47130".into();
+        choice.choose(Kind::Local);
+        choice.choose(Kind::Pairing);
+        assert_eq!(choice.pairing, "other.local:47130", "what was typed stays");
+        let mut fresh = Choice::from(Target::Local);
+        fresh.choose(Kind::Pairing);
+        assert_eq!(fresh.pairing, "");
+    }
+
+    #[test]
+    fn a_work_machine_is_named_by_its_host() {
+        assert_eq!(machine_name("work-box.local:47130"), "work-box.local");
+        assert_eq!(machine_name("[fe80::1]:47130"), "fe80::1");
+        assert_eq!(machine_name("work-box"), "work-box");
+        assert_eq!(machine_name("127.0.0.1:47130"), "This computer's gateway");
+        assert_eq!(machine_name("[::1]:47130"), "This computer's gateway");
+        assert_eq!(machine_name("localhost:47130"), "This computer's gateway");
+    }
+
+    #[test]
+    fn a_changed_connection_is_saved_as_a_profile_of_its_own() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("environments.toml");
+        let (catalog, local) =
+            save(&Catalog::default(), &path, None, "Personal", Target::Local).unwrap();
+        let (catalog, renamed) =
+            save(&catalog, &path, Some(&local), "Mine", Target::Local).unwrap();
+        assert_eq!(renamed, local);
+        let (catalog, machine) = save(&catalog, &path, Some(&local), "work-box", paired()).unwrap();
+        assert_ne!(machine, local);
+        let saved = Catalog::load(&path).unwrap();
+        assert_eq!(saved.profiles, catalog.profiles);
+        let names: Vec<_> = saved.profiles.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["Mine", "work-box"]);
     }
 }

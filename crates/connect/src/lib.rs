@@ -3,6 +3,7 @@
 pub mod journal;
 pub mod profiles;
 mod remote;
+pub mod serving;
 pub mod work;
 pub use remote::*;
 

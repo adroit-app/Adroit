@@ -255,12 +255,15 @@ pub fn enable(plan: &Plan, platform: Platform, run: &dyn Run) -> std::io::Result
         Platform::Launchd => {
             for (unit, written) in units.iter().zip(written) {
                 let target = format!("gui/{}/{}", uid(), unit.name);
-                // Leaving an unchanged, loaded agent alone keeps the terminal
-                // host's sessions when only another service changed.
+                // Leaving an unchanged, running agent alone keeps the terminal
+                // host's sessions when only another service changed. One
+                // loaded but stopped is loaded again: launchd does not start
+                // again an agent whose program was missing while the app was
+                // replaced.
                 if written == Written::Unchanged
                     && run
                         .run("launchctl", &["print".into(), target.clone()])
-                        .is_ok()
+                        .is_ok_and(|printed| printed.contains("state = running"))
                 {
                     continue;
                 }
@@ -425,6 +428,8 @@ mod tests {
     struct Recorded {
         calls: RefCell<Vec<String>>,
         linger: &'static str,
+        /// What `launchctl print` says of a loaded agent.
+        printed: &'static str,
     }
 
     impl Recorded {
@@ -432,6 +437,16 @@ mod tests {
             Self {
                 calls: RefCell::new(Vec::new()),
                 linger,
+                printed: "\tstate = running\n",
+            }
+        }
+
+        /// Agents launchd has loaded but does not run, as it leaves one whose
+        /// program was missing when it was started.
+        fn stopped() -> Self {
+            Self {
+                printed: "\tstate = spawn scheduled\n\tlast exit code = 78: EX_CONFIG\n",
+                ..Self::new("yes")
             }
         }
         fn calls(&self) -> Vec<String> {
@@ -444,10 +459,10 @@ mod tests {
             self.calls
                 .borrow_mut()
                 .push(format!("{program} {}", args.join(" ")));
-            Ok(if program == "loginctl" {
-                format!("Linger={}", self.linger)
-            } else {
-                String::new()
+            Ok(match (program, args.first().map(String::as_str)) {
+                ("loginctl", _) => format!("Linger={}", self.linger),
+                ("launchctl", Some("print")) => self.printed.into(),
+                _ => String::new(),
             })
         }
     }
@@ -644,6 +659,21 @@ mod tests {
             .collect();
         assert_eq!(reloaded.len(), 1);
         assert!(reloaded[0].ends_with("/app.adroit.ai.gateway"));
+    }
+
+    #[test]
+    fn enabling_again_on_macos_loads_an_unchanged_agent_that_stopped() {
+        let home = tempfile::tempdir().unwrap();
+        let plan = plan(home.path());
+        enable(&plan, Platform::Launchd, &Recorded::new("yes")).unwrap();
+        let stopped = Recorded::stopped();
+        enable(&plan, Platform::Launchd, &stopped).unwrap();
+        let bootstrapped = stopped
+            .calls()
+            .into_iter()
+            .filter(|call| call.contains("bootstrap"))
+            .count();
+        assert_eq!(bootstrapped, units(&plan, Platform::Launchd).len());
     }
 
     #[test]

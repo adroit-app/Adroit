@@ -71,36 +71,79 @@ pub fn client_key() -> PathBuf {
     adroit_model::paths::state_dir().join("adroit/net/client.key")
 }
 
-/// Asks the work machine at `address` to pair under `name`, handing `show`
-/// the code to type there once the machine answered, and returns the target
-/// that reaches it once the operator typed that code.
+/// How far a pairing has come, as the person pairing is told.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PairingStep {
+    /// The work machine does not accept pairing requests now; the client
+    /// keeps asking until it does.
+    NotAccepting,
+    /// The work machine's operator sees the request and is to type `code`.
+    Shown { code: String },
+    /// The operator typed another code; the request is made again with a
+    /// new one.
+    Mismatched,
+}
+
+/// Asks the work machine at `address` to pair under `name`, telling `step`
+/// how far it has come, and returns the target that reaches it once the
+/// operator typed the code shown.
 pub async fn pair_with(
     address: &str,
     name: Option<&str>,
-    show: impl FnOnce(String),
+    step: impl FnMut(PairingStep),
 ) -> Result<Target, String> {
-    let name = name.map_or_else(adroit_net::host_name, str::to_string);
     if !crate::valid_address(address) {
         return Err(
             "give the work machine's address with its port, such as work-box.local:47130".into(),
         );
     }
     let identity = adroit_net::Identity::load_or_create(client_key()).map_err(|e| e.to_string())?;
-    let code = adroit_net::PairingCode::generate();
+    let name = name.map_or_else(adroit_net::host_name, str::to_string);
+    pair_as(&identity, address, &name, step).await
+}
+
+async fn pair_as(
+    identity: &adroit_net::Identity,
+    address: &str,
+    name: &str,
+    step: impl FnMut(PairingStep),
+) -> Result<Target, String> {
+    // Asking again each second must not repeat what was said already.
+    let telling = std::sync::Mutex::new((None::<PairingStep>, step));
+    let tell = |now: PairingStep| {
+        let mut telling = telling.lock().unwrap_or_else(|e| e.into_inner());
+        let (told, step) = &mut *telling;
+        if told.as_ref() != Some(&now) {
+            step(now.clone());
+            *told = Some(now);
+        }
+    };
     let asking = async {
-        let mut show = Some(show);
+        let mut code = adroit_net::PairingCode::generate();
         loop {
             let stream = tokio::time::timeout(DEADLINE, tokio::net::TcpStream::connect(address))
                 .await
                 .map_err(|_| format!("cannot reach {address}: timed out"))?
                 .map_err(|e| format!("cannot reach {address}: {e}"))?;
-            if let Some(show) = show.take() {
-                show(code.to_string());
-            }
-            match adroit_net::pair(&identity, stream, &name, &code).await {
+            let shown = PairingStep::Shown {
+                code: code.to_string(),
+            };
+            let asked = adroit_net::pair(identity, stream, name, &code, || tell(shown)).await;
+            match asked {
                 // No exchange ran, so the same code may be offered again.
                 Err(adroit_net::PairError::Closed | adroit_net::PairError::Busy) => {
+                    tell(PairingStep::NotAccepting);
                     tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+                // A code is tried once; the next try asks with a new one.
+                Err(adroit_net::PairError::Mismatch) => {
+                    tell(PairingStep::Mismatched);
+                    code = adroit_net::PairingCode::generate();
+                }
+                Err(adroit_net::PairError::Refused) => {
+                    return Err(
+                        "the work machine refused the request, or stopped allowing pairing".into(),
+                    );
                 }
                 // The machine proved it knew the code, so its key is known;
                 // whether it let this client in, only connecting tells.
@@ -143,10 +186,12 @@ pub fn pair_cli(address: &str, name: Option<&str>, show: impl Fn(&str)) -> Resul
         .enable_all()
         .build()
         .map_err(|e| e.to_string())?;
-    let target = runtime.block_on(pair_with(address, name, |code| {
-        show(&format!(
-            "Run `adroit remote pair` on the work machine and type this code there: {code}"
-        ))
+    let target = runtime.block_on(pair_with(address, name, |step| {
+        show(&match step {
+            PairingStep::NotAccepting => "The work machine is not accepting pairing requests; waiting until it does (run `adroit remote pair` there, or allow pairing in its Profiles window)".to_string(),
+            PairingStep::Shown { code } => format!("Type this code on the work machine: {code}"),
+            PairingStep::Mismatched => "That was not the code; asking again with a new one".to_string(),
+        })
     }))?;
     let Target::Native { server, .. } = &target else {
         unreachable!("pairing reaches a paired work machine");
@@ -154,6 +199,13 @@ pub fn pair_cli(address: &str, name: Option<&str>, show: impl Fn(&str)) -> Resul
     let server = server.clone();
     let path = crate::profiles::Catalog::path();
     let mut catalog = crate::profiles::Catalog::load(&path)?;
+    if let Some(known) = catalog.profiles.iter().find(|p| p.target == target) {
+        return Ok(format!(
+            "Paired with the work machine {} again; its profile \"{}\" uses it",
+            &server[..16],
+            known.name
+        ));
+    }
     let expected = catalog.revision;
     let profile_name = format!("Work machine at {address}");
     catalog
@@ -341,7 +393,7 @@ impl Remote {
     fn explain(&self, error: adroit_net::Error) -> String {
         match error {
             adroit_net::Error::NotPaired => format!(
-                "the work machine at {} refused this client's key; pair it again with adroit connect pair",
+                "the work machine at {} refused this client's key: it no longer knows this computer. Pair again from Profiles, choosing Pair a work machine…, or with adroit connect pair",
                 self.address
             ),
             adroit_net::Error::OtherServer => format!(
@@ -380,6 +432,93 @@ impl Tunnel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct NoHosts;
+
+    impl adroit_net::Hosts for NoHosts {
+        fn current(&self) -> Result<adroit_net::HostsNow, String> {
+            Err("no hosts".into())
+        }
+    }
+
+    /// The pairing of a gateway listening on loopback, and its address.
+    async fn gateway() -> (
+        tempfile::TempDir,
+        Arc<adroit_net::Pairing>,
+        String,
+        tokio::task::JoinHandle<()>,
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let server = adroit_net::Identity::generate().unwrap();
+        let peers = Arc::new(adroit_net::PeerFile::open(dir.path().join("peers.json")).unwrap());
+        let pairing = Arc::new(adroit_net::Pairing::new(
+            server.fingerprint(),
+            peers.clone(),
+        ));
+        let gateway =
+            adroit_net::Gateway::new(&server, peers, pairing.clone(), Arc::new(NoHosts)).unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap().to_string();
+        let listening = tokio::spawn(async move {
+            let _ = gateway.listen(listener).await;
+        });
+        (dir, pairing, address, listening)
+    }
+
+    async fn asked(pairing: &adroit_net::Pairing) -> adroit_net::Request {
+        for _ in 0..1000 {
+            if let Some(request) = pairing.requests().pop() {
+                return request;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        panic!("no request arrived");
+    }
+
+    #[tokio::test]
+    async fn pairing_waits_for_the_work_machine_and_asks_again_after_a_wrong_code() {
+        let (_dir, pairing, address, listening) = gateway().await;
+        let client = adroit_net::Identity::generate().unwrap();
+        let (steps, mut heard) = tokio::sync::mpsc::unbounded_channel();
+        let pairing_task = {
+            let address = address.clone();
+            tokio::spawn(async move {
+                pair_as(&client, &address, "laptop", |step| {
+                    let _ = steps.send(step);
+                })
+                .await
+            })
+        };
+        assert_eq!(heard.recv().await, Some(PairingStep::NotAccepting));
+        pairing.open(Duration::from_secs(60));
+        let Some(PairingStep::Shown { code: first }) = heard.recv().await else {
+            panic!("no code was shown");
+        };
+        let request = asked(&pairing).await;
+        let wrong = if first == "000-000" {
+            "111-111"
+        } else {
+            "000-000"
+        };
+        assert!(
+            pairing
+                .approve(request.id, wrong.parse().unwrap())
+                .await
+                .is_err()
+        );
+        assert_eq!(heard.recv().await, Some(PairingStep::Mismatched));
+        let Some(PairingStep::Shown { code: second }) = heard.recv().await else {
+            panic!("no new code was shown");
+        };
+        let request = asked(&pairing).await;
+        pairing
+            .approve(request.id, second.parse().unwrap())
+            .await
+            .unwrap();
+        let target = pairing_task.await.unwrap().unwrap();
+        assert!(matches!(target, Target::Native { address: reached, .. } if reached == address));
+        listening.abort();
+    }
 
     #[test]
     fn a_pairing_whose_last_answer_was_lost_took_only_when_the_key_is_let_in() {

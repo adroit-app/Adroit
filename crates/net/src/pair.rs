@@ -38,6 +38,8 @@ const REFUSED: u8 = 5;
 /// exchange ran.
 const CLOSED: u8 = 6;
 const BUSY: u8 = 7;
+/// The request waits where the operator sees it.
+const QUEUED: u8 = 8;
 
 /// A one-time code of six decimal digits.
 #[derive(Clone, PartialEq, Eq)]
@@ -97,6 +99,8 @@ pub enum PairError {
     Refused,
     #[error("the pairing request is not waiting")]
     Unknown,
+    #[error("the client stopped asking before the operator decided")]
+    Gone,
     #[error("the codes did not match, or something stood between the machines")]
     Mismatch,
     #[error("the pairing took too long")]
@@ -250,9 +254,16 @@ impl Pairing {
             }
         };
         let _leave = Leave { pairing: self, id };
+        if write_frame(&mut stream, QUEUED, &[]).await.is_err() {
+            return Err(PairError::Gone);
+        }
+        // The client says nothing until the operator decides, so anything
+        // read meanwhile, or the end of the stream, means it stopped asking.
+        let mut byte = [0; 1];
         let decision = tokio::select! {
             decision = decided => decision.ok(),
             _ = tokio::time::sleep_until(until) => None,
+            _ = stream.read(&mut byte) => return Err(PairError::Gone),
         };
         let Some(Decision::Try(code, outcome)) = decision else {
             let _ = refuse(&mut stream).await;
@@ -282,6 +293,20 @@ impl Pairing {
         let Some(until) = state.open_until.filter(|_| state.is_open()) else {
             return Err(PairError::Closed);
         };
+        // A client asks again when it lost its first request, or another of
+        // its windows asks; the operator sees the client once, as it asks now.
+        for waiting in state
+            .waiting
+            .iter_mut()
+            .filter(|waiting| waiting.request.client == client)
+        {
+            if let Some(decide) = waiting.decide.take() {
+                let _ = decide.send(Decision::Reject);
+            }
+        }
+        state
+            .waiting
+            .retain(|waiting| waiting.request.client != client);
         if state.waiting.len() >= MAX_WAITING {
             return Err(PairError::Busy);
         }
@@ -365,12 +390,14 @@ pub fn pairing_server_config(identity: &Identity) -> Result<Arc<rustls::ServerCo
 }
 
 /// Asks the work machine at the other end of `stream` to pair under `name`,
-/// and returns its key once both sides proved they hold `code`.
+/// telling `queued` once its operator can see the request, and returns its
+/// key once both sides proved they hold `code`.
 pub async fn pair<S>(
     identity: &Identity,
     stream: S,
     name: &str,
     code: &PairingCode,
+    queued: impl FnOnce(),
 ) -> Result<Fingerprint, PairError>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -397,7 +424,12 @@ where
     hello.extend_from_slice(name.as_bytes());
     hello.extend_from_slice(&from_client);
     write_frame(&mut stream, HELLO, &hello).await?;
-    let reply = match read_frame(&mut stream).await? {
+    let mut answer = read_frame(&mut stream).await?;
+    if answer.0 == QUEUED {
+        queued();
+        answer = read_frame(&mut stream).await?;
+    }
+    let reply = match answer {
         (REPLY, reply) if reply.len() > MAC_LEN => reply,
         (REFUSED, _) => return Err(PairError::Refused),
         (CLOSED, _) => return Err(PairError::Closed),
@@ -658,7 +690,7 @@ mod tests {
         let served = serving(&server, far);
         let asking = {
             let (client, code) = (client.clone(), code.clone());
-            tokio::spawn(async move { pair(&client, near, "laptop", &code).await })
+            tokio::spawn(async move { pair(&client, near, "laptop", &code, || {}).await })
         };
         let request = waiting(&server.pairing).await;
         assert_eq!(request.name, "laptop");
@@ -686,7 +718,7 @@ mod tests {
         let (near, far) = tokio::io::duplex(64 * 1024);
         let served = serving(&server, far);
         let asking = tokio::spawn(async move {
-            pair(&client, near, "laptop", &"111-111".parse().unwrap()).await
+            pair(&client, near, "laptop", &"111-111".parse().unwrap(), || {}).await
         });
         let request = waiting(&server.pairing).await;
         let typed = "222-222".parse().unwrap();
@@ -706,7 +738,7 @@ mod tests {
         let client = Identity::generate().unwrap();
         let (near, far) = tokio::io::duplex(64 * 1024);
         let served = serving(&server, far);
-        let asked = pair(&client, near, "laptop", &PairingCode::generate()).await;
+        let asked = pair(&client, near, "laptop", &PairingCode::generate(), || {}).await;
         assert!(matches!(asked, Err(PairError::Closed)));
         assert!(matches!(served.await.unwrap(), Err(PairError::Closed)));
     }
@@ -718,16 +750,94 @@ mod tests {
         let client = Identity::generate().unwrap();
         let (near, far) = tokio::io::duplex(64 * 1024);
         let served = serving(&server, far);
-        let asking =
-            tokio::spawn(
-                async move { pair(&client, near, "laptop", &PairingCode::generate()).await },
-            );
+        let asking = tokio::spawn(async move {
+            pair(&client, near, "laptop", &PairingCode::generate(), || {}).await
+        });
         let request = waiting(&server.pairing).await;
         server.pairing.reject(request.id).unwrap();
         assert!(matches!(asking.await.unwrap(), Err(PairError::Refused)));
         assert!(served.await.unwrap().is_err());
         assert!(server.pairing.requests().is_empty());
         assert!(server.pairing.is_open(), "a rejection leaves pairing open");
+    }
+
+    #[tokio::test]
+    async fn the_client_is_told_once_the_operator_can_see_its_request() {
+        let server = server();
+        server.pairing.open(Duration::from_secs(60));
+        let client = Identity::generate().unwrap();
+        let (near, far) = tokio::io::duplex(64 * 1024);
+        let _served = serving(&server, far);
+        let (seen, told) = oneshot::channel();
+        let _asking = tokio::spawn(async move {
+            pair(&client, near, "laptop", &PairingCode::generate(), || {
+                let _ = seen.send(());
+            })
+            .await
+        });
+        tokio::time::timeout(Duration::from_secs(5), told)
+            .await
+            .expect("the client was not told")
+            .unwrap();
+        assert_eq!(server.pairing.requests().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_client_that_hangs_up_while_waiting_leaves_no_request() {
+        let server = server();
+        server.pairing.open(Duration::from_secs(60));
+        let client = Identity::generate().unwrap();
+        let (near, far) = tokio::io::duplex(64 * 1024);
+        let served = serving(&server, far);
+        let asking = tokio::spawn(async move {
+            pair(&client, near, "laptop", &PairingCode::generate(), || {}).await
+        });
+        waiting(&server.pairing).await;
+        asking.abort();
+        let _ = asking.await;
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_secs(5), served)
+                .await
+                .expect("the work machine kept waiting")
+                .unwrap(),
+            Err(PairError::Gone)
+        ));
+        assert!(server.pairing.requests().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_new_request_with_the_same_key_replaces_the_one_waiting() {
+        let server = server();
+        server.pairing.open(Duration::from_secs(60));
+        let client = Identity::generate().unwrap();
+        let (near, far) = tokio::io::duplex(64 * 1024);
+        let _first_served = serving(&server, far);
+        let first = {
+            let client = client.clone();
+            tokio::spawn(async move {
+                pair(&client, near, "laptop", &PairingCode::generate(), || {}).await
+            })
+        };
+        let replaced = waiting(&server.pairing).await;
+        let (near, far) = tokio::io::duplex(64 * 1024);
+        let _second_served = serving(&server, far);
+        let code = PairingCode::generate();
+        let second = {
+            let (client, code) = (client.clone(), code.clone());
+            tokio::spawn(async move { pair(&client, near, "laptop", &code, || {}).await })
+        };
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_secs(5), first)
+                .await
+                .unwrap()
+                .unwrap(),
+            Err(PairError::Refused)
+        ));
+        let request = waiting(&server.pairing).await;
+        assert_ne!(request.id, replaced.id);
+        assert_eq!(server.pairing.requests(), vec![request.clone()]);
+        server.pairing.approve(request.id, code).await.unwrap();
+        assert!(second.await.unwrap().is_ok());
     }
 
     #[tokio::test]
@@ -740,7 +850,7 @@ mod tests {
             waiting_clients.push(serving(&server, far));
             let client = Identity::generate().unwrap();
             waiting_clients.push(tokio::spawn(async move {
-                pair(&client, near, "laptop", &PairingCode::generate()).await
+                pair(&client, near, "laptop", &PairingCode::generate(), || {}).await
             }));
         }
         for _ in 0..500 {
@@ -753,7 +863,7 @@ mod tests {
         let (near, far) = tokio::io::duplex(64 * 1024);
         let served = serving(&server, far);
         let client = Identity::generate().unwrap();
-        let asked = pair(&client, near, "one more", &PairingCode::generate()).await;
+        let asked = pair(&client, near, "one more", &PairingCode::generate(), || {}).await;
         assert!(matches!(asked, Err(PairError::Busy)));
         assert!(matches!(served.await.unwrap(), Err(PairError::Busy)));
         waiting_clients.iter().for_each(|task| task.abort());
@@ -799,7 +909,7 @@ mod tests {
         };
         let asking = {
             let (client, code) = (client.clone(), code.clone());
-            tokio::spawn(async move { pair(&client, client_near, "laptop", &code).await })
+            tokio::spawn(async move { pair(&client, client_near, "laptop", &code, || {}).await })
         };
         let request = waiting(&server.pairing).await;
         assert_eq!(
@@ -831,7 +941,7 @@ mod tests {
         let (near, far) = tokio::io::duplex(64 * 1024);
         let work = crate::server_config(&server, Arc::new(Nobody)).unwrap();
         let accepting = tokio::spawn(async move { crate::accept(work, far).await });
-        let asked = pair(&client, near, "laptop", &PairingCode::generate()).await;
+        let asked = pair(&client, near, "laptop", &PairingCode::generate(), || {}).await;
         assert!(asked.is_err());
         assert!(accepting.await.unwrap().is_err());
     }

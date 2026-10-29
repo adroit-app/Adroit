@@ -592,7 +592,7 @@ mod tests {
             let (client, code, address) = (client.clone(), code.clone(), setup.address.clone());
             tokio::spawn(async move {
                 let stream = TcpStream::connect(address).await.unwrap();
-                pair(&client, stream, "laptop", &code).await
+                pair(&client, stream, "laptop", &code, || {}).await
             })
         };
         let request = loop {

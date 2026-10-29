@@ -82,6 +82,12 @@ pub fn instance_state() -> PathBuf {
     instance_dir(&state_dir(), &instance())
 }
 
+/// The folder of an instance's `state` that keeps what serving it to other
+/// machines needs: the gateway's key, its paired clients, the services' logs.
+pub fn remote_dir(state: &std::path::Path) -> PathBuf {
+    state.join("remote")
+}
+
 /// `$ADROIT_DAEMON`, or `felis/daemon.sock` in the instance's folder: where
 /// the terminal host listens.
 pub fn terminal_host_socket() -> PathBuf {
