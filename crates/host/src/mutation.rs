@@ -9,6 +9,9 @@ use std::time::Duration;
 struct Entry {
     canonical: Vec<u8>,
     state: MutationState,
+    /// Whether its change can still take effect, which an unknown state
+    /// alone does not tell once its caller stopped waiting.
+    running: bool,
 }
 
 struct Ledger {
@@ -53,6 +56,7 @@ impl Ledger {
             Entry {
                 canonical: canonical.into(),
                 state: MutationState::Accepted,
+                running: true,
             },
         );
         Admission::New
@@ -65,46 +69,45 @@ impl Ledger {
             .get(id)
             .map_or(MutationState::Unknown, |entry| entry.state.clone())
     }
-    fn unknown(&mut self, epoch: u64, id: &str) {
+    /// Its caller stopped waiting while the change may still take effect.
+    fn waited(&mut self, epoch: u64, id: &str) {
         if epoch == self.epoch
             && let Some(entry) = self.entries.get_mut(id)
         {
             entry.state = MutationState::Unknown;
         }
-        self.retire_completed();
+    }
+    fn unknown(&mut self, epoch: u64, id: &str) {
+        self.settle(epoch, id, MutationState::Unknown);
     }
     fn refuse(&mut self, epoch: u64, id: &str, text: &str) -> MutationState {
         let state = MutationState::Rejected { text: text.into() };
-        if epoch == self.epoch
-            && let Some(entry) = self.entries.get_mut(id)
-        {
-            entry.state = state.clone();
-        }
-        self.retire_completed();
+        self.settle(epoch, id, state.clone());
         state
     }
     fn finish(&mut self, epoch: u64, id: &str, answer: Answer) {
+        let state = if serde_json::to_vec(&answer).is_ok_and(|bytes| bytes.len() <= 65536) {
+            MutationState::Result {
+                answer: Box::new(answer),
+            }
+        } else {
+            MutationState::Unknown
+        };
+        self.settle(epoch, id, state);
+    }
+    fn settle(&mut self, epoch: u64, id: &str, state: MutationState) {
         if epoch != self.epoch {
             return;
         }
         if let Some(entry) = self.entries.get_mut(id) {
-            entry.state = if serde_json::to_vec(&answer).is_ok_and(|bytes| bytes.len() <= 65536) {
-                MutationState::Result {
-                    answer: Box::new(answer),
-                }
-            } else {
-                MutationState::Unknown
-            };
+            entry.state = state;
+            entry.running = false;
         }
         self.retire_completed();
     }
 
     fn retire_completed(&mut self) {
-        if self.entries.len() >= self.capacity
-            && self
-                .entries
-                .values()
-                .all(|entry| !matches!(entry.state, MutationState::Accepted))
+        if self.entries.len() >= self.capacity && self.entries.values().all(|entry| !entry.running)
         {
             self.entries.clear();
             self.epoch += 1;
@@ -247,8 +250,20 @@ impl Service {
             Ok(Ok(Some(answer))) => MutationState::Result {
                 answer: Box::new(answer),
             },
-            _ => {
+            Ok(Ok(None)) => MutationState::Unknown,
+            Ok(Err(_)) => {
                 self.ledger.lock().unwrap().unknown(epoch, &id);
+                MutationState::Unknown
+            }
+            Err(_) => {
+                self.ledger.lock().unwrap().waited(epoch, &id);
+                let service = self.clone();
+                crate::environment::spawn(async move {
+                    // A task that ended without settling its entry panicked.
+                    if task.await.is_err() {
+                        service.ledger.lock().unwrap().unknown(epoch, &id);
+                    }
+                });
                 MutationState::Unknown
             }
         }
@@ -335,6 +350,19 @@ mod tests {
             Admission::Known(MutationState::Retired)
         );
         assert_eq!(ledger.admit(2, "three", b"effect"), Admission::New);
+    }
+
+    #[test]
+    fn a_full_ledger_is_not_retired_under_a_change_still_running() {
+        let mut ledger = Ledger::new(2);
+        assert_eq!(ledger.admit(1, "one", b"effect"), Admission::New);
+        assert_eq!(ledger.admit(1, "two", b"effect"), Admission::New);
+        ledger.waited(1, "two");
+        assert_eq!(ledger.query(1, "two"), MutationState::Unknown);
+        ledger.finish(1, "one", Answer::Done);
+        assert_eq!(ledger.epoch(), 1);
+        ledger.finish(1, "two", Answer::Done);
+        assert_eq!(ledger.epoch(), 2);
     }
 
     #[tokio::test]
