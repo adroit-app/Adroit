@@ -2,7 +2,7 @@
 
 use crate::{Error, Result, Spawn};
 use std::io::{Read, Write};
-use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::os::unix::net::UnixListener;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -54,6 +54,11 @@ pub(crate) fn leased(spawn: Spawn, program: &Path, timeout: Duration) -> Result<
     let id: String = random.iter().map(|b| format!("{b:02x}")).collect();
     let socket = root().join(format!("{id}.sock"));
     address(&socket)?;
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(pending(&socket))?;
     let socket = socket.to_string_lossy().into_owned();
     let mut tags = spawn.tags.clone();
     let previous = crate::tags::holding(&tags, TAG.trim_end_matches('='));
@@ -98,11 +103,25 @@ fn run_inner(args: &[String]) -> std::io::Result<std::convert::Infallible> {
         .ok()
         .filter(|t| (1..=10000).contains(t))
         .ok_or_else(|| std::io::Error::other("invalid startup lease deadline"))?;
-    let listener = UnixListener::bind(socket)?;
+    let listener = listening(socket)?;
     hold(&listener, Instant::now() + Duration::from_millis(timeout))?;
     drop(listener);
     std::fs::remove_file(socket)?;
     Err(std::process::Command::new(program).args(rest).exec())
+}
+
+/// Marks a lease made but not yet listening, so a release can tell it from
+/// one that listened and expired.
+fn pending(socket: &Path) -> PathBuf {
+    socket.with_extension("pending")
+}
+
+fn listening(socket: &Path) -> std::io::Result<UnixListener> {
+    let listener = UnixListener::bind(socket)?;
+    match std::fs::remove_file(pending(socket)) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+        _ => Ok(listener),
+    }
 }
 
 /// Waits on `listener` until a release comes in, returning true, or until
@@ -133,9 +152,16 @@ fn hold(listener: &UnixListener, deadline: Instant) -> std::io::Result<bool> {
 }
 
 pub(crate) async fn release(socket: &Path) -> Result<()> {
+    // Past the longest lease deadline, so a lease that listens late is still
+    // released before it would let the program go by itself.
+    release_within(socket, Duration::from_secs(12)).await
+}
+
+async fn release_within(socket: &Path, wait: Duration) -> Result<()> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     address(socket)?;
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    let deadline = tokio::time::Instant::now() + wait;
+    let mut gone = false;
     loop {
         match tokio::net::UnixStream::connect(socket).await {
             Ok(mut stream) => {
@@ -158,9 +184,19 @@ pub(crate) async fn release(socket: &Path) -> Result<()> {
                     std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
                 ) =>
             {
-                // An expired lease has already started the program; never type into it.
-                if tokio::time::Instant::now() >= deadline {
+                // A lease that listened and went away has already started the
+                // program; never type into it. Its marker is seen gone twice,
+                // since a lease removes it only after it listens.
+                let listened = !pending(socket).exists();
+                if listened && gone {
                     return Ok(());
+                }
+                gone = listened;
+                if tokio::time::Instant::now() >= deadline {
+                    let _ = std::fs::remove_file(pending(socket));
+                    return Err(Error::Io(std::io::Error::other(
+                        "startup lease never started listening",
+                    )));
                 }
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
@@ -198,6 +234,9 @@ mod tests {
             Some(first.args[1].clone())
         );
         assert!(address(Path::new("/tmp/arbitrary.sock")).is_err());
+        for lease in [&first, &second] {
+            std::fs::remove_file(pending(Path::new(&lease.args[1]))).unwrap();
+        }
     }
 
     #[test]
@@ -215,6 +254,56 @@ mod tests {
         });
         assert!(hold(&listener, Instant::now() + Duration::from_secs(5)).unwrap());
         assert_eq!(&client.join().unwrap(), b"released\n");
+    }
+
+    fn lease() -> PathBuf {
+        let spawn = leased(
+            crate::Spawn {
+                program: "/bin/sh".into(),
+                ..Default::default()
+            },
+            Path::new("/opt/adroit"),
+            Duration::from_secs(10),
+        )
+        .unwrap();
+        PathBuf::from(&spawn.args[1])
+    }
+
+    #[tokio::test]
+    async fn a_release_waits_for_a_lease_slower_to_listen_than_two_seconds() {
+        let socket = lease();
+        let listening = {
+            let socket = socket.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(2500));
+                let listener = listening(&socket).unwrap();
+                hold(&listener, Instant::now() + Duration::from_secs(5)).unwrap()
+            })
+        };
+        release(&socket).await.unwrap();
+        assert!(listening.join().unwrap());
+        std::fs::remove_file(&socket).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_release_of_an_expired_lease_returns_at_once() {
+        let socket = lease();
+        drop(listening(&socket).unwrap());
+        std::fs::remove_file(&socket).unwrap();
+        let started = std::time::Instant::now();
+        release(&socket).await.unwrap();
+        assert!(started.elapsed() < Duration::from_millis(500));
+    }
+
+    #[tokio::test]
+    async fn a_lease_that_never_listens_fails_its_release() {
+        let socket = lease();
+        assert!(
+            release_within(&socket, Duration::from_millis(300))
+                .await
+                .is_err()
+        );
+        assert!(!pending(&socket).exists());
     }
 
     #[test]
