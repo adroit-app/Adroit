@@ -73,9 +73,11 @@ newer drafts are preserved. A lost answer leaves the original draft available
 for inspection and recovery. Restarting the window queries the original
 operation rather than sending it again.
 
-Console input is unavailable in a remote window. Local file viewers,
-external editors, revealing remote paths in Finder, login terminals and
-attachments supplied as local file paths are also unavailable. Image data
+A remote window types into its consoles while it is connected. Keys typed
+before a connection is lost never reach a program after it reconnects.
+Local file viewers, external editors, revealing remote paths in Finder,
+login terminals and attachments supplied as local file paths are
+unavailable. Image data
 pasted into the prompt is stored on the work machine. Native session,
 terminal and MCP commands run on the work machine; the client machine
 refuses them when a work machine is selected.

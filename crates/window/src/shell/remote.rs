@@ -28,7 +28,7 @@ pub(super) fn RemoteConnection() -> Element {
         RemotePhase::Connected if !status.pending.is_empty() => {
             "Connected · outcome needs attention"
         }
-        RemotePhase::Connected if status.writable => "Connected · console input unavailable",
+        RemotePhase::Connected if status.writable => "Connected",
         RemotePhase::Connected => "Connected · read only",
         RemotePhase::Reconnecting => "Reconnecting",
         RemotePhase::Error => "Connection stopped",

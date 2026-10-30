@@ -56,7 +56,7 @@ not copy credentials, dedicated login directories or running work.
 Reopening an environment returns to its own sessions and settings. A replacement
 work host preserves the terminal host and its sessions. Uncertain sends remain
 bound to their original target and are queried there, never replayed in another
-profile. Remote console input and interactive login retain the limitations of
+profile. Remote console input and interactive login follow the rules of
 [remote hosts](remote-execution.md).
 
 ## Existing installations

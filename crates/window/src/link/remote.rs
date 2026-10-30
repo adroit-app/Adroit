@@ -38,6 +38,9 @@ pub(crate) struct Status {
 
 struct Shared {
     ready: AtomicBool,
+    /// Open only between a snapshot and the loss of its connection, so keys
+    /// typed before a disconnect are not delivered after a reconnect.
+    input: adroit_term::InputPermission,
     status: std::sync::Mutex<Status>,
     retry: Notify,
     told: mpsc::Sender<Event>,
@@ -51,6 +54,7 @@ impl Shared {
     fn new(host: String, told: mpsc::Sender<Event>, retryable: bool) -> Arc<Self> {
         Arc::new(Self {
             ready: AtomicBool::new(false),
+            input: adroit_term::InputPermission::closed(),
             status: std::sync::Mutex::new(Status {
                 host,
                 phase: Phase::Connecting,
@@ -184,13 +188,12 @@ pub(super) fn open(
         .as_ref()
         .map(|r| r.name())
         .unwrap_or_else(|_| "remote".into());
-    let input = adroit_term::InputPermission::closed();
+    let shared = Shared::new(host, told, remote.is_ok());
     let daemon = remote
         .as_ref()
         .map(|r| r.terminal())
         .unwrap_or_else(|_| adroit_term::Daemon::forwarded(std::path::PathBuf::new()))
-        .with_input(input);
-    let shared = Shared::new(host, told, remote.is_ok());
+        .with_input(shared.input.clone());
     let waiting = Waiting::default();
     let link = Link {
         requests: Sending::Remote(Sender {
@@ -423,6 +426,7 @@ impl Keep {
                             received = true;
                             greeting = None;
                             self.shared.ready.store(true, Ordering::Release);
+                            self.shared.input.set(true);
                             self.phase(Phase::Connected, None);
                             self.shared.refresh_changes();
                             self.shared.recover_pending();
@@ -465,6 +469,7 @@ impl Keep {
                 _ = self.shared.retry.notified() => break false,
             }
         };
+        self.shared.input.set(false);
         self.shared.ready.store(false, Ordering::Release);
         *lock(&self.shared.work) = None;
         self.shared.refresh_changes();
