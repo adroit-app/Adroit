@@ -73,6 +73,16 @@ impl Ledger {
         }
         self.retire_completed();
     }
+    fn refuse(&mut self, epoch: u64, id: &str, text: &str) -> MutationState {
+        let state = MutationState::Rejected { text: text.into() };
+        if epoch == self.epoch
+            && let Some(entry) = self.entries.get_mut(id)
+        {
+            entry.state = state.clone();
+        }
+        self.retire_completed();
+        state
+    }
     fn finish(&mut self, epoch: u64, id: &str, answer: Answer) {
         if epoch != self.epoch {
             return;
@@ -203,8 +213,11 @@ impl Service {
         {
             Ok(guard) => guard,
             Err(_) => {
-                self.ledger.lock().unwrap().unknown(epoch, &id);
-                return MutationState::Unknown;
+                return self.ledger.lock().unwrap().refuse(
+                    epoch,
+                    &id,
+                    "another remote change is still running; this one was not applied",
+                );
             }
         };
         let service = self.clone();
@@ -388,12 +401,20 @@ mod tests {
                 Duration::from_millis(20),
             )
             .await;
-        assert_eq!(result, MutationState::Unknown);
+        assert!(matches!(result, MutationState::Rejected { .. }));
         drop(guard);
-        assert_eq!(
-            service.ledger.lock().unwrap().query(1, "one"),
-            MutationState::Unknown
-        );
+        assert_eq!(service.ledger.lock().unwrap().query(1, "one"), result);
+        let again = service
+            .execute(
+                1,
+                "one".into(),
+                b"effect".to_vec(),
+                Request::Release { id: 1 },
+                |_| async { panic!("rejected effect started") },
+                Duration::from_millis(20),
+            )
+            .await;
+        assert_eq!(again, result);
     }
 
     #[tokio::test]
