@@ -99,20 +99,28 @@ fn run_inner(args: &[String]) -> std::io::Result<std::convert::Infallible> {
         .filter(|t| (1..=10000).contains(t))
         .ok_or_else(|| std::io::Error::other("invalid startup lease deadline"))?;
     let listener = UnixListener::bind(socket)?;
+    hold(&listener, Instant::now() + Duration::from_millis(timeout))?;
+    drop(listener);
+    std::fs::remove_file(socket)?;
+    Err(std::process::Command::new(program).args(rest).exec())
+}
+
+/// Waits on `listener` until a release comes in, returning true, or until
+/// `deadline`, returning false.
+fn hold(listener: &UnixListener, deadline: Instant) -> std::io::Result<bool> {
     listener.set_nonblocking(true)?;
-    let deadline = Instant::now() + Duration::from_millis(timeout);
-    loop {
-        if Instant::now() >= deadline {
-            break;
-        }
+    while Instant::now() < deadline {
         match listener.accept() {
             Ok((mut stream, _)) => {
-                stream.set_read_timeout(Some(Duration::from_millis(100)))?;
-                stream.set_write_timeout(Some(Duration::from_millis(100)))?;
+                // BSD hands out accepted sockets with the listener's
+                // O_NONBLOCK, under which the timeouts below never apply.
+                stream.set_nonblocking(false)?;
+                stream.set_read_timeout(Some(Duration::from_secs(1)))?;
+                stream.set_write_timeout(Some(Duration::from_secs(1)))?;
                 let mut message = [0; 8];
                 if stream.read_exact(&mut message).is_ok() && message == *b"release\n" {
                     let _ = stream.write_all(b"released\n");
-                    break;
+                    return Ok(true);
                 }
             }
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -121,9 +129,7 @@ fn run_inner(args: &[String]) -> std::io::Result<std::convert::Infallible> {
             Err(e) => return Err(e),
         }
     }
-    drop(listener);
-    std::fs::remove_file(socket)?;
-    Err(std::process::Command::new(program).args(rest).exec())
+    Ok(false)
 }
 
 pub(crate) async fn release(socket: &Path) -> Result<()> {
@@ -192,5 +198,31 @@ mod tests {
             Some(first.args[1].clone())
         );
         assert!(address(Path::new("/tmp/arbitrary.sock")).is_err());
+    }
+
+    #[test]
+    fn a_release_written_after_its_connection_still_lets_the_program_go() {
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("lease.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let client = std::thread::spawn(move || {
+            let mut stream = std::os::unix::net::UnixStream::connect(&socket).unwrap();
+            std::thread::sleep(Duration::from_millis(20));
+            stream.write_all(b"release\n").unwrap();
+            let mut answer = [0; 9];
+            stream.read_exact(&mut answer).unwrap();
+            answer
+        });
+        assert!(hold(&listener, Instant::now() + Duration::from_secs(5)).unwrap());
+        assert_eq!(&client.join().unwrap(), b"released\n");
+    }
+
+    #[test]
+    fn a_lease_nobody_releases_lets_the_program_go_at_its_deadline() {
+        let dir = tempfile::tempdir().unwrap();
+        let listener = UnixListener::bind(dir.path().join("lease.sock")).unwrap();
+        let started = Instant::now();
+        assert!(!hold(&listener, started + Duration::from_millis(50)).unwrap());
+        assert!(started.elapsed() < Duration::from_secs(1));
     }
 }
