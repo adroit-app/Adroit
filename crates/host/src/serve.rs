@@ -15,7 +15,7 @@ use adroit_protocol::{Answer, Ask, Event, Hello, Request, decode, encode};
 use serde::Deserialize;
 use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, watch};
 
 use crate::watch::Watched;
 use crate::work::{Host, WindowId};
@@ -26,15 +26,44 @@ pub type Asks = Arc<dyn Fn(Ask) -> Pin<Box<dyn Future<Output = Answer> + Send>> 
 /// Where each window that said hello is sent its events, by its number.
 type Windows = Arc<Mutex<HashMap<WindowId, Out>>>;
 
+/// A line to write, holding its room in a bounded queue until written.
+type Queued = (String, Option<OwnedSemaphorePermit>);
+
 #[derive(Clone)]
 struct Out {
-    queue: mpsc::Sender<String>,
+    queue: mpsc::UnboundedSender<Queued>,
+    room: Option<Arc<Semaphore>>,
     failed: watch::Sender<bool>,
 }
 
 impl Out {
+    /// A remote connection's queue is `bounded`, so a reader that stops
+    /// reading cannot make the host keep its events without end.
+    fn new(bounded: bool) -> (Self, mpsc::UnboundedReceiver<Queued>, watch::Receiver<bool>) {
+        let (queue, outgoing) = mpsc::unbounded_channel();
+        let (failed, failure) = watch::channel(false);
+        let room = bounded.then(|| Arc::new(Semaphore::new(64)));
+        (
+            Self {
+                queue,
+                room,
+                failed,
+            },
+            outgoing,
+            failure,
+        )
+    }
+
     fn send(&self, line: String) -> Result<(), ()> {
-        if line.len() > adroit_protocol::client::MAX_FRAME || self.queue.try_send(line).is_err() {
+        let room = match &self.room {
+            Some(room) => room.clone().try_acquire_owned().map(Some).map_err(|_| ()),
+            None => Ok(None),
+        };
+        if line.len() > adroit_protocol::client::MAX_FRAME
+            || room
+                .and_then(|room| self.queue.send((line, room)).map_err(|_| ()))
+                .is_err()
+        {
             let _ = self.failed.send(true);
             return Err(());
         }
@@ -126,28 +155,27 @@ impl Served {
         let mut active = self.clone();
         let window = WindowId(self.next.fetch_add(1, Ordering::Relaxed));
         let (read, mut write) = stream.into_split();
-        let (queue, mut outgoing) = mpsc::channel::<String>(64);
-        let (failed, mut failure) = watch::channel(false);
-        let out = Out { queue, failed };
+        let remote = hello.endpoint.is_some();
+        let (out, mut outgoing, mut failure) = Out::new(remote);
         // One who asks without waiting for hello may have hung up already;
         // what it asked is read all the same.
         let mut hello = hello.clone();
-        if hello.endpoint.is_some() {
+        if remote {
             hello.mutation_epoch = Some(self.mutations.epoch());
         }
-        let remote = hello.endpoint.is_some();
         let mut greeted = false;
         let _ = out.send(encode(&hello));
         let mut writer = crate::environment::spawn(async move {
-            while let Some(line) = outgoing.recv().await {
-                if !matches!(
-                    tokio::time::timeout(
-                        std::time::Duration::from_secs(5),
-                        write.write_all(line.as_bytes())
-                    )
-                    .await,
-                    Ok(Ok(()))
-                ) {
+            while let Some((line, _room)) = outgoing.recv().await {
+                let written = write.write_all(line.as_bytes());
+                let written = if remote {
+                    tokio::time::timeout(std::time::Duration::from_secs(5), written)
+                        .await
+                        .unwrap_or_else(|_| Err(std::io::ErrorKind::TimedOut.into()))
+                } else {
+                    written.await
+                };
+                if written.is_err() {
                     break;
                 }
             }
@@ -155,7 +183,7 @@ impl Served {
         // Dropped once the connection hangs up, which ends what waits.
         let (hung_up, _) = watch::channel(());
         let mut lines = BufReader::new(read);
-        let pending = Arc::new(tokio::sync::Semaphore::new(32));
+        let pending = remote.then(|| Arc::new(Semaphore::new(32)));
         loop {
             let line = tokio::select! {
                 line = adroit_protocol::client::read_line(&mut lines) => match line {
@@ -207,8 +235,12 @@ impl Served {
             };
             match request {
                 Request::Ask { asked, ask } => {
-                    let Ok(permit) = pending.clone().try_acquire_owned() else {
-                        break;
+                    let permit = match &pending {
+                        Some(pending) => match pending.clone().try_acquire_owned() {
+                            Ok(permit) => Some(permit),
+                            Err(_) => break,
+                        },
+                        None => None,
                     };
                     if remote && !greeted {
                         let _ = out.send(encode(&Event::Answer {
@@ -356,4 +388,24 @@ fn outbox(windows: &Windows) -> crate::watch::Outbox {
             let _ = out.send(encode(&event));
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_local_window_is_queued_whatever_its_reader_lags_and_a_remote_one_is_bounded() {
+        let (local, _outgoing, failure) = Out::new(false);
+        for _ in 0..1000 {
+            assert!(local.send("event\n".into()).is_ok());
+        }
+        assert!(!*failure.borrow());
+        let (remote, _outgoing, failure) = Out::new(true);
+        for _ in 0..64 {
+            assert!(remote.send("event\n".into()).is_ok());
+        }
+        assert!(remote.send("event\n".into()).is_err());
+        assert!(*failure.borrow());
+    }
 }
