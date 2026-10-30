@@ -147,7 +147,7 @@ impl ThisComputer {
     async fn answering(&self, since: u64, within: Duration) -> Result<Serving, String> {
         let deadline = tokio::time::Instant::now() + within;
         loop {
-            if let Some(serving) = self.serving().await {
+            if let Ok(Some(serving)) = tokio::time::timeout_at(deadline, self.serving()).await {
                 return Ok(serving);
             }
             if tokio::time::Instant::now() >= deadline {
@@ -419,6 +419,27 @@ mod tests {
             .answering(here.said(), Duration::from_millis(50))
             .await
             .unwrap_err();
+        assert!(why.contains("did not start"), "{why}");
+    }
+
+    #[tokio::test]
+    async fn a_gateway_that_takes_the_question_but_never_answers_is_still_told() {
+        let dir = tempfile::tempdir().unwrap();
+        let here = ThisComputer::in_dir(dir.path());
+        let listener = tokio::net::UnixListener::bind(&here.files.admin).unwrap();
+        let _held = tokio::spawn(async move {
+            let mut taken = Vec::new();
+            while let Ok((stream, _)) = listener.accept().await {
+                taken.push(stream);
+            }
+        });
+        let why = tokio::time::timeout(
+            Duration::from_secs(2),
+            here.answering(here.said(), Duration::from_millis(50)),
+        )
+        .await
+        .expect("the wait ends at its deadline")
+        .unwrap_err();
         assert!(why.contains("did not start"), "{why}");
     }
 
