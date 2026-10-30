@@ -161,7 +161,12 @@ impl Ui {
         let (app, prompts) = (self.app, &self.consoles.prompts);
         let (give, given) = oneshot::channel();
         prompts.send(Op::Take(give)).map_err(drop)?;
-        let (_, text, images) = given.await.map_err(drop)?;
+        let (shown, text, images) = given.await.map_err(drop)?;
+        // A tab opened since the send began holds its own draft, not the
+        // prompt written with nothing open.
+        if shown.is_some() {
+            return Err(());
+        }
         if text.trim().is_empty() && images.is_empty() {
             return Ok(());
         }
