@@ -4,6 +4,7 @@
 
 use std::time::Duration;
 
+use adroit_connect::journal::{PromptContext, PromptTarget};
 use adroit_core::console::reader;
 use adroit_core::console::route::passes_enter;
 use adroit_core::content::Tab;
@@ -48,6 +49,25 @@ async fn type_into(pane: &Pane, typing: &[Typing]) {
     }
 }
 
+/// Where a prompt sent through a remote connection goes.
+#[derive(Debug, PartialEq, Eq)]
+enum RemoteSend {
+    /// To the session or draft shown.
+    Here,
+    /// Nothing is open: to a scratch draft made for it.
+    Scratch,
+    /// Nowhere; it stays in the prompt.
+    Kept,
+}
+
+fn remote_send(shown: Option<&Tab>) -> RemoteSend {
+    match shown {
+        Some(Tab::Session(_) | Tab::Draft { .. }) => RemoteSend::Here,
+        None => RemoteSend::Scratch,
+        Some(_) => RemoteSend::Kept,
+    }
+}
+
 impl Ui {
     /// Take what is written from the prompt to send. Taken now, so what is
     /// typed while it is sent stays for the next prompt; it goes to the tab
@@ -56,13 +76,23 @@ impl Ui {
         let (app, ui) = (self.app, self.clone());
         spawn(async move {
             if let Some(status) = app.remote_status() {
-                if !status.writable
-                    || !*app.drafts_ready.peek()
-                    || !matches!(app.active(), Some(Tab::Session(_) | Tab::Draft { .. }))
-                {
-                    app.status(Some(
-                        "Connect and open a session or draft before sending a remote prompt".into(),
-                    ));
+                let refused = if !status.writable || !*app.drafts_ready.peek() {
+                    Some("Wait until the work machine is connected to send the prompt")
+                } else {
+                    match remote_send(app.active().as_ref()) {
+                        RemoteSend::Here => None,
+                        RemoteSend::Scratch => ui
+                            .move_to_scratch()
+                            .await
+                            .err()
+                            .map(|_| "The prompt could not be moved into a scratch session; it stays here"),
+                        RemoteSend::Kept => {
+                            Some("Open a session or draft before sending a remote prompt")
+                        }
+                    }
+                };
+                if let Some(why) = refused {
+                    app.status(Some(why.into()));
                     app.dispatch(Msg::PromptRetained);
                     return;
                 }
@@ -122,6 +152,51 @@ impl Ui {
             };
             app.dispatch(Msg::PromptTaken(Box::new(taken)));
         });
+    }
+
+    /// Move what is written with nothing open into a scratch draft opened
+    /// for it, so a remote prompt is journalled against the draft its
+    /// session starts from, as one written in a draft is.
+    async fn move_to_scratch(&self) -> Result<(), ()> {
+        let (app, prompts) = (self.app, &self.consoles.prompts);
+        let (give, given) = oneshot::channel();
+        prompts.send(Op::Take(give)).map_err(drop)?;
+        let (_, text, images) = given.await.map_err(drop)?;
+        if text.trim().is_empty() && images.is_empty() {
+            return Ok(());
+        }
+        let scratch = app.config.peek().scratch.clone();
+        app.dispatch(Msg::Draft {
+            worktree: scratch.clone(),
+            write: false,
+        });
+        let draft = app.active().unwrap_or_else(|| Tab::draft(scratch));
+        let written = |target| PromptContext {
+            target,
+            text: text.clone(),
+            images: images.clone(),
+        };
+        let draft_target = match &draft {
+            Tab::Draft { worktree, id } => PromptTarget::Draft {
+                worktree: worktree.clone(),
+                id: *id,
+            },
+            _ => return Err(()),
+        };
+        prompts.send(Op::Show(Some(draft))).map_err(drop)?;
+        let (give, given) = oneshot::channel();
+        prompts
+            .send(Op::Recover(written(draft_target), give))
+            .map_err(drop)?;
+        if !given.await.unwrap_or(false) {
+            return Err(());
+        }
+        let (give, given) = oneshot::channel();
+        prompts
+            .send(Op::Consume(written(PromptTarget::Nothing), give))
+            .map_err(drop)?;
+        let _ = given.await;
+        Ok(())
     }
 
     /// Send a prompt to the session it was written for, as the host composed
@@ -274,5 +349,32 @@ impl Ui {
         if let Some(p) = self.active_pane().filter(|p| p.takes_mouse()) {
             p.key(&reader::newest());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_remote_prompt_goes_to_the_session_or_draft_it_was_written_for() {
+        assert_eq!(
+            remote_send(Some(&Tab::Session("s".into()))),
+            RemoteSend::Here
+        );
+        assert_eq!(
+            remote_send(Some(&Tab::draft(std::path::PathBuf::from("/w")))),
+            RemoteSend::Here
+        );
+    }
+
+    #[test]
+    fn a_remote_prompt_sent_with_nothing_open_starts_a_scratch_session() {
+        assert_eq!(remote_send(None), RemoteSend::Scratch);
+    }
+
+    #[test]
+    fn a_remote_prompt_is_kept_while_neither_a_session_nor_a_draft_is_shown() {
+        assert_eq!(remote_send(Some(&Tab::Terminal(1))), RemoteSend::Kept);
     }
 }

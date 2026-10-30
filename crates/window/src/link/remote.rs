@@ -486,8 +486,7 @@ mod tests {
     use std::path::Path;
 
     #[tokio::test]
-    async fn a_remote_snapshot_enables_reads_and_a_disconnect_closes_them_without_enabling_changes()
-    {
+    async fn a_remote_snapshot_enables_reads_and_console_input_and_a_disconnect_closes_them() {
         use adroit_protocol::{Hello, decode, encode};
         use tokio::io::{AsyncWriteExt, BufReader};
         let key = tempfile::tempdir().unwrap();
@@ -503,6 +502,7 @@ mod tests {
         let (queue, requests) = mpsc::channel(8);
         let (told, _events) = mpsc::channel(8);
         let shared = Shared::new("work".into(), told, true);
+        assert_eq!(shared.input.ticket(), None, "closed before connecting");
         let sender = Sender {
             queue,
             shared: shared.clone(),
@@ -579,6 +579,8 @@ mod tests {
         })
         .await
         .unwrap();
+        let typed = shared.input.ticket();
+        assert!(typed.is_some(), "console input opens with the snapshot");
         let (reply, answered) = tokio::sync::oneshot::channel();
         lock(&waiting).insert(1, reply);
         sender.send(
@@ -614,6 +616,11 @@ mod tests {
             (false, true)
         );
         assert!(!shared.ready.load(Ordering::Acquire));
+        assert_eq!(shared.input.ticket(), None, "closed by the disconnect");
+        assert!(
+            !shared.input.allows(typed.unwrap()),
+            "keys queued before the disconnect never reach the program"
+        );
         let (reply, answered) = tokio::sync::oneshot::channel();
         lock(&waiting).insert(3, reply);
         sender.send(
