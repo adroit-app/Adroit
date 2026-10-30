@@ -565,12 +565,15 @@ impl Pane {
         let slot = match &self.slots {
             Some(slots) => match slots.clone().try_acquire_owned() {
                 Ok(slot) => Some(slot),
-                Err(_) => {
+                // Input left out is reported to whoever typed it, but a
+                // left-out size or colour would leave the screen wrong.
+                Err(_) if matches!(request, WriteRequest::Frames { input: None, .. }) => {
                     self.reader.abort();
                     self.state.lock().unwrap().closed = true;
                     (self.waker)();
                     return false;
                 }
+                Err(_) => return false,
             },
             None => None,
         };
@@ -1150,6 +1153,44 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
         panic!("never drawn at the top: {:?}", pane.screen().text());
+    }
+
+    #[tokio::test]
+    async fn a_forwarded_pane_refuses_input_beyond_its_queue_and_stays_attached() {
+        let dir = tempfile::Builder::new()
+            .prefix("adroit-")
+            .tempdir_in("/tmp")
+            .unwrap();
+        let d = daemon(dir.path()).await;
+        let id = d
+            .spawn(Spawn {
+                program: "/bin/cat".into(),
+                cwd: "/tmp".into(),
+                cols: 40,
+                rows: 6,
+                ..Spawn::default()
+            })
+            .await
+            .unwrap();
+        let forwarded = Daemon::forwarded(dir.path().join("d.sock"));
+        let pane = Pane::attach(&forwarded, id, Size::new(40, 6), &Palette::default(), || {})
+            .await
+            .unwrap();
+        // Nothing yields between these, so the writer cannot drain the queue.
+        let sent: Vec<bool> = (0..100)
+            .map(|_| pane.send(InputMsg::KeyBytes(b"x".to_vec())))
+            .collect();
+        assert!(sent.contains(&false), "the queue was never full");
+        assert!(!pane.exited());
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        assert!(pane.send(InputMsg::KeyBytes(b"after".to_vec())));
+        for _ in 0..200 {
+            if pane.screen().text()[0].contains("after") {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        panic!("input never arrived: {:?}", pane.screen().text());
     }
 
     #[test]
