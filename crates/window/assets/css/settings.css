@@ -24,7 +24,18 @@ button:focus-visible { outline: 2px solid var(--run); outline-offset: 2px; }
 .settings-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
 .connection-help { padding: 2px 14px; font-size: 13px; line-height: 1.6; }
 .connection-help pre { overflow-x: auto; padding: 10px; border-radius: 6px; background: var(--ground); user-select: text; }
-.paired-machines { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+button.icon-button { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; }
+button.icon-button.looking .icon svg { animation: spin 1.2s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.found-machines { display: flex; flex-direction: column; gap: 6px; padding: 0 14px 12px; }
+button.found-machine { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; text-align: left;
+  padding: 9px 12px; background: var(--ground); border: 1px solid var(--line); border-radius: 8px; }
+button.found-machine:hover { background: var(--raised); }
+button.found-machine.on { border-color: var(--wait); background: var(--wait-tint); }
+.found-machine-name { font-weight: 500; }
+/* The address and key are compared with what the work machine shows, so they can be selected. */
+.found-machine-detail { color: var(--text-3); font: 11px var(--mono); overflow-wrap: anywhere; user-select: text; }
+.found-machines-empty { margin: 0; color: var(--text-3); font-size: 12px; }
 /* The code is read aloud or copied by eye to another machine, so it stands out. */
 .pairing-code { padding: 10px 14px; font-size: 13px; line-height: 1.6; }
 .pairing-code strong { font: 600 22px/1.4 var(--mono); letter-spacing: 0.08em; user-select: text; }

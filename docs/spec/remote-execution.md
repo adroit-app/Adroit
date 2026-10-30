@@ -90,12 +90,14 @@ replaced work host.
 To pair, run `adroit connect pair <address>` on the client. On the work
 machine, run `adroit remote pair` and type the code the client shows once its
 request appears. The client then has a profile for the work machine. The
-Profiles window does both sides: on the client, pairing a work machine shows
-the code; on the work machine, Accept connections turns the services on and
-off, chooses whether the gateway announces itself, allows pairing, takes the
-code for each request, and lists and revokes the paired clients. Turning it
-off stops what paired clients started there and leaves the machine's own work
-running. Every window manages the same services, those of the default
+Profiles window does both sides: on the client, pairing a work machine lists
+the work machines announced on the local network and shows the code; on the
+work machine, Accept connections turns the services on and off, chooses
+whether the gateway announces itself, allows pairing, takes the code for each
+request, and lists and revokes the paired clients. Turning it on is done once
+the gateway answers; when the gateway does not start, the window says what it
+reported. Turning it off stops what paired clients started there and leaves
+the machine's own work running. Every window manages the same services, those of the default
 instance, since a machine serves one gateway on its port. A machine can pair
 with its own gateway like with any other.
 

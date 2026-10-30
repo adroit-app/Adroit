@@ -1,6 +1,7 @@
 //! Profile creation and connection setup, apart from running work.
 
 use crate::components::{SettingGroup, SettingRow, SettingsError, TextField};
+use crate::icons::{Icon, IconView};
 use adroit_connect::{
     Target,
     profiles::{Catalog, Profile},
@@ -237,6 +238,26 @@ fn ProfileEditor() -> Element {
     let mut pairing = use_signal(|| None::<dioxus::core::Task>);
     let mut serving = use_signal(|| false);
     let mut looking = use_signal(|| false);
+    let mut look = move || {
+        if *looking.peek() {
+            return;
+        }
+        looking.set(true);
+        spawn(async move {
+            match adroit_connect::discover().await {
+                Ok(found) => heard.set(found),
+                Err(why) => error.set(Some(why)),
+            }
+            looking.set(false);
+        });
+    };
+    // A memo, so typing the address does not look again on every key.
+    let choosing_machine = use_memo(move || choice.read().kind == Kind::Pairing);
+    use_effect(move || {
+        if choosing_machine() {
+            look();
+        }
+    });
     let archived = catalog
         .read()
         .as_ref()
@@ -378,22 +399,28 @@ fn ProfileEditor() -> Element {
                                 }, "Pair" }
                             }
                         }
-                        SettingRow { label: "On this network", hint: "Work machines that announce themselves here.",
-                            div { class: "paired-machines",
-                                for found in heard.read().clone() {
-                                    button { r#type: "button", disabled: pairing.read().is_some(), title: "Key {found.key}", onclick: { let address = found.address.clone(); move |_| choice.write().pairing = address.clone() }, "{found.name} · {found.address}" }
+                        SettingRow { label: "On this network", hint: "Work machines that announce themselves here. Choose one to pair with it.",
+                            button { r#type: "button", class: if looking() { "icon-button looking" } else { "icon-button" }, title: "Look again", aria_label: "Look for work machines again",
+                                disabled: looking() || pairing.read().is_some(),
+                                onclick: move |_| look(),
+                                IconView { icon: Icon::Refresh, size: 14 }
+                            }
+                        }
+                        div { class: "found-machines", role: "list", aria_busy: looking(),
+                            for found in heard.read().clone() {
+                                button { key: "{found.key}", r#type: "button", role: "listitem",
+                                    class: if choice.read().pairing.trim() == found.address { "found-machine on" } else { "found-machine" },
+                                    aria_pressed: choice.read().pairing.trim() == found.address,
+                                    disabled: pairing.read().is_some(),
+                                    onclick: { let address = found.address.clone(); move |_| choice.write().pairing = address.clone() },
+                                    span { class: "found-machine-name", "{found.name}" }
+                                    small { class: "found-machine-detail", "{found.address} · Key {found.key}" }
                                 }
-                                button { r#type: "button", disabled: looking() || pairing.read().is_some(), onclick: move |_| {
-                                    looking.set(true); error.set(None);
-                                    spawn(async move {
-                                        match adroit_connect::discover().await {
-                                            Ok(found) if found.is_empty() => notice.set(Some("No work machine announced itself on this network. Enter its address instead.".into())),
-                                            Ok(found) => heard.set(found),
-                                            Err(why) => error.set(Some(why)),
-                                        }
-                                        looking.set(false);
-                                    });
-                                }, if looking() { "Looking…" } else { "Look for work machines" } }
+                            }
+                            if heard.read().is_empty() {
+                                p { class: "found-machines-empty",
+                                    if looking() { "Looking for work machines…" } else { "No work machine announced itself on this network. Enter its address above instead." }
+                                }
                             }
                         }
                         match pair_step.read().clone() {

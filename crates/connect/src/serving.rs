@@ -1,7 +1,8 @@
 //! This computer served as a work machine: its services, its gateway and the
 //! clients paired with it, as the operator at its desktop manages them.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use adroit_net::{Admin, AdminAnswer, Fingerprint, GatewayFiles, PAIRING_PERIOD, PeerFile};
 
@@ -45,10 +46,17 @@ pub struct Client {
     pub this_computer: bool,
 }
 
+/// How long a gateway just started has to answer before turning it on is
+/// told to have failed: launchd starts a service that exited again only
+/// after ten seconds.
+const STARTING: Duration = Duration::from_secs(12);
+
 /// The gateway of one instance on this computer, and the files it keeps.
 #[derive(Clone, Debug)]
 pub struct ThisComputer {
     files: GatewayFiles,
+    /// Where the gateway's service writes what it says on failing.
+    log: PathBuf,
     /// The key this computer pairs with as a client, when it has one.
     own: Option<String>,
 }
@@ -74,7 +82,8 @@ impl ThisComputer {
 
     pub fn in_dir(dir: impl AsRef<Path>) -> Self {
         Self {
-            files: GatewayFiles::in_dir(dir),
+            files: GatewayFiles::in_dir(&dir),
+            log: dir.as_ref().join("gateway.log"),
             own: None,
         }
     }
@@ -116,6 +125,49 @@ impl ThisComputer {
             }),
             _ => None,
         }
+    }
+
+    /// Registers and starts the services as [`enable`] does, and waits for
+    /// the gateway to answer: a service that started and exited at once
+    /// leaves nothing serving.
+    pub async fn serve(&self, advertise: bool) -> Result<Vec<String>, String> {
+        let since = self.said();
+        let notes = enable(advertise).await?;
+        self.answering(since, STARTING).await?;
+        Ok(notes)
+    }
+
+    /// How much the gateway's service has said so far.
+    fn said(&self) -> u64 {
+        std::fs::metadata(&self.log).map_or(0, |log| log.len())
+    }
+
+    /// The gateway once it answers within `within`; otherwise what its
+    /// service said after `since`, the last thing first.
+    async fn answering(&self, since: u64, within: Duration) -> Result<Serving, String> {
+        let deadline = tokio::time::Instant::now() + within;
+        loop {
+            if let Some(serving) = self.serving().await {
+                return Ok(serving);
+            }
+            if tokio::time::Instant::now() >= deadline {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        let said = std::fs::read(&self.log).unwrap_or_default();
+        let said = String::from_utf8_lossy(said.get(since as usize..).unwrap_or_default());
+        Err(match said.lines().rev().map(str::trim).find(|l| !l.is_empty()) {
+            Some(last) if last.contains("Address already in use") => format!(
+                "This computer did not start accepting connections: {}. Another program, or adroit serving this computer from another instance, holds the gateway's port.",
+                last.trim_start_matches("adroit: ")
+            ),
+            Some(last) => format!(
+                "This computer did not start accepting connections: {}",
+                last.trim_start_matches("adroit: ")
+            ),
+            None => "This computer did not start accepting connections, and its gateway did not say why".into(),
+        })
     }
 
     /// Lets clients ask to pair for a while.
@@ -337,6 +389,37 @@ mod tests {
         assert_eq!(here.serving().await, None);
         assert!(here.open_pairing().await.is_err());
         assert!(here.asking().await.is_err());
+    }
+
+    #[tokio::test]
+    async fn a_gateway_that_never_answers_is_told_by_what_it_said_since() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("gateway.log");
+        std::fs::write(&log, "adroit: an older failure\n").unwrap();
+        let here = ThisComputer::in_dir(dir.path());
+        let since = here.said();
+        std::fs::write(
+            &log,
+            "adroit: an older failure\nadroit: Address already in use (os error 48)\n",
+        )
+        .unwrap();
+        let why = here
+            .answering(since, Duration::from_millis(50))
+            .await
+            .unwrap_err();
+        assert!(why.contains("Address already in use"), "{why}");
+        assert!(!why.contains("older"), "{why}");
+    }
+
+    #[tokio::test]
+    async fn a_gateway_that_never_answers_nor_says_why_is_still_told() {
+        let dir = tempfile::tempdir().unwrap();
+        let here = ThisComputer::in_dir(dir.path());
+        let why = here
+            .answering(here.said(), Duration::from_millis(50))
+            .await
+            .unwrap_err();
+        assert!(why.contains("did not start"), "{why}");
     }
 
     #[tokio::test]

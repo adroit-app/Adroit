@@ -115,16 +115,20 @@ pub(crate) fn ServingPane() -> Element {
                 match &*serving.read() {
                     None => rsx! { span { class: "settings-hint", "Checking…" } },
                     Some(None) => rsx! {
-                        button { r#type: "button", class: "primary", disabled: busy(), onclick: move |_| {
-                            busy.set(true); error.set(None); notice.set(None);
-                            spawn(async move {
-                                match adroit_connect::serving::enable(advertise()).await {
-                                    Ok(notes) if notes.is_empty() => {}
-                                    Ok(notes) => notice.set(Some(notes.join(" "))),
-                                    Err(why) => error.set(Some(why)),
-                                }
-                                busy.set(false);
-                            });
+                        button { r#type: "button", class: "primary", disabled: busy(), onclick: {
+                            let here = here.clone();
+                            move |_| {
+                                busy.set(true); error.set(None); notice.set(None);
+                                let here = here.clone();
+                                spawn(async move {
+                                    match here.serve(advertise()).await {
+                                        Ok(notes) if notes.is_empty() => {}
+                                        Ok(notes) => notice.set(Some(notes.join(" "))),
+                                        Err(why) => error.set(Some(why)),
+                                    }
+                                    busy.set(false);
+                                });
+                            }
                         }, if busy() { "Starting…" } else { "Turn on" } }
                     },
                     Some(Some(_)) => rsx! {
@@ -141,14 +145,18 @@ pub(crate) fn ServingPane() -> Element {
             SettingRow { label: "Announce on this network", hint: "Computers on the same network find this one without typing its address. Off, they pair with its address alone.",
                 Toggle {
                     checked: match &*serving.read() { Some(Some(now)) => now.announcing, _ => advertise() },
-                    onchange: move |announce: bool| {
-                        advertise.set(announce);
-                        if !on { return; }
-                        busy.set(true); error.set(None); notice.set(None);
-                        spawn(async move {
-                            if let Err(why) = adroit_connect::serving::enable(announce).await { error.set(Some(why)); }
-                            busy.set(false);
-                        });
+                    onchange: {
+                        let here = here.clone();
+                        move |announce: bool| {
+                            advertise.set(announce);
+                            if !on { return; }
+                            busy.set(true); error.set(None); notice.set(None);
+                            let here = here.clone();
+                            spawn(async move {
+                                if let Err(why) = here.serve(announce).await { error.set(Some(why)); }
+                                busy.set(false);
+                            });
+                        }
                     },
                 }
             }
