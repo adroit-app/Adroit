@@ -157,7 +157,7 @@ impl Work {
                         tokio::time::sleep(Duration::from_millis(200)).await;
                         answer = Self::ask(&mut link, intent.query()).await?;
                     }
-                    Answer::Mutation { status } => return Ok(status),
+                    Answer::Mutation { status } => return Ok(settled(status)),
                     _ => return Err("remote work host supplied no mutation outcome".to_string()),
                 }
             }
@@ -220,6 +220,20 @@ impl Work {
             state,
             problem: None,
         })
+    }
+}
+
+/// An apply's answer as the journal keeps it: a host that refused to admit
+/// the change never ran it, which is as certain as a rejection.
+fn settled(state: MutationState) -> MutationState {
+    let why = match state {
+        MutationState::Full => "has too many changes in flight",
+        MutationState::Retired => "no longer accepts changes from this connection",
+        MutationState::Conflict => "holds another change under the same ID",
+        state => return state,
+    };
+    MutationState::Rejected {
+        text: format!("The remote work host {why}; the change was not applied"),
     }
 }
 
@@ -375,5 +389,92 @@ mod tests {
         assert!(client.journal.records().unwrap().is_empty());
         server.abort();
         let _ = server.await;
+    }
+
+    #[tokio::test]
+    async fn a_change_the_host_refused_to_admit_is_settled_as_rejected() {
+        for refused in [
+            MutationState::Full,
+            MutationState::Retired,
+            MutationState::Conflict,
+        ] {
+            let dir = tempfile::Builder::new()
+                .prefix("adroit-w-")
+                .tempdir_in("/tmp")
+                .unwrap();
+            let socket = dir.path().join("work.sock");
+            let listener = UnixListener::bind(&socket).unwrap();
+            let info = info();
+            let server_info = info.clone();
+            let answer = refused.clone();
+            let server = tokio::spawn(async move {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                stream
+                    .write_all(
+                        encode(&Hello {
+                            speaks: SPOKEN.to_vec(),
+                            build: "test".into(),
+                            endpoint: Some(server_info.work.clone()),
+                            terminal: Some(server_info.terminal.clone()),
+                            mutation_epoch: Some(1),
+                        })
+                        .as_bytes(),
+                    )
+                    .await
+                    .unwrap();
+                let (read, mut write) = stream.into_split();
+                let mut read = BufReader::new(read);
+                adroit_protocol::client::read_line(&mut read).await.unwrap();
+                write
+                    .write_all(encode(&Event::Welcome { version: SPOKEN[0] }).as_bytes())
+                    .await
+                    .unwrap();
+                while let Some(line) = adroit_protocol::client::read_line(&mut read).await.unwrap()
+                {
+                    let Request::Ask { asked, ask } = adroit_protocol::decode(&line).unwrap()
+                    else {
+                        panic!("expected ask");
+                    };
+                    let answer = match *ask {
+                        Ask::MutationEpoch => Answer::MutationEpoch { epoch: 1 },
+                        Ask::Apply { .. } => Answer::Mutation {
+                            status: answer.clone(),
+                        },
+                        _ => panic!("unexpected ask"),
+                    };
+                    write
+                        .write_all(encode(&Event::Answer { asked, answer }).as_bytes())
+                        .await
+                        .unwrap();
+                }
+            });
+            let journal =
+                Arc::new(Journal::open(&dir.path().join("journal"), &info.instance).unwrap());
+            let client = Work::new(socket, info, journal).unwrap();
+            let outcome = client
+                .mutate(Request::Ask {
+                    asked: 1,
+                    ask: Box::new(Ask::SubmitPrompt {
+                        session: "session".into(),
+                        agent: adroit_model::Agent::Codex,
+                        text: "never admitted".into(),
+                        images: vec![],
+                    }),
+                })
+                .await
+                .unwrap();
+            assert!(
+                matches!(outcome.state, MutationState::Rejected { .. }),
+                "{refused:?} was settled as {:?}",
+                outcome.state
+            );
+            assert_eq!(outcome.problem, None);
+            assert_eq!(
+                client.journal.records().unwrap()[0].outcome,
+                Some(outcome.state)
+            );
+            server.abort();
+            let _ = server.await;
+        }
     }
 }
