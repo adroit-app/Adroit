@@ -3,7 +3,7 @@
 use adroit_protocol::{HostPath, PathEntry};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 static READERS: LazyLock<Arc<tokio::sync::Semaphore>> =
     LazyLock::new(|| Arc::new(tokio::sync::Semaphore::new(8)));
@@ -47,12 +47,14 @@ fn entries(root: Option<&HostPath>, typed: &str) -> Result<Vec<PathEntry>, Strin
         return Ok(Vec::new());
     };
     let want = want.to_lowercase();
+    // Ends a read the caller's timeout would abandon, since a blocking read
+    // cannot be cancelled and would keep its reader's permit.
+    let deadline = Instant::now() + Duration::from_millis(1500);
     let mut offered = Vec::new();
-    let mut size = 0;
-    for entry in std::fs::read_dir(directory)
-        .map_err(|e| e.to_string())?
-        .take(4096)
-    {
+    for entry in std::fs::read_dir(directory).map_err(|e| e.to_string())? {
+        if Instant::now() >= deadline {
+            break;
+        }
         let entry = entry.map_err(|e| e.to_string())?;
         let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
             continue;
@@ -62,20 +64,35 @@ fn entries(root: Option<&HostPath>, typed: &str) -> Result<Vec<PathEntry>, Strin
         }
         let directory = entry.path().is_dir();
         let path = format!("{head}{name}{}", if directory { "/" } else { "" });
-        size += path.len();
-        if size > 65536 {
-            return Err("path completion exceeds its output limit".into());
-        }
         offered.push(PathEntry { path, directory });
+        if offered.len() >= 2 * SHOWN {
+            best(&mut offered);
+        }
     }
+    best(&mut offered);
+    let mut size = 0;
+    let fit = offered
+        .iter()
+        .take_while(|entry| {
+            size += entry.path.len();
+            size <= 65536
+        })
+        .count();
+    offered.truncate(fit);
+    Ok(offered)
+}
+
+const SHOWN: usize = 200;
+
+/// Keeps the first [`SHOWN`] of `offered`, directories first, by name.
+fn best(offered: &mut Vec<PathEntry>) {
     offered.sort_by(|a, b| {
         b.directory
             .cmp(&a.directory)
             .then_with(|| a.path.to_lowercase().cmp(&b.path.to_lowercase()))
             .then_with(|| a.path.cmp(&b.path))
     });
-    offered.truncate(200);
-    Ok(offered)
+    offered.truncate(SHOWN);
 }
 
 #[cfg(test)]
@@ -137,5 +154,33 @@ mod tests {
         assert!(entries(Some(&HostPath::local("relative")), "s").is_err());
         assert!(entries(None, &"x".repeat(17000)).is_err());
         assert!(entries(None, "/tmp/\0").is_err());
+    }
+
+    #[test]
+    fn a_match_anywhere_in_a_large_directory_is_offered() {
+        let dir = tempfile::tempdir().unwrap();
+        for i in 0..5000 {
+            std::fs::write(dir.path().join(format!("entry{i:04}")), "").unwrap();
+        }
+        std::fs::write(dir.path().join("wanted"), "").unwrap();
+        assert_eq!(
+            entries(Some(&HostPath::local(dir.path())), "w").unwrap(),
+            vec![PathEntry {
+                path: "wanted".into(),
+                directory: false
+            }]
+        );
+    }
+
+    #[test]
+    fn many_long_matches_are_shortened_to_the_first_that_fit() {
+        let dir = tempfile::tempdir().unwrap();
+        for i in 0..300 {
+            std::fs::write(dir.path().join(format!("{i:03}{}", "n".repeat(240))), "").unwrap();
+        }
+        let offered = entries(Some(&HostPath::local(dir.path())), "").unwrap();
+        assert!(!offered.is_empty());
+        assert!(offered.iter().map(|e| e.path.len()).sum::<usize>() <= 65536);
+        assert!(offered[0].path.starts_with("000"));
     }
 }
