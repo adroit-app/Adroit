@@ -246,54 +246,20 @@ unless `profile` names another of them.
 ### Local models for Pi
 
 Pi reaches a model server of your own, such as Ollama, as a provider named
-in `models.json` in its state directory: the profile's `home`, or
-`~/.pi/agent` in Pi's own environment. Ollama serves the OpenAI chat API, so
-it is named with `openai-completions` as its API, its address with `/v1`,
-any key, which Ollama does not check, and each model by the name Ollama
-gives it:
-
-```json
-{
-  "providers": {
-    "ollama": {
-      "baseUrl": "http://127.0.0.1:11434/v1",
-      "api": "openai-completions",
-      "apiKey": "ollama",
-      "models": [{ "id": "qwen3:8b", "contextWindow": 32768 }]
-    }
-  }
-}
-```
-
-A profile then names the model as `ollama/qwen3:8b`, and its login is
-shown as logged in. Pi lists only the models named there, and Adroit
-neither starts the server nor fetches a model for it.
+in Pi's own configuration, in its state directory: the profile's `home`, or
+Pi's usual one in its own environment. A profile then names the model as
+`provider/id`, such as `ollama/qwen3:8b`, and its login is shown as logged
+in. Pi lists only the models named there, and Adroit neither starts the
+server nor fetches a model for it.
 
 ### Local models for OpenCode
 
 OpenCode finds an Ollama running on this machine by itself. One elsewhere, or
-any other OpenAI-compatible server, is named as a provider in OpenCode's
-configuration, `opencode.json` in the `opencode` folder of the `config` folder
-in the profile's `home`, or of `~/.config` in OpenCode's own environment:
-
-```json
-{
-  "providers": {
-    "ollama": {
-      "settings": { "baseURL": "http://gpu-host:11434/v1" }
-    },
-    "lab": {
-      "name": "Lab",
-      "package": "@opencode/ai/providers/openai-compatible",
-      "settings": { "baseURL": "http://127.0.0.1:8000/v1", "apiKey": "none" },
-      "models": { "qwen3-coder": { "name": "Qwen 3 Coder" } }
-    }
-  }
-}
-```
-
-A profile then names the model as `ollama/qwen3:8b` or `lab/qwen3-coder`.
-Adroit neither starts the server nor fetches a model for it.
+any other OpenAI-compatible server, is named as a provider in OpenCode's own
+configuration, under the profile's `home`, or where OpenCode usually keeps it
+in its own environment. A profile then names the model as `provider/model`,
+such as `ollama/qwen3:8b`. Adroit neither starts the server nor fetches a
+model for it.
 
 ### Archived profiles
 

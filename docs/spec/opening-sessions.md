@@ -148,16 +148,8 @@ none follows `--`.
   defaults for other sessions. If neither specifies a model, the agent uses its
   own default. The agent's TUI can still change its model after launch.
 - `--permissions default|read_only` selects the launch's permission profile.
-  Read-only uses Codex's read-only sandbox, and gives Pi only the tools that
-  read, none that run commands or write. A read-only OpenCode session is set
-  to its plan agent, may use only the tools that read as any agent it starts
-  as, and reads no configuration of the repository's; OpenCode has no
-  sandbox, so that is all that keeps it to reading, and the plugins and MCP
-  servers the account's own configuration names still run. A read-only Claude
-  Code session loses its file-editing tools and runs its shell commands in
-  Claude Code's sandbox, which keeps them from writing to its directory or the
-  repository's history; the user's and the repository's Claude Code settings
-  cannot loosen this. Where that sandbox cannot run, the session fails to start.
+  What read-only keeps a session to depends on its agent
+  ([agents](sessions.md#agents)).
 - `--permissions-file <path>` reads custom permissions from JSON instead of a
   named profile. These are provider-specific options, not a read-only promise.
   The file is one of:

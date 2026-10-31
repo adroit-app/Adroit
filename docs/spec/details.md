@@ -115,10 +115,10 @@ moves on, without changing or continuing the conversation.
 A separate section below account usage shows live CPU, GPU and memory usage
 for the whole machine and capacity used on the startup volume, including in
 Shell and Neovim windows.
-Each resource can be hidden independently in Settings. A resource that cannot
-be read is marked unavailable. Resources have distinct colors; high usage
-overrides those colors with a warning. Memory and storage include used and
-total capacity; CPU and GPU include hardware information when available.
+Each of these meters can be hidden independently in Settings. A meter that
+cannot be read is marked unavailable. The meters have distinct colors; high
+usage overrides those colors with a warning. Memory and storage include used
+and total capacity; CPU and GPU include hardware information when available.
 
 The Usage header links to the shown agent's account usage settings in the
 default browser, where available resets and account limits can be managed.

@@ -51,6 +51,12 @@ when it is called otherwise, its profile; the details name its profile and
 its login. A profile deleted since is named as it was called when the
 session started.
 
+A read-only Claude Code session loses its file-editing tools and runs its
+shell commands in Claude Code's sandbox, which keeps them from writing to its
+directory or the repository's history; the user's and the repository's Claude
+Code settings cannot loosen this. Where that sandbox cannot run, the session
+fails to start.
+
 Codex sessions use the embedded prompt and report their working and waiting
 states through the terminal, including permission and question prompts. Their
 output stays in the terminal scrollback for scrolling and reading in Neovim. A
@@ -164,20 +170,6 @@ receives `"shown"`.
 
 ## The hosts
 
-The hosts and session commands can be built without the desktop window. That
-build never opens a window, and refuses the window's editor integration. Its
-sessions and terminals have the same lifetime as those started by the desktop
-build.
-
-`adroit remote daemon` and `adroit remote host` run as independent services,
-with `--instance <name>` selecting their instance. Start the terminal service
-before the work service. Each instance has a persistent identity, and each
-host incarnation has a new private socket that is never reused. `adroit remote
-info` describes the currently running pair and refuses stale discovery.
-Session commands started in these services discover the current work host
-again, so replacing it does not leave them addressing its previous socket.
-Replacing a terminal service ends its sessions; a window never replaces it.
-
 Two processes of adroit's own run each instance's work, apart from the
 windows, and keep running when they close.
 
@@ -229,6 +221,12 @@ error.
 
 The window restarts the terminal host with Restart Session Daemon
 (`daemon.restart`), only after the user confirms that every session ends.
+
+The hosts and session commands can be built without the desktop window. That
+build never opens a window, and refuses the window's editor integration. Its
+sessions and terminals have the same lifetime as those started by the desktop
+build. On a work machine the hosts run as services
+([remote hosts](remote-execution.md)).
 
 A session ends when its program exits or when it is ended from adroit. Its
 console then says so, and it is listed no more.

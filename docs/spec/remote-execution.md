@@ -1,10 +1,16 @@
 # Remote hosts
 
 The work and terminal hosts can run as independent services on a work machine
-([the hosts](sessions.md#the-hosts)). `adroit remote info` describes their shared
-instance and each host's incarnation. An incarnation's private socket is never
-reused for another one. Replacing the work host leaves the terminal host and
-its sessions running.
+([the hosts](sessions.md#the-hosts)): `adroit remote daemon` and
+`adroit remote host`, with `--instance <name>` selecting their instance, the
+terminal service started before the work service. Each instance has a
+persistent identity, and each host incarnation a new private socket that is
+never reused. `adroit remote info` describes the currently running pair and
+refuses stale discovery. Session commands started in these services discover
+the current work host again, so replacing it does not leave them addressing
+its previous socket. Replacing the work host leaves the terminal host and its
+sessions running; replacing a terminal service ends its sessions, and a
+window never replaces it.
 
 `adroit remote enable` registers an instance's terminal host, work host and
 gateway as the user's services, launchd agents on macOS and systemd user units
