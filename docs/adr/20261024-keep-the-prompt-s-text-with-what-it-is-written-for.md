@@ -7,7 +7,7 @@ Status: Accepted
 The window has one prompt, which sends to whatever the focused window shows.
 With one text for everything, a message written for one session stayed in the
 prompt when another was shown, and was sent there. The same session can be
-shown in several tabs and windows, and in several windows of adroit at once.
+shown in several tabs and windows, and in several windows of Adroit at once.
 
 ## Decision
 

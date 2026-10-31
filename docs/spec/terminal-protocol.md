@@ -2,7 +2,7 @@
 
 The windows and the work host speak to the terminal host of their instance
 ([the hosts](sessions.md#the-hosts)) in felis's protocol, at the revision of
-felis adroit is built with, and keep tags of adroit's own on each session in
+felis Adroit is built with, and keep tags of Adroit's own on each session in
 it: what it runs and where, what it is called, which session opened it.
 Together these are the terminal protocol. Its version is a whole number, raised only when
 what it sends changes shape, so builds that share a version work with each
@@ -20,7 +20,7 @@ build 0.3.0 (v0.3.0-12-gabc123)
 speaks 1
 ```
 
-`pid` is the process listening, `build` the build of adroit it is, and
+`pid` is the process listening, `build` the build of Adroit it is, and
 `speaks` the versions it speaks, separated by spaces. The file is replaced
 whole, never written in place, so it is never read half written.
 

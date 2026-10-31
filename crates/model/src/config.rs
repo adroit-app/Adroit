@@ -37,7 +37,7 @@ impl ShellLaunch {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct Launch {
-    /// The program and the arguments it always gets, ahead of adroit's own;
+    /// The program and the arguments it always gets, ahead of Adroit's own;
     /// empty for the program it starts: the profile's agent's, or Neovim.
     pub command: Vec<String>,
     /// Whether your shell starts it, as an interactive login shell, so that what

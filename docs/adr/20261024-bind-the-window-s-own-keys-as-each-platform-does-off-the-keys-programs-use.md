@@ -5,7 +5,7 @@ Status: Accepted
 ## Context
 
 The window shows shells, Neovim and agents, which use plain Ctrl keys
-heavily, `Ctrl-w` among them. adroit is meant to run on Linux and Windows as
+heavily, `Ctrl-w` among them. Adroit is meant to run on Linux and Windows as
 well as macOS, where there is no Cmd and the system keeps the Windows key.
 Alt belongs to window managers and readline. Users come with the keys other
 applications taught them: Command or Ctrl with Shift for an application's
@@ -27,7 +27,7 @@ and closing.
 
 Every other Ctrl key reaches the program, but for the keys every platform's
 browsers and terminals switch tabs with, which no program shown relies on:
-those switch adroit's tabs, in the prompt's insert mode too.
+those switch Adroit's tabs, in the prompt's insert mode too.
 
 ## Alternatives considered
 

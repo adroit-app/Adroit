@@ -4,14 +4,14 @@ Status: Accepted
 
 ## Context
 
-adroit is driven from the keyboard, and the people it is for bring keys of
+Adroit is driven from the keyboard, and the people it is for bring keys of
 their own from Vim and other tools. Keys fixed in the code could not be moved
 when they clashed with a habit or with a key a program in a session wants.
 
 ## Decision
 
-Every key adroit handles itself runs a named action. Keys are bound to actions
-per area of the window; adroit's own bindings are defaults that a file of the
+Every key Adroit handles itself runs a named action. Keys are bound to actions
+per area of the window; Adroit's own bindings are defaults that a file of the
 user's overrides, adds to or removes. Everything the window says about its
 keys, the menu bar included, is taken from the bindings in force.
 
@@ -19,7 +19,7 @@ keys, the menu bar included, is taken from the bindings in force.
 
 - Preset layouts to choose from. Habits differ in the details a preset fixes,
   and every new action needs a place in each preset.
-- Remap keys before adroit sees them. A key would change in every area at
+- Remap keys before Adroit sees them. A key would change in every area at
   once, though the same key means different things in different areas.
 - Configure the keys through the prompt's Neovim. Most of the window is not
   Neovim.

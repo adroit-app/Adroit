@@ -18,8 +18,8 @@ its own name.
 
 ## Decision
 
-adroit ships JetBrainsMono Nerd Font Mono from a pinned Nerd Fonts release,
-built into the binary with its licence beside adroit's, and draws the console,
+Adroit ships JetBrainsMono Nerd Font Mono from a pinned Nerd Fonts release,
+built into the binary with its licence beside Adroit's, and draws the console,
 the prompt and the file tree's glyphs in it unless the user picks another
 font. A font the user picks is followed by it, so the glyphs still draw.
 

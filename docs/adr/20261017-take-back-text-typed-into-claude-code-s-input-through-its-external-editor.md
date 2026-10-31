@@ -5,13 +5,13 @@ Status: Accepted
 ## Context
 
 Text can land in Claude Code's own input line: keys passed while it waited, or
-typed before adroit attached. The next prompt pasted in front of it would be
+typed before Adroit attached. The next prompt pasted in front of it would be
 sent with it. Claude Code hands its input to an external editor on request and
 takes back what the editor leaves.
 
 ## Decision
 
-adroit names itself as the external editor of the sessions it starts. To take
+Adroit names itself as the external editor of the sessions it starts. To take
 a session's input, a window asks Claude Code to open the editor, moves the
 text it is handed into its prompt and hands back nothing. Asked when no window
 asked, it opens the user's own editor.

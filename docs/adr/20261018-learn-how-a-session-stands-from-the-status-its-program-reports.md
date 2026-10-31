@@ -12,16 +12,16 @@ Claude Code among them, and the felis daemon keeps each session's reports.
 ## Decision
 
 How a session stands is the program status the felis daemon holds for it, as
-its program reports it. adroit adds no reports of its own.
+its program reports it. Adroit adds no reports of its own.
 
 ## Alternatives considered
 
-- Report Claude Code's state from hooks adroit installs. They would be adroit's
+- Report Claude Code's state from hooks Adroit installs. They would be Adroit's
   guess at what Claude Code says of itself, written into a terminal Claude Code
   draws on.
 - Read the state from Claude Code's list of sessions. It reports little, and
   nothing for other agents.
-- Have adroit keep the state. A change while adroit is closed would be lost.
+- Have Adroit keep the state. A change while Adroit is closed would be lost.
 
 ## Consequences
 

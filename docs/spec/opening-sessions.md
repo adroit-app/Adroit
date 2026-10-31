@@ -75,7 +75,7 @@ who sent it: the sender's id, name and directory. A message sent while the
 recipient waits on a dialog or is still starting is handed over once it is
 ready. Handing it over is receipt; no acknowledgement is asked for.
 
-adroit keeps every message and which session opened which, so both outlive
+Adroit keeps every message and which session opened which, so both outlive
 the window, the sessions and the work host that relays them, and shows them
 in the details of the sessions on both ends ([details](details.md)). A
 message carries text; larger material is referred to by its path.
@@ -99,7 +99,7 @@ plans nothing on an answer coming. Sessions send only what the recipient has
 to act on or answer: no progress notes and no replies that only acknowledge.
 
 Where the instructions name an `adroit` command, such as `adroit terminal`
-for probes, they name the adroit whose work host started the session by its
+for probes, they name the Adroit whose work host started the session by its
 absolute path, so a session runs it from any directory, whatever its `PATH`:
 the installed app's own binary, or a development build's own when it runs an
 instance of its own.

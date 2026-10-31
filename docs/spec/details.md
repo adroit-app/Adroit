@@ -69,7 +69,7 @@ more is listed by its name and says so. Copying one copies its name.
 
 Each group shows its newest few, five unless the settings say otherwise
 ([settings](settings.md#settingstoml)), and a row that shows the rest;
-opened, it shows them all until the group is folded or adroit runs again.
+opened, it shows them all until the group is folded or Adroit runs again.
 
 A subagent is named as the session last summed up a message it sent it, or
 by the description it was started with before any. Opening one shows what it
@@ -82,7 +82,7 @@ actions ([viewers](content.md#viewers)). An image file opens in the image
 viewer; an image the console drew opens in the image viewer too, named for its
 size. The keys stay in the panel, and the panel stays on the session while one
 of its images is shown, so the next one can be picked. An image the console
-drew is kept while adroit runs, after the console has let it go, the newest
+drew is kept while Adroit runs, after the console has let it go, the newest
 few of each session; it has no file to copy or reveal, and its window says
 so once it is no longer kept.
 

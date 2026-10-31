@@ -1,6 +1,6 @@
 # Sessions
 
-Every session adroit starts, and every terminal, runs in a host of adroit's
+Every session Adroit starts, and every terminal, runs in a host of Adroit's
 own, not in the window ([the hosts](#the-hosts)). Closing the window leaves
 them running, their scrollback kept; opening it again lists them as they are
 and shows each one from where it stands, starting with what it showed when it
@@ -12,7 +12,7 @@ A session runs Claude Code, Codex CLI, Pi or OpenCode in its own terminal interf
 session is given its profile, and with it its agent and login
 ([settings](settings.md#profiles)), while it is still a
 draft, before its first prompt is sent. The empty window and drafts offer
-the profile alone, which decides the agent: every profile, and adroit's own
+the profile alone, which decides the agent: every profile, and Adroit's own
 for an agent that has none, so every agent can be started. Each is named by
 its agent and its name, as a running session's details name it, with a mark
 when it has a login of its own. `session.profile_next` and
@@ -119,7 +119,7 @@ line in OpenCode.
 
 ## Instances
 
-adroit runs as named instances, each with its own hosts and sessions, apart
+Adroit runs as named instances, each with its own hosts and sessions, apart
 from the others. `adroit --instance <name>` opens a window of the instance
 `name`, as does `adroit` with `$ADROIT_INSTANCE` set; without either it is
 the instance `default`. A name is made of letters, digits, `-` and `_`, up to
@@ -131,7 +131,7 @@ start are its own. Settings and keys are the same in every instance.
 
 ## Windows
 
-Opening adroit while a window of the instance is open brings that window to
+Opening Adroit while a window of the instance is open brings that window to
 the front instead, the one opened first when there are several. New Window
 (`window.open`), or `adroit --new-window` with or without `--instance`,
 opens another window of the instance. The windows of other instances open
@@ -147,7 +147,7 @@ Each window holds a number, the lowest none of the instance's open windows
 holds. A window keeps, under its number, the layout of its side panels and
 its content when it closed ([content](content.md#across-runs)), and the next window opened
 with that number shows them again. Windows are not opened again together:
-opening adroit opens one, and each New Window the next.
+opening Adroit opens one, and each New Window the next.
 
 ### The window sockets
 
@@ -156,7 +156,7 @@ of its own, in `$ADROIT_WINDOWS`, or the `windows` folder of its instance's
 state folder. These requests do not control sessions or terminals.
 
 Claude Code's external editor uses `adroit editor <file>` to hand over its
-input. Every agent session adroit starts, from the window, from
+input. Every agent session Adroit starts, from the window, from
 `adroit session start` or by another session, names it as `$VISUAL` and
 `$EDITOR`, keeping the user's own editor in `$ADROIT_USER_EDITOR`; every
 terminal keeps the user's editor. A window asks for the input only of a
@@ -170,7 +170,7 @@ receives `"shown"`.
 
 ## The hosts
 
-Two processes of adroit's own run each instance's work, apart from the
+Two processes of Adroit's own run each instance's work, apart from the
 windows, and keep running when they close.
 
 - The terminal host, `adroit daemon`, holds every session's and terminal's
@@ -198,12 +198,12 @@ flowchart LR
   S1 & S2 -. adroit tools .-> WH
 ```
 
-The folder of either socket has to be yours and open to no one else: adroit
+The folder of either socket has to be yours and open to no one else: Adroit
 makes it so when it makes the folder, and refuses one already there that is
 not, leaving it as it is.
 
 A window works with a host whenever they share a version of its protocol,
-whichever build of adroit either is, so an update of adroit that leaves the
+whichever build of Adroit either is, so an update of Adroit that leaves the
 protocols alone asks nothing of the user. The window starts the work host of
 its instance when none answers, and the work host starts the terminal host.
 A work host the window cannot work with, or one of another build, the window
@@ -228,13 +228,13 @@ sessions and terminals have the same lifetime as those started by the desktop
 build. On a work machine the hosts run as services
 ([remote hosts](remote-execution.md)).
 
-A session ends when its program exits or when it is ended from adroit. Its
+A session ends when its program exits or when it is ended from Adroit. Its
 console then says so, and it is listed no more.
 
 ## Resuming a past conversation
 
 Claude Code, Codex, Pi and OpenCode keep each conversation after its
-session ends, and adroit lists only the sessions it runs. Resume Conversation in the Session
+session ends, and Adroit lists only the sessions it runs. Resume Conversation in the Session
 menu, or `session.resume`, opens a list of the conversations the agents kept,
 in every login a profile runs in,
 for the directory the focused window works in, the newest first, each with its
@@ -269,7 +269,7 @@ While a session or a shell runs, the window open or not, the Mac does not go
 to idle sleep, so they go on with no one at it; the display still sleeps as
 the Energy settings say. Closing the lid on battery, sleeping it by hand and
 the system's own emergencies still sleep it. `pmset -g assertions` lists what
-keeps it awake under adroit's name. Within seconds of the last one ending, or
+keeps it awake under Adroit's name. Within seconds of the last one ending, or
 of `keep_awake` being turned off in the [settings](settings.md), the Mac
 sleeps when idle again.
 

@@ -5,7 +5,7 @@ Status: Accepted
 ## Context
 
 A work machine reached through its gateway needs an authenticated channel of
-adroit's own. On a home or office network its address changes with
+Adroit's own. On a home or office network its address changes with
 DHCP and the network it is on, and nothing beyond the two machines can vouch
 for either of them.
 

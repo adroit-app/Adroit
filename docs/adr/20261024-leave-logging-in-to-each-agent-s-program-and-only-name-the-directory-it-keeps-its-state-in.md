@@ -11,15 +11,15 @@ programs and changes between releases.
 
 ## Decision
 
-adroit stores, copies and reads no credentials. A profile with a login of
+Adroit stores, copies and reads no credentials. A profile with a login of
 its own names the directory its agent's program keeps its state in, fixed
-when that login is made; adroit starts the program there and leaves logging
+when that login is made; Adroit starts the program there and leaves logging
 in, and keeping the login, to it. The agent's own environment names no
-directory, so adroit sets nothing for it.
+directory, so Adroit sets nothing for it.
 
 ## Alternatives considered
 
-- Keep the credentials in adroit and hand them to each session. adroit would
+- Keep the credentials in Adroit and hand them to each session. Adroit would
   hold secrets, follow every program's renewal, and break when a program
   changes how it stores them.
 - Copy an existing login into a new profile. The copy goes stale when the
@@ -29,7 +29,7 @@ directory, so adroit sets nothing for it.
 
 ## Consequences
 
-- Settings, session records and anything else adroit writes hold no secrets.
+- Settings, session records and anything else Adroit writes hold no secrets.
 - A login of a profile's own is only as separate as its program keeps its
   directory; that has to be known of each program, not assumed.
 - Moving a profile's directory by hand loses its login.

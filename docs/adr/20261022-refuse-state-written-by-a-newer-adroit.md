@@ -1,4 +1,4 @@
-# Refuse state written by a newer adroit
+# Refuse state written by a newer Adroit
 
 Status: Accepted
 

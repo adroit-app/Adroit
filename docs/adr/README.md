@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-The significant decisions behind adroit, one decision per file.
+The significant decisions behind Adroit, one decision per file.
 
 ## Conventions
 

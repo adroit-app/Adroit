@@ -6,7 +6,7 @@ Status: Accepted
 
 Looking back over what a session wrote meant scrolling its terminal. Moving a
 cursor over it, searching, selecting and copying, as in Vim's terminal
-buffers, was not possible, and adroit's users work by Vim's keys.
+buffers, was not possible, and Adroit's users work by Vim's keys.
 
 ## Decision
 

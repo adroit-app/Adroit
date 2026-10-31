@@ -6,7 +6,7 @@ Status: Accepted
 
 Opening a row of the tree put what it stood for in the focused window, in
 place of what that window showed, as a Neovim file explorer does. Neovim
-offers `Ctrl-o` to go back to what a window showed; adroit keeps no such
+offers `Ctrl-o` to go back to what a window showed; Adroit keeps no such
 history, so what was replaced could only be found again in the tree. People
 coming from other applications expect what they open to come in a tab of its
 own, and stepping through sessions one by one still wants a single place that

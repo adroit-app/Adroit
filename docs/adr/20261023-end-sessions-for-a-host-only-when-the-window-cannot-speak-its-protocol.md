@@ -4,7 +4,7 @@ Status: Accepted
 
 ## Context
 
-The hosts outlive the window, so after adroit is updated the window meets
+The hosts outlive the window, so after Adroit is updated the window meets
 hosts of an earlier build, and once the window runs on another machine, hosts
 of a build it never had. Replacing the terminal host ends every session it
 holds; replacing the work host ends none. Most builds change nothing in how

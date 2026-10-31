@@ -16,7 +16,7 @@ context.
 
 ## Decision
 
-There is one kind of session, and every session adroit starts can open
+There is one kind of session, and every session Adroit starts can open
 sessions beside it and message any other. A session it opens is like one the
 user started: it answers to the user, reports to no one, ends only when the
 user or the agent ends it, and can open sessions too. A session opens one for a
@@ -24,7 +24,7 @@ separate line of work that needs little of what it knows, not to carry out a
 part of its own. Sessions talk as peers: a message tells what the recipient
 should know or asks what it knows, and never assigns it work; the recipient
 weighs it as any other input and still answers to the user, and the sender
-plans nothing on a reply coming. adroit carries the messages, addressed by session identity,
+plans nothing on a reply coming. Adroit carries the messages, addressed by session identity,
 and hands each to the receiving agent through that agent's own way of hearing
 from outside; handing it over is receipt. Which session opened which, and the
 messages, are all the work host keeps between sessions.
@@ -49,11 +49,11 @@ messages, are all the work host keeps between sessions.
 
 ## Consequences
 
-- Work a session divides runs in its own agent's subagents and tools; adroit
+- Work a session divides runs in its own agent's subagents and tools; Adroit
   takes no part in it.
 - No session waits on another's result, so nothing has to bound how deep
   sessions open sessions.
-- Every session adroit starts carries adroit's bridge; sessions it did not
+- Every session Adroit starts carries Adroit's bridge; sessions it did not
   start can neither send nor receive.
 - A message costs its recipient a turn, so sessions are told to send only what
   the recipient has to act on or answer.

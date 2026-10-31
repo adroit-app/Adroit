@@ -22,7 +22,7 @@ the prompt's text and cursor, and where the reader was in what it shows.
 
 - Source the configuration again in the running Neovim, forgetting its Lua
   modules first. Configurations that cannot be read twice break, and nothing
-  adroit does can make them safe to read twice.
+  Adroit does can make them safe to read twice.
 - Leave a saved configuration to the next start. The prompt would have to be
   quit by hand, losing what is written in it, to see a change.
 

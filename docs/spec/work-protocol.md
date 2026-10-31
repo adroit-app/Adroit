@@ -7,7 +7,7 @@ one JSON object on a line of its own.
 ## Hello
 
 On every connection, before it is asked anything, the work host says which
-versions of the protocol it speaks and which build of adroit it is:
+versions of the protocol it speaks and which build of Adroit it is:
 
 ```json
 {"speaks":[1],"build":"0.3.0 (v0.3.0-12-gabc123)"}

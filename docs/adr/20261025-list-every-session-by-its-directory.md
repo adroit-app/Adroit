@@ -12,7 +12,7 @@ worktree of its own.
 
 ## Decision
 
-adroit keeps no project file. Every session, shell, editor and file is listed
+Adroit keeps no project file. Every session, shell, editor and file is listed
 under the directory it belongs to: its repository's worktree, or the directory
 itself outside git. A session is listed the same way whoever started it.
 

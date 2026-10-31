@@ -35,5 +35,5 @@ reached again through the file's row.
 
 - What is typed goes through Neovim's own keys: a user mapping on `:` or the
   keys that leave a mode can keep it from quitting, and then it runs on.
-- Closing adroit's window itself ends none, as it ends no other program.
+- Closing Adroit's window itself ends none, as it ends no other program.
 - A Neovim started on no file is a terminal like a shell, ended by the user.

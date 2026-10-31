@@ -5,10 +5,10 @@ Status: Proposed
 ## Context
 
 A prompt to Claude Code is often long and edited several times before it is
-sent, and the people adroit is for write everything in Neovim, with motions,
+sent, and the people Adroit is for write everything in Neovim, with motions,
 plugins and completion of their own. Claude Code's input line edits text with a
 handful of keys, and a text field in the window would have no more. The
-programs adroit runs, and the files a prompt names, are on the work host's
+programs Adroit runs, and the files a prompt names, are on the work host's
 machine, which need not be the window's.
 
 ## Decision
@@ -23,7 +23,7 @@ Neovim reports.
 - A text field with Vim keys emulated in the window. Only the emulated part of
   Vim would work, never the user's own mappings and plugins.
 - The user's Neovim run in a terminal in the window. Its completion menu would
-  be limited to the cell grid, and adroit could neither fill nor read the text
+  be limited to the cell grid, and Adroit could neither fill nor read the text
   it holds without driving Neovim through keys.
 - A Neovim on the window's machine. Its completion and file names would see
   another machine than the sessions, and text taken back from a session would

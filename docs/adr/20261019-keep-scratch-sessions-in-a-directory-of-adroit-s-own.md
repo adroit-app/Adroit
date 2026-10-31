@@ -1,4 +1,4 @@
-# Keep scratch sessions in a directory of adroit's own
+# Keep scratch sessions in a directory of Adroit's own
 
 Status: Accepted
 
@@ -11,7 +11,7 @@ by it, so resuming works only from the same directory.
 ## Decision
 
 A session started without a directory runs in a new directory of its own under
-one root adroit keeps in the user's data directory, listed as one place. adroit
+one root Adroit keeps in the user's data directory, listed as one place. Adroit
 removes none of these directories.
 
 ## Alternatives considered

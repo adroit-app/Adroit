@@ -4,7 +4,7 @@ Status: Accepted
 
 ## Context
 
-adroit needs one window that holds a tree, several terminal panes, an embedded
+Adroit needs one window that holds a tree, several terminal panes, an embedded
 Neovim and a rich completion popup, and it is meant to run on macOS first and
 on Linux and Windows later. A terminal UI cannot draw Claude Code's images
 without re-encoding them for the outer terminal, and a native toolkit per

@@ -4,12 +4,12 @@ Status: Accepted
 
 ## Context
 
-adroit kept one launch and one set of options for each agent. A user with a
+Adroit kept one launch and one set of options for each agent. A user with a
 personal and a work login of the same agent, or with one agent set up for
 different jobs, could not run them side by side: changing the settings
 changed every session started after, and nothing said how a running session
 had been started. A login of an agent's program is the directory it keeps
-its state in, and the program as it runs outside adroit has one already,
+its state in, and the program as it runs outside Adroit has one already,
 shared with the user's terminal.
 
 ## Decision
@@ -17,7 +17,7 @@ shared with the user's terminal.
 A session starts from a named profile, which pins the agent, where the
 agent keeps its login, how it is launched and the agent's options. A
 profile's login is either the agent's own environment, the program as it
-runs outside adroit, in which adroit changes nothing, or a folder of the
+runs outside Adroit, in which Adroit changes nothing, or a folder of the
 profile's own, which no other profile shares. Profiles are referred to by
 ids that a rename leaves alone. A session keeps the profile it started from
 and the login it ran in.
@@ -38,7 +38,7 @@ and the login it ran in.
 ## Consequences
 
 - One agent can run under several logins at the same time.
-- Whatever adroit keeps or asks per agent, such as model lists, histories
+- Whatever Adroit keeps or asks per agent, such as model lists, histories
   and past conversations, has to be kept and asked per login: the agent's
   own environment, or one profile's folder.
 - Profiles that are to share a login run in the agent's own environment; a

@@ -30,7 +30,7 @@ shell that waits for a line, sent once the host's window is attached.
 - Have the program set its colours itself before it runs. Colours a program
   sets win over the theme, so a new theme would no longer reach it.
 - Colours for the whole felis daemon, set before any session. That is felis's
-  to add; adroit can drop its own window when it lands.
+  to add; Adroit can drop its own window when it lands.
 
 ## Consequences
 
@@ -40,4 +40,4 @@ shell that waits for a line, sent once the host's window is attached.
   runs, which carries next to nothing as it asks for no screen.
 - Sessions started before the host last started have no such window until
   they are started again.
-- Every program adroit starts in a console runs under a POSIX shell first.
+- Every program Adroit starts in a console runs under a POSIX shell first.

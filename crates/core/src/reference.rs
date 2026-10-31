@@ -33,7 +33,7 @@ pub fn keys() -> String {
     writeln!(out, "# Key reference\n\n{GENERATED}\n").unwrap();
     out.push_str(
         "Every action a binding can name, what it does, what the menu bar calls it,\n\
-         and the keys adroit binds it to in each area before a file of bindings\n\
+         and the keys Adroit binds it to in each area before a file of bindings\n\
          changes them ([keys](../keys.md)).\n\n",
     );
     out.push_str("## Actions\n\n");
@@ -165,7 +165,7 @@ pub fn settings() -> String {
             let file = toml::Table::from_iter([(name.clone(), entries.clone())]);
             writeln!(
                 out,
-                "\nWhen the file holds none, it holds these, as adroit writes them:\n\n```toml\n{}```",
+                "\nWhen the file holds none, it holds these, as Adroit writes them:\n\n```toml\n{}```",
                 toml::to_string_pretty(&file).unwrap()
             )
             .unwrap();

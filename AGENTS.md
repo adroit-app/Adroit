@@ -1,4 +1,4 @@
-# adroit
+# Adroit
 
 An Agent Workspace for people who live in Vim: drive any coding agent in its own terminal interface, by hand and the way you edit.
 
@@ -38,23 +38,23 @@ Run `just ci` before reporting a change as done. CI runs the same recipe.
 | `crates/window/` | the window: its Dioxus UI, menu bar and Settings window, which reaches the work only through the work host's socket |
 | `crates/window/assets/` | the windows' stylesheets and page scripts, taken in with `include_str!` |
 | `crates/agents/` | each agent's adapter: how Claude Code, Codex, Pi and OpenCode are started, asked and read back |
-| `crates/agents/plugin/` | the Claude Code plugin every session adroit starts loads |
-| `crates/agents/opencode/` | the plugin the OpenCode sessions adroit starts load |
+| `crates/agents/plugin/` | the Claude Code plugin every session Adroit starts loads |
+| `crates/agents/opencode/` | the plugin the OpenCode sessions Adroit starts load |
 | `crates/core/` | the window's state and the rules it changes by, with no UI and no programs run |
 | `crates/core/icons/` | the Tabler icons the window draws, with their licence |
 | `crates/core/examples/` | `references`, which writes `docs/spec/reference/` from the code |
 | `crates/model/` | the data every part shares: sessions, places, the tree they form, agents' launch settings, with test builders |
 | `crates/protocol/` | what the window and the work host say to each other: requests, events, the work they describe, the versions they speak |
 | `crates/connect/` | the selected work machine, pairing with it, finding it and the way through its gateway to both hosts; serving this computer to paired clients |
-| `crates/net/` | adroit's own network connection to a work machine: the keys each side keeps and TLS that pins them |
+| `crates/net/` | Adroit's own network connection to a work machine: the keys each side keeps and TLS that pins them |
 | `crates/host/` | the work host, `adroit host`: the work, the sessions and shells it starts in the terminal host, delegation, its socket, and the commands that ask it |
-| `crates/host/themes/` | the console themes adroit comes with |
+| `crates/host/themes/` | the console themes Adroit comes with |
 | `crates/host/terminfo/` | the terminfo entry the console's programs are given |
 | `crates/host/tests/` | tests that start the terminal host, sessions and shells |
 | `crates/term/` | the terminal host's client and server: felis sessions, their tags, screens and keys, and the protocol's versions |
 | `crates/nvim/` | the Neovims the window embeds for the prompt and the console's reader |
 | `crates/nvim/lua/` | the Lua the prompt's and the reader's Neovims run, taken in with `include_str!` |
-| `crates/vcs/` | what adroit reads of and makes in git and jj repositories, and the repositories ghq keeps |
+| `crates/vcs/` | what Adroit reads of and makes in git and jj repositories, and the repositories ghq keeps |
 | `assets/logo/` | the logo as flattened SVG, and `build.py` that regenerates it |
 | `assets/macos/` | the macOS app's Info.plist and the script that assembles the app |
 | `assets/file-icons/` | vim-nerdfont's and vim-glyph-palette's icon tables at a pinned revision, their licences, and `update.sh` that copies them again |

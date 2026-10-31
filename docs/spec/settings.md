@@ -52,7 +52,7 @@ options, its login and its command, and says so. The profile new sessions
 start from cannot be deleted. Changes reach new sessions only.
 
 A profile's login is your terminal's or the profile's own. Your terminal's
-is its agent's program as it runs outside adroit, so logging in or out of it
+is its agent's program as it runs outside Adroit, so logging in or out of it
 there changes it here too, and every profile that uses your terminal's
 shares it. The profile's own is a login, history and settings of its own,
 kept in a folder of its own, named by its id, under `adroit/profiles` in the
@@ -68,19 +68,19 @@ is; choosing the profile's own again before Settings closes uses it again,
 and after, a new one.
 
 Deleting a profile asks first. A profile on your terminal's login is just
-deleted; adroit touches nothing of its agent's own environment. One with a
+deleted; Adroit touches nothing of its agent's own environment. One with a
 login of its own asks each time whether to delete its folder too, which is
 left unchosen and warns that the login, history and settings in it are lost
 and that the sessions that ran in it can no longer be resumed. Left
 unchosen, the folder stays as it is and its path is shown once the profile
-is deleted. A folder adroit did not make, outside `adroit` in the data
+is deleted. A folder Adroit did not make, outside `adroit` in the data
 folder, is never deleted; the path is shown to delete by hand. Deleting the
 folder is refused, and the profile kept, while sessions run in it, naming
 them. Sessions that started from a profile keep running after it is
 deleted, and are resumed, as the settings they started with say.
 
 The login is shown as logged in, not logged in, unknown, or with its agent's
-program not found, as the profile's program says when asked there; adroit
+program not found, as the profile's program says when asked there; Adroit
 takes no login for granted. It is asked when the page is first shown, when
 asked again, and when its login terminal ends, never over and over. Open
 login terminal starts a terminal, listed in the tree as any other, that runs
@@ -92,21 +92,21 @@ connect. While that terminal is open the login is waited for: asking again
 ends the wait only when the program says it is logged in, and cancelling
 ends the terminal, as closing it does, and asks again.
 
-The Settings window offers the font among adroit's own, which is drawn when
+The Settings window offers the font among Adroit's own, which is drawn when
 none is named, and the families installed whose letters and digits are all
 as wide, the console being a grid. A family the settings name that is not installed is offered as
-such and kept, drawn in adroit's own meanwhile, until another is picked.
+such and kept, drawn in Adroit's own meanwhile, until another is picked.
 
-A theme is one of those adroit comes with, as many light as dark, each taken
-from a theme for Vim or Neovim whose licence lets adroit ship it (Nightfox and
+A theme is one of those Adroit comes with, as many light as dark, each taken
+from a theme for Vim or Neovim whose licence lets Adroit ship it (Nightfox and
 its sibling themes, TokyoNight, Catppuccin, Gruvbox, Kanagawa and Rose Pine
 among them), or one of your own: a file in `themes/` beside `settings.toml`,
 named as the theme, in Ghostty's theme format, so a theme file from Ghostty
-works as it is. Of it, adroit reads the sixteen colours, the background, the
-foreground and the cursor's colour. Your file of the same name as one adroit
+works as it is. Of it, Adroit reads the sixteen colours, the background, the
+foreground and the cursor's colour. Your file of the same name as one Adroit
 comes with is used in its place. A theme whose background is darker than its
 text is a dark one, any other a light one; one that cannot be read counts as
-dark. Settings naming Adroit, the theme of adroit's own that earlier versions
+dark. Settings naming Adroit, the theme of Adroit's own that earlier versions
 offered, are drawn in Nightfox.
 
 You choose a light theme and a dark theme, Dawnfox and Nightfox when you
@@ -193,21 +193,21 @@ Each agent has a default profile of its own: the default profile when it
 starts that agent, else the agent's first profile, in the order
 the file lists them. A session that names an agent but no profile starts from
 that agent's default profile; an agent with no profile starts as the profile
-adroit comes with for it.
+Adroit comes with for it.
 
 A profile without `home` runs in its agent's own environment, the program as
-it runs outside adroit, shared with your terminal, for which adroit sets no
+it runs outside Adroit, shared with your terminal, for which Adroit sets no
 state directory. `home` gives the profile a login of its own: the directory
 its agent's program keeps its login, history and settings in, apart from
 every other. It is an absolute path, fixed when the login is made. The
 program tells logins apart by the directory as it is written, so `home` is
 written one way only: without `~`, `.` or `..`, and with no `/` doubled or
 at its end; no two profiles name the same one. The agent's
-program logs in and keeps its credentials in that directory itself; adroit
+program logs in and keeps its credentials in that directory itself; Adroit
 keeps none.
 
 A profile with a login of its own starts its agent's program, and asks it
-anything, with `home` as the program's state directory, which adroit makes
+anything, with `home` as the program's state directory, which Adroit makes
 when it is missing and never puts anything in. None of the variables that
 would carry another login, or move the program's state elsewhere, reaches
 it, even when the shell it is started through sets them again. Its launch
@@ -238,7 +238,7 @@ login is shown as logged in once OpenCode lists any provider connected in
 it, a key it found in the environment among them; one shown as not logged
 in says that free and local models need no login.
 
-A file that names no `profiles` holds the profiles adroit comes with, one
+A file that names no `profiles` holds the profiles Adroit comes with, one
 for each agent, named after the agent, which start it in its own environment
 as its program's own settings say, with `claude` as the default profile
 unless `profile` names another of them.
@@ -265,17 +265,17 @@ model for it.
 
 Earlier versions kept profiles no longer used with `archived = true`. Such a
 profile is read as if it were not in the file, and is dropped the next time
-adroit writes it; its folder is left as it is.
+Adroit writes it; its folder is left as it is.
 
 ### Files written before profiles
 
 Earlier versions kept one launch and one set of options for each agent, in
 `claude`, `sessions`, `codex` and `codex_sessions`, and the agent new
 sessions started with in `agent`. A file that names no `profiles` reads
-them as the profiles adroit comes with, each in its agent's own environment,
+them as the profiles Adroit comes with, each in its agent's own environment,
 `claude` from `claude` and `sessions` and `codex` from `codex` and
 `codex_sessions`, with the profile of the agent `agent` names as the
-default; sessions start as they did. The next time adroit writes the file,
+default; sessions start as they did. The next time Adroit writes the file,
 it writes profiles in their place. A file that names `profiles`, `profile`
 or `connections` beside any of them is refused, naming them.
 
@@ -293,7 +293,7 @@ the main window and Settings name them until the file is written again, and each
 No folder is moved or removed. A connection the file names that it does not
 define, one of another agent, one whose `home` is not written the one way,
 and a profile that names both `connection` and `home` make the file
-unreadable, as before. The next time adroit writes the file, it writes
+unreadable, as before. The next time Adroit writes the file, it writes
 `home` in the profiles and no `connections`.
 
 Sessions recorded before keep running, and are resumed, in the folder they
@@ -320,7 +320,7 @@ folder, copy its path, show it in the Finder, and edit its `init.lua` in a
 Neovim of the main window, as a file of the tree is edited; the folder is made
 when it is not there yet.
 
-A configuration can change everything adroit sets in these Neovims except
+A configuration can change everything Adroit sets in these Neovims except
 what the window relies on. The prompt and the reader have no status line, tab
 line, window bar or command line, ignore no events, keep the theme's
 `'background'`, and hold their text in a scratch buffer of the filetype
@@ -345,7 +345,7 @@ leaves them to the window but draws notifications over the text. A
 configuration shared with the everyday Neovim leaves such plugins out where
 `g:adroit` is set.
 
-The prompt's keys for adroit's actions ([keys](keys.md#areas)) are
+The prompt's keys for Adroit's actions ([keys](keys.md#areas)) are
 mappings set before the configuration, which may map those keys, or others,
 as it likes. `:Adroit <action>` runs any action a binding can name, as in
 `:Adroit prompt.send` or `:Adroit console.send Escape`.
@@ -370,4 +370,4 @@ what was written in it, with the cursor where it was; the console read when
 its reader quits is shown live. One that quits as it starts, as a
 broken configuration makes it, or cannot be started is tried again after a
 wait that grows while it keeps failing, the status line saying so; fixing
-the configuration is enough to bring it back, without restarting adroit.
+the configuration is enough to bring it back, without restarting Adroit.

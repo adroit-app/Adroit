@@ -1,11 +1,11 @@
-# List only the sessions adroit runs, and resume past conversations in new ones
+# List only the sessions Adroit runs, and resume past conversations in new ones
 
 Status: Accepted
 
 ## Context
 
-Agents run outside adroit too: in other terminals, and in other instances of
-adroit. adroit cannot show a session it does not run, and an outside session
+Agents run outside Adroit too: in other terminals, and in other instances of
+Adroit. Adroit cannot show a session it does not run, and an outside session
 looks the same to it whichever of these runs it, so another instance's
 sessions showed up without what that instance knows of them, and could be
 stopped from here. What the user wants from an outside session is mostly its
@@ -13,15 +13,15 @@ conversation, which every agent keeps after the session ends.
 
 ## Decision
 
-adroit lists only the sessions its own instance runs. A conversation an agent
+Adroit lists only the sessions its own instance runs. A conversation an agent
 kept, whichever agent and wherever it ran, is resumed in a new session of
-adroit's own, through the agent's own resume, without stopping or changing
+Adroit's own, through the agent's own resume, without stopping or changing
 anything that runs. A conversation a session of the instance already holds is
 shown rather than resumed again.
 
 ## Alternatives considered
 
-- Keep listing sessions running outside adroit. They cannot be shown, other
+- Keep listing sessions running outside Adroit. They cannot be shown, other
   instances' sessions are listed without their ties, and stopping one from
   here reaches into another instance.
 - Take an outside session over by stopping its process and resuming it here.
@@ -37,4 +37,4 @@ shown rather than resumed again.
   resumed.
 - A conversation resumed while it still runs elsewhere continues in both
   places, which drift apart.
-- Sessions running outside adroit are not seen at all.
+- Sessions running outside Adroit are not seen at all.

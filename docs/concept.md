@@ -1,12 +1,12 @@
 # Concept
 
-This document describes what adroit is for and the ideas every design decision
+This document describes what Adroit is for and the ideas every design decision
 rests on. It is rewritten in place as the concept evolves; decisions built on it
 are recorded as ADRs.
 
 ## What it is
 
-adroit is an Agent Workspace for people who live in Vim: one place to drive
+Adroit is an Agent Workspace for people who live in Vim: one place to drive
 any coding agent, in its own terminal interface, by hand and the way you edit.
 
 Its unit is a **session**: a conversation with an agent such as Claude Code or
@@ -19,7 +19,7 @@ You start a session by choosing the directory it works in, its **workspace**,
 and talking. What the work turns out to be shows as you go; nothing has to be
 named or declared before the first word.
 
-A workspace holds every session adroit runs in it. When the workspace is a git
+A workspace holds every session Adroit runs in it. When the workspace is a git
 repository, its worktrees divide it: each session sits under the worktree it
 runs in. A session keeps its work in its own conversation: what can run
 alongside, it gives to its agent's own subagents and tools, whose results come
@@ -37,7 +37,7 @@ want that work to feel like editing rather than like operating a dashboard.
 
 ## Where its value lies
 
-What adroit is chosen for is the hand on the work:
+What Adroit is chosen for is the hand on the work:
 
 - **Any agent, as it is.** Each agent's own terminal interface, unchanged,
   beside any other agent's, so you pick the agent for the work rather than the
@@ -49,21 +49,21 @@ What adroit is chosen for is the hand on the work:
   selected are reached with motions and acted on with commands, as text is in
   Vim.
 
-What adroit must do as well as any place for agent sessions, without being
+What Adroit must do as well as any place for agent sessions, without being
 what it is chosen for, is the ground under that hand: the sessions waiting on
 you shown first, sessions that keep running when the window closes, and the
 changes and history of each session at hand to read.
 
-The work goes at the pace of your attention and your review. adroit puts every
+The work goes at the pace of your attention and your review. Adroit puts every
 session in front of you and makes moving between them cheap; it does not
 multiply what runs past you unread.
 
 ## Principles
 
-- **The agent interface stays as it is.** adroit shows each agent's own
+- **The agent interface stays as it is.** Adroit shows each agent's own
   terminal interface unchanged. It never rebuilds an agent's screen from
-  structured output, and an agent behaves in adroit as it does in a terminal.
-- **No agent comes first.** Every agent adroit supports is run the same way,
+  structured output, and an agent behaves in Adroit as it does in a terminal.
+- **No agent comes first.** Every agent Adroit supports is run the same way,
   side by side, with the program and the login the user already has for it.
 - **Writing is Neovim.** Prompts are written in an embedded Neovim configured
   by the user for it, specialised for input rather than replaced.
@@ -80,25 +80,25 @@ multiply what runs past you unread.
   file tree. Structure is never asked for up front.
 - **Sessions outlive the window.** Every session runs in a terminal host, and
   everything known of the work is held by a work host, both apart from the
-  window, so closing adroit leaves them running and opening it again finds
+  window, so closing Adroit leaves them running and opening it again finds
   them as they were. A window only shows the work, and any number of windows
   can show it.
-- **adroit keeps no records of its own about sessions but which opened which
+- **Adroit keeps no records of its own about sessions but which opened which
   and what they told each other.** Which sessions exist, where they run and
   how they stand come from the hosts that run them and from what their
-  programs report; repositories and worktrees come from git. adroit draws them
+  programs report; repositories and worktrees come from git. Adroit draws them
   and gives you the controls.
 - **Borrow before building.** Terminals and their persistence come from felis;
   conversations and the agents inside them come from Claude Code, Codex, Pi
   and OpenCode.
-  adroit adds the place, the hands-on feel, and the means for sessions to
+  Adroit adds the place, the hands-on feel, and the means for sessions to
   open sessions beside them and reach one another.
 
 ## What it does not do
 
 - It does not rebuild an agent's interface or replace it with a chat view.
 - It does not orchestrate, and it is no frame for one session to run others
-  as its workers. Each session plans and does its own work; adroit keeps no
+  as its workers. Each session plans and does its own work; Adroit keeps no
   plan, task or verdict, shows where the work stands and gives you the
   controls.
 - It is not an editor or an IDE. Files, logs and diffs are there to be read;

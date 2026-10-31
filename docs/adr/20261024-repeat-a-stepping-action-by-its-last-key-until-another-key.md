@@ -14,7 +14,7 @@ An action that steps through something repeats: once a sequence bound to it
 runs, the key that ended it, or another that ends a repeating binding after
 the same keys, runs again alone. Any other key ends the repeating and does
 what it does. Which actions repeat is the action's to say, not the binding's,
-so the user's own sequences repeat as adroit's do.
+so the user's own sequences repeat as Adroit's do.
 
 ## Alternatives considered
 

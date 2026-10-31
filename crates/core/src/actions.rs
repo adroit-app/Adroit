@@ -305,10 +305,10 @@ pub static ACTIONS: &[ActionSpec] = &[
         .row("New session here", Start),
     S::new(A::SessionScratch, "session.scratch", "start a scratch session, with the prompt ready: one that runs in a new directory of its own, for talking about something no project holds ([details](tree.md#scratch-sessions))").bar("New Scratch Session", Icon::Notes),
     S::new(A::SessionResume, "session.resume", "list the conversations Claude Code and Codex kept, to resume one in a new session ([details](sessions.md#resuming-a-past-conversation))").bar("Resume Conversation…", Icon::TransferIn),
-    S::new(A::SessionStop, "session.stop", "end a session adroit runs after asking; Claude Code keeps its conversation, for `/resume` in a session started later")
+    S::new(A::SessionStop, "session.stop", "end a session Adroit runs after asking; Claude Code keeps its conversation, for `/resume` in a session started later")
         .bar("End…", Icon::PlayerStop)
         .row("End…", End),
-    S::new(A::SessionRename, "session.rename", "edit the name of a session adroit runs in place; the tree shows it, and the session is sent Claude Code's `/rename` so its own interface says it too")
+    S::new(A::SessionRename, "session.rename", "edit the name of a session Adroit runs in place; the tree shows it, and the session is sent Claude Code's `/rename` so its own interface says it too")
         .bar("Rename…", Icon::Pencil)
         .row("Rename…", Go),
     S::new(A::SessionProfileNext, "session.profile_next", "while a session not started yet is shown, switch the profile it is to start from to the next one ([details](sessions.md#agents))")

@@ -1,4 +1,4 @@
-# Keep each instance of adroit apart, with hosts of its own
+# Keep each instance of Adroit apart, with hosts of its own
 
 Status: Accepted
 
@@ -11,14 +11,14 @@ the sessions are held by the hosts, and the window only shows them.
 
 ## Decision
 
-adroit runs as named instances, the default one unless another is named at
+Adroit runs as named instances, the default one unless another is named at
 start. Each has a terminal host, a work host and stored state of its own, and
 every session and command started in an instance belongs to it. Any number of
 windows may show an instance, and each shows what its work host holds.
 
 ## Alternatives considered
 
-- One set of hosts for all of adroit. Another context, or a build being tried,
+- One set of hosts for all of Adroit. Another context, or a build being tried,
   would share the sessions in use.
 - A new instance each time a window opens. It would find none of the sessions
   left running.

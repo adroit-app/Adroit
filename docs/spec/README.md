@@ -1,10 +1,10 @@
 # Specification
 
-What adroit promises to whoever uses it, one topic per file.
+What Adroit promises to whoever uses it, one topic per file.
 
 ## Who reads it
 
-Users of adroit, and authors of other programs that work with it. A spec
+Users of Adroit, and authors of other programs that work with it. A spec
 holds what they can rely on, not everything that is true of the code.
 
 ## What belongs in a spec
@@ -38,16 +38,16 @@ These usually fail the questions; when one appears, take it out:
 - exact strings: headers, file names
 - ordering rules, screen layout
 
-### The exception: formats adroit defines
+### The exception: formats Adroit defines
 
-A format that adroit defines and that others write — its own data files,
+A format that Adroit defines and that others write — its own data files,
 its configuration — is read by outside authors, so the spec describes it in
 full. A format someone else defines (another program's files) is not
-adroit's to promise; reading it is left to the code and the tests.
+Adroit's to promise; reading it is left to the code and the tests.
 
 ## How to write one
 
-1. Write first, briefly, what adroit promises. Leave the details out.
+1. Write first, briefly, what Adroit promises. Leave the details out.
 2. Write the details as test names. Tests named as sentences make the list of
    tests a readable specification.
 3. When review leads to a fix, do not touch the spec unless the behaviour a

@@ -15,20 +15,20 @@ login, or one session's credential, would serve every session after it.
 
 ## Decision
 
-adroit runs OpenCode of its second line alone, and refuses to start a session
+Adroit runs OpenCode of its second line alone, and refuses to start a session
 of an older release, saying why and what to install. Every interface and every
-command adroit starts runs with a server of its own, which ends with it.
+command Adroit starts runs with a server of its own, which ends with it.
 
 ## Alternatives considered
 
 - Drive both lines, told apart by their version. Logins, servers,
-  conversation ids and what adroit loads into a run would each be done twice,
+  conversation ids and what Adroit loads into a run would each be done twice,
   and the first line's users can move to the second, which takes their
   conversations over.
 - Let OpenCode use its background server. Two accounts, or two sessions of
   one, would share one server and its environment.
-- Run a server of adroit's own for each session or account and attach the
-  interface to it. adroit would start, watch and end servers outside the
+- Run a server of Adroit's own for each session or account and attach the
+  interface to it. Adroit would start, watch and end servers outside the
   terminal host and keep a password for each, for what a server of the
   interface's own already gives.
 
@@ -36,10 +36,10 @@ command adroit starts runs with a server of its own, which ends with it.
 
 - A session's server holds its account's login and its own credential, and
   no other session's.
-- Nothing outside a session's interface can reach its server; what adroit
+- Nothing outside a session's interface can reach its server; what Adroit
   hands a running session goes through what it loads into the run.
 - Asking OpenCode anything outside a session, its version included, starts a
-  server, so adroit asks it only as a session of that profile would run, and
+  server, so Adroit asks it only as a session of that profile would run, and
   as rarely as it can.
-- A release of OpenCode's second line that drops what adroit relies on
-  leaves its sessions unable to start until adroit follows.
+- A release of OpenCode's second line that drops what Adroit relies on
+  leaves its sessions unable to start until Adroit follows.

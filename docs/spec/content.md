@@ -2,7 +2,7 @@
 
 The middle of the window is the content. It holds tabs, each tab is split into
 windows, and each window shows one thing: a session, a session not started
-yet, a terminal adroit runs ([terminals](#terminals)), or a file in the viewer
+yet, a terminal Adroit runs ([terminals](#terminals)), or a file in the viewer
 of its kind ([viewers](#viewers)).
 
 ## Tabs
@@ -62,7 +62,7 @@ viewer or in Neovim ([viewers](#viewers)).
 Closing a window or a tab only hides what it shows: sessions and terminals run
 on, and the tree still reaches them. A viewer ends with the last window
 showing it. A Neovim started on a file is asked to quit, as `:qa` would
-quit it, once no window of the instance shows it any longer; closing adroit's window
+quit it, once no window of the instance shows it any longer; closing Adroit's window
 itself leaves it running. One holding an unsaved change refuses and runs on,
 and opening the file's row shows it again. A session not started yet that no window shows any longer is
 given up.
@@ -150,7 +150,7 @@ an unreachable host exits with status 1.
 
 A file that means nothing as text is shown by a viewer of its kind, drawn by
 the window itself: images, movies, HTML pages and PDFs. Every other file,
-including one of a kind adroit does not know, opens in Neovim.
+including one of a kind Adroit does not know, opens in Neovim.
 
 A file is opened or looked at from the tree as any row is: in its viewer, or in a Neovim started on it in its worktree, which the file's row stands
 for in the tree. A file already open in a Neovim started on it opens that Neovim
@@ -176,7 +176,7 @@ top and bottom, and the file's path can be copied.
 A viewer only reads its file, and reads nothing else, with one exception: an
 HTML page also reads the files under its own directory, which it links to by
 relative paths. A page cannot reach files outside that directory, nor the
-window it is drawn in, nor adroit.
+window it is drawn in, nor Adroit.
 
 A viewer's keys are actions of the `viewer` area, bound in the keys file like
 any other ([actions](reference/keys.md#actions)). They reach the viewer of the
@@ -187,9 +187,9 @@ viewer as well, except those typed into the page's own fields.
 
 Programs in a session or a terminal can show images with the
 [kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/),
-so tools that draw plots or previews in a terminal draw them in adroit too.
+so tools that draw plots or previews in a terminal draw them in Adroit too.
 Claude Code draws its own pictures, such as diagrams a mod renders, in the
-sessions adroit starts: they are told the console draws images, which Claude
+sessions Adroit starts: they are told the console draws images, which Claude
 Code otherwise believes only of kitty and Ghostty.
 
 The protocol is understood as felis understands it, which follows kitty:

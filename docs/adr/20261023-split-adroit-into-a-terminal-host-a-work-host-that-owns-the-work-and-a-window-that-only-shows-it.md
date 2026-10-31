@@ -1,4 +1,4 @@
-# Split adroit into a terminal host, a work host that owns the work, and a window that only shows it
+# Split Adroit into a terminal host, a work host that owns the work, and a window that only shows it
 
 Status: Accepted
 
@@ -14,7 +14,7 @@ window is meant to run, in time, on another machine than the sessions.
 
 ## Decision
 
-adroit runs as three kinds of process.
+Adroit runs as three kinds of process.
 
 - The terminal host holds each session's pseudo-terminal and emulator, and
   nothing else.

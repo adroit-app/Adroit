@@ -11,7 +11,7 @@ Neovim.
 
 ## Decision
 
-A file of a kind adroit has a viewer for, Markdown among them, opens in that
+A file of a kind Adroit has a viewer for, Markdown among them, opens in that
 viewer, drawn by the window itself. Any file, whatever its kind, opens in
 Neovim through an action of its own. A viewer only reads its file.
 
@@ -26,5 +26,5 @@ Neovim through an action of its own. A viewer only reads its file.
 ## Consequences
 
 - Viewers run in the window, not in the hosts, and close with it.
-- A file of a kind adroit does not know opens in Neovim either way.
+- A file of a kind Adroit does not know opens in Neovim either way.
 - A file with a viewer takes one more step to change.

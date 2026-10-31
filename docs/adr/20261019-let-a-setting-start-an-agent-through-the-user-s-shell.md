@@ -11,7 +11,7 @@ reads. Others want a session to start the same way whatever their shell does.
 ## Decision
 
 Whether an agent starts directly or through the user's shell is a setting,
-direct by default. Through the shell, adroit starts an interactive login shell
+direct by default. Through the shell, Adroit starts an interactive login shell
 that `exec`s the agent, handing the program and its arguments over as the
 shell's arguments, never written into a script.
 
@@ -20,7 +20,7 @@ shell's arguments, never written into a script.
 - Always start through the shell. A shell's startup can print, prompt or run
   something else, and slows every session.
 - Read the shell's variables once and reuse them. A shell sets more than
-  variables, and what it sets can change while adroit runs.
+  variables, and what it sets can change while Adroit runs.
 - Write the command into a script for the shell. Every word needs quoting per
   shell, and a mistake runs something else.
 

@@ -1,14 +1,14 @@
 # The tree
 
-adroit lists every session it runs by the directory it runs in
+Adroit lists every session it runs by the directory it runs in
 ([details](sessions.md)). What holds them is what git says about the directory
-each runs in. Sessions started outside adroit are not listed; their
-conversations can be resumed in adroit
+each runs in. Sessions started outside Adroit are not listed; their
+conversations can be resumed in Adroit
 ([resuming](sessions.md#resuming-a-past-conversation)).
 
 ## Workspaces and worktrees
 
-A **workspace** is where sessions and the shells you open in adroit run:
+A **workspace** is where sessions and the shells you open in Adroit run:
 
 - Scratch, holding every session and shell that runs in the scratch folder or
   below it ([scratch sessions](#scratch-sessions));
@@ -22,7 +22,7 @@ workspace where everything runs in its main checkout shows that checkout's
 contents straight under it, with no worktree row; one outside git always does.
 
 A worktree's files sit under its Files heading, and what runs in it under
-Sessions and Terminals: Terminals holds every program adroit runs in a
+Sessions and Terminals: Terminals holds every program Adroit runs in a
 terminal there, shells and Neovim alike, each marked by what it runs, save a
 Neovim started on a file, which that file's row stands for. A heading folds,
 and the row of one for what runs counts what it holds. Terminals never sit
@@ -144,7 +144,7 @@ workspace, Scratch, after every other, its sessions and shells straight under
 it. Starting a session from it starts another scratch session in
 a directory of its own; a shell opened from it runs in the scratch folder.
 
-adroit removes none of these directories. Claude Code keeps each conversation
+Adroit removes none of these directories. Claude Code keeps each conversation
 by the directory it ran in, and the picker offers that directory among those
 Claude Code has been used in. Its conversations are resumed from every
 directory's past conversations
@@ -163,7 +163,7 @@ The tree's files and the picker's directories are one file tree, drawn and
 moved through alike, with the `filer` area's keys
 ([keys](reference/keys.md#actions)). Directories come first, each entry with
 its Nerd Font icon in the colour vim-glyph-palette gives it, drawn from
-adroit's own Nerd Font whatever the console's font is. A directory is read
+Adroit's own Nerd Font whatever the console's font is. A directory is read
 when it is opened. Going into a directory opens it and goes to its first
 entry once it is read; going out closes the directory selected when it is
 open, or else the one it is in, and goes there. Names with a leading dot are

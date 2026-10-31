@@ -1,6 +1,6 @@
 # Keys
 
-Every key adroit handles itself runs a named action. adroit ships bindings of
+Every key Adroit handles itself runs a named action. Adroit ships bindings of
 its own, and a file you write changes, adds to or takes away from them. The
 prompt's keys are Neovim's and are set up in Neovim; a dialog that asks
 before ending something always answers to `y`, `Enter`, `n` and `Escape`, and
@@ -64,7 +64,7 @@ where each key goes.
 - otherwise `keys.toml` in `$XDG_CONFIG_HOME/adroit/`, or in
   `~/.config/adroit/` when `$XDG_CONFIG_HOME` is unset.
 
-A missing file keeps adroit's own bindings. A binding to `coordinator.open`,
+A missing file keeps Adroit's own bindings. A binding to `coordinator.open`,
 `project.new`, `project.edit`, `workspace.pick`, `details.files`,
 `details.diff`, `session.take_over`, `session.agent_next` or
 `session.agent_prev`, actions earlier versions had, is read and dropped. The area
@@ -82,7 +82,7 @@ By action, every action is listed under a heading, by what it does, with the
 keys that run it. Keys added to an action run it in every area it works in,
 or in those chosen; keys taken away or changed are so wherever they ran it. A
 key running it in only some of those areas says where. An action whose keys
-the file changed is marked, and goes back to adroit's own keys alone.
+the file changed is marked, and goes back to Adroit's own keys alone.
 
 By area, the bindings are listed area by area, marking those the file
 changed, added or took away, and each is changed, added or deleted there.
@@ -135,7 +135,7 @@ from the prompt as well as the console; the prompt is Neovim's again once it
 is answered. So does a session showing a dialog of its agent's own in place
 of its input box, or above it while the agent works, such as the picker `/model`
 opens, until the dialog closes.
-The dialog is told from what the console shows; one adroit does not
+The dialog is told from what the console shows; one Adroit does not
 recognise still takes `console.pass_every_key`.
 A session still starting, whose program has reported nothing and not yet
 drawn its input box, also takes every key, such as Claude Code asking whether
@@ -214,10 +214,10 @@ says which actions repeat.
 ### Actions
 
 The [key reference](reference/keys.md#actions) lists every action a binding
-can name: what it does, what the menu bar calls it, and the keys adroit binds
+can name: what it does, what the menu bar calls it, and the keys Adroit binds
 it to.
 
-## adroit's own bindings
+## Adroit's own bindings
 
 The [key reference](reference/keys.md#default-bindings) holds them, written
 as a file of bindings would write them.

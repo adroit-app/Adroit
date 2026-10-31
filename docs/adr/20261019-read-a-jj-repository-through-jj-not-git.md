@@ -25,6 +25,6 @@ run.
 
 ## Consequences
 
-- jj must be on the `PATH` adroit runs with.
+- jj must be on the `PATH` Adroit runs with.
 - A read may add an operation to the jj log.
-- jj's templates and output become an interface adroit depends on.
+- jj's templates and output become an interface Adroit depends on.

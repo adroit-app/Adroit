@@ -167,14 +167,14 @@ pub struct Settings {
     /// The most lines the prompt grows to before it scrolls inside.
     pub prompt_max_rows: usize,
     /// The font the console and the prompt are drawn in, as the system names its
-    /// family; empty for adroit's own, JetBrainsMono Nerd Font Mono. Adroit's own
+    /// family; empty for Adroit's own, JetBrainsMono Nerd Font Mono. Adroit's own
     /// stands behind any other, so Nerd Font glyphs draw whatever font is chosen,
     /// and a Japanese font behind that. A line is as tall as the font asks, as in
     /// a terminal.
     pub font_family: String,
     /// The font's size, in points, from 8 to 32.
     pub font_size: f64,
-    /// The font's weight, from 100 to 900; adroit's own comes in regular and bold,
+    /// The font's weight, from 100 to 900; Adroit's own comes in regular and bold,
     /// and draws other weights in the nearer of them.
     pub font_weight: u16,
     /// Which of the two themes colours the console and the window: `system`
@@ -204,7 +204,7 @@ pub struct Settings {
     /// runs `nvim`.
     pub neovim: Launch,
     /// Where scratch sessions run, `~` standing for your home folder; empty for
-    /// adroit's own folder.
+    /// Adroit's own folder.
     pub scratch_dir: String,
     /// Where the picker looks for directories to start a session in.
     pub picker: PickerSettings,

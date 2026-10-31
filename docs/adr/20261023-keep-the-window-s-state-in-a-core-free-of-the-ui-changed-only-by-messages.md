@@ -12,7 +12,7 @@ had become slow and unsafe.
 
 ## Decision
 
-The window's state is plain data held by a part of adroit that knows nothing
+The window's state is plain data held by a part of Adroit that knows nothing
 of the UI and runs no program and touches no file. It changes only by
 messages: each message is applied by one synchronous function that changes
 the state and returns, as values, the effects it wants carried out. Rules that

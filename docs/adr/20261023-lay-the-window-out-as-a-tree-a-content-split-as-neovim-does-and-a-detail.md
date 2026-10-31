@@ -6,7 +6,7 @@ Status: Accepted
 
 Files, shells and editors are worked on beside sessions, several at once. A
 single console showing one thing at a time made watching one while working on
-another a matter of switching back and forth. The people adroit is for split
+another a matter of switching back and forth. The people Adroit is for split
 windows in Neovim every day.
 
 ## Decision
