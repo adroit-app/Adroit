@@ -1084,6 +1084,18 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn taking_the_text_closes_the_menu_it_was_offering() {
+        let (e, mut rx) = start().await;
+        e.set_candidates(&[Candidate::new("auth/web", "session")])
+            .await
+            .unwrap();
+        e.input("@au").await.unwrap();
+        wait(&mut rx, |_| e.state().popup().is_some()).await;
+        assert_eq!(e.take_text().await.unwrap(), "@au");
+        wait(&mut rx, |_| e.state().popup().is_none()).await;
+    }
+
+    #[tokio::test]
     async fn an_at_sign_inside_a_word_offers_nothing() {
         let (e, mut rx) = start().await;
         e.set_candidates(&[Candidate::new("auth/web", "session")])

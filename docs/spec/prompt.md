@@ -76,6 +76,8 @@ session runs or a draft would start. Until
 Claude Code has answered there, or when it cannot, `/` offers nothing. The list
 is asked for again once it is a minute old, the older one offered meanwhile.
 
+Sending the prompt closes what it was offering, leaving the words as written.
+
 ## A shell line
 
 A prompt whose first character is `!` is a shell line for Claude Code, and the
