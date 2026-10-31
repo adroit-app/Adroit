@@ -13,7 +13,7 @@ already names an agent's launch setup, which lives inside an environment.
 ## Decision
 
 A named environment binds a connection to its work: its agents, work settings
-and running work. A client instance keeps its environment while it runs;
+and running work. A connection keeps its environment while it is open;
 opening another environment opens it beside the first, without moving or
 redirecting existing work. Display and input preferences stay on the client
 computer.
@@ -25,7 +25,7 @@ computer.
   for the selected machine's capabilities.
 - Give every environment independently managed host services. Adding an
   environment becomes a service administration task.
-- Redirect a running instance when its environment changes. The meaning of
+- Redirect an open connection when its environment changes. The meaning of
   existing child commands, drafts and unresolved operations changes under them.
 - Call an environment a profile. One word would name both an environment and
   the agent setups inside it.
