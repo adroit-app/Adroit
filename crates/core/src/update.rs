@@ -232,6 +232,8 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         Msg::MenuOpen { x, y, target } => overlay::open_menu(state, Menu { x, y, target }),
         Msg::MenuClose => overlay::close_menu(state),
         Msg::MenuRun { target, action } => overlay::run_menu(state, target, action),
+        Msg::AddingOpen => overlay::adding(state, true),
+        Msg::AddingClose => overlay::adding(state, false),
         Msg::Confirm(ask) => overlay::ask(state, *ask),
         Msg::ConfirmStop { selection } => overlay::ask_stop(state, selection),
         Msg::ConfirmAnswer(yes) => overlay::answer(state, yes),

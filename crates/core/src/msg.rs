@@ -364,6 +364,11 @@ pub enum Msg {
         target: Target,
         action: Action,
     },
+    /// Open the sheet adding an environment, holding the keys until it
+    /// closes.
+    AddingOpen,
+    /// Close the sheet adding an environment, whether one was added or not.
+    AddingClose,
     /// Ask this, holding the keys until it is answered.
     Confirm(Box<Ask>),
     /// Ask to end the selected row's session, from the tree, or else the

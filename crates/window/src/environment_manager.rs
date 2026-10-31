@@ -198,21 +198,6 @@ fn save(
     Ok((next, environment.id))
 }
 
-/// A name for the work machine at `address`: its host, without the port, or
-/// what a loopback address means.
-fn machine_name(address: &str) -> String {
-    let host = address.rsplit_once(':').map_or(address, |(host, _)| host);
-    let host = host.trim_matches(['[', ']']);
-    let loopback = host == "localhost"
-        || host
-            .parse::<std::net::IpAddr>()
-            .is_ok_and(|ip| ip.is_loopback());
-    match loopback {
-        true => "This computer's gateway".into(),
-        false => host.to_string(),
-    }
-}
-
 #[component]
 fn EnvironmentEditor() -> Element {
     let mut catalog = use_signal(|| Catalog::load(&Catalog::path()));
@@ -375,7 +360,7 @@ fn EnvironmentEditor() -> Element {
                                                 // Pairing is what the operator came for, so                                                 // environment is kept without a second step.
                                                 let named = match (selected.peek().is_none(), name.peek().trim()) {
                                                     (true, typed) if !typed.is_empty() => typed.to_string(),
-                                                    _ => machine_name(&address),
+                                                    _ => crate::environments::machine_name(&address),
                                                 };
                                                 let saved = catalog.peek().as_ref().map_err(Clone::clone).and_then(|catalog| {
                                                     // Pairing again keeps the machine's environment; pairing
@@ -597,16 +582,6 @@ mod tests {
         let mut fresh = Choice::from(Target::Local);
         fresh.choose(Kind::Pairing);
         assert_eq!(fresh.pairing, "");
-    }
-
-    #[test]
-    fn a_work_machine_is_named_by_its_host() {
-        assert_eq!(machine_name("work-box.local:47130"), "work-box.local");
-        assert_eq!(machine_name("[fe80::1]:47130"), "fe80::1");
-        assert_eq!(machine_name("work-box"), "work-box");
-        assert_eq!(machine_name("127.0.0.1:47130"), "This computer's gateway");
-        assert_eq!(machine_name("[::1]:47130"), "This computer's gateway");
-        assert_eq!(machine_name("localhost:47130"), "This computer's gateway");
     }
 
     #[test]

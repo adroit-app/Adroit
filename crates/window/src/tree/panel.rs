@@ -1,9 +1,10 @@
 //! The tree's panel: its bar with the filter and the buttons that list
-//! every worktree and start a session, the rows, and the sessions waiting
-//! on the user below them.
+//! every worktree and start a session, the rows, adding an environment below
+//! them, and the sessions waiting on the user.
 
 use std::rc::Rc;
 
+use adroit_core::msg::Msg;
 use adroit_core::tree;
 use dioxus::prelude::*;
 
@@ -78,6 +79,14 @@ pub(crate) fn TreePanel(
                 }
                 for item in rows.into_iter().filter(|i| !matches!(i, Item::Waiting(_, _))) {
                     TreeRow { key: "{item:?}", item, context, on }
+                }
+                button {
+                    r#type: "button",
+                    class: "list-row add-environment",
+                    title: "Add an environment, on this computer or on a work machine",
+                    onclick: move |_| app.dispatch(Msg::AddingOpen),
+                    IconView { icon: Icon::Plus, size: 13 }
+                    span { class: "list-row-name", "Add environment…" }
                 }
             }
             if !waiting.is_empty() {

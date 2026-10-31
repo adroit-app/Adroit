@@ -559,6 +559,15 @@ fn the_environment_the_window_was_started_in_is_never_removed_from_it() {
 }
 
 #[test]
+fn adding_an_environment_opens_its_sheet_from_anywhere() {
+    for area in [Area::Sidebar, Area::Console] {
+        let run = showing(area).send(perform(Action::EnvironmentAdd, None, Probe::default()));
+        assert!(run.state().overlays.adding, "{area:?}");
+        assert!(run.last_effects().is_empty(), "{area:?}");
+    }
+}
+
+#[test]
 fn the_environments_window_is_opened_from_anywhere() {
     for area in [Area::Sidebar, Area::Console] {
         let run = showing(area).send(perform(Action::EnvironmentsOpen, None, Probe::default()));

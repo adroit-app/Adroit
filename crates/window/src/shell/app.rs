@@ -71,6 +71,7 @@ fn App() -> Element {
             Picker {}
             ContextMenu {}
             KeysHelp {}
+            crate::adding::AddingSheet {}
             ConfirmDialog {}
         }
     }

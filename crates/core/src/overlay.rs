@@ -1,6 +1,6 @@
 //! What is drawn over the window and holds the keys while it is: a menu
 //! opened on a row, a tab or a link, a question to answer, a session's new
-//! name being typed, and the banner about the sessions' daemon.
+//! name being typed, the sheet adding an environment, and the banner about the sessions' daemon.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -33,6 +33,8 @@ pub struct Overlays {
     pub menu: Option<Menu>,
     pub confirm: Option<Ask>,
     pub rename: Option<Rename>,
+    /// The sheet adding an environment is open.
+    pub adding: bool,
     pub banner: Banner,
 }
 
@@ -70,6 +72,7 @@ pub enum Holder {
     KeysHelp,
     Picker,
     Rename,
+    Adding,
     Confirm,
 }
 
@@ -80,6 +83,7 @@ pub fn holding(overlays: &Overlays, picker: &PickerView, chrome: &Chrome) -> Vec
         (chrome.keys_help.is_some(), Holder::KeysHelp),
         (picker.open.is_some(), Holder::Picker),
         (overlays.rename.is_some(), Holder::Rename),
+        (overlays.adding, Holder::Adding),
         (overlays.confirm.is_some(), Holder::Confirm),
     ]
     .into_iter()
@@ -102,11 +106,16 @@ pub fn takes_text_away(held: &[Holder]) -> bool {
 }
 
 /// Whether the menu bar's entries wait while `held` are open: behind the
-/// picker, a question or a name being typed, which hold the keys. A menu or
+/// picker, a question, a name being typed or the sheet adding an
+/// environment, which hold the keys. A menu or
 /// the keys help is put away for them.
 pub fn holds_menu_bar(held: &[Holder]) -> bool {
-    held.iter()
-        .any(|h| matches!(h, Holder::Picker | Holder::Rename | Holder::Confirm))
+    held.iter().any(|h| {
+        matches!(
+            h,
+            Holder::Picker | Holder::Rename | Holder::Adding | Holder::Confirm
+        )
+    })
 }
 
 /// A key while an overlay holds the keys.
@@ -131,6 +140,10 @@ pub(crate) fn press(state: &mut ViewState, key: Key) -> Vec<Effect> {
                 Press::Nothing => Vec::new(),
             }
         }
+        Some(Holder::Adding) => match key.key.as_str() {
+            "Escape" => adding(state, false),
+            _ => Vec::new(),
+        },
         // Renaming, the keys are its field's; none act behind it.
         Some(Holder::Rename) | None => Vec::new(),
     }
@@ -159,6 +172,11 @@ pub(crate) fn run_menu(state: &mut ViewState, target: Target, action: Action) ->
     effects.extend(step(state, Msg::Focus(area)));
     effects.push(Effect::Perform(action));
     effects
+}
+
+pub(crate) fn adding(state: &mut ViewState, open: bool) -> Vec<Effect> {
+    state.overlays.adding = open;
+    Vec::new()
 }
 
 pub(crate) fn ask(state: &mut ViewState, ask: Ask) -> Vec<Effect> {

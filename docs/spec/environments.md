@@ -8,10 +8,10 @@ An environment that cannot be reached stays listed with the work last received
 from it, the window keeps trying it, and the window's other environments stay
 usable. Each one's tabs come back once its host lists its work. The header
 names the environment of the tab shown. Settings configures the environment of
-the selected tree row or the tab shown. Environments are created, their
-connections set up and removed ones restored in the separate Environments
-window, opened from the application menu; opening an environment there goes to
-its heading. An environment can also be opened in a separate, independent
+the selected tree row or the tab shown. Environments are added below the tree.
+Their connections are set up and removed ones restored in the separate
+Environments window, opened from the application menu; opening an environment
+there goes to its heading. An environment can also be opened in a separate, independent
 window instance of its own.
 
 Removing an environment from its heading, after asking, archives it and takes
@@ -29,15 +29,17 @@ live inside an environment; an environment is not one of them.
 ## Create and configure
 
 An environment uses this computer or a work machine this computer paired with
-([paired work machines](remote-execution.md#paired-work-machines)). The
-Environments window can pair with a work machine: it lists the work machines
-heard on the local network or takes an address, shows the code to type on the
-work machine, and once that is done, saves an environment for the work
-machine, named after it unless a new environment's name was typed. Pairing
-again with a machine that already has an environment selects that
-environment. Pairing from the command line adds an environment of its own too.
+([paired work machines](remote-execution.md#paired-work-machines)). Adding an
+environment, from below the tree, asks where it works: this computer, a work
+machine heard on the local network, or one at an address typed. A work machine
+not paired yet is paired then: the window shows the code to type on the work
+machine. The environment is named after its work machine unless another name
+is typed, and the tree lists it at once. Adding a work machine that already
+has an environment selects that environment instead, and one whose environment
+was removed lists that environment again. Pairing from the command line adds an
+environment too, which every window lists.
 An environment can switch between its paired work machine and the other
-connections. Connection testing does not select or create an environment. An
+connections. Testing a connection does not select or create an environment. An
 environment can be saved before its work machine or agents are available.
 
 Open an environment to configure its agents, working directories and programs.

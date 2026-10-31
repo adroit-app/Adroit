@@ -1,6 +1,7 @@
 //! The adroit window.
 
 pub use adroit_core::actions;
+mod adding;
 mod alerts;
 mod bridge;
 mod build;

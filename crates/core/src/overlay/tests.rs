@@ -64,6 +64,7 @@ fn what_is_drawn_over_the_window_holds_the_keys_the_text_and_the_menu_bar() {
             }],
             (Some(Holder::Rename), true, true),
         ),
+        (vec![Msg::AddingOpen], (Some(Holder::Adding), true, true)),
         (
             vec![Msg::Confirm(Box::new(Ask::RestartDaemon(here())))],
             (Some(Holder::Confirm), true, true),
@@ -146,6 +147,17 @@ fn a_question_is_answered_by_its_keys_and_holds_every_other() {
             "{ask:?} {key}"
         );
     }
+}
+
+#[test]
+fn the_sheet_adding_an_environment_closes_on_escape_and_on_no_other_key() {
+    let kept = window().send(Msg::AddingOpen).send(held("y"));
+    assert!(kept.state().overlays.adding);
+    assert!(kept.last_effects().is_empty());
+    let closed = kept.send(held("Escape"));
+    assert!(!closed.state().overlays.adding);
+    let cancelled = window().send(Msg::AddingOpen).send(Msg::AddingClose);
+    assert!(!cancelled.state().overlays.adding);
 }
 
 #[test]

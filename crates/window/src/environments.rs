@@ -2,6 +2,7 @@
 
 use std::path::Path;
 
+use adroit_connect::Target;
 use adroit_connect::environments::{Catalog, Environment};
 use adroit_model::EnvironmentId;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
@@ -123,6 +124,86 @@ pub(crate) fn follow<'a>(
     }
 }
 
+/// A name for the work machine at `address`: its host, without the port, or
+/// what a loopback address means.
+pub(crate) fn machine_name(address: &str) -> String {
+    let host = address.rsplit_once(':').map_or(address, |(host, _)| host);
+    let host = host.trim_matches(['[', ']']);
+    let loopback = host == "localhost"
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback());
+    match loopback {
+        true => "This computer's gateway".into(),
+        false => host.to_string(),
+    }
+}
+
+/// `base`, or `base` numbered past the names of the environments `catalog`
+/// lists.
+pub(crate) fn fresh_name(catalog: &Catalog, base: &str) -> String {
+    let taken = |name: &str| {
+        catalog
+            .environments
+            .iter()
+            .any(|e| !e.archived && e.name == name)
+    };
+    (1..)
+        .map(|n| match n {
+            1 => base.to_string(),
+            n => format!("{base} {n}"),
+        })
+        .find(|name| !taken(name))
+        .unwrap_or_else(|| base.to_string())
+}
+
+/// The environment `catalog` keeps for the work machine whose connection
+/// `reaches`, one listed before one archived. Environments on this computer
+/// are never one machine's: each is one of its own.
+pub(crate) fn of_machine(
+    catalog: &Catalog,
+    reaches: impl Fn(&str, &str) -> bool,
+) -> Option<&Environment> {
+    let mine = |e: &&Environment| matches!(&e.target, Target::Native { address, server } if reaches(address, server));
+    let mut kept = catalog.environments.iter().filter(mine);
+    let first = kept.clone().find(|e| !e.archived);
+    first.or_else(|| kept.next())
+}
+
+/// Keep an environment named `name` for `target` in the catalog at `path`,
+/// refusing to when another window saved it since it was read: the one the
+/// work machine `target` reaches has already, restored when archived, or
+/// else a new one.
+pub(crate) fn add(path: &Path, name: &str, target: Target) -> Result<Environment, String> {
+    let mut catalog = Catalog::load(path)?;
+    let revision = catalog.revision;
+    let known = match &target {
+        Target::Native { server, .. } => {
+            of_machine(&catalog, |_, kept| kept == server).map(|e| e.id.clone())
+        }
+        Target::Local => None,
+    };
+    let added = match catalog
+        .environments
+        .iter_mut()
+        .find(|e| Some(&e.id) == known.as_ref())
+    {
+        Some(kept) => {
+            kept.archived = false;
+            kept.name = name.trim().into();
+            kept.target = target;
+            kept.clone()
+        }
+        None => {
+            let new = Environment::new(name, target);
+            catalog.environments.push(new.clone());
+            new
+        }
+    };
+    catalog.save(path, revision)?;
+    Ok(added)
+}
+
 /// Archive `environment` in the catalog at `path`, refusing to when another
 /// window saved it since it was read.
 pub(crate) fn archive(path: &Path, environment: &EnvironmentId) -> Result<(), String> {
@@ -139,8 +220,6 @@ pub(crate) fn archive(path: &Path, environment: &EnvironmentId) -> Result<(), St
 
 #[cfg(test)]
 mod tests {
-    use adroit_connect::Target;
-
     use super::*;
 
     fn environment(id: &str, archived: bool) -> Environment {
@@ -164,6 +243,91 @@ mod tests {
 
     fn ids<const N: usize>(ids: [&str; N]) -> [EnvironmentId; N] {
         ids.map(EnvironmentId::new)
+    }
+
+    fn machine(id: &str, server: &str, archived: bool) -> Environment {
+        Environment {
+            target: Target::Native {
+                address: format!("{id}.local:47130"),
+                server: server.repeat(32),
+            },
+            ..environment(id, archived)
+        }
+    }
+
+    #[test]
+    fn a_work_machine_is_named_by_its_host() {
+        assert_eq!(machine_name("work-box.local:47130"), "work-box.local");
+        assert_eq!(machine_name("[fe80::1]:47130"), "fe80::1");
+        assert_eq!(machine_name("work-box"), "work-box");
+        assert_eq!(machine_name("127.0.0.1:47130"), "This computer's gateway");
+        assert_eq!(machine_name("[::1]:47130"), "This computer's gateway");
+        assert_eq!(machine_name("localhost:47130"), "This computer's gateway");
+    }
+
+    #[test]
+    fn a_name_an_environment_listed_has_is_numbered_but_one_archived_is_free() {
+        let mut kept = catalog([environment("a", false), environment("b", true)]);
+        kept.environments[0].name = "Box".into();
+        kept.environments[1].name = "Old".into();
+        assert_eq!(fresh_name(&kept, "Box"), "Box 2");
+        assert_eq!(fresh_name(&kept, "Old"), "Old");
+        kept.environments.push(Environment {
+            name: "Box 2".into(),
+            ..environment("c", false)
+        });
+        assert_eq!(fresh_name(&kept, "Box"), "Box 3");
+    }
+
+    #[test]
+    fn a_work_machine_s_environment_is_found_by_its_key_the_listed_one_first() {
+        let kept = catalog([
+            environment("local", false),
+            machine("old", "ab", true),
+            machine("box", "ab", false),
+            machine("other", "cd", false),
+        ]);
+        let by_key = |key: &str| {
+            of_machine(&kept, |_, server| server.starts_with(key)).map(|e| e.id.as_str())
+        };
+        assert_eq!(by_key("abab"), Some("box"));
+        assert_eq!(by_key("cdcd"), Some("other"));
+        assert_eq!(by_key("efef"), None);
+        let archived = catalog([machine("old", "ab", true)]);
+        assert_eq!(
+            of_machine(&archived, |_, server| server.starts_with("ab")).map(|e| e.id.as_str()),
+            Some("old")
+        );
+    }
+
+    #[test]
+    fn adding_keeps_a_new_environment_for_this_computer_each_time() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("environments.toml");
+        let first = add(&path, "Here", Target::Local).unwrap();
+        let second = add(&path, " Also here ", Target::Local).unwrap();
+        assert_ne!(first.id, second.id);
+        assert_eq!(second.name, "Also here");
+        assert_eq!(Catalog::load(&path).unwrap().environments, [first, second]);
+    }
+
+    #[test]
+    fn adding_a_work_machine_kept_before_restores_its_environment_under_the_name_typed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("environments.toml");
+        catalog([machine("box", "ab", true)])
+            .save(&path, 0)
+            .unwrap();
+        let moved = Target::Native {
+            address: "box.example.com:47130".into(),
+            server: "ab".repeat(32),
+        };
+        let added = add(&path, "Box", moved.clone()).unwrap();
+        assert_eq!(added.id, "box");
+        assert!(!added.archived);
+        assert_eq!(added.name, "Box");
+        assert_eq!(added.target, moved);
+        assert_eq!(Catalog::load(&path).unwrap().environments, [added]);
     }
 
     #[test]
