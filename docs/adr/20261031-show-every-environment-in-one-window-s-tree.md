@@ -4,21 +4,28 @@ Status: Accepted
 
 ## Context
 
-Each environment opened in a window of its own. The sessions waiting on the
-user were spread over those windows, so finding the next one to answer meant
-going through each of them, and on macOS every window process stood in the
-Dock as an application of its own. The tree already shows work grouped by
-where it is.
+Each environment opened in a window of its own, so the sessions waiting on the
+user were spread over windows, and on macOS every window process stood in the
+Dock as an application of its own. Gathering the environments into one
+window's tree only as the user opened them left the others out of sight, kept
+one environment as the window's own that could not be closed, and made opening
+another read as switching away from it. Whether an environment could be
+reached was told only once the user went to it.
 
 ## Decision
 
-A window shows the environments open in it as the top level of its tree, each
-over a connection of its own that keeps its environment. Work never moves
-between environments: each session, draft and send belongs to the environment
-it was made in. What waits on the user is gathered across the environments.
+A window's tree lists, at its top level, every environment the user keeps,
+whether or not it can be reached, and each says how its connection stands. The
+window holds a connection to each, which keeps its environment, and lists them
+alike. Work never moves between environments: each
+session, draft and send belongs to the environment it was made in. What waits
+on the user is gathered across the environments.
 
 ## Alternatives considered
 
+- List only the environments opened in the window, beside one that is the
+  window's own. The others stay out of sight until opened, the window's own
+  is treated unlike the rest, and opening one reads as switching to it.
 - Keep a window per environment, and hold every window in one process. Only
   macOS would show one application, everything the framework keeps once per
   process would have to be shared out by window, one window's failure would
@@ -32,11 +39,14 @@ it was made in. What waits on the user is gathered across the environments.
 
 ## Consequences
 
-- A connection lost or reconnecting leaves the window's other environments
-  usable.
+- The window connects to every environment it lists. One that cannot be
+  reached stays listed with the work last received from it, and the window's
+  other environments stay usable.
+- Adding an environment adds it to the tree, and only removing it takes it
+  out.
 - Work is known by its environment together with its own identity.
 - What the window can do with an item, such as opening its files with local
-  tools, follows the item's environment, not the window's.
+  tools, follows the item's environment.
 - New work chooses its environment where it chooses its directory, and work
   settings are changed for an environment chosen in the window.
 - Each window is still a process of its own, as

@@ -14,9 +14,9 @@ already names an agent's launch setup, which lives inside an environment.
 
 A named environment binds a connection to its work: its agents, work settings
 and running work. A connection keeps its environment while it is open;
-opening another environment opens it beside the first, without moving or
-redirecting existing work. Display and input preferences stay on the client
-computer.
+another environment is reached by a connection of its own beside the first,
+without moving or redirecting existing work. Display and input preferences
+stay on the client computer.
 
 ## Alternatives considered
 
