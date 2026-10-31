@@ -112,6 +112,15 @@ impl TreeView {
             .count()
     }
 
+    /// The environment the tree is at: the selected row's, or else `shown`,
+    /// the one the window shows.
+    pub fn environment_at(&self, shown: &EnvironmentId) -> EnvironmentId {
+        self.selected
+            .as_ref()
+            .map_or(shown, Item::environment)
+            .clone()
+    }
+
     /// The row `item` sits under among the rows.
     pub fn parent(&self, item: &Item) -> Option<Item> {
         nav::parent(&self.rows, |i| self.depth(i), item)
@@ -1246,5 +1255,43 @@ mod tests {
         let there_sight = watched(&run, there()).unwrap();
         assert_eq!(there_sight.marked, BTreeSet::from(["/r".into()]));
         assert!(watched(&run, here()).is_none_or(|s| s.marked.is_empty()));
+    }
+
+    #[test]
+    fn the_host_of_the_environment_the_tree_is_at_keeps_the_details_read() {
+        let details = |run: &Scenario, environment: EnvironmentId| {
+            run.effects()
+                .iter()
+                .filter_map(|e| match e {
+                    Effect::Host {
+                        environment: to,
+                        request: Request::Watch(sight),
+                    } if *to == environment => Some(sight.details),
+                    _ => None,
+                })
+                .next_back()
+                .unwrap_or(false)
+        };
+        let run = two_environments();
+        let run = if run.state().details.shown.open {
+            run
+        } else {
+            run.send(Msg::PanelToggle(crate::layout::Side::Details))
+        };
+        assert!(run.state().details.shown.open);
+        let run = run.send(Msg::TreeSelect(Some(Item::Environment(there()))));
+        assert!(details(&run, there()));
+        let within = run.send(Msg::TreeSelect(Some(Item::Workspace(there(), "/r".into()))));
+        assert!(details(&within, there()));
+        let away = within.send(Msg::TreeSelect(Some(Item::Workspace(here(), "/r".into()))));
+        assert!(!details(&away, there()));
+    }
+
+    #[test]
+    fn the_environment_at_hand_is_the_selected_row_s_or_else_the_one_shown() {
+        let run = two_environments();
+        assert_eq!(run.state().tree.environment_at(&here()), here());
+        let selected = run.send(Msg::TreeSelect(Some(Item::Environment(there()))));
+        assert_eq!(selected.state().tree.environment_at(&here()), there());
     }
 }

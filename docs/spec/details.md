@@ -116,7 +116,9 @@ utilization is asked of the agent the same way, again as the conversation
 moves on, without changing or continuing the conversation.
 A separate section below account usage shows live CPU, GPU and memory usage
 for the whole machine and capacity used on the startup volume, including in
-Shell and Neovim windows.
+Shell and Neovim windows and below an environment's connection. The machine is
+that of the environment of the row selected in the tree, or else of what is
+shown.
 Each of these meters can be hidden independently in Settings. A meter that
 cannot be read is marked unavailable. The meters have distinct colors; high
 usage overrides those colors with a warning. Memory and storage include used

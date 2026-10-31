@@ -107,6 +107,11 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
     let it = item;
     let is_sel = view.selected.as_ref() == Some(&it);
     let open = view.folds.is_open(&it);
+    // The rows of the environments the tree is not at stand back; those
+    // waiting on the user, gathered from all of them, do not.
+    let elsewhere = !matches!(it, Item::Waiting(..))
+        && hosts.each().nth(1).is_some()
+        && *it.environment() != view.environment_at(&app.shown_environment());
     if let Item::File {
         environment,
         worktree,
@@ -124,6 +129,7 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
             back,
             shown: !*dir && shows_file(shows.as_ref(), terminals, path),
             editing: nav::edited(&it, terminals),
+            elsewhere,
         };
         let status = marks
             .and_then(|m| m.get(worktree))
@@ -170,10 +176,11 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
         } else {
             view.waiting_in(environment)
         };
-        let kind = if standing.mark == connection::Mark::Stopped {
-            "head environment dim"
-        } else {
-            "head environment"
+        let kind = match (standing.mark == connection::Mark::Stopped, elsewhere) {
+            (true, true) => "head environment dim elsewhere",
+            (true, false) => "head environment dim",
+            (false, true) => "head environment elsewhere",
+            (false, false) => "head environment",
         };
         let here = it.clone();
         return rsx! {
@@ -302,6 +309,11 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
             format!("{kind} shown")
         }
         _ => kind.to_string(),
+    };
+    let kind = if elsewhere {
+        format!("{kind} elsewhere")
+    } else {
+        kind
     };
     let target = Target::Row(it.clone());
     // Where a session can start, a button starts one there.

@@ -10,13 +10,14 @@ pub const FILE_INDENT: usize = 14;
 
 /// What a file row looks like: a directory, one standing back as hidden or
 /// ignored ones do, the one the focused window shows, one a Neovim has
-/// open.
+/// open, one of an environment other than the one the tree is at.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct FileLook {
     pub dir: bool,
     pub back: bool,
     pub shown: bool,
     pub editing: bool,
+    pub elsewhere: bool,
 }
 
 impl FileLook {
@@ -27,6 +28,7 @@ impl FileLook {
             self.back.then_some("back"),
             self.shown.then_some("shown"),
             self.editing.then_some("editing"),
+            self.elsewhere.then_some("elsewhere"),
         ]
         .into_iter()
         .flatten()
@@ -112,8 +114,9 @@ mod tests {
             back: true,
             shown: true,
             editing: true,
+            elsewhere: true,
         };
-        assert_eq!(all.kind(), "file dir back shown editing");
+        assert_eq!(all.kind(), "file dir back shown editing elsewhere");
     }
 
     #[test]

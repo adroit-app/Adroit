@@ -51,3 +51,5 @@
 .standing-pill.quiet { background: var(--raised); color: var(--text-2); }
 .standing-pill.wait { background: var(--wait-tint); color: var(--wait); }
 .waiting-count { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--wait-tint); color: var(--wait); font: 600 10.5px/18px var(--mono); text-align: center; }
+/* The environments the tree is not at stand back, so the one at hand reads first. */
+.list-row.elsewhere { opacity: 0.55; }

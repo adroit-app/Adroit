@@ -184,6 +184,7 @@ fn DetailsSide(focused: bool, shown: bool) -> Element {
                 div { class: "details-scroll",
                     EnvironmentCard { environment }
                 }
+                details::MachineUsage { system: details::machine_gauges(&app, &app.shown_environment(), &usage_settings) }
             } else {
                 details::DetailsPanel {
                     worktree: current.as_ref().map(|p| p.worktree.clone()),

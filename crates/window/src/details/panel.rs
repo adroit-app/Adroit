@@ -20,6 +20,22 @@ use crate::details::{Sheet, repository, system_gauges, usage};
 use crate::icons::IconView;
 use crate::settings::UsageSettings;
 
+/// The usage of the machine of the environment the tree is at, `shown`
+/// when no row is selected, as its host last sampled it.
+pub(crate) fn machine_gauges(
+    app: &AppCtx,
+    shown: &adroit_model::EnvironmentId,
+    settings: &UsageSettings,
+) -> Vec<adroit_core::details::SystemGauge> {
+    let at = app.tree.read().environment_at(shown);
+    app.hosts
+        .read()
+        .work(&at)
+        .and_then(|w| w.details.system.as_ref())
+        .map(|s| system_gauges(s, settings))
+        .unwrap_or_default()
+}
+
 /// The action that shows `sheet`.
 pub(crate) fn sheet_action(sheet: Sheet) -> Action {
     match sheet {
@@ -79,10 +95,7 @@ pub(crate) fn DetailsPanel(
     let usage_url = work
         .and_then(|w| w.agents.of(agent))
         .and_then(|facts| facts.usage_url.clone());
-    let system = work
-        .and_then(|w| w.details.system.as_ref())
-        .map(|s| system_gauges(s, &usage_settings))
-        .unwrap_or_default();
+    let system = machine_gauges(&app, &environment, &usage_settings);
     let shown_kind = if worktree.is_none() {
         Worktree::None
     } else {

@@ -13,3 +13,4 @@ mod usage;
 
 pub(crate) use adroit_core::details::*;
 pub(crate) use panel::*;
+pub(crate) use usage::MachineUsage;

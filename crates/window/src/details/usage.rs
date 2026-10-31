@@ -60,6 +60,14 @@ pub(super) fn Usage(
                 }
             }
         }
+        MachineUsage { system }
+    }
+}
+
+/// The whole machine's usage, as its host last sampled it.
+#[component]
+pub(crate) fn MachineUsage(system: Vec<SystemGauge>) -> Element {
+    rsx! {
         if !system.is_empty() {
             div { class: "details-system-usage",
                 title: "Whole-machine resource usage",

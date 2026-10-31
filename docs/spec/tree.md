@@ -96,6 +96,8 @@ rows. Each heading says how its environment's connection stands: a mark alone
 while it is connected, and in words while it is being reached, cannot be
 reached, with how old its work is, reads only, or holds a change sent there
 that needs you. A folded heading counts the sessions waiting on you inside it.
+The rows of every environment but the one of the selected row, or else of what
+is shown, are drawn dimmer, all but the sessions waiting on you.
 Selecting a heading shows its connection in the details: what went wrong, a
 way to try again at once or to pair with its work machine again, and the
 drafts and changes waiting for it. The

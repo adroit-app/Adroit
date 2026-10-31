@@ -340,7 +340,16 @@ pub(crate) fn sight(state: &ViewState, environment: &EnvironmentId) -> Sight {
             ..details::sight(&state.details)
         }
     } else {
-        Sight::default()
+        // The foot of the details tells the machine of the environment the
+        // tree is at, which its host samples while the details are read.
+        let at = state
+            .tree
+            .environment_at(&content::shown_environment(state))
+            == *environment;
+        Sight {
+            details: at && state.details.shown.open,
+            ..Sight::default()
+        }
     };
     Sight {
         tree: tree::sight(&state.tree, environment),
