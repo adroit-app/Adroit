@@ -196,6 +196,16 @@ windows, and keep running when they close.
   folder. Windows and the `adroit` commands reach it there
   ([work protocol](work-protocol.md)).
 
+```mermaid
+flowchart LR
+  W1[window] & W2[another window] -- work protocol --> WH["work host<br>adroit host"]
+  CLI[adroit commands] -- work protocol --> WH
+  W1 & W2 -- keys and screens --> TH["terminal host<br>adroit daemon"]
+  WH -- starts and tags --> TH
+  TH --- S1[Claude Code session] & S2[Codex session] & S3[shell]
+  S1 & S2 -. adroit tools .-> WH
+```
+
 The folder of either socket has to be yours and open to no one else: adroit
 makes it so when it makes the folder, and refuses one already there that is
 not, leaving it as it is.

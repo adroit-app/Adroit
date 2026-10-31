@@ -29,6 +29,27 @@ and the row of one for what runs counts what it holds. Terminals never sit
 straight under a workspace: where a workspace has no worktree row, the
 headings are its checkout's.
 
+```text
+api                        ← a git repository with sessions in two worktrees
+├── main                   ← a worktree
+│   ├── Files
+│   ├── Sessions
+│   │   ├── auth-revamp
+│   │   └── review-api
+│   └── Terminals
+│       └── $ dev-server
+└── feat/oauth
+    ├── Files
+    └── Sessions
+        └── implement
+notes                      ← a directory outside git: no worktree row
+├── Files
+└── Sessions
+    └── outline-the-talk
+Scratch                    ← every scratch session, straight under it
+└── explain-regex-flags
+```
+
 Files starts folded. Unfolded, it lists the worktree's files as a
 [file tree](#file-trees). Hidden files once shown, and what git ignores, are
 drawn dim; the version control's own `.git` and `.jj` are not listed. A file jj or

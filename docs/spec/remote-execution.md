@@ -84,6 +84,24 @@ refuses them when a work machine is selected.
 
 ## Paired work machines
 
+```mermaid
+flowchart LR
+  subgraph client[This computer]
+    W[window]
+    N[prompt and reader Neovims]
+  end
+  subgraph work[Work machine]
+    G[gateway]
+    WH[work host]
+    TH[terminal host]
+    S[sessions and terminals]
+  end
+  W -- "paired keys, over the network" --> G
+  G -- work host's socket --> WH
+  G -- terminal host's socket --> TH
+  WH --> TH --- S
+```
+
 `adroit remote gateway` on the work machine lets paired clients reach the instance's hosts over the
 network, on every interface at port 47130 unless `--listen` names an address.
 It never starts, stops or replaces a host, and it keeps serving across a

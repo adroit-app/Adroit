@@ -7,6 +7,17 @@ for a separate line of work, and the session it opens is an ordinary one: it
 answers to you, reports to no session, and is read and steered in its console
 like any other. Any session can open sessions, whoever started it.
 
+```mermaid
+flowchart TB
+  U((you))
+  A[session A] -- opened --> B[session B]
+  A <-. messages .-> C[session C]
+  U --- A & B & C
+```
+
+Every session answers to you. Session A opened B, and A and C talk as peers;
+none of them reports to another.
+
 ## What a session can do
 
 Each session Adroit starts has these as tools of its agent, through an MCP

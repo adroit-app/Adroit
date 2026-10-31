@@ -23,9 +23,9 @@ those waiting on you listed first.
 ```text
 api                              ← a repository
 ├── main                         ← a worktree
-│   ├── auth-revamp               ← a Claude Code session
-│   ├── review-api                ← a Codex session
-│   └── $ dev-server              ← a named shell
+│   ├── auth-revamp              ← a Claude Code session
+│   ├── review-api               ← a Codex session
+│   └── $ dev-server             ← a named shell
 └── feat/oauth
     └── implement
 notes                            ← a directory outside git
@@ -35,6 +35,20 @@ notes                            ← a directory outside git
 Sessions and shells keep running when the window closes. Open Adroit again to
 return to them, or open several windows onto the same work. The details panel
 shows the session's overview, changes, history, agents and resources.
+
+```text
+┌──────────────┬──────────────────────────────────┬─────────────┐
+│ tree         │ 1 auth-revamp │ 2 review-api     │ details     │
+│              ├────────────────┬─────────────────┤             │
+│ api          │ the agent's    │ another window  │ Overview    │
+│ ├── main     │ own interface  │ of the same tab │ Changes     │
+│ │   ├── …    │                │                 │ Log         │
+│ └── …        ├────────────────┤                 │ Agents      │
+│              │ prompt: Neovim │                 │ Resources   │
+│ waiting on   │                │                 │             │
+│ you          │                │                 │ usage       │
+└──────────────┴────────────────┴─────────────────┴─────────────┘
+```
 
 See [the concept](docs/concept.md) for who Adroit is for and the ideas behind it.
 
