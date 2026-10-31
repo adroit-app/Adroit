@@ -283,9 +283,10 @@ requests for approval or input supply the state instead. A session Adroit
 started shows as starting until its program reports a state or its visible
 activity supplies one.
 
-The completion check marks a result not yet viewed in this window. Viewing
-the session acknowledges it; a later turn completed out of view can be marked
-again. A window in the background does not acknowledge completions.
+A session whose turn has finished is marked done, with a check, in the tree
+and in the strip of a window showing it, until it is viewed in this window;
+viewed, it shows as idle. A later turn finished out of view is marked done
+again. A window in the background views nothing, so its marks stay.
 
 ## Renaming a session
 

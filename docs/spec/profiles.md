@@ -83,11 +83,8 @@ and `[[profiles]]` entries:
   connection; otherwise omitted.
 
 The catalog revision is checked before changes are saved. Unknown versions,
-invalid entries and duplicate IDs are refused. The instance's private
-`profile.toml` pins `profile`, `name`, `target`, optional `scope`, and `client`.
-For a local target, `work_instance` pins the shared service instance, preserving
-the original service when opening an imported environment in another window;
-its connection and environment are never replaced by editing the catalog.
-`window.toml` beside the catalog holds only the local display and input
-preferences. Missing local preferences inherit those fields from the existing
+invalid entries and duplicate IDs are refused. Each instance pins the profile
+it opened, so editing the catalog never replaces the connection or the
+environment of an instance already open. `window.toml` beside the catalog
+holds only the local display and input preferences. Missing local preferences inherit those fields from the existing
 client settings, without taking agent settings from the work machine.
