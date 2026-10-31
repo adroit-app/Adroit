@@ -59,6 +59,7 @@ pub fn sections() -> Vec<Section> {
             entries: vec![
                 Sys(System::About),
                 Run(Action::SettingsOpen),
+                Run(Action::EnvironmentsOpen),
                 Run(Action::DaemonRestart),
                 Separator,
                 Sys(System::Services),

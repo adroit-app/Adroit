@@ -504,7 +504,7 @@ fn EnvironmentEditor() -> Element {
                         }
                 if selected().is_some() {
                         if archived {
-                        SettingRow { label: "Restore environment", hint: "Show this environment in the environment menu again.",
+                        SettingRow { label: "Restore environment", hint: "List this environment in every window again.",
                         button { r#type: "button", onclick: move |_| {
                             let result = (|| {
                                 let mut next = catalog.peek().as_ref().map_err(Clone::clone)?.clone();

@@ -1,22 +1,22 @@
 # Environments
 
 An environment is a named place to work: its connection, its agents and its
-work settings. The main window's environment menu opens a saved environment or
-the separate Environments window, where environments are created and their
-connections set up; Settings configures the environment of the selected tree
-row or the tab shown. Opening an environment shows it in the current window's
-tree beside the environments the window already shows, and brings the window
-forward; opening one already shown goes to it. An environment can also be
-opened in a separate, independent window instance of its own. A window shows
-the same environments again when it is reopened, leaving out those removed or
-archived meanwhile, and each one's tabs come back once its host lists its
-work. A lost connection to one environment leaves the window's other
-environments usable.
+work settings. The main window's tree lists every environment kept on this
+computer, each under a heading of its own ([tree](tree.md)), and the window
+connects to all of them when it opens and to each one added while it is open.
+An environment that cannot be reached stays listed with the work last received
+from it, the window keeps trying it, and the window's other environments stay
+usable. Each one's tabs come back once its host lists its work. The header
+names the environment of the tab shown. Settings configures the environment of
+the selected tree row or the tab shown. Environments are created, their
+connections set up and removed ones restored in the separate Environments
+window, opened from the application menu; opening an environment there goes to
+its heading. An environment can also be opened in a separate, independent
+window instance of its own.
 
-Closing an environment shown beside the window's own, from its heading in the
-tree, takes its tabs out of the window and leaves it out when the window is
-reopened; its sessions keep running on its host. The window's own environment
-cannot be closed.
+Removing an environment from its heading, after asking, archives it and takes
+it out of every window's tree; its sessions keep running on its host. A window
+cannot remove the environment it was started in.
 
 Each instance keeps the environment and connection it opened. Changing another
 instance's choice does not redirect its CLI, MCP, drafts or unresolved sends.

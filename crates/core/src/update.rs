@@ -28,6 +28,7 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
             vec![host::hello(environment)]
         }
         Msg::EnvironmentOpened { environment, name } => state.hosts.add(environment, name),
+        Msg::EnvironmentRemoved(environment) => host::close(state, &environment),
         Msg::WindowFocused(on) => chrome::window_focused(&mut state.chrome, on),
         Msg::Zoom(step) => chrome::step(&mut state.chrome, step),
 

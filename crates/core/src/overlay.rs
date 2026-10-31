@@ -209,6 +209,7 @@ pub(crate) fn answer(state: &mut ViewState, yes: bool) -> Vec<Effect> {
             },
         },
         Ask::RestartDaemon(environment) => Effect::RestartDaemon(environment),
+        Ask::RemoveEnvironment(environment, _) => Effect::ArchiveEnvironment(environment),
     }]
 }
 

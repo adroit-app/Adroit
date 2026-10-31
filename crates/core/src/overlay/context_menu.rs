@@ -28,7 +28,7 @@ fn offer(action: Action) -> (Action, &'static str) {
 
 /// The actions offered on `target`, each with what the menu calls it.
 /// `session` is the session the row or tab is for, when it is for one;
-/// `own` is the window's own environment, which it never stops showing.
+/// `own` is the window's own environment, which it never removes.
 pub fn entries(
     target: &Target,
     session: Option<&Session>,
@@ -84,9 +84,13 @@ pub fn entries(
         Target::Row(Item::Heading(..)) => [fold].into_iter().chain(here).collect(),
         // An environment is no place to start anything in.
         Target::Row(Item::Environment(environment)) if environment != own => {
-            vec![fold, offer(Action::EnvironmentClose)]
+            vec![
+                fold,
+                offer(Action::SettingsOpen),
+                offer(Action::EnvironmentRemove),
+            ]
         }
-        Target::Row(Item::Environment(_)) => vec![fold],
+        Target::Row(Item::Environment(_)) => vec![fold, offer(Action::SettingsOpen)],
         Target::Tab(Tab::Session(_, _)) => [close_tab]
             .into_iter()
             .chain(rename)
@@ -312,7 +316,7 @@ mod tests {
     }
 
     #[test]
-    fn an_added_environment_s_heading_offers_to_close_it_and_the_own_one_s_does_not() {
+    fn an_environment_s_heading_offers_its_settings_and_removal_but_the_own_one_no_removal() {
         use crate::testing::there;
 
         let offered = |environment| {
@@ -321,7 +325,14 @@ mod tests {
                 .map(|(a, _)| a)
                 .collect::<Vec<_>>()
         };
-        assert!(offered(there()).contains(&Action::EnvironmentClose));
-        assert!(!offered(here()).contains(&Action::EnvironmentClose));
+        assert_eq!(
+            offered(there()),
+            [
+                Action::CursorGo,
+                Action::SettingsOpen,
+                Action::EnvironmentRemove
+            ]
+        );
+        assert_eq!(offered(here()), [Action::CursorGo, Action::SettingsOpen]);
     }
 }

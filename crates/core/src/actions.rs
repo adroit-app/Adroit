@@ -82,7 +82,7 @@ pub enum Action {
     TerminalStop,
     NeovimOpen,
     TabClose,
-    EnvironmentClose,
+    EnvironmentRemove,
     WindowClose,
     WindowOpen,
     Refresh,
@@ -109,6 +109,7 @@ pub enum Action {
     HistoryPrev,
     HistoryNext,
     SettingsOpen,
+    EnvironmentsOpen,
     DaemonRestart,
     KeysHelp,
     ZoomIn,
@@ -328,9 +329,9 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::TabClose, "tab.close", "close the content's tab shown and every window in it; agents and terminals keep running and remain reachable from the tree")
         .bar("Close Tab", Icon::X)
         .row("Close tab", End),
-    S::new(A::EnvironmentClose, "environment.close", "stop showing the environment selected in the tree in this window, one shown beside the window's own; its sessions keep running on its host ([details](environments.md))")
-        .icon(Icon::X)
-        .row("Close environment", End),
+    S::new(A::EnvironmentRemove, "environment.remove", "remove the environment selected in the tree from every window after asking, unless the window was started in it; its sessions keep running on its host ([details](environments.md))")
+        .icon(Icon::SquareMinus)
+        .row("Remove environment…", End),
     S::new(A::WindowClose, "window.close", "close the window; the instance's other windows stay open, and its sessions run on").bar("Close Window", Icon::AppWindow),
     S::new(A::WindowOpen, "window.open", "open another window of the instance ([windows](sessions.md#windows))").bar("New Window", Icon::CopyPlus),
     S::new(A::Refresh, "refresh", "read the sessions, and what git says of where they run, again now").bar("Refresh", Icon::Refresh),
@@ -356,7 +357,10 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::PromptTakeSuggestion, "prompt.take_suggestion", "on an empty prompt, send the key pressed to the session and then bring the session's input into the prompt, so a prompt Claude Code suggests is taken to edit; an agent whose input cannot be taken back gets the key alone. On a prompt holding text or images, the key, Tab when none, is typed into Neovim").says("Take the suggested prompt"),
     S::new(A::HistoryPrev, "prompt.history_prev", "put the prompt sent before the one shown in the prompt, to change and send again: those Claude Code recalls with its Up arrow where the focused window's session works").says("Previous prompt"),
     S::new(A::HistoryNext, "prompt.history_next", "put the prompt sent after the one shown in the prompt, as `prompt.history_prev` does").says("Next prompt"),
-    S::new(A::SettingsOpen, "settings.open", "open the Settings window").bar("Settings…", Icon::Settings),
+    S::new(A::SettingsOpen, "settings.open", "open the Settings window, on the environment of the row selected in the tree or else of the tab shown")
+        .bar("Settings…", Icon::Settings)
+        .row("Environment settings…", Go),
+    S::new(A::EnvironmentsOpen, "environments.open", "open the Environments window, to add, check and restore environments ([details](environments.md))").bar("Environments…", Icon::Server),
     S::new(A::DaemonRestart, "daemon.restart", "restart the sessions' daemon after asking, ending every session it holds ([details](sessions.md#the-hosts))").bar("Restart Session Daemon…", Icon::ServerBolt),
     S::new(A::KeysHelp, "keys.help", "show every binding in force, area by area, the areas the keys are in first, each with what its action does and whether it repeats; `Escape`, `q` or the key that showed it closes it, and no other key acts behind it").bar("Keyboard Shortcuts", Icon::Keyboard),
     S::new(A::ZoomIn, "zoom.in", "draw the window a step larger").bar("Zoom In", Icon::ZoomIn),
@@ -553,7 +557,7 @@ mod tests {
             TerminalStop,
             NeovimOpen,
             TabClose,
-            EnvironmentClose,
+            EnvironmentRemove,
             WindowClose,
             WindowOpen,
             Refresh,
@@ -580,6 +584,7 @@ mod tests {
             HistoryPrev,
             HistoryNext,
             SettingsOpen,
+            EnvironmentsOpen,
             DaemonRestart,
             KeysHelp,
             ZoomIn,

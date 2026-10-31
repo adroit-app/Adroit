@@ -42,8 +42,8 @@ file selects local execution. An invalid file is an error, not a request to
 use local execution.
 
 [Environments](environments.md) group a connection with its agents and work
-settings. The environment menu opens another environment without redirecting
-the current instance or requiring the application to restart. The
+settings. A window lists every environment and connects to each without
+redirecting the current instance or requiring the application to restart. The
 Environments window checks connections and explains work-machine setup.
 Existing execution files remain readable for legacy clients; an environment
 binding takes precedence.

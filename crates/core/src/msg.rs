@@ -36,6 +36,9 @@ pub enum Msg {
         environment: EnvironmentId,
         name: String,
     },
+    /// `environment` is no longer kept, or is archived, so the window no
+    /// longer lists it; the environment it was started in stays.
+    EnvironmentRemoved(EnvironmentId),
     /// The window was brought to the front, or sent to the back.
     WindowFocused(bool),
     /// A key asked to zoom.

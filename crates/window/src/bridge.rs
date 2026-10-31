@@ -2,7 +2,7 @@
 //! signal per slice for components to read, and the runner that carries out
 //! what each message asks.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::rc::Rc;
 
 use adroit_connect::environments::{Catalog, Environment};
@@ -136,6 +136,9 @@ pub(crate) struct AppCtx {
     /// The time, in milliseconds, kept going while a link to a work machine
     /// is not connected, so how old its work is counts up.
     pub(crate) clock: Signal<u64>,
+    /// The environments kept whose routes could not be opened, told once
+    /// each while they stay kept.
+    unopened: CopyValue<BTreeSet<EnvironmentId>>,
     /// The effects whose state `App` still holds, and what runs them.
     handed: CopyValue<Handoff>,
     /// What runs an action where the keys are now, which `App` still does.
@@ -212,6 +215,7 @@ pub(crate) fn use_app() -> AppCtx {
             clock: Signal::new(adroit_model::time::now_ms()),
             settings_environment: CopyValue::new(environment.clone()),
             settings_config: CopyValue::new(None),
+            unopened: CopyValue::new(Default::default()),
             handed: CopyValue::new(Handoff::default()),
             performer: CopyValue::new(None),
             scope: current_scope_id(),
@@ -225,6 +229,7 @@ pub(crate) fn use_app() -> AppCtx {
             loop {
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                 app.refresh_client_settings();
+                app.follow_catalog();
                 app.look_at_remotes();
             }
         });
@@ -242,9 +247,9 @@ pub(crate) fn use_app() -> AppCtx {
                 window.set_focus();
             }
         });
-        // Not while the window is first drawn: showing one changes what is
+        // Not while the window is first drawn: listing one changes what is
         // drawn.
-        spawn(async move { app.reopen_kept_environments() });
+        spawn(async move { app.follow_catalog() });
         app
     })
 }
@@ -270,22 +275,73 @@ impl AppCtx {
         });
     }
 
-    /// Show `environment` beside those the window shows: its host linked
-    /// and greeted, and kept for the window's next run. One the window shows
-    /// already has its heading selected instead.
+    /// Select `environment`'s heading, once the window lists what the
+    /// catalog keeps now; one archived is not listed, and says so.
     pub(crate) fn show_environment(&self, environment: &Environment) {
+        self.follow_catalog();
         let id = EnvironmentId::new(&environment.id);
         if self.links.peek().shows(&id) {
             self.dispatch(Msg::TreeSelect(Some(Item::Environment(id))));
-            return;
+        } else if environment.archived {
+            self.notice(format!("{} is removed; restore it first", environment.name));
         }
+    }
+
+    /// List every environment the catalog keeps, and only those: one added
+    /// is linked, one archived or deleted is closed, and one renamed is
+    /// called by its new name. A catalog that cannot be read changes nothing.
+    fn follow_catalog(&self) {
+        let Ok(catalog) = Catalog::load(&Catalog::path()) else {
+            return;
+        };
+        let following = {
+            let links = self.links.peek();
+            let linked = links.each().map(|(environment, _)| environment);
+            crate::environments::follow(&catalog, linked, links.own_environment())
+        };
+        let mut unopened = self.unopened;
+        unopened.write().retain(|id| {
+            following
+                .link
+                .iter()
+                .any(|e| EnvironmentId::new(&e.id) == *id)
+        });
+        for environment in following.unlink {
+            self.dispatch(Msg::EnvironmentRemoved(environment));
+        }
+        for environment in &following.link {
+            self.link_environment(environment);
+        }
+        for environment in catalog.environments.iter().filter(|e| !e.archived) {
+            let id = EnvironmentId::new(&environment.id);
+            let renamed =
+                self.links.peek().shows(&id) && self.hosts.peek().name(&id) != environment.name;
+            if renamed {
+                self.dispatch(Msg::EnvironmentOpened {
+                    environment: id,
+                    name: environment.name.clone(),
+                });
+            }
+        }
+    }
+
+    /// Link `environment` beside those the window lists, its host greeted.
+    /// A route that cannot be opened is tried again at the next look and
+    /// told only the first time.
+    fn link_environment(&self, environment: &Environment) {
+        let id = EnvironmentId::new(&environment.id);
         let (link, events) = match open_shown(environment) {
             Ok(opened) => opened,
             Err(text) => {
-                self.notice(format!("cannot open {}: {text}", environment.name));
+                let mut unopened = self.unopened;
+                if unopened.write().insert(id) {
+                    self.notice(format!("cannot open {}: {text}", environment.name));
+                }
                 return;
             }
         };
+        let mut unopened = self.unopened;
+        unopened.write().remove(&id);
         let mut links = self.links;
         links.write().add(id.clone(), || Rc::new(link));
         self.listen(id.clone(), events);
@@ -297,41 +353,10 @@ impl AppCtx {
         ) {
             self.status(Some(format!("cannot write the editor script: {e}")));
         }
-        self.keep_environments();
         self.dispatch(Msg::EnvironmentOpened {
             environment: id,
             name: environment.name.clone(),
         });
-    }
-
-    /// Show again the environments the window showed when it last ran,
-    /// leaving out those removed or archived since.
-    fn reopen_kept_environments(&self) {
-        let Ok(text) = std::fs::read_to_string(kept_environments_path()) else {
-            return;
-        };
-        let Ok(catalog) = Catalog::load(&Catalog::path()) else {
-            return;
-        };
-        let own = self.links.peek().own_environment().clone();
-        let kept = crate::kept_environments::read(&text);
-        for environment in crate::kept_environments::reopened(&kept, &catalog, &own) {
-            self.show_environment(&environment);
-        }
-        self.keep_environments();
-    }
-
-    /// Keep the environments the window shows beside its own for its next
-    /// run.
-    fn keep_environments(&self) {
-        let text = crate::kept_environments::text(self.links.peek().others());
-        let path = kept_environments_path();
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        if let Err(e) = std::fs::write(&path, text) {
-            eprintln!("adroit: cannot keep the environments shown: {e}");
-        }
     }
 
     /// The link to `environment`, the window's own for one it does not show.
@@ -658,8 +683,14 @@ impl AppCtx {
             Effect::EnvironmentClosed(environment) => {
                 let mut links = self.links;
                 links.write().remove(&environment);
-                self.keep_environments();
             }
+            Effect::ArchiveEnvironment(environment) => {
+                match crate::environments::archive(&Catalog::path(), &environment) {
+                    Ok(()) => self.follow_catalog(),
+                    Err(e) => self.status(Some(format!("cannot remove the environment: {e}"))),
+                }
+            }
+            Effect::OpenEnvironments => crate::environment_manager::open(),
             Effect::CloseWindow => dioxus::desktop::window().close(),
             Effect::OpenWindow => {
                 if let Err(e) = open_another_window() {
@@ -837,11 +868,6 @@ fn open_another_window() -> std::io::Result<()> {
 /// Where this window keeps its content, under its number.
 fn content_path() -> std::path::PathBuf {
     crate::window_socket::kept_path("content.json")
-}
-
-/// Where this window keeps the environments it shows beside its own.
-fn kept_environments_path() -> std::path::PathBuf {
-    crate::window_socket::kept_path("environments")
 }
 
 /// Where this window kept the one tab its focused window showed, before it

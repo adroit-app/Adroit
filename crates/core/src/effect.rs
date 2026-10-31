@@ -219,9 +219,13 @@ pub enum Effect {
     CloseWindow,
     /// Open another window of the instance.
     OpenWindow,
-    /// The window no longer shows `environment`: its link goes, and it is
-    /// not shown again when the window is reopened.
+    /// The window no longer lists `environment`: its link goes.
     EnvironmentClosed(EnvironmentId),
+    /// Archive `environment` in the environments kept, which every window
+    /// then stops listing.
+    ArchiveEnvironment(EnvironmentId),
+    /// Open the Environments window.
+    OpenEnvironments,
 
     // The overlays.
     /// Run `action` where the keys are now.

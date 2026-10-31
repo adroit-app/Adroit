@@ -149,9 +149,9 @@ impl Hosts {
     }
 }
 
-/// The window stops showing `environment`, one it shows beside its own: its
-/// host and the windows showing its work go, and the window is told to drop
-/// its link. Its sessions run on; the window's own environment stays.
+/// The window stops listing `environment`: its host and the windows showing
+/// its work go, and the window is told to drop its link. Its sessions run
+/// on; the environment the window was started in stays.
 pub(crate) fn close(state: &mut ViewState, environment: &EnvironmentId) -> Vec<Effect> {
     if *environment == state.hosts.environment || state.hosts.each.remove(environment).is_none() {
         return Vec::new();

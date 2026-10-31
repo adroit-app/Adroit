@@ -240,8 +240,8 @@ leaves terminals running; replacing the terminal host ends its programs.
 
 Pair the client with the work machine: run `adroit connect pair <address>` on
 the client, then `adroit remote pair` on the work machine and type the code the
-client shows. The client adds an environment for the work machine; open it
-from the environment menu, or check its connection with `adroit connect` first.
+client shows. The client adds an environment for the work machine, which every
+window lists; check its connection with `adroit connect` first if you like.
 Pairing is also available from the Environments window, which lists the work
 machines announcing themselves on the local network.
 See [remote hosts](docs/spec/remote-execution.md) for the configuration, recovery

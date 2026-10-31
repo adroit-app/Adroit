@@ -4,6 +4,7 @@
 .header-crumbs-item { display: inline-flex; align-items: center; gap: 6px; }
 .header-crumbs-item .icon { color: var(--text-3); }
 .header-crumbs-path { font-family: var(--mono); font-size: 12px; }
+.header-crumbs-environment { color: var(--text); flex: none; }
 .flex-spacer { flex: 1; }
 .header-chip { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 10px; border-radius: 11px;
   background: var(--panel); color: var(--text-2); font-size: 12px; }
@@ -39,6 +40,3 @@
 .sidebar-bar { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--line); flex: none; margin-bottom: 8px; }
 .sidebar-bar .sidebar-tools { flex: none; }
 .sidebar-bar .filter-field { flex: 1; min-width: 0; margin: 0; }
-.environment-switcher { display: flex; align-items: center; gap: 8px; margin-right: 12px; min-width: 0; }
-.environment-switcher select { max-width: 180px; color: var(--text-1); background: var(--raised); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font: inherit; }
-.environment-error { color: var(--error); font-size: 12px; }

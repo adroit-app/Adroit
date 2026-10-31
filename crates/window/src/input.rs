@@ -331,7 +331,8 @@ fn use_menu_bar(ui: &Ui) {
             if overlay::holds_menu_bar(&app.held()) {
                 return;
             }
-            if action != Action::SettingsOpen {
+            // Each opens a window of its own, which takes the focus.
+            if !matches!(action, Action::SettingsOpen | Action::EnvironmentsOpen) {
                 desktop.window.set_focus();
             }
             app.dispatch(Msg::KeysHelpClose);

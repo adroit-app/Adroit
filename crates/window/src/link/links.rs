@@ -72,12 +72,6 @@ impl<L> Links<L> {
     pub(crate) fn each(&self) -> impl Iterator<Item = (&EnvironmentId, &L)> {
         self.each.iter()
     }
-
-    /// The environments shown beside the window's own, in the order of
-    /// their ids.
-    pub(crate) fn others(&self) -> impl Iterator<Item = &EnvironmentId> {
-        self.each.keys().filter(|e| **e != self.own)
-    }
 }
 
 #[cfg(test)]
@@ -93,6 +87,7 @@ mod tests {
         assert_eq!(links.remove(&there), Some("there link"));
         assert!(!links.shows(&there));
         assert!(links.shows(&own));
+        assert_eq!(links.own_environment(), &own);
     }
 
     #[test]
@@ -120,15 +115,5 @@ mod tests {
         assert_eq!(*links.of(&EnvironmentId::new("there")), "there link");
         assert_eq!(*links.of(&EnvironmentId::new("elsewhere")), "own link");
         assert_eq!(links.get(&EnvironmentId::new("elsewhere")), None);
-    }
-
-    #[test]
-    fn the_environments_shown_beside_the_own_one_leave_it_out() {
-        let mut links = Links::new(EnvironmentId::new("b"), ());
-        links.add(EnvironmentId::new("c"), || ());
-        links.add(EnvironmentId::new("a"), || ());
-        let others: Vec<_> = links.others().cloned().collect();
-        assert_eq!(others, [EnvironmentId::new("a"), EnvironmentId::new("c")]);
-        assert_eq!(links.own_environment(), &EnvironmentId::new("b"));
     }
 }

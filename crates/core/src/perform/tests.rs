@@ -478,15 +478,46 @@ fn a_drawn_image_s_window_takes_the_viewer_s_actions() {
 }
 
 #[test]
-fn closing_an_environment_shown_beside_the_own_drops_its_host_and_tabs_and_tells_the_window() {
+fn removing_an_environment_asks_first_and_then_has_the_window_archive_it() {
+    use crate::overlay::confirm::Ask;
+    use crate::testing::{shows_there, there};
+
+    let asked = shows_there(showing(Area::Sidebar), [session("b")])
+        .send(Msg::TreeSelect(Some(Item::Environment(there()))))
+        .send(perform(Action::EnvironmentRemove, None, Probe::default()));
+    assert_eq!(
+        asked.state().overlays.confirm,
+        Some(Ask::RemoveEnvironment(there(), "There".into()))
+    );
+    assert!(asked.last_effects().is_empty());
+
+    let answered = asked.send(Msg::ConfirmAnswer(true));
+    assert_eq!(
+        answered.last_effects(),
+        [Effect::ArchiveEnvironment(there())]
+    );
+    assert!(
+        answered.state().hosts.get(&there()).is_some(),
+        "listed until the catalog no longer keeps it"
+    );
+}
+
+#[test]
+fn an_environment_no_longer_kept_drops_its_host_and_tabs_and_tells_the_window() {
     use crate::testing::{shows_there, there};
 
     let run = shows_there(showing(Area::Sidebar), [session("b")])
         .send(Msg::ShowSession(there(), "b".into()))
-        .send(Msg::Focus(Area::Sidebar))
         .send(Msg::TreeSelect(Some(Item::Environment(there()))))
-        .send(perform(Action::EnvironmentClose, None, Probe::default()));
+        .send(Msg::EnvironmentRemoved(there()));
     assert!(run.state().hosts.get(&there()).is_none());
+    assert!(
+        run.state()
+            .tree
+            .selected
+            .as_ref()
+            .is_none_or(|row| row.environment() != &there())
+    );
     assert!(
         run.state()
             .content
@@ -512,15 +543,27 @@ fn closing_an_environment_shown_beside_the_own_drops_its_host_and_tabs_and_tells
 }
 
 #[test]
-fn the_window_s_own_environment_is_never_closed() {
+fn the_environment_the_window_was_started_in_is_never_removed_from_it() {
     use crate::testing::{shows_there, there};
 
-    let run = shows_there(showing(Area::Sidebar), [session("b")])
+    let asked = shows_there(showing(Area::Sidebar), [session("b")])
         .send(Msg::TreeSelect(Some(Item::Environment(here()))))
-        .send(perform(Action::EnvironmentClose, None, Probe::default()));
-    assert!(run.state().hosts.get(&here()).is_some());
-    assert!(run.state().hosts.get(&there()).is_some());
-    assert!(run.last_effects().is_empty());
+        .send(perform(Action::EnvironmentRemove, None, Probe::default()));
+    assert_eq!(asked.state().overlays.confirm, None);
+    assert!(asked.last_effects().is_empty());
+
+    let gone = asked.send(Msg::EnvironmentRemoved(here()));
+    assert!(gone.state().hosts.get(&here()).is_some());
+    assert!(gone.state().hosts.get(&there()).is_some());
+    assert!(gone.last_effects().is_empty());
+}
+
+#[test]
+fn the_environments_window_is_opened_from_anywhere() {
+    for area in [Area::Sidebar, Area::Console] {
+        let run = showing(area).send(perform(Action::EnvironmentsOpen, None, Probe::default()));
+        assert_eq!(run.last_effects(), [Effect::OpenEnvironments], "{area:?}");
+    }
 }
 
 #[test]
@@ -591,7 +634,7 @@ fn the_daemon_restart_is_asked_for_the_environment_of_the_selected_row_or_else_o
 }
 
 #[test]
-fn closing_an_environment_takes_its_daemon_s_banner_away() {
+fn an_environment_no_longer_kept_takes_its_daemon_s_banner_away() {
     use crate::testing::{shows_there, there};
 
     let run = shows_there(showing(Area::Sidebar), [session("b")])
@@ -599,7 +642,6 @@ fn closing_an_environment_takes_its_daemon_s_banner_away() {
             environment: there(),
             note: Some("old".into()),
         })
-        .send(Msg::TreeSelect(Some(Item::Environment(there()))))
-        .send(perform(Action::EnvironmentClose, None, Probe::default()));
+        .send(Msg::EnvironmentRemoved(there()));
     assert_eq!(run.state().overlays.banner.shown(), None);
 }

@@ -10,8 +10,7 @@ use std::path::{Path, PathBuf};
 
 use adroit_connect::Target;
 use adroit_connect::environments::{Binding, Catalog, Environment};
-use adroit_model::EnvironmentId;
-use adroit_model::paths::{USER_EDITOR, editor_script, instance_dir, window_state};
+use adroit_model::paths::{USER_EDITOR, editor_script, instance_dir};
 
 use crate::window_socket::{Request, Response, ask_each, windows};
 
@@ -101,32 +100,32 @@ pub fn install_shown(
 }
 
 /// The windows of an instance, as `adroit editor` looks at them: where they
-/// answer, the environment the instance is bound to, and those its windows
-/// show beside it.
+/// answer, the environment the instance is bound to, and whether a window
+/// of it opened, which lists every environment kept.
 #[derive(Debug)]
 pub(crate) struct Instance {
     pub(crate) windows: PathBuf,
     pub(crate) binding: Option<Binding>,
-    pub(crate) shows: Vec<EnvironmentId>,
+    pub(crate) lists: bool,
 }
 
 impl Instance {
     fn at(state: &Path) -> Self {
         let windows = state.join("windows");
-        let shows = std::fs::read_dir(&windows)
+        let lists = std::fs::read_dir(&windows)
             .into_iter()
             .flatten()
             .flatten()
-            .filter_map(|entry| entry.file_name().to_str()?.parse::<u32>().ok())
-            .filter_map(|n| {
-                std::fs::read_to_string(window_state(&windows, n).join("environments")).ok()
-            })
-            .flat_map(|text| crate::kept_environments::read(&text))
-            .collect();
+            .any(|entry| {
+                entry
+                    .file_name()
+                    .to_str()
+                    .is_some_and(|name| name.parse::<u32>().is_ok())
+            });
         Self {
             binding: Binding::load(state).ok().flatten(),
             windows,
-            shows,
+            lists,
         }
     }
 }
@@ -134,7 +133,8 @@ impl Instance {
 /// The windows' folders the file of a session of the environment with
 /// `scope`, on the work instance `work`, is offered to, in turn: `own`
 /// first for a session of no environment, then those of each instance bound
-/// to that environment or showing it beside its own.
+/// to that environment or listing it, as every window lists each environment
+/// kept unarchived.
 pub(crate) fn offered(
     scope: Option<&str>,
     work: &str,
@@ -147,23 +147,19 @@ pub(crate) fn offered(
             && binding.target == Target::Local
             && binding.work_instance.as_deref().unwrap_or("default") == work
     };
-    let shown = |id: &EnvironmentId| {
-        catalog.environments.iter().any(|environment| {
-            EnvironmentId::new(&environment.id) == *id
-                && !environment.archived
-                && environment
-                    .bind(adroit_model::paths::DEFAULT_INSTANCE)
-                    .is_ok_and(|binding| reaches(&binding))
-        })
-    };
+    let listed = catalog.environments.iter().any(|environment| {
+        !environment.archived
+            && environment
+                .bind(adroit_model::paths::DEFAULT_INSTANCE)
+                .is_ok_and(|binding| reaches(&binding))
+    });
     let mut offered = if scope.is_none() {
         vec![own]
     } else {
         Vec::new()
     };
     for instance in instances {
-        let answers =
-            instance.binding.as_ref().is_some_and(reaches) || instance.shows.iter().any(shown);
+        let answers = instance.binding.as_ref().is_some_and(reaches) || (instance.lists && listed);
         if answers && !offered.contains(&instance.windows) {
             offered.push(instance.windows);
         }
@@ -255,11 +251,11 @@ mod tests {
         there(scope).bind("client").unwrap()
     }
 
-    fn instance(windows: &str, binding: Option<Binding>, shows: &[&str]) -> Instance {
+    fn instance(windows: &str, binding: Option<Binding>, lists: bool) -> Instance {
         Instance {
             windows: windows.into(),
             binding,
-            shows: shows.iter().map(EnvironmentId::new).collect(),
+            lists,
         }
     }
 
@@ -280,15 +276,15 @@ mod tests {
     }
 
     #[test]
-    fn a_session_of_an_environment_a_window_shows_beside_its_own_is_offered_to_that_window() {
+    fn a_session_of_an_environment_kept_is_offered_to_every_instance_whose_windows_list_it() {
         let catalog = Catalog {
             environments: vec![there("scope-b")],
             ..Catalog::default()
         };
         let instances = [
-            instance("/a/windows", Some(bound("scope-a")), &[]),
-            instance("/b/windows", Some(bound("scope-a")), &["there"]),
-            instance("/c/windows", Some(bound("scope-b")), &[]),
+            instance("/a/windows", Some(bound("scope-a")), false),
+            instance("/b/windows", Some(bound("scope-a")), true),
+            instance("/c/windows", Some(bound("scope-b")), false),
         ];
         assert_eq!(
             offered(
@@ -303,13 +299,27 @@ mod tests {
     }
 
     #[test]
-    fn a_window_that_closed_an_environment_is_no_longer_offered_its_sessions() {
+    fn the_sessions_of_an_environment_archived_are_offered_only_to_its_own_instance() {
+        let mut archived = there("scope-b");
+        archived.archived = true;
         let catalog = Catalog {
-            environments: vec![there("scope-b")],
+            environments: vec![archived],
             ..Catalog::default()
         };
-        let closed = [instance("/b/windows", Some(bound("scope-a")), &[])];
-        assert!(offered(Some("scope-b"), "default", "/own".into(), closed, &catalog).is_empty());
+        let instances = [
+            instance("/b/windows", Some(bound("scope-a")), true),
+            instance("/c/windows", Some(bound("scope-b")), true),
+        ];
+        assert_eq!(
+            offered(
+                Some("scope-b"),
+                "default",
+                "/own".into(),
+                instances,
+                &catalog
+            ),
+            [PathBuf::from("/c/windows")]
+        );
     }
 
     #[test]

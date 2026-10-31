@@ -376,10 +376,17 @@ pub(crate) fn perform(
         }
         Action::WindowClose => vec![Effect::CloseWindow],
         Action::WindowOpen => vec![Effect::OpenWindow],
-        Action::EnvironmentClose => match cur.as_ref().filter(|_| on_list) {
-            Some(Item::Environment(environment)) => crate::host::close(state, &environment.clone()),
+        Action::EnvironmentRemove => match cur.as_ref().filter(|_| on_list) {
+            Some(Item::Environment(environment)) if *environment != state.hosts.environment => {
+                let name = state.hosts.name(environment);
+                step(
+                    state,
+                    Msg::Confirm(Box::new(Ask::RemoveEnvironment(environment.clone(), name))),
+                )
+            }
             _ => Vec::new(),
         },
+        Action::EnvironmentsOpen => vec![Effect::OpenEnvironments],
         Action::TreeToggle => step(state, Msg::PanelToggle(Side::Sidebar)),
         Action::DetailsToggle => step(state, Msg::PanelToggle(Side::Details)),
         Action::ZoomIn => step(state, Msg::Zoom(zoom::Step::In)),

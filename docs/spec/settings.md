@@ -4,8 +4,8 @@ Adroit's settings are changed in its Settings window, opened with Command
 comma or the gear in the header. It configures the
 [environment](environments.md) of the selected tree row or the tab shown,
 which its title names; environments are created and their
-connections managed in the Environments window, opened from the main window's
-environment menu. Agents, programs and working paths belong to the open
+connections managed in the Environments window, opened from the application
+menu. Agents, programs and working paths belong to the open
 environment. Window, Console and Prompt hold the client's display, input and
 embedded Neovim preferences; console themes remain work settings under
 Appearance. Changes apply to windows using the same settings owner and remain

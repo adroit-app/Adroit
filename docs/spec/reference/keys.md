@@ -79,7 +79,7 @@ changes them ([keys](../keys.md)).
 | `terminal.stop` | Stop Terminal | end the terminal selected in the tree, or else the one shown |  |
 | `neovim.open` | Open Neovim | open Neovim, with your own configuration, in the worktree as `shell.open` opens a shell ([shells](../content.md#terminals)) | `global`: `Mod+e`<br>`tree`: `e` |
 | `tab.close` | Close Tab | close the content's tab shown and every window in it; agents and terminals keep running and remain reachable from the tree | `global`: `Mod+w` |
-| `environment.close` |  | stop showing the environment selected in the tree in this window, one shown beside the window's own; its sessions keep running on its host ([details](../environments.md)) |  |
+| `environment.remove` |  | remove the environment selected in the tree from every window after asking, unless the window was started in it; its sessions keep running on its host ([details](../environments.md)) |  |
 | `window.close` | Close Window | close the window; the instance's other windows stay open, and its sessions run on | `global`: `Cmd+W` |
 | `window.open` | New Window | open another window of the instance ([windows](../sessions.md#windows)) | `global`: `Mod+n` |
 | `refresh` | Refresh | read the sessions, and what git says of where they run, again now | `global`: `Mod+r`<br>`tree`: `r` |
@@ -105,7 +105,8 @@ changes them ([keys](../keys.md)).
 | `prompt.take_suggestion` |  | on an empty prompt, send the key pressed to the session and then bring the session's input into the prompt, so a prompt Claude Code suggests is taken to edit; an agent whose input cannot be taken back gets the key alone. On a prompt holding text or images, the key, Tab when none, is typed into Neovim |  |
 | `prompt.history_prev` |  | put the prompt sent before the one shown in the prompt, to change and send again: those Claude Code recalls with its Up arrow where the focused window's session works | `console`: `ArrowUp`, `Ctrl+p` |
 | `prompt.history_next` |  | put the prompt sent after the one shown in the prompt, as `prompt.history_prev` does | `console`: `ArrowDown`, `Ctrl+n` |
-| `settings.open` | Settings… | open the Settings window | `global`: `Mod+,` |
+| `settings.open` | Settings… | open the Settings window, on the environment of the row selected in the tree or else of the tab shown | `global`: `Mod+,` |
+| `environments.open` | Environments… | open the Environments window, to add, check and restore environments ([details](../environments.md)) |  |
 | `daemon.restart` | Restart Session Daemon… | restart the sessions' daemon after asking, ending every session it holds ([details](../sessions.md#the-hosts)) |  |
 | `keys.help` | Keyboard Shortcuts | show every binding in force, area by area, the areas the keys are in first, each with what its action does and whether it repeats; `Escape`, `q` or the key that showed it closes it, and no other key acts behind it | `global`: `F1`<br>`prompt`: `F1` |
 | `zoom.in` | Zoom In | draw the window a step larger | `global`: `Mod+=`, `Mod+Plus` |

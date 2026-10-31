@@ -13,6 +13,8 @@ pub enum Ask {
     KillProcess(EnvironmentId, Session, Process),
     /// Restart the terminal host of the environment.
     RestartDaemon(EnvironmentId),
+    /// Remove the environment, by this name, from the environments kept.
+    RemoveEnvironment(EnvironmentId, String),
 }
 
 impl Ask {
@@ -55,6 +57,12 @@ impl Ask {
                 "Every session it holds ends: agents and shells, with what they scrolled back. Conversations remain in the provider's history.".into(),
                 "Restart daemon",
             ),
+            Self::RemoveEnvironment(_, name) => (
+                Icon::SquareMinus,
+                format!("Remove {name}?"),
+                "Every window stops listing it. Its sessions keep running on its host, and the Environments window can restore it.".into(),
+                "Remove",
+            ),
         }
     }
 
@@ -72,6 +80,16 @@ mod tests {
     fn restarting_the_daemon_is_asked_as_a_loss_as_killing_a_process_is() {
         assert!(Ask::RestartDaemon(EnvironmentId::default()).destroys());
         assert!(!Ask::Stop(EnvironmentId::default(), Session::default()).destroys());
+    }
+
+    #[test]
+    fn removing_an_environment_names_it_and_is_not_asked_as_a_loss() {
+        let ask = Ask::RemoveEnvironment(EnvironmentId::new("there"), "There".into());
+        let (_, title, body, action) = ask.dialog();
+        assert_eq!(title, "Remove There?");
+        assert!(body.contains("keep running"), "{body}");
+        assert_eq!(action, "Remove");
+        assert!(!ask.destroys());
     }
 
     #[test]

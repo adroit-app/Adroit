@@ -1,5 +1,5 @@
 //! The header: the panels' switches, where the content's focused window is,
-//! and how many sessions wait or work.
+//! in which environment, and how many sessions wait or work.
 
 use adroit_core::tree;
 use dioxus::prelude::*;
@@ -15,12 +15,15 @@ use crate::layout::Side;
 pub(crate) fn Header(ontoggle: EventHandler<Side>) -> Element {
     let app = use_context::<AppCtx>();
     let layout = app.chrome.read().panels.layout;
-    let (crumbs, waiting, working) = {
+    let (environment, name, crumbs, waiting, working) = {
         let view = app.tree.read();
         let hosts = app.hosts.read();
         let showing = app.content.read().showing();
-        let work = hosts.work(hosts.environment_of(showing.tab.as_ref()));
+        let environment = hosts.environment_of(showing.tab.as_ref()).clone();
+        let work = hosts.work(&environment);
         (
+            environment.clone(),
+            hosts.name(&environment),
             tree::crumbs(&showing, work),
             view.waiting.len(),
             hosts
@@ -29,9 +32,9 @@ pub(crate) fn Header(ontoggle: EventHandler<Side>) -> Element {
                 .sum::<usize>(),
         )
     };
+    let kind = crate::connection::standing_of(&app, &environment).kind;
     rsx! {
         div { class: "header",
-            crate::environments::EnvironmentMenu {}
             span {
                 class: if layout.show_sidebar { "pane-toggle on" } else { "pane-toggle" },
                 title: "Show or hide the tree (⌘B)",
@@ -39,7 +42,9 @@ pub(crate) fn Header(ontoggle: EventHandler<Side>) -> Element {
                 IconView { icon: Icon::LayoutSidebar, size: 16 }
             }
             div { class: "header-crumbs",
+                span { class: "header-crumbs-item header-crumbs-environment", IconView { icon: kind.icon(), size: 14 } "{name}" }
                 if let Some(c) = &crumbs {
+                    span { class: "header-crumbs-sep", IconView { icon: Icon::ChevronRight, size: 12 } }
                     if let Some((name, scratch)) = &c.workspace {
                         span { class: "header-crumbs-item", IconView { icon: if *scratch { Icon::Notes } else { Icon::Folder }, size: 14 } "{name}" }
                         span { class: "header-crumbs-sep", IconView { icon: Icon::ChevronRight, size: 12 } }
