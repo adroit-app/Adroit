@@ -26,7 +26,7 @@ use dioxus::core::{Runtime, current_scope_id};
 use dioxus::prelude::*;
 
 use crate::layout::{Kept as _, Layout};
-use crate::link::{Events, Link, To};
+use crate::link::{Events, Link, Route, To};
 use crate::paths::{home, instance_state};
 
 /// How long the window waits for the work before it is first drawn, so it
@@ -127,8 +127,10 @@ pub(crate) struct AppCtx {
 /// with the work host linked and its events fed back as messages.
 pub(crate) fn use_app() -> AppCtx {
     use_hook(|| {
-        let (link, mut events, first) =
-            Link::selected(work_host(), &instance_state().join("execution.toml"));
+        let (link, mut events, first) = Link::selected(
+            Route::selected(&instance_state().join("execution.toml")),
+            work_host,
+        );
         let link = Rc::new(link);
         // Drawn without the work, should the host not answer in time.
         let _ = first.recv_timeout(FIRST_WORK);
@@ -533,11 +535,10 @@ pub(crate) fn run_detached(
     });
 }
 
-/// The work host of the window's instance, started as this program serving
-/// it.
-fn work_host() -> To {
+/// The work host listening at `socket`, started as this program serving it.
+fn work_host(socket: std::path::PathBuf) -> To {
     To {
-        socket: adroit_model::paths::work_host_socket(),
+        socket,
         program: crate::panes::adroit_program(),
         args: vec!["host".into()],
         build: crate::build::build(),

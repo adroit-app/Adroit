@@ -18,8 +18,10 @@ use tokio::sync::{mpsc, oneshot};
 
 mod events;
 mod remote;
+mod route;
 pub(crate) use events::Events;
 pub(crate) use remote::{Phase as RemotePhase, Status as RemoteStatus};
+pub(crate) use route::*;
 
 #[derive(Clone)]
 enum Sending {
@@ -60,14 +62,17 @@ pub(crate) struct Link {
 }
 
 impl Link {
-    pub(crate) fn selected(to: To, path: &Path) -> (Link, Events, std::sync::mpsc::Receiver<()>) {
-        let selected = adroit_connect::environments::active().and_then(|binding| {
-            binding.map_or_else(|| adroit_connect::Target::load(path), |b| Ok(b.target))
-        });
-        match selected {
-            Ok(adroit_connect::Target::Local) => Self::open(to),
-            Ok(target) => remote::open(adroit_connect::Remote::new(&target)),
-            Err(text) => remote::open(Err(text)),
+    /// Keep a link along `route`, a local work host being reached as
+    /// `local` says for the socket it listens at.
+    pub(crate) fn selected(
+        route: Route,
+        local: impl FnOnce(PathBuf) -> To,
+    ) -> (Link, Events, std::sync::mpsc::Receiver<()>) {
+        let Route { scope, toward } = route;
+        match toward {
+            Ok(Toward::Local { host, terminal }) => Self::open(local(host), terminal, scope),
+            Ok(Toward::Remote(target)) => remote::open(adroit_connect::Remote::new(&target), scope),
+            Err(text) => remote::open(Err(text), scope),
         }
     }
 
@@ -123,16 +128,22 @@ impl Link {
             }
         }
     }
-    /// Keep a link to the work host `to` on a thread of its own: the link,
+    /// Keep a link to the work host `to`, asked for the environment `scope`,
+    /// its terminal host at `terminal`, on a thread of its own: the link,
     /// what the host tells the window, and what is told once the window has
     /// first been sent the work.
-    pub(crate) fn open(to: To) -> (Link, Events, std::sync::mpsc::Receiver<()>) {
+    pub(crate) fn open(
+        to: To,
+        terminal: PathBuf,
+        scope: Option<String>,
+    ) -> (Link, Events, std::sync::mpsc::Receiver<()>) {
         let (requests, asked) = mpsc::unbounded_channel();
         let (told, events) = mpsc::unbounded_channel();
         let (greeted, first) = std::sync::mpsc::channel();
         let waiting = Waiting::default();
         let keeping = Keep {
             to,
+            scope,
             asked,
             told,
             waiting: waiting.clone(),
@@ -156,7 +167,7 @@ impl Link {
             requests: Sending::Local(requests),
             asked: Arc::default(),
             waiting,
-            daemon: adroit_term::Daemon::new(adroit_model::paths::terminal_host_socket()),
+            daemon: adroit_term::Daemon::new(terminal),
         };
         (link, Events::Local(events), first)
     }
@@ -248,6 +259,7 @@ impl Shown {
 /// The link's own thread.
 struct Keep {
     to: To,
+    scope: Option<String>,
     asked: mpsc::UnboundedReceiver<Request>,
     told: mpsc::UnboundedSender<Event>,
     waiting: Waiting,
@@ -280,7 +292,7 @@ impl Keep {
         ensure(&self.to)
             .await
             .map_err(|e| format!("cannot start the work host: {e}"))?;
-        Connection::open(&self.to.socket)
+        Connection::open_in(&self.to.socket, self.scope.as_deref())
             .await
             .map_err(|e| format!("cannot reach the work host: {e}"))
     }
@@ -499,6 +511,20 @@ mod tests {
             }
         }
 
+        /// The environment the window asked for first, granted.
+        async fn environment(&mut self) -> String {
+            let first = self.first.take().expect("nothing was asked");
+            let asked: serde_json::Value = serde_json::from_str(&first).unwrap();
+            assert_eq!(asked["op"], "environment", "asked {first} first");
+            let id = asked["id"].as_str().unwrap().to_string();
+            let granted = serde_json::json!({"environment": id, "epoch": 1});
+            self.write
+                .write_all(format!("{granted}\n").as_bytes())
+                .await
+                .unwrap();
+            id
+        }
+
         async fn asked(&mut self) -> Request {
             if let Some(first) = self.first.take() {
                 return decode(first).unwrap();
@@ -538,7 +564,8 @@ mod tests {
         let dir = short_dir();
         let socket = dir.path().join("h.sock");
         let listener = UnixListener::bind(&socket).unwrap();
-        let (link, mut events, first) = Link::open(to(&socket));
+        let (link, mut events, first) =
+            Link::open(to(&socket), dir.path().join("felis.sock"), None);
         let mut host = Accepted::from(&listener).await;
         assert!(matches!(host.asked().await, Request::Hello { .. }));
         // The window's own greeting is the link's to say.
@@ -555,11 +582,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn links_to_two_environments_each_ask_their_own_hosts_for_their_own_environment() {
+        let dir = short_dir();
+        let (a, b) = (dir.path().join("a.sock"), dir.path().join("b.sock"));
+        let (listener_a, listener_b) = (
+            UnixListener::bind(&a).unwrap(),
+            UnixListener::bind(&b).unwrap(),
+        );
+        let (link_a, _events_a, _) = Link::open(
+            to(&a),
+            dir.path().join("a-felis.sock"),
+            Some("scope-a".into()),
+        );
+        let (link_b, _events_b, _) = Link::open(
+            to(&b),
+            dir.path().join("b-felis.sock"),
+            Some("scope-b".into()),
+        );
+        let mut host_a = Accepted::from(&listener_a).await;
+        let mut host_b = Accepted::from(&listener_b).await;
+        assert_eq!(host_a.environment().await, "scope-a");
+        assert_eq!(host_b.environment().await, "scope-b");
+        assert!(matches!(host_a.asked().await, Request::Hello { .. }));
+        assert!(matches!(host_b.asked().await, Request::Hello { .. }));
+        assert_eq!(link_a.daemon().socket(), dir.path().join("a-felis.sock"));
+        assert_eq!(link_b.daemon().socket(), dir.path().join("b-felis.sock"));
+    }
+
+    #[tokio::test]
     async fn a_host_replaced_is_greeted_and_told_again_what_the_window_shows() {
         let dir = short_dir();
         let socket = dir.path().join("h.sock");
         let listener = UnixListener::bind(&socket).unwrap();
-        let (link, mut events, _) = Link::open(to(&socket));
+        let (link, mut events, _) = Link::open(to(&socket), dir.path().join("felis.sock"), None);
         let mut host = Accepted::from(&listener).await;
         host.asked().await;
         link.send(watch("a"));
@@ -582,7 +637,7 @@ mod tests {
         let dir = short_dir();
         let socket = dir.path().join("h.sock");
         let listener = UnixListener::bind(&socket).unwrap();
-        let (link, _events, _) = Link::open(to(&socket));
+        let (link, _events, _) = Link::open(to(&socket), dir.path().join("felis.sock"), None);
         let mut host = Accepted::from(&listener).await;
         host.asked().await;
         let answered = link.ask(Ask::TerminalHost);

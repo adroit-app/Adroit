@@ -180,6 +180,7 @@ impl Sender {
 
 pub(super) fn open(
     remote: Result<Remote, String>,
+    scope: Option<String>,
 ) -> (Link, Events, std::sync::mpsc::Receiver<()>) {
     let (queue, requests) = mpsc::channel(64);
     let (told, events) = Events::remote();
@@ -222,6 +223,7 @@ pub(super) fn open(
                         Ok(runtime) => runtime.block_on(
                             Keep {
                                 remote,
+                                scope,
                                 requests,
                                 shared,
                                 waiting,
@@ -253,6 +255,7 @@ pub(super) fn open(
 
 struct Keep {
     remote: Remote,
+    scope: Option<String>,
     requests: mpsc::Receiver<Command>,
     shared: Arc<Shared>,
     waiting: Waiting,
@@ -289,7 +292,7 @@ impl Keep {
     }
     async fn connect(&mut self) -> Result<Connection, String> {
         let tunnel = self.remote.connect(self.expected.as_ref()).await?;
-        let connection = Connection::open(&self.remote.work_socket())
+        let connection = Connection::open_in(&self.remote.work_socket(), self.scope.as_deref())
             .await
             .map_err(|e| e.to_string())?;
         if connection.hello.endpoint.as_ref() != Some(&tunnel.info().work)
@@ -515,6 +518,7 @@ mod tests {
         let waiting = Waiting::default();
         let mut keep = Keep {
             remote: remote.clone(),
+            scope: None,
             requests,
             shared: shared.clone(),
             waiting: waiting.clone(),
@@ -574,7 +578,9 @@ mod tests {
                 .await
                 .unwrap();
         });
-        let connection = Connection::open(&remote.work_socket()).await.unwrap();
+        let connection = Connection::open_in(&remote.work_socket(), None)
+            .await
+            .unwrap();
         let served =
             tokio::spawn(async move { keep.serve(connection, &mut Shown::default()).await });
         tokio::time::timeout(Duration::from_secs(2), async {
@@ -649,13 +655,19 @@ mod tests {
         )
         .unwrap();
         let marker = dir.path().join("local-host-started");
-        let to = super::super::To {
-            socket: dir.path().join("local.sock"),
+        let route = super::super::Route::unbound(
+            adroit_connect::Target::load(&config),
+            super::super::Toward::Local {
+                host: dir.path().join("local.sock"),
+                terminal: dir.path().join("felis.sock"),
+            },
+        );
+        let (link, mut events, first) = Link::selected(route, |socket| super::super::To {
+            socket,
             program: "/usr/bin/touch".into(),
             args: vec![marker.to_string_lossy().into_owned()],
             build: "test".into(),
-        };
-        let (link, mut events, first) = Link::selected(to, &config);
+        });
         assert!(first.recv_timeout(Duration::from_secs(1)).is_err());
         assert_eq!(link.remote_status().unwrap().phase, Phase::Error);
         let answer = tokio::time::timeout(Duration::from_secs(1), link.ask(Ask::TerminalHost))
