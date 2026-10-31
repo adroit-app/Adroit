@@ -32,7 +32,7 @@ the same workspace.
 
 A draft whose profile's program says, in the profile's login, that it
 is not logged in offers to open the login terminal
-([settings](settings.md#profiles-in-the-settings-window)), which runs that
+([settings](settings.md#agent-setups-in-the-settings-window)), which runs that
 program, and asks again once that terminal ends or, while it is open, when
 asked to or cancelled; one whose program cannot be found says so. However
 it is started, from a draft, `adroit session start` or another session, a
