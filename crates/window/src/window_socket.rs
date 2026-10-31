@@ -144,7 +144,7 @@ static LISTENER: Mutex<Option<UnixListener>> = Mutex::new(None);
 pub fn open_window(new: bool) -> std::io::Result<bool> {
     let active = adroit_model::paths::instance_state().join("execution.toml");
     let Some(claimed) = claim_with(&windows(), new, || {
-        if adroit_connect::profiles::active()
+        if adroit_connect::environments::active()
             .map_err(std::io::Error::other)?
             .is_none()
         {

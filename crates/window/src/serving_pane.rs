@@ -164,7 +164,7 @@ pub(crate) fn ServingPane() -> Element {
         if on {
             SettingGroup { title: "Pair a computer",
                 SettingRow { label: if pairing { "Waiting for requests" } else { "Allow pairing" },
-                    hint: if pairing { "On the other computer, choose Pair a work machine in Profiles and enter this computer's address." } else { "Accept pairing requests for the next ten minutes." },
+                    hint: if pairing { "On the other computer, choose Pair a work machine in Environments and enter this computer's address." } else { "Accept pairing requests for the next ten minutes." },
                     if pairing {
                         button { r#type: "button", onclick: {
                             let here = here.clone();

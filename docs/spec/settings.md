@@ -1,17 +1,15 @@
 # Settings
 
 Adroit's settings are changed in its Settings window, opened with Command
-comma or the gear in the header. It configures the open [working environment](profiles.md);
-profile creation and connection management open separately from the main window's
-profile menu.
-Agents, programs and working paths belong to the open environment. Window, Console and Prompt hold the client's display, input and embedded
-Neovim preferences; console themes remain work settings under Appearance.
-Changes apply to windows using the same settings owner and remain for the next
-run. A stale save is refused rather than overwriting newer work settings.
-
-The descriptions below retain the existing work-settings file format. Its
-`[[profiles]]` tables describe agent setups inside an environment, not the
-working environments selected in the main window.
+comma or the gear in the header. It configures the open
+[environment](environments.md); environments are created and their
+connections managed in the Environments window, opened from the main window's
+environment menu. Agents, programs and working paths belong to the open
+environment. Window, Console and Prompt hold the client's display, input and
+embedded Neovim preferences; console themes remain work settings under
+Appearance. Changes apply to windows using the same settings owner and remain
+for the next run. A stale save is refused rather than overwriting newer work
+settings.
 
 ## settings.toml
 
@@ -129,8 +127,6 @@ that kind, so the look stays as it was; it is dropped the next time the file is
 written.
 
 ## Profiles
-
-These are agent launch setups within the open working environment.
 
 A session starts from a profile, which names the agent it starts, where the
 agent keeps its login, how the agent is launched and the agent's own options

@@ -41,11 +41,12 @@ Each client instance reads `execution.toml` in its own state folder. An absent
 file selects local execution. An invalid file is an error, not a request to
 use local execution.
 
-[Environment profiles](profiles.md) group a connection with its agents and work
-settings. The profile menu opens another environment without redirecting the
-current instance or requiring the application to restart. Profile management
-checks connections and explains work-machine setup. Existing execution files
-remain readable for legacy clients; a profile binding takes precedence.
+[Environments](environments.md) group a connection with its agents and work
+settings. The environment menu opens another environment without redirecting
+the current instance or requiring the application to restart. The
+Environments window checks connections and explains work-machine setup.
+Existing execution files remain readable for legacy clients; an environment
+binding takes precedence.
 
 Work settings received from a host belong to the selected environment. Remote
 paths cannot be opened by local file tools, and remote account login must be
@@ -115,8 +116,8 @@ replaced work host.
 
 To pair, run `adroit connect pair <address>` on the client. On the work
 machine, run `adroit remote pair` and type the code the client shows once its
-request appears. The client then has a profile for the work machine. The
-Profiles window does both sides: on the client, pairing a work machine lists
+request appears. The client then has an environment for the work machine.
+The Environments window does both sides: on the client, pairing a work machine lists
 the work machines announced on the local network and shows the code; on the
 work machine, Accept connections turns the services on and off, chooses
 whether the gateway announces itself, allows pairing, takes the code for each

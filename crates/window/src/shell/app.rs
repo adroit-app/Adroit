@@ -58,7 +58,7 @@ fn App() -> Element {
     use_effects(&ui);
     use_input(&ui);
     use_drop(settings_window::close);
-    use_drop(crate::profile_manager::close);
+    use_drop(crate::environment_manager::close);
     rsx! {
         RootStyle {}
         div { class: "app",

@@ -63,7 +63,7 @@ pub struct ThisComputer {
 
 impl ThisComputer {
     /// The instance this computer serves, whichever instance's window asks:
-    /// a machine has one gateway on its port, and a window of a profile that
+    /// a machine has one gateway on its port, and a window of an environment that
     /// reaches this very computer is a client of it, not another server.
     pub fn current() -> Self {
         let key = crate::client_key();

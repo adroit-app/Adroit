@@ -209,7 +209,7 @@ fn ProfilePage(
                 profiles::duplicate_profile(
                     s,
                     &id,
-                    &crate::environment_profiles::work_data_dir()?,
+                    &crate::environments::work_data_dir()?,
                     canonical,
                 )
             });
@@ -240,7 +240,7 @@ fn ProfilePage(
                     s,
                     &op_id,
                     login.clone(),
-                    &crate::environment_profiles::work_data_dir()?,
+                    &crate::environments::work_data_dir()?,
                     canonical,
                 )
             }));
@@ -263,7 +263,7 @@ fn ProfilePage(
             .clone()
             .map_or(LoginFolder::Terminal, LoginFolder::Kept)
     } else {
-        match crate::environment_profiles::work_data_dir() {
+        match crate::environments::work_data_dir() {
             Ok(data) => profiles::login_folder(&profile, &data, canonical),
             Err(_) => profile
                 .home
@@ -439,7 +439,7 @@ fn NewProfilePage(now: Settings, change: Callback<Change>, choose: Callback<Agen
     rsx! {
         PageHead { title: "New agent setup" }
         p { class: "settings-agent-note",
-            "An agent setup selects a program installed in this working profile, its login and how new sessions start."
+            "An agent setup selects a program installed in this working environment, its login and how new sessions start."
         }
         if let Some(why) = refused() {
             SettingsError { "{why}" }

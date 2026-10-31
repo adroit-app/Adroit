@@ -76,7 +76,7 @@ async fn authorize(job: &mut Request) -> Result<(), String> {
         };
     };
     if !crate::environment::owns(&actual.tags) {
-        return Err("the session belongs to another working profile".into());
+        return Err("the session belongs to another working environment".into());
     }
     if let Request::Stop { session } | Request::Kill { session, .. } = job {
         let Some(sessions::Kept::Agent(actual)) = sessions::read(actual) else {

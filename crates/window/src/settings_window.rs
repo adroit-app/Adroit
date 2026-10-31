@@ -55,10 +55,7 @@ pub(crate) fn open(agents: AgentsWork, link: Link) {
         .with_custom_head(format!("<style>{SETTINGS_CSS}</style>"))
         .with_window(
             WindowBuilder::new()
-                .with_title(format!(
-                    "Settings · {}",
-                    crate::environment_profiles::active_name()
-                ))
+                .with_title(format!("Settings · {}", crate::environments::active_name()))
                 .with_maximizable(false)
                 .with_inner_size(LogicalSize::new(820.0, 580.0))
                 .with_min_inner_size(LogicalSize::new(640.0, 420.0)),
@@ -225,7 +222,8 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
         }
         if link.remote_status().is_some_and(|status| !status.writable) {
             failed.set(Some(
-                "Reconnect to the work machine before editing this profile's work settings".into(),
+                "Reconnect to the work machine before editing this environment's work settings"
+                    .into(),
             ));
             return;
         }
@@ -266,10 +264,10 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
         style { "{root_style}" }
         div { class: "settings",
             nav { class: "settings-nav",
-                p { class: "settings-nav-heading", "{crate::environment_profiles::active_name()}" }
+                p { class: "settings-nav-heading", "{crate::environments::active_name()}" }
                 for p in Pane::ALL {
                     div { key: "{p.title()}",
-                        if p == Pane::Window { p { class: "settings-nav-heading", "This computer · all profiles" } }
+                        if p == Pane::Window { p { class: "settings-nav-heading", "This computer · all environments" } }
                         NavItem { pane: p, shown: pane }
                         if p == Pane::Agents && pane() == Pane::Agents {
                             for entry in agent_pages::entries(&now()) {
@@ -307,11 +305,11 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
                     if pane() != Pane::About {
                         p { class: "settings-agent-note", role: "status",
                             if pane().available_offline() {
-                                "Saved on this computer for all profiles."
+                                "Saved on this computer for all environments."
                             } else if let Some(status) = remote() {
-                                "Work settings on {status.host}, for this profile."
+                                "Work settings on {status.host}, for this environment."
                             } else {
-                                "Work settings for this profile on this computer."
+                                "Work settings for this environment on this computer."
                             }
                         }
                     }
@@ -813,7 +811,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn disconnected_profiles_keep_computer_preferences_editable() {
+    fn disconnected_environments_keep_computer_preferences_editable() {
         for pane in [Pane::Window, Pane::Console, Pane::Prompt, Pane::About] {
             assert!(pane.available_offline(), "{pane:?} should remain available");
         }

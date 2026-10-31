@@ -66,7 +66,7 @@ pub(crate) async fn greet(
 }
 
 /// Where this user keeps the key it pairs with: one for every client
-/// instance, since any of them may open a profile that was paired.
+/// instance, since any of them may open an environment that was paired.
 pub fn client_key() -> PathBuf {
     adroit_model::paths::state_dir().join("adroit/net/client.key")
 }
@@ -180,7 +180,7 @@ fn took(asked: &Result<Vec<u8>, adroit_net::Error>) -> Result<(), String> {
     }
 }
 
-/// Pairs as `pair_with` does and adds a profile for the work machine.
+/// Pairs as `pair_with` does and adds an environment for the work machine.
 pub fn pair_cli(address: &str, name: Option<&str>, show: impl Fn(&str)) -> Result<String, String> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -188,7 +188,7 @@ pub fn pair_cli(address: &str, name: Option<&str>, show: impl Fn(&str)) -> Resul
         .map_err(|e| e.to_string())?;
     let target = runtime.block_on(pair_with(address, name, |step| {
         show(&match step {
-            PairingStep::NotAccepting => "The work machine is not accepting pairing requests; waiting until it does (run `adroit remote pair` there, or allow pairing in its Profiles window)".to_string(),
+            PairingStep::NotAccepting => "The work machine is not accepting pairing requests; waiting until it does (run `adroit remote pair` there, or allow pairing in its Environments window)".to_string(),
             PairingStep::Shown { code } => format!("Type this code on the work machine: {code}"),
             PairingStep::Mismatched => "That was not the code; asking again with a new one".to_string(),
         })
@@ -197,23 +197,26 @@ pub fn pair_cli(address: &str, name: Option<&str>, show: impl Fn(&str)) -> Resul
         unreachable!("pairing reaches a paired work machine");
     };
     let server = server.clone();
-    let path = crate::profiles::Catalog::path();
-    let mut catalog = crate::profiles::Catalog::load(&path)?;
-    if let Some(known) = catalog.profiles.iter().find(|p| p.target == target) {
+    let path = crate::environments::Catalog::path();
+    let mut catalog = crate::environments::Catalog::load(&path)?;
+    if let Some(known) = catalog.environments.iter().find(|p| p.target == target) {
         return Ok(format!(
-            "Paired with the work machine {} again; its profile \"{}\" uses it",
+            "Paired with the work machine {} again; its environment \"{}\" uses it",
             &server[..16],
             known.name
         ));
     }
     let expected = catalog.revision;
-    let profile_name = format!("Work machine at {address}");
+    let environment_name = format!("Work machine at {address}");
     catalog
-        .profiles
-        .push(crate::profiles::Profile::new(&profile_name, target));
+        .environments
+        .push(crate::environments::Environment::new(
+            &environment_name,
+            target,
+        ));
     catalog.save(&path, expected)?;
     Ok(format!(
-        "Paired with the work machine {} and added the profile \"{profile_name}\"",
+        "Paired with the work machine {} and added the environment \"{environment_name}\"",
         &server[..16]
     ))
 }
@@ -393,7 +396,7 @@ impl Remote {
     fn explain(&self, error: adroit_net::Error) -> String {
         match error {
             adroit_net::Error::NotPaired => format!(
-                "the work machine at {} refused this client's key: it no longer knows this computer. Pair again from Profiles, choosing Pair a work machine…, or with adroit connect pair",
+                "the work machine at {} refused this client's key: it no longer knows this computer. Pair again from Environments, choosing Pair a work machine…, or with adroit connect pair",
                 self.address
             ),
             adroit_net::Error::OtherServer => format!(

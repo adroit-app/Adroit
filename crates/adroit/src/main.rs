@@ -52,9 +52,9 @@ fn main() {
     {
         let state = adroit_host::paths::instance_state();
         let binding = if matches!(asked, Some(Command::Window { .. })) {
-            adroit_connect::profiles::settle(&adroit_host::paths::instance(), &state).map(Some)
+            adroit_connect::environments::settle(&adroit_host::paths::instance(), &state).map(Some)
         } else {
-            adroit_connect::profiles::Binding::load(&state)
+            adroit_connect::environments::Binding::load(&state)
         };
         let binding = match binding {
             Ok(binding) => binding,
@@ -64,7 +64,7 @@ fn main() {
             }
         };
         if let Some(binding) = binding {
-            // SAFETY: profile routing is settled before any runtime creates threads.
+            // SAFETY: environment routing is settled before any runtime creates threads.
             unsafe {
                 if binding.target == adroit_connect::Target::Local {
                     let work = binding.work_instance.as_deref().unwrap_or("default");
@@ -105,13 +105,14 @@ fn main() {
         )
     {
         let path = adroit_host::paths::instance_state().join("execution.toml");
-        let target = adroit_connect::profiles::Binding::load(&adroit_host::paths::instance_state())
-            .and_then(|binding| {
-                binding.map_or_else(
-                    || adroit_connect::Target::load(&path),
-                    |binding| Ok(binding.target),
-                )
-            });
+        let target =
+            adroit_connect::environments::Binding::load(&adroit_host::paths::instance_state())
+                .and_then(|binding| {
+                    binding.map_or_else(
+                        || adroit_connect::Target::load(&path),
+                        |binding| Ok(binding.target),
+                    )
+                });
         let refused = match target {
             Ok(adroit_connect::Target::Local) => None,
             Ok(adroit_connect::Target::Native { .. }) => Some("Remote execution is selected; run this command on the work machine, or use adroit connect to check its connection".to_string()),

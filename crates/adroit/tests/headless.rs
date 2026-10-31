@@ -597,7 +597,7 @@ fn remote_jobs_cannot_change_another_environments_terminal_by_runtime_id() {
                     if let Some(Event::Answer { asked: 99, answer }) = link.events.next().await.unwrap() { break answer; }
                 }
             }).await.unwrap();
-            assert!(matches!(answer, Answer::Mutation { status: MutationState::Result { answer } } if matches!(*answer, Answer::Failed { ref text } if text == "the session belongs to another working profile")), "job {index} was not refused by ownership");
+            assert!(matches!(answer, Answer::Mutation { status: MutationState::Result { answer } } if matches!(*answer, Answer::Failed { ref text } if text == "the session belongs to another working environment")), "job {index} was not refused by ownership");
             let listed = daemon.sessions().await.unwrap();
             assert!(listed.iter().any(|s| s.id == id && !s.exited));
             assert!(!listed.iter().any(|s| s.tags.contains(&"adroit.name=foreign".to_string())));
@@ -696,7 +696,7 @@ fn kept_through_restart(break_terminfo: bool) {
 }
 
 #[test]
-fn environment_profiles_share_services_but_keep_terminals_settings_and_recovery_apart() {
+fn environments_share_services_but_keep_terminals_settings_and_recovery_apart() {
     let hosts = Hosts::new();
     let root = hosts.0.path();
     let run = |scope: Option<&str>, args: &[&str]| {
@@ -1093,7 +1093,7 @@ fn line_with(lines: &std::sync::mpsc::Receiver<String>, needle: &str) -> String 
 }
 
 #[test]
-fn the_cli_pairs_a_client_by_the_code_it_shows_and_saves_a_profile() {
+fn the_cli_pairs_a_client_by_the_code_it_shows_and_saves_an_environment() {
     use std::io::Write;
     use std::process::Stdio;
     let hosts = Hosts::new();
@@ -1125,7 +1125,7 @@ fn the_cli_pairs_a_client_by_the_code_it_shows_and_saves_a_profile() {
     writeln!(typing, "{code}").unwrap();
     line_with(&operator_lines, "Paired");
     assert!(operator.wait().unwrap().success());
-    line_with(&client_lines, "added the profile");
+    line_with(&client_lines, "added the environment");
     assert!(client.wait().unwrap().success());
 
     let catalog =

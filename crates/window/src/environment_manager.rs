@@ -1,10 +1,10 @@
-//! Profile creation and connection setup, apart from running work.
+//! Environment creation and connection setup, apart from running work.
 
 use crate::components::{SettingGroup, SettingRow, SettingsError, TextField};
 use crate::icons::{Icon, IconView};
 use adroit_connect::{
     Target,
-    profiles::{Catalog, Profile},
+    environments::{Catalog, Environment},
 };
 use dioxus::prelude::*;
 
@@ -31,12 +31,12 @@ pub(crate) fn open() {
         .with_custom_head(format!("<style>{}</style>", crate::style::SETTINGS_CSS))
         .with_window(
             WindowBuilder::new()
-                .with_title("Profiles")
+                .with_title("Environments")
                 .with_maximizable(false)
                 .with_inner_size(LogicalSize::new(900.0, 640.0))
                 .with_min_inner_size(LogicalSize::new(680.0, 440.0)),
         );
-    let _ = window().new_window(VirtualDom::new(ProfileManager), cfg);
+    let _ = window().new_window(VirtualDom::new(EnvironmentManager), cfg);
 }
 
 pub(crate) fn close() {
@@ -57,7 +57,7 @@ pub(crate) fn close_in_front() -> bool {
 }
 
 #[component]
-fn ProfileManager() -> Element {
+fn EnvironmentManager() -> Element {
     use_hook(|| {
         let me = window();
         OPEN.with(|o| *o.borrow_mut() = Rc::downgrade(&me));
@@ -66,12 +66,12 @@ fn ProfileManager() -> Element {
     let style = crate::feed::root_style(&config.read());
     rsx! {
         style { "{style}" }
-        div { class: "profile-manager",
-            header { class: "profile-manager-head",
-                h1 { "Profiles" }
-                p { "Choose where you work. Each profile keeps its own agents, settings and sessions." }
+        div { class: "environment-manager",
+            header { class: "environment-manager-head",
+                h1 { "Environments" }
+                p { "Choose where you work. Each environment keeps its own agents, settings and sessions." }
             }
-            ProfileEditor {}
+            EnvironmentEditor {}
         }
     }
 }
@@ -105,7 +105,7 @@ impl Kind {
 #[derive(Clone, Debug, PartialEq)]
 struct Choice {
     kind: Kind,
-    /// The work machine this profile was paired with, kept so it can be
+    /// The work machine this environment was paired with, kept so it can be
     /// chosen again after another connection was tried.
     paired: Option<(String, String)>,
     /// The address being paired with.
@@ -158,7 +158,7 @@ impl Choice {
         }
     }
 
-    /// Takes the work machine pairing answered with as this profile's.
+    /// Takes the work machine pairing answered with as this environment's.
     fn paired_with(&mut self, target: Target) {
         if let Target::Native { address, server } = target {
             self.paired = Some((address, server));
@@ -168,8 +168,8 @@ impl Choice {
 }
 
 /// `catalog` with `name` and `target` saved to `path`: in place for the
-/// profile `selected` when its connection is `target`, as a profile of its own
-/// otherwise; with the saved profile's id.
+/// environment `selected` when its connection is `target`, as an environment of its own
+/// otherwise; with the saved environment's id.
 fn save(
     catalog: &Catalog,
     path: &std::path::Path,
@@ -179,19 +179,23 @@ fn save(
 ) -> Result<(Catalog, String), String> {
     let mut next = catalog.clone();
     let revision = next.revision;
-    let mut profile = next
-        .profiles
+    let mut environment = next
+        .environments
         .iter()
         .find(|p| Some(p.id.as_str()) == selected && p.target == target)
         .cloned()
-        .unwrap_or_else(|| Profile::new(name, target));
-    profile.name = name.trim().into();
-    match next.profiles.iter_mut().find(|p| p.id == profile.id) {
-        Some(old) => *old = profile.clone(),
-        None => next.profiles.push(profile.clone()),
+        .unwrap_or_else(|| Environment::new(name, target));
+    environment.name = name.trim().into();
+    match next
+        .environments
+        .iter_mut()
+        .find(|p| p.id == environment.id)
+    {
+        Some(old) => *old = environment.clone(),
+        None => next.environments.push(environment.clone()),
     }
     next.save(path, revision)?;
-    Ok((next, profile.id))
+    Ok((next, environment.id))
 }
 
 /// A name for the work machine at `address`: its host, without the port, or
@@ -210,12 +214,12 @@ fn machine_name(address: &str) -> String {
 }
 
 #[component]
-fn ProfileEditor() -> Element {
+fn EnvironmentEditor() -> Element {
     let mut catalog = use_signal(|| Catalog::load(&Catalog::path()));
-    let active = adroit_connect::profiles::active().ok().flatten();
-    let active_id = active.as_ref().map(|p| p.profile.clone());
+    let active = adroit_connect::environments::active().ok().flatten();
+    let active_id = active.as_ref().map(|p| p.environment.clone());
     let initial = catalog.read().as_ref().ok().and_then(|c| {
-        c.profiles
+        c.environments
             .iter()
             .find(|p| Some(&p.id) == active_id.as_ref())
             .cloned()
@@ -263,7 +267,7 @@ fn ProfileEditor() -> Element {
         .as_ref()
         .ok()
         .and_then(|c| {
-            c.profiles
+            c.environments
                 .iter()
                 .find(|p| Some(&p.id) == selected.read().as_ref())
         })
@@ -273,7 +277,7 @@ fn ProfileEditor() -> Element {
         .as_ref()
         .ok()
         .and_then(|c| {
-            c.profiles
+            c.environments
                 .iter()
                 .find(|p| Some(&p.id) == selected.read().as_ref())
         })
@@ -283,38 +287,38 @@ fn ProfileEditor() -> Element {
         .as_ref()
         .ok()
         .and_then(|c| {
-            c.profiles
+            c.environments
                 .iter()
                 .find(|p| Some(&p.id) == selected.read().as_ref())
         })
         .is_none_or(|p| p.name != name().trim());
     rsx! {
         if let Err(why) = &*catalog.read() { SettingsError { "{why}" } }
-        div { class: "profile-manager-body",
-            nav { class: "environment-profile-list", aria_label: "Profiles",
+        div { class: "environment-manager-body",
+            nav { class: "environment-list", aria_label: "Environments",
                 if let Ok(catalog) = &*catalog.read() {
-                    for profile in &catalog.profiles {
-                        button { r#type: "button", aria_pressed: !serving() && Some(&profile.id) == selected.read().as_ref(), class: if !serving() && Some(&profile.id) == selected.read().as_ref() { "environment-profile on" } else { "environment-profile" },
+                    for environment in &catalog.environments {
+                        button { r#type: "button", aria_pressed: !serving() && Some(&environment.id) == selected.read().as_ref(), class: if !serving() && Some(&environment.id) == selected.read().as_ref() { "environment-entry on" } else { "environment-entry" },
                             onclick: {
-                                let profile = profile.clone();
-                                move |_| { serving.set(false); selected.set(Some(profile.id.clone())); name.set(profile.name.clone()); choice.set(Choice::from(profile.target.clone())); error.set(None); notice.set(None); removing.set(false); }
+                                let environment = environment.clone();
+                                move |_| { serving.set(false); selected.set(Some(environment.id.clone())); name.set(environment.name.clone()); choice.set(Choice::from(environment.target.clone())); error.set(None); notice.set(None); removing.set(false); }
                             },
-                            span { "{profile.name}" }
-                            small { if profile.archived { "Removed · select to restore" } else if matches!(profile.target, Target::Local) { "This computer" } else if let Target::Native { address, .. } = &profile.target { "{address}" } }
+                            span { "{environment.name}" }
+                            small { if environment.archived { "Removed · select to restore" } else if matches!(environment.target, Target::Local) { "This computer" } else if let Target::Native { address, .. } = &environment.target { "{address}" } }
                         }
                     }
                 }
-                button { r#type: "button", class: "environment-profile new", onclick: move |_| { serving.set(false); selected.set(None); name.set(String::new()); choice.set(Choice::from(Target::Local)); error.set(None); notice.set(None); removing.set(false); }, "+ New profile" }
-                div { class: "environment-profile-foot",
+                button { r#type: "button", class: "environment-entry new", onclick: move |_| { serving.set(false); selected.set(None); name.set(String::new()); choice.set(Choice::from(Target::Local)); error.set(None); notice.set(None); removing.set(false); }, "+ New environment" }
+                div { class: "environment-list-foot",
                     h2 { class: "settings-nav-heading", "This computer" }
-                    button { r#type: "button", aria_pressed: serving(), class: if serving() { "environment-profile on" } else { "environment-profile" }, onclick: move |_| serving.set(true),
+                    button { r#type: "button", aria_pressed: serving(), class: if serving() { "environment-entry on" } else { "environment-entry" }, onclick: move |_| serving.set(true),
                         span { "Accept connections" }
                         small { "Let others work here" }
                     }
                 }
             }
             if serving() {
-                main { class: "profile-editor",
+                main { class: "environment-editor",
                     // Pairing with this computer's own gateway needs the code
                     // while its request is answered here.
                     if let Some(adroit_connect::PairingStep::Shown { code }) = pair_step.read().clone() {
@@ -323,13 +327,13 @@ fn ProfileEditor() -> Element {
                     crate::serving_pane::ServingPane {}
                 }
             } else {
-            main { class: "profile-editor",
-                SettingGroup { title: if selected().is_none() { "New profile" } else { "Profile" },
+            main { class: "environment-editor",
+                SettingGroup { title: if selected().is_none() { "New environment" } else { "Environment" },
                     SettingRow { label: "Name", hint: "",
-                        TextField { aria_label: "Profile name", value: name(), placeholder: "Work", onchange: move |value| name.set(value) }
+                        TextField { aria_label: "Environment name", value: name(), placeholder: "Work", onchange: move |value| name.set(value) }
                     }
                     SettingRow { label: "Connection", hint: "Agents and working files stay on this computer or the work machine you choose.",
-                        select { aria_label: "Profile connection", disabled: busy() || pairing.read().is_some(), onchange: move |e| { choice.write().choose(Kind::from_value(&e.value())); notice.set(None); },
+                        select { aria_label: "Environment connection", disabled: busy() || pairing.read().is_some(), onchange: move |e| { choice.write().choose(Kind::from_value(&e.value())); notice.set(None); },
                             option { value: Kind::Local.value(), selected: choice.read().kind == Kind::Local, "This computer" }
                             if let Some((address, _)) = choice.read().paired.clone() {
                                 option { value: Kind::Paired.value(), selected: choice.read().kind == Kind::Paired, "Paired work machine at {address}" }
@@ -340,7 +344,7 @@ fn ProfileEditor() -> Element {
                 }
                 if choice.read().kind == Kind::Pairing {
                     SettingGroup { title: "Pair a work machine",
-                        SettingRow { label: "Address", hint: "The work machine's address and port. On it, turn on Accept connections and allow pairing in Profiles.",
+                        SettingRow { label: "Address", hint: "The work machine's address and port. On it, turn on Accept connections and allow pairing in Environments.",
                             // Kept on every key, so Pair is enabled as soon as an address is typed.
                             input { class: "settings-command", r#type: "text", aria_label: "Work machine address", placeholder: "work-box.local:47130", spellcheck: false, autocomplete: "off",
                                 disabled: pairing.read().is_some(),
@@ -368,16 +372,15 @@ fn ProfileEditor() -> Element {
                                         match result {
                                             Ok(target) => {
                                                 choice.write().paired_with(target.clone());
-                                                // Pairing is what the operator came for, so its
-                                                // profile is kept without a second step.
+                                                // Pairing is what the operator came for, so                                                 // environment is kept without a second step.
                                                 let named = match (selected.peek().is_none(), name.peek().trim()) {
                                                     (true, typed) if !typed.is_empty() => typed.to_string(),
                                                     _ => machine_name(&address),
                                                 };
                                                 let saved = catalog.peek().as_ref().map_err(Clone::clone).and_then(|catalog| {
-                                                    // Pairing again keeps the machine's profile; pairing
-                                                    // from another profile adds one beside it.
-                                                    match catalog.profiles.iter().find(|p| p.target == target) {
+                                                    // Pairing again keeps the machine's environment; pairing
+                                                    // from another environment adds one beside it.
+                                                    match catalog.environments.iter().find(|p| p.target == target) {
                                                         Some(known) => Ok((catalog.clone(), known.id.clone())),
                                                         None => save(catalog, &Catalog::path(), None, &named, target),
                                                     }
@@ -425,7 +428,7 @@ fn ProfileEditor() -> Element {
                         }
                         match pair_step.read().clone() {
                             Some(adroit_connect::PairingStep::NotAccepting) => rsx! {
-                                p { class: "pairing-code", aria_live: "polite", "Waiting for the work machine to allow pairing. On it, open Profiles, choose Accept connections and press Allow pairing." }
+                                p { class: "pairing-code", aria_live: "polite", "Waiting for the work machine to allow pairing. On it, open Environments, choose Accept connections and press Allow pairing." }
                             },
                             Some(adroit_connect::PairingStep::Shown { code }) => rsx! {
                                 p { class: "pairing-code", aria_live: "polite",
@@ -444,10 +447,10 @@ fn ProfileEditor() -> Element {
                     if let Some(why) = error() { SettingsError { "{why}" } }
                     if let Some(text) = notice() { p { class: "settings-agent-note", role: "status", "{text}" } }
                 }
-                // Nothing is saved or tested until pairing answered; it saves the profile itself.
+                // Nothing is saved or tested until pairing answered; it saves the environment itself.
                 if choice.read().kind != Kind::Pairing {
-                if target_changed { p { class: "settings-agent-note", "This connection will be saved as a new profile. The original profile, agents and running sessions stay where they are." } }
-                div { class: "settings-page-actions profile-actions",
+                if target_changed { p { class: "settings-agent-note", "This connection will be saved as a new environment. The original environment, agents and running sessions stay where they are." } }
+                div { class: "settings-page-actions environment-actions",
                     button { r#type: "button", disabled: busy(), onclick: move |_| {
                         notice.set(None); error.set(None);
                         match choice.read().target() {
@@ -456,7 +459,7 @@ fn ProfileEditor() -> Element {
                                 let result = adroit_connect::check(&target).await;
                                 if *choice.peek() != testing { busy.set(false); return; }
                                 match result {
-                                    Ok(_) => { notice.set(Some("Connected. Open this profile to configure the agents installed there.".into())); }
+                                    Ok(_) => { notice.set(Some("Connected. Open this environment to configure the agents installed there.".into())); }
                                     Err(why) => { error.set(Some(why)); }
                                 }
                                 busy.set(false);
@@ -472,52 +475,52 @@ fn ProfileEditor() -> Element {
                             catalog.set(Ok(next));
                             Ok::<_, String>(())
                         })();
-                        match result { Ok(()) => { error.set(None); notice.set(Some("Profile saved. Open it to use its connection and agents.".into())); }, Err(why) => error.set(Some(why)) }
-                    }, if selected().is_none() || target_changed { "Create profile" } else { "Save changes" } }
+                        match result { Ok(()) => { error.set(None); notice.set(Some("Environment saved. Open it to use its connection and agents.".into())); }, Err(why) => error.set(Some(why)) }
+                    }, if selected().is_none() || target_changed { "Create environment" } else { "Save changes" } }
                     }
                     if selected().is_some() && !target_changed {
                         button { r#type: "button", class: if name_changed { "" } else { "primary" }, disabled: busy(), onclick: move |_| {
                             if let Ok(catalog) = &*catalog.peek()
-                                && let Some(profile) = catalog.profiles.iter().find(|p| Some(&p.id) == selected.peek().as_ref()) { error.set(crate::environment_profiles::open(profile, false).err()); }
-                        }, "Open profile" }
+                                && let Some(environment) = catalog.environments.iter().find(|p| Some(&p.id) == selected.peek().as_ref()) { error.set(crate::environments::open(environment, false).err()); }
+                        }, "Open environment" }
                     }
                 }
                 // Beside the buttons, so what they did is seen without scrolling.
                 if let Some(why) = error() { SettingsError { "{why}" } }
                 if let Some(text) = notice() { p { class: "settings-agent-note", role: "status", "{text}" } }
                 }
-                div { class: "profile-management",
-                    SettingGroup { title: "Profile actions",
+                div { class: "environment-management",
+                    SettingGroup { title: "Environment actions",
                         if selected().is_some() && !target_changed {
-                        SettingRow { label: "Open another window", hint: "Use this profile in another window, with its own tabs and drafts.",
+                        SettingRow { label: "Open another window", hint: "Use this environment in another window, with its own tabs and drafts.",
                         button { r#type: "button", disabled: busy(), onclick: move |_| {
                             if let Ok(catalog) = &*catalog.peek()
-                                && let Some(profile) = catalog.profiles.iter().find(|p| Some(&p.id) == selected.peek().as_ref()) { error.set(crate::environment_profiles::open(profile, true).err()); }
+                                && let Some(environment) = catalog.environments.iter().find(|p| Some(&p.id) == selected.peek().as_ref()) { error.set(crate::environments::open(environment, true).err()); }
                         }, "Open window" }
                         }
                         }
-                        SettingRow { label: "Refresh profiles", hint: "Reload saved profiles, including changes made in other windows.",
+                        SettingRow { label: "Refresh environments", hint: "Reload saved environments, including changes made in other windows.",
                             button { r#type: "button", onclick: move |_| { catalog.set(Catalog::load(&Catalog::path())); error.set(None); notice.set(None); }, "Refresh" }
                         }
                 if selected().is_some() {
                         if archived {
-                        SettingRow { label: "Restore profile", hint: "Show this profile in the profile menu again.",
+                        SettingRow { label: "Restore environment", hint: "Show this environment in the environment menu again.",
                         button { r#type: "button", onclick: move |_| {
                             let result = (|| {
                                 let mut next = catalog.peek().as_ref().map_err(Clone::clone)?.clone();
                                 let revision = next.revision;
-                                for profile in &mut next.profiles { if Some(&profile.id) == selected.peek().as_ref() { profile.archived = false; } }
+                                for environment in &mut next.environments { if Some(&environment.id) == selected.peek().as_ref() { environment.archived = false; } }
                                 next.save(&Catalog::path(), revision)?; catalog.set(Ok(next));
                                 Ok::<_, String>(())
                             })(); error.set(result.err());
                         }, "Restore" }
                         }
                         }
-                        SettingRow { label: "New profile from this connection", hint: "Reuse the connection. Agent setups and work settings start fresh.",
-                            button { r#type: "button", onclick: move |_| { selected.set(None); name.set(format!("{} copy", name())); removing.set(false); notice.set(Some("Only the connection is copied. The new profile starts with its own agents and work settings.".into())); }, "New profile…" }
+                        SettingRow { label: "New environment from this connection", hint: "Reuse the connection. Agent setups and work settings start fresh.",
+                            button { r#type: "button", onclick: move |_| { selected.set(None); name.set(format!("{} copy", name())); removing.set(false); notice.set(Some("Only the connection is copied. The new environment starts with its own agents and work settings.".into())); }, "New environment…" }
                         }
                         if !archived {
-                        SettingRow { label: "Remove from profile list", hint: "Running sessions, credentials and files are kept. You can restore the profile later.",
+                        SettingRow { label: "Remove from environment list", hint: "Running sessions, credentials and files are kept. You can restore the environment later.",
                             button { r#type: "button", class: "danger", onclick: move |_| removing.set(true), "Remove…" }
                         }
                         }
@@ -525,26 +528,26 @@ fn ProfileEditor() -> Element {
                 }
                 if removing() {
                     div { class: "settings-confirm",
-                    p { class: "settings-agent-note", "Remove this profile from the list? Running sessions, credentials and files on the work machine are kept." }
+                    p { class: "settings-agent-note", "Remove this environment from the list? Running sessions, credentials and files on the work machine are kept." }
                     button { r#type: "button", onclick: move |_| {
                         let result = (|| {
                             let mut next = catalog.peek().as_ref().map_err(Clone::clone)?.clone();
                             let revision = next.revision;
-                            for profile in &mut next.profiles { if Some(&profile.id) == selected.peek().as_ref() { profile.archived = true; } }
+                            for environment in &mut next.environments { if Some(&environment.id) == selected.peek().as_ref() { environment.archived = true; } }
                             next.save(&Catalog::path(), revision)?;
                             catalog.set(Ok(next)); selected.set(None); removing.set(false);
                             Ok::<_, String>(())
                         })();
                         error.set(result.err());
                     }, "Remove registration" }
-                    button { r#type: "button", onclick: move |_| removing.set(false), "Keep profile" }
+                    button { r#type: "button", onclick: move |_| removing.set(false), "Keep environment" }
                     }
                 }
                 }
                 if choice.read().kind != Kind::Local {
                     details { class: "connection-help settings-advanced",
                         summary { "Remote feature availability" }
-                        p { "Remote console typing, local Finder/editor actions on remote files and interactive login terminals are currently unavailable. Log in to your agents on the work machine and check their status under this profile's Agents." }
+                        p { "Remote console typing, local Finder/editor actions on remote files and interactive login terminals are currently unavailable. Log in to your agents on the work machine and check their status under this environment's Agents." }
                     }
                 }
             }
@@ -607,7 +610,7 @@ mod tests {
     }
 
     #[test]
-    fn a_changed_connection_is_saved_as_a_profile_of_its_own() {
+    fn a_changed_connection_is_saved_as_an_environment_of_its_own() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("environments.toml");
         let (catalog, local) =
@@ -618,8 +621,8 @@ mod tests {
         let (catalog, machine) = save(&catalog, &path, Some(&local), "work-box", paired()).unwrap();
         assert_ne!(machine, local);
         let saved = Catalog::load(&path).unwrap();
-        assert_eq!(saved.profiles, catalog.profiles);
-        let names: Vec<_> = saved.profiles.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(saved.environments, catalog.environments);
+        let names: Vec<_> = saved.environments.iter().map(|p| p.name.as_str()).collect();
         assert_eq!(names, ["Mine", "work-box"]);
     }
 }

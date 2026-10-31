@@ -61,7 +61,7 @@ pub(crate) struct Link {
 
 impl Link {
     pub(crate) fn selected(to: To, path: &Path) -> (Link, Events, std::sync::mpsc::Receiver<()>) {
-        let selected = adroit_connect::profiles::active().and_then(|binding| {
+        let selected = adroit_connect::environments::active().and_then(|binding| {
             binding.map_or_else(|| adroit_connect::Target::load(path), |b| Ok(b.target))
         });
         match selected {

@@ -140,9 +140,7 @@ impl Connection {
                 .await?;
             let line = tokio::time::timeout(HELLO, lines.next())
                 .await
-                .map_err(|_| {
-                    std::io::Error::other("work host does not support environment profiles")
-                })??
+                .map_err(|_| std::io::Error::other("work host does not support environments"))??
                 .ok_or_else(|| std::io::Error::other("work host refused the environment"))?;
             let reply: serde_json::Value =
                 serde_json::from_str(&line).map_err(std::io::Error::other)?;

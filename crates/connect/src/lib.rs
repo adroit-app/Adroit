@@ -1,7 +1,7 @@
 //! Select a work machine without moving its work into the window.
 
+pub mod environments;
 pub mod journal;
-pub mod profiles;
 mod remote;
 pub mod serving;
 pub mod work;

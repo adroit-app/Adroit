@@ -1,4 +1,4 @@
-//! Display and input preferences belonging to this computer, across profiles.
+//! Display and input preferences belonging to this computer, across environments.
 
 use adroit_core::settings::{ConsoleSettings, Settings};
 use serde::{Deserialize, Serialize};
@@ -64,11 +64,14 @@ pub(crate) fn load() -> Result<Preferences, String> {
 
 pub(crate) fn save(settings: &Settings) -> Result<(), String> {
     load()?;
-    adroit_connect::profiles::write(&path(), &Preferences::of(&settings.clone().sane()))
+    adroit_connect::environments::write(&path(), &Preferences::of(&settings.clone().sane()))
 }
 
 pub(crate) fn apply(settings: &mut Settings) {
-    if adroit_connect::profiles::active().ok().flatten().is_some()
+    if adroit_connect::environments::active()
+        .ok()
+        .flatten()
+        .is_some()
         && let Ok(preferences) = load()
     {
         preferences.apply(settings);

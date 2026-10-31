@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Profile {
+pub struct Environment {
     pub id: String,
     pub name: String,
     pub target: Target,
@@ -19,7 +19,7 @@ pub struct Profile {
     pub work_instance: Option<String>,
 }
 
-impl Profile {
+impl Environment {
     pub fn new(name: &str, target: Target) -> Self {
         let id = uuid::Uuid::new_v4().simple().to_string();
         Self {
@@ -39,7 +39,7 @@ impl Profile {
             return Err("Invalid client instance".into());
         }
         Ok(Binding {
-            profile: self.id.clone(),
+            environment: self.id.clone(),
             name: self.name.clone(),
             target: self.target.clone(),
             scope: self.scope.clone(),
@@ -58,7 +58,7 @@ impl Profile {
             || self.name.trim().is_empty()
             || self.name.len() > 256
         {
-            return Err("A profile needs a valid ID and a name of at most 256 bytes".into());
+            return Err("An environment needs a valid ID and a name of at most 256 bytes".into());
         }
         if self
             .scope
@@ -82,7 +82,8 @@ impl Profile {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Binding {
-    pub profile: String,
+    #[serde(alias = "profile")]
+    pub environment: String,
     pub name: String,
     pub target: Target,
     pub scope: Option<String>,
@@ -93,12 +94,19 @@ pub struct Binding {
 
 impl Binding {
     pub fn load(state: &Path) -> Result<Option<Self>, String> {
-        let path = state.join("profile.toml");
-        let Some(text) = crate::read_config(&path, 65536).map_err(|e| e.to_string())? else {
+        let mut text = None;
+        // Earlier releases wrote the same binding as `profile.toml`.
+        for name in ["environment.toml", "profile.toml"] {
+            text = crate::read_config(&state.join(name), 65536).map_err(|e| e.to_string())?;
+            if text.is_some() {
+                break;
+            }
+        }
+        let Some(text) = text else {
             return Ok(None);
         };
         let binding: Self = toml::from_str(&text).map_err(|e| e.to_string())?;
-        if !adroit_model::paths::is_instance(&binding.profile)
+        if !adroit_model::paths::is_instance(&binding.environment)
             || !adroit_model::paths::is_instance(&binding.client)
             || binding
                 .work_instance
@@ -109,7 +117,7 @@ impl Binding {
                 .as_ref()
                 .is_some_and(|s| !adroit_model::paths::is_instance(s))
         {
-            return Err("Invalid profile binding".into());
+            return Err("Invalid environment binding".into());
         }
         binding.target.validate()?;
         Ok(Some(binding))
@@ -135,17 +143,19 @@ impl Binding {
 
     pub fn save(&self, state: &Path) -> Result<(), String> {
         if let Some(existing) = Self::load(state)? {
-            if existing.profile != self.profile
+            if existing.environment != self.environment
                 || existing.target != self.target
                 || existing.scope != self.scope
                 || existing.client != self.client
                 || existing.work_instance != self.work_instance
             {
-                return Err("This instance is already bound to another profile connection".into());
+                return Err(
+                    "This instance is already bound to another environment's connection".into(),
+                );
             }
             return Ok(());
         }
-        write(&state.join("profile.toml"), self)
+        write(&state.join("environment.toml"), self)
     }
 }
 
@@ -154,8 +164,8 @@ impl Binding {
 pub struct Catalog {
     pub version: u32,
     pub revision: u64,
-    #[serde(default)]
-    pub profiles: Vec<Profile>,
+    #[serde(default, alias = "profiles")]
+    pub environments: Vec<Environment>,
 }
 
 impl Default for Catalog {
@@ -163,7 +173,7 @@ impl Default for Catalog {
         Self {
             version: 1,
             revision: 0,
-            profiles: Vec::new(),
+            environments: Vec::new(),
         }
     }
 }
@@ -177,6 +187,14 @@ impl Catalog {
         let Some(text) = crate::read_config(path, 1024 * 1024).map_err(|e| e.to_string())? else {
             return Ok(Self::default());
         };
+        let table: toml::Table =
+            toml::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+        if table.contains_key("environments") && table.contains_key("profiles") {
+            return Err(format!(
+                "{}: names both [[environments]] and [[profiles]]; keep the environments in [[environments]]",
+                path.display()
+            ));
+        }
         let catalog: Self =
             toml::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
         catalog.validate()?;
@@ -185,13 +203,13 @@ impl Catalog {
 
     fn validate(&self) -> Result<(), String> {
         if self.version != 1 {
-            return Err("Unsupported profile catalog version".into());
+            return Err("Unsupported environment catalog version".into());
         }
         let mut ids = std::collections::BTreeSet::new();
-        for profile in &self.profiles {
-            profile.validate()?;
-            if !ids.insert(&profile.id) {
-                return Err("Duplicate environment profile ID".into());
+        for environment in &self.environments {
+            environment.validate()?;
+            if !ids.insert(&environment.id) {
+                return Err("Duplicate environment ID".into());
             }
         }
         Ok(())
@@ -199,16 +217,16 @@ impl Catalog {
 
     pub fn save(&mut self, path: &Path, expected: u64) -> Result<(), String> {
         self.validate()?;
-        let parent = path.parent().ok_or("Profile catalog has no parent")?;
+        let parent = path.parent().ok_or("Environment catalog has no parent")?;
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         let lock = lock(&path.with_extension("lock"))?;
         if Self::load(path)?.revision != expected {
-            return Err("Profiles changed in another window; reload before saving".into());
+            return Err("Environments changed in another window; reload before saving".into());
         }
         let mut next = self.clone();
         next.revision = expected
             .checked_add(1)
-            .ok_or("Profile revision exhausted")?;
+            .ok_or("Environment revision exhausted")?;
         write(path, &next)?;
         *self = next;
         drop(lock);
@@ -219,15 +237,15 @@ impl Catalog {
         if let Some(binding) = Binding::load(state)? {
             return Ok(binding);
         }
-        if let Some(profile) = self
-            .profiles
+        if let Some(environment) = self
+            .environments
             .iter()
             .find(|p| p.legacy_client.as_deref() == Some(client))
         {
-            return profile.bind(client);
+            return environment.bind(client);
         }
         let active = Target::load(&state.join("execution.toml"))?;
-        let mut profile = Profile::new(
+        let mut environment = Environment::new(
             if client == "default" {
                 "Personal"
             } else {
@@ -235,17 +253,17 @@ impl Catalog {
             },
             active,
         );
-        profile.scope = None;
-        profile.legacy_client = Some(client.into());
-        let binding = profile.bind(client)?;
-        self.profiles.push(profile);
+        environment.scope = None;
+        environment.legacy_client = Some(client.into());
+        let binding = environment.bind(client)?;
+        self.environments.push(environment);
         let pending = state.join("execution.next.toml");
         if pending.exists() {
-            let mut profile =
-                Profile::new("Saved connection (not opened)", Target::load(&pending)?);
-            profile.scope = None;
-            profile.work_instance = Some(client.into());
-            self.profiles.push(profile);
+            let mut environment =
+                Environment::new("Saved connection (not opened)", Target::load(&pending)?);
+            environment.scope = None;
+            environment.work_instance = Some(client.into());
+            self.environments.push(environment);
         }
         Ok(binding)
     }
@@ -269,9 +287,11 @@ pub fn write(path: &Path, value: &impl Serialize) -> Result<(), String> {
     use std::io::Write;
     let text = toml::to_string_pretty(value).map_err(|e| e.to_string())?;
     if text.len() > 1024 * 1024 {
-        return Err("Profile configuration is too large".into());
+        return Err("Environment configuration is too large".into());
     }
-    let parent = path.parent().ok_or("Profile configuration has no parent")?;
+    let parent = path
+        .parent()
+        .ok_or("Environment configuration has no parent")?;
     std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     let mut file = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
     file.write_all(text.as_bytes())
@@ -284,7 +304,7 @@ pub fn write(path: &Path, value: &impl Serialize) -> Result<(), String> {
 /// Migrate once, retaining the legacy client's work and pending connection.
 pub fn settle(client: &str, state: &Path) -> Result<Binding, String> {
     std::fs::create_dir_all(state).map_err(|e| e.to_string())?;
-    let _claim = lock(&state.join("profile.lock"))?;
+    let _claim = lock(&state.join("environment.lock"))?;
     if let Some(binding) = Binding::load(state)? {
         return Ok(binding);
     }
@@ -298,35 +318,35 @@ pub fn settle(client: &str, state: &Path) -> Result<Binding, String> {
                 binding.save(state)?;
                 return Ok(binding);
             }
-            Err(error) if error.starts_with("Profiles changed") => continue,
+            Err(error) if error.starts_with("Environments changed") => continue,
             Err(error) => return Err(error),
         }
     }
-    Err("Profiles changed repeatedly; reopen the profile chooser".into())
+    Err("Environments changed repeatedly; open the environment again".into())
 }
 
 pub fn active() -> Result<Option<Binding>, String> {
     Binding::load(&adroit_model::paths::instance_state())
 }
 
-/// Start a profile in a stable client instance, or in a new independent one.
+/// Start an environment in a stable client instance, or in a new independent one.
 pub fn open_command(
     program: &Path,
-    profile: &Profile,
+    environment: &Environment,
     independent: bool,
 ) -> Result<std::process::Command, String> {
     let client = if independent {
         uuid::Uuid::new_v4().simple().to_string()
     } else {
-        profile
+        environment
             .legacy_client
             .clone()
-            .unwrap_or_else(|| profile.id.clone())
+            .unwrap_or_else(|| environment.id.clone())
     };
-    let binding = profile.bind(&client)?;
+    let binding = environment.bind(&client)?;
     let state = adroit_model::paths::instance_dir(&adroit_model::paths::state_dir(), &client);
     std::fs::create_dir_all(&state).map_err(|e| e.to_string())?;
-    let _claim = lock(&state.join("profile.lock"))?;
+    let _claim = lock(&state.join("environment.lock"))?;
     binding.save(&state)?;
     // Legacy clients and native commands read this too; an existing binding is never replaced.
     binding.target.save(&state.join("execution.toml"))?;

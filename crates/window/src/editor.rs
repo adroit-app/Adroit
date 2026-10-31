@@ -51,7 +51,7 @@ pub fn install(program: &Path, windows: &Path) -> std::io::Result<PathBuf> {
     }
     std::fs::write(&path, script(program, windows))?;
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))?;
-    if let Ok(Some(binding)) = adroit_connect::profiles::active()
+    if let Ok(Some(binding)) = adroit_connect::environments::active()
         && binding.target == adroit_connect::Target::Local
     {
         let service = adroit_model::paths::instance_dir(
@@ -105,7 +105,7 @@ pub fn cli(args: &[String]) -> i32 {
                 .map(|entry| entry.path()),
         );
         for state in states {
-            if let Ok(Some(binding)) = adroit_connect::profiles::Binding::load(&state)
+            if let Ok(Some(binding)) = adroit_connect::environments::Binding::load(&state)
                 && binding.scope == scope
                 && binding.target == adroit_connect::Target::Local
                 && binding.work_instance.as_deref().unwrap_or("default") == work_instance
