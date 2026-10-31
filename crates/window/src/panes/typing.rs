@@ -75,7 +75,7 @@ impl Ui {
     pub(crate) fn take_prompt(&self) {
         let (app, ui) = (self.app, self.clone());
         spawn(async move {
-            if let Some(status) = app.remote_status() {
+            if let Some(status) = app.remote_status_of(&app.active_environment()) {
                 let refused = if !status.writable || !*app.drafts_ready.peek() {
                     Some("Wait until the work machine is connected to send the prompt")
                 } else {
@@ -212,7 +212,8 @@ impl Ui {
     pub(crate) fn send_prompt(&self, taken: Taken) {
         let (app, ui) = (self.app, self.clone());
         spawn(async move {
-            if app.remote_status().is_some() {
+            let environment = app.hosts.peek().environment_of(taken.tab.as_ref()).clone();
+            if app.remote_status_of(&environment).is_some() {
                 let Some(context) = crate::prompts::remote::context(&taken) else {
                     app.dispatch(Msg::PromptRetained);
                     return;
@@ -223,6 +224,7 @@ impl Ui {
                 };
                 let answer = app
                     .ask_prompt(
+                        &environment,
                         adroit_protocol::Ask::SubmitPrompt {
                             session,
                             agent: taken.agent,

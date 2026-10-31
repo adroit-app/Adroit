@@ -5,6 +5,7 @@
 use std::collections::VecDeque;
 use std::rc::Rc;
 
+use adroit_connect::environments::{Catalog, Environment};
 use adroit_core::actions::Action;
 use adroit_core::chrome::Chrome;
 use adroit_core::config::Config;
@@ -12,13 +13,14 @@ use adroit_core::console::ConsoleView;
 use adroit_core::content::{Area, ContentView, Tab, kept_text, read_kept};
 use adroit_core::details::{Details, Scroll};
 use adroit_core::effect::Effect;
-use adroit_core::host::Host as HostView;
+use adroit_core::host::{Host as HostView, Hosts};
 use adroit_core::msg::Msg;
 use adroit_core::overlay::{self, Holder, Overlays};
 use adroit_core::picker::PickerView;
 use adroit_core::prompt::PromptView;
 use adroit_core::state::ViewState;
 use adroit_core::tree::TreeView;
+use adroit_core::tree::nav::Item;
 use adroit_core::update::step;
 use adroit_model::{EnvironmentId, Key};
 use adroit_protocol::{Answer, Ask, Request};
@@ -26,7 +28,7 @@ use dioxus::core::{Runtime, current_scope_id};
 use dioxus::prelude::*;
 
 use crate::layout::{Kept as _, Layout};
-use crate::link::{Events, Link, Route, To};
+use crate::link::{Events, Link, Links, Route, To, Toward, journal_root};
 use crate::paths::{home, instance_state};
 
 /// How long the window waits for the work before it is first drawn, so it
@@ -42,6 +44,12 @@ trait HostLink {
 impl HostLink for Link {
     fn send(&self, request: Request) {
         Link::send(self, request);
+    }
+}
+
+impl<L: HostLink + ?Sized> HostLink for Rc<L> {
+    fn send(&self, request: Request) {
+        (**self).send(request);
     }
 }
 
@@ -100,10 +108,13 @@ type Performer = Rc<dyn Fn(Action, Option<Key>)>;
 #[derive(Clone, Copy)]
 pub(crate) struct AppCtx {
     view: CopyValue<ViewState>,
-    link: CopyValue<Rc<Link>>,
+    links: CopyValue<Links<Rc<Link>>>,
     pub(crate) chrome: Signal<Chrome>,
     pub(crate) config: Signal<Config>,
+    /// The host of the window's own environment.
     pub(crate) host: Signal<HostView>,
+    /// The host of every environment the window shows.
+    pub(crate) hosts: Signal<Hosts>,
     pub(crate) content: Signal<ContentView>,
     pub(crate) tree: Signal<TreeView>,
     pub(crate) details: Signal<Details>,
@@ -129,8 +140,10 @@ pub(crate) fn use_app() -> AppCtx {
     use_hook(|| {
         let route = Route::selected(&instance_state().join("execution.toml"));
         let environment = route.environment.clone();
-        let (link, mut events, first) = Link::selected(route, work_host);
-        let link = Rc::new(link);
+        let (link, events, first) =
+            Link::selected(route, work_host, journal_root(&instance_state(), None));
+        let links = Links::new(environment.clone(), Rc::new(link));
+        let mut events = vec![(environment.clone(), events)];
         // Drawn without the work, should the host not answer in time.
         let _ = first.recv_timeout(FIRST_WORK);
         let mut view = ViewState::default();
@@ -148,8 +161,7 @@ pub(crate) fn use_app() -> AppCtx {
         // the configuration's zoom and theme.
         let mut effects = pump(
             &mut view,
-            &*link,
-            &environment,
+            &links,
             &mut events,
             [
                 Msg::PanelsKept(Layout::load()),
@@ -165,8 +177,7 @@ pub(crate) fn use_app() -> AppCtx {
         let scratch = view.config.scratch.clone();
         effects.extend(pump(
             &mut view,
-            &*link,
-            &environment,
+            &links,
             &mut events,
             [Msg::ContentOpened { kept, scratch }],
         ));
@@ -176,6 +187,7 @@ pub(crate) fn use_app() -> AppCtx {
             chrome: Signal::new(view.chrome.clone()),
             config: Signal::new(view.config.clone()),
             host: Signal::new(view.hosts.own().clone()),
+            hosts: Signal::new(view.hosts.clone()),
             content: Signal::new(view.content.clone()),
             tree: Signal::new(view.tree.clone()),
             details: Signal::new(view.details.clone()),
@@ -189,7 +201,7 @@ pub(crate) fn use_app() -> AppCtx {
             performer: CopyValue::new(None),
             scope: current_scope_id(),
             view: CopyValue::new(view),
-            link: CopyValue::new(link),
+            links: CopyValue::new(links),
         };
         provide_context(app);
         app.run(effects);
@@ -199,30 +211,129 @@ pub(crate) fn use_app() -> AppCtx {
                 app.refresh_client_settings();
             }
         });
+        for (environment, events) in events {
+            app.listen(environment, events);
+        }
+        let mut asked = crate::environments::listen();
         spawn(async move {
-            while let Some(event) = events.recv().await {
-                app.dispatch(Msg::Host {
-                    environment: environment.clone(),
-                    event,
-                });
+            while let Some(environment) = asked.recv().await {
+                app.show_environment(&environment);
             }
         });
+        // Not while the window is first drawn: showing one changes what is
+        // drawn.
+        spawn(async move { app.reopen_kept_environments() });
         app
     })
 }
 
 impl AppCtx {
-    pub(crate) fn daemon(&self) -> adroit_term::Daemon {
-        self.link.read().daemon()
+    /// Dispatch every event `events` tells as `environment`'s host's, for
+    /// as long as the window.
+    fn listen(&self, environment: EnvironmentId, mut events: Events) {
+        let app = *self;
+        as_from(self.scope, || {
+            spawn(async move {
+                while let Some(event) = events.recv().await {
+                    app.dispatch(Msg::Host {
+                        environment: environment.clone(),
+                        event,
+                    });
+                }
+            })
+        });
     }
+
+    /// Show `environment` beside those the window shows: its host linked
+    /// and greeted, and kept for the window's next run. One the window shows
+    /// already has its heading selected instead.
+    pub(crate) fn show_environment(&self, environment: &Environment) {
+        let id = EnvironmentId::new(&environment.id);
+        if self.links.peek().shows(&id) {
+            self.dispatch(Msg::TreeSelect(Some(Item::Environment(id))));
+            return;
+        }
+        let (link, events) = match open_shown(environment) {
+            Ok(opened) => opened,
+            Err(text) => {
+                self.notice(format!("cannot open {}: {text}", environment.name));
+                return;
+            }
+        };
+        let mut links = self.links;
+        links.write().add(id.clone(), || Rc::new(link));
+        self.listen(id.clone(), events);
+        self.keep_environments();
+        self.dispatch(Msg::EnvironmentOpened {
+            environment: id,
+            name: environment.name.clone(),
+        });
+    }
+
+    /// Show again the environments the window showed when it last ran,
+    /// leaving out those removed or archived since.
+    fn reopen_kept_environments(&self) {
+        let Ok(text) = std::fs::read_to_string(kept_environments_path()) else {
+            return;
+        };
+        let Ok(catalog) = Catalog::load(&Catalog::path()) else {
+            return;
+        };
+        let own = self.links.peek().own_environment().clone();
+        let kept = crate::kept_environments::read(&text);
+        for environment in crate::kept_environments::reopened(&kept, &catalog, &own) {
+            self.show_environment(&environment);
+        }
+        self.keep_environments();
+    }
+
+    /// Keep the environments the window shows beside its own for its next
+    /// run.
+    fn keep_environments(&self) {
+        let text = crate::kept_environments::text(self.links.peek().others());
+        let path = kept_environments_path();
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        if let Err(e) = std::fs::write(&path, text) {
+            eprintln!("adroit: cannot keep the environments shown: {e}");
+        }
+    }
+
+    /// The link to `environment`, the window's own for one it does not show.
+    fn link_of(&self, environment: &EnvironmentId) -> Rc<Link> {
+        self.links.peek().of(environment).clone()
+    }
+
+    fn own_link(&self) -> Rc<Link> {
+        self.links.peek().own().clone()
+    }
+
+    /// The terminal host of `environment`, where its sessions run.
+    pub(crate) fn daemon_of(&self, environment: &EnvironmentId) -> adroit_term::Daemon {
+        self.link_of(environment).daemon()
+    }
+
+    /// How the window stands with its own environment's work machine, none
+    /// for one on this computer.
     pub(crate) fn remote_status(&self) -> Option<crate::link::RemoteStatus> {
-        self.link.read().remote_status()
+        self.own_link().remote_status()
     }
+
+    /// How the window stands with `environment`'s work machine, none for
+    /// one on this computer.
+    pub(crate) fn remote_status_of(
+        &self,
+        environment: &EnvironmentId,
+    ) -> Option<crate::link::RemoteStatus> {
+        self.link_of(environment).remote_status()
+    }
+
     pub(crate) fn retry_remote(&self) {
-        self.link.read().retry_remote();
+        self.own_link().retry_remote();
     }
     pub(crate) fn query_remote(&self, stamp: adroit_protocol::MutationStamp) {
-        self.link.read().query_remote(stamp);
+        self.own_link().query_remote(stamp);
     }
     pub(crate) fn remote_draft(
         &self,
@@ -230,14 +341,14 @@ impl AppCtx {
         forget: bool,
         checked: bool,
     ) -> impl std::future::Future<Output = Result<(), String>> + use<> {
-        self.link.read().remote_draft(stamp, forget, checked)
+        self.own_link().remote_draft(stamp, forget, checked)
     }
     pub(crate) fn resolve_remote(
         &self,
         stamp: adroit_protocol::MutationStamp,
         checked: bool,
     ) -> impl std::future::Future<Output = Result<(), String>> + use<> {
-        self.link.read().resolve_remote(stamp, checked)
+        self.own_link().resolve_remote(stamp, checked)
     }
     /// `msg` applied to the view state, the slices it changed shown, and
     /// what it asks carried out. Called from handlers and tasks, never while
@@ -279,6 +390,7 @@ impl AppCtx {
         set_changed(self.config, &view.config);
         crate::feed::publish(&view.config);
         set_changed(self.host, view.hosts.own());
+        set_changed(self.hosts, &view.hosts);
         set_changed(self.content, &view.content);
         set_changed(self.tree, &view.tree);
         set_changed(self.details, &view.details);
@@ -291,13 +403,12 @@ impl AppCtx {
     /// Tell the host what the view state does not hold, as it happens many
     /// times a second: that the console's screen was drawn anew.
     pub(crate) fn tell_host(&self, request: Request) {
-        let link = self.link.read().clone();
-        link.send(request);
+        self.own_link().send(request);
     }
 
     /// Bring the Settings window forward, opening it when it is not open.
     pub(crate) fn open_settings(&self) {
-        let link = (**self.link.read()).clone();
+        let link = (*self.own_link()).clone();
         crate::settings_window::open(self.agents(), link);
     }
 
@@ -310,15 +421,30 @@ impl AppCtx {
 
     /// Ask the host `ask`, and what came of it.
     pub(crate) fn ask(&self, ask: Ask) -> impl std::future::Future<Output = Answer> + use<> {
-        self.link.read().ask(ask)
+        self.own_link().ask(ask)
+    }
+
+    /// Ask `environment`'s host `ask`, and what came of it.
+    pub(crate) fn ask_in(
+        &self,
+        environment: &EnvironmentId,
+        ask: Ask,
+    ) -> impl std::future::Future<Output = Answer> + use<> {
+        self.link_of(environment).ask(ask)
+    }
+
+    /// Tell `environment`'s host what the view state does not hold.
+    pub(crate) fn tell_host_in(&self, environment: &EnvironmentId, request: Request) {
+        self.link_of(environment).send(request);
     }
 
     pub(crate) fn ask_prompt(
         &self,
+        environment: &EnvironmentId,
         ask: Ask,
         prompt: adroit_connect::journal::PromptContext,
     ) -> impl std::future::Future<Output = Answer> + use<> {
-        self.link.read().ask_with_prompt(ask, Some(prompt))
+        self.link_of(environment).ask_with_prompt(ask, Some(prompt))
     }
 
     /// Hand the effects whose state still lives in `App` to `run`: the
@@ -358,9 +484,9 @@ impl AppCtx {
     }
 
     fn run(&self, effects: Vec<Effect>) {
-        let link = self.link.read().clone();
-        let environment = self.environment();
-        run(effects, &*link, &environment, |effect| match effect {
+        // Taken out, as a request run may show another environment.
+        let links = self.links.peek().clone();
+        run(effects, &links, |effect| match effect {
             Effect::Zoom(level) => {
                 let _ = dioxus::desktop::window().webview.zoom(level);
             }
@@ -553,6 +679,38 @@ fn work_host(socket: std::path::PathBuf) -> To {
     }
 }
 
+/// The work host listening at the socket it is given for an environment the
+/// window shows beside its own, started as this program serving the work
+/// instance `work` with its terminal host at `terminal`: what the process
+/// was started with names its own environment's.
+fn work_host_in(
+    work: &str,
+    terminal: &std::path::Path,
+) -> impl FnOnce(std::path::PathBuf) -> To + use<> {
+    let (work, terminal) = (work.to_owned(), terminal.to_owned());
+    move |socket| {
+        let mut args: Vec<String> = ["ADROIT_ENVIRONMENT", "ADROIT_REMOTE"]
+            .into_iter()
+            .flat_map(|name| ["-u".to_string(), name.to_string()])
+            .collect();
+        args.extend([
+            format!("ADROIT_WORK_INSTANCE={work}"),
+            format!("ADROIT_HOST={}", socket.display()),
+            format!("ADROIT_DAEMON={}", terminal.display()),
+            crate::panes::adroit_program()
+                .to_string_lossy()
+                .into_owned(),
+            "host".into(),
+        ]);
+        To {
+            socket,
+            program: "/usr/bin/env".into(),
+            args,
+            build: crate::build::build(),
+        }
+    }
+}
+
 /// Open another window of this instance, in a process of its own as every
 /// window is.
 fn open_another_window() -> std::io::Result<()> {
@@ -573,6 +731,11 @@ fn open_another_window() -> std::io::Result<()> {
 /// Where this window keeps its content, under its number.
 fn content_path() -> std::path::PathBuf {
     crate::window_socket::kept_path("content.json")
+}
+
+/// Where this window keeps the environments it shows beside its own.
+fn kept_environments_path() -> std::path::PathBuf {
+    crate::window_socket::kept_path("environments")
 }
 
 /// Where this window kept the one tab its focused window showed, before it
@@ -602,7 +765,14 @@ impl AppCtx {
         self.content.peek().focus
     }
 
-    /// What the work host told of each agent.
+    /// The environment of what the content's focused window shows, the
+    /// window's own with nothing open.
+    pub(crate) fn active_environment(&self) -> EnvironmentId {
+        let active = self.active();
+        self.hosts.peek().environment_of(active.as_ref()).clone()
+    }
+
+    /// What the window's own work host told of each agent.
     pub(crate) fn agents(&self) -> adroit_protocol::AgentsWork {
         let host = self.host.peek();
         host.work
@@ -611,11 +781,12 @@ impl AppCtx {
             .unwrap_or_default()
     }
 
-    /// The agent the prompt of `tab` goes to, read so a component or an
-    /// effect follows it.
+    /// The agent the prompt of `tab` goes to, as the host of its
+    /// environment lists its sessions, read so a component or an effect
+    /// follows it.
     pub(crate) fn agent_of(&self, tab: Option<&Tab>) -> adroit_model::Agent {
-        let host = self.host.read();
-        let tree = adroit_core::tree::listed(host.work.as_ref());
+        let hosts = self.hosts.read();
+        let tree = adroit_core::tree::listed(hosts.work(hosts.environment_of(tab)));
         let settings = &self.config.read().settings;
         self.content.read().drafts.agent_of(tree, tab, settings)
     }
@@ -647,53 +818,71 @@ fn as_from<O>(scope: ScopeId, run: impl FnOnce() -> O) -> O {
     Runtime::current().in_scope(scope, run)
 }
 
-/// `msgs` stepped in turn with every event the host sends back, the
-/// requests among their effects sent through `link`: the effects left for
-/// the window to carry out.
+/// `msgs` stepped in turn with every event the hosts send back, each as its
+/// environment's, the requests among their effects sent through `links`: the
+/// effects left for the window to carry out.
 fn pump(
     view: &mut ViewState,
-    link: &dyn HostLink,
-    environment: &EnvironmentId,
-    events: &mut Events,
+    links: &Links<impl HostLink>,
+    events: &mut [(EnvironmentId, Events)],
     msgs: impl IntoIterator<Item = Msg>,
 ) -> Vec<Effect> {
     let mut queue: std::collections::VecDeque<Msg> = msgs.into_iter().collect();
     let mut local = Vec::new();
     while let Some(msg) = queue.pop_front() {
-        run(step(view, msg), link, environment, |e| local.push(e));
-        while let Ok(event) = events.try_recv() {
-            queue.push_back(Msg::Host {
-                environment: environment.clone(),
-                event,
-            });
+        run(step(view, msg), links, |e| local.push(e));
+        for (environment, events) in events.iter_mut() {
+            while let Ok(event) = events.try_recv() {
+                queue.push_back(Msg::Host {
+                    environment: environment.clone(),
+                    event,
+                });
+            }
         }
     }
     local
 }
 
-/// `effects` carried out in order: requests sent to the host through
-/// `link`, the rest done by the window through `local`.
-fn run(
-    effects: Vec<Effect>,
-    link: &dyn HostLink,
-    environment: &EnvironmentId,
-    mut local: impl FnMut(Effect),
-) {
+/// `effects` carried out in order: requests sent through the link of the
+/// environment they are for, the rest done by the window through `local`.
+fn run(effects: Vec<Effect>, links: &Links<impl HostLink>, mut local: impl FnMut(Effect)) {
     for effect in effects {
         match effect {
             Effect::Host {
-                environment: to,
+                environment,
                 request,
-            } if to == *environment => link.send(request),
-            // The one link reaches only the window's own environment; no
-            // other has a host to ask yet.
-            Effect::Host {
-                environment: to,
-                request,
-            } => eprintln!("adroit: no link to environment {to:?} for {request:?}; dropped"),
+            } => match links.get(&environment) {
+                Some(link) => link.send(request),
+                None => eprintln!(
+                    "adroit: no link to environment {environment:?} for {request:?}; dropped"
+                ),
+            },
             effect => local(effect),
         }
     }
+}
+
+/// A link to `environment`, shown beside the window's own, and what its
+/// host tells.
+fn open_shown(environment: &Environment) -> Result<(Link, Events), String> {
+    let instance = adroit_model::paths::instance();
+    let own = Toward::own();
+    let route = Route::shown(
+        environment,
+        &instance,
+        &adroit_model::paths::state_dir(),
+        own.clone(),
+    )?;
+    let journal = journal_root(&instance_state(), Some(&route.environment));
+    let (link, events, _) = match &route.toward {
+        Ok(Toward::Local { terminal, .. }) if route.toward != Ok(own) => {
+            let work = environment.bind(&instance)?.work_instance;
+            let start = work_host_in(work.as_deref().unwrap_or("default"), terminal);
+            Link::selected(route, start, journal)
+        }
+        _ => Link::selected(route, work_host, journal),
+    };
+    Ok((link, events))
 }
 
 #[cfg(test)]
@@ -726,55 +915,152 @@ mod tests {
     }
 
     /// The window as `AppCtx` runs it, without Dioxus: each message stepped,
-    /// its effects run, and every event the host sends back stepped in turn.
+    /// its effects run, and every event a host sends back stepped in turn.
     struct Window {
         view: ViewState,
-        link: Answering,
-        events: Events,
+        links: Links<Answering>,
+        events: Vec<(EnvironmentId, Events)>,
         drawn: Vec<Effect>,
+    }
+
+    /// The work of a host that read these settings.
+    fn work_reading(settings: &str) -> WorkSnapshot {
+        let config = ConfigWork {
+            settings: Some(ConfigFile {
+                path: "/c/settings.toml".into(),
+                text: FileText::Read {
+                    text: settings.into(),
+                },
+            }),
+            ..ConfigWork::default()
+        };
+        snapshot().with(|w| w.config = config).build()
+    }
+
+    /// A host holding `work`, and the events it sends back.
+    fn answering(work: WorkSnapshot) -> (Answering, Events) {
+        let (sent, events) = tokio::sync::mpsc::unbounded_channel();
+        let link = Answering { work, events: sent };
+        (link, Events::Local(events))
     }
 
     impl Window {
         /// A window opened on a host that read these settings.
         fn open(settings: &str) -> Self {
-            let config = ConfigWork {
-                settings: Some(ConfigFile {
-                    path: "/c/settings.toml".into(),
-                    text: FileText::Read {
-                        text: settings.into(),
-                    },
-                }),
-                ..ConfigWork::default()
-            };
-            let (sent, events) = tokio::sync::mpsc::unbounded_channel();
-            let link = Answering {
-                work: snapshot().with(|w| w.config = config).build(),
-                events: sent,
-            };
+            let own = EnvironmentId::default();
+            let (link, events) = answering(work_reading(settings));
             let mut window = Self {
                 view: ViewState::default(),
-                link,
-                events: Events::Local(events),
+                links: Links::new(own.clone(), link),
+                events: vec![(own.clone(), events)],
                 drawn: Vec::new(),
             };
             window.dispatch(Msg::Opened {
                 home: Default::default(),
-                environment: Default::default(),
+                environment: own,
             });
             window
         }
 
+        /// The window links to `environment` too, whose host holds `work`.
+        fn link(&mut self, environment: EnvironmentId, work: WorkSnapshot) {
+            let (link, events) = answering(work);
+            self.links.add(environment.clone(), || link);
+            self.events.push((environment, events));
+        }
+
         fn dispatch(&mut self, msg: Msg) {
-            let environment = self.view.hosts.environment.clone();
-            let drawn = pump(
-                &mut self.view,
-                &self.link,
-                &environment,
-                &mut self.events,
-                [msg],
-            );
+            let drawn = pump(&mut self.view, &self.links, &mut self.events, [msg]);
             self.drawn.extend(drawn);
         }
+    }
+
+    #[test]
+    fn each_environment_s_host_is_greeted_through_its_own_link_and_its_work_kept_as_its_own() {
+        let mut window = Window::open("zoom = 1.25\n");
+        let there = EnvironmentId::new("there");
+        window.link(there.clone(), work_reading("zoom = 2.0\n"));
+        window.dispatch(Msg::EnvironmentOpened {
+            environment: there.clone(),
+            name: "There".into(),
+        });
+        assert_eq!(
+            window.view.hosts.work(&there),
+            Some(&work_reading("zoom = 2.0\n"))
+        );
+        assert_eq!(
+            window.view.hosts.own().work,
+            Some(work_reading("zoom = 1.25\n"))
+        );
+        assert_eq!(
+            window.view.hosts.get(&there).map(|h| &h.link),
+            Some(&Link::Ready {
+                version: *SPOKEN.iter().max().unwrap()
+            })
+        );
+    }
+
+    #[test]
+    fn a_work_host_for_an_environment_shown_beside_the_own_one_starts_in_that_one_s_work_instance()
+    {
+        let to = work_host_in("work", std::path::Path::new("/w/felis/daemon.sock"))(
+            "/w/host/host.sock".into(),
+        );
+        assert_eq!(to.program, std::path::Path::new("/usr/bin/env"));
+        let (named, run) = to.args.split_at(to.args.len() - 2);
+        assert!(named.contains(&"ADROIT_WORK_INSTANCE=work".to_string()));
+        assert!(named.contains(&"ADROIT_HOST=/w/host/host.sock".to_string()));
+        assert!(named.contains(&"ADROIT_DAEMON=/w/felis/daemon.sock".to_string()));
+        assert!(
+            named
+                .windows(2)
+                .any(|pair| pair == ["-u", "ADROIT_ENVIRONMENT"]),
+            "the window's own environment is not handed down: {named:?}"
+        );
+        assert_eq!(run[1], "host");
+    }
+
+    #[test]
+    fn each_request_goes_to_the_link_of_its_environment_and_one_to_none_is_dropped() {
+        #[derive(Default)]
+        struct Recording(std::cell::RefCell<Vec<Request>>);
+        impl HostLink for Recording {
+            fn send(&self, request: Request) {
+                self.0.borrow_mut().push(request);
+            }
+        }
+        let mut links = Links::new(EnvironmentId::new("here"), Recording::default());
+        links.add(EnvironmentId::new("there"), Recording::default);
+        let mut local = Vec::new();
+        run(
+            vec![
+                Effect::Host {
+                    environment: EnvironmentId::new("there"),
+                    request: Request::Relist,
+                },
+                Effect::Host {
+                    environment: EnvironmentId::new("here"),
+                    request: Request::Snapshot,
+                },
+                Effect::Host {
+                    environment: EnvironmentId::new("nowhere"),
+                    request: Request::ReadAgain,
+                },
+            ],
+            &links,
+            |effect| local.push(effect),
+        );
+        let sent = |environment: &str| {
+            links
+                .get(&EnvironmentId::new(environment))
+                .unwrap()
+                .0
+                .borrow()
+                .clone()
+        };
+        assert_eq!(sent("here"), vec![Request::Snapshot]);
+        assert_eq!(sent("there"), vec![Request::Relist]);
+        assert!(local.is_empty());
     }
 
     /// A task an overlay's handler starts through the window, as a picker
@@ -843,35 +1129,6 @@ mod tests {
         assert!(window.view.hosts.own().work.is_some());
         assert_eq!(window.view.config.settings.zoom, 1.25);
         assert_eq!(window.drawn, vec![Effect::Zoom(1.25)]);
-    }
-
-    #[test]
-    fn the_link_carries_only_the_requests_for_its_own_environment() {
-        struct Recording(std::cell::RefCell<Vec<Request>>);
-        impl HostLink for Recording {
-            fn send(&self, request: Request) {
-                self.0.borrow_mut().push(request);
-            }
-        }
-        let link = Recording(Default::default());
-        let mut local = Vec::new();
-        run(
-            vec![
-                Effect::Host {
-                    environment: EnvironmentId::new("there"),
-                    request: Request::Relist,
-                },
-                Effect::Host {
-                    environment: EnvironmentId::new("here"),
-                    request: Request::Snapshot,
-                },
-            ],
-            &link,
-            &EnvironmentId::new("here"),
-            |effect| local.push(effect),
-        );
-        assert_eq!(*link.0.borrow(), vec![Request::Snapshot]);
-        assert!(local.is_empty());
     }
 
     #[test]

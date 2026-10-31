@@ -50,10 +50,10 @@ pub(crate) fn ContextMenu() -> Element {
     };
     let (x, y, target) = (menu.x, menu.y, menu.target);
     let session = match &target {
-        Target::Row(Item::Session(_, id) | Item::Waiting(_, id))
-        | Target::Tab(Tab::Session(_, id)) => {
-            let host = app.host.read();
-            nav::find(listed(host.work.as_ref()), id).map(|(_, s)| s.clone())
+        Target::Row(Item::Session(environment, id) | Item::Waiting(environment, id))
+        | Target::Tab(Tab::Session(environment, id)) => {
+            let hosts = app.hosts.read();
+            nav::find(listed(hosts.work(environment)), id).map(|(_, s)| s.clone())
         }
         _ => None,
     };

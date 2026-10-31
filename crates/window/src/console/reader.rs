@@ -255,7 +255,8 @@ impl Reader {
     ) -> Option<(Vec<String>, Vec<Mark>, (usize, usize), String)> {
         let palette = self.hub.palette.peek().clone();
         let cols = self.console_size.peek().cols;
-        let mut all = p.everything(&self.hub.daemon, cols).await.ok()?;
+        let daemon = self.hub.daemon(&self.app.active_environment());
+        let mut all = p.everything(&daemon, cols).await.ok()?;
         let screen = p.screen();
         let above = all.rows.saturating_sub(screen.rows);
         all.cursor = screen.cursor.map(|c| adroit_term::Cursor {

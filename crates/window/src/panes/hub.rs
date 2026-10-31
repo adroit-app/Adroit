@@ -43,7 +43,7 @@ pub(crate) fn use_hub(app: AppCtx, local: Local) -> Hub {
         let panes: Panes = Rc::new(RefCell::new(HashMap::new()));
         spawn(redraw_woken(app, local, panes.clone(), woken));
         Hub {
-            daemon: app.daemon(),
+            daemons: Rc::new(move |environment| app.daemon_of(environment)),
             panes,
             attaching: Rc::new(RefCell::new(HashSet::new())),
             wake,
@@ -85,7 +85,7 @@ async fn redraw_woken(
                     keep_drawn(local.gallery, id.clone(), drawn);
                 }
             }
-            let remote = app.remote_status().is_some();
+            let remote = app.remote_status_of(tab.environment()).is_some();
             let gone = panes.borrow().get(tab).is_some_and(|p| {
                 if remote {
                     p.program_exited()
@@ -131,10 +131,13 @@ pub(crate) fn use_redraws_told(app: AppCtx, local: Local) {
         let _ = (local.frame)();
         if let Some(tab @ Tab::Session(_, id)) = &*active.read() {
             let agent = app.agent_of(Some(tab));
-            app.tell_host(adroit_protocol::Request::Redrawn {
-                session: id.clone(),
-                agent,
-            });
+            app.tell_host_in(
+                tab.environment(),
+                adroit_protocol::Request::Redrawn {
+                    session: id.clone(),
+                    agent,
+                },
+            );
         }
     });
 }

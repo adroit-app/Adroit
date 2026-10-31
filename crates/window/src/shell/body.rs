@@ -130,8 +130,8 @@ fn DetailsSide(focused: bool, shown: bool) -> Element {
     let current = app.content.read().described().cloned();
     let active = app.content.read().active().cloned();
     let outside_git = {
-        let host = app.host.read();
-        let work = host.work.as_ref();
+        let hosts = app.hosts.read();
+        let work = hosts.work(hosts.environment_of(active.as_ref()));
         let tree = adroit_core::tree::listed(work);
         let workspace = current
             .as_ref()

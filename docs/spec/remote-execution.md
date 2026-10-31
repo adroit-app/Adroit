@@ -67,8 +67,9 @@ server = "3f5c0e9a4d1b7c2e8f6a5d3b9c0e1f2a4b6c8d0e2f4a6b8c0d2e4f6a8b0c2d4e"
 
 ## The remote window
 
-The window uses the selected work machine for its work, filesystem and
-programs. It never starts a local host to replace an unavailable remote one.
+Each environment a window shows uses its own work machine for its work,
+filesystem and programs. The window never starts a local host to replace an
+unavailable remote one.
 The connection state remains visible, including how old the displayed work
 is during a disconnect. Reconnection preserves the terminal host's identity;
 a replacement terminal host requires opening a new connection explicitly.

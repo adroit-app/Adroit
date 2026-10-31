@@ -19,6 +19,7 @@ use crate::bridge::AppCtx;
 use crate::console::Hub;
 use crate::nav::Item;
 use crate::shell::Ui;
+use adroit_model::EnvironmentId;
 use adroit_model::daemon as sessions;
 
 /// This program, as a session should call it to reach the window.
@@ -39,9 +40,15 @@ async fn attach_held(
     let palette = hub.palette.peek().clone();
     let wake = hub.wake.clone();
     let woken = tab.clone();
-    let pane = Pane::attach(&hub.daemon, id, size, &palette, move || {
-        let _ = wake.send(woken.clone());
-    })
+    let pane = Pane::attach(
+        &hub.daemon(tab.environment()),
+        id,
+        size,
+        &palette,
+        move || {
+            let _ = wake.send(woken.clone());
+        },
+    )
     .await;
     // The colours are told before the program goes; whatever came of the
     // attach, it is not left waiting for a window that cannot show it.
@@ -49,7 +56,7 @@ async fn attach_held(
         Ok(pane) => pane.fenced().await,
         Err(_) => Ok(()),
     };
-    app.tell_host(Request::Release { id });
+    app.tell_host_in(tab.environment(), Request::Release { id });
     let pane = pane?;
     fenced?;
     // A theme chosen while the session was being started passed it by.
@@ -63,16 +70,21 @@ async fn attach_held(
 }
 
 impl Ui {
-    /// Start the session `start` asks for, and attach to it: its id, or why
-    /// it could not start, or why its pane could not attach as `failed`
-    /// words it.
+    /// Start the session `start` asks for in `environment`, and attach to
+    /// it: its id, or why it could not start, or why its pane could not
+    /// attach as `failed` words it.
     async fn start_session(
         &self,
+        environment: &EnvironmentId,
         start: SessionStart,
         failed: impl FnOnce(adroit_term::Error) -> String,
     ) -> Result<String, String> {
         let size = Size::new(start.cols, start.rows);
-        let id = match self.app.ask(Ask::StartSession(Box::new(start))).await {
+        let id = match self
+            .app
+            .ask_in(environment, Ask::StartSession(Box::new(start)))
+            .await
+        {
             Answer::Session { id } => id,
             Answer::Failed { text } => return Err(text),
             answer => return Err(format!("the work host answered {answer:?}")),
@@ -80,7 +92,7 @@ impl Ui {
         let Some(terminal) = sessions::id_of(&id) else {
             return Err(format!("the work host started no session it names: {id}"));
         };
-        let tab = Tab::Session(self.app.environment(), id.clone());
+        let tab = Tab::Session(environment.clone(), id.clone());
         attach_held(self.app, &self.hub, terminal, tab, size)
             .await
             .map_err(failed)?;
@@ -235,13 +247,17 @@ impl Ui {
                 rows: size.rows,
             };
             let failed = |e| format!("cannot start {name}: {e}");
-            if app.remote_status().is_some() {
+            if app.remote_status_of(&environment).is_some() {
                 let Some(context) = crate::prompts::remote::context(&taken) else {
                     app.dispatch(Msg::PromptRetained);
                     return;
                 };
                 match app
-                    .ask_prompt(Ask::StartSession(Box::new(start)), context.clone())
+                    .ask_prompt(
+                        &environment,
+                        Ask::StartSession(Box::new(start)),
+                        context.clone(),
+                    )
                     .await
                 {
                     Answer::Session { id } => {
@@ -287,7 +303,7 @@ impl Ui {
                 }
                 return;
             }
-            match ui.start_session(start, failed).await {
+            match ui.start_session(&environment, start, failed).await {
                 Ok(id) => {
                     app.dispatch(Msg::Relist);
                     app.dispatch(Msg::TreeSelect(Some(Item::Session(
@@ -336,11 +352,11 @@ impl Ui {
                 ..Default::default()
             };
             let failed = |e| format!("cannot resume {name}: {e}");
-            match ui.start_session(start, failed).await {
+            let environment = app.environment();
+            match ui.start_session(&environment, start, failed).await {
                 Ok(id) => {
                     app.status(None);
                     app.dispatch(Msg::Relist);
-                    let environment = app.environment();
                     app.dispatch(Msg::TreeSelect(Some(Item::Session(
                         environment.clone(),
                         id.clone(),

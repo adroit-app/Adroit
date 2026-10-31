@@ -25,6 +25,7 @@ mod icons;
 mod input;
 mod installed_fonts;
 pub use adroit_core::keymap;
+mod kept_environments;
 mod keys;
 use adroit_core::keys_by_action;
 use adroit_core::keys_edit;

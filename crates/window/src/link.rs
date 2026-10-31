@@ -17,10 +17,12 @@ use adroit_protocol::{Answer, Ask, Event, Request, SPOKEN, Told, WorkHost, judge
 use tokio::sync::{mpsc, oneshot};
 
 mod events;
+mod links;
 mod remote;
 mod route;
 pub(crate) use events::Events;
-pub(crate) use remote::{Phase as RemotePhase, Status as RemoteStatus};
+pub(crate) use links::*;
+pub(crate) use remote::{Phase as RemotePhase, Status as RemoteStatus, journal_root};
 pub(crate) use route::*;
 
 #[derive(Clone)]
@@ -63,16 +65,20 @@ pub(crate) struct Link {
 
 impl Link {
     /// Keep a link along `route`, a local work host being reached as
-    /// `local` says for the socket it listens at.
+    /// `local` says for the socket it listens at, a remote one keeping the
+    /// changes it sends in the journal at `journal`.
     pub(crate) fn selected(
         route: Route,
         local: impl FnOnce(PathBuf) -> To,
+        journal: PathBuf,
     ) -> (Link, Events, std::sync::mpsc::Receiver<()>) {
         let Route { scope, toward, .. } = route;
         match toward {
             Ok(Toward::Local { host, terminal }) => Self::open(local(host), terminal, scope),
-            Ok(Toward::Remote(target)) => remote::open(adroit_connect::Remote::new(&target), scope),
-            Err(text) => remote::open(Err(text), scope),
+            Ok(Toward::Remote(target)) => {
+                remote::open(adroit_connect::Remote::new(&target), scope, journal)
+            }
+            Err(text) => remote::open(Err(text), scope, journal),
         }
     }
 
@@ -607,6 +613,38 @@ mod tests {
         assert!(matches!(host_b.asked().await, Request::Hello { .. }));
         assert_eq!(link_a.daemon().socket(), dir.path().join("a-felis.sock"));
         assert_eq!(link_b.daemon().socket(), dir.path().join("b-felis.sock"));
+    }
+
+    #[tokio::test]
+    async fn one_environment_s_host_going_leaves_the_other_s_link_answering() {
+        let dir = short_dir();
+        let (a, b) = (dir.path().join("a.sock"), dir.path().join("b.sock"));
+        let (listener_a, listener_b) = (
+            UnixListener::bind(&a).unwrap(),
+            UnixListener::bind(&b).unwrap(),
+        );
+        let (link_a, _events_a, _) = Link::open(to(&a), dir.path().join("a-felis.sock"), None);
+        let (link_b, _events_b, _) = Link::open(to(&b), dir.path().join("b-felis.sock"), None);
+        let mut host_a = Accepted::from(&listener_a).await;
+        let mut host_b = Accepted::from(&listener_b).await;
+        host_a.asked().await;
+        host_b.asked().await;
+        let lost = link_a.ask(Ask::TerminalHost);
+        assert!(matches!(host_a.asked().await, Request::Ask { .. }));
+        drop(host_a);
+        drop(listener_a);
+        assert_eq!(lost.await, Answer::Failed { text: GONE.into() });
+        let answered = link_b.ask(Ask::TerminalHost);
+        let Request::Ask { asked, .. } = host_b.asked().await else {
+            panic!("not asked");
+        };
+        host_b
+            .tell(&Event::Answer {
+                asked,
+                answer: Answer::Done,
+            })
+            .await;
+        assert_eq!(answered.await, Answer::Done);
     }
 
     #[tokio::test]

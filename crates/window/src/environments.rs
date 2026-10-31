@@ -2,6 +2,7 @@
 
 use adroit_connect::environments::{Catalog, Environment};
 use dioxus::prelude::*;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 pub(crate) fn active_name() -> String {
     let binding = adroit_connect::environments::active().ok().flatten();
@@ -20,6 +21,35 @@ pub(crate) fn active_name() -> String {
     )
 }
 
+thread_local! {
+    /// Where an environment asked for is shown: the window this process
+    /// holds, once it listens.
+    static SHOWING: std::cell::RefCell<Option<UnboundedSender<Environment>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The environments asked to be shown in this process's window, from its
+/// menu or the Environments window, which has no hold of the window.
+pub(crate) fn listen() -> UnboundedReceiver<Environment> {
+    let (asked, showing) = tokio::sync::mpsc::unbounded_channel();
+    SHOWING.with(|s| *s.borrow_mut() = Some(asked));
+    showing
+}
+
+/// Show `environment` in this process's window beside the environments it
+/// shows.
+pub(crate) fn show(environment: &Environment) -> Result<(), String> {
+    let sent = SHOWING.with(|s| {
+        s.borrow()
+            .as_ref()
+            .is_some_and(|asked| asked.send(environment.clone()).is_ok())
+    });
+    sent.then_some(())
+        .ok_or_else(|| "No window can show the environment".into())
+}
+
+/// Open `environment` in a window of its own, in a new independent
+/// instance when `independent`.
 pub(crate) fn open(environment: &Environment, independent: bool) -> Result<(), String> {
     let program = std::env::current_exe().map_err(|e| e.to_string())?;
     adroit_connect::environments::open_command(&program, environment, independent)?
@@ -57,7 +87,7 @@ pub(crate) fn EnvironmentMenu() -> Element {
                     if id == "manage" { crate::environment_manager::open(); return; }
                     if let Ok(catalog) = &*catalog.peek()
                         && let Some(environment) = catalog.environments.iter().find(|p| p.id == id) {
-                            error.set(open(environment, false).err());
+                            error.set(show(environment).err());
                         }
                 },
                 if let Ok(catalog) = &*catalog.read() {

@@ -17,12 +17,16 @@ pub(crate) fn Header(ontoggle: EventHandler<Side>) -> Element {
     let layout = app.chrome.read().panels.layout;
     let (crumbs, waiting, working) = {
         let view = app.tree.read();
-        let host = app.host.read();
-        let work = host.work.as_ref();
+        let hosts = app.hosts.read();
+        let showing = app.content.read().showing();
+        let work = hosts.work(hosts.environment_of(showing.tab.as_ref()));
         (
-            tree::crumbs(&app.content.read().showing(), work),
+            tree::crumbs(&showing, work),
             view.waiting.len(),
-            tree::working(work),
+            hosts
+                .each()
+                .map(|(_, host)| tree::working(host.work.as_ref()))
+                .sum::<usize>(),
         )
     };
     rsx! {

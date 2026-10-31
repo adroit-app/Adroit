@@ -88,8 +88,8 @@ pub type Panes = Rc<RefCell<HashMap<Tab, Arc<Pane>>>>;
 /// and shared with its components through the context.
 #[derive(Clone)]
 pub struct Hub {
-    /// The daemon the sessions run in.
-    pub daemon: Daemon,
+    /// The terminal host each environment's sessions run in.
+    pub daemons: Rc<dyn Fn(&adroit_model::EnvironmentId) -> Daemon>,
     pub panes: Panes,
     /// The tabs whose sessions are being attached to.
     pub attaching: Rc<RefCell<std::collections::HashSet<Tab>>>,
@@ -97,6 +97,13 @@ pub struct Hub {
     pub wake: mpsc::UnboundedSender<Tab>,
     /// The theme's palette, which a new theme replaces.
     pub palette: Signal<Palette>,
+}
+
+impl Hub {
+    /// The terminal host `environment`'s sessions run in.
+    pub fn daemon(&self, environment: &adroit_model::EnvironmentId) -> Daemon {
+        (self.daemons)(environment)
+    }
 }
 
 /// The window's own handles on the focused window's console, its reader and
@@ -176,7 +183,7 @@ pub fn ConsoleScreen(tab: Tab, frame: Signal<u64>, cell_width: f64, focused: boo
     let _ = frame();
     let hub = use_context::<Hub>();
     let remote = use_context::<crate::bridge::AppCtx>()
-        .remote_status()
+        .remote_status_of(tab.environment())
         .is_some();
     let pane = hub.panes.borrow().get(&tab).cloned();
     let Some(pane) = pane else {

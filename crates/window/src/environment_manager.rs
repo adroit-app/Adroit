@@ -481,7 +481,7 @@ fn EnvironmentEditor() -> Element {
                     if selected().is_some() && !target_changed {
                         button { r#type: "button", class: if name_changed { "" } else { "primary" }, disabled: busy(), onclick: move |_| {
                             if let Ok(catalog) = &*catalog.peek()
-                                && let Some(environment) = catalog.environments.iter().find(|p| Some(&p.id) == selected.peek().as_ref()) { error.set(crate::environments::open(environment, false).err()); }
+                                && let Some(environment) = catalog.environments.iter().find(|p| Some(&p.id) == selected.peek().as_ref()) { error.set(crate::environments::show(environment).err()); }
                         }, "Open environment" }
                     }
                 }

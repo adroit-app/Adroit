@@ -43,8 +43,10 @@ pub(crate) fn TreePanel(
         )
     };
     let empty = {
-        let host = app.host.read();
-        tree::listed(host.work.as_ref()).workspaces.is_empty()
+        let hosts = app.hosts.read();
+        hosts
+            .each()
+            .all(|(_, host)| tree::listed(host.work.as_ref()).workspaces.is_empty())
     };
     let (waiting_prev, waiting_next) = waiting_keys;
     rsx! {

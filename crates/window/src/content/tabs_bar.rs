@@ -32,16 +32,15 @@ pub(super) fn TabsBar(
     let app = use_context::<AppCtx>();
     // Each tab named after what its focused window shows.
     let tabs = use_memo(move || {
-        let host = app.host.read();
-        let work = host.work.as_ref();
-        let t = tree_view::listed(work);
-        let terms = tree_view::terminals(work);
+        let hosts = app.hosts.read();
         let view = app.content.read();
         view.windows
             .tabs()
             .iter()
             .map(|tab| {
                 let shows = tab.focused().shows.clone();
+                let work = hosts.work(shows.environment());
+                let (t, terms) = (tree_view::listed(work), tree_view::terminals(work));
                 let (state, mark) = match &shows {
                     Tab::Session(_, id) => nav::find(t, id).map_or((None, None), |(_, s)| {
                         (
@@ -73,8 +72,7 @@ pub(super) fn TabsBar(
     });
     let current = app.content.read().described().cloned();
     let shown_at = app.content.read().windows.current_index();
-    let host = app.host.read();
-    let terminals = tree_view::terminals(host.work.as_ref());
+    let hosts = app.hosts.read();
     rsx! {
         div { class: "tabs",
             // The worktree by name only: the header above holds its whole
@@ -88,7 +86,10 @@ pub(super) fn TabsBar(
                 {
                     let is_active = at == shown_at;
                     let shell = match &tab {
-                        Tab::Terminal(_, id) => Some(runs_of(terminals, *id)),
+                        Tab::Terminal(environment, id) => Some(runs_of(
+                            tree_view::terminals(hosts.work(environment)),
+                            *id,
+                        )),
                         _ => None,
                     };
                     let class = [

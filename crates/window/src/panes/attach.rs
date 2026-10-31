@@ -67,9 +67,15 @@ pub(crate) fn ensure_pane(
         let wake = hub.wake.clone();
         let me = tab.clone();
         let palette = hub.palette.peek().clone();
-        let pane = Pane::attach(&hub.daemon, id, size, &palette, move || {
-            let _ = wake.send(me.clone());
-        })
+        let pane = Pane::attach(
+            &hub.daemon(tab.environment()),
+            id,
+            size,
+            &palette,
+            move || {
+                let _ = wake.send(me.clone());
+            },
+        )
         .await;
         hub.attaching.borrow_mut().remove(&tab);
         if let Ok(pane) = pane {
@@ -147,8 +153,19 @@ impl Ui {
     /// End a shell and close its windows, showing another thing of its
     /// worktree if no window is left.
     pub(crate) fn end_shell(&self, id: u128) {
+        // The shell's environment is the one its pane was attached in.
+        let environment = self
+            .hub
+            .panes
+            .borrow()
+            .keys()
+            .find_map(|tab| match tab {
+                Tab::Terminal(environment, shell) if *shell == id => Some(environment.clone()),
+                _ => None,
+            })
+            .unwrap_or_else(|| self.app.environment());
         self.app
-            .tell_host(adroit_protocol::Request::EndTerminal { id });
+            .tell_host_in(&environment, adroit_protocol::Request::EndTerminal { id });
         close_shell(self.app, &self.hub.panes, id);
     }
 

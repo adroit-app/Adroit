@@ -360,9 +360,9 @@ pub(crate) fn answering(app: AppCtx) -> Answering {
     let session_shown = matches!(active, Some(Tab::Session(_, _)));
     let in_dialog = session_shown && app.console.read().dialog;
     let answering = match &active {
-        Some(Tab::Session(_, id)) => {
-            let host = app.host.read();
-            let tree = adroit_core::tree::listed(host.work.as_ref());
+        Some(Tab::Session(environment, id)) => {
+            let hosts = app.hosts.read();
+            let tree = adroit_core::tree::listed(hosts.work(environment));
             in_dialog || nav::find(tree, id).is_some_and(|(_, s)| s.state.takes_every_key())
         }
         _ => false,

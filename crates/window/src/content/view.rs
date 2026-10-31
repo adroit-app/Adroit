@@ -50,14 +50,14 @@ pub(crate) fn ContentPanel(
         None => vec![rsx! { FocusedBody {} }],
         Some(tab) => {
             let preview = tab.is_preview();
-            let host = app.host.read();
-            let work = host.work.as_ref();
-            let (t, terms) = (tree_view::listed(work), tree_view::terminals(work));
+            let hosts = app.hosts.read();
             let mut out = Vec::new();
             for (id, r) in tab.rects() {
                 let Some(shows) = windows.shows(id).cloned() else {
                     continue;
                 };
+                let work = hosts.work(shows.environment());
+                let (t, terms) = (tree_view::listed(work), tree_view::terminals(work));
                 let focused = Some(id) == focused_window;
                 let marked = Some(id) == marked_window;
                 let settings = &app.config.read().settings;

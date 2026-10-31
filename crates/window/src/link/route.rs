@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use adroit_connect::Target;
-use adroit_connect::environments::Binding;
+use adroit_connect::environments::{Binding, Environment};
 use adroit_model::EnvironmentId;
 
 /// The environment a link asks for, and the way to its work host.
@@ -25,14 +25,21 @@ pub(crate) enum Toward {
     Remote(Target),
 }
 
+impl Toward {
+    /// This process's instance's own work host and terminal host.
+    pub(crate) fn own() -> Toward {
+        Toward::Local {
+            host: adroit_model::paths::work_host_socket(),
+            terminal: adroit_model::paths::terminal_host_socket(),
+        }
+    }
+}
+
 impl Route {
     /// The route this process's instance has selected: its environment's
     /// binding, or else the target `execution` names with no environment.
     pub(crate) fn selected(execution: &Path) -> Route {
-        let own = Toward::Local {
-            host: adroit_model::paths::work_host_socket(),
-            terminal: adroit_model::paths::terminal_host_socket(),
-        };
+        let own = Toward::own();
         match adroit_connect::environments::active() {
             Ok(Some(binding)) => Route::bound(
                 &binding,
@@ -72,6 +79,23 @@ impl Route {
             scope: binding.scope.clone(),
             toward: Ok(toward),
         }
+    }
+
+    /// The route to `environment`, shown in a window of the instance
+    /// `instance` beside its own, as that instance's binding to it would
+    /// name it.
+    pub(crate) fn shown(
+        environment: &Environment,
+        instance: &str,
+        state: &Path,
+        own: Toward,
+    ) -> Result<Route, String> {
+        Ok(Route::bound(
+            &environment.bind(instance)?,
+            instance,
+            state,
+            own,
+        ))
     }
 
     /// The route an instance without an environment takes to `target`, its
@@ -205,6 +229,35 @@ mod tests {
                 scope: Some("scope-a".into()),
                 toward: Ok(Toward::Remote(native())),
             }
+        );
+    }
+
+    #[test]
+    fn an_environment_shown_beside_the_window_s_own_is_reached_as_its_binding_from_this_instance() {
+        let mut environment = Environment::new("There", Target::Local);
+        environment.work_instance = Some("work".into());
+        let route = Route::shown(&environment, "client", Path::new("/state"), own()).unwrap();
+        assert_eq!(
+            route,
+            Route {
+                environment: EnvironmentId::new(&environment.id),
+                scope: environment.scope.clone(),
+                toward: Ok(Toward::Local {
+                    host: "/state/adroit/instances/work/host/host.sock".into(),
+                    terminal: "/state/adroit/instances/work/felis/daemon.sock".into(),
+                }),
+            }
+        );
+        let paired = Target::Native {
+            address: "work.example:7100".into(),
+            server: "ab".repeat(32),
+        };
+        let remote = Environment::new("Remote", paired.clone());
+        assert_eq!(
+            Route::shown(&remote, "client", Path::new("/state"), own())
+                .unwrap()
+                .toward,
+            Ok(Toward::Remote(paired))
         );
     }
 

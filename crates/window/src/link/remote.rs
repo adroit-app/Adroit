@@ -10,6 +10,7 @@ use adroit_protocol::client::Connection;
 use adroit_protocol::{Answer, Ask, Event, RemoteInfo, Request, SPOKEN, Told};
 use changes::Command;
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -178,9 +179,24 @@ impl Sender {
     }
 }
 
+/// Where a remote link keeps the changes it sent and has not seen through,
+/// under the instance's folder `state`: the window's own environment where
+/// it always has, and each environment shown beside it apart, so two remote
+/// links never claim one journal.
+pub(crate) fn journal_root(state: &Path, shown: Option<&adroit_model::EnvironmentId>) -> PathBuf {
+    match shown {
+        None => state.join("remote-journal"),
+        Some(environment) => state
+            .join("environments")
+            .join(environment.to_string())
+            .join("remote-journal"),
+    }
+}
+
 pub(super) fn open(
     remote: Result<Remote, String>,
     scope: Option<String>,
+    journal: PathBuf,
 ) -> (Link, Events, std::sync::mpsc::Receiver<()>) {
     let (queue, requests) = mpsc::channel(64);
     let (told, events) = Events::remote();
@@ -224,6 +240,7 @@ pub(super) fn open(
                             Keep {
                                 remote,
                                 scope,
+                                journal,
                                 requests,
                                 shared,
                                 waiting,
@@ -256,6 +273,8 @@ pub(super) fn open(
 struct Keep {
     remote: Remote,
     scope: Option<String>,
+    /// Where the changes sent and not seen through are kept.
+    journal: PathBuf,
     requests: mpsc::Receiver<Command>,
     shared: Arc<Shared>,
     waiting: Waiting,
@@ -305,12 +324,11 @@ impl Keep {
         let journal = match journal {
             Some(journal) => Ok(journal),
             None => {
-                let root = adroit_model::paths::instance_state();
-                std::fs::create_dir_all(&root)
+                let root = &self.journal;
+                root.parent()
+                    .map_or(Ok(()), std::fs::create_dir_all)
                     .map_err(|e| e.to_string())
-                    .and_then(|_| {
-                        Journal::open(&root.join("remote-journal"), &tunnel.info().instance)
-                    })
+                    .and_then(|_| Journal::open(root, &tunnel.info().instance))
                     .map(Arc::new)
             }
         };
@@ -491,7 +509,6 @@ impl Keep {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
 
     #[tokio::test]
     async fn a_remote_snapshot_enables_reads_and_console_input_and_a_disconnect_closes_them() {
@@ -519,6 +536,7 @@ mod tests {
         let mut keep = Keep {
             remote: remote.clone(),
             scope: None,
+            journal: key.path().join("journal"),
             requests,
             shared: shared.clone(),
             waiting: waiting.clone(),
@@ -645,6 +663,17 @@ mod tests {
         assert!(lock(&waiting).is_empty());
     }
 
+    #[test]
+    fn each_environment_shown_beside_the_window_s_own_keeps_a_journal_of_its_own() {
+        let state = Path::new("/state");
+        let own = journal_root(state, None);
+        let a = journal_root(state, Some(&adroit_model::EnvironmentId::new("a")));
+        let b = journal_root(state, Some(&adroit_model::EnvironmentId::new("b")));
+        assert_eq!(own, Path::new("/state/remote-journal"));
+        assert_ne!(a, b);
+        assert!(!a.starts_with(&own) && !b.starts_with(&own));
+    }
+
     #[tokio::test]
     async fn invalid_execution_configuration_never_falls_back_to_starting_a_local_host() {
         let dir = tempfile::tempdir().unwrap();
@@ -662,12 +691,16 @@ mod tests {
                 terminal: dir.path().join("felis.sock"),
             },
         );
-        let (link, mut events, first) = Link::selected(route, |socket| super::super::To {
-            socket,
-            program: "/usr/bin/touch".into(),
-            args: vec![marker.to_string_lossy().into_owned()],
-            build: "test".into(),
-        });
+        let (link, mut events, first) = Link::selected(
+            route,
+            |socket| super::super::To {
+                socket,
+                program: "/usr/bin/touch".into(),
+                args: vec![marker.to_string_lossy().into_owned()],
+                build: "test".into(),
+            },
+            dir.path().join("journal"),
+        );
         assert!(first.recv_timeout(Duration::from_secs(1)).is_err());
         assert_eq!(link.remote_status().unwrap().phase, Phase::Error);
         let answer = tokio::time::timeout(Duration::from_secs(1), link.ask(Ask::TerminalHost))

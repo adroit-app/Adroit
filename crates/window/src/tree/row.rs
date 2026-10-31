@@ -93,8 +93,8 @@ pub(crate) struct RowEvents {
 pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element {
     let app = use_context::<AppCtx>();
     let view = app.tree.read();
-    let host = app.host.read();
-    let work = host.work.as_ref();
+    let hosts = app.hosts.read();
+    let work = hosts.work(item.environment());
     let t = tree::listed(work);
     let terminals = tree::terminals(work);
     let marks = work.map(|w| &w.tree.marks);
@@ -335,12 +335,15 @@ pub(crate) fn WaitingRow(environment: EnvironmentId, waiting: InboxItem, on: Row
     let app = use_context::<AppCtx>();
     let item = Item::Waiting(environment.clone(), waiting.session.id.clone());
     let is_sel = app.tree.read().selected.as_ref() == Some(&item);
-    let shown =
-        app.content.read().active() == Some(&Tab::Session(environment, waiting.session.id.clone()));
+    let shown = app.content.read().active()
+        == Some(&Tab::Session(
+            environment.clone(),
+            waiting.session.id.clone(),
+        ));
     let badge = {
-        let host = app.host.read();
+        let hosts = app.hosts.read();
         row_badge(
-            tree::listed(host.work.as_ref()),
+            tree::listed(hosts.work(&environment)),
             &app.config.read().settings,
             &item,
         )

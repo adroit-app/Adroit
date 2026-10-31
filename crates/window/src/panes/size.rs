@@ -142,8 +142,9 @@ pub(crate) fn use_console_sizes(ui: &Ui) {
     let zoomed = use_memo(move || app.chrome.read().zoom);
     let active = use_memo(move || app.content.read().active().cloned());
     let tree = use_memo(move || {
-        let host = app.host.read();
-        adroit_core::tree::listed(host.work.as_ref()).clone()
+        let hosts = app.hosts.read();
+        let work = hosts.work(hosts.environment_of(active.read().as_ref()));
+        adroit_core::tree::listed(work).clone()
     });
 
     // The cell the console's font draws: as wide as its characters and as

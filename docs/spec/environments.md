@@ -4,9 +4,12 @@ An environment is a named place to work: its connection, its agents and its
 work settings. The main window's environment menu opens a saved environment or
 the separate Environments window, where environments are created and their
 connections set up; Settings configures the environment already open in the
-current window. Opening an environment brings its window forward or opens one;
-the previous window and its running work remain available. An environment can
-also be opened in a separate, independent window instance.
+current window. Opening an environment shows it in the current window's tree
+beside the environments the window already shows; opening one already shown
+goes to it. An environment can also be opened in a separate, independent
+window instance of its own. A window shows the same environments again when
+it is reopened, leaving out those removed or archived meanwhile. A lost
+connection to one environment leaves the window's other environments usable.
 
 Each instance keeps the environment and connection it opened. Changing another
 instance's choice does not redirect its CLI, MCP, drafts or unresolved sends.

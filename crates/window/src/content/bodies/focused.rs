@@ -44,8 +44,8 @@ pub(crate) fn FocusedBody() -> Element {
     let content = app.content.read();
     let area = content.focus;
     let active_tab = content.active().cloned();
-    let host = app.host.read();
-    let work = host.work.as_ref();
+    let hosts = app.hosts.read();
+    let work = hosts.work(hosts.environment_of(active_tab.as_ref()));
     let tree = tree_view::listed(work);
     let (current_profile, offered) = {
         let config = app.config.read();
@@ -121,7 +121,7 @@ pub(crate) fn FocusedBody() -> Element {
         .and_then(|tab| content.drafts.options.get(tab).cloned())
         .unwrap_or_default();
     let next_options = content.drafts.next.clone().unwrap_or_default();
-    drop((content, host));
+    drop((content, hosts));
     let prompt_shown = shows_prompt(active_tab.as_ref());
     let composer_room = if prompt_shown {
         composer_height() + 22.0
