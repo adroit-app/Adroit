@@ -351,7 +351,7 @@ impl Keep {
         };
         match journal.and_then(|journal| {
             tunnel
-                .work(journal.clone())
+                .work(journal.clone(), self.scope.clone())
                 .map(|work| (journal, Arc::new(work)))
         }) {
             Ok((journal, work)) => {
@@ -706,11 +706,12 @@ mod tests {
             super::super::Toward::Local {
                 host: dir.path().join("local.sock"),
                 terminal: dir.path().join("felis.sock"),
+                work: "default".into(),
             },
         );
         let (link, mut events, first) = Link::selected(
             route,
-            |socket| super::super::To {
+            |socket, _, _| super::super::To {
                 socket,
                 program: "/usr/bin/touch".into(),
                 args: vec![marker.to_string_lossy().into_owned()],

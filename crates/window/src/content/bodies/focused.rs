@@ -158,6 +158,7 @@ pub(crate) fn FocusedBody() -> Element {
             match (&active_tab, pane.is_some()) {
                 (Some(tab @ Tab::Draft { worktree, .. }), _) => rsx! {
                     DraftForm {
+                        environment: tab.environment().clone(),
                         worktree: worktree.clone(),
                         profile: current_profile.clone(),
                         profiles: offered.clone(),
@@ -187,6 +188,7 @@ pub(crate) fn FocusedBody() -> Element {
                 },
                 (None, _) => rsx! {
                     NothingOpen {
+                        environment: app.environment(),
                         profile: current_profile.clone(),
                         profiles: offered.clone(),
                         options: next_options,

@@ -11,7 +11,8 @@ pub enum Ask {
     Stop(EnvironmentId, Session),
     /// Kill the process of the session, in the environment it runs in.
     KillProcess(EnvironmentId, Session, Process),
-    RestartDaemon,
+    /// Restart the terminal host of the environment.
+    RestartDaemon(EnvironmentId),
 }
 
 impl Ask {
@@ -48,7 +49,7 @@ impl Ask {
                 format!("Send SIGKILL to PID {} in session {}? Unsaved work in this process will be lost.", p.pid, s.name),
                 "Kill process",
             ),
-            Self::RestartDaemon => (
+            Self::RestartDaemon(_) => (
                 Icon::ServerBolt,
                 "Restart the sessions' daemon?".into(),
                 "Every session it holds ends: agents and shells, with what they scrolled back. Conversations remain in the provider's history.".into(),
@@ -59,7 +60,7 @@ impl Ask {
 
     /// Whether answering yes loses what cannot be had back.
     pub fn destroys(&self) -> bool {
-        matches!(self, Self::KillProcess(..) | Self::RestartDaemon)
+        matches!(self, Self::KillProcess(..) | Self::RestartDaemon(_))
     }
 }
 
@@ -69,7 +70,7 @@ mod tests {
 
     #[test]
     fn restarting_the_daemon_is_asked_as_a_loss_as_killing_a_process_is() {
-        assert!(Ask::RestartDaemon.destroys());
+        assert!(Ask::RestartDaemon(EnvironmentId::default()).destroys());
         assert!(!Ask::Stop(EnvironmentId::default(), Session::default()).destroys());
     }
 

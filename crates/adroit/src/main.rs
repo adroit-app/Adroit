@@ -3,7 +3,7 @@ fn main() {
     if args.first().is_some_and(|arg| arg == "__startup_lease") {
         std::process::exit(adroit_host::startup_lease(&args[1..]));
     }
-    use adroit_host::cli::{Command, RemoteCommand, USAGE, command, settle_instance};
+    use adroit_host::cli::{Command, ROUTING, RemoteCommand, USAGE, command, settle_instance};
     // Run from inside an agent's account, such as by its MCP server or a
     // command its session runs, adroit finds its instance where it is
     // outside the account, not where the account moved the agent's folders.
@@ -36,26 +36,28 @@ fn main() {
         eprintln!("adroit: {e}");
         std::process::exit(2);
     }
-    if (cfg!(feature = "desktop") && matches!(asked, Some(Command::Window { .. })))
-        || (!work_route
-            && std::env::var_os("ADROIT_ENVIRONMENT").is_none()
-            && matches!(
-                asked,
-                Some(
-                    Command::Session(_)
-                        | Command::Terminal(_)
-                        | Command::Mcp(_)
-                        | Command::Editor(_)
-                        | Command::Connect
-                )
-            ))
+    let window_asked = cfg!(feature = "desktop") && matches!(asked, Some(Command::Window { .. }));
+    if window_asked {
+        // The window routes each environment it shows itself, so it starts
+        // its hosts with their routing named; one inherited from a session
+        // it was opened from would name another environment's.
+        if let Err(error) = adroit_connect::environments::settle(
+            &adroit_host::paths::instance(),
+            &adroit_host::paths::instance_state(),
+        ) {
+            eprintln!("adroit: {error}");
+            std::process::exit(2);
+        }
+        for name in ROUTING {
+            // SAFETY: environment routing is settled before any runtime creates threads.
+            unsafe { std::env::remove_var(name) };
+        }
+    } else if !work_route
+        && std::env::var_os("ADROIT_ENVIRONMENT").is_none()
+        && asked.as_ref().is_some_and(Command::routed)
     {
-        let state = adroit_host::paths::instance_state();
-        let binding = if matches!(asked, Some(Command::Window { .. })) {
-            adroit_connect::environments::settle(&adroit_host::paths::instance(), &state).map(Some)
-        } else {
-            adroit_connect::environments::Binding::load(&state)
-        };
+        let binding =
+            adroit_connect::environments::Binding::load(&adroit_host::paths::instance_state());
         let binding = match binding {
             Ok(binding) => binding,
             Err(error) => {

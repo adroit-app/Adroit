@@ -367,7 +367,13 @@ pub(crate) fn perform(
         }
         Action::WorktreesToggle => step(state, Msg::TreeEveryWorktree),
         Action::SettingsOpen => vec![Effect::OpenSettings(content::focused_environment(state))],
-        Action::DaemonRestart => step(state, Msg::Confirm(Box::new(Ask::RestartDaemon))),
+        Action::DaemonRestart => {
+            let environment = content::focused_environment(state);
+            step(
+                state,
+                Msg::Confirm(Box::new(Ask::RestartDaemon(environment))),
+            )
+        }
         Action::WindowClose => vec![Effect::CloseWindow],
         Action::WindowOpen => vec![Effect::OpenWindow],
         Action::EnvironmentClose => match cur.as_ref().filter(|_| on_list) {

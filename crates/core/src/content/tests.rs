@@ -1099,3 +1099,19 @@ fn the_panes_kept_of_each_environment_are_those_its_own_listing_lists() {
         }]
     );
 }
+
+#[test]
+fn a_login_terminal_asked_from_another_environment_s_draft_opens_in_that_environment() {
+    let profile: adroit_model::profile::ProfileId = "claude".parse().unwrap();
+    let run = shows_there(listed_with([session("a")]), [session("b")]).send(Msg::OpenLogin {
+        environment: there(),
+        profile: profile.clone(),
+    });
+    assert_eq!(
+        run.last_effects(),
+        [Effect::OpenLogin {
+            environment: there(),
+            profile,
+        }]
+    );
+}

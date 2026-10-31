@@ -170,11 +170,22 @@ impl Ui {
         });
     }
 
-    /// Open a terminal that runs the CLI's own login where `profile` runs
-    /// it, shown with the keys, for the user to log in
-    /// there; whether it is logged in is asked again once it ends.
-    pub(crate) fn open_login(&self, profile: adroit_model::profile::ProfileId) {
+    /// Open a terminal that runs the CLI's own login where `environment`
+    /// runs `profile`, shown with the keys, for the user to log in there;
+    /// whether it is logged in is asked again once it ends. One on a work
+    /// machine is logged in to there instead.
+    pub(crate) fn open_login(
+        &self,
+        environment: EnvironmentId,
+        profile: adroit_model::profile::ProfileId,
+    ) {
         let (app, hub) = (self.app, self.hub.clone());
+        if let Err(text) =
+            crate::logins::login_terminal(app.remote_status_of(&environment).is_some())
+        {
+            app.status(Some(format!("cannot open the login terminal: {text}")));
+            return;
+        }
         let size = *self.local.console_size.peek();
         spawn(async move {
             let asked = Ask::OpenLogin {
@@ -182,7 +193,7 @@ impl Ui {
                 cols: size.cols,
                 rows: size.rows,
             };
-            let terminal = match app.ask(asked).await {
+            let terminal = match app.ask_in(&environment, asked).await {
                 Answer::Terminal { terminal } => terminal,
                 Answer::Failed { text } => {
                     app.status(Some(format!("cannot open the login terminal: {text}")));
@@ -194,8 +205,7 @@ impl Ui {
                 }
             };
             let id = terminal.id;
-            crate::logins::ask(app, profile, Some(id));
-            let environment = app.environment();
+            crate::logins::ask(app, environment.clone(), profile, Some(id));
             let tab = Tab::Terminal(environment.clone(), id);
             if let Err(e) = attach_held(app, &hub, id, tab.clone(), size).await {
                 app.status(Some(format!("cannot open the login terminal: {e}")));

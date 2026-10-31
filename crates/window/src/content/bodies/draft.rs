@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use adroit_core::msg::Msg;
 use adroit_model::profile::{LoginStanding, ProfileId};
-use adroit_model::{Agent, AgentPermissions};
+use adroit_model::{Agent, AgentPermissions, EnvironmentId};
 use adroit_protocol::Request;
 use std::time::Instant;
 
@@ -32,10 +32,11 @@ pub(crate) fn DraftHead(worktree: PathBuf) -> Element {
     }
 }
 
-/// The focused window's draft, in `worktree`: its profile, `profile` now,
-/// and the options chosen for it.
+/// The focused window's draft, in `worktree` of `environment`: its profile,
+/// `profile` now, and the options chosen for it.
 #[component]
 pub(crate) fn DraftForm(
+    environment: EnvironmentId,
     worktree: PathBuf,
     profile: ProfileId,
     profiles: Vec<ProfileChoice>,
@@ -54,7 +55,7 @@ pub(crate) fn DraftForm(
                 div { class: "console-empty-path", "{short(&worktree)}" }
             }
             div { class: "launch-form",
-                ProfileChoices { current: profile, profiles, keys: k_profile, onchoose: onprofile }
+                ProfileChoices { environment, current: profile, profiles, keys: k_profile, onchoose: onprofile }
                 DraftLaunchOptions { options, onchange: onoptions }
             }
             Legend {
@@ -68,10 +69,11 @@ pub(crate) fn DraftForm(
 }
 
 /// The window with nothing open: the button that picks where a session
-/// starts, the profile and options a scratch session starts with, and the
-/// tree's keys.
+/// starts, the profile and options a scratch session starts with in
+/// `environment`, and the tree's keys.
 #[component]
 pub(crate) fn NothingOpen(
+    environment: EnvironmentId,
     profile: ProfileId,
     profiles: Vec<ProfileChoice>,
     options: DraftOptions,
@@ -110,7 +112,7 @@ pub(crate) fn NothingOpen(
             div { class: "launch-form",
                 div { class: "launch-form-label", "Starts in" }
                 div { class: "launch-form-where", "A scratch session" }
-                ProfileChoices { current: profile, profiles, keys: k_profile, onchoose: onprofile }
+                ProfileChoices { environment, current: profile, profiles, keys: k_profile, onchoose: onprofile }
                 DraftLaunchOptions { options, onchange: onoptions }
             }
             Legend {
@@ -152,6 +154,7 @@ pub(crate) struct ProfileChoice {
 
 #[component]
 fn ProfileChoices(
+    environment: EnvironmentId,
     current: ProfileId,
     profiles: Vec<ProfileChoice>,
     keys: Option<String>,
@@ -183,6 +186,7 @@ fn ProfileChoices(
         if let Some(chosen) = chosen {
             LoginNotice {
                 key: "{chosen.id}",
+                environment,
                 profile: chosen.id.clone(),
                 agent: chosen.agent,
             }
@@ -191,25 +195,28 @@ fn ProfileChoices(
 }
 
 /// What to do before the session can start when the CLI `profile` starts
-/// where it runs it says it is not logged in, or cannot be found; nothing
-/// otherwise. Asked as the draft shows the profile, unless the window asked
-/// a short while ago, and again once a login terminal opened here ends.
+/// where `environment` runs it says it is not logged in, or cannot be found;
+/// nothing otherwise. Asked of that environment's host as the draft shows
+/// the profile, unless the window asked a short while ago, and again once a
+/// login terminal opened here ends.
 #[component]
-fn LoginNotice(profile: ProfileId, agent: Agent) -> Element {
+fn LoginNotice(environment: EnvironmentId, profile: ProfileId, agent: Agent) -> Element {
     let app = use_context::<AppCtx>();
     let ask = {
-        let profile = profile.clone();
-        move || crate::logins::ask(app, profile.clone(), None)
+        let (environment, profile) = (environment.clone(), profile.clone());
+        move || crate::logins::ask(app, environment.clone(), profile.clone(), None)
     };
     {
-        let (profile, ask) = (profile.clone(), ask.clone());
+        let (environment, profile, ask) = (environment.clone(), profile.clone(), ask.clone());
         use_hook(move || {
-            if crate::logins::stale(app.logins.peek().get(&profile), Instant::now()) {
+            let known = app.logins.peek().get(&environment, &profile).copied();
+            if crate::logins::stale(known.as_ref(), Instant::now()) {
                 ask();
             }
         });
     }
-    let known = app.logins.read().get(&profile).copied();
+    let known = app.logins.read().get(&environment, &profile).copied();
+    let remote = app.remote_status_of(&environment).is_some();
     let standing = match known {
         Some(Login::Is(standing, _)) => Some(standing),
         _ => None,
@@ -222,7 +229,7 @@ fn LoginNotice(profile: ProfileId, agent: Agent) -> Element {
                 span { class: "launch-form-where", "Waiting for login…" }
                 Button { onclick: move |_| check(), "Check again" }
                 Button {
-                    onclick: move |_| app.tell_host(Request::EndTerminal { id: terminal }),
+                    onclick: move |_| app.tell_host_in(&environment, Request::EndTerminal { id: terminal }),
                     "Cancel"
                 }
             }
@@ -239,14 +246,19 @@ fn LoginNotice(profile: ProfileId, agent: Agent) -> Element {
                             ". {needless}"
                         }
                     }
-                    Button {
-                        kind: "primary",
-                        onclick: move |_| {
-                            app.dispatch(Msg::OpenLogin {
-                                profile: profile.clone(),
-                            });
-                        },
-                        "Open login terminal"
+                    if remote {
+                        span { class: "launch-form-where", "Log in on the work machine." }
+                    } else {
+                        Button {
+                            kind: "primary",
+                            onclick: move |_| {
+                                app.dispatch(Msg::OpenLogin {
+                                    environment: environment.clone(),
+                                    profile: profile.clone(),
+                                });
+                            },
+                            "Open login terminal"
+                        }
                     }
                 }
             },

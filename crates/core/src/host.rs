@@ -157,6 +157,7 @@ pub(crate) fn close(state: &mut ViewState, environment: &EnvironmentId) -> Vec<E
         return Vec::new();
     }
     crate::content::forget_environment(&mut state.content, environment);
+    crate::overlay::forget_daemon(state, environment);
     if state
         .tree
         .selected

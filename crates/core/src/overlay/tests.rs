@@ -65,12 +65,12 @@ fn what_is_drawn_over_the_window_holds_the_keys_the_text_and_the_menu_bar() {
             (Some(Holder::Rename), true, true),
         ),
         (
-            vec![Msg::Confirm(Box::new(Ask::RestartDaemon))],
+            vec![Msg::Confirm(Box::new(Ask::RestartDaemon(here())))],
             (Some(Holder::Confirm), true, true),
         ),
         (
             vec![
-                Msg::Confirm(Box::new(Ask::RestartDaemon)),
+                Msg::Confirm(Box::new(Ask::RestartDaemon(here()))),
                 menu_on(Target::Tab(session_tab("a"))),
             ],
             (Some(Holder::Menu), true, true),
@@ -125,7 +125,12 @@ fn a_question_is_answered_by_its_keys_and_holds_every_other() {
             }),
             false,
         ),
-        (Ask::RestartDaemon, "y", Some(Effect::RestartDaemon), false),
+        (
+            Ask::RestartDaemon(here()),
+            "y",
+            Some(Effect::RestartDaemon(here())),
+            false,
+        ),
         (stop.clone(), "n", None, false),
         (stop.clone(), "Escape", None, false),
         (stop, "x", None, true),
@@ -146,11 +151,11 @@ fn a_question_is_answered_by_its_keys_and_holds_every_other() {
 #[test]
 fn a_click_answers_as_the_keys_do() {
     let run = window()
-        .send(Msg::Confirm(Box::new(Ask::RestartDaemon)))
+        .send(Msg::Confirm(Box::new(Ask::RestartDaemon(here()))))
         .send(Msg::ConfirmAnswer(true));
-    assert_eq!(run.last_effects(), [Effect::RestartDaemon]);
+    assert_eq!(run.last_effects(), [Effect::RestartDaemon(here())]);
     let run = window()
-        .send(Msg::Confirm(Box::new(Ask::RestartDaemon)))
+        .send(Msg::Confirm(Box::new(Ask::RestartDaemon(here()))))
         .send(Msg::ConfirmAnswer(false));
     assert!(run.last_effects().is_empty());
     assert_eq!(run.state().overlays.confirm, None);
@@ -368,18 +373,69 @@ fn a_menu_runs_its_entry_on_what_it_was_opened_on() {
     );
 }
 
+fn standing(environment: EnvironmentId, note: Option<&str>) -> Msg {
+    Msg::DaemonStanding {
+        environment,
+        note: note.map(str::to_string),
+    }
+}
+
+fn restarted(environment: EnvironmentId, note: Option<&str>) -> Msg {
+    Msg::DaemonRestarted {
+        environment,
+        note: note.map(str::to_string),
+    }
+}
+
+fn banner(run: &Scenario) -> Option<(EnvironmentId, String)> {
+    run.state()
+        .overlays
+        .banner
+        .shown()
+        .map(|(environment, note)| (environment.clone(), note.to_string()))
+}
+
 #[test]
 fn the_banner_shows_what_the_daemon_says_until_put_away_and_again_after_a_restart() {
-    let run = Scenario::new().send(Msg::DaemonStanding(Some("old".into())));
-    assert_eq!(run.state().overlays.banner.shown(), Some("old"));
+    let says = |note: &str| Some((here(), note.to_string()));
+    let run = Scenario::new().send(standing(here(), Some("old")));
+    assert_eq!(banner(&run), says("old"));
     let run = run.send(Msg::BannerClose);
-    assert_eq!(run.state().overlays.banner.shown(), None);
-    let run = run.send(Msg::DaemonStanding(Some("old".into())));
-    assert_eq!(run.state().overlays.banner.shown(), None);
-    let run = run.send(Msg::DaemonRestarted(Some("still".into())));
-    assert_eq!(run.state().overlays.banner.shown(), Some("still"));
-    let run = run.send(Msg::DaemonRestarted(None));
-    assert_eq!(run.state().overlays.banner.shown(), None);
+    assert_eq!(banner(&run), None);
+    let run = run.send(standing(here(), Some("old")));
+    assert_eq!(banner(&run), None);
+    let run = run.send(restarted(here(), Some("still")));
+    assert_eq!(banner(&run), says("still"));
+    let run = run.send(restarted(here(), None));
+    assert_eq!(banner(&run), None);
+}
+
+#[test]
+fn each_environment_s_daemon_has_a_banner_of_its_own() {
+    let run = Scenario::new()
+        .send(standing(there(), Some("old there")))
+        .send(standing(here(), None));
+    assert_eq!(banner(&run), Some((there(), "old there".into())));
+    let run = run.send(standing(here(), Some("old here")));
+    let first = banner(&run).map(|(environment, _)| environment);
+    let run = run.send(Msg::BannerClose);
+    let second = banner(&run).map(|(environment, _)| environment);
+    assert!(second.is_some(), "putting one away leaves the other");
+    assert_ne!(first, second);
+    let run = run.send(restarted(second.unwrap(), None));
+    assert_eq!(banner(&run), None);
+}
+
+#[test]
+fn the_banner_restarts_the_daemon_of_the_environment_it_speaks_of() {
+    let run = Scenario::new().send(standing(there(), Some("old")));
+    let Some((environment, _)) = banner(&run) else {
+        panic!("no banner");
+    };
+    let run = run
+        .send(Msg::Confirm(Box::new(Ask::RestartDaemon(environment))))
+        .send(Msg::ConfirmAnswer(true));
+    assert_eq!(run.last_effects(), [Effect::RestartDaemon(there())]);
 }
 
 #[test]

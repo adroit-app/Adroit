@@ -418,8 +418,14 @@ pub struct Tunnel {
 }
 
 impl Tunnel {
-    pub fn work(&self, journal: Arc<crate::journal::Journal>) -> Result<crate::work::Work, String> {
-        crate::work::Work::new(self.remote.work_socket(), self.info.clone(), journal)
+    /// The work of the environment `scope` names on the work machine, its
+    /// changes kept in `journal`.
+    pub fn work(
+        &self,
+        journal: Arc<crate::journal::Journal>,
+        scope: Option<String>,
+    ) -> Result<crate::work::Work, String> {
+        crate::work::Work::new(self.remote.work_socket(), self.info.clone(), journal, scope)
     }
 
     pub fn info(&self) -> &RemoteInfo {

@@ -34,7 +34,10 @@ A draft whose profile's program says, in the profile's login, that it
 is not logged in offers to open the login terminal
 ([settings](settings.md#agent-setups-in-the-settings-window)), which runs that
 program, and asks again once that terminal ends or, while it is open, when
-asked to or cancelled; one whose program cannot be found says so. However
+asked to or cancelled; one whose program cannot be found says so. A draft
+asks in its own environment, whose login is its own even for a profile of
+the same name elsewhere; a draft of an environment on a work machine says to
+log in there instead of offering the login terminal. However
 it is started, from a draft, `adroit session start` or another session, a
 session is refused before anything is recorded or runs when its profile is
 not defined, when its login's folder cannot be made, or
@@ -161,7 +164,8 @@ input. Every agent session Adroit starts, from the window, from
 `$EDITOR`, keeping the user's own editor in `$ADROIT_USER_EDITOR`; every
 terminal keeps the user's editor. A window asks for the input only of a
 session started this way, and `adroit editor` offers the file to each window
-of the instance in turn, so the input reaches the window that asked for it. A
+showing the session's environment, as its own or beside it, in turn, so the
+input reaches the window that asked for it. A
 JSONL request `{"op":"editor","path":"/tmp/prompt.md"}` receives
 `{"taken":2}` when two lines were taken, or `"declined"` when the window did
 not ask for the input. A file every window declines opens in
@@ -209,7 +213,9 @@ its instance when none answers, and the work host starts the terminal host.
 A work host the window cannot work with, or one of another build, the window
 replaces without asking; nothing ends with it. A terminal host the window
 cannot work with the window never replaces on its own: it shows a banner
-offering to restart it, with the build the host says it is.
+offering to restart it, with the build the host says it is. Each environment
+the window shows has its terminal host judged so, and the banner names the
+environment when it is not the window's own.
 
 `adroit daemon stop` stops the terminal host of the instance and waits until
 its process is gone; `adroit daemon restart` stops it, if one runs, and starts
@@ -220,7 +226,9 @@ for the work host, and end no session. Stopping where no host runs is not an
 error.
 
 The window restarts the terminal host with Restart Session Daemon
-(`daemon.restart`), only after the user confirms that every session ends.
+(`daemon.restart`), only after the user confirms that every session ends:
+that of the environment the banner names, or else of the selected row's or
+the shown tab's environment.
 
 The hosts and session commands can be built without the desktop window. That
 build never opens a window, and refuses the window's editor integration. Its

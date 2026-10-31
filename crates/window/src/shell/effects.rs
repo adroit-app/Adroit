@@ -26,9 +26,12 @@ impl Ui {
     fn run(&self, effect: Effect) {
         match effect {
             Effect::Resume { environment, past } => self.resume(environment, past),
-            Effect::RestartDaemon => self.restart_daemon(),
+            Effect::RestartDaemon(environment) => self.restart_daemon(environment),
             Effect::StartTerminal(ask) => self.start_terminal(ask),
-            Effect::OpenLogin { profile } => self.open_login(profile),
+            Effect::OpenLogin {
+                environment,
+                profile,
+            } => self.open_login(environment, profile),
             Effect::StartDraft(start) => self.start_draft(*start),
             Effect::TypeInto { tab, typing } => self.type_into_tab(tab, typing),
             Effect::Palette(colours) => self.repaint(&colours),

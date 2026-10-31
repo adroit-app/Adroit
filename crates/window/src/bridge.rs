@@ -289,6 +289,14 @@ impl AppCtx {
         let mut links = self.links;
         links.write().add(id.clone(), || Rc::new(link));
         self.listen(id.clone(), events);
+        self.keep(crate::hosts::look(*self, id.clone()));
+        if let Err(e) = crate::editor::install_shown(
+            &crate::panes::adroit_program(),
+            &crate::window_socket::windows(),
+            environment,
+        ) {
+            self.status(Some(format!("cannot write the editor script: {e}")));
+        }
         self.keep_environments();
         self.dispatch(Msg::EnvironmentOpened {
             environment: id,
@@ -449,12 +457,6 @@ impl AppCtx {
         set_changed(self.overlays, &view.overlays);
         set_changed(self.console, &view.console);
         set_changed(self.prompt, &view.prompt);
-    }
-
-    /// Tell the host what the view state does not hold, as it happens many
-    /// times a second: that the console's screen was drawn anew.
-    pub(crate) fn tell_host(&self, request: Request) {
-        self.own_link().send(request);
     }
 
     /// Bring the Settings window forward on the work settings of
@@ -698,7 +700,7 @@ impl AppCtx {
             | Effect::PromptRestore { .. }
             | Effect::PromptShow(_)
             | Effect::Resume { .. }
-            | Effect::RestartDaemon
+            | Effect::RestartDaemon(_)
             | Effect::TypeInto { .. }) => self.hand(effect),
             Effect::Perform(action) => self.perform(action, None),
             Effect::PerformKey(action, key) => self.perform(action, Some(key)),
@@ -788,45 +790,30 @@ pub(crate) fn run_detached(
     });
 }
 
-/// The work host listening at `socket`, started as this program serving it.
-fn work_host(socket: std::path::PathBuf) -> To {
+/// The work host listening at `socket` for an environment the window
+/// shows, its own or one beside it, started as this program serving the
+/// work instance `work` with its terminal host at `terminal`. Its routing is
+/// named rather than inherited: the window process carries none, as it
+/// shows several environments.
+fn work_host(socket: std::path::PathBuf, terminal: &std::path::Path, work: &str) -> To {
+    let mut args: Vec<String> = ["ADROIT_ENVIRONMENT", "ADROIT_REMOTE"]
+        .into_iter()
+        .flat_map(|name| ["-u".to_string(), name.to_string()])
+        .collect();
+    args.extend([
+        format!("ADROIT_WORK_INSTANCE={work}"),
+        format!("ADROIT_HOST={}", socket.display()),
+        format!("ADROIT_DAEMON={}", terminal.display()),
+        crate::panes::adroit_program()
+            .to_string_lossy()
+            .into_owned(),
+        "host".into(),
+    ]);
     To {
         socket,
-        program: crate::panes::adroit_program(),
-        args: vec!["host".into()],
+        program: "/usr/bin/env".into(),
+        args,
         build: crate::build::build(),
-    }
-}
-
-/// The work host listening at the socket it is given for an environment the
-/// window shows beside its own, started as this program serving the work
-/// instance `work` with its terminal host at `terminal`: what the process
-/// was started with names its own environment's.
-fn work_host_in(
-    work: &str,
-    terminal: &std::path::Path,
-) -> impl FnOnce(std::path::PathBuf) -> To + use<> {
-    let (work, terminal) = (work.to_owned(), terminal.to_owned());
-    move |socket| {
-        let mut args: Vec<String> = ["ADROIT_ENVIRONMENT", "ADROIT_REMOTE"]
-            .into_iter()
-            .flat_map(|name| ["-u".to_string(), name.to_string()])
-            .collect();
-        args.extend([
-            format!("ADROIT_WORK_INSTANCE={work}"),
-            format!("ADROIT_HOST={}", socket.display()),
-            format!("ADROIT_DAEMON={}", terminal.display()),
-            crate::panes::adroit_program()
-                .to_string_lossy()
-                .into_owned(),
-            "host".into(),
-        ]);
-        To {
-            socket,
-            program: "/usr/bin/env".into(),
-            args,
-            build: crate::build::build(),
-        }
     }
 }
 
@@ -991,23 +978,14 @@ fn run(effects: Vec<Effect>, links: &Links<impl HostLink>, mut local: impl FnMut
 /// A link to `environment`, shown beside the window's own, and what its
 /// host tells.
 fn open_shown(environment: &Environment) -> Result<(Link, Events), String> {
-    let instance = adroit_model::paths::instance();
-    let own = Toward::own();
     let route = Route::shown(
         environment,
-        &instance,
+        &adroit_model::paths::instance(),
         &adroit_model::paths::state_dir(),
-        own.clone(),
+        Toward::own(),
     )?;
     let journal = journal_root(&instance_state(), Some(&route.environment));
-    let (link, events, _) = match &route.toward {
-        Ok(Toward::Local { terminal, .. }) if route.toward != Ok(own) => {
-            let work = environment.bind(&instance)?.work_instance;
-            let start = work_host_in(work.as_deref().unwrap_or("default"), terminal);
-            Link::selected(route, start, journal)
-        }
-        _ => Link::selected(route, work_host, journal),
-    };
+    let (link, events, _) = Link::selected(route, work_host, journal);
     Ok((link, events))
 }
 
@@ -1127,10 +1105,11 @@ mod tests {
     }
 
     #[test]
-    fn a_work_host_for_an_environment_shown_beside_the_own_one_starts_in_that_one_s_work_instance()
-    {
-        let to = work_host_in("work", std::path::Path::new("/w/felis/daemon.sock"))(
+    fn a_work_host_starts_in_the_work_instance_its_route_names_with_its_sockets_named() {
+        let to = work_host(
             "/w/host/host.sock".into(),
+            std::path::Path::new("/w/felis/daemon.sock"),
+            "work",
         );
         assert_eq!(to.program, std::path::Path::new("/usr/bin/env"));
         let (named, run) = to.args.split_at(to.args.len() - 2);
@@ -1144,6 +1123,40 @@ mod tests {
             "the window's own environment is not handed down: {named:?}"
         );
         assert_eq!(run[1], "host");
+    }
+
+    #[test]
+    fn the_window_s_own_work_host_is_started_with_its_routing_named_as_an_added_one_s_is() {
+        let route = Route::bound(
+            &adroit_connect::environments::Binding {
+                environment: "own".into(),
+                name: "Own".into(),
+                target: adroit_connect::Target::Local,
+                scope: Some("scope-a".into()),
+                client: "client".into(),
+                work_instance: Some("work".into()),
+            },
+            "client",
+            std::path::Path::new("/state"),
+            crate::link::Toward::own(),
+        );
+        let Ok(crate::link::Toward::Local {
+            host,
+            terminal,
+            work,
+        }) = route.toward
+        else {
+            panic!("a local route");
+        };
+        let args = work_host(host, &terminal, &work).args;
+        assert!(
+            args.contains(&"ADROIT_WORK_INSTANCE=work".to_string()),
+            "{args:?}"
+        );
+        assert!(
+            args.contains(&"ADROIT_HOST=/state/adroit/instances/work/host/host.sock".to_string()),
+            "{args:?}"
+        );
     }
 
     #[test]

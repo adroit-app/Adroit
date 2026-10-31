@@ -65,16 +65,24 @@ pub(crate) struct Link {
 
 impl Link {
     /// Keep a link along `route`, a local work host being reached as
-    /// `local` says for the socket it listens at, a remote one keeping the
-    /// changes it sends in the journal at `journal`.
+    /// `local` says for the socket it listens at, its terminal host's and
+    /// the instance both serve, a remote one keeping the changes it sends
+    /// in the journal at `journal`.
     pub(crate) fn selected(
         route: Route,
-        local: impl FnOnce(PathBuf) -> To,
+        local: impl FnOnce(PathBuf, &Path, &str) -> To,
         journal: PathBuf,
     ) -> (Link, Events, std::sync::mpsc::Receiver<()>) {
         let Route { scope, toward, .. } = route;
         match toward {
-            Ok(Toward::Local { host, terminal }) => Self::open(local(host), terminal, scope),
+            Ok(Toward::Local {
+                host,
+                terminal,
+                work,
+            }) => {
+                let to = local(host, &terminal, &work);
+                Self::open(to, terminal, scope)
+            }
             Ok(Toward::Remote(target)) => {
                 remote::open(adroit_connect::Remote::new(&target), scope, journal)
             }

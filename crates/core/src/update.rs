@@ -115,7 +115,13 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         }
         Msg::WindowDragMove(pos) => content::drag_move(&mut state.content, pos),
         Msg::WindowDragEnd => content::drag_end(&mut state.content),
-        Msg::OpenLogin { profile } => vec![Effect::OpenLogin { profile }],
+        Msg::OpenLogin {
+            environment,
+            profile,
+        } => vec![Effect::OpenLogin {
+            environment,
+            profile,
+        }],
         Msg::DraftProfile { tab, profile } => {
             let found = state
                 .config
@@ -245,8 +251,12 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
             place,
             commit,
         } => overlay::end_rename(state, &environment, &id, place, commit),
-        Msg::DaemonStanding(note) => overlay::daemon_standing(state, note),
-        Msg::DaemonRestarted(note) => overlay::daemon_restarted(state, note),
+        Msg::DaemonStanding { environment, note } => {
+            overlay::daemon_standing(state, environment, note)
+        }
+        Msg::DaemonRestarted { environment, note } => {
+            overlay::daemon_restarted(state, environment, note)
+        }
         Msg::BannerClose => overlay::close_banner(state),
     }
 }

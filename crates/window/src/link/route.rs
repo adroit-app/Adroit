@@ -19,8 +19,13 @@ pub(crate) struct Route {
 /// Where a link's work host is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Toward {
-    /// On this machine, listening at `host`, its terminal host at `terminal`.
-    Local { host: PathBuf, terminal: PathBuf },
+    /// On this machine, listening at `host`, its terminal host at
+    /// `terminal`, both serving the instance `work`.
+    Local {
+        host: PathBuf,
+        terminal: PathBuf,
+        work: String,
+    },
     /// On a work machine reached through its gateway.
     Remote(Target),
 }
@@ -31,6 +36,7 @@ impl Toward {
         Toward::Local {
             host: adroit_model::paths::work_host_socket(),
             terminal: adroit_model::paths::terminal_host_socket(),
+            work: adroit_model::paths::instance(),
         }
     }
 }
@@ -67,6 +73,7 @@ impl Route {
                     Toward::Local {
                         host: service.join("host/host.sock"),
                         terminal: service.join("felis/daemon.sock"),
+                        work: work.to_string(),
                     }
                 } else {
                     own
@@ -131,6 +138,7 @@ mod tests {
         Toward::Local {
             host: "/own/host.sock".into(),
             terminal: "/own/daemon.sock".into(),
+            work: "client".into(),
         }
     }
 
@@ -157,6 +165,7 @@ mod tests {
                 toward: Ok(Toward::Local {
                     host: "/state/adroit/instances/work/host/host.sock".into(),
                     terminal: "/state/adroit/instances/work/felis/daemon.sock".into(),
+                    work: "work".into(),
                 }),
             }
         );
@@ -175,6 +184,7 @@ mod tests {
             Ok(Toward::Local {
                 host: "/state/adroit/host/host.sock".into(),
                 terminal: "/state/adroit/felis/daemon.sock".into(),
+                work: "default".into(),
             })
         );
     }
@@ -210,6 +220,7 @@ mod tests {
             Ok(Toward::Local {
                 host: "/state/adroit/instances/work/host/host.sock".into(),
                 terminal: "/state/adroit/instances/work/felis/daemon.sock".into(),
+                work: "work".into(),
             })
         );
     }
@@ -245,6 +256,7 @@ mod tests {
                 toward: Ok(Toward::Local {
                     host: "/state/adroit/instances/work/host/host.sock".into(),
                     terminal: "/state/adroit/instances/work/felis/daemon.sock".into(),
+                    work: "work".into(),
                 }),
             }
         );

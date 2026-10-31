@@ -1,13 +1,13 @@
-//! What the window knows of each profile's login, as the CLI it starts
-//! said: asked as a draft shows the profile, kept a while so drafts shown
+//! What the window knows of each profile's login in each environment, as
+//! the CLI that environment's host starts said: asked as a draft shows the profile, kept a while so drafts shown
 //! one after another ask once, and asked again once a login terminal opened
 //! from a draft ends.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use adroit_model::Agent;
 use adroit_model::profile::{LoginStanding, ProfileId};
+use adroit_model::{Agent, EnvironmentId};
 use adroit_protocol::{Answer, Ask};
 use dioxus::prelude::*;
 
@@ -27,7 +27,69 @@ pub(crate) enum Login {
     Is(LoginStanding, Instant),
 }
 
-pub(crate) type Logins = HashMap<ProfileId, Login>;
+/// What is known of each profile's login in each environment: the same
+/// profile keeps a login of its own on each machine.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct Logins(HashMap<(EnvironmentId, ProfileId), Login>);
+
+impl Logins {
+    pub(crate) fn get(&self, environment: &EnvironmentId, profile: &ProfileId) -> Option<&Login> {
+        self.0.get(&(environment.clone(), profile.clone()))
+    }
+
+    /// What to ask `environment`'s host of `profile`'s login, once the
+    /// terminal `after` has ended when one is named, known meanwhile as
+    /// asked.
+    pub(crate) fn ask(
+        &mut self,
+        environment: &EnvironmentId,
+        profile: &ProfileId,
+        after: Option<u128>,
+    ) -> Ask {
+        let now = asking(self.get(environment, profile), after);
+        self.0.insert((environment.clone(), profile.clone()), now);
+        Ask::LoginStanding {
+            profile: profile.clone(),
+            after,
+        }
+    }
+
+    /// What is known of `profile`'s login in `environment` once its host
+    /// gave `answer` at `at` to an ask that waited for the terminal `after`;
+    /// one not answered is asked again when a draft shows it next.
+    pub(crate) fn answer(
+        &mut self,
+        environment: &EnvironmentId,
+        profile: &ProfileId,
+        after: Option<u128>,
+        answer: Answer,
+        at: Instant,
+    ) {
+        let key = (environment.clone(), profile.clone());
+        let known = self.0.get(&key).copied();
+        match answer {
+            Answer::LoginStanding { standing } => {
+                self.0
+                    .insert(key, answered(known.as_ref(), after, standing, at));
+            }
+            _ => {
+                if still_waited(known.and_then(|k| k.waiting()), after, None).is_none() {
+                    self.0.remove(&key);
+                }
+            }
+        }
+    }
+}
+
+/// Whether a login terminal can be opened in an environment, `remote` when
+/// it is on a work machine, where the user logs in instead.
+pub(crate) fn login_terminal(remote: bool) -> Result<(), &'static str> {
+    if remote {
+        Err("log in on the work machine; login terminals are unavailable from a remote window")
+    } else {
+        Ok(())
+    }
+}
 
 /// What a profile of `agent` can do without a login, said where it shows as
 /// not logged in: OpenCode runs its free models and local ones without one.
@@ -107,39 +169,79 @@ pub(crate) fn ends_wait(
     after == Some(waited) || standing == Some(LoginStanding::LoggedIn)
 }
 
-/// Ask the work host whether `profile` is logged in, once the terminal
-/// `after` has ended when one is named; the answer goes to the window's
-/// logins whichever draft asked.
-pub(crate) fn ask(app: AppCtx, profile: ProfileId, after: Option<u128>) {
+/// Ask `environment`'s host whether `profile` is logged in there, once the
+/// terminal `after` has ended when one is named; the answer goes to the
+/// window's logins whichever draft asked.
+pub(crate) fn ask(
+    app: AppCtx,
+    environment: EnvironmentId,
+    profile: ProfileId,
+    after: Option<u128>,
+) {
     let mut logins = app.logins;
-    let now = asking(logins.peek().get(&profile), after);
-    logins.write().insert(profile.clone(), now);
-    let asked = app.ask(Ask::LoginStanding {
-        profile: profile.clone(),
-        after,
-    });
+    let asked = logins.write().ask(&environment, &profile, after);
+    let answer = app.ask_in(&environment, asked);
     app.keep(async move {
-        let answer = asked.await;
-        let mut logins = logins.write();
-        let known = logins.get(&profile).copied();
-        match answer {
-            Answer::LoginStanding { standing } => {
-                let next = answered(known.as_ref(), after, standing, Instant::now());
-                logins.insert(profile, next);
-            }
-            // Asked again when a draft shows it next.
-            _ => {
-                if still_waited(known.and_then(|k| k.waiting()), after, None).is_none() {
-                    logins.remove(&profile);
-                }
-            }
-        }
+        let answer = answer.await;
+        logins
+            .write()
+            .answer(&environment, &profile, after, answer, Instant::now());
     });
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn claude() -> ProfileId {
+        "claude".parse().unwrap()
+    }
+
+    #[test]
+    fn the_same_profile_s_login_is_known_apart_in_each_environment() {
+        let (a, b) = (EnvironmentId::new("a"), EnvironmentId::new("b"));
+        let mut logins = Logins::default();
+        logins.ask(&a, &claude(), None);
+        logins.ask(&b, &claude(), None);
+        let now = Instant::now();
+        let standing = LoginStanding::LoggedIn;
+        logins.answer(&b, &claude(), None, Answer::LoginStanding { standing }, now);
+        assert_eq!(logins.get(&b, &claude()), Some(&Login::Is(standing, now)));
+        assert_eq!(logins.get(&a, &claude()), Some(&Login::Asking));
+    }
+
+    #[test]
+    fn a_login_is_asked_of_its_profile_once_the_terminal_named_ends() {
+        let mut logins = Logins::default();
+        let asked = logins.ask(&EnvironmentId::new("b"), &claude(), Some(7));
+        assert_eq!(
+            asked,
+            Ask::LoginStanding {
+                profile: claude(),
+                after: Some(7),
+            }
+        );
+    }
+
+    #[test]
+    fn a_login_not_answered_is_forgotten_in_its_environment_alone() {
+        let (a, b) = (EnvironmentId::new("a"), EnvironmentId::new("b"));
+        let mut logins = Logins::default();
+        logins.ask(&a, &claude(), None);
+        logins.ask(&b, &claude(), None);
+        let failed = Answer::Failed {
+            text: "gone".into(),
+        };
+        logins.answer(&b, &claude(), None, failed, Instant::now());
+        assert_eq!(logins.get(&b, &claude()), None);
+        assert_eq!(logins.get(&a, &claude()), Some(&Login::Asking));
+    }
+
+    #[test]
+    fn a_login_terminal_is_refused_for_an_environment_on_a_work_machine() {
+        assert_eq!(login_terminal(false), Ok(()));
+        assert!(login_terminal(true).is_err());
+    }
 
     #[test]
     fn a_login_is_asked_when_unknown_or_answered_long_enough_ago_and_not_while_asked() {

@@ -2,6 +2,8 @@
 //! opened on a row, a tab or a link, a question to answer, a session's new
 //! name being typed, and the banner about the sessions' daemon.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use adroit_model::{EnvironmentId, Key};
 use adroit_protocol::Request;
 
@@ -42,18 +44,22 @@ pub struct Menu {
     pub target: Target,
 }
 
-/// What the banner says of a daemon the window cannot work with, and
-/// whether it was put away.
+/// What the banner says of each environment's daemon the window cannot
+/// work with, and those put away.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Banner {
-    note: Option<String>,
-    closed: bool,
+    notes: BTreeMap<EnvironmentId, String>,
+    closed: BTreeSet<EnvironmentId>,
 }
 
 impl Banner {
-    /// What the banner says while it is shown.
-    pub fn shown(&self) -> Option<&str> {
-        self.note.as_deref().filter(|_| !self.closed)
+    /// The environment whose daemon the banner speaks of while it is shown,
+    /// and what it says.
+    pub fn shown(&self) -> Option<(&EnvironmentId, &str)> {
+        self.notes
+            .iter()
+            .find(|(environment, _)| !self.closed.contains(*environment))
+            .map(|(environment, note)| (environment, note.as_str()))
     }
 }
 
@@ -202,7 +208,7 @@ pub(crate) fn answer(state: &mut ViewState, yes: bool) -> Vec<Effect> {
                 process,
             },
         },
-        Ask::RestartDaemon => Effect::RestartDaemon,
+        Ask::RestartDaemon(environment) => Effect::RestartDaemon(environment),
     }]
 }
 
@@ -300,22 +306,43 @@ pub(crate) fn keep_rename(state: &mut ViewState) {
     }
 }
 
-/// How the sessions' daemon stands, as the banner says it; one put away
-/// stays away until the daemon is restarted.
-pub(crate) fn daemon_standing(state: &mut ViewState, note: Option<String>) -> Vec<Effect> {
-    state.overlays.banner.note = note;
-    Vec::new()
-}
-
-pub(crate) fn daemon_restarted(state: &mut ViewState, note: Option<String>) -> Vec<Effect> {
-    state.overlays.banner = Banner {
-        note,
-        closed: false,
+/// How `environment`'s daemon stands, as the banner says it; one put away
+/// stays away until that daemon is restarted.
+pub(crate) fn daemon_standing(
+    state: &mut ViewState,
+    environment: EnvironmentId,
+    note: Option<String>,
+) -> Vec<Effect> {
+    let notes = &mut state.overlays.banner.notes;
+    match note {
+        Some(note) => notes.insert(environment, note),
+        None => notes.remove(&environment),
     };
     Vec::new()
 }
 
+pub(crate) fn daemon_restarted(
+    state: &mut ViewState,
+    environment: EnvironmentId,
+    note: Option<String>,
+) -> Vec<Effect> {
+    state.overlays.banner.closed.remove(&environment);
+    daemon_standing(state, environment, note)
+}
+
+/// Forget what the banner says of `environment`'s daemon, one the window
+/// no longer shows.
+pub(crate) fn forget_daemon(state: &mut ViewState, environment: &EnvironmentId) {
+    let banner = &mut state.overlays.banner;
+    banner.notes.remove(environment);
+    banner.closed.remove(environment);
+}
+
+/// Put away the banner shown, leaving another environment's to show.
 pub(crate) fn close_banner(state: &mut ViewState) -> Vec<Effect> {
-    state.overlays.banner.closed = true;
+    let banner = &mut state.overlays.banner;
+    if let Some(environment) = banner.shown().map(|(environment, _)| environment.clone()) {
+        banner.closed.insert(environment);
+    }
     Vec::new()
 }

@@ -180,6 +180,7 @@ pub enum Msg {
     /// Open a terminal running the CLI's own login where this profile runs
     /// it.
     OpenLogin {
+        environment: EnvironmentId,
         profile: adroit_model::profile::ProfileId,
     },
     /// The profile chosen for this draft, or for the next one.
@@ -391,10 +392,17 @@ pub enum Msg {
         place: RenamePlace,
         commit: bool,
     },
-    /// How the sessions' daemon stands, as the banner would say it.
-    DaemonStanding(Option<String>),
-    /// The daemon was restarted, and now stands so.
-    DaemonRestarted(Option<String>),
+    /// How the sessions' daemon of the environment stands, as the banner
+    /// would say it.
+    DaemonStanding {
+        environment: EnvironmentId,
+        note: Option<String>,
+    },
+    /// The daemon of the environment was restarted, and now stands so.
+    DaemonRestarted {
+        environment: EnvironmentId,
+        note: Option<String>,
+    },
     /// The banner was put away.
     BannerClose,
 }

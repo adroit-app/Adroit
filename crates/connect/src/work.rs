@@ -15,6 +15,8 @@ pub struct Work {
     socket: PathBuf,
     info: RemoteInfo,
     journal: Arc<Journal>,
+    /// The environment of the work machine's host the work belongs to.
+    scope: Option<String>,
     pending: tokio::sync::Semaphore,
 }
 
@@ -29,6 +31,7 @@ impl Work {
         socket: PathBuf,
         info: RemoteInfo,
         journal: Arc<Journal>,
+        scope: Option<String>,
     ) -> Result<Self, String> {
         info.validate()?;
         if journal.instance() != info.instance {
@@ -38,6 +41,7 @@ impl Work {
             socket,
             info,
             journal,
+            scope,
             pending: tokio::sync::Semaphore::new(8),
         })
     }
@@ -48,7 +52,7 @@ impl Work {
 
     async fn connection(&self) -> Result<Connection, String> {
         tokio::time::timeout(Duration::from_secs(5), async {
-            let mut link = Connection::open(&self.socket)
+            let mut link = Connection::open_in(&self.socket, self.scope.as_deref())
                 .await
                 .map_err(|e| e.to_string())?;
             if link.hello.endpoint.as_ref() != Some(&self.info.work)
@@ -267,6 +271,63 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn work_asks_for_the_environment_it_was_made_for_whatever_the_process_says() {
+        let dir = tempfile::Builder::new()
+            .prefix("adroit-w-")
+            .tempdir_in("/tmp")
+            .unwrap();
+        let socket = dir.path().join("work.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let info = info();
+        let server_info = info.clone();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            stream
+                .write_all(
+                    encode(&Hello {
+                        speaks: SPOKEN.to_vec(),
+                        build: "test".into(),
+                        endpoint: Some(server_info.work.clone()),
+                        terminal: Some(server_info.terminal.clone()),
+                        mutation_epoch: Some(1),
+                    })
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+            let (read, mut write) = stream.into_split();
+            let mut read = BufReader::new(read);
+            let first = adroit_protocol::client::read_line(&mut read)
+                .await
+                .unwrap()
+                .unwrap();
+            let asked: serde_json::Value = serde_json::from_str(&first).unwrap();
+            write
+                .write_all(
+                    format!(
+                        "{}\n",
+                        serde_json::json!({"environment": asked["id"], "epoch": 1})
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+            asked
+        });
+        let journal = Arc::new(Journal::open(&dir.path().join("journal"), &info.instance).unwrap());
+        let client = Work::new(socket, info, journal, Some("scope-b".into())).unwrap();
+        // The hello that follows is not answered; only what was asked first
+        // matters here.
+        let _ =
+            tokio::time::timeout(Duration::from_millis(200), client.read(Ask::TerminalHost)).await;
+        let asked = server.await.unwrap();
+        assert_eq!(
+            asked,
+            serde_json::json!({"op": "environment", "id": "scope-b"})
+        );
+    }
+
+    #[tokio::test]
     async fn two_lost_replies_and_two_client_restarts_never_apply_the_intent_again() {
         let dir = tempfile::Builder::new()
             .prefix("adroit-w-")
@@ -344,7 +405,7 @@ mod tests {
         });
         let journal =
             || Arc::new(Journal::open(&dir.path().join("journal"), &info.instance).unwrap());
-        let client = Work::new(socket.clone(), info.clone(), journal()).unwrap();
+        let client = Work::new(socket.clone(), info.clone(), journal(), None).unwrap();
         let prompt = crate::journal::PromptContext {
             target: crate::journal::PromptTarget::Session {
                 id: "session".into(),
@@ -370,10 +431,10 @@ mod tests {
         assert_eq!(outcome.state, MutationState::Unknown);
         let stamp = outcome.intent.stamp;
         drop(client);
-        let client = Work::new(socket.clone(), info.clone(), journal()).unwrap();
+        let client = Work::new(socket.clone(), info.clone(), journal(), None).unwrap();
         assert!(client.recover(&stamp).await.is_err());
         drop(client);
-        let client = Work::new(socket, info.clone(), journal()).unwrap();
+        let client = Work::new(socket, info.clone(), journal(), None).unwrap();
         let outcome = client.recover(&stamp).await.unwrap();
         assert_eq!(outcome.intent.prompt, Some(prompt));
         assert_eq!(
@@ -450,7 +511,7 @@ mod tests {
             });
             let journal =
                 Arc::new(Journal::open(&dir.path().join("journal"), &info.instance).unwrap());
-            let client = Work::new(socket, info, journal).unwrap();
+            let client = Work::new(socket, info, journal, None).unwrap();
             let outcome = client
                 .mutate(Request::Ask {
                     asked: 1,

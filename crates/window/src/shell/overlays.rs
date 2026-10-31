@@ -170,22 +170,37 @@ pub(crate) fn ConfirmDialog() -> Element {
     }
 }
 
-/// The banner offering to restart a daemon this window cannot work with.
+/// The banner offering to restart a daemon this window cannot work with,
+/// naming its environment when that is not the window's own.
 #[component]
 pub(crate) fn DaemonBanner() -> Element {
     let app = use_context::<AppCtx>();
-    let Some(note) = app.overlays.read().banner.shown().map(str::to_string) else {
+    let shown = app
+        .overlays
+        .read()
+        .banner
+        .shown()
+        .map(|(environment, note)| (environment.clone(), note.to_string()));
+    let Some((environment, note)) = shown else {
         return rsx! {};
+    };
+    let title = if environment == app.environment() {
+        "This window cannot work with the sessions' daemon".to_string()
+    } else {
+        format!(
+            "This window cannot work with the sessions' daemon of {}",
+            app.environment_name(&environment)
+        )
     };
     rsx! {
         div { class: "daemon-banner",
             IconView { icon: Icon::ServerBolt }
-            span { class: "daemon-banner-title", "This window cannot work with the sessions' daemon" }
+            span { class: "daemon-banner-title", "{title}" }
             span { class: "daemon-banner-note", title: "{note}", "{note} Restarting it ends every session it holds." }
             Spacer {}
             Button { onclick: move |_| app.dispatch(Msg::BannerClose), "Later" }
             Button { kind: "danger",
-                onclick: move |_| app.dispatch(Msg::Confirm(Box::new(adroit_core::overlay::confirm::Ask::RestartDaemon))),
+                onclick: move |_| app.dispatch(Msg::Confirm(Box::new(adroit_core::overlay::confirm::Ask::RestartDaemon(environment.clone())))),
                 "Restart…"
             }
         }

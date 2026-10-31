@@ -72,6 +72,7 @@ pub enum Effect {
     /// Open a terminal running the CLI's own login where this profile runs
     /// it, and show it.
     OpenLogin {
+        environment: EnvironmentId,
         profile: adroit_model::profile::ProfileId,
     },
     /// The prompt's text for a draft no window shows any longer goes to
@@ -225,6 +226,7 @@ pub enum Effect {
     // The overlays.
     /// Run `action` where the keys are now.
     Perform(Action),
-    /// Replace the sessions' daemon with one of this build.
-    RestartDaemon,
+    /// Replace the sessions' daemon of the environment with one of this
+    /// build.
+    RestartDaemon(EnvironmentId),
 }

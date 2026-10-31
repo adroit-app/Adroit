@@ -151,6 +151,32 @@ pub enum HostCommand {
     Restart,
 }
 
+/// The variables through which a command run inside a session reaches the
+/// hosts of its instance's environment.
+pub const ROUTING: [&str; 4] = [
+    "ADROIT_HOST",
+    "ADROIT_DAEMON",
+    "ADROIT_ENVIRONMENT",
+    "ADROIT_WORK_INSTANCE",
+];
+
+impl Command {
+    /// Whether the command reaches the hosts of its instance's environment
+    /// through [`ROUTING`], as one run inside a session does. A window
+    /// reaches each environment it shows by a route of its own, and the
+    /// hosts are given theirs by whoever starts them.
+    pub fn routed(&self) -> bool {
+        matches!(
+            self,
+            Command::Session(_)
+                | Command::Terminal(_)
+                | Command::Mcp(_)
+                | Command::Editor(_)
+                | Command::Connect
+        )
+    }
+}
+
 pub const USAGE: &str = "usage: adroit [[--instance <name>] [--new-window] | --version | connect [--check | discover | pair <address> [--name <name>]] | terminal … | mcp … | editor … | session … | daemon [stop | restart] | host [stop | restart] | remote <daemon|host|info|gateway [--listen <address>] [--no-advertise]|pair|devices|revoke <fingerprint>|enable [--listen <address>] [--no-advertise]|disable> [--instance <name>]]";
 
 /// The command `args` ask for; `None` for one adroit does not know, which
@@ -268,6 +294,28 @@ mod tests {
         );
         assert_eq!(asked(&["--new-window", "--new-window"]), None);
         assert_eq!(asked(&["--new-window", "extra"]), None);
+    }
+
+    #[test]
+    fn a_command_run_inside_a_session_is_routed_by_the_environment_and_a_window_is_not() {
+        for words in [
+            &["session", "list"][..],
+            &["terminal", "screen", "dev"],
+            &["mcp"],
+            &["editor", "/tmp/p.md"],
+            &["connect"],
+        ] {
+            assert!(asked(words).unwrap().routed(), "{words:?}");
+        }
+        for words in [
+            &[][..],
+            &["--new-window"],
+            &["host"],
+            &["daemon"],
+            &["--version"],
+        ] {
+            assert!(!asked(words).unwrap().routed(), "{words:?}");
+        }
     }
 
     #[test]
