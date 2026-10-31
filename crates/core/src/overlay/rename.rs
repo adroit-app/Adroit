@@ -1,6 +1,6 @@
 //! A session name being edited where it is shown.
 
-use adroit_model::Session;
+use adroit_model::{EnvironmentId, Session};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Place {
@@ -11,6 +11,8 @@ pub enum Place {
 /// A session being renamed, and the name typed for it so far.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rename {
+    /// The environment the session runs in.
+    pub environment: EnvironmentId,
     pub id: String,
     /// What the session is called now.
     pub was: String,
@@ -19,9 +21,10 @@ pub struct Rename {
 }
 
 impl Rename {
-    /// Start renaming `session`, with its name to change.
-    pub fn of(session: &Session, place: Place) -> Self {
+    /// Start renaming `session` of `environment`, with its name to change.
+    pub fn of(environment: &EnvironmentId, session: &Session, place: Place) -> Self {
         Self {
+            environment: environment.clone(),
             id: session.id.clone(),
             was: session.name.clone(),
             text: session.name.clone(),
@@ -29,12 +32,20 @@ impl Rename {
         }
     }
 
-    pub fn is_for(&self, id: &str, place: Place) -> bool {
-        self.id == id && self.place == place
+    pub fn is_for(&self, environment: &EnvironmentId, id: &str, place: Place) -> bool {
+        self.environment == *environment && self.id == id && self.place == place
     }
 
-    pub fn take(editing: &mut Option<Self>, id: &str, place: Place) -> Option<Self> {
-        if editing.as_ref().is_some_and(|r| r.is_for(id, place)) {
+    pub fn take(
+        editing: &mut Option<Self>,
+        environment: &EnvironmentId,
+        id: &str,
+        place: Place,
+    ) -> Option<Self> {
+        if editing
+            .as_ref()
+            .is_some_and(|r| r.is_for(environment, id, place))
+        {
             editing.take()
         } else {
             None
@@ -57,27 +68,32 @@ mod tests {
         testing::session("a").name(name).build()
     }
 
+    fn here() -> EnvironmentId {
+        EnvironmentId::new("here")
+    }
+
     #[test]
     fn only_the_name_and_surface_that_started_editing_hold_the_input() {
-        let rename = Rename::of(&session("api"), Place::Tab);
-        assert!(rename.is_for("a", Place::Tab));
-        assert!(!rename.is_for("a", Place::Sidebar));
-        assert!(!rename.is_for("other", Place::Tab));
+        let rename = Rename::of(&here(), &session("api"), Place::Tab);
+        assert!(rename.is_for(&here(), "a", Place::Tab));
+        assert!(!rename.is_for(&EnvironmentId::new("there"), "a", Place::Tab));
+        assert!(!rename.is_for(&here(), "a", Place::Sidebar));
+        assert!(!rename.is_for(&here(), "other", Place::Tab));
     }
 
     #[test]
     fn finishing_an_old_field_cannot_submit_or_cancel_a_new_one() {
-        let mut editing = Some(Rename::of(&session("api"), Place::Tab));
-        assert!(Rename::take(&mut editing, "a", Place::Sidebar).is_none());
+        let mut editing = Some(Rename::of(&here(), &session("api"), Place::Tab));
+        assert!(Rename::take(&mut editing, &here(), "a", Place::Sidebar).is_none());
         assert!(editing.is_some());
-        assert!(Rename::take(&mut editing, "other", Place::Tab).is_none());
-        assert!(Rename::take(&mut editing, "a", Place::Tab).is_some());
-        assert!(Rename::take(&mut editing, "a", Place::Tab).is_none());
+        assert!(Rename::take(&mut editing, &here(), "other", Place::Tab).is_none());
+        assert!(Rename::take(&mut editing, &here(), "a", Place::Tab).is_some());
+        assert!(Rename::take(&mut editing, &here(), "a", Place::Tab).is_none());
     }
 
     #[test]
     fn it_starts_from_the_name_shown_and_takes_the_one_typed() {
-        let mut r = Rename::of(&session("api-fix"), Place::Sidebar);
+        let mut r = Rename::of(&here(), &session("api-fix"), Place::Sidebar);
         assert_eq!(r.text, "api-fix");
         r.text = " ログイン修正 ".into();
         assert_eq!(r.name().as_deref(), Some("ログイン修正"));
@@ -85,7 +101,7 @@ mod tests {
 
     #[test]
     fn an_empty_or_unchanged_name_is_no_new_name() {
-        let mut r = Rename::of(&session("api"), Place::Sidebar);
+        let mut r = Rename::of(&here(), &session("api"), Place::Sidebar);
         assert_eq!(r.name(), None);
         r.text = " api ".into();
         assert_eq!(r.name(), None);

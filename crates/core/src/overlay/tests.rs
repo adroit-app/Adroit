@@ -9,14 +9,14 @@ use crate::keymap::Context;
 use crate::layout::Side;
 use crate::msg::Msg;
 use crate::scenario::Scenario;
-use crate::testing::{listing, session, session_tab};
+use crate::testing::{listing, session, session_tab, there};
 use crate::tree::nav::Item;
 
 /// A window listing the sessions `a` and `b`, showing `a`.
 fn window() -> Scenario {
     Scenario::new()
         .event(listing([session("a"), session("b")]))
-        .send(Msg::ShowSession("a".into()))
+        .send(Msg::ShowSession(here(), "a".into()))
 }
 
 fn held(name: &str) -> Msg {
@@ -58,6 +58,7 @@ fn what_is_drawn_over_the_window_holds_the_keys_the_text_and_the_menu_bar() {
         (vec![Msg::ResumeOpen], (Some(Holder::Picker), true, true)),
         (
             vec![Msg::RenameStart {
+                environment: here(),
                 id: "a".into(),
                 place: RenamePlace::Tab,
             }],
@@ -107,7 +108,7 @@ fn a_question_is_answered_by_its_keys_and_holds_every_other() {
         name: "node".into(),
         ..Default::default()
     };
-    let kill = Ask::KillProcess(session("a").build(), process.clone());
+    let kill = Ask::KillProcess(here(), session("a").build(), process.clone());
     // (asked, key, what answering asks done, whether it is still asked)
     let cases = [
         (stop.clone(), "y", Some(stop_a()), false),
@@ -203,6 +204,7 @@ fn ending_a_session_shown_from_another_environment_asks_that_environments_host()
 
 fn renaming(id: &str, place: RenamePlace) -> Msg {
     Msg::RenameStart {
+        environment: here(),
         id: id.into(),
         place,
     }
@@ -210,6 +212,7 @@ fn renaming(id: &str, place: RenamePlace) -> Msg {
 
 fn typed(id: &str, place: RenamePlace, text: &str) -> Msg {
     Msg::RenameText {
+        environment: here(),
         id: id.into(),
         place,
         text: text.into(),
@@ -218,6 +221,7 @@ fn typed(id: &str, place: RenamePlace, text: &str) -> Msg {
 
 fn ended(id: &str, place: RenamePlace, commit: bool) -> Msg {
     Msg::RenameEnd {
+        environment: here(),
         id: id.into(),
         place,
         commit,
@@ -407,4 +411,63 @@ fn the_keys_help_takes_its_keys_by_the_bindings_the_chrome_holds() {
         assert_eq!(run.last_effects(), effects, "{key:?}");
         assert_eq!(run.state().chrome.keys_help.is_some(), shown, "{key:?}");
     }
+}
+
+#[test]
+fn renaming_another_environment_s_session_asks_that_environment_s_host() {
+    let run = crate::testing::shows_there(window(), [session("a").name("there-a")])
+        .send(Msg::RenameStart {
+            environment: there(),
+            id: "a".into(),
+            place: RenamePlace::Sidebar,
+        })
+        .send(Msg::RenameText {
+            environment: there(),
+            id: "a".into(),
+            place: RenamePlace::Sidebar,
+            text: "new".into(),
+        })
+        .send(Msg::RenameEnd {
+            environment: there(),
+            id: "a".into(),
+            place: RenamePlace::Sidebar,
+            commit: true,
+        });
+    let Some(Effect::Host {
+        environment,
+        request: Request::Rename { name, was, .. },
+    }) = run.last_effects().first()
+    else {
+        panic!("{:?}", run.last_effects());
+    };
+    assert_eq!(
+        (environment, name.as_str(), was.as_str()),
+        (&there(), "new", "there-a")
+    );
+}
+
+#[test]
+fn killing_a_process_of_another_environment_s_session_asks_that_environment_s_host() {
+    let process = Process {
+        pid: 7,
+        name: "node".into(),
+        ..Default::default()
+    };
+    let run = window()
+        .send(Msg::Confirm(Box::new(Ask::KillProcess(
+            there(),
+            session("a").build(),
+            process.clone(),
+        ))))
+        .send(Msg::ConfirmAnswer(true));
+    assert_eq!(
+        run.last_effects(),
+        [Effect::Host {
+            environment: there(),
+            request: Request::Kill {
+                session: Box::new(session("a").build()),
+                process,
+            },
+        }]
+    );
 }

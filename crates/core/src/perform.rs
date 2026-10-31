@@ -42,11 +42,15 @@ pub(crate) fn perform(
     let thing = state.content.active().cloned();
     // The focused window's viewer takes the viewer's actions.
     if area == Area::Console
-        && let Some(Tab::Viewer(_, _) | Tab::Drawn { .. }) = &thing
+        && let Some(tab @ (Tab::Viewer(_, _) | Tab::Drawn { .. })) = &thing
         && let Some(action) = ViewerAction::of(&action)
         && let Some(window) = state.content.windows.focused_window()
     {
-        return vec![Effect::Viewer { window, action }];
+        return vec![Effect::Viewer {
+            environment: tab.environment().clone(),
+            window,
+            action,
+        }];
     }
     match action {
         Action::None => Vec::new(),
@@ -176,13 +180,17 @@ pub(crate) fn perform(
         Action::SessionStop => step(state, Msg::ConfirmStop { selection: on_list }),
         Action::SessionRename => {
             let chosen = match &cur {
-                Some(Item::Session(_, id) | Item::Waiting(_, id)) if on_list => Some(id.clone()),
+                Some(Item::Session(environment, id) | Item::Waiting(environment, id))
+                    if on_list =>
+                {
+                    Some((environment.clone(), id.clone()))
+                }
                 _ => match &thing {
-                    Some(Tab::Session(_, id)) => Some(id.clone()),
+                    Some(Tab::Session(environment, id)) => Some((environment.clone(), id.clone())),
                     _ => None,
                 },
             };
-            let Some(id) = chosen else {
+            let Some((environment, id)) = chosen else {
                 return Vec::new();
             };
             let place = if on_list {
@@ -190,7 +198,14 @@ pub(crate) fn perform(
             } else {
                 RenamePlace::Tab
             };
-            step(state, Msg::RenameStart { id, place })
+            step(
+                state,
+                Msg::RenameStart {
+                    environment,
+                    id,
+                    place,
+                },
+            )
         }
         Action::ScrollDown if on_console => vec![Effect::PaneWheel(-1)],
         Action::ScrollUp if on_console => vec![Effect::PaneWheel(1)],
@@ -317,16 +332,20 @@ pub(crate) fn perform(
         | Action::NeovimOpen => step(state, Msg::Window(action)),
         // On a shell's row, that shell closes, whichever tab is shown.
         Action::TerminalStop
-            if let Some(row @ Item::Terminal(_, id)) = cur.as_ref().filter(|_| on_list) =>
+            if let Some(row @ Item::Terminal(environment, id)) =
+                cur.as_ref().filter(|_| on_list) =>
         {
-            let id = *id;
+            let end = Effect::EndShell {
+                environment: environment.clone(),
+                id: *id,
+            };
             let above = nav::row_above(&state.tree.rows, row);
             let mut effects = step(state, Msg::TreeSelect(above));
-            effects.push(Effect::EndShell(id));
+            effects.push(end);
             effects
         }
         Action::TerminalStop => match thing {
-            Some(Tab::Terminal(_, id)) => vec![Effect::EndShell(id)],
+            Some(Tab::Terminal(environment, id)) => vec![Effect::EndShell { environment, id }],
             _ => Vec::new(),
         },
         Action::Refresh => step(state, Msg::Relist),

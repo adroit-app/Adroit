@@ -156,6 +156,23 @@ impl Drafts {
     }
 }
 
+/// The environment of what the middle shows: that of the focused window's
+/// tab, or of the worktree in the middle with nothing open, or else the
+/// window's own.
+pub fn shown_environment(state: &crate::state::ViewState) -> EnvironmentId {
+    shown_environment_of(&state.content, &state.hosts)
+}
+
+/// The environment of what `content` shows in the middle, as
+/// [`shown_environment`] says, `hosts` naming the window's own.
+pub fn shown_environment_of(content: &ContentView, hosts: &crate::host::Hosts) -> EnvironmentId {
+    match (content.active(), &content.place) {
+        (Some(tab), _) => tab.environment().clone(),
+        (None, Some(place)) => place.environment.clone(),
+        (None, None) => hosts.environment.clone(),
+    }
+}
+
 /// The agent the prompt of `tab` goes to; see [`Drafts::agent_of`].
 pub fn agent_of(state: &crate::state::ViewState, tab: Option<&Tab>) -> Agent {
     let tree = crate::tree::listed(state.hosts.work(state.hosts.environment_of(tab)));
@@ -328,8 +345,8 @@ pub(crate) fn draft(
     worktree: PathBuf,
     write: bool,
 ) -> Vec<Effect> {
-    let draft = draft_at(view, environment, worktree.clone());
-    view.place = Some(Place { worktree });
+    view.place = Some(Place::at(&environment, worktree.clone()));
+    let draft = draft_at(view, environment, worktree);
     view.windows.open(draft);
     if write {
         view.focus = Area::Prompt;

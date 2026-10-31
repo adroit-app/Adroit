@@ -211,7 +211,10 @@ impl PromptNeovim {
                     let root = (!root.is_empty()).then(|| adroit_protocol::HostPath::local(root));
                     let answer = tokio::time::timeout(
                         std::time::Duration::from_secs(2),
-                        app.ask(adroit_protocol::Ask::PathEntries { root, typed }),
+                        app.ask_in(
+                            &app.shown_environment(),
+                            adroit_protocol::Ask::PathEntries { root, typed },
+                        ),
                     )
                     .await;
                     let entries = match answer {

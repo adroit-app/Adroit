@@ -2,10 +2,10 @@
 //! then of the directories to start one in, narrowed by a fuzzy query, or, for
 //! a directory the list does not offer, a directory tree.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use adroit_model::{Session, Tree};
+use adroit_model::{EnvironmentId, Session, Tree};
 use adroit_protocol::Offers;
 
 use super::filer::{Filer, Row};
@@ -71,6 +71,8 @@ impl Source {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Candidate {
+    /// The environment the directory is in.
+    pub environment: EnvironmentId,
     pub path: PathBuf,
     pub source: Source,
 }
@@ -78,6 +80,8 @@ pub struct Candidate {
 /// A session the picker offers, with where it runs and how it stands.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionOffer {
+    /// The environment the session runs in.
+    pub environment: EnvironmentId,
     pub id: String,
     pub name: String,
     /// The workspace, and the worktree when the sidebar shows one.
@@ -85,9 +89,11 @@ pub struct SessionOffer {
     pub state: &'static str,
 }
 
-/// Every session in the sidebar's order.
-pub fn sessions(tree: &Tree) -> Vec<SessionOffer> {
+/// Every session of `environment`, listed as `tree`, in the sidebar's
+/// order.
+pub fn sessions(environment: &EnvironmentId, tree: &Tree) -> Vec<SessionOffer> {
     let offer = |s: &Session, place: String| SessionOffer {
+        environment: environment.clone(),
         id: s.id.clone(),
         name: s.name.clone(),
         place,
@@ -131,9 +137,10 @@ pub fn matching_sessions(offers: &[SessionOffer], query: &str, cap: usize) -> Ve
     )
 }
 
-/// The sources as one list, in the order given, each path once: the first
-/// source that offers a path is the one it is listed under.
+/// The sources of `environment` as one list, in the order given, each path
+/// once: the first source that offers a path is the one it is listed under.
 pub fn candidates(
+    environment: &EnvironmentId,
     running: &[PathBuf],
     recent: &[PathBuf],
     ghq: &[PathBuf],
@@ -150,6 +157,7 @@ pub fn candidates(
     .flat_map(|(paths, source)| paths.iter().map(move |path| (path, source)))
     .filter(|(path, _)| seen.insert(*path))
     .map(|(path, source)| Candidate {
+        environment: environment.clone(),
         path: path.clone(),
         source,
     })
@@ -197,6 +205,16 @@ pub fn choices(
 
 /// The rows `choices` are drawn as, the first of each group under its heading.
 pub fn lines(choices: &[Choice], home: &Path) -> Vec<Line> {
+    labelled_lines(choices, home, |_| None)
+}
+
+/// The rows `choices` are drawn as, each session and directory beside the
+/// name `label` gives its environment, if it gives one.
+pub fn labelled_lines(
+    choices: &[Choice],
+    home: &Path,
+    label: impl Fn(&EnvironmentId) -> Option<String>,
+) -> Vec<Line> {
     let mut last = None;
     choices
         .iter()
@@ -217,7 +235,10 @@ pub fn lines(choices: &[Choice], home: &Path) -> Vec<Line> {
                     Line {
                         heading: None,
                         name: s.name.clone(),
-                        place: Some(s.place.clone()),
+                        place: Some(match label(&s.environment) {
+                            Some(environment) => format!("{environment} · {}", s.place),
+                            None => s.place.clone(),
+                        }),
                         badge: s.state.into(),
                         mark: Mark::Session,
                     },
@@ -227,7 +248,7 @@ pub fn lines(choices: &[Choice], home: &Path) -> Vec<Line> {
                     Line {
                         heading: None,
                         name: short(&d.path, home),
-                        place: None,
+                        place: label(&d.environment),
                         badge: d.source.label().into(),
                         mark: Mark::Directory,
                     },
@@ -264,10 +285,12 @@ pub struct Picker {
     pub cursor: usize,
     pub mode: Mode,
     pub filer: Filer,
-    /// The directories sessions ran in when the picker opened.
-    pub running: Vec<PathBuf>,
-    /// What the host offered, as the list ranks it; none until it is listed.
-    pub offered: Option<Offers>,
+    /// The directories sessions ran in when the picker opened, by the
+    /// environment they are in.
+    pub running: BTreeMap<EnvironmentId, Vec<PathBuf>>,
+    /// What each environment's host offered, as the list ranks it; none
+    /// from a host until it is listed.
+    pub offered: BTreeMap<EnvironmentId, Offers>,
     /// The directory opened before it was listed, which the cursor moves
     /// into once it is.
     pub(crate) entering: Option<Row>,
@@ -324,6 +347,7 @@ mod tests {
     #[test]
     fn the_sources_are_listed_running_then_recent_then_ghq_each_in_its_own_order() {
         let cs = candidates(
+            &EnvironmentId::default(),
             &paths(&["/r2", "/r1"]),
             &paths(&["/c"]),
             &paths(&["/g2", "/g1"]),
@@ -344,6 +368,7 @@ mod tests {
     #[test]
     fn a_path_offered_twice_is_listed_once_under_the_first_source_that_offers_it() {
         let cs = candidates(
+            &EnvironmentId::default(),
             &paths(&["/a"]),
             &paths(&["/b", "/a", "/b"]),
             &paths(&["/a", "/b", "/g"]),
@@ -361,7 +386,13 @@ mod tests {
 
     #[test]
     fn nothing_typed_keeps_the_list_in_order_up_to_the_cap() {
-        let cs = candidates(&[], &paths(&["/z/long/path", "/a", "/m"]), &[], &[]);
+        let cs = candidates(
+            &EnvironmentId::default(),
+            &[],
+            &paths(&["/z/long/path", "/a", "/m"]),
+            &[],
+            &[],
+        );
         assert_eq!(
             listed(&matching(&cs, "", 2)),
             vec![("/z/long/path", Source::Recent), ("/a", Source::Recent)]
@@ -371,6 +402,7 @@ mod tests {
     #[test]
     fn a_query_keeps_what_matches_best_first() {
         let cs = candidates(
+            &EnvironmentId::default(),
             &[],
             &paths(&["/w/adroit/docs", "/w/arto", "/w/src/adroit"]),
             &[],
@@ -388,7 +420,13 @@ mod tests {
 
     #[test]
     fn folders_under_the_listed_roots_come_last_and_once() {
-        let cs = candidates(&paths(&["/a"]), &[], &paths(&["/g"]), &paths(&["/g", "/l"]));
+        let cs = candidates(
+            &EnvironmentId::default(),
+            &paths(&["/a"]),
+            &[],
+            &paths(&["/g"]),
+            &paths(&["/g", "/l"]),
+        );
         assert_eq!(
             cs.iter()
                 .map(|c| (c.path.to_str().unwrap(), c.source))
@@ -403,7 +441,13 @@ mod tests {
 
     #[test]
     fn candidates_that_answer_equally_keep_the_order_they_were_listed_in() {
-        let cs = candidates(&paths(&["/b/x"]), &paths(&["/a/x"]), &[], &[]);
+        let cs = candidates(
+            &EnvironmentId::default(),
+            &paths(&["/b/x"]),
+            &paths(&["/a/x"]),
+            &[],
+            &[],
+        );
         assert_eq!(
             listed(&matching(&cs, "x", 10)),
             vec![("/b/x", Source::Running), ("/a/x", Source::Recent)]
@@ -413,6 +457,7 @@ mod tests {
     #[test]
     fn a_query_is_matched_against_the_path_as_drawn_with_home_as_a_tilde() {
         let cs = candidates(
+            &EnvironmentId::default(),
             &[],
             &paths(&["/Users/me/src/adroit", "/opt/adroit"]),
             &[],
@@ -501,7 +546,7 @@ mod tests {
     #[test]
     fn every_session_is_offered_in_the_sidebar_s_order_with_where_it_runs_and_how_it_stands() {
         assert_eq!(
-            offered(&sessions(&tree())),
+            offered(&sessions(&EnvironmentId::default(), &tree())),
             vec![
                 ("a", "api › main", "working"),
                 ("o", "api › oauth", "waiting"),
@@ -512,7 +557,7 @@ mod tests {
 
     #[test]
     fn a_session_is_found_by_its_name_or_by_where_it_runs() {
-        let all = sessions(&tree());
+        let all = sessions(&EnvironmentId::default(), &tree());
         let ids = |q: &str| -> Vec<String> {
             matching_sessions(&all, q, 10)
                 .into_iter()
@@ -532,15 +577,16 @@ mod tests {
             .session(session("x").name("docs").cwd("/w/scratch"))
             .session(session("s").name("scratch").cwd("/w/docs"))
             .build();
-        let ids: Vec<String> = matching_sessions(&sessions(&t), "scratch", 10)
-            .into_iter()
-            .map(|s| s.id)
-            .collect();
+        let ids: Vec<String> =
+            matching_sessions(&sessions(&EnvironmentId::default(), &t), "scratch", 10)
+                .into_iter()
+                .map(|s| s.id)
+                .collect();
         assert_eq!(ids, ["s", "x"]);
     }
 
     fn dirs(ps: &[&str]) -> Vec<Candidate> {
-        candidates(&[], &paths(ps), &[], &[])
+        candidates(&EnvironmentId::default(), &[], &paths(ps), &[], &[])
     }
 
     fn chosen(found: &[Choice]) -> Vec<String> {
@@ -556,7 +602,7 @@ mod tests {
 
     #[test]
     fn the_sessions_come_before_the_directories_each_ranked_among_its_own() {
-        let all = sessions(&tree());
+        let all = sessions(&EnvironmentId::default(), &tree());
         let ds = dirs(&["/w/x/api", "/w/api"]);
         let pick = |q: &str| chosen(&choices(&all, &ds, q, Path::new(HOME), 10));
         assert_eq!(pick(""), ["scratch", "a", "o", "z", "/w/x/api", "/w/api"]);
@@ -568,7 +614,7 @@ mod tests {
 
     #[test]
     fn each_group_keeps_no_more_than_the_cap() {
-        let all = sessions(&tree());
+        let all = sessions(&EnvironmentId::default(), &tree());
         let ds = dirs(&["/a", "/b", "/c"]);
         let found = choices(&all, &ds, "", Path::new(HOME), 2);
         assert_eq!(chosen(&found), ["scratch", "a", "o", "/a", "/b"]);
@@ -576,7 +622,7 @@ mod tests {
 
     #[test]
     fn a_scratch_session_is_offered_above_everything_while_the_query_answers_to_it() {
-        let all = sessions(&tree());
+        let all = sessions(&EnvironmentId::default(), &tree());
         let pick = |q: &str| chosen(&choices(&all, &[], q, Path::new(HOME), 10));
         assert_eq!(pick("")[0], "scratch");
         // The session named scratch answers too, after it.
@@ -587,7 +633,7 @@ mod tests {
 
     #[test]
     fn each_group_is_headed_once_above_its_first_row() {
-        let all = sessions(&tree());
+        let all = sessions(&EnvironmentId::default(), &tree());
         let ds = dirs(&["/a", "/b"]);
         let headings = |found: &[Choice]| -> Vec<Option<&str>> {
             lines(found, Path::new(HOME))
@@ -609,11 +655,12 @@ mod tests {
     #[test]
     fn a_row_draws_a_directory_by_its_short_path_a_session_by_its_name_and_place_and_the_scratch_row_by_what_it_starts()
      {
-        let all = sessions(&tree());
+        let all = sessions(&EnvironmentId::default(), &tree());
         let found = [
             Choice::Scratch,
             Choice::Session(all[1].clone()),
             Choice::Directory(Candidate {
+                environment: EnvironmentId::default(),
                 path: "/Users/me/src/x".into(),
                 source: Source::Ghq,
             }),

@@ -80,9 +80,7 @@ mod tests {
             .session(session("fix").cwd(x))
             .checkout(x, "/api", "x")
             .build();
-        let place = Place {
-            worktree: "/api".into(),
-        };
+        let place = Place::at(&here(), "/api");
         assert_eq!(
             candidates(&tree, Some(&place), &["src/lib.rs".into()]),
             vec![
@@ -99,9 +97,7 @@ mod tests {
             .session(session("there").cwd("/a/api"))
             .session(session("here").cwd("/b/api"))
             .build();
-        let place = Place {
-            worktree: "/b/api".into(),
-        };
+        let place = Place::at(&here(), "/b/api");
         let got: Vec<_> = candidates(&tree, Some(&place), &[])
             .into_iter()
             .map(|c| c.word)
@@ -130,9 +126,7 @@ mod tests {
 
     #[test]
     fn with_nothing_shown_the_commands_are_those_of_the_open_worktree() {
-        let place = Place {
-            worktree: "/api".into(),
-        };
+        let place = Place::at(&here(), "/api");
         assert_eq!(
             commands_dir(&Tree::default(), None, Some(&place)),
             Some(PathBuf::from("/api"))
@@ -141,9 +135,7 @@ mod tests {
 
     #[test]
     fn a_shell_takes_no_commands() {
-        let place = Place {
-            worktree: "/api".into(),
-        };
+        let place = Place::at(&here(), "/api");
         assert_eq!(
             commands_dir(
                 &Tree::default(),

@@ -47,7 +47,8 @@ impl Default for ViewState {
         );
         // A window that shows nothing asks nothing of the host, which starts
         // out reading nothing.
-        state.hosts.own_mut().watched = crate::settle::sight(&state);
+        let environment = state.hosts.environment.clone();
+        state.hosts.own_mut().watched = crate::settle::sight(&state, &environment);
         state
     }
 }

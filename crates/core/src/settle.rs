@@ -1,6 +1,7 @@
 //! What must hold across slices after every message: each rule brings one
 //! slice in line with the others, and runs in the order listed.
 
+use adroit_model::EnvironmentId;
 use adroit_protocol::{HostPath, Request, Sight};
 
 use crate::content::Tab;
@@ -69,12 +70,18 @@ fn content_listed(state: &mut ViewState, effects: &mut Vec<Effect>) {
 
 /// The worktree in the middle follows what the focused window shows.
 fn content_place(state: &mut ViewState, _: &mut Vec<Effect>) {
-    content::follow_place(&mut state.content, state.hosts.own().work.as_ref());
+    let work = state
+        .hosts
+        .work(state.hosts.environment_of(state.content.active()));
+    content::follow_place(&mut state.content, work);
 }
 
 /// The session shown is its workspace's last shown.
 fn content_last_shown(state: &mut ViewState, _: &mut Vec<Effect>) {
-    content::remember_shown(&mut state.content, state.hosts.own().work.as_ref());
+    let work = state
+        .hosts
+        .work(state.hosts.environment_of(state.content.active()));
+    content::remember_shown(&mut state.content, work);
 }
 
 /// A draft no window shows is given up.
@@ -202,7 +209,7 @@ fn tree_switched(state: &mut ViewState, _: &mut Vec<Effect>) {
 /// A finished session the user sees is no longer marked finished.
 fn tree_completions(state: &mut ViewState, _: &mut Vec<Effect>) {
     let shown = state.content.active().cloned();
-    let work = state.hosts.own().work.as_ref();
+    let work = state.hosts.work(state.hosts.environment_of(shown.as_ref()));
     tree::see_completions(&mut state.tree, shown.as_ref(), state.chrome.focused, work);
 }
 
@@ -241,9 +248,7 @@ fn details_usage(state: &mut ViewState, _: &mut Vec<Effect>) {
     };
     let facts = state
         .hosts
-        .own()
-        .work
-        .as_ref()
+        .work(&content::shown_environment(state))
         .and_then(|w| w.agents.of(agent));
     details::follow_usage(&mut state.details, tab.as_ref(), account, facts);
 }
@@ -251,7 +256,7 @@ fn details_usage(state: &mut ViewState, _: &mut Vec<Effect>) {
 /// The overview's About tells of the session shown as the settings name its
 /// profile, and of the workspace and worktree it works in.
 fn details_about(state: &mut ViewState, _: &mut Vec<Effect>) {
-    let work = state.hosts.own().work.as_ref();
+    let work = state.hosts.work(&content::shown_environment(state));
     let d = &state.details;
     let about = details::shown_session(d, work)
         .map(|s| {
@@ -271,19 +276,23 @@ fn details_about(state: &mut ViewState, _: &mut Vec<Effect>) {
 /// What the host read again for the spot the details panel shows moves its
 /// selection along, or steps back from a row opened that is gone.
 fn details_refreshed(state: &mut ViewState, _: &mut Vec<Effect>) {
-    details::refresh(&mut state.details, state.hosts.own().work.as_ref());
+    let work = state.hosts.work(&content::shown_environment(state));
+    details::refresh(&mut state.details, work);
 }
 
 /// A subagent or process opened that the overview no longer lists is gone
 /// back from.
 fn details_gone(state: &mut ViewState, _: &mut Vec<Effect>) {
-    let work = state.hosts.own().work.as_ref().map(|w| &w.details);
+    let work = state
+        .hosts
+        .work(&content::shown_environment(state))
+        .map(|w| &w.details);
     details::forget_gone(&mut state.details, work);
 }
 
 /// What the host offered the picker is taken into its list and its tree.
 fn picker_offered(state: &mut ViewState, _: &mut Vec<Effect>) {
-    picker::take_offers(&mut state.picker, state.hosts.own().work.as_ref());
+    picker::take_offers(&mut state.picker, &state.hosts);
 }
 
 /// A directory opened in the picker's tree before it was listed is moved
@@ -292,22 +301,24 @@ fn picker_listed(state: &mut ViewState, _: &mut Vec<Effect>) {
     picker::take_listed(&mut state.picker, state.hosts.own().work.as_ref());
 }
 
-/// The window's own host keeps read what the tree, the details panel and
-/// the picker show, and the worktree in the middle; each other
-/// environment's host keeps read what the tree shows of it. Each is asked
-/// once each time what it keeps read changes.
+/// Each environment's host keeps read what the tree shows of it, what the
+/// picker offers from it, and the terminals shown of it; the host of the
+/// environment shown in the middle keeps read what the details panel and
+/// the prompt show too, and the worktree in the middle. Each is asked once
+/// each time what it keeps read changes.
 fn watched(state: &mut ViewState, effects: &mut Vec<Effect>) {
-    let own = sight(state);
-    let own_environment = state.hosts.environment.clone();
-    let tree = &state.tree;
+    let environments: Vec<_> = state.hosts.each().map(|(e, _)| e.clone()).collect();
+    let sights: Vec<_> = environments
+        .iter()
+        .map(|environment| sight(state, environment))
+        .collect();
+    let mut sights = environments
+        .into_iter()
+        .zip(sights)
+        .collect::<std::collections::HashMap<_, _>>();
     for (environment, host) in state.hosts.each_mut() {
-        let sight = if *environment == own_environment {
-            own.clone()
-        } else {
-            Sight {
-                tree: tree::sight(tree, environment),
-                ..Sight::default()
-            }
+        let Some(sight) = sights.remove(environment) else {
+            continue;
         };
         if host.watched == sight {
             continue;
@@ -320,29 +331,38 @@ fn watched(state: &mut ViewState, effects: &mut Vec<Effect>) {
     }
 }
 
-/// What the window shows that the host keeps read.
-pub(crate) fn sight(state: &ViewState) -> Sight {
+/// What the window shows that the host of `environment` keeps read.
+pub(crate) fn sight(state: &ViewState, environment: &EnvironmentId) -> Sight {
+    let shown = content::shown_environment(state) == *environment;
+    let shown_part = if shown {
+        Sight {
+            commands: prompt::commands_sight(state),
+            ..details::sight(&state.details)
+        }
+    } else {
+        Sight::default()
+    };
     Sight {
-        tree: tree::sight(&state.tree, &state.hosts.environment),
-        past: state.picker.past_sight(),
-        pick: state.picker.sight(),
+        tree: tree::sight(&state.tree, environment),
+        past: state.picker.past_sight(environment),
+        pick: state.picker.sight_in(environment, &state.hosts.environment),
         place: state
             .content
             .place
             .as_ref()
+            .filter(|p| p.environment == *environment)
             .map(|p| HostPath::local(&p.worktree)),
-        commands: prompt::commands_sight(state),
         terminals: state
             .content
             .windows
             .shown()
             .into_iter()
             .filter_map(|tab| match tab {
-                Tab::Terminal(_, id) => Some(*id),
+                Tab::Terminal(e, id) if e == environment => Some(*id),
                 _ => None,
             })
             .collect(),
-        ..details::sight(&state.details)
+        ..shown_part
     }
 }
 

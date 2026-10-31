@@ -1,6 +1,7 @@
 //! Editing a session name where it is shown.
 
 use adroit_core::msg::Msg;
+use adroit_model::EnvironmentId;
 use dioxus::prelude::*;
 
 pub use adroit_core::overlay::rename::*;
@@ -8,18 +9,19 @@ pub use adroit_core::overlay::rename::*;
 use crate::bridge::AppCtx;
 
 #[component]
-pub fn SessionName(id: String, name: String, place: Place) -> Element {
+pub fn SessionName(environment: EnvironmentId, id: String, name: String, place: Place) -> Element {
     let app = use_context::<AppCtx>();
     let rename = app
         .overlays
         .read()
         .rename
         .clone()
-        .filter(|r| r.is_for(&id, place));
+        .filter(|r| r.is_for(&environment, &id, place));
     let finish = {
-        let id = id.clone();
+        let (environment, id) = (environment.clone(), id.clone());
         move |commit: bool| {
             app.dispatch(Msg::RenameEnd {
+                environment: environment.clone(),
                 id: id.clone(),
                 place,
                 commit,
@@ -44,9 +46,14 @@ pub fn SessionName(id: String, name: String, place: Place) -> Element {
                 onclick: move |e: Event<MouseData>| e.stop_propagation(),
                 ondoubleclick: move |e: Event<MouseData>| e.stop_propagation(),
                 oninput: {
-                    let id = id.clone();
+                    let (environment, id) = (environment.clone(), id.clone());
                     move |e: Event<FormData>| {
-                        app.dispatch(Msg::RenameText { id: id.clone(), place, text: e.value() })
+                        app.dispatch(Msg::RenameText {
+                            environment: environment.clone(),
+                            id: id.clone(),
+                            place,
+                            text: e.value(),
+                        })
                     }
                 },
                 onblur: {
@@ -67,7 +74,11 @@ pub fn SessionName(id: String, name: String, place: Place) -> Element {
                 class: "session-name",
                 ondoubleclick: move |e: Event<MouseData>| {
                     e.stop_propagation();
-                    app.dispatch(Msg::RenameStart { id: id.clone(), place });
+                    app.dispatch(Msg::RenameStart {
+                        environment: environment.clone(),
+                        id: id.clone(),
+                        place,
+                    });
                 },
                 "{name}"
             }

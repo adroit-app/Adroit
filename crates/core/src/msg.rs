@@ -94,12 +94,22 @@ pub enum Msg {
     // The work.
     /// List the sessions again now, looking afresh at where they run.
     Relist,
-    /// When the user last typed into each session shown, by its terminal.
-    Typed(BTreeMap<u128, u64>),
-    /// The window started this terminal.
-    TerminalOpened(TerminalSession),
-    /// The window ended the terminal by this id.
-    TerminalClosed(u128),
+    /// When the user last typed into each session of `environment` shown,
+    /// by its terminal.
+    Typed {
+        environment: EnvironmentId,
+        inputs: BTreeMap<u128, u64>,
+    },
+    /// The window started this terminal in `environment`.
+    TerminalOpened {
+        environment: EnvironmentId,
+        terminal: TerminalSession,
+    },
+    /// The window ended the terminal by this id in `environment`.
+    TerminalClosed {
+        environment: EnvironmentId,
+        id: u128,
+    },
 
     // The content.
     /// The window opened, with the content as it last closed and where a
@@ -117,8 +127,9 @@ pub enum Msg {
         place: Option<Place>,
         how: Option<Opening>,
     },
-    /// Show the session by this id wherever it runs, and select its row.
-    ShowSession(String),
+    /// Show the session by this id of this environment wherever it runs,
+    /// and select its row.
+    ShowSession(EnvironmentId, String),
     /// Show a new session's draft in this worktree; `write` gives the keys
     /// to the prompt to write its first prompt.
     Draft {
@@ -150,8 +161,11 @@ pub enum Msg {
         from: Tab,
         to: Tab,
     },
-    /// The shell by this id closed.
-    ShellClosed(u128),
+    /// The shell by this id of `environment` closed.
+    ShellClosed {
+        environment: EnvironmentId,
+        id: u128,
+    },
     /// The pointer took a border between windows at `from` along its axis,
     /// the split it divides drawn `px` long.
     WindowDragStart {
@@ -178,8 +192,9 @@ pub enum Msg {
         tab: Option<Tab>,
         options: DraftOptions,
     },
-    /// The sessions shown live here, or being attached to.
-    PanesLive(BTreeSet<String>),
+    /// The sessions shown live here, or being attached to, each by its
+    /// environment and its id.
+    PanesLive(BTreeSet<(EnvironmentId, String)>),
 
     // The tree.
     /// Select this row, or none.
@@ -354,20 +369,24 @@ pub enum Msg {
     },
     /// The question answered yes or no.
     ConfirmAnswer(bool),
-    /// Start typing a new name for the session `id` where `place` shows it.
+    /// Start typing a new name for the session `id` of `environment` where
+    /// `place` shows it.
     RenameStart {
+        environment: EnvironmentId,
         id: String,
         place: RenamePlace,
     },
-    /// The field for the session `id` where `place` shows it now holds
-    /// `text`.
+    /// The field for the session `id` of `environment` where `place` shows it
+    /// now holds `text`.
     RenameText {
+        environment: EnvironmentId,
         id: String,
         place: RenamePlace,
         text: String,
     },
     /// The field left, the name typed kept or given up.
     RenameEnd {
+        environment: EnvironmentId,
         id: String,
         place: RenamePlace,
         commit: bool,

@@ -11,7 +11,8 @@ use crate::content::{Area, Tab};
 use crate::effect::Effect;
 use crate::msg::Msg;
 use crate::scenario::Scenario;
-use crate::testing::{listing, session, session_tab};
+use crate::testing::{listing, session, session_tab, shows_there, there};
+use adroit_model::EnvironmentId;
 
 const HOME: &str = "/Users/me";
 
@@ -73,17 +74,10 @@ fn picker(run: &Scenario) -> &Picker {
 /// The rows the picker lists, as drawn.
 fn names(run: &Scenario) -> Vec<String> {
     let view = &run.state().picker;
-    lines(
-        &go_rows(
-            picker(run),
-            &view.home,
-            run.state().hosts.own().work.as_ref(),
-        ),
-        &view.home,
-    )
-    .into_iter()
-    .map(|l| l.name)
-    .collect()
+    go_lines(picker(run), &view.home, &run.state().hosts)
+        .into_iter()
+        .map(|l| l.name)
+        .collect()
 }
 
 fn asked(run: &Scenario) -> Option<Option<PickSight>> {
@@ -322,4 +316,118 @@ fn opening_one_picker_closes_the_other() {
     assert_eq!(asked(&run), Some(None));
     let run = run.send(Msg::PickerOpen);
     assert!(matches!(run.state().picker.open, Some(Picking::Go(_))));
+}
+
+/// A window with `a` running in its own environment and `b` in `there()`,
+/// the picker open on both.
+fn picking_in_two() -> Scenario {
+    let run = Scenario::new()
+        .send(Msg::Opened {
+            environment: here(),
+            home: HOME.into(),
+        })
+        .event(listing([session("a")]));
+    shows_there(run, [session("b")]).send(Msg::PickerOpen)
+}
+
+/// The rows the picker lists, as drawn: each name with where it is.
+fn lines_of(run: &Scenario) -> Vec<(String, Option<String>)> {
+    let view = &run.state().picker;
+    go_lines(picker(run), &view.home, &run.state().hosts)
+        .into_iter()
+        .map(|l| (l.name, l.place))
+        .collect()
+}
+
+fn asked_of(run: &Scenario, environment: &EnvironmentId) -> Option<Option<PickSight>> {
+    run.effects()
+        .iter()
+        .filter_map(|e| match e {
+            Effect::Host {
+                environment: to,
+                request: Request::Watch(sight),
+            } if to == environment => Some(sight.pick.clone()),
+            _ => None,
+        })
+        .next_back()
+}
+
+#[test]
+fn with_one_environment_the_rows_name_no_environment() {
+    let run = picking().tell(offers(&["/h"], &[], &[]));
+    let session = lines_of(&run)
+        .into_iter()
+        .find(|(name, _)| name == "a-name");
+    assert!(
+        session
+            .as_ref()
+            .is_some_and(|(_, place)| place.as_ref().is_some_and(|p| !p.contains(" · "))),
+        "{session:?}"
+    );
+    assert!(
+        lines_of(&run)
+            .iter()
+            .filter(|(name, _)| name.starts_with('/'))
+            .all(|(_, place)| place.is_none())
+    );
+}
+
+#[test]
+fn with_several_environments_the_picker_offers_each_one_s_places_labelled_by_it() {
+    let run = picking_in_two()
+        .tell(offers(&["/h"], &[], &[]))
+        .tell_from(there(), offers(&["/t"], &[], &[]));
+    assert_eq!(asked_of(&run, &there()), Some(Some(PickSight::default())));
+    let lines = lines_of(&run);
+    let place_of = |name: &str| {
+        lines
+            .iter()
+            .find(|(n, _)| n == name)
+            .unwrap_or_else(|| panic!("{name} is not offered: {lines:?}"))
+            .1
+            .clone()
+    };
+    assert_eq!(place_of("/h"), Some("This environment".into()));
+    assert_eq!(place_of("/t"), Some("There".into()));
+    assert_eq!(place_of("/r/a"), Some("This environment".into()));
+    assert_eq!(place_of("/r/b"), Some("There".into()));
+    assert!(place_of("b-name").is_some_and(|p| p.starts_with("There · ")));
+    assert!(place_of("a-name").is_some_and(|p| p.starts_with("This environment · ")));
+}
+
+#[test]
+fn a_place_chosen_from_another_environment_starts_its_draft_there() {
+    let run = picking_in_two().tell_from(there(), offers(&["/t"], &[], &[]));
+    let at = lines_of(&run)
+        .iter()
+        .position(|(name, _)| name == "/t")
+        .expect("/t is offered");
+    let run = run.send(Msg::PickerChoose(at));
+    assert!(
+        matches!(
+            &run.state().content.showing().tab,
+            Some(Tab::Draft { environment, worktree, .. })
+                if *environment == there() && worktree == &PathBuf::from("/t")
+        ),
+        "{:?}",
+        run.state().content.showing().tab
+    );
+    assert_eq!(
+        run.state().content.place.as_ref().map(|p| &p.environment),
+        Some(&there())
+    );
+}
+
+#[test]
+fn a_session_chosen_from_another_environment_is_shown_from_there() {
+    let run = picking_in_two();
+    let at = lines_of(&run)
+        .iter()
+        .position(|(name, _)| name == "b-name")
+        .expect("b is offered");
+    let run = run.send(Msg::PickerChoose(at));
+    assert_eq!(
+        run.state().content.showing().tab,
+        Some(Tab::Session(there(), "b".into()))
+    );
 }

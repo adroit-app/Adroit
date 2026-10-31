@@ -53,16 +53,29 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         Msg::Host { environment, event } => host::told(state, environment, event),
 
         Msg::Relist => state.hosts.ask_each(Request::Relist),
-        Msg::Typed(inputs) => vec![state.hosts.ask_own(Request::Typed { inputs })],
-        Msg::TerminalOpened(terminal) => {
-            vec![state.hosts.ask_own(Request::TerminalOpened { terminal })]
-        }
-        Msg::TerminalClosed(id) => vec![state.hosts.ask_own(Request::TerminalClosed { id })],
+        Msg::Typed {
+            environment,
+            inputs,
+        } => vec![Effect::Host {
+            environment,
+            request: Request::Typed { inputs },
+        }],
+        Msg::TerminalOpened {
+            environment,
+            terminal,
+        } => vec![Effect::Host {
+            environment,
+            request: Request::TerminalOpened { terminal },
+        }],
+        Msg::TerminalClosed { environment, id } => vec![Effect::Host {
+            environment,
+            request: Request::TerminalClosed { id },
+        }],
 
         Msg::ContentOpened { kept, scratch } => content::opened(&mut state.content, kept, scratch),
         Msg::Focus(area) => content::focus(&mut state.content, area),
         Msg::Show { thing, place, how } => content::show(&mut state.content, thing, place, how),
-        Msg::ShowSession(id) => content::show_session(state, id),
+        Msg::ShowSession(environment, id) => content::show_session(state, environment, id),
         Msg::Draft { worktree, write } => content::draft(
             &mut state.content,
             state.hosts.environment.clone(),
@@ -74,21 +87,27 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
             how,
             take_keys,
         } => content::open_row(state, item, how, take_keys),
-        Msg::EditFile(path) => content::edit_file(state, path),
+        Msg::EditFile(path) => content::edit_file(state, state.hosts.environment.clone(), path),
         Msg::RowClicked(item) => content::open_row(state, item, Some(Opening::Existing), true),
         Msg::Window(action) => content::act(state, action),
         Msg::WindowFocus(id) => content::focus_window(state, id),
         Msg::TabShow(at) => content::show_tab(state, at),
         Msg::TabReveal(tab) => content::reveal(state, &tab),
         Msg::Replace { from, to } => content::replace(&mut state.content, &from, to),
-        Msg::ShellClosed(id) => {
-            let mut effects = vec![state.hosts.ask_own(Request::TerminalClosed { id })];
-            effects.extend(content::shell_closed(
+        Msg::ShellClosed { environment, id } => {
+            let mut effects = content::shell_closed(
                 &mut state.content,
-                &state.hosts.environment,
-                state.hosts.own().work.as_ref(),
+                &environment,
+                state.hosts.work(&environment),
                 id,
-            ));
+            );
+            effects.insert(
+                0,
+                Effect::Host {
+                    environment,
+                    request: Request::TerminalClosed { id },
+                },
+            );
             effects
         }
         Msg::WindowDragStart { border, from, px } => {
@@ -120,7 +139,15 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         Msg::DraftOptions { tab, options } => {
             content::choose_options(&mut state.content, tab, options)
         }
-        Msg::PanesLive(live) => content::tell_live(&mut state.content, live),
+        Msg::PanesLive(live) => {
+            let own = &state.hosts.environment;
+            let live = live
+                .into_iter()
+                .filter(|(environment, _)| environment == own)
+                .map(|(_, id)| id)
+                .collect();
+            content::tell_live(&mut state.content, live)
+        }
 
         Msg::TreeSelect(row) => tree::select(&mut state.tree, row),
         Msg::TreeKey(key) => tree::press(&mut state.tree, key),
@@ -134,20 +161,30 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         Msg::DetailsSheet(sheet) => details::sheet(&mut state.details, sheet),
         Msg::DetailsSheetStep(delta) => details::step_sheet(&mut state.details, delta),
         Msg::DetailsKey(key) => {
-            details::press(&mut state.details, state.hosts.own().work.as_ref(), key)
+            let environment = content::shown_environment(state);
+            details::press(&mut state.details, state.hosts.work(&environment), key)
         }
         Msg::DetailsClick(at) => {
-            details::click(&mut state.details, state.hosts.own().work.as_ref(), at)
+            let environment = content::shown_environment(state);
+            details::click(&mut state.details, state.hosts.work(&environment), at)
         }
         Msg::DetailsOpenRow(at) => {
-            details::open_row(&mut state.details, state.hosts.own().work.as_ref(), at)
+            let environment = content::shown_environment(state);
+            details::open_row(&mut state.details, state.hosts.work(&environment), at)
         }
         Msg::DetailsSelect(at) => {
-            details::select(&mut state.details, state.hosts.own().work.as_ref(), at)
+            let environment = content::shown_environment(state);
+            details::select(&mut state.details, state.hosts.work(&environment), at)
         }
         Msg::DetailsBack => details::back(&mut state.details),
-        Msg::DetailsReadAgain => vec![state.hosts.ask_own(Request::ReadAgain)],
-        Msg::CommandsWanted => vec![state.hosts.ask_own(Request::CommandsWanted)],
+        Msg::DetailsReadAgain => vec![Effect::Host {
+            environment: content::shown_environment(state),
+            request: Request::ReadAgain,
+        }],
+        Msg::CommandsWanted => vec![Effect::Host {
+            environment: content::shown_environment(state),
+            request: Request::CommandsWanted,
+        }],
 
         Msg::PickerOpen => picker::open(state),
         Msg::ResumeOpen => picker::open_resume(state),
@@ -199,9 +236,23 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         Msg::Confirm(ask) => overlay::ask(state, *ask),
         Msg::ConfirmStop { selection } => overlay::ask_stop(state, selection),
         Msg::ConfirmAnswer(yes) => overlay::answer(state, yes),
-        Msg::RenameStart { id, place } => overlay::start_rename(state, &id, place),
-        Msg::RenameText { id, place, text } => overlay::type_name(state, &id, place, text),
-        Msg::RenameEnd { id, place, commit } => overlay::end_rename(state, &id, place, commit),
+        Msg::RenameStart {
+            environment,
+            id,
+            place,
+        } => overlay::start_rename(state, &environment, &id, place),
+        Msg::RenameText {
+            environment,
+            id,
+            place,
+            text,
+        } => overlay::type_name(state, &environment, &id, place, text),
+        Msg::RenameEnd {
+            environment,
+            id,
+            place,
+            commit,
+        } => overlay::end_rename(state, &environment, &id, place, commit),
         Msg::DaemonStanding(note) => overlay::daemon_standing(state, note),
         Msg::DaemonRestarted(note) => overlay::daemon_restarted(state, note),
         Msg::BannerClose => overlay::close_banner(state),

@@ -25,7 +25,7 @@ impl Ui {
     /// Carry out `effect`, which the window holds the means of.
     fn run(&self, effect: Effect) {
         match effect {
-            Effect::Resume(past) => self.resume(past),
+            Effect::Resume { environment, past } => self.resume(environment, past),
             Effect::RestartDaemon => self.restart_daemon(),
             Effect::StartTerminal(ask) => self.start_terminal(ask),
             Effect::OpenLogin { profile } => self.open_login(profile),
@@ -35,10 +35,11 @@ impl Ui {
             // A session no longer listed has nothing to show; its pane is
             // closed, and the images its console drew are not kept.
             Effect::KeepPanes {
+                environment,
                 sessions,
                 terminals,
-            } => self.keep_panes(&sessions, &terminals),
-            Effect::EndShell(id) => self.end_shell(id),
+            } => self.keep_panes(&environment, &sessions, &terminals),
+            Effect::EndShell { environment, id } => self.end_shell(&environment, id),
             Effect::AskInput(tab) => self.ask_input(tab),
             Effect::TakePrompt => self.take_prompt(),
             Effect::SendPrompt(taken) => self.send_prompt(*taken),
@@ -51,7 +52,7 @@ impl Ui {
             } => self.take_suggestion(key, session, hands_back, no_images, tab),
             Effect::ConsoleLive => self.console_live(),
             Effect::FilterFocus(on) => self.local.focus_filter(on),
-            Effect::Viewer { window, action } => {
+            Effect::Viewer { window, action, .. } => {
                 let mut command = self.local.viewer_command;
                 let seq = command.peek().as_ref().map_or(1, |(_, c)| c.seq + 1);
                 command.set(Some((window, viewers::Command { seq, action })));

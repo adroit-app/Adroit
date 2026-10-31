@@ -16,7 +16,7 @@ fn listing() -> SnapshotBuilder {
 fn showing(area: Area) -> Scenario {
     Scenario::new()
         .event(listing())
-        .send(Msg::ShowSession("a".into()))
+        .send(Msg::ShowSession(here(), "a".into()))
         .send(Msg::Focus(area))
 }
 
@@ -233,7 +233,13 @@ fn closing_a_shell_s_row_selects_the_row_above_and_ends_the_shell() {
     let above = nav::row_above(&run.state().tree.rows, &Item::Terminal(here(), 7));
     let run = run.send(perform(Action::TerminalStop, None, Probe::default()));
     assert_eq!(run.state().tree.selected, above);
-    assert_eq!(run.last_effects().last(), Some(&Effect::EndShell(7)));
+    assert_eq!(
+        run.last_effects().last(),
+        Some(&Effect::EndShell {
+            environment: here(),
+            id: 7,
+        })
+    );
 }
 
 #[test]
@@ -280,7 +286,7 @@ fn a_viewer_shown_takes_the_viewer_s_actions() {
 fn on_the_row_of_b() -> Scenario {
     Scenario::new()
         .event(snapshot().listed(listed().session(session("a")).session(session("b"))))
-        .send(Msg::ShowSession("a".into()))
+        .send(Msg::ShowSession(here(), "a".into()))
         .send(Msg::Focus(Area::Sidebar))
         .send(Msg::OpenRow {
             item: Item::Session(here(), "b".into()),
@@ -332,7 +338,7 @@ fn the_preview_waits_while_the_keys_only_move_into_it() {
 fn going_to_the_next_session_looks_at_it_in_the_preview() {
     let run = Scenario::new()
         .event(snapshot().listed(listed().session(session("a")).session(session("b"))))
-        .send(Msg::ShowSession("a".into()))
+        .send(Msg::ShowSession(here(), "a".into()))
         .send(Msg::Window(Action::SessionNext));
     assert_eq!(previewing(&run), [false, true]);
     // Back on a session a tab shows, the preview goes.

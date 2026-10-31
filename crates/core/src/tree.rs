@@ -437,18 +437,15 @@ pub(crate) fn sight(view: &TreeView, environment: &EnvironmentId) -> TreeSight {
 
 /// The worktree `tab`'s thing is in, as the tree lists it.
 pub fn place_of_tab(tree: &Tree, terminals: &[TerminalSession], tab: &Tab) -> Option<Place> {
+    let at = |worktree: &std::path::Path| Place::at(tab.environment(), worktree);
     match tab {
-        Tab::Session(_, id) => nav::find(tree, id).map(|(p, _)| p),
-        Tab::Terminal(_, id) => terminals
-            .iter()
-            .find(|s| s.id == *id)
-            .map(|s| Place::at(s.cwd.clone())),
-        Tab::Draft { worktree, .. } => Some(Place::at(worktree.clone())),
+        Tab::Session(_, id) => nav::find(tree, id).map(|(p, _)| at(p)),
+        Tab::Terminal(_, id) => terminals.iter().find(|s| s.id == *id).map(|s| at(&s.cwd)),
+        Tab::Draft { worktree, .. } => Some(at(worktree)),
         Tab::Viewer(_, path) => {
-            adroit_model::innermost(tree.worktrees().map(|w| &w.worktree.path), path)
-                .map(|w| Place::at(w.clone()))
+            adroit_model::innermost(tree.worktrees().map(|w| &w.worktree.path), path).map(|w| at(w))
         }
-        Tab::Drawn { session, .. } => nav::find(tree, session).map(|(p, _)| p),
+        Tab::Drawn { session, .. } => nav::find(tree, session).map(|(p, _)| at(p)),
     }
 }
 
@@ -989,7 +986,7 @@ mod tests {
             .checkout("/r/w", "/r", "b")
             .build();
         let shell = shell(7, "/r/w/src");
-        let place = |w: &str| Some(Place::at(w));
+        let place = |w: &str| Some(Place::at(&here(), w));
         // (tab, its place)
         let cases = [
             (Tab::Session(here(), "a".into()), place("/r/w")),

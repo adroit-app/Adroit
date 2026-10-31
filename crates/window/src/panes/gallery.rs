@@ -53,8 +53,9 @@ pub(crate) fn keep_drawn(
 pub(crate) fn use_shown_images(ui: &Ui) {
     let (app, gallery) = (ui.app, ui.local.gallery);
     let tree = use_memo(move || {
-        let host = app.host.read();
-        adroit_core::tree::listed(host.work.as_ref()).clone()
+        let environment = app.shown_environment();
+        let hosts = app.hosts.read();
+        adroit_core::tree::listed(hosts.work(&environment)).clone()
     });
     // The panel's session rather than the focused window's, which may show
     // one of its images.

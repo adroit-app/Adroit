@@ -2,7 +2,7 @@
 //! windows, split, close and arrange them, go through the tabs, and open
 //! what a row stands for.
 
-use adroit_model::TerminalProgram;
+use adroit_model::{EnvironmentId, TerminalProgram};
 
 use super::{
     Area, Axis, Content, Dir, Opening, Shown, Spot, Tab, TerminalAsk, closing, corner, cycled,
@@ -112,11 +112,11 @@ pub(crate) fn act(state: &mut ViewState, action: Action) -> Vec<Effect> {
             Vec::new()
         }
         Action::WindowNew => {
-            let dir = view
-                .place
-                .as_ref()
-                .map_or_else(|| view.scratch.clone(), |p| p.worktree.clone());
-            let draft = draft_at(view, state.hosts.environment.clone(), dir);
+            let (environment, dir) = view.place.as_ref().map_or_else(
+                || (state.hosts.environment.clone(), view.scratch.clone()),
+                |p| (p.environment.clone(), p.worktree.clone()),
+            );
+            let draft = draft_at(view, environment, dir);
             view.windows.split(Axis::Column, draft);
             view.focus = Area::Prompt;
             vec![Effect::StartWriting]
@@ -163,12 +163,7 @@ pub(crate) fn act(state: &mut ViewState, action: Action) -> Vec<Effect> {
             })
         }
         Action::SessionNew => match place_here(state, on_list) {
-            Some(p) => draft(
-                &mut state.content,
-                state.hosts.environment.clone(),
-                p.worktree,
-                true,
-            ),
+            Some(p) => draft(&mut state.content, p.environment, p.worktree, true),
             None => Vec::new(),
         },
         Action::SessionScratch => {
@@ -198,27 +193,29 @@ pub(crate) fn act(state: &mut ViewState, action: Action) -> Vec<Effect> {
             }
         }
         Action::SessionNext | Action::SessionPrev => {
+            let environment = state.hosts.environment_of(state.content.active()).clone();
             let next = nav::next_session(
-                tree::listed(state.hosts.own().work.as_ref()),
+                tree::listed(state.hosts.work(&environment)),
                 state.content.active(),
                 state.content.place.as_ref(),
                 action == Action::SessionNext,
             );
             match next {
-                Some(id) => look_at_session(state, id),
+                Some(id) => look_at_session(state, environment, id),
                 None => Vec::new(),
             }
         }
         Action::WorkspaceNext | Action::WorkspacePrev => {
+            let environment = state.hosts.environment_of(state.content.active()).clone();
             let next = nav::next_workspace(
-                tree::listed(state.hosts.own().work.as_ref()),
+                tree::listed(state.hosts.work(&environment)),
                 state.content.active(),
                 state.content.place.as_ref(),
                 &state.content.last_shown,
                 action == Action::WorkspaceNext,
             );
             match next {
-                Some(id) => look_at_session(state, id),
+                Some(id) => look_at_session(state, environment, id),
                 None => Vec::new(),
             }
         }
@@ -238,23 +235,33 @@ fn place_here(state: &ViewState, on_list: bool) -> Option<Place> {
         .or_else(|| state.content.place.clone())
 }
 
-/// Open a session wherever it runs, as opening its row does, and select its
-/// row, but leave the keys where they are.
-pub(crate) fn show_session(state: &mut ViewState, id: String) -> Vec<Effect> {
-    show_session_in(state, id, Opening::Existing)
+/// Open the session `id` of `environment` wherever it runs, as opening its
+/// row does, and select its row, but leave the keys where they are.
+pub(crate) fn show_session(
+    state: &mut ViewState,
+    environment: EnvironmentId,
+    id: String,
+) -> Vec<Effect> {
+    show_session_in(state, environment, id, Opening::Existing)
 }
 
 /// Look at a session as [`show_session`] opens it, in the preview tab.
-fn look_at_session(state: &mut ViewState, id: String) -> Vec<Effect> {
-    show_session_in(state, id, Opening::Preview)
+fn look_at_session(state: &mut ViewState, environment: EnvironmentId, id: String) -> Vec<Effect> {
+    show_session_in(state, environment, id, Opening::Preview)
 }
 
-fn show_session_in(state: &mut ViewState, id: String, how: Opening) -> Vec<Effect> {
-    let work = state.hosts.own().work.as_ref();
+fn show_session_in(
+    state: &mut ViewState,
+    environment: EnvironmentId,
+    id: String,
+    how: Opening,
+) -> Vec<Effect> {
+    let work = state.hosts.work(&environment);
     let Some((p, _)) = nav::find(tree::listed(work), &id) else {
         return Vec::new();
     };
-    let tab = Tab::Session(state.hosts.environment.clone(), id);
+    let p = Place::at(&environment, p);
+    let tab = Tab::Session(environment, id);
     if let Some(row) = nav::row_of(
         &state.tree.rows,
         tree::listed(work),
@@ -269,13 +276,19 @@ fn show_session_in(state: &mut ViewState, id: String, how: Opening) -> Vec<Effec
     Vec::new()
 }
 
-/// Edit the file at `path`, one that need not be under any worktree, in the
-/// Neovim already on it or in one started in its folder, with the keys.
-pub(crate) fn edit_file(state: &mut ViewState, path: std::path::PathBuf) -> Vec<Effect> {
-    let terminals = tree::terminals(state.hosts.own().work.as_ref());
+/// Edit the file at `path` of `environment`, one that need not be under any
+/// worktree, in the Neovim already on it or in one started in its folder,
+/// with the keys.
+pub(crate) fn edit_file(
+    state: &mut ViewState,
+    environment: EnvironmentId,
+    path: std::path::PathBuf,
+) -> Vec<Effect> {
+    let terminals = tree::terminals(state.hosts.work(&environment));
     let folder = path.parent().map(|d| d.to_path_buf()).unwrap_or_default();
+    let place = Place::at(&environment, folder.clone());
     let item = Item::File {
-        environment: state.hosts.environment.clone(),
+        environment,
         worktree: folder.clone(),
         path: path.clone(),
         dir: false,
@@ -286,13 +299,13 @@ pub(crate) fn edit_file(state: &mut ViewState, path: std::path::PathBuf) -> Vec<
     let content = &mut state.content;
     match open {
         Some(tab) => {
-            content.place = Some(Place { worktree: folder });
+            content.place = Some(place);
             content.windows.open(tab);
             content.focus = Area::Console;
             Vec::new()
         }
         None => vec![Effect::StartTerminal(TerminalAsk {
-            place: Place { worktree: folder },
+            place,
             runs: TerminalProgram::Neovim,
             file: Some(path),
             opening: super::Opening::Existing,
@@ -339,7 +352,7 @@ pub(crate) fn open_row(
             show(content, thing);
         }
         nav::Opens::Edit(worktree, file) => effects.push(Effect::StartTerminal(TerminalAsk {
-            place: Place { worktree },
+            place: Place::at(item.environment(), worktree),
             runs: TerminalProgram::Neovim,
             file: Some(file),
             opening: how.unwrap_or(Opening::Existing),
@@ -349,7 +362,7 @@ pub(crate) fn open_row(
         nav::Opens::Draft(worktree) => {
             let draft = draft_at(content, item.environment().clone(), worktree.clone());
             show(content, draft);
-            content.place = Some(Place { worktree });
+            content.place = Some(Place::at(item.environment(), worktree));
         }
     }
     if take_keys && !toggles {

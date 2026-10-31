@@ -150,9 +150,9 @@ pub(super) fn TabsBar(
                             }
                             if let Some(runs) = shell { TerminalMark { runs } }
                             if matches!(tab, Tab::Draft { .. }) { PlaceMark { icon: Icon::MessagePlus, size: 13 } }
-                            if let (Tab::Session(_, id), true) = (&tab, is_active) {
+                            if let (Tab::Session(environment, id), true) = (&tab, is_active) {
                                 SessionName {
-                                    id: id.clone(), name: name.clone(), place: RenamePlace::Tab,
+                                    environment: environment.clone(), id: id.clone(), name: name.clone(), place: RenamePlace::Tab,
                                 }
                             } else { "{name}" }
                             SessionMark { mark }

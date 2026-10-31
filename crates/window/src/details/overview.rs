@@ -43,8 +43,9 @@ pub(super) fn Overview(
 ) -> Element {
     let app = use_context::<AppCtx>();
     let details: Details = app.details.read().clone();
-    let host = app.host.read();
-    let work = host.work.as_ref();
+    let environment = app.shown_environment();
+    let hosts = app.hosts.read();
+    let work = hosts.work(&environment);
     let session = shown_session(&details, work).cloned();
     let head = details.drill.sheet() == Sheet::Overview;
     let facts = session.as_ref().filter(|_| head).map(|s| {

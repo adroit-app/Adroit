@@ -486,34 +486,22 @@ impl AppCtx {
     fn run(&self, effects: Vec<Effect>) {
         // Taken out, as a request run may show another environment.
         let links = self.links.peek().clone();
-        run(effects, &links, |effect| match effect {
+        let local = |effect: Effect| match refused(&effect, |e| self.remote_status_of(e).is_some())
+        {
+            Some(why) => self.notice(why.into()),
+            None => self.run_local(effect),
+        };
+        run(effects, &links, local);
+    }
+
+    /// Carry out `effect`, one the window does itself rather than a host.
+    fn run_local(&self, effect: Effect) {
+        match effect {
             Effect::Zoom(level) => {
                 let _ = dioxus::desktop::window().webview.zoom(level);
             }
-            Effect::Open(target) => {
-                if self.remote_status().is_some()
-                    && !target.starts_with("https://")
-                    && !target.starts_with("http://")
-                {
-                    self.notice(
-                        "Opening a remote path in a local application is unavailable".into(),
-                    );
-                } else {
-                    open([target]);
-                }
-            }
-            Effect::Reveal(path) => {
-                if self.remote_status().is_some() {
-                    self.notice(
-                        "This path is on the work machine and cannot be revealed here".into(),
-                    );
-                } else {
-                    open(["-R".into(), path]);
-                }
-            }
-            Effect::Viewer { .. } if self.remote_status().is_some() => {
-                self.notice("Remote file previews are unavailable".into())
-            }
+            Effect::Open { target, .. } => open([target]),
+            Effect::Reveal { path, .. } => open(["-R".into(), path]),
             Effect::Copy { text, done } => {
                 let told = match crate::clipboard::copy_to_clipboard(&text) {
                     Ok(()) => done,
@@ -535,7 +523,9 @@ impl AppCtx {
                 ));
             }
             Effect::Notice(text) => self.notice(text),
-            Effect::ShowSession(id) => self.dispatch(Msg::ShowSession(id)),
+            Effect::ShowSession(environment, id) => {
+                self.dispatch(Msg::ShowSession(environment, id))
+            }
             Effect::Show { thing, how } => self.dispatch(Msg::Show {
                 thing,
                 place: None,
@@ -573,7 +563,7 @@ impl AppCtx {
             }
             effect @ (Effect::Viewer { .. }
             | Effect::TakeSuggestion { .. }
-            | Effect::EndShell(_)
+            | Effect::EndShell { .. }
             | Effect::FilterFocus(_)
             | Effect::PromptOffer(_)
             | Effect::PromptCommands(_)
@@ -604,7 +594,7 @@ impl AppCtx {
             | Effect::PromptSent
             | Effect::PromptRestore { .. }
             | Effect::PromptShow(_)
-            | Effect::Resume(_)
+            | Effect::Resume { .. }
             | Effect::RestartDaemon
             | Effect::TypeInto { .. }) => self.hand(effect),
             Effect::Perform(action) => self.perform(action, None),
@@ -622,7 +612,7 @@ impl AppCtx {
                 after,
             } => self.later(after, Msg::NoticeLapsed { notice, text }),
             Effect::Host { .. } => unreachable!("requests go to the host link"),
-        });
+        }
     }
 
     /// Dispatch `msg` once `after` has passed.
@@ -649,6 +639,32 @@ impl AppCtx {
         if let Some((run, effect)) = now {
             run(effect);
         }
+    }
+}
+
+/// Why the window does not carry out `effect` itself, where `remote` says
+/// which environments are on a work machine: a path of such an environment
+/// is not on this computer for a local application, the Finder or a viewer
+/// to open, while an address opens from anywhere and a path of an
+/// environment on this computer still opens.
+fn refused(effect: &Effect, remote: impl Fn(&EnvironmentId) -> bool) -> Option<&'static str> {
+    match effect {
+        Effect::Open {
+            environment,
+            target,
+        } if remote(environment)
+            && !target.starts_with("https://")
+            && !target.starts_with("http://") =>
+        {
+            Some("Opening a remote path in a local application is unavailable")
+        }
+        Effect::Reveal { environment, .. } if remote(environment) => {
+            Some("This path is on the work machine and cannot be revealed here")
+        }
+        Effect::Viewer { environment, .. } if remote(environment) => {
+            Some("Remote file previews are unavailable")
+        }
+        _ => None,
     }
 }
 
@@ -770,6 +786,13 @@ impl AppCtx {
     pub(crate) fn active_environment(&self) -> EnvironmentId {
         let active = self.active();
         self.hosts.peek().environment_of(active.as_ref()).clone()
+    }
+
+    /// The environment of what the middle shows, read so a component or an
+    /// effect follows it: the details panel and the prompt read from its
+    /// host.
+    pub(crate) fn shown_environment(&self) -> EnvironmentId {
+        adroit_core::content::shown_environment_of(&self.content.read(), &self.hosts.read())
     }
 
     /// What the window's own work host told of each agent.
@@ -1115,6 +1138,71 @@ mod tests {
             dom.render_immediate(&mut dioxus::core::NoOpMutations);
         }
         assert!(done.get());
+    }
+
+    #[test]
+    fn a_local_environment_s_files_open_here_while_a_remote_one_is_shown_too() {
+        let (here, there) = (EnvironmentId::new("here"), EnvironmentId::new("there"));
+        let remote = |environment: &EnvironmentId| *environment == there;
+        let window = adroit_core::content::WindowId::default();
+        let action = adroit_core::viewers::ViewerAction::ZoomIn;
+        // (effect, refused)
+        let cases = [
+            (
+                Effect::Open {
+                    environment: here.clone(),
+                    target: "/w/a.rs".into(),
+                },
+                false,
+            ),
+            (
+                Effect::Reveal {
+                    environment: here.clone(),
+                    path: "/w/a.rs".into(),
+                },
+                false,
+            ),
+            (
+                Effect::Viewer {
+                    environment: here.clone(),
+                    window,
+                    action,
+                },
+                false,
+            ),
+            (
+                Effect::Open {
+                    environment: there.clone(),
+                    target: "https://a.dev".into(),
+                },
+                false,
+            ),
+            (
+                Effect::Open {
+                    environment: there.clone(),
+                    target: "/w/a.rs".into(),
+                },
+                true,
+            ),
+            (
+                Effect::Reveal {
+                    environment: there.clone(),
+                    path: "/w/a.rs".into(),
+                },
+                true,
+            ),
+            (
+                Effect::Viewer {
+                    environment: there.clone(),
+                    window,
+                    action,
+                },
+                true,
+            ),
+        ];
+        for (effect, want) in cases {
+            assert_eq!(refused(&effect, remote).is_some(), want, "{effect:?}");
+        }
     }
 
     #[test]

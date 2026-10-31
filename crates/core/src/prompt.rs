@@ -250,7 +250,7 @@ pub(crate) fn offer(state: &mut ViewState) -> Vec<Effect> {
         state.prompt.offered = None;
         return Vec::new();
     }
-    let work = state.hosts.own().work.as_ref();
+    let work = state.hosts.work(&crate::content::shown_environment(state));
     let place = state.content.place.as_ref();
     let files = match (work, place) {
         (Some(work), Some(p)) => work
@@ -301,9 +301,7 @@ pub(crate) fn offer_commands(state: &mut ViewState) -> Vec<Effect> {
         None => Some(Vec::new()),
         Some(sight) => state
             .hosts
-            .own()
-            .work
-            .as_ref()
+            .work(&crate::content::shown_environment(state))
             .and_then(|w| w.prompt.commands.as_ref())
             .filter(|read| read.is_for(&sight))
             .map(|read| read.commands.clone()),

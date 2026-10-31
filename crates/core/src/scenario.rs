@@ -100,17 +100,25 @@ impl Scenario {
     /// The host told the window `change` as the patch after the last word
     /// it heard.
     pub fn tell(self, change: impl Into<Change>) -> Self {
+        let environment = self.state.hosts.environment.clone();
+        self.tell_from(environment, change)
+    }
+
+    /// The host of `environment` told the window `change` as the patch after
+    /// the last word it heard.
+    pub fn tell_from(self, environment: EnvironmentId, change: impl Into<Change>) -> Self {
         let seq = self
             .state
             .hosts
-            .own()
-            .work
-            .as_ref()
+            .work(&environment)
             .map_or(Seq(0), |w| w.seq);
-        self.event(Event::Patch(WorkPatch {
-            seq: seq.next(),
-            changes: vec![change.into()],
-        }))
+        self.event_from(
+            environment,
+            Event::Patch(WorkPatch {
+                seq: seq.next(),
+                changes: vec![change.into()],
+            }),
+        )
     }
 
     pub fn state(&self) -> &ViewState {

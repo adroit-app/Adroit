@@ -27,16 +27,23 @@ pub enum Effect {
     Zoom(f64),
 
     // The details panel.
-    /// Open `target`, an address or a file, in the app macOS opens it with.
-    Open(String),
-    /// Show the file at this path in the Finder.
-    Reveal(String),
+    /// Open `target`, an address or a file of `environment`, in the app
+    /// macOS opens it with.
+    Open {
+        environment: EnvironmentId,
+        target: String,
+    },
+    /// Show the file at `path` of `environment` in the Finder.
+    Reveal {
+        environment: EnvironmentId,
+        path: String,
+    },
     /// Put `text` on the clipboard and say `done`.
     Copy { text: String, done: String },
     /// Scroll the details panel's sheet.
     ScrollDetails(Scroll),
-    /// Show the session by this id in the middle.
-    ShowSession(String),
+    /// Show the session by this id of this environment in the middle.
+    ShowSession(EnvironmentId, String),
     /// Show `thing` in the content as `how` says, the keys staying where
     /// they are.
     Show { thing: Tab, how: Opening },
@@ -75,14 +82,19 @@ pub enum Effect {
     /// Keep the content as this for the next run, each window by the name
     /// its tab is kept by.
     KeepContent(crate::content::Kept<String>),
-    /// Keep the panes and the images drawn only of these sessions and
-    /// terminals.
+    /// Keep the panes and the images drawn of `environment` only of these
+    /// sessions and terminals.
     KeepPanes {
+        environment: EnvironmentId,
         sessions: BTreeSet<String>,
         terminals: BTreeSet<u128>,
     },
-    /// Continue this conversation in a new session.
-    Resume(adroit_model::Past),
+    /// Continue this conversation, which an agent of `environment` kept, in
+    /// a new session there.
+    Resume {
+        environment: EnvironmentId,
+        past: adroit_model::Past,
+    },
     /// Tell the user, outside the window, that these sessions started
     /// waiting, each by its name and what it waits for.
     NotifyWaiting(Vec<(String, String)>),
@@ -173,8 +185,10 @@ pub enum Effect {
     },
 
     // The actions.
-    /// Hand this action to the viewer of the window by this id.
+    /// Hand this action to the viewer of the window by this id, which shows
+    /// a file of `environment`.
     Viewer {
+        environment: EnvironmentId,
         window: WindowId,
         action: ViewerAction,
     },
@@ -193,8 +207,11 @@ pub enum Effect {
     /// Type this into the program of the session `tab` shows, attaching to
     /// it if need be.
     TypeInto { tab: Tab, typing: Vec<Typing> },
-    /// End the shell by this id and close its windows.
-    EndShell(u128),
+    /// End the shell by this id of `environment` and close its windows.
+    EndShell {
+        environment: EnvironmentId,
+        id: u128,
+    },
     /// Open the Settings window.
     OpenSettings,
     /// Close the window.

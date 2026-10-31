@@ -48,7 +48,7 @@ fn recall(back: bool) -> Msg {
 fn stepping_through_the_prompts_sent_asks_the_host_for_the_project_s_and_puts_its_answer_in() {
     let run = Scenario::new()
         .event(listing())
-        .send(Msg::ShowSession("a".into()))
+        .send(Msg::ShowSession(here(), "a".into()))
         .send(recall(true));
     assert_eq!(
         run.last_effects(),
@@ -234,7 +234,7 @@ fn closing_an_ephemeral_draft_keeps_its_text_and_images_accessible_to_the_next_c
 fn shown_with_images() -> Scenario {
     Scenario::new()
         .event(listing())
-        .send(Msg::ShowSession("a".into()))
+        .send(Msg::ShowSession(here(), "a".into()))
         .send(Msg::Focus(crate::content::Area::Prompt))
         .send(Msg::PromptImages(vec![
             "/one.png".into(),
@@ -562,7 +562,9 @@ fn the_prompt_shows_what_is_written_for_what_the_focused_window_shows() {
     };
     let run = Scenario::new().send(Msg::Focus(crate::content::Area::Console));
     assert!(shown(&run).is_empty());
-    let run = run.event(listing()).send(Msg::ShowSession("a".into()));
+    let run = run
+        .event(listing())
+        .send(Msg::ShowSession(here(), "a".into()));
     assert_eq!(shown(&run), [Some(session_tab("a"))]);
     let run = run.send(Msg::Focus(crate::content::Area::Prompt));
     assert!(shown(&run).is_empty());
@@ -581,7 +583,7 @@ fn the_prompt_s_neovim_is_offered_the_sessions_and_the_middle_s_files_each_time_
     };
     let shown = Scenario::new()
         .event(listing())
-        .send(Msg::ShowSession("a".into()));
+        .send(Msg::ShowSession(here(), "a".into()));
     assert!(offers(&shown).is_empty(), "no Neovim runs to offer them");
     let runs = shown.send(Msg::PromptRuns(true));
     assert_eq!(
@@ -649,7 +651,7 @@ fn the_host_is_asked_for_the_commands_of_the_agent_and_directory_shown() {
     use adroit_protocol::CommandsSight;
     let run = Scenario::new()
         .event(listing())
-        .send(Msg::ShowSession("a".into()));
+        .send(Msg::ShowSession(here(), "a".into()));
     assert_eq!(
         run.state().hosts.own().watched.commands,
         Some(CommandsSight {
@@ -672,7 +674,7 @@ fn the_host_is_asked_for_the_commands_of_the_agent_and_directory_shown() {
 fn the_prompt_is_offered_the_commands_read_for_what_is_shown_once_each() {
     let run = Scenario::new()
         .event(listing())
-        .send(Msg::ShowSession("a".into()))
+        .send(Msg::ShowSession(here(), "a".into()))
         .send(Msg::PromptRuns(true))
         .tell(commands("/elsewhere", &["stale"]))
         .tell(commands("/r/a", &["compact"]))
@@ -699,7 +701,7 @@ fn a_session_s_history_and_commands_are_asked_in_the_login_it_runs_in() {
         .event(crate::testing::listing([
             session("a").profile("claude-work", Some("/w"))
         ]))
-        .send(Msg::ShowSession("a".into()))
+        .send(Msg::ShowSession(here(), "a".into()))
         .send(recall(true));
     assert!(matches!(
            run.last_effects(),
@@ -710,4 +712,33 @@ fn a_session_s_history_and_commands_are_asked_in_the_login_it_runs_in() {
        ));
     let sight = run.state().hosts.own().watched.commands.clone().unwrap();
     assert_eq!(sight.home.as_deref(), Some(std::path::Path::new("/w")));
+}
+
+#[test]
+fn another_environment_s_tab_has_its_commands_asked_of_and_offered_from_that_environment() {
+    use crate::testing::{shows_there, there};
+    let run = shows_there(Scenario::new().event(listing()), [session("b")])
+        .send(Msg::ShowSession(there(), "b".into()))
+        .send(Msg::PromptRuns(true));
+    let watched = |environment| {
+        run.state()
+            .hosts
+            .get(&environment)
+            .and_then(|h| h.watched.commands.clone())
+            .map(|c| c.dir)
+    };
+    assert_eq!(watched(there()), Some("/r/b".into()));
+    assert_eq!(watched(here()), None);
+    let wanted = run.send(Msg::CommandsWanted);
+    assert_eq!(
+        wanted.last_effects(),
+        [Effect::Host {
+            environment: there(),
+            request: Request::CommandsWanted,
+        }]
+    );
+    let offered = wanted
+        .tell(commands("/r/b", &["here-only"]))
+        .tell_from(there(), commands("/r/b", &["compact"]));
+    assert_eq!(commands_offered(&offered), [vec!["compact".to_string()]]);
 }

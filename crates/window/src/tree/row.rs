@@ -297,9 +297,9 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
             }
             if let Some(runs) = terminal { TerminalMark { runs } }
             span { class: "list-row-name",
-                if let Item::Session(_, id) = &it {
+                if let Item::Session(environment, id) = &it {
                     SessionName {
-                        id: id.clone(), name: text.clone(), place: RenamePlace::Sidebar,
+                        environment: environment.clone(), id: id.clone(), name: text.clone(), place: RenamePlace::Sidebar,
                     }
                 } else { "{text}" }
             }

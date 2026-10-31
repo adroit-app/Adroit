@@ -364,14 +364,14 @@ fn fold(details: &mut Details, group: Group, shut: bool) {
 /// What using `entry` the way `how` says asks done.
 fn used(details: &Details, entry: &Entry, how: Use) -> Vec<Effect> {
     match entry {
-        Entry::Link(link) => use_link(link, how),
+        Entry::Link(link) => use_link(link, how, &details.shown.environment),
         Entry::Image(shot) => use_shot(
             shot,
             how,
             &details.shown.environment,
             details.shown.session.as_deref(),
         ),
-        Entry::Session(r) => use_related(r, how),
+        Entry::Session(r) => use_related(r, how, &details.shown.environment),
         Entry::Process(p) => copied(how, &p.command, "Copied the process command".into()),
         Entry::Message(n) => copied(how, &n.body, "Copied the message".into()),
         Entry::Fact(f) => copied(how, &f.value, format!("Copied {}", f.value)),
@@ -394,14 +394,18 @@ fn copied(how: Use, text: &str, done: String) -> Vec<Effect> {
     }
 }
 
-/// Open `link` in the app macOS opens it with, copy it, or show its file in
-/// the Finder.
-fn use_link(link: &Link, how: Use) -> Vec<Effect> {
+/// Open `link`, read in `environment`, in the app macOS opens it with, copy
+/// it, or show its file in the Finder.
+fn use_link(link: &Link, how: Use, environment: &EnvironmentId) -> Vec<Effect> {
     match how {
-        Use::Open(_) => vec![Effect::Open(link.target.clone())],
-        Use::Reveal if matches!(link.kind, LinkKind::File(_)) => {
-            vec![Effect::Reveal(link.target.clone())]
-        }
+        Use::Open(_) => vec![Effect::Open {
+            environment: environment.clone(),
+            target: link.target.clone(),
+        }],
+        Use::Reveal if matches!(link.kind, LinkKind::File(_)) => vec![Effect::Reveal {
+            environment: environment.clone(),
+            path: link.target.clone(),
+        }],
         Use::Reveal => Vec::new(),
         Use::Copy => vec![Effect::Copy {
             text: link.target.clone(),
@@ -410,11 +414,11 @@ fn use_link(link: &Link, how: Use) -> Vec<Effect> {
     }
 }
 
-/// Show `related`, or copy its name, which Claude Code's messaging
-/// addresses it by.
-fn use_related(related: &Related, how: Use) -> Vec<Effect> {
+/// Show `related`, a session of `environment`, or copy its name, which
+/// Claude Code's messaging addresses it by.
+fn use_related(related: &Related, how: Use, environment: &EnvironmentId) -> Vec<Effect> {
     match (how, &related.id) {
-        (Use::Open(_), Some(id)) => vec![Effect::ShowSession(id.clone())],
+        (Use::Open(_), Some(id)) => vec![Effect::ShowSession(environment.clone(), id.clone())],
         (Use::Open(_), None) => vec![Effect::Notice(format!("{} is not running", related.name))],
         (Use::Copy, _) => vec![Effect::Copy {
             text: related.name.clone(),
@@ -455,7 +459,7 @@ fn use_shot(
             vec![Effect::Notice("A drawn image has no file to copy".into())]
         }
         (Source::Console { .. }, Use::Reveal) => Vec::new(),
-        (Source::File { path, touch }, how) => use_link(&file_link(path, *touch), how),
+        (Source::File { path, touch }, how) => use_link(&file_link(path, *touch), how, environment),
     }
 }
 
@@ -736,7 +740,7 @@ mod tests {
         match id {
             Some(id) => Msg::Show {
                 thing: Tab::Session(here(), id.into()),
-                place: worktree.map(|w| Place { worktree: w.into() }),
+                place: worktree.map(|w| Place::at(&here(), w)),
                 how: None,
             },
             None => Msg::Window(crate::actions::Action::TabClose),
@@ -810,6 +814,30 @@ mod tests {
 
     fn entries_of(run: &Scenario) -> Option<Listing> {
         entry_listing(&run.state().details, run.state().hosts.own().work.as_ref())
+    }
+
+    #[test]
+    fn another_environment_s_tab_has_its_details_read_by_that_environment_s_host() {
+        use crate::testing::{shows_there, there};
+        let run = Scenario::new().event(snapshot().listed(listing()));
+        let run =
+            shows_there(run, [session("b").cwd("/t")]).send(Msg::ShowSession(there(), "b".into()));
+        let watched_by = |environment: &EnvironmentId| {
+            run.state()
+                .hosts
+                .get(environment)
+                .map(|h| h.watched.session.clone())
+        };
+        assert_eq!(watched_by(&there()), Some(Some("b".into())));
+        assert_eq!(watched_by(&here()), Some(None));
+        let again = run.send(Msg::DetailsReadAgain);
+        assert_eq!(
+            again.last_effects(),
+            [Effect::Host {
+                environment: there(),
+                request: Request::ReadAgain,
+            }]
+        );
     }
 
     #[test]
@@ -913,7 +941,10 @@ mod tests {
         let cases: Vec<(Vec<Key>, Vec<Effect>)> = vec![
             (
                 vec![Key::Down, Key::Open],
-                vec![Effect::Open("https://a.dev".into())],
+                vec![Effect::Open {
+                    environment: here(),
+                    target: "https://a.dev".into(),
+                }],
             ),
             (
                 vec![Key::Down, Key::Copy],
@@ -925,11 +956,17 @@ mod tests {
             (vec![Key::Down, Key::Reveal], vec![]),
             (
                 vec![Key::Last, Key::Reveal],
-                vec![Effect::Reveal("/w/a.rs".into())],
+                vec![Effect::Reveal {
+                    environment: here(),
+                    path: "/w/a.rs".into(),
+                }],
             ),
             (
                 vec![Key::Last, Key::Open],
-                vec![Effect::Open("/w/a.rs".into())],
+                vec![Effect::Open {
+                    environment: here(),
+                    target: "/w/a.rs".into(),
+                }],
             ),
             (vec![Key::Copy], vec![]),
         ];
@@ -956,7 +993,7 @@ mod tests {
             .event(work(read("a", with_links(peers("b")))))
             .send_all([shown(Some("a"), None), Msg::DetailsSheet(Sheet::Agents)])
             .send_all([Msg::DetailsKey(Key::Down), Msg::DetailsKey(Key::Open)]);
-        assert_eq!(local(&running), [Effect::ShowSession("b".into())]);
+        assert_eq!(local(&running), [Effect::ShowSession(here(), "b".into())]);
         let gone = Scenario::new()
             .event(work(read("a", with_links(peers("gone")))))
             .send_all([shown(Some("a"), None), Msg::DetailsSheet(Sheet::Agents)])
@@ -1601,7 +1638,10 @@ mod tests {
         let cases = [
             (
                 Key::OpenIn(Opening::Preview),
-                vec![Effect::Open("https://a.dev".into())],
+                vec![Effect::Open {
+                    environment: here(),
+                    target: "https://a.dev".into(),
+                }],
             ),
             (Key::OpenIn(Opening::Split(Axis::Row)), vec![]),
             (Key::OpenIn(Opening::Tab), vec![]),
@@ -1636,9 +1676,7 @@ mod tests {
     fn a_file_shown_in_another_worktree_describes_no_session() {
         let run = with_images().send(Msg::Show {
             thing: Tab::Viewer(here(), "/elsewhere/a.png".into()),
-            place: Some(Place {
-                worktree: "/elsewhere".into(),
-            }),
+            place: Some(Place::at(&here(), "/elsewhere")),
             how: None,
         });
         assert_eq!(run.state().details.shown.session, None);

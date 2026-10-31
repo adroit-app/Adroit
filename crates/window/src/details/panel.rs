@@ -63,15 +63,16 @@ pub(crate) fn DetailsPanel(
     });
     // Keep the row selected in view, after it is drawn.
     use_effect(move || {
-        let _ = (app.details.read(), app.host.read());
+        let _ = (app.details.read(), app.hosts.read());
         document::eval(
             "requestAnimationFrame(() => document.querySelectorAll('.details-scroll .selected')
                .forEach((r) => r.scrollIntoView({ block: 'nearest' })));",
         );
     });
     let details = app.details.read().clone();
-    let host = app.host.read();
-    let work = host.work.as_ref();
+    let environment = app.shown_environment();
+    let hosts = app.hosts.read();
+    let work = hosts.work(&environment);
     let sheet_now = details.drill.sheet();
     let view = repository(&details, work).filter(|v| worktree.as_ref() == Some(&v.worktree));
     let gauges = usage(&details, work, now_ms());

@@ -13,6 +13,7 @@ use crate::bridge::AppCtx;
 use crate::console::{Hub, Panes};
 use crate::content::Tab;
 use crate::shell::Ui;
+use adroit_model::EnvironmentId;
 use adroit_model::daemon as sessions;
 
 /// How long, in 50 ms steps, a prompt waits for a session pane that has just
@@ -99,8 +100,9 @@ pub(crate) async fn pane_for(app: AppCtx, hub: &Hub, tab: &Tab, size: Size) -> O
     None
 }
 
-/// The sessions shown live here, or being attached to.
-fn live_sessions(hub: &Hub) -> BTreeSet<String> {
+/// The sessions shown live here, or being attached to, each by its
+/// environment.
+fn live_sessions(hub: &Hub) -> BTreeSet<(EnvironmentId, String)> {
     let panes = hub.panes.borrow();
     let attaching = hub.attaching.borrow();
     panes
@@ -109,7 +111,7 @@ fn live_sessions(hub: &Hub) -> BTreeSet<String> {
         .map(|(t, _)| t)
         .chain(attaching.iter())
         .filter_map(|t| match t {
-            Tab::Session(_, id) => Some(id.clone()),
+            Tab::Session(environment, id) => Some((environment.clone(), id.clone())),
             _ => None,
         })
         .collect()
@@ -122,24 +124,35 @@ pub(crate) fn tell_live(app: AppCtx, hub: &Hub) {
     app.dispatch(Msg::PanesLive(live));
 }
 
-/// Tell the host, for as long as the window is open, when the user last
-/// typed into each session, and the view state which sessions are live
-/// here, as their panes exit.
+/// Tell each environment's host, for as long as the window is open, when
+/// the user last typed into each of its sessions, and the view state which
+/// sessions are live here, as their panes exit.
 pub(crate) async fn tell_live_on(app: AppCtx, hub: Hub) {
-    let mut typed = BTreeMap::new();
+    let mut typed: BTreeMap<EnvironmentId, BTreeMap<u128, u64>> = BTreeMap::new();
     let mut told_live = None;
     loop {
-        let inputs: BTreeMap<u128, u64> = hub
-            .panes
-            .borrow()
-            .iter()
-            .filter(|(tab, _)| matches!(tab, Tab::Session(_, _)))
-            .filter_map(|(_, pane)| pane.last_input_ms().map(|at| (pane.id(), at)))
-            .collect();
-        if inputs != typed {
-            typed = inputs.clone();
-            app.dispatch(Msg::Typed(inputs));
+        let mut inputs: BTreeMap<EnvironmentId, BTreeMap<u128, u64>> = BTreeMap::new();
+        for (tab, pane) in hub.panes.borrow().iter() {
+            if let (Tab::Session(environment, _), Some(at)) = (tab, pane.last_input_ms()) {
+                inputs
+                    .entry(environment.clone())
+                    .or_default()
+                    .insert(pane.id(), at);
+            }
         }
+        // An environment whose sessions all went is told so, with none.
+        let environments: BTreeSet<EnvironmentId> =
+            typed.keys().chain(inputs.keys()).cloned().collect();
+        for environment in environments {
+            let now = inputs.get(&environment).cloned().unwrap_or_default();
+            if typed.get(&environment) != Some(&now) {
+                app.dispatch(Msg::Typed {
+                    environment: environment.clone(),
+                    inputs: now,
+                });
+            }
+        }
+        typed = inputs;
         let live = live_sessions(&hub);
         if told_live.as_ref() != Some(&live) {
             told_live = Some(live.clone());
@@ -150,33 +163,33 @@ pub(crate) async fn tell_live_on(app: AppCtx, hub: Hub) {
 }
 
 impl Ui {
-    /// End a shell and close its windows, showing another thing of its
-    /// worktree if no window is left.
-    pub(crate) fn end_shell(&self, id: u128) {
-        // The shell's environment is the one its pane was attached in.
-        let environment = self
-            .hub
-            .panes
-            .borrow()
-            .keys()
-            .find_map(|tab| match tab {
-                Tab::Terminal(environment, shell) if *shell == id => Some(environment.clone()),
-                _ => None,
-            })
-            .unwrap_or_else(|| self.app.environment());
+    /// End the shell `id` of `environment` and close its windows, showing
+    /// another thing of its worktree if no window is left.
+    pub(crate) fn end_shell(&self, environment: &EnvironmentId, id: u128) {
         self.app
-            .tell_host_in(&environment, adroit_protocol::Request::EndTerminal { id });
-        close_shell(self.app, &self.hub.panes, id);
+            .tell_host_in(environment, adroit_protocol::Request::EndTerminal { id });
+        close_shell(self.app, &self.hub.panes, environment, id);
     }
 
-    /// Keep the panes and the images drawn only of these sessions and
-    /// terminals: one no longer listed has nothing to show.
-    pub(crate) fn keep_panes(&self, sessions: &BTreeSet<String>, terminals: &BTreeSet<u128>) {
+    /// Keep the panes of `environment` and the images drawn only of these
+    /// sessions and terminals: one no longer listed has nothing to show.
+    pub(crate) fn keep_panes(
+        &self,
+        environment: &EnvironmentId,
+        sessions: &BTreeSet<String>,
+        terminals: &BTreeSet<u128>,
+    ) {
         self.hub.panes.borrow_mut().retain(|tab, _| match tab {
+            _ if tab.environment() != environment => true,
             Tab::Session(_, id) => sessions.contains(id),
             Tab::Terminal(_, id) => terminals.contains(id),
             Tab::Draft { .. } | Tab::Viewer(_, _) | Tab::Drawn { .. } => true,
         });
+        // The images drawn are kept by session id alone, which the window's
+        // own environment's sessions are listed by.
+        if *environment != self.app.environment() {
+            return;
+        }
         let mut gallery = self.local.gallery;
         let gone = gallery
             .peek()
@@ -191,11 +204,14 @@ impl Ui {
 
 /// Close a shell's windows, and show another thing of its worktree if no
 /// window is left.
-pub(crate) fn close_shell(app: AppCtx, panes: &Panes, id: u128) {
+pub(crate) fn close_shell(app: AppCtx, panes: &Panes, environment: &EnvironmentId, id: u128) {
     panes
         .borrow_mut()
-        .remove(&Tab::Terminal(app.environment(), id));
-    app.dispatch(Msg::ShellClosed(id));
+        .remove(&Tab::Terminal(environment.clone(), id));
+    app.dispatch(Msg::ShellClosed {
+        environment: environment.clone(),
+        id,
+    });
 }
 
 #[cfg(test)]

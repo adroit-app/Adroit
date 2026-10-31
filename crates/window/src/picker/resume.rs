@@ -16,8 +16,8 @@ pub(super) fn Resume(list: List) -> Element {
     let app = use_context::<AppCtx>();
     let home = app.picker.read().home.clone();
     let settings = app.config.read().settings.clone();
-    let host = app.host.read();
-    let rows = rows(&list, &home, host.work.as_ref());
+    let hosts = app.hosts.read();
+    let rows = rows(&list, &home, hosts.work(&list.environment));
     let now = now_ms();
     let scope = match (&list.dir, list.every) {
         (Some(dir), false) => short(dir, &home),

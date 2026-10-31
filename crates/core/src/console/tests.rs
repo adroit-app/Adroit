@@ -42,7 +42,7 @@ fn tab(id: &str) -> Tab {
 fn window() -> Scenario {
     Scenario::new()
         .event(snapshot().listed(listing([session("a"), session("b")])))
-        .send(Msg::ShowSession("a".into()))
+        .send(Msg::ShowSession(here(), "a".into()))
         .send(Msg::Focus(Area::Console))
 }
 
@@ -136,7 +136,7 @@ fn passing_every_key_stops_when_the_session_they_went_to_ends() {
     assert!(!run.state().console.direct);
     let shown_next = window()
         .send(Msg::ConsolePassEveryKey)
-        .send(Msg::ShowSession("b".into()));
+        .send(Msg::ShowSession(here(), "b".into()));
     assert!(!shown_next.state().console.direct);
 }
 
@@ -272,7 +272,7 @@ fn the_reader_quitting_shows_the_console_live_again() {
 fn another_tab_shown_is_shown_live() {
     let run = window()
         .send(Msg::ReadingStarted)
-        .send(Msg::ShowSession("b".into()));
+        .send(Msg::ShowSession(here(), "b".into()));
     assert!(!run.state().console.reading);
 }
 
@@ -558,7 +558,7 @@ fn a_dialog_is_open_while_the_host_saw_one_on_the_screen_of_the_session_shown() 
     let run = window().event(dialog(2, "a", true));
     assert!(run.state().console.dialog);
     assert!(waits(run.state()));
-    let run = run.send(Msg::ShowSession("b".into()));
+    let run = run.send(Msg::ShowSession(here(), "b".into()));
     assert!(!run.state().console.dialog, "b's screen was not looked at");
     let run = run.event(dialog(3, "b", false));
     assert!(!run.state().console.dialog);

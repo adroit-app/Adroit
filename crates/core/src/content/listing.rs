@@ -58,9 +58,10 @@ pub(crate) fn listed(state: &mut ViewState) -> Vec<Effect> {
     // A session started a moment ago, and shown, is placed among its
     // worktree's tabs once listed: below the worktree's top, it is shown
     // there.
-    if let Some(Tab::Session(_, id)) = view.active()
+    if let Some(Tab::Session(environment, id)) = view.active()
+        && *environment == state.hosts.environment
         && view.place.is_some()
-        && let Some((p, _)) = nav::find(next, id)
+        && let Some(p) = nav::find(next, id).map(|(p, _)| Place::at(environment, p))
         && view.place.as_ref() != Some(&p)
         && nav::find(&was, id).is_none()
     {
@@ -124,6 +125,7 @@ pub(crate) fn listed(state: &mut ViewState) -> Vec<Effect> {
     // host lists anew, so a pane started since the listing stays.
     if anew {
         effects.push(Effect::KeepPanes {
+            environment: state.hosts.environment.clone(),
             sessions: sessions.iter().map(|s| s.id.clone()).collect(),
             terminals: kept_shells.iter().map(|s| s.id).collect(),
         });
@@ -134,10 +136,13 @@ pub(crate) fn listed(state: &mut ViewState) -> Vec<Effect> {
         && view.windows.is_empty()
     {
         let at = |tab: &Tab| match tab {
-            Tab::Session(_, id) => nav::find(next, id).map(|(p, _)| p),
-            Tab::Terminal(_, id) => kept_shells.iter().find(|s| s.id == *id).map(|s| Place {
-                worktree: s.cwd.clone(),
-            }),
+            Tab::Session(environment, id) => {
+                nav::find(next, id).map(|(p, _)| Place::at(environment, p))
+            }
+            Tab::Terminal(environment, id) => kept_shells
+                .iter()
+                .find(|s| s.id == *id)
+                .map(|s| Place::at(environment, s.cwd.clone())),
             Tab::Draft { .. } | Tab::Viewer(_, _) | Tab::Drawn { .. } => None,
         };
         view.windows = Content::from_kept(kept, |name| {

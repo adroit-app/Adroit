@@ -99,8 +99,9 @@ impl Ui {
         Ok(id)
     }
 
-    /// Start a shell or a Neovim as asked, named apart from those in its
-    /// worktree, and show it where it was asked for.
+    /// Start a shell or a Neovim as asked, on the host of the environment
+    /// its place is in, named apart from those in its worktree, and show it
+    /// where it was asked for.
     pub(crate) fn start_terminal(&self, ask: TerminalAsk) {
         let app = self.app;
         let TerminalAsk {
@@ -110,9 +111,10 @@ impl Ui {
             opening,
             focus: take_keys,
         } = ask;
+        let environment = p.environment.clone();
         let names: Vec<String> = {
-            let host = app.host.peek();
-            adroit_core::tree::terminals(host.work.as_ref())
+            let hosts = app.hosts.peek();
+            adroit_core::tree::terminals(hosts.work(&environment))
                 .iter()
                 .filter(|s| s.cwd == p.worktree)
                 .map(|s| s.name.clone())
@@ -135,7 +137,8 @@ impl Ui {
         };
         let hub = self.hub.clone();
         spawn(async move {
-            let terminal = match app.ask(Ask::StartTerminal(Box::new(start))).await {
+            let asked = app.ask_in(&environment, Ask::StartTerminal(Box::new(start)));
+            let terminal = match asked.await {
                 Answer::Terminal { terminal } => terminal,
                 Answer::Failed { text } => {
                     app.status(Some(format!("cannot start {base}: {text}")));
@@ -147,12 +150,15 @@ impl Ui {
                 }
             };
             let id = terminal.id;
-            let tab = Tab::Terminal(app.environment(), id);
+            let tab = Tab::Terminal(environment.clone(), id);
             if let Err(e) = attach_held(app, &hub, id, tab.clone(), size).await {
                 app.status(Some(format!("cannot start {base}: {e}")));
                 return;
             }
-            app.dispatch(Msg::TerminalOpened(terminal));
+            app.dispatch(Msg::TerminalOpened {
+                environment,
+                terminal,
+            });
             app.dispatch(Msg::Show {
                 thing: tab,
                 place: Some(p),
@@ -189,12 +195,16 @@ impl Ui {
             };
             let id = terminal.id;
             crate::logins::ask(app, profile, Some(id));
-            let tab = Tab::Terminal(app.environment(), id);
+            let environment = app.environment();
+            let tab = Tab::Terminal(environment.clone(), id);
             if let Err(e) = attach_held(app, &hub, id, tab.clone(), size).await {
                 app.status(Some(format!("cannot open the login terminal: {e}")));
                 return;
             }
-            app.dispatch(Msg::TerminalOpened(terminal));
+            app.dispatch(Msg::TerminalOpened {
+                environment,
+                terminal,
+            });
             app.dispatch(Msg::Show {
                 thing: tab,
                 place: None,
@@ -324,15 +334,15 @@ impl Ui {
         });
     }
 
-    /// Continue a conversation an agent kept in a new session, in the
-    /// directory it ran in, shown where the user is.
-    pub(crate) fn resume(&self, past: adroit_model::Past) {
+    /// Continue a conversation an agent of `environment` kept in a new
+    /// session there, in the directory it ran in, shown where the user is.
+    pub(crate) fn resume(&self, environment: EnvironmentId, past: adroit_model::Past) {
         let (app, ui) = (self.app, self.clone());
         spawn(async move {
             let size = *ui.local.console_size.peek();
             let names: Vec<String> = {
-                let host = app.host.peek();
-                adroit_core::tree::listed(host.work.as_ref())
+                let hosts = app.hosts.peek();
+                adroit_core::tree::listed(hosts.work(&environment))
                     .sessions()
                     .map(|(_, s)| s.name.clone())
                     .collect()
@@ -352,7 +362,6 @@ impl Ui {
                 ..Default::default()
             };
             let failed = |e| format!("cannot resume {name}: {e}");
-            let environment = app.environment();
             match ui.start_session(&environment, start, failed).await {
                 Ok(id) => {
                     app.status(None);

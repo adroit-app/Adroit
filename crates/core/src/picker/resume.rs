@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use adroit_model::Past;
+use adroit_model::{EnvironmentId, Past};
 use adroit_protocol::{PastSight, WorkSnapshot};
 
 use super::fuzzy::{Query, best};
@@ -18,6 +18,9 @@ const ROWS: usize = 200;
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Resume {
+    /// The environment of what the focused window showed when the list
+    /// opened, whose agents' conversations it lists.
+    pub environment: EnvironmentId,
     /// The directory the focused window worked in when the list opened.
     pub dir: Option<PathBuf>,
     /// Whether every directory's conversations are listed, rather than the
@@ -86,13 +89,15 @@ pub fn rows(list: &Resume, home: &Path, work: Option<&WorkSnapshot>) -> Option<V
 /// nothing open.
 pub(super) fn open(state: &ViewState) -> Resume {
     let showing = state.content.showing();
-    let work = state.hosts.own().work.as_ref();
+    let environment = content::shown_environment(state);
+    let work = state.hosts.work(&environment);
     let session_dir = match &showing.tab {
         Some(Tab::Session(_, id)) => nav::find(tree::listed(work), id).map(|(_, s)| s.cwd.clone()),
         _ => None,
     };
     let dir = session_dir.or_else(|| showing.place.map(|p| p.worktree));
     Resume {
+        environment,
         every: dir.is_none(),
         dir,
         ..Resume::default()
@@ -106,18 +111,22 @@ pub(super) fn choose(state: &mut ViewState, at: usize) -> Vec<Effect> {
     let view = &state.picker;
     let chosen = match &view.open {
         Some(super::Picking::Resume(list)) => {
-            rows(list, &view.home, state.hosts.own().work.as_ref())
+            rows(list, &view.home, state.hosts.work(&list.environment))
                 .and_then(|mut r| (at < r.len()).then(|| r.swap_remove(at)))
+                .map(|row| (list.environment.clone(), row))
         }
         _ => None,
     };
-    let Some(row) = chosen else {
+    let Some((environment, row)) = chosen else {
         return Vec::new();
     };
     close(&mut state.picker);
     match row.session {
-        Some(id) => content::show_session(state, id),
-        None => vec![Effect::Resume(row.past)],
+        Some(id) => content::show_session(state, environment, id),
+        None => vec![Effect::Resume {
+            environment,
+            past: row.past,
+        }],
     }
 }
 
@@ -145,7 +154,7 @@ mod tests {
         let view = &run.state().picker;
         match &view.open {
             Some(super::super::Picking::Resume(list)) => {
-                rows(list, &view.home, run.state().hosts.own().work.as_ref())
+                rows(list, &view.home, run.state().hosts.work(&list.environment))
             }
             _ => None,
         }
@@ -214,7 +223,7 @@ mod tests {
     fn showing_a() -> Scenario {
         window()
             .event(listing([session("a").cwd("/r/src").session_id("conv-a")]))
-            .send(Msg::ShowSession("a".into()))
+            .send(Msg::ShowSession(crate::testing::here(), "a".into()))
     }
 
     #[test]
@@ -308,7 +317,10 @@ mod tests {
             ))
             .send(key("ArrowDown", false))
             .send(key("Enter", false));
-        assert!(run.last_effects().contains(&Effect::Resume(chosen)));
+        assert!(run.last_effects().contains(&Effect::Resume {
+            environment: crate::testing::here(),
+            past: chosen,
+        }));
         assert!(run.state().picker.open.is_none());
     }
 
@@ -319,7 +331,7 @@ mod tests {
                 session("a").cwd("/r/src").session_id("conv-a"),
                 session("b").cwd("/r/src").session_id("conv-b"),
             ]))
-            .send(Msg::ShowSession("a".into()))
+            .send(Msg::ShowSession(crate::testing::here(), "a".into()))
             .send(Msg::ResumeOpen)
             .tell(pasts(
                 Some("/r/src"),
@@ -331,7 +343,7 @@ mod tests {
         assert!(
             !run.last_effects()
                 .iter()
-                .any(|e| matches!(e, Effect::Resume(_)))
+                .any(|e| matches!(e, Effect::Resume { .. }))
         );
         assert_eq!(run.state().content.showing().tab, Some(session_tab("b")));
     }
@@ -362,5 +374,29 @@ mod tests {
         let nothing = round.send(Msg::PickerChoose(5));
         assert!(nothing.last_effects().is_empty());
         assert!(nothing.state().picker.open.is_some());
+    }
+
+    #[test]
+    fn another_environment_s_tab_lists_and_resumes_the_conversations_kept_there() {
+        use crate::testing::{shows_there, there};
+        let chosen = past(Agent::Claude, "t1", "/t", "kept there");
+        let run = shows_there(window(), [session("b").cwd("/t")])
+            .send(Msg::ShowSession(there(), "b".into()))
+            .send(Msg::ResumeOpen);
+        let past_watched = |environment| {
+            run.state()
+                .hosts
+                .get(&environment)
+                .map(|h| h.watched.past.clone())
+        };
+        assert_eq!(past_watched(there()), Some(here("/t").flatten()));
+        assert_eq!(past_watched(crate::testing::here()), Some(None));
+        let run = run
+            .tell_from(there(), pasts(Some("/t"), vec![chosen.clone()]))
+            .send(key("Enter", false));
+        assert!(run.last_effects().contains(&Effect::Resume {
+            environment: there(),
+            past: chosen,
+        }));
     }
 }

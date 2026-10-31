@@ -83,6 +83,7 @@ impl Hosts {
     /// The session by `id` in `environment`, with the worktree it runs in.
     pub fn session(&self, environment: &EnvironmentId, id: &str) -> Option<(nav::Place, &Session)> {
         nav::find(tree::listed(self.work(environment)), id)
+            .map(|(p, s)| (nav::Place::at(environment, p), s))
     }
 
     /// The environment of what `tab` shows, the window's own with nothing
@@ -134,14 +135,6 @@ impl Hosts {
                 request: request.clone(),
             })
             .collect()
-    }
-
-    /// `request` sent to the host of the window's own environment.
-    pub(crate) fn ask_own(&self, request: Request) -> Effect {
-        Effect::Host {
-            environment: self.environment.clone(),
-            request,
-        }
     }
 
     /// The window is opened in `environment`; its host until then, which

@@ -423,24 +423,26 @@ pub fn next_workspace(
 }
 
 /// Where the middle of the window is: the worktree, or the directory outside
-/// git, its tabs are of.
+/// git, its tabs are of, in the environment it belongs to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Place {
+    pub environment: EnvironmentId,
     pub worktree: PathBuf,
 }
 
 impl Place {
-    pub fn at(worktree: impl Into<PathBuf>) -> Place {
+    pub fn at(environment: &EnvironmentId, worktree: impl Into<PathBuf>) -> Place {
         Place {
+            environment: environment.clone(),
             worktree: worktree.into(),
         }
     }
 }
 
-/// Find a session by id, with the place it opens.
-pub fn find<'a>(tree: &'a Tree, id: &str) -> Option<(Place, &'a Session)> {
+/// Find a session by id, with the worktree it runs in.
+pub fn find<'a>(tree: &'a Tree, id: &str) -> Option<(&'a Path, &'a Session)> {
     tree.find(id)
-        .map(|(_, wt, s)| (Place::at(wt.worktree.path.clone()), s))
+        .map(|(_, wt, s)| (wt.worktree.path.as_path(), s))
 }
 
 /// Whether the session `id` names is no longer listed.
@@ -634,11 +636,12 @@ pub fn row_after_switch(
 /// shell was started in, a worktree itself, a workspace's main checkout or
 /// directory.
 pub fn place_of(tree: &Tree, item: &Item) -> Option<Place> {
+    let at = |worktree: &Path| Place::at(item.environment(), worktree);
     match item {
-        Item::Waiting(_, id) | Item::Session(_, id) => find(tree, id).map(|(p, _)| p),
-        Item::Terminal(_, id) => tree.terminal(*id).map(|(_, _, s)| Place::at(s.cwd.clone())),
+        Item::Waiting(_, id) | Item::Session(_, id) => find(tree, id).map(|(p, _)| at(p)),
+        Item::Terminal(_, id) => tree.terminal(*id).map(|(_, _, s)| at(&s.cwd)),
         Item::Worktree(_, path) | Item::Heading(_, path, _) | Item::File { worktree: path, .. } => {
-            Some(Place::at(path.clone()))
+            Some(at(path))
         }
         Item::Environment(_) => None,
         // Not the root itself: a bare repository, a submodule or a separate
@@ -646,8 +649,7 @@ pub fn place_of(tree: &Tree, item: &Item) -> Option<Place> {
         Item::Workspace(_, root) => {
             let ws = tree.workspaces.iter().find(|ws| &ws.root == root)?;
             let main = ws.worktrees.iter().find(|w| w.worktree.is_main());
-            main.or(ws.worktrees.first())
-                .map(|w| Place::at(w.worktree.path.clone()))
+            main.or(ws.worktrees.first()).map(|w| at(&w.worktree.path))
         }
     }
 }
@@ -700,7 +702,7 @@ pub fn opens(item: &Item, tree: &Tree, terminals: &[TerminalSession]) -> Opens {
             path,
             dir: false,
         } => {
-            let at = Some(Place::at(worktree.clone()));
+            let at = Some(Place::at(environment, worktree.clone()));
             let editing = editing(terminals, path).next().map(|t| t.id);
             if crate::viewers::FileKind::of(path).has_viewer() {
                 Opens::Shows(Tab::Viewer(environment.clone(), path.clone()), at)
@@ -719,7 +721,7 @@ pub fn opens(item: &Item, tree: &Tree, terminals: &[TerminalSession]) -> Opens {
             place_of(tree, item),
         ),
         Item::Worktree(environment, path) => {
-            let p = Place::at(path.clone());
+            let p = Place::at(environment, path.clone());
             match sessions_in(tree, &p).first() {
                 Some(s) => Opens::Shows(Tab::Session(environment.clone(), s.id.clone()), Some(p)),
                 None => Opens::Draft(path.clone()),
@@ -979,7 +981,7 @@ mod tests {
     }
 
     fn at(path: &str) -> Place {
-        Place::at(path)
+        Place::at(&here(), path)
     }
 
     #[test]

@@ -9,18 +9,25 @@ use crate::icons::Icon;
 pub enum Ask {
     /// End the session, in the environment it runs in.
     Stop(EnvironmentId, Session),
-    KillProcess(Session, Process),
+    /// Kill the process of the session, in the environment it runs in.
+    KillProcess(EnvironmentId, Session, Process),
     RestartDaemon,
 }
 
 impl Ask {
     /// Kill the process the overview's row `entry` stands for, in
-    /// `session`; a process already gone is not asked of.
-    pub fn kill_process(session: Option<&Session>, entry: Option<&Entry>) -> Option<Self> {
+    /// `session` of `environment`; a process already gone is not asked of.
+    pub fn kill_process(
+        environment: &EnvironmentId,
+        session: Option<&Session>,
+        entry: Option<&Entry>,
+    ) -> Option<Self> {
         match entry? {
-            Entry::Process(process) if !process.zombie => {
-                Some(Self::KillProcess(session?.clone(), process.clone()))
-            }
+            Entry::Process(process) if !process.zombie => Some(Self::KillProcess(
+                environment.clone(),
+                session?.clone(),
+                process.clone(),
+            )),
             _ => None,
         }
     }
@@ -35,7 +42,7 @@ impl Ask {
                 "The agent exits where it runs. Its conversation remains in the provider's history.".into(),
                 "End",
             ),
-            Self::KillProcess(s, p) => (
+            Self::KillProcess(_, s, p) => (
                 Icon::X,
                 format!("Kill {}?", p.name),
                 format!("Send SIGKILL to PID {} in session {}? Unsaved work in this process will be lost.", p.pid, s.name),
@@ -77,18 +84,28 @@ mod tests {
             name: "node_repl".into(),
             ..Default::default()
         };
-        let ask =
-            Ask::kill_process(Some(&session), Some(&Entry::Process(process.clone()))).unwrap();
-        assert_eq!(ask, Ask::KillProcess(session.clone(), process.clone()));
+        let there = EnvironmentId::new("there");
+        let ask = Ask::kill_process(
+            &there,
+            Some(&session),
+            Some(&Entry::Process(process.clone())),
+        )
+        .unwrap();
+        assert_eq!(
+            ask,
+            Ask::KillProcess(there.clone(), session.clone(), process.clone())
+        );
         let (_, title, body, action) = ask.dialog();
         assert!(title.contains("node_repl"));
         assert!(body.contains("123"));
         assert!(body.contains("work"));
         assert!(body.contains("SIGKILL"));
         assert_eq!(action, "Kill process");
-        assert!(Ask::kill_process(None, Some(&Entry::Process(process.clone()))).is_none());
-        assert!(Ask::kill_process(Some(&session), None).is_none());
+        assert!(Ask::kill_process(&there, None, Some(&Entry::Process(process.clone()))).is_none());
+        assert!(Ask::kill_process(&there, Some(&session), None).is_none());
         process.zombie = true;
-        assert!(Ask::kill_process(Some(&session), Some(&Entry::Process(process))).is_none());
+        assert!(
+            Ask::kill_process(&there, Some(&session), Some(&Entry::Process(process))).is_none()
+        );
     }
 }

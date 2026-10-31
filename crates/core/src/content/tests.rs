@@ -11,14 +11,13 @@ use crate::layout::Side;
 use crate::msg::Msg;
 use crate::scenario::Scenario;
 use crate::testing::{
-    SessionBuilder, listed, listing, patch, session, session_tab, shell, show, snapshot,
+    SessionBuilder, listed, listing, patch, session, session_tab, shell, show, shows_there,
+    snapshot, there,
 };
 use crate::tree::nav::Item;
 
 fn place(worktree: &str) -> Option<Place> {
-    Some(Place {
-        worktree: worktree.into(),
-    })
+    Some(Place::at(&here(), worktree))
 }
 
 fn active(run: &Scenario) -> Option<Tab> {
@@ -58,7 +57,7 @@ fn listed_with(sessions: impl IntoIterator<Item = SessionBuilder>) -> Scenario {
 }
 
 fn live(ids: &[&str]) -> Msg {
-    Msg::PanesLive(ids.iter().map(|id| id.to_string()).collect())
+    Msg::PanesLive(ids.iter().map(|id| (here(), id.to_string())).collect())
 }
 
 #[test]
@@ -127,6 +126,7 @@ fn the_panes_kept_are_those_of_what_a_new_listing_lists() {
     assert_eq!(
         kept,
         [Effect::KeepPanes {
+            environment: here(),
             sessions: BTreeSet::from(["a".to_string()]),
             terminals: BTreeSet::new(),
         }]
@@ -706,7 +706,7 @@ fn opening_a_file_s_row_starts_a_neovim_on_it() {
 fn a_session_is_shown_wherever_it_runs_and_its_row_selected() {
     let run = listed_with([session("a"), session("b")])
         .send(show(session_tab("a")))
-        .send(Msg::ShowSession("b".into()));
+        .send(Msg::ShowSession(here(), "b".into()));
     assert_eq!(active(&run), Some(Tab::Session(here(), "b".into())));
     assert_eq!(run.state().content.place, place("/r/b"));
     assert_eq!(
@@ -733,7 +733,10 @@ fn a_closed_shell_gives_its_windows_up_to_another_thing_of_its_worktree() {
             place: place("/r"),
             how: None,
         })
-        .send(Msg::ShellClosed(1));
+        .send(Msg::ShellClosed {
+            environment: here(),
+            id: 1,
+        });
     assert_eq!(active(&run), Some(Tab::Session(here(), "a".into())));
     assert!(run.last_effects().contains(&Effect::Host {
         environment: here(),
@@ -916,5 +919,79 @@ fn a_file_asked_to_be_edited_shows_the_neovim_already_on_it_with_the_keys() {
         !run.last_effects()
             .iter()
             .any(|e| matches!(e, Effect::StartTerminal(_)))
+    );
+}
+
+#[test]
+fn a_new_session_or_shell_from_another_environment_s_row_starts_in_that_environment() {
+    let base = || {
+        shows_there(listed_with([session("a")]), [session("b")])
+            .send(show(session_tab("a")))
+            .send(Msg::TreeSelect(Some(Item::Session(there(), "b".into()))))
+            .send(Msg::Focus(Area::Sidebar))
+    };
+    let shell = base().send(Msg::Window(Action::ShellOpen));
+    assert_eq!(
+        shell.last_effects(),
+        [Effect::StartTerminal(TerminalAsk {
+            place: Place::at(&there(), "/r/b"),
+            runs: TerminalProgram::Shell,
+            file: None,
+            opening: Opening::Existing,
+            focus: true,
+        })]
+    );
+    let new = base().send(Msg::Window(Action::SessionNew));
+    assert!(
+        matches!(active(&new), Some(Tab::Draft { environment, worktree, .. })
+            if environment == there() && worktree == std::path::Path::new("/r/b")),
+        "{:?}",
+        active(&new)
+    );
+}
+
+#[test]
+fn a_shell_started_beside_another_environment_s_tab_starts_in_that_environment() {
+    let run = shows_there(listed_with([session("a")]), [session("b")])
+        .send(Msg::ShowSession(there(), "b".into()))
+        .send(Msg::Focus(Area::Console))
+        .send(Msg::Window(Action::NeovimOpen));
+    assert_eq!(
+        run.last_effects(),
+        [Effect::StartTerminal(TerminalAsk {
+            place: Place::at(&there(), "/r/b"),
+            runs: TerminalProgram::Neovim,
+            file: None,
+            opening: Opening::Existing,
+            focus: true,
+        })]
+    );
+}
+
+#[test]
+fn a_shell_of_another_environment_closing_is_told_to_that_environment_s_host() {
+    let run = shows_there(listed_with([session("a")]), [session("b")]).send(Msg::ShellClosed {
+        environment: there(),
+        id: 1,
+    });
+    assert!(run.last_effects().contains(&Effect::Host {
+        environment: there(),
+        request: Request::TerminalClosed { id: 1 },
+    }));
+}
+
+#[test]
+fn a_terminal_opened_in_another_environment_is_told_to_that_environment_s_host() {
+    let terminal = shell(4, "/r/b");
+    let run = shows_there(listed_with([session("a")]), [session("b")]).send(Msg::TerminalOpened {
+        environment: there(),
+        terminal: terminal.clone(),
+    });
+    assert_eq!(
+        run.last_effects(),
+        [Effect::Host {
+            environment: there(),
+            request: Request::TerminalOpened { terminal },
+        }]
     );
 }

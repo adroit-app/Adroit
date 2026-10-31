@@ -93,8 +93,8 @@ async fn redraw_woken(
                     p.exited()
                 }
             });
-            if let (Tab::Terminal(_, id), true) = (tab, gone) {
-                close_shell(app, &panes, *id);
+            if let (Tab::Terminal(environment, id), true) = (tab, gone) {
+                close_shell(app, &panes, environment, *id);
             }
         }
         let on_screen = app

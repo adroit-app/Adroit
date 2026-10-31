@@ -41,9 +41,7 @@ pub fn show(thing: Tab) -> Msg {
 pub fn show_in(thing: Tab, worktree: &str) -> Msg {
     Msg::Show {
         thing,
-        place: Some(Place {
-            worktree: worktree.into(),
-        }),
+        place: Some(Place::at(&here(), worktree)),
         how: None,
     }
 }
@@ -56,4 +54,22 @@ pub fn here() -> EnvironmentId {
 
 pub fn session_tab(id: &str) -> Tab {
     Tab::Session(here(), id.into())
+}
+
+/// An environment a test's window shows beside its own.
+pub fn there() -> EnvironmentId {
+    EnvironmentId::new("there")
+}
+
+/// The window shows `there()` too, called "There", whose host lists
+/// `sessions`.
+pub fn shows_there<S: Into<Session>>(
+    run: crate::scenario::Scenario,
+    sessions: impl IntoIterator<Item = S>,
+) -> crate::scenario::Scenario {
+    run.send(Msg::EnvironmentOpened {
+        environment: there(),
+        name: "There".into(),
+    })
+    .event_from(there(), listing(sessions))
 }
