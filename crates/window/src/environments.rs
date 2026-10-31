@@ -76,12 +76,14 @@ pub(crate) fn work_data_dir() -> Result<std::path::PathBuf, String> {
 /// What a window started in `own` changes to list what a catalog keeps.
 #[derive(Debug, Default, PartialEq)]
 pub(crate) struct Following {
-    /// The environments kept that the window has no link to yet, or a link
-    /// to where they no longer are.
+    /// The environments kept that the window has no link to yet.
     pub(crate) link: Vec<Environment>,
-    /// The environments linked that are no longer kept, are archived, or
-    /// have moved; those that moved are linked again.
+    /// The environments linked that are no longer kept, or are archived.
     pub(crate) unlink: Vec<EnvironmentId>,
+    /// The environments whose work machine their links reach at an address
+    /// it is no longer kept at, to reach where it is now; one kept on
+    /// another machine is unlinked and linked again instead.
+    pub(crate) moved: Vec<Environment>,
 }
 
 /// How the window started in `own`, linked to `linked`, each with the target
@@ -100,26 +102,40 @@ pub(crate) fn follow(
         .collect();
     let linked: Vec<(EnvironmentId, Option<Target>)> =
         linked.into_iter().filter(|(id, _)| id != own).collect();
-    let stands = |id: &EnvironmentId, target: &Option<Target>| {
-        kept.iter().any(|e| {
-            EnvironmentId::new(&e.id) == *id && target.as_ref().is_none_or(|t| *t == e.target)
-        })
+    let kept_as = |id: &EnvironmentId| {
+        kept.iter()
+            .find(|e| EnvironmentId::new(&e.id) == *id)
+            .copied()
     };
-    Following {
+    let mut following = Following {
         link: kept
             .iter()
             .filter(|e| {
                 let id = EnvironmentId::new(&e.id);
-                id != *own && !linked.iter().any(|(l, t)| *l == id && stands(l, t))
+                id != *own && !linked.iter().any(|(l, _)| *l == id)
             })
             .map(|e| (*e).clone())
             .collect(),
-        unlink: linked
-            .into_iter()
-            .filter(|(id, target)| !stands(id, target))
-            .map(|(id, _)| id)
-            .collect(),
+        ..Following::default()
+    };
+    for (id, target) in linked {
+        match (kept_as(&id), target) {
+            (None, _) => following.unlink.push(id),
+            (Some(e), Some(target)) if target != e.target => match (&target, &e.target) {
+                (Target::Native { server: was, .. }, Target::Native { server, .. })
+                    if was == server =>
+                {
+                    following.moved.push(e.clone())
+                }
+                _ => {
+                    following.unlink.push(id);
+                    following.link.push(e.clone());
+                }
+            },
+            (Some(_), _) => {}
+        }
     }
+    following
 }
 
 /// A name for the work machine at `address`: its host, without the port, or
@@ -223,13 +239,27 @@ pub(crate) fn retarget(
     change(path, environment, |kept| kept.target = target)
 }
 
-/// Call `environment` in the catalog at `path` by `name`, keeping what it is.
-pub(crate) fn rename(path: &Path, environment: &EnvironmentId, name: &str) -> Result<(), String> {
+/// Call `environment` in the catalog at `path` by `name`, keeping what it is,
+/// refusing to when the catalog changed since the `seen` revision the name
+/// was typed over.
+pub(crate) fn rename(
+    path: &Path,
+    environment: &EnvironmentId,
+    name: &str,
+    seen: u64,
+) -> Result<(), String> {
     let name = name.trim();
     if name.is_empty() {
         return Err("Give the environment a name".into());
     }
-    change(path, environment, |kept| kept.name = name.into())
+    let mut catalog = Catalog::load(path)?;
+    catalog
+        .environments
+        .iter_mut()
+        .find(|e| EnvironmentId::new(&e.id) == *environment)
+        .ok_or("The environment is no longer listed")?
+        .name = name.into();
+    catalog.save(path, seen)
 }
 
 /// Change `environment` in the catalog at `path` as `edit` does, refusing to
@@ -432,8 +462,22 @@ mod tests {
             linked(["own", "box"], &before),
             &EnvironmentId::new("own"),
         );
+        assert!(following.link.is_empty());
+        assert!(following.unlink.is_empty());
+        assert_eq!(following.moved, [after.environments[1].clone()]);
+    }
+
+    #[test]
+    fn an_environment_kept_on_another_machine_is_linked_anew() {
+        let before = catalog([machine("box", "ab", false)]);
+        let after = catalog([Environment {
+            target: Target::Local,
+            ..machine("box", "ab", false)
+        }]);
+        let following = follow(&after, linked(["box"], &before), &EnvironmentId::new("own"));
         assert_eq!(following.unlink, ids(["box"]));
-        assert_eq!(following.link, [after.environments[1].clone()]);
+        assert_eq!(following.link, after.environments);
+        assert!(following.moved.is_empty());
     }
 
     #[test]
@@ -492,14 +536,32 @@ mod tests {
         catalog([environment("there", false)])
             .save(&path, 0)
             .unwrap();
-        rename(&path, &EnvironmentId::new("there"), "  Work box ").unwrap();
-        assert!(rename(&path, &EnvironmentId::new("there"), "  ").is_err());
+        let seen = Catalog::load(&path).unwrap().revision;
+        rename(&path, &EnvironmentId::new("there"), "  Work box ", seen).unwrap();
+        let seen = Catalog::load(&path).unwrap().revision;
+        assert!(rename(&path, &EnvironmentId::new("there"), "  ", seen).is_err());
         assert_eq!(
             Catalog::load(&path).unwrap().environments,
             [Environment {
                 name: "Work box".into(),
                 ..environment("there", false)
             }]
+        );
+    }
+
+    #[test]
+    fn a_name_typed_over_a_catalog_changed_since_it_was_read_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("environments.toml");
+        catalog([environment("there", false)])
+            .save(&path, 0)
+            .unwrap();
+        let seen = Catalog::load(&path).unwrap().revision;
+        rename(&path, &EnvironmentId::new("there"), "Elsewhere", seen).unwrap();
+        assert!(rename(&path, &EnvironmentId::new("there"), "Stale", seen).is_err());
+        assert_eq!(
+            Catalog::load(&path).unwrap().environments[0].name,
+            "Elsewhere"
         );
     }
 

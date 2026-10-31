@@ -104,6 +104,13 @@ impl Link {
             sender.retry();
         }
     }
+    /// Reach the work machine at `address` from now on; nothing for a link
+    /// to this computer.
+    pub(crate) fn move_remote(&self, address: &str) {
+        if let Sending::Remote(sender) = &self.requests {
+            sender.move_to(address);
+        }
+    }
     pub(crate) fn query_remote(&self, stamp: adroit_protocol::MutationStamp) {
         if let Sending::Remote(sender) = &self.requests {
             sender.query(stamp);

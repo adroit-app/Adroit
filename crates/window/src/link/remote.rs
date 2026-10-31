@@ -97,6 +97,9 @@ impl Shared {
 pub(super) struct Sender {
     queue: mpsc::Sender<Command>,
     shared: Arc<Shared>,
+    /// The work machine as the link reaches it, none when it could not be
+    /// made.
+    remote: Option<Remote>,
 }
 
 impl Sender {
@@ -105,6 +108,14 @@ impl Sender {
     }
     pub fn retry(&self) {
         self.shared.retry.notify_one();
+    }
+    /// Reach the work machine at `address` from now on, at once. The link
+    /// stays the same one, with what it keeps for the work machine.
+    pub fn move_to(&self, address: &str) {
+        if let Some(remote) = &self.remote {
+            remote.moved_to(address);
+            self.retry();
+        }
     }
     pub fn send(&self, request: Request, waiting: &Waiting) {
         self.send_prompt(request, None, waiting);
@@ -233,6 +244,7 @@ pub(super) fn open(
         requests: Sending::Remote(Sender {
             queue,
             shared: shared.clone(),
+            remote: remote.as_ref().ok().cloned(),
         }),
         asked: Arc::default(),
         waiting: waiting.clone(),
@@ -548,6 +560,7 @@ mod tests {
         let sender = Sender {
             queue,
             shared: shared.clone(),
+            remote: None,
         };
         let waiting = Waiting::default();
         let mut keep = Keep {

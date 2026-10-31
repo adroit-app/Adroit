@@ -284,7 +284,9 @@ fn private_sockets() -> Result<tempfile::TempDir, String> {
 /// The selected work machine, paired through its gateway.
 #[derive(Debug, Clone)]
 pub struct Remote {
-    address: String,
+    /// The address the work machine is kept at; shared by every clone, so a
+    /// move tells each of them.
+    address: Arc<std::sync::Mutex<String>>,
     identity: adroit_net::Identity,
     server: adroit_net::Fingerprint,
     sockets: Arc<tempfile::TempDir>,
@@ -308,7 +310,7 @@ impl Remote {
         let identity = adroit_net::Identity::load_or_create(key).map_err(|e| e.to_string())?;
         let sockets = private_sockets()?;
         Ok(Self {
-            address: address.clone(),
+            address: Arc::new(std::sync::Mutex::new(address.clone())),
             identity,
             server,
             sockets: Arc::new(sockets),
@@ -319,16 +321,28 @@ impl Remote {
     /// The addresses to try, in order, before listening on the local network.
     fn candidates(&self) -> Vec<String> {
         let found = self.found.lock().unwrap().clone();
-        found.into_iter().chain([self.address.clone()]).collect()
+        found.into_iter().chain([self.saved()]).collect()
     }
 
     fn found_at(&self, address: &str) {
-        *self.found.lock().unwrap() = (address != self.address).then(|| address.to_string());
+        *self.found.lock().unwrap() = (address != self.saved()).then(|| address.to_string());
+    }
+
+    /// The address the work machine is kept at now.
+    fn saved(&self) -> String {
+        self.address.lock().unwrap().clone()
+    }
+
+    /// The work machine is kept at `address` now, which every clone tries
+    /// from the next connection on; where it was found before is forgotten.
+    pub fn moved_to(&self, address: &str) {
+        *self.address.lock().unwrap() = address.to_string();
+        *self.found.lock().unwrap() = None;
     }
 
     /// How the work machine is named to the user.
     pub fn name(&self) -> String {
-        self.address.clone()
+        self.saved()
     }
 
     pub fn work_socket(&self) -> PathBuf {
@@ -394,16 +408,15 @@ impl Remote {
     }
 
     fn explain(&self, error: adroit_net::Error) -> String {
+        let address = self.saved();
         match error {
             adroit_net::Error::NotPaired => format!(
-                "the work machine at {} refused this client's key: it no longer knows this computer. Pair again from Environments, choosing Pair a work machine…, or with adroit connect pair",
-                self.address
+                "the work machine at {address} refused this client's key: it no longer knows this computer. Pair again from the environment's heading in the tree, or with adroit connect pair"
             ),
-            adroit_net::Error::OtherServer => format!(
-                "the machine at {} is not the paired work machine: its key differs",
-                self.address
-            ),
-            error => format!("cannot reach the work machine at {}: {error}", self.address),
+            adroit_net::Error::OtherServer => {
+                format!("the machine at {address} is not the paired work machine: its key differs")
+            }
+            error => format!("cannot reach the work machine at {address}: {error}"),
         }
     }
 }
@@ -551,6 +564,28 @@ mod tests {
         assert_eq!(remote.candidates(), ["10.0.0.9:47130", "192.0.2.1:47130"]);
         remote.clone().found_at("192.0.2.1:47130");
         assert_eq!(remote.candidates(), ["192.0.2.1:47130"]);
+    }
+
+    #[test]
+    fn a_machine_moved_is_tried_where_it_moved_by_every_clone_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = Target::Native {
+            address: "192.0.2.1:47130".into(),
+            server: "ab".repeat(32),
+        };
+        let remote = Remote::with_key(&target, &dir.path().join("client.key")).unwrap();
+        let kept = remote.clone();
+        remote.found_at("10.0.0.9:47130");
+        remote.moved_to("box.example.com:47130");
+        assert_eq!(kept.candidates(), ["box.example.com:47130"]);
+        assert_eq!(kept.name(), "box.example.com:47130");
+        // A connection begun before the move, reaching the old address,
+        // leaves the address moved to kept.
+        kept.found_at("192.0.2.1:47130");
+        assert_eq!(
+            remote.candidates(),
+            ["192.0.2.1:47130", "box.example.com:47130"]
+        );
     }
 
     fn discovered() -> RemoteInfo {

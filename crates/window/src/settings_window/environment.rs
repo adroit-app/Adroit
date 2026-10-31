@@ -75,7 +75,8 @@ pub(super) fn EnvironmentPane() -> Element {
                         let id = id.clone();
                         move |name: String| {
                             notice.set(None);
-                            error.set(environments::rename(&Catalog::path(), &id, &name).err());
+                            let seen = catalog.read().as_ref().map_or(0, |c| c.revision);
+                            error.set(environments::rename(&Catalog::path(), &id, &name, seen).err());
                             catalog.set(Catalog::load(&Catalog::path()));
                         }
                     },
@@ -203,6 +204,18 @@ pub(super) fn EnvironmentPane() -> Element {
 pub(super) fn RemovedPane() -> Element {
     let mut catalog = use_signal(|| Catalog::load(&Catalog::path()));
     let mut error = use_signal(|| None::<String>);
+    // Environments are removed from the main windows' trees while this is
+    // open, and should show up here without opening it again.
+    use_future(move || async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            let fresh = Catalog::load(&Catalog::path());
+            let revision = |c: &Result<Catalog, String>| c.as_ref().ok().map(|c| c.revision);
+            if revision(&fresh) != revision(&catalog.peek()) {
+                catalog.set(fresh);
+            }
+        }
+    });
     let removed: Vec<Environment> = catalog
         .read()
         .as_ref()

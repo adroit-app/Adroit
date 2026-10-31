@@ -165,7 +165,14 @@ impl Adding {
             Next::Move(environment) => {
                 let id = EnvironmentId::new(&environment.id);
                 match retarget(&Catalog::path(), &id, environment.target.clone()) {
-                    Ok(()) => self.go(Next::Select(environment)),
+                    Ok(()) => {
+                        // The window's own environment is not followed from
+                        // the catalog, so its link is told here.
+                        if let Target::Native { address, .. } = &environment.target {
+                            self.app.move_remote(&id, address);
+                        }
+                        self.go(Next::Select(environment))
+                    }
                     Err(why) => self.error.set(Some(why)),
                 }
             }

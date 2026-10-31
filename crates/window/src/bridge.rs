@@ -140,8 +140,8 @@ pub(crate) struct AppCtx {
     /// The environments kept whose routes could not be opened, told once
     /// each while they stay kept.
     unopened: CopyValue<BTreeSet<EnvironmentId>>,
-    /// Where each link the window opened beside its own reaches, so an
-    /// environment moved to another address is linked again there.
+    /// Where each link the window opened beside its own reaches, so one
+    /// whose environment is kept elsewhere since is pointed there.
     targets: CopyValue<BTreeMap<EnvironmentId, Target>>,
     /// The work machine, by its address and name, to pair with again when
     /// the sheet adding an environment opens.
@@ -273,8 +273,9 @@ impl AppCtx {
         as_from(self.scope, || {
             spawn(async move {
                 while let Some(event) = events.recv().await {
-                    // A link dropped, or replaced by one to where the
-                    // environment moved, may still tell what it was telling.
+                    // A link dropped, or replaced by one to the machine the
+                    // environment is kept on now, may still tell what it was
+                    // telling.
                     let current = link.upgrade().is_some_and(|link| {
                         app.links
                             .peek()
@@ -306,9 +307,10 @@ impl AppCtx {
     }
 
     /// List every environment the catalog keeps, and only those: one added
-    /// is linked, one archived or deleted is closed, one moved to another
-    /// address is closed and linked there, and one renamed is called by its
-    /// new name. A catalog that cannot be read changes nothing.
+    /// is linked, one archived or deleted is closed, one whose work machine
+    /// moved to another address has its link reach it there, and one renamed
+    /// is called by its new name. A catalog that cannot be read changes
+    /// nothing.
     fn follow_catalog(&self) {
         let Ok(catalog) = Catalog::load(&Catalog::path()) else {
             return;
@@ -333,6 +335,15 @@ impl AppCtx {
         }
         for environment in &following.link {
             self.link_environment(environment);
+        }
+        for environment in &following.moved {
+            let Target::Native { address, .. } = &environment.target else {
+                continue;
+            };
+            let id = EnvironmentId::new(&environment.id);
+            self.move_remote(&id, address);
+            let mut targets = self.targets;
+            targets.write().insert(id, environment.target.clone());
         }
         for environment in catalog.environments.iter().filter(|e| !e.archived) {
             let id = EnvironmentId::new(&environment.id);
@@ -435,6 +446,15 @@ impl AppCtx {
 
     pub(crate) fn retry_remote(&self, environment: &EnvironmentId) {
         self.link_of(environment).retry_remote();
+    }
+    /// Reach `environment`'s work machine at `address` from now on, the
+    /// window's own environment's too; one not linked yet is linked there
+    /// when the window follows the catalog.
+    pub(crate) fn move_remote(&self, environment: &EnvironmentId, address: &str) {
+        let link = self.links.peek().get(environment).cloned();
+        if let Some(link) = link {
+            link.move_remote(address);
+        }
     }
     /// Open the sheet adding an environment on pairing again with the work
     /// machine at `address`, called `name`.
@@ -724,7 +744,11 @@ impl AppCtx {
                 links.write().remove(&environment);
             }
             Effect::RenameEnvironment { environment, name } => {
-                match crate::environments::rename(&Catalog::path(), &environment, &name) {
+                // The heading was named as the catalog the window follows
+                // every half second keeps it, so its revision is the one
+                // the name was typed over.
+                let seen = Catalog::load(&Catalog::path()).map_or(0, |c| c.revision);
+                match crate::environments::rename(&Catalog::path(), &environment, &name, seen) {
                     Ok(()) => self.follow_catalog(),
                     Err(e) => self.status(Some(format!("cannot rename the environment: {e}"))),
                 }
