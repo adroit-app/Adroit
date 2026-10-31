@@ -14,7 +14,7 @@ use crate::components::{SettingGroup, SettingRow, SettingsError, Toggle};
 const LOOK_AGAIN: Duration = Duration::from_secs(1);
 
 /// The start of a fingerprint, as the CLI shows it.
-fn short(fingerprint: &str) -> &str {
+pub(crate) fn short(fingerprint: &str) -> &str {
     fingerprint.get(..16).unwrap_or(fingerprint)
 }
 

@@ -3,13 +3,20 @@
 //! the heading is selected. The work shown may be stale while a link is
 //! down, so how it stands stays in sight.
 
+use std::time::Instant;
+
 use adroit_connect::Target;
 use adroit_connect::environments::Catalog;
+use adroit_core::config::Config;
+use adroit_core::details::{ProfileRow, profile_rows};
 use adroit_core::host::Link;
 use adroit_model::EnvironmentId;
+use adroit_model::time::now_ms;
 use dioxus::prelude::*;
 
 use crate::bridge::AppCtx;
+use crate::components::{LinkButton, Spacer};
+use crate::details::Gauges;
 use crate::icons::{Icon, IconView};
 use crate::link::{RemotePhase, RemoteStatus};
 
@@ -216,6 +223,13 @@ pub(crate) fn EnvironmentCard(environment: EnvironmentId) -> Element {
     let now = *app.clock.read();
     let retry = environment.clone();
     let pair = environment.clone();
+    let configure = environment.clone();
+    let machine = {
+        let environment = environment.clone();
+        use_memo(use_reactive((&environment,), |(environment,)| {
+            work_machine(&environment)
+        }))
+    };
     let last_work = remote
         .as_ref()
         .and_then(|r| r.last_work_ms)
@@ -257,7 +271,7 @@ pub(crate) fn EnvironmentCard(environment: EnvironmentId) -> Element {
                                 class: "button",
                                 title: "Pair with this work machine again, as when it no longer accepts this computer",
                                 onclick: move |_| match work_machine(&pair) {
-                                    Some(address) => app.pair_again(address, app.environment_name(&pair)),
+                                    Some(machine) => app.pair_again(machine.address, app.environment_name(&pair)),
                                     None => app.notice("this environment's work machine is no longer listed".into()),
                                 },
                                 "Pair again"
@@ -272,8 +286,17 @@ pub(crate) fn EnvironmentCard(environment: EnvironmentId) -> Element {
                         span { class: "details-facts-key", "Last work" }
                         span { class: "details-facts-value", "{last_work}" }
                     }
+                    if let Some(machine) = machine() {
+                        span { class: "details-facts-key", "Address" }
+                        span { class: "details-facts-value environment-card-mono", "{machine.address}" }
+                        span { class: "details-facts-key", "Machine key" }
+                        span { class: "details-facts-value environment-card-mono", title: "{machine.server}",
+                            "{crate::serving_pane::short(&machine.server)}"
+                        }
+                    }
                 }
             }
+            EnvironmentAgents { environment: environment.clone() }
             if !pending.is_empty() || !drafts.is_empty() {
                 div { class: "details-block",
                     span { class: "details-label", "Waiting for it" }
@@ -284,6 +307,107 @@ pub(crate) fn EnvironmentCard(environment: EnvironmentId) -> Element {
                         PendingChange { environment: environment.clone(), record: record.clone(), saved: true }
                     }
                 }
+            }
+            div { class: "details-block",
+                div { class: "environment-card-actions",
+                    button { class: "button", onclick: move |_| app.open_settings(&configure),
+                        IconView { icon: Icon::Settings, size: 13 }
+                        "Environment settings"
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The agents `environment`'s profiles start, each with how its login
+/// stands and what is left of its usage limits.
+#[component]
+fn EnvironmentAgents(environment: EnvironmentId) -> Element {
+    let app = use_context::<AppCtx>();
+    let files = {
+        let environment = environment.clone();
+        use_memo(use_reactive((&environment,), move |(environment,)| {
+            app.hosts
+                .read()
+                .work(&environment)
+                .map(|w| w.config.clone())
+                .unwrap_or_default()
+        }))
+    };
+    let settings = use_memo(move || Config::of_work(&files()).settings);
+    let mut clock = use_signal(now_ms);
+    use_future(move || async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            clock.set(now_ms());
+        }
+    });
+    let rows = {
+        let hosts = app.hosts.read();
+        let work = hosts.work(&environment);
+        let agents = work.map(|w| w.agents.clone()).unwrap_or_default();
+        let usage = work.map(|w| w.details.usage.clone()).unwrap_or_default();
+        profile_rows(&settings.read(), &agents, &usage, clock())
+    };
+    rsx! {
+        if !rows.is_empty() {
+            div { class: "details-block",
+                span { class: "details-label", "Agents" }
+                for row in rows {
+                    ProfileItem { key: "{row.id}", environment: environment.clone(), row }
+                }
+            }
+        }
+    }
+}
+
+/// One profile of an environment: its name and agent, whether it is the
+/// default, how its login stands, asked once the row shows unless known a
+/// short while, and its usage gauges with a link to its agent's usage page.
+#[component]
+fn ProfileItem(environment: EnvironmentId, row: ProfileRow) -> Element {
+    let app = use_context::<AppCtx>();
+    {
+        let (environment, profile) = (environment.clone(), row.id.clone());
+        use_effect(use_reactive(
+            (&environment, &profile),
+            move |(environment, profile)| {
+                let known = app.logins.peek().get(&environment, &profile).copied();
+                if crate::logins::stale(known.as_ref(), Instant::now()) {
+                    crate::logins::ask(app, environment, profile, None);
+                }
+            },
+        ));
+    }
+    let known = app.logins.read().get(&environment, &row.id).copied();
+    let (login, tone) = crate::logins::said(known.as_ref());
+    let agent = row.agent;
+    let url = row.usage_url.clone();
+    rsx! {
+        div { class: "environment-agent",
+            div { class: "environment-agent-head",
+                span { class: "environment-agent-name", title: "{row.id}", "{row.name}" }
+                span { class: "agent-badge", "{agent.key()}" }
+                if row.default {
+                    span { class: "environment-agent-default", "default" }
+                }
+                Spacer {}
+                span { class: "environment-login {tone}", "{login}" }
+                if let Some(url) = url {
+                    LinkButton {
+                        icon: Icon::Link,
+                        title: "Open {agent.label()} usage settings in your browser",
+                        onclick: move |ev: MouseEvent| {
+                            ev.stop_propagation();
+                            crate::bridge::open([url.clone()]);
+                        },
+                        "Web"
+                    }
+                }
+            }
+            if row.reports_usage {
+                Gauges { gauges: row.gauges }
             }
         }
     }
@@ -387,21 +511,31 @@ fn PendingChange(
     }
 }
 
-/// The address of the work machine `environment` works on, as the catalog
-/// keeps it now.
-fn work_machine(environment: &EnvironmentId) -> Option<String> {
-    address_in(&Catalog::load(&Catalog::path()).ok()?, environment)
+/// The work machine an environment works on: where it is reached, and the
+/// fingerprint of the key it proves itself by.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Machine {
+    pub(crate) address: String,
+    pub(crate) server: String,
 }
 
-/// The address of the work machine `environment` works on in `catalog`,
-/// none for one on this computer or one not kept.
-fn address_in(catalog: &Catalog, environment: &EnvironmentId) -> Option<String> {
+/// The work machine `environment` works on, as the catalog keeps it now.
+fn work_machine(environment: &EnvironmentId) -> Option<Machine> {
+    machine_in(&Catalog::load(&Catalog::path()).ok()?, environment)
+}
+
+/// The work machine `environment` works on in `catalog`, none for one on
+/// this computer or one not kept.
+fn machine_in(catalog: &Catalog, environment: &EnvironmentId) -> Option<Machine> {
     let kept = catalog
         .environments
         .iter()
         .find(|e| EnvironmentId::new(&e.id) == *environment)?;
     match &kept.target {
-        Target::Native { address, .. } => Some(address.clone()),
+        Target::Native { address, server } => Some(Machine {
+            address: address.clone(),
+            server: server.clone(),
+        }),
         Target::Local => None,
     }
 }
@@ -415,7 +549,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_an_environment_kept_on_a_work_machine_has_one_to_pair_with_again() {
+    fn only_an_environment_kept_on_a_work_machine_has_one_with_an_address_and_a_key() {
         let machine = Environment::new(
             "Box",
             Target::Native {
@@ -428,10 +562,16 @@ mod tests {
             environments: vec![machine.clone(), here.clone()],
             ..Catalog::default()
         };
-        let address = |e: &Environment| address_in(&catalog, &EnvironmentId::new(&e.id));
-        assert_eq!(address(&machine).as_deref(), Some("box.local:47130"));
-        assert_eq!(address(&here), None);
-        assert_eq!(address_in(&catalog, &EnvironmentId::new("gone")), None);
+        let kept = |e: &Environment| machine_in(&catalog, &EnvironmentId::new(&e.id));
+        assert_eq!(
+            kept(&machine),
+            Some(Machine {
+                address: "box.local:47130".into(),
+                server: "ab".repeat(32),
+            })
+        );
+        assert_eq!(kept(&here), None);
+        assert_eq!(machine_in(&catalog, &EnvironmentId::new("gone")), None);
     }
 
     fn remote(edit: impl FnOnce(&mut RemoteStatus)) -> RemoteStatus {

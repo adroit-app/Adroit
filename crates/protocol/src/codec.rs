@@ -75,6 +75,7 @@ mod tests {
                 agent: adroit_model::Agent::Codex,
                 home: Some("/w".into()),
             }),
+            agents: true,
             tree: TreeSight {
                 every_worktree: true,
                 marked: BTreeSet::from(["/w".into()]),

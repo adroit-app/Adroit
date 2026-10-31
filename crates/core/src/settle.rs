@@ -351,7 +351,12 @@ pub(crate) fn sight(state: &ViewState, environment: &EnvironmentId) -> Sight {
             ..Sight::default()
         }
     };
+    let heading = matches!(
+        &state.tree.selected,
+        Some(tree::nav::Item::Environment(e)) if e == environment
+    );
     Sight {
+        agents: heading && state.details.shown.open,
         tree: tree::sight(&state.tree, environment),
         past: state.picker.past_sight(environment),
         pick: state.picker.sight_in(environment),

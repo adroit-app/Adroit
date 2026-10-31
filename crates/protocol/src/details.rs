@@ -32,6 +32,11 @@ pub struct Sight {
     pub repository: Option<RepositorySight>,
     /// The account whose usage the panel shows.
     pub usage: Option<Account>,
+    /// Whether the details list the environment's agents, with the usage of
+    /// every login its profiles keep. Left off the wire when not, so a
+    /// sight reads the same to a host that knows nothing of it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub agents: bool,
     /// What the tree lists.
     pub tree: TreeSight,
     /// The conversations the agents kept that are listed, while they are.
@@ -273,6 +278,21 @@ mod tests {
         assert_eq!(a.notes, Some(Vec::new()));
         assert_eq!(a.links, None);
         assert_eq!(work.sessions["b"].processes, Some(Vec::new()));
+    }
+
+    #[test]
+    fn a_sight_that_lists_no_agents_reads_alike_on_either_side_of_the_field() {
+        let without = serde_json::to_value(Sight::default()).unwrap();
+        assert!(without.get("agents").is_none());
+        let older: Sight = serde_json::from_value(without).unwrap();
+        assert!(!older.agents);
+        let listing = Sight {
+            agents: true,
+            ..Sight::default()
+        };
+        let sent = serde_json::to_value(&listing).unwrap();
+        assert_eq!(sent["agents"], serde_json::Value::Bool(true));
+        assert_eq!(serde_json::from_value::<Sight>(sent).unwrap(), listing);
     }
 
     #[test]

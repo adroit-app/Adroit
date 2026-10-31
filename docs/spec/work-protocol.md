@@ -35,8 +35,8 @@ welcomes it in the version they share, or refuses it, naming the versions it
 speaks.
 
 Welcomed, the window says what it shows, again whenever that changes: the
-directories it has unfolded, the session its details describe, whether its
-picker is open, the terminals its tabs show. The host sends it the work as it shows it, whole, as a
+directories it has unfolded, the session its details describe, whether they list the
+environment's agents, whether its picker is open, the terminals its tabs show. The host sends it the work as it shows it, whole, as a
 snapshot, and from then on every change to that as a patch. Each patch is
 numbered one past the one before it, and a snapshot carries the number of
 the last change it holds, so a window applies each patch on top of the one

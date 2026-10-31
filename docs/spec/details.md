@@ -5,7 +5,13 @@ worktree it is in, on the sheets Overview, Changes, Log, Agents and Resources
 ([content](content.md)). It follows the focus from window to window and from
 tab to tab, not the tree's selection; with nothing open, it has nothing to
 describe. While an environment's heading is selected in the tree, it tells
-instead how that environment's connection stands ([tree](tree.md)). A window
+instead of that environment ([tree](tree.md)): how its connection stands,
+the address and key of its work machine, and its agents. Each agent profile
+of the environment is listed with its agent, whether it is the default,
+whether its login is logged in, as that environment's machine says, and, for
+an agent whose account has usage limits, what is left of them for that login
+with a link to the agent's usage page. A button opens Settings on that
+environment. A window
 showing an image a session's console drew is described as that session, and
 one showing a file in the worktree already described keeps the session
 described before.
@@ -109,7 +115,9 @@ limits. Shell and Neovim windows show no account limits or context utilization.
 
 The usage limits are asked of the session's agent while the details panel is
 in sight, again every few minutes, without starting a conversation or spending any of
-them. An account without such limits, or an agent that does not answer,
+them. Those of an environment's profiles are asked the same way, on that
+environment's machine, only while its heading is selected and the panel is in
+sight. An account without such limits, or an agent that does not answer,
 shows none; one that stops answering keeps showing what it last said.
 When the conversation does not record its context window, the context
 utilization is asked of the agent the same way, again as the conversation

@@ -38,29 +38,37 @@ pub(super) fn Usage(
                         }
                     }
                 }
-                for g in gauges.into_iter() {
-                    div { key: "{g.label}", class: "usage-gauge",
-                        div { class: "usage-gauge-head",
-                            span { class: "usage-gauge-label", "{g.label}" }
-                            span { class: "usage-gauge-left", "{g.left}" }
-                        }
-                        div { class: "usage-gauge-track",
-                            div {
-                                class: match g.severity {
-                                    _ if g.context => "usage-gauge-fill context",
-                                    Severity::Normal => "usage-gauge-fill",
-                                    Severity::Warning => "usage-gauge-fill warning",
-                                    Severity::Critical => "usage-gauge-fill critical",
-                                },
-                                style: "width:{g.used}%",
-                            }
-                        }
-                        span { class: "usage-gauge-note", title: "{g.note}", "{g.note}" }
-                    }
-                }
+                Gauges { gauges }
             }
         }
         MachineUsage { system }
+    }
+}
+
+/// A bar for each of `gauges`, with what is left and when it resets.
+#[component]
+pub(crate) fn Gauges(gauges: Vec<Gauge>) -> Element {
+    rsx! {
+        for g in gauges.into_iter() {
+            div { key: "{g.label}", class: "usage-gauge",
+                div { class: "usage-gauge-head",
+                    span { class: "usage-gauge-label", "{g.label}" }
+                    span { class: "usage-gauge-left", "{g.left}" }
+                }
+                div { class: "usage-gauge-track",
+                    div {
+                        class: match g.severity {
+                            _ if g.context => "usage-gauge-fill context",
+                            Severity::Normal => "usage-gauge-fill",
+                            Severity::Warning => "usage-gauge-fill warning",
+                            Severity::Critical => "usage-gauge-fill critical",
+                        },
+                        style: "width:{g.used}%",
+                    }
+                }
+                span { class: "usage-gauge-note", title: "{g.note}", "{g.note}" }
+            }
+        }
     }
 }
 

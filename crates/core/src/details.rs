@@ -15,10 +15,12 @@ use adroit_protocol::RepositoryRead;
 
 pub use adroit_model::Note;
 
+mod environment;
 mod panel;
 mod rows;
 mod system;
 
+pub use environment::*;
 pub use panel::*;
 pub use rows::*;
 pub use system::*;

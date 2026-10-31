@@ -1288,6 +1288,34 @@ mod tests {
     }
 
     #[test]
+    fn only_the_host_of_the_environment_whose_heading_is_selected_lists_its_agents() {
+        let agents = |run: &Scenario, environment: EnvironmentId| {
+            crate::settle::sight(run.state(), &environment).agents
+        };
+        let heading = |environment: EnvironmentId| {
+            let run = two_environments();
+            let run = if run.state().details.shown.open {
+                run
+            } else {
+                run.send(Msg::PanelToggle(crate::layout::Side::Details))
+            };
+            run.send(Msg::TreeSelect(Some(Item::Environment(environment))))
+        };
+        let there_heading = heading(there());
+        assert!(agents(&there_heading, there()));
+        assert!(!agents(&there_heading, here()));
+        let here_heading = heading(here());
+        assert!(agents(&here_heading, here()));
+        assert!(!agents(&here_heading, there()));
+        let within =
+            there_heading.send(Msg::TreeSelect(Some(Item::Workspace(there(), "/r".into()))));
+        assert!(!agents(&within, there()));
+        let closed = heading(there()).send(Msg::PanelToggle(crate::layout::Side::Details));
+        assert!(!closed.state().details.shown.open);
+        assert!(!agents(&closed, there()));
+    }
+
+    #[test]
     fn the_environment_at_hand_is_the_selected_row_s_or_else_the_one_shown() {
         let run = two_environments();
         assert_eq!(run.state().tree.environment_at(&here()), here());

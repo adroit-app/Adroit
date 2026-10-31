@@ -21,7 +21,9 @@ Renaming an environment keeps its identity. Choosing a different connection in
 Settings creates another environment, leaving the original alone.
 
 The agent profiles a session starts from ([settings](settings.md#profiles))
-live inside an environment; an environment is not one of them.
+live inside an environment; an environment is not one of them. The details
+of its heading list them, each with its login and the usage left on it
+([details](details.md)).
 
 ## Create and configure
 

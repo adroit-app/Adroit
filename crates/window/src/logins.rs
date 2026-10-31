@@ -100,6 +100,24 @@ pub(crate) fn without_login(agent: Agent) -> Option<&'static str> {
     }
 }
 
+/// How a login known as `known` reads, in a few words, with the tone that
+/// colours them.
+pub(crate) fn said(known: Option<&Login>) -> (&'static str, &'static str) {
+    match known {
+        None | Some(Login::Asking) => ("Checking…", ""),
+        Some(Login::LoggingIn(_)) => ("Waiting for login…", ""),
+        Some(Login::Is(standing, _)) => (
+            standing.label(),
+            match standing {
+                LoginStanding::LoggedIn => "in",
+                LoginStanding::LoggedOut => "out",
+                LoginStanding::Unknown => "",
+                LoginStanding::Missing => "missing",
+            },
+        ),
+    }
+}
+
 /// Whether a login known as `known` is to be asked of its CLI at `now`:
 /// never asked, or answered too long ago; not while it is being asked.
 pub(crate) fn stale(known: Option<&Login>, now: Instant) -> bool {
@@ -252,6 +270,36 @@ mod tests {
         assert!(stale(Some(&answered(FRESH)), now));
         assert!(!stale(Some(&Login::Asking), now));
         assert!(!stale(Some(&Login::LoggingIn(7)), now));
+    }
+
+    #[test]
+    fn a_login_reads_as_its_cli_last_said_or_as_being_checked() {
+        let now = Instant::now();
+        // (what is known, words, tone)
+        let cases = [
+            (None, "Checking…", ""),
+            (Some(Login::Asking), "Checking…", ""),
+            (Some(Login::LoggingIn(7)), "Waiting for login…", ""),
+            (
+                Some(Login::Is(LoginStanding::LoggedIn, now)),
+                "Logged in",
+                "in",
+            ),
+            (
+                Some(Login::Is(LoginStanding::LoggedOut, now)),
+                "Not logged in",
+                "out",
+            ),
+            (Some(Login::Is(LoginStanding::Unknown, now)), "Unknown", ""),
+            (
+                Some(Login::Is(LoginStanding::Missing, now)),
+                "CLI not found",
+                "missing",
+            ),
+        ];
+        for (known, words, tone) in cases {
+            assert_eq!(said(known.as_ref()), (words, tone), "{known:?}");
+        }
     }
 
     #[test]
