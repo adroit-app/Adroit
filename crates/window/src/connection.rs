@@ -347,14 +347,42 @@ fn EnvironmentAgents(environment: EnvironmentId) -> Element {
     let files = {
         let environment = environment.clone();
         use_memo(use_reactive((&environment,), move |(environment,)| {
-            app.hosts
+            let files = app
+                .hosts
                 .read()
                 .work(&environment)
                 .map(|w| w.config.clone())
-                .unwrap_or_default()
+                .unwrap_or_default();
+            (environment, files)
         }))
     };
-    let settings = use_memo(move || Config::of_work(&files()).settings);
+    // A file that no longer reads leaves the profiles last read in force on
+    // the host, as the window's own environment does; so does this list,
+    // each environment's apart, as the card shows one after another.
+    let last_read = use_hook(|| {
+        std::rc::Rc::new(std::cell::RefCell::new(std::collections::HashMap::<
+            EnvironmentId,
+            crate::settings::Settings,
+        >::new()))
+    });
+    let read = use_memo(move || {
+        let (environment, files) = files();
+        let config = Config::of_work(&files);
+        match config.settings_error {
+            None => {
+                last_read
+                    .borrow_mut()
+                    .insert(environment, config.settings.clone());
+                (config.settings, None)
+            }
+            Some(error) => {
+                let kept = last_read.borrow().get(&environment).cloned();
+                (kept.unwrap_or(config.settings), Some(error))
+            }
+        }
+    });
+    let settings = use_memo(move || read().0);
+    let unread = read().1;
     let mut clock = use_signal(now_ms);
     use_future(move || async move {
         loop {
@@ -373,6 +401,11 @@ fn EnvironmentAgents(environment: EnvironmentId) -> Element {
         if !rows.is_empty() {
             div { class: "details-block",
                 span { class: "details-label", "Agents" }
+                if let Some(error) = unread {
+                    div { class: "environment-card-problem", role: "status",
+                        "The settings cannot be read, so the profiles last read are listed: {error}"
+                    }
+                }
                 for row in rows {
                     ProfileItem { key: "{row.id}", environment: environment.clone(), row }
                 }
@@ -388,12 +421,15 @@ fn EnvironmentAgents(environment: EnvironmentId) -> Element {
 fn ProfileItem(environment: EnvironmentId, row: ProfileRow) -> Element {
     let app = use_context::<AppCtx>();
     {
+        // Asked again once the host can be reached: an ask that failed
+        // while it could not leaves the login unknown.
+        let reached = standing_of(&app, &environment).mark == Mark::Connected;
         let (environment, profile) = (environment.clone(), row.id.clone());
         use_effect(use_reactive(
-            (&environment, &profile),
-            move |(environment, profile)| {
+            (&environment, &profile, &reached),
+            move |(environment, profile, reached)| {
                 let known = app.logins.peek().get(&environment, &profile).copied();
-                if crate::logins::stale(known.as_ref(), Instant::now()) {
+                if reached && crate::logins::stale(known.as_ref(), Instant::now()) {
                     crate::logins::ask(app, environment, profile, None);
                 }
             },
