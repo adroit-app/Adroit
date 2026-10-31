@@ -84,6 +84,10 @@ pub enum Action {
     TabClose,
     EnvironmentAdd,
     EnvironmentRemove,
+    EnvironmentRename,
+    EnvironmentRetry,
+    EnvironmentPair,
+    WorkspaceRemove,
     WindowClose,
     WindowOpen,
     Refresh,
@@ -139,6 +143,8 @@ pub enum Group {
     Go,
     /// Starting something beside it.
     Start,
+    /// Reaching the work machine it works on.
+    Reach,
     /// Ending or closing it.
     End,
 }
@@ -218,7 +224,7 @@ impl ActionSpec {
 
 use Action as A;
 use ActionSpec as S;
-use Group::{End, Go, Start};
+use Group::{End, Go, Reach, Start};
 
 /// Every action, in the order the Settings window offers them.
 pub static ACTIONS: &[ActionSpec] = &[
@@ -333,6 +339,18 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::EnvironmentRemove, "environment.remove", "remove the environment selected in the tree from every window after asking, unless the window was started in it; its sessions keep running on its host ([details](environments.md))")
         .icon(Icon::SquareMinus)
         .row("Remove environment…", End),
+    S::new(A::EnvironmentRename, "environment.rename", "edit the name of the environment selected in the tree in place, on its heading; every window calls it by the name given ([details](environments.md))")
+        .icon(Icon::Pencil)
+        .row("Rename…", Go),
+    S::new(A::EnvironmentRetry, "environment.retry", "try at once to reach again the work machine of the environment selected in the tree, or else of the tab shown, while the window waits to try it ([details](environments.md))")
+        .icon(Icon::Refresh)
+        .row("Retry now", Reach),
+    S::new(A::EnvironmentPair, "environment.pair", "pair again with the work machine of the environment selected in the tree, or else of the tab shown, as when it no longer accepts this computer or answers at another address ([details](environments.md#create-and-configure))")
+        .icon(Icon::Link)
+        .row("Pair again…", Reach),
+    S::new(A::WorkspaceRemove, "workspace.remove", "take the workspace selected in the tree out of it after asking, by ending every session and terminal running there; starting anything there lists it again ([details](tree.md#workspaces-and-worktrees))")
+        .icon(Icon::SquareMinus)
+        .row("Remove from tree…", End),
     S::new(A::WindowClose, "window.close", "close the window; the instance's other windows stay open, and its sessions run on").bar("Close Window", Icon::AppWindow),
     S::new(A::WindowOpen, "window.open", "open another window of the instance ([windows](sessions.md#windows))").bar("New Window", Icon::CopyPlus),
     S::new(A::Refresh, "refresh", "read the sessions, and what git says of where they run, again now").bar("Refresh", Icon::Refresh),
@@ -559,6 +577,10 @@ mod tests {
             TabClose,
             EnvironmentAdd,
             EnvironmentRemove,
+            EnvironmentRename,
+            EnvironmentRetry,
+            EnvironmentPair,
+            WorkspaceRemove,
             WindowClose,
             WindowOpen,
             Refresh,

@@ -15,6 +15,14 @@ pub enum Ask {
     RestartDaemon(EnvironmentId),
     /// Remove the environment, by this name, from the environments kept.
     RemoveEnvironment(EnvironmentId, String),
+    /// Take the workspace, by this name, out of the tree by ending what runs
+    /// there: these sessions and the terminals by these ids.
+    RemoveWorkspace {
+        environment: EnvironmentId,
+        name: String,
+        sessions: Vec<Session>,
+        terminals: Vec<u128>,
+    },
 }
 
 impl Ask {
@@ -63,12 +71,46 @@ impl Ask {
                 "Every window stops listing it. Its sessions keep running on its host, and it can be restored from Settings.".into(),
                 "Remove",
             ),
+            Self::RemoveWorkspace {
+                name,
+                sessions,
+                terminals,
+                ..
+            } => {
+                let running = [
+                    counted(sessions.len(), "session"),
+                    counted(terminals.len(), "terminal"),
+                ]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .join(" and ");
+                (
+                    Icon::SquareMinus,
+                    format!("Remove {name} from the tree?"),
+                    format!("Ending its {running} takes it out of the tree; it is listed again once anything starts there. Conversations remain in the provider's history."),
+                    "End and remove",
+                )
+            }
         }
     }
 
     /// Whether answering yes loses what cannot be had back.
     pub fn destroys(&self) -> bool {
-        matches!(self, Self::KillProcess(..) | Self::RestartDaemon(_))
+        match self {
+            Self::KillProcess(..) | Self::RestartDaemon(_) => true,
+            Self::RemoveWorkspace { terminals, .. } => !terminals.is_empty(),
+            Self::Stop(..) | Self::RemoveEnvironment(..) => false,
+        }
+    }
+}
+
+/// `n` of `what`, said as a count; none when there are none.
+fn counted(n: usize, what: &str) -> Option<String> {
+    match n {
+        0 => None,
+        1 => Some(format!("1 {what}")),
+        n => Some(format!("{n} {what}s")),
     }
 }
 
@@ -90,6 +132,35 @@ mod tests {
         assert!(body.contains("keep running"), "{body}");
         assert_eq!(action, "Remove");
         assert!(!ask.destroys());
+    }
+
+    fn removing(sessions: Vec<Session>, terminals: Vec<u128>) -> Ask {
+        Ask::RemoveWorkspace {
+            environment: EnvironmentId::default(),
+            name: "api".into(),
+            sessions,
+            terminals,
+        }
+    }
+
+    #[test]
+    fn removing_a_workspace_names_it_and_counts_what_ends_there() {
+        let (_, title, body, action) =
+            removing(vec![Session::default(), Session::default()], vec![7]).dialog();
+        assert_eq!(title, "Remove api from the tree?");
+        assert!(
+            body.starts_with("Ending its 2 sessions and 1 terminal takes"),
+            "{body}"
+        );
+        assert_eq!(action, "End and remove");
+        let (_, _, body, _) = removing(vec![Session::default()], vec![]).dialog();
+        assert!(body.starts_with("Ending its 1 session takes"), "{body}");
+    }
+
+    #[test]
+    fn removing_a_workspace_is_asked_as_a_loss_only_when_terminals_end_with_it() {
+        assert!(!removing(vec![Session::default()], vec![]).destroys());
+        assert!(removing(vec![], vec![7]).destroys());
     }
 
     #[test]

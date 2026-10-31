@@ -1,4 +1,4 @@
-//! A session name being edited where it is shown.
+//! A session's name, or an environment's, being edited where it is shown.
 
 use adroit_model::{EnvironmentId, Session};
 
@@ -6,15 +6,20 @@ use adroit_model::{EnvironmentId, Session};
 pub enum Place {
     Sidebar,
     Tab,
+    /// An environment's heading in the tree, which names the environment
+    /// itself.
+    Heading,
 }
 
-/// A session being renamed, and the name typed for it so far.
+/// A session or an environment being renamed, and the name typed for it so
+/// far.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rename {
-    /// The environment the session runs in.
+    /// The environment the session runs in, or the one renamed.
     pub environment: EnvironmentId,
+    /// The session's id; empty for an environment.
     pub id: String,
-    /// What the session is called now.
+    /// What it is called now.
     pub was: String,
     pub text: String,
     pub place: Place,
@@ -29,6 +34,17 @@ impl Rename {
             was: session.name.clone(),
             text: session.name.clone(),
             place,
+        }
+    }
+
+    /// Start renaming `environment`, called `name` now, on its heading.
+    pub fn of_environment(environment: &EnvironmentId, name: &str) -> Self {
+        Self {
+            environment: environment.clone(),
+            id: String::new(),
+            was: name.to_string(),
+            text: name.to_string(),
+            place: Place::Heading,
         }
     }
 
@@ -70,6 +86,16 @@ mod tests {
 
     fn here() -> EnvironmentId {
         EnvironmentId::new("here")
+    }
+
+    #[test]
+    fn an_environment_is_renamed_on_its_heading_from_the_name_it_has() {
+        let mut r = Rename::of_environment(&here(), "Work box");
+        assert!(r.is_for(&here(), "", Place::Heading));
+        assert!(!r.is_for(&here(), "", Place::Sidebar));
+        assert_eq!(r.name(), None);
+        r.text = " GPU box ".into();
+        assert_eq!(r.name().as_deref(), Some("GPU box"));
     }
 
     #[test]

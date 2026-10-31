@@ -318,6 +318,11 @@ pub(crate) fn perform(
             effects
         }
         Action::SessionPick => step(state, Msg::PickerOpen),
+        // An environment holds no directory to start in: where the session
+        // works is picked in that environment.
+        Action::SessionNew if on_list && matches!(cur, Some(Item::Environment(_))) => {
+            step(state, Msg::PickerOpen)
+        }
         Action::SessionScratch => {
             let mut effects = step(state, Msg::PickerClose);
             effects.extend(step(state, Msg::Window(action)));
@@ -387,6 +392,43 @@ pub(crate) fn perform(
             _ => Vec::new(),
         },
         Action::EnvironmentAdd => step(state, Msg::AddingOpen),
+        Action::EnvironmentRename => match cur.filter(|_| on_list) {
+            Some(Item::Environment(environment)) => step(
+                state,
+                Msg::RenameStart {
+                    environment,
+                    id: String::new(),
+                    place: RenamePlace::Heading,
+                },
+            ),
+            _ => Vec::new(),
+        },
+        Action::EnvironmentRetry => {
+            vec![Effect::RetryEnvironment(content::focused_environment(
+                state,
+            ))]
+        }
+        Action::EnvironmentPair => vec![Effect::PairAgain(content::focused_environment(state))],
+        Action::WorkspaceRemove => match cur.filter(|_| on_list) {
+            Some(Item::Workspace(environment, root)) => {
+                let tree = tree::listed(state.hosts.work(&environment));
+                let Some(ws) = tree.workspaces.iter().find(|ws| ws.root == root) else {
+                    return Vec::new();
+                };
+                let ask = Ask::RemoveWorkspace {
+                    name: ws.name.clone(),
+                    sessions: ws.sessions().cloned().collect(),
+                    terminals: ws
+                        .worktrees
+                        .iter()
+                        .flat_map(|w| w.terminals.iter().map(|t| t.id))
+                        .collect(),
+                    environment,
+                };
+                step(state, Msg::Confirm(Box::new(ask)))
+            }
+            _ => Vec::new(),
+        },
         Action::TreeToggle => step(state, Msg::PanelToggle(Side::Sidebar)),
         Action::DetailsToggle => step(state, Msg::PanelToggle(Side::Details)),
         Action::ZoomIn => step(state, Msg::Zoom(zoom::Step::In)),

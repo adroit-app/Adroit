@@ -1,5 +1,5 @@
 use crate::testing::here;
-use adroit_model::{Agent, Key};
+use adroit_model::{Agent, EnvironmentId, Key};
 use adroit_protocol::Request;
 
 use super::*;
@@ -645,4 +645,213 @@ fn an_environment_no_longer_kept_takes_its_daemon_s_banner_away() {
         })
         .send(Msg::EnvironmentRemoved(there()));
     assert_eq!(run.state().overlays.banner.shown(), None);
+}
+
+#[test]
+fn a_new_session_from_an_environment_s_heading_picks_where_it_works_in_that_environment() {
+    use crate::picker::Picking;
+    use crate::testing::{shows_there, there};
+
+    let run = shows_there(showing(Area::Sidebar), [session("b")])
+        .send(Msg::TreeSelect(Some(Item::Environment(there()))))
+        .send(perform(Action::SessionNew, None, Probe::default()));
+    assert!(
+        matches!(&run.state().picker.open, Some(Picking::Go(p)) if p.environment == there()),
+        "{:?}",
+        run.state().picker.open
+    );
+}
+
+/// A window opened in `here()` with its home at `/home/here`, also showing
+/// `there()`, whose host says its home is `/home/there`, the keys in the
+/// tree on the heading of `heading`.
+fn on_heading(heading: EnvironmentId, there_says_home: bool) -> Scenario {
+    use crate::testing::{shows_there, there};
+
+    let run = Scenario::new().send(Msg::Opened {
+        environment: here(),
+        home: "/home/here".into(),
+    });
+    let run = shows_there(run.event(listing()), [session("b")]);
+    let run = if there_says_home {
+        run.event_from(
+            there(),
+            snapshot()
+                .seq(2)
+                .listed(listed().session(session("b")))
+                .with(|w| {
+                    w.config.configured = Some(adroit_protocol::Configured {
+                        home: "/home/there".into(),
+                        ..Default::default()
+                    })
+                }),
+        )
+    } else {
+        run
+    };
+    run.send(Msg::TreeSelect(Some(Item::Environment(heading))))
+        .send(Msg::Focus(Area::Sidebar))
+}
+
+fn terminal_started_in(run: &Scenario) -> Option<(EnvironmentId, std::path::PathBuf)> {
+    run.last_effects().iter().find_map(|e| match e {
+        Effect::StartTerminal(ask) => {
+            Some((ask.place.environment.clone(), ask.place.worktree.clone()))
+        }
+        _ => None,
+    })
+}
+
+#[test]
+fn a_shell_from_an_environment_s_heading_starts_in_its_host_s_home() {
+    use crate::testing::there;
+
+    let run = on_heading(there(), true).send(perform(Action::ShellOpen, None, Probe::default()));
+    assert_eq!(
+        terminal_started_in(&run),
+        Some((there(), "/home/there".into()))
+    );
+    let run = on_heading(here(), false).send(perform(Action::ShellOpen, None, Probe::default()));
+    assert_eq!(
+        terminal_started_in(&run),
+        Some((here(), "/home/here".into()))
+    );
+}
+
+#[test]
+fn a_shell_from_the_heading_of_a_work_machine_that_has_not_said_its_home_starts_nowhere_else() {
+    use crate::testing::there;
+
+    let run = on_heading(there(), false).send(perform(Action::ShellOpen, None, Probe::default()));
+    assert_eq!(terminal_started_in(&run), None);
+}
+
+#[test]
+fn renaming_from_an_environment_s_heading_edits_its_name_there_and_has_the_window_keep_it() {
+    use crate::overlay::rename::{Place as RenamePlace, Rename};
+    use crate::testing::{shows_there, there};
+
+    let run = shows_there(showing(Area::Sidebar), [session("b")])
+        .send(Msg::TreeSelect(Some(Item::Environment(there()))))
+        .send(perform(Action::EnvironmentRename, None, Probe::default()));
+    assert_eq!(
+        run.state().overlays.rename,
+        Some(Rename::of_environment(&there(), "There"))
+    );
+    let done = run
+        .send(Msg::RenameText {
+            environment: there(),
+            id: String::new(),
+            place: RenamePlace::Heading,
+            text: "GPU box".into(),
+        })
+        .send(Msg::RenameEnd {
+            environment: there(),
+            id: String::new(),
+            place: RenamePlace::Heading,
+            commit: true,
+        });
+    assert_eq!(
+        done.last_effects(),
+        [Effect::RenameEnvironment {
+            environment: there(),
+            name: "GPU box".into(),
+        }]
+    );
+}
+
+#[test]
+fn retrying_and_pairing_again_go_to_the_environment_of_the_selected_heading_or_else_of_the_tab_shown()
+ {
+    use crate::testing::{shows_there, there};
+
+    let showing_there = || {
+        shows_there(showing(Area::Sidebar), [session("b")])
+            .send(Msg::ShowSession(there(), "b".into()))
+    };
+    let on_here = |run: Scenario| {
+        run.send(Msg::TreeSelect(Some(Item::Environment(here()))))
+            .send(Msg::Focus(Area::Sidebar))
+    };
+    let from_console = |run: Scenario| run.send(Msg::Focus(Area::Console));
+    let ran = |run: Scenario, action| {
+        run.send(perform(action, None, Probe::default()))
+            .last_effects()
+            .to_vec()
+    };
+    assert_eq!(
+        ran(on_here(showing_there()), Action::EnvironmentRetry),
+        [Effect::RetryEnvironment(here())]
+    );
+    assert_eq!(
+        ran(from_console(showing_there()), Action::EnvironmentRetry),
+        [Effect::RetryEnvironment(there())]
+    );
+    assert_eq!(
+        ran(on_here(showing_there()), Action::EnvironmentPair),
+        [Effect::PairAgain(here())]
+    );
+    assert_eq!(
+        ran(from_console(showing_there()), Action::EnvironmentPair),
+        [Effect::PairAgain(there())]
+    );
+}
+
+/// The workspace row of the repository the session `a` and the shell 7 run
+/// in.
+fn workspace_row(run: &Scenario) -> Item {
+    let tree = tree::listed(run.state().hosts.work(&here()));
+    Item::Workspace(here(), tree.workspaces[0].root.clone())
+}
+
+#[test]
+fn removing_a_workspace_asks_first_naming_what_ends_and_then_ends_it_all() {
+    use crate::overlay::confirm::Ask;
+
+    let run = showing(Area::Sidebar);
+    let row = workspace_row(&run);
+    let asked = run.send(Msg::TreeSelect(Some(row))).send(perform(
+        Action::WorkspaceRemove,
+        None,
+        Probe::default(),
+    ));
+    let Some(Ask::RemoveWorkspace {
+        environment,
+        sessions,
+        terminals,
+        ..
+    }) = asked.state().overlays.confirm.clone()
+    else {
+        panic!("{:?}", asked.state().overlays.confirm);
+    };
+    assert_eq!(environment, here());
+    assert_eq!(
+        sessions.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+        ["a"]
+    );
+    assert_eq!(terminals, [7]);
+    assert!(asked.last_effects().is_empty());
+
+    let answered = asked.send(Msg::ConfirmAnswer(true));
+    assert!(
+        matches!(
+            answered.last_effects(),
+            [
+                Effect::Host {
+                    request: Request::Stop { session },
+                    ..
+                },
+                Effect::EndShell { id: 7, .. },
+            ] if session.id == "a"
+        ),
+        "{:?}",
+        answered.last_effects()
+    );
+}
+
+#[test]
+fn removing_a_workspace_from_anywhere_but_its_row_asks_nothing() {
+    let run = showing(Area::Console).send(perform(Action::WorkspaceRemove, None, Probe::default()));
+    assert_eq!(run.state().overlays.confirm, None);
+    assert!(run.last_effects().is_empty());
 }

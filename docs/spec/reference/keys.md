@@ -81,6 +81,10 @@ changes them ([keys](../keys.md)).
 | `tab.close` | Close Tab | close the content's tab shown and every window in it; agents and terminals keep running and remain reachable from the tree | `global`: `Mod+w` |
 | `environment.add` | Add Environment… | add an environment, on this computer or on a work machine paired then, which every window lists at once ([details](../environments.md)) |  |
 | `environment.remove` |  | remove the environment selected in the tree from every window after asking, unless the window was started in it; its sessions keep running on its host ([details](../environments.md)) |  |
+| `environment.rename` |  | edit the name of the environment selected in the tree in place, on its heading; every window calls it by the name given ([details](../environments.md)) |  |
+| `environment.retry` |  | try at once to reach again the work machine of the environment selected in the tree, or else of the tab shown, while the window waits to try it ([details](../environments.md)) |  |
+| `environment.pair` |  | pair again with the work machine of the environment selected in the tree, or else of the tab shown, as when it no longer accepts this computer or answers at another address ([details](../environments.md#create-and-configure)) |  |
+| `workspace.remove` |  | take the workspace selected in the tree out of it after asking, by ending every session and terminal running there; starting anything there lists it again ([details](../tree.md#workspaces-and-worktrees)) |  |
 | `window.close` | Close Window | close the window; the instance's other windows stay open, and its sessions run on | `global`: `Cmd+W` |
 | `window.open` | New Window | open another window of the instance ([windows](../sessions.md#windows)) | `global`: `Mod+n` |
 | `refresh` | Refresh | read the sessions, and what git says of where they run, again now | `global`: `Mod+r`<br>`tree`: `r` |

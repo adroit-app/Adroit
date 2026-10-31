@@ -224,6 +224,17 @@ pub enum Effect {
     /// Archive `environment` in the environments kept, which every window
     /// then stops listing.
     ArchiveEnvironment(EnvironmentId),
+    /// Call `environment` by `name` in the environments kept, which every
+    /// window then calls it by.
+    RenameEnvironment {
+        environment: EnvironmentId,
+        name: String,
+    },
+    /// Try to reach the work machine of `environment` again now.
+    RetryEnvironment(EnvironmentId),
+    /// Open the sheet adding an environment on pairing again with the work
+    /// machine of `environment`.
+    PairAgain(EnvironmentId),
 
     // The overlays.
     /// Run `action` where the keys are now.

@@ -1,4 +1,4 @@
-//! Editing a session name where it is shown.
+//! Editing a session's name, or an environment's, where it is shown.
 
 use adroit_core::msg::Msg;
 use adroit_model::EnvironmentId;
@@ -33,7 +33,7 @@ pub fn SessionName(environment: EnvironmentId, id: String, name: String, place: 
             input {
                 class: "session-rename-input",
                 value: "{rename.text}",
-                aria_label: "Session name",
+                aria_label: if place == Place::Heading { "Environment name" } else { "Session name" },
                 autocomplete: "off",
                 spellcheck: "false",
                 "autocorrect": "off",

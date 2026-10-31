@@ -4,7 +4,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use adroit_model::{EnvironmentId, Key};
+use adroit_model::{EnvironmentId, Key, Session};
 use adroit_protocol::Request;
 
 use crate::actions::Action;
@@ -212,33 +212,56 @@ pub(crate) fn answer(state: &mut ViewState, yes: bool) -> Vec<Effect> {
     if !yes {
         return Vec::new();
     }
-    vec![match ask {
-        Ask::Stop(environment, session) => Effect::Host {
-            environment,
-            request: Request::Stop {
-                session: Box::new(session),
-            },
+    let stop = |environment: &EnvironmentId, session: Session| Effect::Host {
+        environment: environment.clone(),
+        request: Request::Stop {
+            session: Box::new(session),
         },
-        Ask::KillProcess(environment, session, process) => Effect::Host {
+    };
+    match ask {
+        Ask::Stop(environment, session) => vec![stop(&environment, session)],
+        Ask::KillProcess(environment, session, process) => vec![Effect::Host {
             environment,
             request: Request::Kill {
                 session: Box::new(session),
                 process,
             },
-        },
-        Ask::RestartDaemon(environment) => Effect::RestartDaemon(environment),
-        Ask::RemoveEnvironment(environment, _) => Effect::ArchiveEnvironment(environment),
-    }]
+        }],
+        Ask::RestartDaemon(environment) => vec![Effect::RestartDaemon(environment)],
+        Ask::RemoveEnvironment(environment, _) => vec![Effect::ArchiveEnvironment(environment)],
+        Ask::RemoveWorkspace {
+            environment,
+            sessions,
+            terminals,
+            ..
+        } => {
+            let ends = terminals.iter().map(|id| Effect::EndShell {
+                environment: environment.clone(),
+                id: *id,
+            });
+            sessions
+                .into_iter()
+                .map(|s| stop(&environment, s))
+                .chain(ends)
+                .collect()
+        }
+    }
 }
 
 /// Start typing a new name for the session `id` of `environment` where
-/// `place` shows it; a session waiting on an answer is answered first.
+/// `place` shows it, or for `environment` itself on its heading; a session
+/// waiting on an answer is answered first.
 pub(crate) fn start_rename(
     state: &mut ViewState,
     environment: &EnvironmentId,
     id: &str,
     place: RenamePlace,
 ) -> Vec<Effect> {
+    if place == RenamePlace::Heading {
+        let name = state.hosts.name(environment);
+        state.overlays.rename = Some(Rename::of_environment(environment, &name));
+        return Vec::new();
+    }
     match state.hosts.session(environment, id).map(|(_, s)| s) {
         Some(s) if s.state.takes_every_key() => {
             let text = format!("Answer {} first, then rename it", s.name);
@@ -283,6 +306,14 @@ pub(crate) fn end_rename(
     commit: bool,
 ) -> Vec<Effect> {
     match Rename::take(&mut state.overlays.rename, environment, id, place) {
+        Some(r) if commit && r.place == RenamePlace::Heading => r
+            .name()
+            .map(|name| Effect::RenameEnvironment {
+                environment: r.environment,
+                name,
+            })
+            .into_iter()
+            .collect(),
         Some(r) if commit => match r.name() {
             Some(name) => {
                 let tab = Tab::Session(r.environment.clone(), r.id.clone());
@@ -313,6 +344,13 @@ pub(crate) fn keep_rename(state: &mut ViewState) {
             && state.tree.rows.iter().any(
                 |item| matches!(item, Item::Session(e, id) | Item::Waiting(e, id) if *e == r.environment && *id == r.id),
             ),
+        RenamePlace::Heading => {
+            state.chrome.panels.layout.show_sidebar
+                && state
+                    .tree
+                    .rows
+                    .contains(&Item::Environment(r.environment.clone()))
+        }
         RenamePlace::Tab => state
             .content
             .windows

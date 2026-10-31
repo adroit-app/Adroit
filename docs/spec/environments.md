@@ -11,7 +11,8 @@ names the environment of the tab shown.
 
 Removing an environment from its heading, after asking, archives it and takes
 it out of every window's tree; its sessions keep running on its host. A window
-cannot remove the environment it was started in. Settings configures the
+cannot remove the environment it was started in. Renaming an environment on
+its heading changes its name in every window. Settings configures the
 environment of the selected tree row or the tab shown, including its name and
 connection.
 
@@ -36,9 +37,9 @@ machine. The environment is named after its work machine unless another name
 is typed, and the tree lists it at once. Adding a work machine that already
 has an environment selects that environment instead, and one whose environment
 was removed lists that environment again. An environment's work machine is
-paired with again from the details of its heading, such as when it no longer
-accepts this computer; pairing with a work machine at another address than its
-environment keeps moves that environment there. Pairing from the command line
+paired with again from its heading's menu or its details, such as when it no
+longer accepts this computer; pairing with a work machine at another address than its environment keeps
+moves that environment there. Pairing from the command line
 adds an environment too, which every window lists. Testing a connection, in Settings,
 does not select or create an environment. An environment can be saved before
 its work machine or agents are available.

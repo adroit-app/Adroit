@@ -10,6 +10,7 @@ use adroit_connect::environments::Catalog;
 use adroit_core::config::Config;
 use adroit_core::details::{ProfileRow, profile_rows};
 use adroit_core::host::Link;
+use adroit_core::overlay::context_menu::Reach;
 use adroit_model::EnvironmentId;
 use adroit_model::time::now_ms;
 use dioxus::prelude::*;
@@ -188,6 +189,24 @@ pub(crate) fn standing_of(app: &AppCtx, environment: &EnvironmentId) -> Standing
         .unwrap_or_default();
     let remotes = app.remotes.read();
     standing(&link, remotes.get(environment), *app.clock.read())
+}
+
+/// Where `environment` works, as its heading's menu offers to reach it.
+pub(crate) fn reach_of(app: &AppCtx, environment: &EnvironmentId) -> Reach {
+    reach(app.remotes.read().get(environment))
+}
+
+/// Where an environment whose work machine link is `remote` works, none
+/// for one on this computer: one the window waits to try again can be
+/// retried at once, as its card offers.
+pub(crate) fn reach(remote: Option<&RemoteStatus>) -> Reach {
+    match remote {
+        None => Reach::Here,
+        Some(r) => Reach::Machine {
+            retryable: r.retryable
+                && matches!(r.phase, RemotePhase::Reconnecting | RemotePhase::Error),
+        },
+    }
 }
 
 /// The dot that marks how an environment's connection stands.
@@ -520,7 +539,7 @@ pub(crate) struct Machine {
 }
 
 /// The work machine `environment` works on, as the catalog keeps it now.
-fn work_machine(environment: &EnvironmentId) -> Option<Machine> {
+pub(crate) fn work_machine(environment: &EnvironmentId) -> Option<Machine> {
     machine_in(&Catalog::load(&Catalog::path()).ok()?, environment)
 }
 
@@ -744,6 +763,33 @@ mod tests {
         assert_eq!(
             words(Some(Note::Offline { age_ms: Some(1) })),
             "Connection stopped"
+        );
+    }
+
+    #[test]
+    fn a_heading_s_menu_retries_a_work_machine_only_while_the_window_waits_to_try_it_again() {
+        assert_eq!(reach(None), Reach::Here);
+        assert_eq!(
+            reach(Some(&remote(|_| {}))),
+            Reach::Machine { retryable: false }
+        );
+        let waiting = |phase, retryable| {
+            reach(Some(&remote(|r| {
+                r.phase = phase;
+                r.retryable = retryable;
+            })))
+        };
+        assert_eq!(
+            waiting(RemotePhase::Error, true),
+            Reach::Machine { retryable: true }
+        );
+        assert_eq!(
+            waiting(RemotePhase::Reconnecting, true),
+            Reach::Machine { retryable: true }
+        );
+        assert_eq!(
+            waiting(RemotePhase::Error, false),
+            Reach::Machine { retryable: false }
         );
     }
 }

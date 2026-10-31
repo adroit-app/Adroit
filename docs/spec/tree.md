@@ -84,7 +84,10 @@ window does not keep this between runs.
 
 A session that has ended is listed no more; its agent keeps its
 conversation, which can be resumed in a new session
-([resuming](sessions.md#resuming-a-past-conversation)).
+([resuming](sessions.md#resuming-a-past-conversation)). A workspace is listed
+while anything runs in it. Removing it from the tree, from its row's menu,
+asks first and then ends every session and terminal running there; starting
+anything there lists it again.
 
 The filter at the top of the tree narrows it as it is typed into. The sessions
 waiting on you are listed again at the bottom of the tree, apart from it.
@@ -105,7 +108,11 @@ drafts and changes waiting for it, and a way to its settings. The
 sessions waiting on you are gathered from every environment, and going to the
 next waiting session reaches each of them. A session, a shell or a Neovim
 started from a row, or beside a tab, starts in the environment of that row or
-tab.
+tab. From a heading, a new session opens the picker on that environment, and a
+shell or a Neovim starts in its host's home directory, once a host on a work
+machine has said where that is. A heading's menu also opens the environment's
+settings, renames it in place, tries its work machine again at once while the
+window waits to, pairs with its work machine again, and removes it.
 
 ## Going to a session or starting one
 

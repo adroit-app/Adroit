@@ -194,7 +194,11 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
                 PlaceMark { icon: if open { Icon::ChevronDown } else { Icon::ChevronRight } }
                 connection::StandingDot { mark: standing.mark }
                 span { class: "kind-mark", IconView { icon: standing.kind.icon(), size: 14 } }
-                span { class: "list-row-name", "{app.environment_name(environment)}" }
+                span { class: "list-row-name",
+                    SessionName {
+                        environment: environment.clone(), id: String::new(), name: app.environment_name(environment), place: RenamePlace::Heading,
+                    }
+                }
                 if let Some(note) = standing.note {
                     connection::StandingPill { note }
                 }

@@ -19,6 +19,18 @@ pub enum Target {
     },
 }
 
+/// Where the environment of a menu's heading works, as far as its menu
+/// goes: the window knows how its connection stands, the rules do not.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Reach {
+    /// On this computer, with no work machine to reach.
+    #[default]
+    Here,
+    /// On a work machine; `retryable` while the window waits to try it
+    /// again.
+    Machine { retryable: bool },
+}
+
 /// `action` as a right-click menu offers it, by what its row in the table
 /// of actions calls it there.
 fn offer(action: Action) -> (Action, &'static str) {
@@ -28,11 +40,13 @@ fn offer(action: Action) -> (Action, &'static str) {
 
 /// The actions offered on `target`, each with what the menu calls it.
 /// `session` is the session the row or tab is for, when it is for one;
-/// `own` is the window's own environment, which it never removes.
+/// `own` is the window's own environment, which it never removes; `reach`
+/// says where the environment of a heading works.
 pub fn entries(
     target: &Target,
     session: Option<&Session>,
     own: &EnvironmentId,
+    reach: Reach,
 ) -> Vec<(Action, &'static str)> {
     let here = [Action::SessionNew, Action::ShellOpen, Action::NeovimOpen].map(offer);
     let ending = session.map(|_| offer(Action::SessionStop));
@@ -78,19 +92,29 @@ pub fn entries(
         Target::Row(Item::Worktree(_, _)) => {
             opens.into_iter().chain([copy_path]).chain(here).collect()
         }
-        Target::Row(Item::Workspace(_, _) | Item::File { dir: true, .. }) => {
+        Target::Row(Item::Workspace(_, _)) => [fold, copy_path]
+            .into_iter()
+            .chain(here)
+            .chain([offer(Action::WorkspaceRemove)])
+            .collect(),
+        Target::Row(Item::File { dir: true, .. }) => {
             [fold, copy_path].into_iter().chain(here).collect()
         }
         Target::Row(Item::Heading(..)) => [fold].into_iter().chain(here).collect(),
-        // An environment is no place to start anything in.
-        Target::Row(Item::Environment(environment)) if environment != own => {
-            vec![
-                fold,
-                offer(Action::SettingsOpen),
-                offer(Action::EnvironmentRemove),
-            ]
+        Target::Row(Item::Environment(environment)) => {
+            let machine = matches!(reach, Reach::Machine { .. });
+            let retry = matches!(reach, Reach::Machine { retryable: true });
+            here.into_iter()
+                .chain([
+                    offer(Action::SettingsOpen),
+                    offer(Action::EnvironmentRename),
+                    fold,
+                ])
+                .chain(retry.then(|| offer(Action::EnvironmentRetry)))
+                .chain(machine.then(|| offer(Action::EnvironmentPair)))
+                .chain((environment != own).then(|| offer(Action::EnvironmentRemove)))
+                .collect()
         }
-        Target::Row(Item::Environment(_)) => vec![fold, offer(Action::SettingsOpen)],
         Target::Tab(Tab::Session(_, _)) => [close_tab]
             .into_iter()
             .chain(rename)
@@ -113,10 +137,11 @@ pub fn groups(
     target: &Target,
     session: Option<&Session>,
     own: &EnvironmentId,
+    reach: Reach,
 ) -> Vec<Vec<(Action, &'static str)>> {
     let group = |a: &Action| a.spec().row.map_or(Group::Go, |r| r.group);
     let mut out: Vec<Vec<(Action, &'static str)>> = Vec::new();
-    for entry in entries(target, session, own) {
+    for entry in entries(target, session, own, reach) {
         match out.last_mut() {
             Some(g) if g.last().is_some_and(|(a, _)| group(a) == group(&entry.0)) => g.push(entry),
             _ => out.push(vec![entry]),
@@ -131,7 +156,7 @@ mod tests {
     use crate::testing::here;
 
     fn grouped(target: Target, s: Option<&Session>) -> Vec<Vec<Action>> {
-        groups(&target, s, &here())
+        groups(&target, s, &here(), Reach::Here)
             .into_iter()
             .map(|g| g.into_iter().map(|(a, _)| a).collect())
             .collect()
@@ -152,7 +177,7 @@ mod tests {
         ];
         for target in targets {
             for s in [None, Some(&own)] {
-                for (action, label) in entries(&target, s, &here()) {
+                for (action, label) in entries(&target, s, &here(), Reach::Here) {
                     assert!(action.icon().is_some(), "{label}");
                     assert!(action.spec().row.is_some(), "{label}");
                 }
@@ -205,7 +230,7 @@ mod tests {
     }
 
     fn actions(target: Target, s: Option<&Session>) -> Vec<Action> {
-        entries(&target, s, &here())
+        entries(&target, s, &here(), Reach::Here)
             .into_iter()
             .map(|(a, _)| a)
             .collect()
@@ -237,7 +262,12 @@ mod tests {
         let starts = [Action::SessionNew, Action::ShellOpen, Action::NeovimOpen];
         assert_eq!(
             actions(Target::Row(Item::Workspace(here(), "/api".into())), None),
-            [&[Action::CursorGo, Action::CursorCopy][..], &starts].concat()
+            [
+                &[Action::CursorGo, Action::CursorCopy][..],
+                &starts,
+                &[Action::WorkspaceRemove]
+            ]
+            .concat()
         );
         assert_eq!(
             actions(Target::Row(Item::Worktree(here(), "/api".into())), None),
@@ -315,24 +345,65 @@ mod tests {
         );
     }
 
+    fn heading_groups(environment: EnvironmentId, reach: Reach) -> Vec<Vec<Action>> {
+        groups(
+            &Target::Row(Item::Environment(environment)),
+            None,
+            &here(),
+            reach,
+        )
+        .into_iter()
+        .map(|g| g.into_iter().map(|(a, _)| a).collect())
+        .collect()
+    }
+
+    const STARTS: [Action; 3] = [Action::SessionNew, Action::ShellOpen, Action::NeovimOpen];
+    const CONFIGURES: [Action; 3] = [
+        Action::SettingsOpen,
+        Action::EnvironmentRename,
+        Action::CursorGo,
+    ];
+
     #[test]
-    fn an_environment_s_heading_offers_its_settings_and_removal_but_the_own_one_no_removal() {
+    fn an_environment_s_heading_starts_work_in_it_configures_it_and_removes_it() {
         use crate::testing::there;
 
-        let offered = |environment| {
-            entries(&Target::Row(Item::Environment(environment)), None, &here())
-                .into_iter()
-                .map(|(a, _)| a)
-                .collect::<Vec<_>>()
-        };
         assert_eq!(
-            offered(there()),
+            heading_groups(there(), Reach::Here),
             [
-                Action::CursorGo,
-                Action::SettingsOpen,
-                Action::EnvironmentRemove
+                STARTS.to_vec(),
+                CONFIGURES.to_vec(),
+                vec![Action::EnvironmentRemove],
             ]
         );
-        assert_eq!(offered(here()), [Action::CursorGo, Action::SettingsOpen]);
+    }
+
+    #[test]
+    fn the_window_s_own_environment_is_never_offered_for_removal() {
+        assert_eq!(
+            heading_groups(here(), Reach::Here),
+            [STARTS.to_vec(), CONFIGURES.to_vec()]
+        );
+    }
+
+    #[test]
+    fn a_work_machine_s_heading_pairs_again_and_retries_only_while_the_window_waits_to() {
+        use crate::testing::there;
+
+        let reaching = |retryable| heading_groups(there(), Reach::Machine { retryable })[2].clone();
+        assert_eq!(reaching(false), [Action::EnvironmentPair]);
+        assert_eq!(
+            reaching(true),
+            [Action::EnvironmentRetry, Action::EnvironmentPair]
+        );
+    }
+
+    #[test]
+    fn every_entry_of_a_heading_s_menu_shows_an_icon_and_has_a_row_in_the_table() {
+        let target = Target::Row(Item::Environment(crate::testing::there()));
+        for (action, label) in entries(&target, None, &here(), Reach::Machine { retryable: true }) {
+            assert!(action.icon().is_some(), "{label}");
+            assert!(action.spec().row.is_some(), "{label}");
+        }
     }
 }

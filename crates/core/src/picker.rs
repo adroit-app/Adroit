@@ -386,13 +386,24 @@ fn scratch_of(state: &ViewState, environment: &EnvironmentId) -> PathBuf {
 /// The home directory of `environment`'s host, as it says; the window's own
 /// while it has not said, which is the host's when both run on one computer.
 fn home_of(state: &ViewState, environment: &EnvironmentId) -> PathBuf {
+    said_home(state, environment).unwrap_or_else(|| state.picker.home.clone())
+}
+
+/// The home directory of `environment`'s host as it says, or the window's
+/// own for the window's own environment; none for another environment
+/// whose host has not said, whose home may be on another machine.
+pub(crate) fn home_in(state: &ViewState, environment: &EnvironmentId) -> Option<PathBuf> {
+    said_home(state, environment)
+        .or_else(|| (*environment == state.hosts.environment).then(|| state.picker.home.clone()))
+}
+
+fn said_home(state: &ViewState, environment: &EnvironmentId) -> Option<PathBuf> {
     state
         .hosts
         .work(environment)
         .and_then(|w| w.config.configured.as_ref())
         .map(|c| c.home.clone())
         .filter(|home| !home.as_os_str().is_empty())
-        .unwrap_or_else(|| state.picker.home.clone())
 }
 
 /// A directory of `environment` chosen: a new session's draft there, its

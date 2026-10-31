@@ -224,15 +224,17 @@ pub(crate) fn act(state: &mut ViewState, action: Action) -> Vec<Effect> {
 }
 
 /// Where something new starts: the selected row's worktree, from a side
-/// panel, or else the one in the middle.
+/// panel, or the home of the environment whose heading is selected, or else
+/// the one in the middle.
 fn place_here(state: &ViewState, on_list: bool) -> Option<Place> {
-    state
-        .tree
-        .selected
-        .as_ref()
-        .filter(|_| on_list)
-        .and_then(|c| nav::place_of(tree::listed(state.hosts.work(c.environment())), c))
-        .or_else(|| state.content.place.clone())
+    match state.tree.selected.as_ref().filter(|_| on_list) {
+        Some(Item::Environment(environment)) => {
+            crate::picker::home_in(state, environment).map(|home| Place::at(environment, home))
+        }
+        selected => selected
+            .and_then(|c| nav::place_of(tree::listed(state.hosts.work(c.environment())), c))
+            .or_else(|| state.content.place.clone()),
+    }
 }
 
 /// Open the session `id` of `environment` wherever it runs, as opening its

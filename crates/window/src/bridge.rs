@@ -723,6 +723,22 @@ impl AppCtx {
                 let mut links = self.links;
                 links.write().remove(&environment);
             }
+            Effect::RenameEnvironment { environment, name } => {
+                match crate::environments::rename(&Catalog::path(), &environment, &name) {
+                    Ok(()) => self.follow_catalog(),
+                    Err(e) => self.status(Some(format!("cannot rename the environment: {e}"))),
+                }
+            }
+            Effect::RetryEnvironment(environment) => self.retry_remote(&environment),
+            Effect::PairAgain(environment) => match crate::connection::work_machine(&environment) {
+                Some(machine) => {
+                    self.pair_again(machine.address, self.environment_name(&environment))
+                }
+                None => self.notice(
+                    "this environment works on this computer, with no work machine to pair with"
+                        .into(),
+                ),
+            },
             Effect::ArchiveEnvironment(environment) => {
                 match crate::environments::archive(&Catalog::path(), &environment) {
                     Ok(()) => self.follow_catalog(),

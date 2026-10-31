@@ -3,7 +3,7 @@
 //! daemon. They only draw: the view state holds them.
 
 use adroit_core::msg::Msg;
-use adroit_core::overlay::context_menu::{self, Target};
+use adroit_core::overlay::context_menu::{self, Reach, Target};
 use adroit_core::tree::listed;
 use dioxus::prelude::*;
 
@@ -57,6 +57,12 @@ pub(crate) fn ContextMenu() -> Element {
         }
         _ => None,
     };
+    let reach = match &target {
+        Target::Row(Item::Environment(environment)) => {
+            crate::connection::reach_of(&app, environment)
+        }
+        _ => Reach::Here,
+    };
     // The keys that work wherever the keys are come first.
     let contexts: &[Context] = match target {
         Target::Row(_) => &[Context::Global, Context::Tree],
@@ -65,7 +71,7 @@ pub(crate) fn ContextMenu() -> Element {
     };
     // Each entry with whether a separator goes above it.
     let entries: Vec<(Action, &str, Option<String>, bool)> =
-        context_menu::groups(&target, session.as_ref(), &app.environment())
+        context_menu::groups(&target, session.as_ref(), &app.environment(), reach)
             .into_iter()
             .enumerate()
             .flat_map(|(g, group)| {
