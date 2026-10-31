@@ -267,6 +267,7 @@ gives it:
 
 A profile then names the model as `ollama/qwen3:8b`, and its login is
 shown as logged in. Pi lists only the models named there, and Adroit
+neither starts the server nor fetches a model for it.
 
 ### Local models for OpenCode
 

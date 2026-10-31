@@ -87,6 +87,7 @@ Pi sessions list their conversation's links and files in the Resources sheet, an
 follow the conversation the session moves to with `/new` or `/resume`. Their
 prompt history is the prompts sent in the session's directory, as Pi keeps
 them. Renaming in Adroit renames the Pi session with `/name`, and a message
+with a leading `!` runs as a shell line in Pi.
 
 OpenCode sessions use the embedded prompt too. Adroit runs OpenCode 2.1 or
 later, the `@opencode/cli` package, and refuses to start a session of an older
