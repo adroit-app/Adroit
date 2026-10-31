@@ -82,6 +82,10 @@ pub struct Configured {
     pub themes_dir: PathBuf,
     /// The shell a shell runs when the settings name none.
     pub login_shell: String,
+    /// The host's home directory, where the picker's directory tree starts;
+    /// empty from a host that does not say.
+    #[serde(default)]
+    pub home: PathBuf,
 }
 
 impl Configured {

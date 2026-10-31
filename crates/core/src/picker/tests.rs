@@ -454,6 +454,7 @@ fn picking_from_there() -> Scenario {
             listing([session("b")]).with(|w| {
                 w.config.configured = Some(adroit_protocol::Configured {
                     scratch: "/there/scratch".into(),
+                    home: "/home/there".into(),
                     ..Default::default()
                 })
             }),
@@ -470,6 +471,20 @@ fn the_directory_tree_browses_the_environment_of_the_tab_shown() {
     let sight = |environment: &EnvironmentId| run.state().picker.sight_in(environment);
     assert_ne!(sight(&there()), Some(PickSight::default()));
     assert_eq!(sight(&here()), Some(PickSight::default()));
+}
+
+#[test]
+fn the_directory_tree_starts_in_the_home_of_the_host_it_browses() {
+    let run = picking_from_there();
+    assert_eq!(picker(&run).filer.roots(), [PathBuf::from("/home/there")]);
+    assert_eq!(picker(&run).home, PathBuf::from("/home/there"));
+}
+
+#[test]
+fn the_directory_tree_starts_in_the_window_s_home_while_the_host_has_not_said_its_own() {
+    let run = picking();
+    assert_eq!(picker(&run).filer.roots(), [PathBuf::from(HOME)]);
+    assert_eq!(picker(&run).home, PathBuf::from(HOME));
 }
 
 #[test]

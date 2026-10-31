@@ -133,8 +133,8 @@ starts in the environment its directory was chosen in. Its file tree and its
 scratch row are of the environment of the selected row or the tab shown.
 
 `Ctrl+f` turns the picker into a [file tree](#file-trees) for a directory the
-list does not offer. It shows the directories under the home directory, under
-each ghq root and under each folder the settings list, side by side, and
+list does not offer. It shows the directories under the home directory of the work machine it
+browses, under each ghq root and under each folder the settings list, side by side, and
 choosing one with the filer's open key starts a session there. `Ctrl+f` goes back to the list and
 `Escape` closes the picker.
 

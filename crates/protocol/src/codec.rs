@@ -261,6 +261,7 @@ mod tests {
                     system: ThemeKind::Light,
                     themes_dir: "/c/themes".into(),
                     login_shell: "/bin/zsh".into(),
+                    home: "/home/me".into(),
                 }),
             },
             console: ConsoleWork {

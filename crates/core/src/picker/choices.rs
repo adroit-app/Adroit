@@ -297,6 +297,8 @@ pub struct Picker {
     /// The environment the directory tree browses, and the scratch row
     /// starts in.
     pub environment: EnvironmentId,
+    /// The home directory of that environment's host, where the tree starts.
+    pub home: PathBuf,
 }
 
 impl Picker {

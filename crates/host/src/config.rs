@@ -65,6 +65,7 @@ pub fn configured(settings: &Settings, system: ThemeKind, last: Option<&Configur
         system,
         themes_dir,
         login_shell: crate::programs::login_shell(),
+        home: crate::paths::home(),
     }
 }
 

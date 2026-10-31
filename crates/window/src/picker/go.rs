@@ -112,7 +112,7 @@ pub(super) fn Go(picker: Picker) -> Element {
                                     ..FileLook::default()
                                 },
                                 open: picker.filer.is_expanded(&r),
-                                label: (r.depth == 0).then(|| short(&r.path, &home)),
+                                label: (r.depth == 0).then(|| short(&r.path, &picker.home)),
                                 selected: picker.filer.cursor() == Some(&r),
                                 onclick: {
                                     let path = r.path.clone();

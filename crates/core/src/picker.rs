@@ -197,10 +197,12 @@ pub(crate) fn open(state: &mut ViewState) -> Vec<Effect> {
         .collect();
     let environment = content::focused_environment(state);
     let work = state.hosts.work(&environment);
+    let home = home_of(state, &environment);
     let mut picker = Picker {
         running,
         environment,
-        ..Picker::new(Filer::new([state.picker.home.clone()]))
+        home: home.clone(),
+        ..Picker::new(Filer::new([home]))
     };
     enter(&mut picker, work);
     state.picker.open = Some(Picking::Go(Box::new(picker)));
@@ -379,6 +381,18 @@ fn scratch_of(state: &ViewState, environment: &EnvironmentId) -> PathBuf {
         .and_then(|w| w.config.configured.as_ref())
         .map(|c| c.scratch.clone())
         .unwrap_or_else(|| state.content.scratch().to_path_buf())
+}
+
+/// The home directory of `environment`'s host, as it says; the window's own
+/// while it has not said, which is the host's when both run on one computer.
+fn home_of(state: &ViewState, environment: &EnvironmentId) -> PathBuf {
+    state
+        .hosts
+        .work(environment)
+        .and_then(|w| w.config.configured.as_ref())
+        .map(|c| c.home.clone())
+        .filter(|home| !home.as_os_str().is_empty())
+        .unwrap_or_else(|| state.picker.home.clone())
 }
 
 /// A directory of `environment` chosen: a new session's draft there, its
