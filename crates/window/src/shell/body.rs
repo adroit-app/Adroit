@@ -13,9 +13,11 @@ use dioxus::prelude::*;
 
 use super::Ui;
 use super::panels::{self, Splitter};
+use crate::connection::EnvironmentCard;
 use crate::content::ContentPanel;
 use crate::details::{self, Entry, Sheet};
 use crate::layout::Side;
+use crate::nav::Item;
 use crate::tree::{RowContext, RowEvents, TreePanel};
 
 #[component]
@@ -120,11 +122,15 @@ pub(crate) fn Body() -> Element {
 }
 
 /// The details panel at the window's right, for what the focused window
-/// shows.
+/// shows, or for the environment whose heading is selected in the tree.
 #[component]
 fn DetailsSide(focused: bool, shown: bool) -> Element {
     let ui = use_context::<Ui>();
     let app = ui.app;
+    let heading = match &app.tree.read().selected {
+        Some(Item::Environment(environment)) => Some(environment.clone()),
+        _ => None,
+    };
     // Read, so the last input shown follows a pane started.
     let _ = (ui.local.attached)();
     let current = app.content.read().described().cloned();
@@ -174,22 +180,28 @@ fn DetailsSide(focused: bool, shown: bool) -> Element {
             hidden: !shown,
             style: "width:{width}px",
             onmousedown: move |_| app.dispatch(Msg::Focus(Area::Details)),
-            details::DetailsPanel {
-                worktree: current.as_ref().map(|p| p.worktree.clone()),
-                kind: if outside_git { details::Worktree::OutsideGit } else { details::Worktree::Repository },
-                live_input_ms,
-                agent,
-                usage_settings,
-                sheet_keys,
-                back_keys,
-                on_kill: move |(session, process): (Session, Process)| {
-                    if let Some(ask) = Ask::kill_process(&app.shown_environment(), Some(&session), Some(&Entry::Process(process))) {
-                        app.dispatch(Msg::Confirm(Box::new(ask)));
-                    }
-                },
-                on_menu: move |m: details::LinkMenu| {
-                    app.dispatch(Msg::MenuOpen { x: m.x, y: m.y, target: Target::Link { at: m.at, file: m.file } });
-                },
+            if let Some(environment) = heading {
+                div { class: "details-scroll",
+                    EnvironmentCard { environment }
+                }
+            } else {
+                details::DetailsPanel {
+                    worktree: current.as_ref().map(|p| p.worktree.clone()),
+                    kind: if outside_git { details::Worktree::OutsideGit } else { details::Worktree::Repository },
+                    live_input_ms,
+                    agent,
+                    usage_settings,
+                    sheet_keys,
+                    back_keys,
+                    on_kill: move |(session, process): (Session, Process)| {
+                        if let Some(ask) = Ask::kill_process(&app.shown_environment(), Some(&session), Some(&Entry::Process(process))) {
+                            app.dispatch(Msg::Confirm(Box::new(ask)));
+                        }
+                    },
+                    on_menu: move |m: details::LinkMenu| {
+                        app.dispatch(Msg::MenuOpen { x: m.x, y: m.y, target: Target::Link { at: m.at, file: m.file } });
+                    },
+                }
             }
         }
     }

@@ -35,9 +35,6 @@ pub struct TreeView {
     pub show_hidden: bool,
     /// Each environment's tree narrowed to what the filter holds.
     narrowed: BTreeMap<EnvironmentId, Tree>,
-    /// Whether each environment's rows sit under a heading of its own, as
-    /// they do while the window shows more than one.
-    headed: bool,
     /// The sessions waiting on the user, of every environment's whole tree.
     pub waiting: Vec<(EnvironmentId, InboxItem)>,
     /// The sessions waiting on the user that the filter keeps.
@@ -97,16 +94,22 @@ impl TreeView {
 
     /// How deep `item` sits among the rows: an environment's heading and the
     /// sessions waiting on the user at the top, an environment's rows a level
-    /// below its heading while there is one. The rows are of the narrowed
-    /// trees, where a workspace can be flat that is not in full.
+    /// below its heading. The rows are of the narrowed trees, where a
+    /// workspace can be flat that is not in full.
     pub fn depth(&self, item: &Item) -> usize {
         match item {
             Item::Environment(_) | Item::Waiting(_, _) => 0,
-            _ => {
-                let within = nav::depth(self.narrowed(item.environment()), item);
-                within + usize::from(self.headed)
-            }
+            _ => nav::depth(self.narrowed(item.environment()), item) + 1,
         }
+    }
+
+    /// How many sessions of `environment` wait on the user, whatever the
+    /// filter keeps.
+    pub fn waiting_in(&self, environment: &EnvironmentId) -> usize {
+        self.waiting
+            .iter()
+            .filter(|(e, _)| e == environment)
+            .count()
     }
 
     /// The row `item` sits under among the rows.
@@ -223,7 +226,7 @@ pub(crate) fn press(view: &mut TreeView, key: Key) -> Vec<Effect> {
 
 /// The rows built anew from the trees the host of each environment listed,
 /// when one of them, the filter or the folds changed since they were last
-/// built: each environment's under its heading while there are several, then
+/// built: each environment's under its heading, then
 /// the sessions waiting on the user in all of them. A directory's entries
 /// come from what its environment's host listed of it.
 pub(crate) fn build(view: &mut TreeView, hosts: &Hosts) {
@@ -240,7 +243,6 @@ pub(crate) fn build(view: &mut TreeView, hosts: &Hosts) {
         return;
     }
     view.built_from = Some(from);
-    view.headed = hosts.each().nth(1).is_some();
     view.narrowed.clear();
     view.waiting.clear();
     view.narrowed_waiting.clear();
@@ -253,10 +255,8 @@ pub(crate) fn build(view: &mut TreeView, hosts: &Hosts) {
         view.waiting.extend(of(facts.tree()));
         view.narrowed_waiting.extend(of(&narrowed));
         let heading = Item::Environment(environment.clone());
-        let open = !view.headed || view.folds.is_open(&heading);
-        if view.headed {
-            rows.push(heading);
-        }
+        let open = view.folds.is_open(&heading);
+        rows.push(heading);
         if open {
             let read = |dir: &Path| {
                 asked
@@ -594,9 +594,9 @@ mod tests {
     }
 
     #[test]
-    fn nothing_is_listed_before_the_host_lists_it() {
+    fn only_the_environment_s_heading_is_listed_before_its_host_lists_anything() {
         let run = Scenario::new().send(Msg::TreeFilter(String::new()));
-        assert!(rows(&run).is_empty());
+        assert_eq!(rows(&run), [Item::Environment(here())]);
         assert_eq!(
             listed(run.state().hosts.own().work.as_ref()),
             &Tree::default()
@@ -627,7 +627,7 @@ mod tests {
                 row: ws.clone(),
                 open: false,
             });
-        assert_eq!(rows(&run), std::slice::from_ref(&ws));
+        assert_eq!(rows(&run), [Item::Environment(here()), ws.clone()]);
         let unfolded = run.send(Msg::TreeFoldToggle(ws));
         assert!(rows(&unfolded).contains(&Item::Session(here(), "a".into())));
     }
@@ -1047,12 +1047,15 @@ mod tests {
     }
 
     #[test]
-    fn a_window_showing_one_environment_heads_none() {
+    fn a_window_showing_one_environment_heads_it_too() {
         let run = Scenario::new().event(listing([session("a").cwd("/r")]));
         let got = rows(&run);
-        assert!(!got.iter().any(|r| matches!(r, Item::Environment(_))));
-        assert_eq!(got.first(), Some(&Item::Workspace(here(), "/r".into())));
-        assert_eq!(run.state().tree.depth(&got[0]), 0);
+        let ws = Item::Workspace(here(), "/r".into());
+        assert_eq!(got[..2], [Item::Environment(here()), ws.clone()]);
+        let view = &run.state().tree;
+        assert_eq!(view.depth(&got[0]), 0);
+        assert_eq!(view.depth(&ws), 1);
+        assert_eq!(view.parent(&ws), Some(Item::Environment(here())));
     }
 
     #[test]
@@ -1168,6 +1171,21 @@ mod tests {
                 Item::Waiting(there(), "b".into())
             ]
         );
+    }
+
+    #[test]
+    fn the_sessions_waiting_on_the_user_are_counted_by_environment() {
+        let run = both_waiting().event_from(
+            there(),
+            patch(2).listed(testing::listed().sessions([
+                session("b").cwd("/r").waiting(Wait::Permission),
+                session("c").cwd("/r").waiting(Wait::Permission),
+            ])),
+        );
+        let view = &run.state().tree;
+        assert_eq!(view.waiting_in(&here()), 1);
+        assert_eq!(view.waiting_in(&there()), 2);
+        assert_eq!(view.waiting_in(&EnvironmentId::new("elsewhere")), 0);
     }
 
     #[test]

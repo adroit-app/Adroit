@@ -4,9 +4,11 @@ The details panel tells about what the content's focused window shows, and the
 worktree it is in, on the sheets Overview, Changes, Log, Agents and Resources
 ([content](content.md)). It follows the focus from window to window and from
 tab to tab, not the tree's selection; with nothing open, it has nothing to
-describe. A window showing an image a session's console drew is described as
-that session, and one showing a file in the worktree already described keeps
-the session described before.
+describe. While an environment's heading is selected in the tree, it tells
+instead how that environment's connection stands ([tree](tree.md)). A window
+showing an image a session's console drew is described as that session, and
+one showing a file in the worktree already described keeps the session
+described before.
 
 ## Sheets
 

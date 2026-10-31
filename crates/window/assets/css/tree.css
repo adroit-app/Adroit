@@ -36,3 +36,18 @@
 .tab-where { flex: none; padding: 0 5px; border-radius: 4px; background: var(--raised); color: var(--text-3); font-family: var(--mono); font-size: 10px; line-height: 16px; }
 .list-row.shown .tab-where { background: rgba(120,174,232,0.16); color: var(--run); }
 .sidebar-inbox .list-row-name .reads-only-mark { margin-left: 6px; vertical-align: -2px; }
+.list-row.environment { height: 30px; gap: 7px; }
+.list-row.environment:not(:first-child) { margin-top: 6px; }
+.list-row.environment .kind-mark { flex: none; display: inline-flex; color: var(--text-2); }
+.list-row.environment.dim .list-row-name { color: var(--text-2); }
+.standing-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; }
+.standing-dot.ok { background: var(--done); }
+.standing-dot.fail { background: var(--fail); }
+.standing-dot.busy { width: 9px; height: 9px; border: 1.5px solid var(--run); border-right-color: transparent; animation: spin 1.2s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .standing-dot.busy { animation: none; } }
+.standing-pill { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 18px; padding: 0 7px; border-radius: 9px; font-size: 10.5px; font-weight: 500; }
+.standing-pill.busy { background: var(--run-tint); color: var(--run); }
+.standing-pill.fail { background: var(--fail-tint); color: var(--fail); }
+.standing-pill.quiet { background: var(--raised); color: var(--text-2); }
+.standing-pill.wait { background: var(--wait-tint); color: var(--wait); }
+.waiting-count { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--wait-tint); color: var(--wait); font: 600 10.5px/18px var(--mono); text-align: center; }

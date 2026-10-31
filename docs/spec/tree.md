@@ -89,15 +89,19 @@ conversation, which can be resumed in a new session
 The filter at the top of the tree narrows it as it is typed into. The sessions
 waiting on you are listed again at the bottom of the tree, apart from it.
 
-A window showing more than one [environment](environments.md) heads each
-environment's work with a row named after it, which folds like a heading; a
-window showing one has no such row. The same directory in two environments is
-two rows. The sessions waiting on you are gathered from every environment the
-window shows, and going to the next waiting session reaches each of them.
-A session, a shell or a Neovim started from a row, or beside a tab, starts in
-the environment of that row or tab. The heading of an environment on a work
-machine says how its connection stands while it is not connected, with how old
-its work is, or while a change sent there needs you.
+The tree heads each [environment](environments.md)'s work with a row named
+after it, which folds like a heading, one for every environment the window
+shows, however many there are. The same directory in two environments is two
+rows. Each heading says how its environment's connection stands: a mark alone
+while it is connected, and in words while it is being reached, cannot be
+reached, with how old its work is, reads only, or holds a change sent there
+that needs you. A folded heading counts the sessions waiting on you inside it.
+Selecting a heading shows its connection in the details: what went wrong, a
+way to try again at once, and the drafts and changes waiting for it. The
+sessions waiting on you are gathered from every environment, and going to the
+next waiting session reaches each of them. A session, a shell or a Neovim
+started from a row, or beside a tab, starts in the environment of that row or
+tab.
 
 ## Going to a session or starting one
 

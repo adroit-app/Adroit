@@ -30,6 +30,7 @@
   --wait-tint: rgba(232,180,94,0.16);
   --wait-tint-soft: rgba(232,180,94,0.12);
   --fail-tint: rgba(235,163,170,0.10);
+  --run-tint: rgba(113,156,214,0.16);
   --kbd-text: #9b9ea2;
   --shadow: rgba(0,0,0,0.45);
 }

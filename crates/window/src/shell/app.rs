@@ -65,7 +65,6 @@ fn App() -> Element {
             KeysField {}
             SettingsFileError { config: app.config }
             Header { ontoggle: move |side| app.dispatch(Msg::PanelToggle(side)) }
-            super::remote::RemoteConnection {}
             Body {}
             DaemonBanner {}
             Footer {}

@@ -10,6 +10,7 @@ mod clipboard;
 use adroit_core::completion;
 mod complete;
 mod components;
+mod connection;
 mod console;
 mod console_read;
 mod content;

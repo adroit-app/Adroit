@@ -16,6 +16,7 @@ use crate::components::{
     AgentBadge, DraftMark, FileLook, FileRow, ListRow, PlaceMark, SessionMark, StateGlyph,
     TerminalMark, glyph, runs_of, session_mark,
 };
+use crate::connection;
 use crate::content::Tab;
 use crate::files;
 use crate::icons::{Icon, IconView};
@@ -26,7 +27,9 @@ use crate::shell::overlays::menu_opener;
 /// What a sidebar row is, told when the pointer rests on it.
 pub(crate) fn row_tip(item: &Item) -> &'static str {
     match item {
-        Item::Environment(_) => "An environment and the work in it. Enter folds it",
+        Item::Environment(_) => {
+            "An environment, how its connection stands and the work in it. Enter folds it"
+        }
         Item::Workspace(_, _) => {
             "A workspace: a git repository or a directory sessions run in. Enter folds it; n starts a session there"
         }
@@ -160,26 +163,45 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
             }
         };
     }
+    if let Item::Environment(environment) = &it {
+        let standing = connection::standing_of(&app, environment);
+        let waiting = if open {
+            0
+        } else {
+            view.waiting_in(environment)
+        };
+        let kind = if standing.mark == connection::Mark::Stopped {
+            "head environment dim"
+        } else {
+            "head environment"
+        };
+        let here = it.clone();
+        return rsx! {
+            ListRow {
+                kind,
+                selected: is_sel,
+                style: "padding-left:8px",
+                title: row_tip(&it).to_owned(),
+                onclick: move |_| on.onopen.call(here.clone()),
+                oncontextmenu: menu_opener(app, Target::Row(it.clone())),
+                PlaceMark { icon: if open { Icon::ChevronDown } else { Icon::ChevronRight } }
+                connection::StandingDot { mark: standing.mark }
+                span { class: "kind-mark", IconView { icon: standing.kind.icon(), size: 14 } }
+                span { class: "list-row-name", "{app.environment_name(environment)}" }
+                if let Some(note) = standing.note {
+                    connection::StandingPill { note }
+                }
+                if waiting > 0 {
+                    span { class: "waiting-count", title: "Sessions waiting on you", "{waiting}" }
+                }
+            }
+        };
+    }
     let mark = match &it {
         Item::Session(_, id) => nav::find(t, id).and_then(|(_, s)| session_mark(s.reads_only())),
         _ => None,
     };
     let (kind, text, meta, glyph_class) = match &it {
-        Item::Environment(environment) => {
-            let name = app.environment_name(environment);
-            // A link to a work machine that is not connected stands back,
-            // and its heading says how it stands.
-            let remotes = app.remotes.read();
-            let status = remotes.get(environment);
-            let note = status.and_then(|s| crate::shell::heading_note(s, *app.clock.read()));
-            let back = status.is_some_and(|s| s.phase != crate::link::RemotePhase::Connected);
-            (
-                if back { "head dim" } else { "head" },
-                name,
-                note.unwrap_or_default(),
-                None,
-            )
-        }
         Item::Workspace(_, root) => {
             let name = t
                 .workspace_of(root)
@@ -232,7 +254,9 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
                 .unwrap_or_default();
             ("", name, String::new(), None)
         }
-        Item::File { .. } | Item::Waiting(_, _) => ("", String::new(), String::new(), None),
+        Item::Environment(_) | Item::File { .. } | Item::Waiting(_, _) => {
+            ("", String::new(), String::new(), None)
+        }
     };
     let indent = 14 * view.depth(&it);
     // The tabs of the content that show it.
@@ -261,8 +285,8 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
         Item::Workspace(_, _) if !open => Some(Icon::Folder),
         Item::Workspace(_, _) => Some(Icon::FolderOpen),
         Item::Worktree(_, _) => Some(Icon::GitBranch),
-        Item::Environment(_) | Item::Heading(..) if open => Some(Icon::ChevronDown),
-        Item::Environment(_) | Item::Heading(..) => Some(Icon::ChevronRight),
+        Item::Heading(..) if open => Some(Icon::ChevronDown),
+        Item::Heading(..) => Some(Icon::ChevronRight),
         _ => None,
     };
     // What the console shows stands out wherever the selection is.

@@ -71,8 +71,7 @@ Each environment a window shows uses its own work machine for its work,
 filesystem and programs. The window never starts a local host to replace an
 unavailable remote one.
 The connection state remains visible, including how old the displayed work
-is during a disconnect: above the work in a window showing one environment,
-on each environment's heading in a window showing several. A connection that
+is during a disconnect, on each environment's heading. A connection that
 keeps failing is reported in the status line once, naming its environment
 while the window shows several. Reconnection preserves the terminal host's identity;
 a replacement terminal host requires opening a new connection explicitly.

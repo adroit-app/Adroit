@@ -10,12 +10,10 @@ pub(crate) mod header;
 mod local;
 pub(crate) mod overlays;
 pub(crate) mod panels;
-mod remote;
 mod socket;
 pub(crate) mod status_bar;
 mod ui;
 
 pub use app::launch;
 pub(crate) use local::Local;
-pub(crate) use remote::heading_note;
 pub(crate) use ui::Ui;
