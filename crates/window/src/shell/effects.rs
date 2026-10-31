@@ -151,8 +151,11 @@ impl Ui {
                     });
                 }
             }
+            // Kept where the prompt shown goes, so the session it is sent
+            // to can read the copy.
             Effect::KeepImage { mime, data } => {
-                let (app, kept) = (self.app, self.app.ask(Ask::KeepImage { mime, data }));
+                let app = self.app;
+                let kept = app.ask_in(&app.active_environment(), Ask::KeepImage { mime, data });
                 spawn(async move {
                     match kept.await {
                         Answer::Kept { path } => {
@@ -165,9 +168,10 @@ impl Ui {
             }
             Effect::KeepImageFiles(paths) => {
                 let app = self.app;
+                let environment = app.active_environment();
                 let asked: Vec<_> = paths
                     .into_iter()
-                    .map(|path| app.ask(Ask::KeepImageFile { path }))
+                    .map(|path| app.ask_in(&environment, Ask::KeepImageFile { path }))
                     .collect();
                 // Attached in the order dropped, whichever copy is made first.
                 spawn(async move {
@@ -192,7 +196,8 @@ impl Ui {
                 let _ = prompts.send(Op::Sent);
             }
             Effect::PromptRestore { tab, text, images } => {
-                if self.app.remote_status().is_some() {
+                let environment = self.app.hosts.peek().environment_of(tab.as_ref()).clone();
+                if self.app.remote_status_of(&environment).is_some() {
                     return;
                 }
                 let lines: Vec<String> = text.lines().map(String::from).collect();

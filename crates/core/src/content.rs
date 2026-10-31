@@ -49,22 +49,23 @@ pub struct ContentView {
     scratch: PathBuf,
     /// Where the keys are.
     spot: Spot,
-    /// The content as the window last closed, until the first listing gives
-    /// it its chance to come back.
-    restore: Option<Kept<String>>,
+    /// The content as the window last closed, until each environment's
+    /// first listing gave its tabs their chance to come back.
+    restore: Option<listing::Restore>,
     /// Whether the first listing was looked at, and so whether what is shown
     /// is kept for the next run and what starts waiting is told of.
     pub restored: bool,
-    /// The tree as last looked at, against which the next listing is.
-    looked_at: Tree,
-    /// What the listing was last looked at with.
-    looked: Option<(Seq, BTreeSet<String>)>,
-    /// The names of the sessions shown that the listing no longer lists but
-    /// that stay live here, to say they ended once they stop being live.
-    unlisted: BTreeMap<String, String>,
+    /// Each environment's tree as last looked at, against which its next
+    /// listing is.
+    looked_at: BTreeMap<EnvironmentId, Tree>,
+    /// What each environment's listing was last looked at with.
+    looked: BTreeMap<EnvironmentId, (Seq, BTreeSet<String>)>,
+    /// The names of the sessions shown that their listing no longer lists
+    /// but that stay live here, to say they ended once they stop being live.
+    unlisted: BTreeMap<(EnvironmentId, String), String>,
     /// The sessions shown live here, or being attached to: one started a
     /// moment ago may not be listed yet.
-    live: BTreeSet<String>,
+    live: BTreeSet<(EnvironmentId, String)>,
     /// What the content kept was last made to say.
     kept: Option<Kept<String>>,
     /// The tab the place last followed.
@@ -89,8 +90,8 @@ impl Default for ContentView {
             spot: Spot::SIDEBAR,
             restore: None,
             restored: false,
-            looked_at: Tree::default(),
-            looked: None,
+            looked_at: BTreeMap::new(),
+            looked: BTreeMap::new(),
             unlisted: BTreeMap::new(),
             live: BTreeSet::new(),
             kept: None,
@@ -170,6 +171,15 @@ pub fn shown_environment_of(content: &ContentView, hosts: &crate::host::Hosts) -
         (Some(tab), _) => tab.environment().clone(),
         (None, Some(place)) => place.environment.clone(),
         (None, None) => hosts.environment.clone(),
+    }
+}
+
+/// The environment the user is at: that of the row selected while the tree
+/// has the keys, or else of what the middle shows.
+pub fn focused_environment(state: &crate::state::ViewState) -> EnvironmentId {
+    match &state.tree.selected {
+        Some(row) if state.content.focus == Area::Sidebar => row.environment().clone(),
+        _ => shown_environment(state),
     }
 }
 
@@ -272,11 +282,11 @@ impl ContentView {
 /// The window opened, with the content as it last closed and where a
 /// scratch session runs.
 pub(crate) fn opened(view: &mut ContentView, kept: Kept<String>, scratch: PathBuf) -> Vec<Effect> {
-    view.restore = Some(kept);
+    view.restore = Some(listing::Restore::new(kept));
     view.scratch = scratch;
     // A host that lists the sessions already may have told them before the
     // window opened; the listing is looked at again for the content kept.
-    view.looked = None;
+    view.looked.clear();
     Vec::new()
 }
 
@@ -393,6 +403,23 @@ pub(crate) fn close_showing(
         view.windows.open(next);
     }
     view.active() != was.as_ref()
+}
+
+/// The window no longer shows `environment`: the windows showing anything
+/// of it close, and what was looked at of its listing is forgotten.
+pub(crate) fn forget_environment(view: &mut ContentView, environment: &EnvironmentId) {
+    close_showing(view, |t| t.environment() == environment, None);
+    view.looked.remove(environment);
+    view.looked_at.remove(environment);
+    view.unlisted.retain(|(e, _), _| e != environment);
+    view.live.retain(|(e, _)| e != environment);
+    if view
+        .place
+        .as_ref()
+        .is_some_and(|p| p.environment == *environment)
+    {
+        view.place = None;
+    }
 }
 
 /// The shell `id` of `environment` closed: its windows close, and another
@@ -560,7 +587,14 @@ pub(crate) fn keep_content(view: &mut ContentView) -> Vec<Effect> {
     if !view.restored || view.drag.is_some() {
         return Vec::new();
     }
-    let now = view.windows.kept(kept_name);
+    let now = match view
+        .restore
+        .as_ref()
+        .and_then(|r| r.kept_while_unchanged(&view.windows))
+    {
+        Some(kept) => kept.clone(),
+        None => view.windows.kept(kept_name),
+    };
     if view.kept.as_ref() == Some(&now) {
         return Vec::new();
     }

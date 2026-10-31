@@ -2,16 +2,19 @@
 //! by the root component and given to what carries out the view state's
 //! effects, takes the keys and draws the frame.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use adroit_core::actions::Action;
 use adroit_core::msg::Msg;
+use adroit_model::EnvironmentId;
 use adroit_term::Pane;
 use dioxus::prelude::*;
 
 use super::local::Local;
 use crate::bridge::AppCtx;
 use crate::console::{Consoles, Hub, PromptNeovim, Reader, use_prompt_neovim, use_reader};
+use crate::link::RemoteStatus;
 use crate::prompts;
 
 #[derive(Clone)]
@@ -55,13 +58,24 @@ pub(crate) fn use_ui(app: AppCtx, hub: Hub, local: Local) -> Ui {
     );
     let prompts = use_hook(|| prompts::keeper(nvim, app));
     use_future(move || async move {
+        // Whether the prompt was last frozen, so one of an environment on
+        // this computer is thawed once, not told so every time.
+        let mut frozen = false;
         loop {
-            let next = app.remote_status().map(|status| {
-                !status.writable || !*app.drafts_ready.peek() || app.prompt.peek().is_sending()
-            });
+            let environment = app.active_environment();
+            let remotes = app.remote_statuses();
+            let next = prompt_frozen(
+                &remotes,
+                &environment,
+                *app.drafts_ready.peek(),
+                app.prompt.peek().is_sending(),
+            );
             let nv = nvim.peek().clone();
-            if let (Some(next), Some(nv)) = (next, nv) {
+            if let Some(nv) = nv
+                && (remotes.contains_key(&environment) || next != frozen)
+            {
                 let _ = nv.freeze_prompt(next).await;
+                frozen = next;
             }
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
@@ -129,10 +143,56 @@ pub(crate) fn use_ui(app: AppCtx, hub: Hub, local: Local) -> Ui {
     ui
 }
 
+/// Whether the prompt is frozen while it shows a tab of `environment`, as
+/// `remotes` tell how the window stands with each environment on a work
+/// machine: one on this computer is never, and one on a work machine is
+/// while it may not be written to, what is written is not read back yet, or
+/// a prompt is on its way.
+fn prompt_frozen(
+    remotes: &BTreeMap<EnvironmentId, RemoteStatus>,
+    environment: &EnvironmentId,
+    drafts_ready: bool,
+    sending: bool,
+) -> bool {
+    remotes
+        .get(environment)
+        .is_some_and(|status| !status.writable || !drafts_ready || sending)
+}
+
 impl Ui {
     /// The pane of what the focused window shows, if it has one.
     pub(crate) fn active_pane(&self) -> Option<Arc<Pane>> {
         let tab = self.app.active()?;
         self.hub.panes.borrow().get(&tab).cloned()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_prompt_freezes_as_the_link_of_the_environment_of_the_tab_it_shows_stands() {
+        let (here, there) = (EnvironmentId::unbound(), EnvironmentId::new("there"));
+        let mut read_only = RemoteStatus::connected("box");
+        read_only.writable = false;
+        let remotes = BTreeMap::from([(there.clone(), read_only)]);
+        // (environment shown, drafts ready, sending, frozen)
+        let cases = [
+            (&here, true, false, false),
+            (&here, false, true, false),
+            (&there, true, false, true),
+        ];
+        for (environment, ready, sending, frozen) in cases {
+            assert_eq!(
+                prompt_frozen(&remotes, environment, ready, sending),
+                frozen,
+                "{environment} {ready} {sending}"
+            );
+        }
+        let writable = BTreeMap::from([(there.clone(), RemoteStatus::connected("box"))]);
+        assert!(!prompt_frozen(&writable, &there, true, false));
+        assert!(prompt_frozen(&writable, &there, false, false));
+        assert!(prompt_frozen(&writable, &there, true, true));
     }
 }

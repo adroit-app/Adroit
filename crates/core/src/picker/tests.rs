@@ -431,3 +431,57 @@ fn a_session_chosen_from_another_environment_is_shown_from_there() {
         Some(Tab::Session(there(), "b".into()))
     );
 }
+
+/// A window with `a` running in its own environment and `b`, in a scratch
+/// directory of its own, in `there()`, showing `b`, the picker opened.
+fn picking_from_there() -> Scenario {
+    let run = Scenario::new()
+        .send(Msg::Opened {
+            environment: here(),
+            home: HOME.into(),
+        })
+        .event(listing([session("a")]))
+        .send(Msg::ContentOpened {
+            kept: Default::default(),
+            scratch: "/scratch".into(),
+        })
+        .send(Msg::EnvironmentOpened {
+            environment: there(),
+            name: "There".into(),
+        })
+        .event_from(
+            there(),
+            listing([session("b")]).with(|w| {
+                w.config.configured = Some(adroit_protocol::Configured {
+                    scratch: "/there/scratch".into(),
+                    ..Default::default()
+                })
+            }),
+        )
+        .send(Msg::ShowSession(there(), "b".into()))
+        .send(Msg::Focus(Area::Console));
+    run.send(Msg::PickerOpen)
+}
+
+#[test]
+fn the_directory_tree_browses_the_environment_of_the_tab_shown() {
+    let run = picking_from_there();
+    assert_eq!(picker(&run).environment, there());
+    let sight = |environment: &EnvironmentId| run.state().picker.sight_in(environment);
+    assert_ne!(sight(&there()), Some(PickSight::default()));
+    assert_eq!(sight(&here()), Some(PickSight::default()));
+}
+
+#[test]
+fn the_scratch_row_starts_a_draft_in_the_scratch_directory_of_the_tree_s_environment() {
+    let run = picking_from_there().send(Msg::PickerChoose(0));
+    assert!(
+        matches!(
+            &run.state().content.showing().tab,
+            Some(Tab::Draft { environment, worktree, .. })
+                if *environment == there() && worktree == &PathBuf::from("/there/scratch")
+        ),
+        "{:?}",
+        run.state().content.showing().tab
+    );
+}

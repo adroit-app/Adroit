@@ -75,14 +75,14 @@ async fn redraw_woken(
             woke.push(t);
         }
         for tab in &woke {
-            if let Tab::Session(_, id) = tab {
+            if let Tab::Session(environment, id) = tab {
                 let drawn = panes
                     .borrow()
                     .get(tab)
                     .map(|p| p.take_drawn())
                     .unwrap_or_default();
                 if !drawn.is_empty() {
-                    keep_drawn(local.gallery, id.clone(), drawn);
+                    keep_drawn(local.gallery, environment.clone(), id.clone(), drawn);
                 }
             }
             let remote = app.remote_status_of(tab.environment()).is_some();

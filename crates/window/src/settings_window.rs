@@ -2,10 +2,11 @@
 //! changed, with the key bindings beside them.
 
 use std::cell::RefCell;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
 
 use adroit_core::agent_pages::{self, AgentPage};
+use adroit_model::EnvironmentId;
 use adroit_model::config::{Launch, format_command, format_env, parse_command, parse_env};
 use adroit_model::paths::tilde;
 use adroit_protocol::{AgentsWork, Ask};
@@ -38,16 +39,34 @@ pub(crate) use neovim::use_asks;
 
 thread_local! {
     static OPEN: RefCell<Weak<DesktopService>> = const { RefCell::new(Weak::new()) };
+    /// The environment the Settings window open edits the work settings of.
+    static EDITING: RefCell<Option<EnvironmentId>> = const { RefCell::new(None) };
 }
 
-/// Bring the Settings window forward, opening it when it is not open; what
-/// it saves is asked of the work host through `link`.
-pub(crate) fn open(agents: AgentsWork, link: Link) {
+/// The environment whose work settings the Settings window edits.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Edited {
+    pub(crate) environment: EnvironmentId,
+    /// What it is called, which the window is titled by.
+    pub(crate) name: String,
+    /// Where its work keeps its data on this computer.
+    pub(crate) data_dir: Result<PathBuf, String>,
+}
+
+/// Bring the Settings window forward on `edited`'s work settings, opening it
+/// when it is not open, or opening it again when it is open on another
+/// environment's; what it saves is asked of that environment's work host
+/// through `link`.
+pub(crate) fn open(agents: AgentsWork, link: Link, edited: Edited) {
     if let Some(w) = OPEN.with(|o| o.borrow().upgrade()) {
-        w.window.set_visible(true);
-        w.window.set_focus();
-        return;
+        if EDITING.with(|e| e.borrow().as_ref() == Some(&edited.environment)) {
+            w.window.set_visible(true);
+            w.window.set_focus();
+            return;
+        }
+        w.close();
     }
+    EDITING.with(|e| *e.borrow_mut() = Some(edited.environment.clone()));
     let cfg = Desktop::new()
         .with_menu(None)
         .with_close_behaviour(WindowCloseBehaviour::WindowCloses)
@@ -55,14 +74,15 @@ pub(crate) fn open(agents: AgentsWork, link: Link) {
         .with_custom_head(format!("<style>{SETTINGS_CSS}</style>"))
         .with_window(
             WindowBuilder::new()
-                .with_title(format!("Settings · {}", crate::environments::active_name()))
+                .with_title(format!("Settings · {}", edited.name))
                 .with_maximizable(false)
                 .with_inner_size(LogicalSize::new(820.0, 580.0))
                 .with_min_inner_size(LogicalSize::new(640.0, 420.0)),
         );
     let _ = window().new_window(
         VirtualDom::new_with_props(SettingsWindow, SettingsWindowProps { agents })
-            .with_root_context(link),
+            .with_root_context(link)
+            .with_root_context(edited),
         cfg,
     );
 }
@@ -185,6 +205,7 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
     });
     let config = use_config();
     let link = use_context::<Link>();
+    let edited = use_context::<Edited>();
     let pane = use_signal(|| Pane::General);
     let mut remote = use_signal(|| link.remote_status());
     use_future({
@@ -264,7 +285,7 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
         style { "{root_style}" }
         div { class: "settings",
             nav { class: "settings-nav",
-                p { class: "settings-nav-heading", "{crate::environments::active_name()}" }
+                p { class: "settings-nav-heading", "{edited.name}" }
                 for p in Pane::ALL {
                     div { key: "{p.title()}",
                         if p == Pane::Window { p { class: "settings-nav-heading", "This computer · all environments" } }

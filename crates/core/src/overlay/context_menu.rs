@@ -1,7 +1,7 @@
 //! What a right click on a sidebar row, a tab or a link of the details
 //! panel's overview offers: the actions its keys would run there.
 
-use adroit_model::Session;
+use adroit_model::{EnvironmentId, Session};
 
 use crate::actions::{Action, Group};
 use crate::content::Tab;
@@ -27,8 +27,13 @@ fn offer(action: Action) -> (Action, &'static str) {
 }
 
 /// The actions offered on `target`, each with what the menu calls it.
-/// `session` is the session the row or tab is for, when it is for one.
-pub fn entries(target: &Target, session: Option<&Session>) -> Vec<(Action, &'static str)> {
+/// `session` is the session the row or tab is for, when it is for one;
+/// `own` is the window's own environment, which it never stops showing.
+pub fn entries(
+    target: &Target,
+    session: Option<&Session>,
+    own: &EnvironmentId,
+) -> Vec<(Action, &'static str)> {
     let here = [Action::SessionNew, Action::ShellOpen, Action::NeovimOpen].map(offer);
     let ending = session.map(|_| offer(Action::SessionStop));
     let rename = session.map(|_| offer(Action::SessionRename));
@@ -78,6 +83,9 @@ pub fn entries(target: &Target, session: Option<&Session>) -> Vec<(Action, &'sta
         }
         Target::Row(Item::Heading(..)) => [fold].into_iter().chain(here).collect(),
         // An environment is no place to start anything in.
+        Target::Row(Item::Environment(environment)) if environment != own => {
+            vec![fold, offer(Action::EnvironmentClose)]
+        }
         Target::Row(Item::Environment(_)) => vec![fold],
         Target::Tab(Tab::Session(_, _)) => [close_tab]
             .into_iter()
@@ -97,10 +105,14 @@ pub fn entries(target: &Target, session: Option<&Session>) -> Vec<(Action, &'sta
 
 /// [`entries`] in the groups the menu draws apart, each entry in the group
 /// its row in the table of actions puts it in.
-pub fn groups(target: &Target, session: Option<&Session>) -> Vec<Vec<(Action, &'static str)>> {
+pub fn groups(
+    target: &Target,
+    session: Option<&Session>,
+    own: &EnvironmentId,
+) -> Vec<Vec<(Action, &'static str)>> {
     let group = |a: &Action| a.spec().row.map_or(Group::Go, |r| r.group);
     let mut out: Vec<Vec<(Action, &'static str)>> = Vec::new();
-    for entry in entries(target, session) {
+    for entry in entries(target, session, own) {
         match out.last_mut() {
             Some(g) if g.last().is_some_and(|(a, _)| group(a) == group(&entry.0)) => g.push(entry),
             _ => out.push(vec![entry]),
@@ -115,7 +127,7 @@ mod tests {
     use crate::testing::here;
 
     fn grouped(target: Target, s: Option<&Session>) -> Vec<Vec<Action>> {
-        groups(&target, s)
+        groups(&target, s, &here())
             .into_iter()
             .map(|g| g.into_iter().map(|(a, _)| a).collect())
             .collect()
@@ -136,7 +148,7 @@ mod tests {
         ];
         for target in targets {
             for s in [None, Some(&own)] {
-                for (action, label) in entries(&target, s) {
+                for (action, label) in entries(&target, s, &here()) {
                     assert!(action.icon().is_some(), "{label}");
                     assert!(action.spec().row.is_some(), "{label}");
                 }
@@ -189,7 +201,10 @@ mod tests {
     }
 
     fn actions(target: Target, s: Option<&Session>) -> Vec<Action> {
-        entries(&target, s).into_iter().map(|(a, _)| a).collect()
+        entries(&target, s, &here())
+            .into_iter()
+            .map(|(a, _)| a)
+            .collect()
     }
 
     #[test]
@@ -294,5 +309,19 @@ mod tests {
             actions(Target::Tab(Tab::Terminal(here(), 1)), None),
             [Action::TabClose, Action::TerminalStop]
         );
+    }
+
+    #[test]
+    fn an_added_environment_s_heading_offers_to_close_it_and_the_own_one_s_does_not() {
+        use crate::testing::there;
+
+        let offered = |environment| {
+            entries(&Target::Row(Item::Environment(environment)), None, &here())
+                .into_iter()
+                .map(|(a, _)| a)
+                .collect::<Vec<_>>()
+        };
+        assert!(offered(there()).contains(&Action::EnvironmentClose));
+        assert!(!offered(here()).contains(&Action::EnvironmentClose));
     }
 }

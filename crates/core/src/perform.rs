@@ -366,10 +366,14 @@ pub(crate) fn perform(
             effects
         }
         Action::WorktreesToggle => step(state, Msg::TreeEveryWorktree),
-        Action::SettingsOpen => vec![Effect::OpenSettings],
+        Action::SettingsOpen => vec![Effect::OpenSettings(content::focused_environment(state))],
         Action::DaemonRestart => step(state, Msg::Confirm(Box::new(Ask::RestartDaemon))),
         Action::WindowClose => vec![Effect::CloseWindow],
         Action::WindowOpen => vec![Effect::OpenWindow],
+        Action::EnvironmentClose => match cur.as_ref().filter(|_| on_list) {
+            Some(Item::Environment(environment)) => crate::host::close(state, &environment.clone()),
+            _ => Vec::new(),
+        },
         Action::TreeToggle => step(state, Msg::PanelToggle(Side::Sidebar)),
         Action::DetailsToggle => step(state, Msg::PanelToggle(Side::Details)),
         Action::ZoomIn => step(state, Msg::Zoom(zoom::Step::In)),

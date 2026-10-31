@@ -167,7 +167,18 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
     let (kind, text, meta, glyph_class) = match &it {
         Item::Environment(environment) => {
             let name = app.environment_name(environment);
-            ("head", name, String::new(), None)
+            // A link to a work machine that is not connected stands back,
+            // and its heading says how it stands.
+            let remotes = app.remotes.read();
+            let status = remotes.get(environment);
+            let note = status.and_then(|s| crate::shell::heading_note(s, *app.clock.read()));
+            let back = status.is_some_and(|s| s.phase != crate::link::RemotePhase::Connected);
+            (
+                if back { "head dim" } else { "head" },
+                name,
+                note.unwrap_or_default(),
+                None,
+            )
         }
         Item::Workspace(_, root) => {
             let name = t

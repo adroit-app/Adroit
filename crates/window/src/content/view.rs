@@ -75,13 +75,17 @@ pub(crate) fn ContentPanel(
                         }
                     }
                 } else if let Tab::Drawn {
-                    session, id: image, ..
+                    environment,
+                    session,
+                    id: image,
+                    ..
                 } = &shows
                 {
                     rsx! {
                         DrawnWindow {
                             key: "{id}",
                             window: id,
+                            environment: environment.clone(),
                             session: session.clone(),
                             id: *image,
                             name: thing_name(t, terms, &shows),

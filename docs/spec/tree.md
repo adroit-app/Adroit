@@ -95,7 +95,9 @@ window showing one has no such row. The same directory in two environments is
 two rows. The sessions waiting on you are gathered from every environment the
 window shows, and going to the next waiting session reaches each of them.
 A session, a shell or a Neovim started from a row, or beside a tab, starts in
-the environment of that row or tab.
+the environment of that row or tab. The heading of an environment on a work
+machine says how its connection stands while it is not connected, with how old
+its work is, or while a change sent there needs you.
 
 ## Going to a session or starting one
 
@@ -127,8 +129,8 @@ letters, cut short.
 
 A window showing more than one environment offers the sessions and the
 directories of each, every row naming its environment, and a new session
-starts in the environment its directory was chosen in. Its file tree browses
-the environment the window was opened in.
+starts in the environment its directory was chosen in. Its file tree and its
+scratch row are of the environment of the selected row or the tab shown.
 
 `Ctrl+f` turns the picker into a [file tree](#file-trees) for a directory the
 list does not offer. It shows the directories under the home directory, under

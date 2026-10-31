@@ -2,7 +2,7 @@
 //! signal per slice for components to read, and the runner that carries out
 //! what each message asks.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::rc::Rc;
 
 use adroit_connect::environments::{Catalog, Environment};
@@ -125,6 +125,17 @@ pub(crate) struct AppCtx {
     pub(crate) drafts_ready: Signal<bool>,
     /// What the window knows of each profile's login.
     pub(crate) logins: Signal<crate::logins::Logins>,
+    /// How the window stands with each environment on a work machine, as
+    /// last looked at.
+    pub(crate) remotes: Signal<BTreeMap<EnvironmentId, crate::link::RemoteStatus>>,
+    /// The environment whose work settings the Settings window edits.
+    settings_environment: CopyValue<EnvironmentId>,
+    /// The configuration last read for the Settings window from the files
+    /// of an environment other than the window's own.
+    settings_config: CopyValue<Option<(adroit_protocol::ConfigWork, Config)>>,
+    /// The time, in milliseconds, kept going while a link to a work machine
+    /// is not connected, so how old its work is counts up.
+    pub(crate) clock: Signal<u64>,
     /// The effects whose state `App` still holds, and what runs them.
     handed: CopyValue<Handoff>,
     /// What runs an action where the keys are now, which `App` still does.
@@ -197,6 +208,10 @@ pub(crate) fn use_app() -> AppCtx {
             prompt: Signal::new(view.prompt.clone()),
             drafts_ready: Signal::new(false),
             logins: Signal::new(Default::default()),
+            remotes: Signal::new(BTreeMap::new()),
+            clock: Signal::new(adroit_model::time::now_ms()),
+            settings_environment: CopyValue::new(environment.clone()),
+            settings_config: CopyValue::new(None),
             handed: CopyValue::new(Handoff::default()),
             performer: CopyValue::new(None),
             scope: current_scope_id(),
@@ -204,11 +219,13 @@ pub(crate) fn use_app() -> AppCtx {
             links: CopyValue::new(links),
         };
         provide_context(app);
+        app.look_at_remotes();
         app.run(effects);
         spawn(async move {
             loop {
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                 app.refresh_client_settings();
+                app.look_at_remotes();
             }
         });
         for (environment, events) in events {
@@ -218,6 +235,11 @@ pub(crate) fn use_app() -> AppCtx {
         spawn(async move {
             while let Some(environment) = asked.recv().await {
                 app.show_environment(&environment);
+                // Asked from the Environments window too, which stays in
+                // front otherwise.
+                let window = dioxus::desktop::window();
+                window.set_visible(true);
+                window.set_focus();
             }
         });
         // Not while the window is first drawn: showing one changes what is
@@ -235,6 +257,10 @@ impl AppCtx {
         as_from(self.scope, || {
             spawn(async move {
                 while let Some(event) = events.recv().await {
+                    // A link dropped may still tell what it was telling.
+                    if !app.links.peek().shows(&environment) {
+                        break;
+                    }
                     app.dispatch(Msg::Host {
                         environment: environment.clone(),
                         event,
@@ -314,12 +340,6 @@ impl AppCtx {
         self.link_of(environment).daemon()
     }
 
-    /// How the window stands with its own environment's work machine, none
-    /// for one on this computer.
-    pub(crate) fn remote_status(&self) -> Option<crate::link::RemoteStatus> {
-        self.own_link().remote_status()
-    }
-
     /// How the window stands with `environment`'s work machine, none for
     /// one on this computer.
     pub(crate) fn remote_status_of(
@@ -329,26 +349,57 @@ impl AppCtx {
         self.link_of(environment).remote_status()
     }
 
-    pub(crate) fn retry_remote(&self) {
-        self.own_link().retry_remote();
+    /// How the window stands now with each environment it shows that is on
+    /// a work machine.
+    pub(crate) fn remote_statuses(&self) -> BTreeMap<EnvironmentId, crate::link::RemoteStatus> {
+        let links = self.links.peek();
+        links
+            .each()
+            .filter_map(|(environment, link)| Some((environment.clone(), link.remote_status()?)))
+            .collect()
     }
-    pub(crate) fn query_remote(&self, stamp: adroit_protocol::MutationStamp) {
-        self.own_link().query_remote(stamp);
+
+    /// Look again at how the window stands with each environment on a work
+    /// machine.
+    fn look_at_remotes(&self) {
+        let remotes = self.remote_statuses();
+        let mut clock = self.clock;
+        if remotes
+            .values()
+            .any(|s| s.phase != crate::link::RemotePhase::Connected)
+        {
+            clock.set(adroit_model::time::now_ms());
+        }
+        set_changed(self.remotes, &remotes);
+    }
+
+    pub(crate) fn retry_remote(&self, environment: &EnvironmentId) {
+        self.link_of(environment).retry_remote();
+    }
+    pub(crate) fn query_remote(
+        &self,
+        environment: &EnvironmentId,
+        stamp: adroit_protocol::MutationStamp,
+    ) {
+        self.link_of(environment).query_remote(stamp);
     }
     pub(crate) fn remote_draft(
         &self,
+        environment: &EnvironmentId,
         stamp: adroit_protocol::MutationStamp,
         forget: bool,
         checked: bool,
     ) -> impl std::future::Future<Output = Result<(), String>> + use<> {
-        self.own_link().remote_draft(stamp, forget, checked)
+        self.link_of(environment)
+            .remote_draft(stamp, forget, checked)
     }
     pub(crate) fn resolve_remote(
         &self,
+        environment: &EnvironmentId,
         stamp: adroit_protocol::MutationStamp,
         checked: bool,
     ) -> impl std::future::Future<Output = Result<(), String>> + use<> {
-        self.own_link().resolve_remote(stamp, checked)
+        self.link_of(environment).resolve_remote(stamp, checked)
     }
     /// `msg` applied to the view state, the slices it changed shown, and
     /// what it asks carried out. Called from handlers and tasks, never while
@@ -388,7 +439,7 @@ impl AppCtx {
         let view = self.view.read();
         set_changed(self.chrome, &view.chrome);
         set_changed(self.config, &view.config);
-        crate::feed::publish(&view.config);
+        crate::feed::publish(&self.settings_config(&view));
         set_changed(self.host, view.hosts.own());
         set_changed(self.hosts, &view.hosts);
         set_changed(self.content, &view.content);
@@ -406,10 +457,57 @@ impl AppCtx {
         self.own_link().send(request);
     }
 
-    /// Bring the Settings window forward, opening it when it is not open.
-    pub(crate) fn open_settings(&self) {
-        let link = (*self.own_link()).clone();
-        crate::settings_window::open(self.agents(), link);
+    /// Bring the Settings window forward on the work settings of
+    /// `environment`, opening it when it is not open on them.
+    pub(crate) fn open_settings(&self, environment: &EnvironmentId) {
+        let mut edited = self.settings_environment;
+        edited.set(environment.clone());
+        self.publish();
+        let own = *environment == self.environment();
+        let data_dir = if own {
+            crate::environments::work_data_dir()
+        } else {
+            crate::environments::data_dir_of(environment)
+        };
+        let name = if own {
+            crate::environments::active_name()
+        } else {
+            self.environment_name(environment)
+        };
+        let link = (*self.link_of(environment)).clone();
+        crate::settings_window::open(
+            self.agents_of(environment),
+            link,
+            crate::settings_window::Edited {
+                environment: environment.clone(),
+                name,
+                data_dir,
+            },
+        );
+    }
+
+    /// The configuration the Settings window shows: that of the
+    /// environment it edits, with this computer's preferences over it.
+    fn settings_config(&self, view: &ViewState) -> Config {
+        let environment = self.settings_environment.peek().clone();
+        if environment == view.hosts.environment {
+            return view.config.clone();
+        }
+        let files = view
+            .hosts
+            .work(&environment)
+            .map(|w| w.config.clone())
+            .unwrap_or_default();
+        let mut kept = self.settings_config;
+        if let Some((was, config)) = &*kept.peek()
+            && *was == files
+        {
+            return config.clone();
+        }
+        let mut config = Config::of_work(&files);
+        crate::client_settings::apply(&mut config.settings);
+        kept.set(Some((files, config.clone())));
+        config
     }
 
     /// Run `task` for as long as the window, whatever component started it.
@@ -554,7 +652,12 @@ impl AppCtx {
                     }
                 }
             }
-            Effect::OpenSettings => self.open_settings(),
+            Effect::OpenSettings(environment) => self.open_settings(&environment),
+            Effect::EnvironmentClosed(environment) => {
+                let mut links = self.links;
+                links.write().remove(&environment);
+                self.keep_environments();
+            }
             Effect::CloseWindow => dioxus::desktop::window().close(),
             Effect::OpenWindow => {
                 if let Err(e) = open_another_window() {
@@ -795,11 +898,11 @@ impl AppCtx {
         adroit_core::content::shown_environment_of(&self.content.read(), &self.hosts.read())
     }
 
-    /// What the window's own work host told of each agent.
-    pub(crate) fn agents(&self) -> adroit_protocol::AgentsWork {
-        let host = self.host.peek();
-        host.work
-            .as_ref()
+    /// What `environment`'s work host told of each agent.
+    pub(crate) fn agents_of(&self, environment: &EnvironmentId) -> adroit_protocol::AgentsWork {
+        self.hosts
+            .peek()
+            .work(environment)
             .map(|w| w.agents.clone())
             .unwrap_or_default()
     }

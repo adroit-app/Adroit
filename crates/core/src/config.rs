@@ -2,7 +2,7 @@
 //! key bindings, taken in from the files as the host last read them.
 
 use adroit_model::paths::tilde;
-use adroit_protocol::{Colours, ConfigFile, ConfigWork, FileText};
+use adroit_protocol::{Colours, ConfigFile, ConfigWork, Configured, FileText};
 
 use crate::chrome::status_line::{self, StatusLine};
 use crate::effect::Effect;
@@ -26,6 +26,26 @@ pub struct Config {
 }
 
 impl Config {
+    /// The configuration of the files `work` holds, as a host of another
+    /// environment read them: its settings, or the settings as designed and
+    /// why they cannot be had.
+    pub fn of_work(work: &ConfigWork) -> Self {
+        let mut config = Config {
+            taken: work.clone(),
+            ..Config::default()
+        };
+        if let Some(file) = &work.settings {
+            match read_settings(file, work.configured.as_ref()) {
+                Ok(settings) => config.settings = settings,
+                Err(error) => config.settings_error = Some(error),
+            }
+        }
+        if let Some(made) = &work.configured {
+            config.scratch = made.scratch.clone();
+        }
+        config
+    }
+
     /// The files as they were last taken in, and what the host made of
     /// them.
     pub fn files(&self) -> &ConfigWork {
@@ -51,15 +71,9 @@ pub(crate) fn take_in(state: &mut ViewState) -> Vec<Effect> {
     if work.config.settings != config.taken.settings || listed {
         config.taken.settings = work.config.settings.clone();
         if let Some(file) = &config.taken.settings {
-            match Settings::read(file) {
+            match read_settings(file, work.config.configured.as_ref()) {
                 Ok(settings) => {
-                    config.settings = match (&settings.theme, &work.config.configured) {
-                        (Some(theme), Some(made)) => {
-                            let kind = made.kind_of(theme);
-                            settings.migrated(kind)
-                        }
-                        _ => settings,
-                    };
+                    config.settings = settings;
                     config.settings_error = None;
                 }
                 Err(error) => config.settings_error = Some(error),
@@ -98,6 +112,19 @@ pub(crate) fn take_in(state: &mut ViewState) -> Vec<Effect> {
         }
     }
     effects
+}
+
+/// The settings `file` holds, the one theme an earlier version named
+/// migrated by the kind the host `made` it out to be.
+fn read_settings(file: &ConfigFile, made: Option<&Configured>) -> Result<Settings, String> {
+    let settings = Settings::read(file)?;
+    Ok(match (&settings.theme, made) {
+        (Some(theme), Some(made)) => {
+            let kind = made.kind_of(theme);
+            settings.migrated(kind)
+        }
+        _ => settings,
+    })
 }
 
 /// The consoles are drawn in `colours`; ones that cannot be had leave them
@@ -172,6 +199,26 @@ mod tests {
             environment: here(),
             home: "/home/u".into(),
         }
+    }
+
+    #[test]
+    fn an_environment_s_configuration_is_read_from_the_files_its_own_host_read() {
+        use adroit_protocol::ConfigWork;
+
+        let work = ConfigWork {
+            settings: Some(settings_file("zoom = 1.5\n")),
+            ..ConfigWork::default()
+        };
+        let config = super::Config::of_work(&work);
+        assert_eq!(config.settings.zoom, 1.5);
+        assert_eq!(config.files(), &work);
+        let unreadable = ConfigWork {
+            settings: Some(settings_file("zoom = ")),
+            ..ConfigWork::default()
+        };
+        let config = super::Config::of_work(&unreadable);
+        assert_eq!(config.settings, Default::default());
+        assert!(config.settings_error.is_some());
     }
 
     #[test]

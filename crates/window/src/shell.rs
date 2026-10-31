@@ -17,4 +17,5 @@ mod ui;
 
 pub use app::launch;
 pub(crate) use local::Local;
+pub(crate) use remote::heading_note;
 pub(crate) use ui::Ui;

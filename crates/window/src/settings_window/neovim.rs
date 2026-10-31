@@ -63,6 +63,7 @@ pub(crate) fn folder(settings: &Path, name: &str) -> PathBuf {
 #[component]
 pub(super) fn NeovimGroup(name: &'static str) -> Element {
     let remote = use_context::<Link>().remote_status().is_some();
+    let environment = use_context::<super::Edited>().environment;
     let dir = folder(&crate::paths::config_dir().join("settings.toml"), name);
     let mut copied = use_signal(|| false);
     let shown = tilde(&dir, &home());
@@ -100,7 +101,7 @@ pub(super) fn NeovimGroup(name: &'static str) -> Element {
                         if remote {
                             open_with("-t", &dir.join("init.lua"), "");
                         } else {
-                            ask_main(Msg::EditFile(dir.join("init.lua")));
+                            ask_main(Msg::EditFile(environment.clone(), dir.join("init.lua")));
                         }
                     },
                     IconView { icon: Icon::Code, size: 14 }

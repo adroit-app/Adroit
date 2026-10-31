@@ -102,6 +102,22 @@ pub(crate) fn EnvironmentMenu() -> Element {
     }
 }
 
+/// Where the work of `environment`, one a window shows beside its own, keeps
+/// its data on this computer.
+pub(crate) fn data_dir_of(
+    environment: &adroit_model::EnvironmentId,
+) -> Result<std::path::PathBuf, String> {
+    let catalog = Catalog::load(&Catalog::path())?;
+    let shown = catalog
+        .environments
+        .iter()
+        .find(|e| e.id == environment.to_string())
+        .ok_or("The environment is no longer listed")?;
+    shown
+        .bind(&adroit_model::paths::instance())?
+        .local_data_dir(&crate::paths::state_dir(), &crate::paths::data_dir())
+}
+
 pub(crate) fn work_data_dir() -> Result<std::path::PathBuf, String> {
     let data = crate::paths::data_dir();
     adroit_connect::environments::active()?.map_or(Ok(data.clone()), |binding| {

@@ -185,19 +185,11 @@ impl Ui {
             Tab::Terminal(_, id) => terminals.contains(id),
             Tab::Draft { .. } | Tab::Viewer(_, _) | Tab::Drawn { .. } => true,
         });
-        // The images drawn are kept by session id alone, which the window's
-        // own environment's sessions are listed by.
-        if *environment != self.app.environment() {
-            return;
-        }
+        let live = |e: &EnvironmentId, id: &str| e != environment || sessions.contains(id);
         let mut gallery = self.local.gallery;
-        let gone = gallery
-            .peek()
-            .store
-            .sessions()
-            .any(|id| !sessions.contains(id));
+        let gone = gallery.peek().store.sessions().any(|(e, id)| !live(e, id));
         if gone {
-            gallery.write().store.retain(|id| sessions.contains(id));
+            gallery.write().store.retain(live);
         }
     }
 }

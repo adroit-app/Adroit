@@ -6,6 +6,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use adroit_core::details::Shot;
+use adroit_model::EnvironmentId;
 use adroit_term::Drawn;
 use adroit_term::picture::{data_url, png, thumb};
 use image::{DynamicImage, RgbaImage};
@@ -58,10 +59,14 @@ impl Kept {
     }
 }
 
+/// A session images are kept for: its environment and its id, as two
+/// environments may each have a session by the same id.
+type Session = (EnvironmentId, String);
+
 /// The images each session's console drew, newest first, within bounds.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Store {
-    sessions: HashMap<String, Vec<Kept>>,
+    sessions: HashMap<Session, Vec<Kept>>,
     per_session: usize,
     most_bytes: usize,
     bytes: usize,
@@ -83,10 +88,14 @@ impl Store {
         }
     }
 
-    /// Keep `kept` for `session`, letting the oldest go past the bounds;
-    /// whether it was not kept already. One kept already stays where it is.
-    pub fn keep(&mut self, session: &str, kept: Kept) -> bool {
-        let list = self.sessions.entry(session.to_string()).or_default();
+    /// Keep `kept` for `environment`'s `session`, letting the oldest go past
+    /// the bounds; whether it was not kept already. One kept already stays
+    /// where it is.
+    pub fn keep(&mut self, environment: &EnvironmentId, session: &str, kept: Kept) -> bool {
+        let list = self
+            .sessions
+            .entry((environment.clone(), session.to_string()))
+            .or_default();
         if list.iter().any(|k| k.id == kept.id) {
             return false;
         }
@@ -112,25 +121,28 @@ impl Store {
         true
     }
 
-    /// The images kept for `session`, newest first.
-    pub fn of(&self, session: &str) -> &[Kept] {
-        self.sessions.get(session).map_or(&[], Vec::as_slice)
+    /// The images kept for `environment`'s `session`, newest first.
+    pub fn of(&self, environment: &EnvironmentId, session: &str) -> &[Kept] {
+        self.sessions
+            .iter()
+            .find(|((e, s), _)| e == environment && s == session)
+            .map_or(&[], |(_, l)| l.as_slice())
     }
 
-    pub fn find(&self, session: &str, id: u64) -> Option<&Kept> {
-        self.of(session).iter().find(|k| k.id == id)
+    pub fn find(&self, environment: &EnvironmentId, session: &str, id: u64) -> Option<&Kept> {
+        self.of(environment, session).iter().find(|k| k.id == id)
     }
 
-    /// The sessions images are kept for.
-    pub fn sessions(&self) -> impl Iterator<Item = &str> {
-        self.sessions.keys().map(String::as_str)
+    /// The sessions images are kept for, each with its environment.
+    pub fn sessions(&self) -> impl Iterator<Item = (&EnvironmentId, &str)> {
+        self.sessions.keys().map(|(e, s)| (e, s.as_str()))
     }
 
-    /// Let the images of sessions not among `live` go.
-    pub fn retain(&mut self, live: impl Fn(&str) -> bool) {
+    /// Let the images of sessions `live` does not hold go.
+    pub fn retain(&mut self, live: impl Fn(&EnvironmentId, &str) -> bool) {
         let mut freed = 0;
-        self.sessions.retain(|s, l| {
-            let keep = live(s);
+        self.sessions.retain(|(e, s), l| {
+            let keep = live(e, s);
             if !keep {
                 freed += l.iter().map(Kept::bytes).sum::<usize>();
             }
@@ -146,10 +158,11 @@ pub struct Gallery {
     pub store: Store,
 }
 
-/// What `session`'s console drew, kept in `store`, as the overview lists it.
-pub fn drawn(store: &Store, session: &str) -> Vec<Shot> {
+/// What `environment`'s `session`'s console drew, kept in `store`, as the
+/// overview lists it.
+pub fn drawn(store: &Store, environment: &EnvironmentId, session: &str) -> Vec<Shot> {
     store
-        .of(session)
+        .of(environment, session)
         .iter()
         .map(|k| Shot::console(k.id, k.width, k.height, k.at_ms, Some(k.thumb.clone())))
         .collect()
@@ -176,8 +189,11 @@ mod tests {
     fn kept(shade: u8, at_ms: u64) -> Kept {
         Kept::of(pixels(2, 2, shade), at_ms).unwrap()
     }
+    fn here() -> EnvironmentId {
+        EnvironmentId::unbound()
+    }
     fn ids(store: &Store, session: &str) -> Vec<u64> {
-        store.of(session).iter().map(|k| k.at_ms).collect()
+        store.of(&here(), session).iter().map(|k| k.at_ms).collect()
     }
     fn small_size(url: &str) -> (u32, u32) {
         let b64 = url.strip_prefix("data:image/png;base64,").unwrap();
@@ -222,18 +238,21 @@ mod tests {
     #[test]
     fn the_same_image_drawn_again_is_kept_once_where_it_was() {
         let mut s = Store::default();
-        assert!(s.keep("a", kept(1, 1)));
-        assert!(s.keep("a", kept(2, 2)));
-        assert!(!s.keep("a", kept(1, 3)));
+        assert!(s.keep(&here(), "a", kept(1, 1)));
+        assert!(s.keep(&here(), "a", kept(2, 2)));
+        assert!(!s.keep(&here(), "a", kept(1, 3)));
         assert_eq!(ids(&s, "a"), [2, 1]);
-        assert!(s.keep("b", kept(1, 4)), "another session keeps its own");
+        assert!(
+            s.keep(&here(), "b", kept(1, 4)),
+            "another session keeps its own"
+        );
     }
 
     #[test]
     fn a_session_keeps_its_newest_images_up_to_the_bound() {
         let mut s = Store::new(2, usize::MAX);
         for i in 1..=4 {
-            s.keep("a", kept(i, u64::from(i)));
+            s.keep(&here(), "a", kept(i, u64::from(i)));
         }
         assert_eq!(ids(&s, "a"), [4, 3]);
     }
@@ -242,14 +261,29 @@ mod tests {
     fn past_the_bytes_the_oldest_image_of_any_session_gives_way() {
         let one = kept(1, 0).bytes();
         let mut s = Store::new(10, one * 2 + one / 2);
-        s.keep("a", kept(1, 1));
-        s.keep("b", kept(2, 2));
-        s.keep("a", kept(3, 3));
+        s.keep(&here(), "a", kept(1, 1));
+        s.keep(&here(), "b", kept(2, 2));
+        s.keep(&here(), "a", kept(3, 3));
         assert_eq!(ids(&s, "a"), [3]);
         assert_eq!(ids(&s, "b"), [2]);
-        s.retain(|session| session == "a");
-        assert!(s.of("b").is_empty());
-        s.keep("a", kept(4, 4));
+        s.retain(|_, session| session == "a");
+        assert!(s.of(&here(), "b").is_empty());
+        s.keep(&here(), "a", kept(4, 4));
         assert_eq!(ids(&s, "a"), [4, 3], "the bytes let go of are free again");
+    }
+
+    #[test]
+    fn like_named_sessions_of_two_environments_keep_their_images_apart() {
+        let there = EnvironmentId::new("there");
+        let mut s = Store::default();
+        assert!(s.keep(&here(), "a", kept(1, 1)));
+        assert!(
+            s.keep(&there, "a", kept(1, 2)),
+            "another environment's session keeps its own"
+        );
+        assert_eq!(ids(&s, "a"), [1]);
+        s.retain(|environment, _| *environment != there);
+        assert!(s.of(&there, "a").is_empty());
+        assert_eq!(ids(&s, "a"), [1]);
     }
 }

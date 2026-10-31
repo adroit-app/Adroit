@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+use adroit_model::EnvironmentId;
 use dioxus::prelude::*;
 
 use crate::content::WindowId;
@@ -24,11 +25,13 @@ pub(crate) fn ViewerWindow(
     }
 }
 
-/// A window's image viewer on the image `id` that `session`'s console drew,
-/// as `gallery` keeps it, handed the actions sent to this window alone.
+/// A window's image viewer on the image `id` that `environment`'s `session`'s
+/// console drew, as `gallery` keeps it, handed the actions sent to this
+/// window alone.
 #[component]
 pub(crate) fn DrawnWindow(
     window: WindowId,
+    environment: EnvironmentId,
     session: String,
     id: u64,
     name: String,
@@ -41,7 +44,7 @@ pub(crate) fn DrawnWindow(
         gallery
             .read()
             .store
-            .find(&session, id)
+            .find(&environment, &session, id)
             .map(pictures::kept_shown)
     });
     rsx! {

@@ -119,16 +119,14 @@ pub(crate) fn use_console_sizes(ui: &Ui) {
     let retry = use_attach_retries({
         let hub = ui.hub.clone();
         move || {
-            if !app
-                .remote_status()
-                .is_some_and(|status| status.phase == crate::link::RemotePhase::Connected)
-            {
-                return false;
-            }
+            let connected = |tab: &Tab| {
+                app.remote_status_of(tab.environment())
+                    .is_some_and(|status| status.phase == crate::link::RemotePhase::Connected)
+            };
             app.content.peek().windows.current().is_some_and(|tab| {
-                tab.windows()
-                    .iter()
-                    .any(|window| needs_attach(&window.shows, &hub.panes))
+                tab.windows().iter().any(|window| {
+                    connected(&window.shows) && needs_attach(&window.shows, &hub.panes)
+                })
             })
         }
     });

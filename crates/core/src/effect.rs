@@ -212,12 +212,15 @@ pub enum Effect {
         environment: EnvironmentId,
         id: u128,
     },
-    /// Open the Settings window.
-    OpenSettings,
+    /// Open the Settings window, on the work settings of `environment`.
+    OpenSettings(EnvironmentId),
     /// Close the window.
     CloseWindow,
     /// Open another window of the instance.
     OpenWindow,
+    /// The window no longer shows `environment`: its link goes, and it is
+    /// not shown again when the window is reopened.
+    EnvironmentClosed(EnvironmentId),
 
     // The overlays.
     /// Run `action` where the keys are now.

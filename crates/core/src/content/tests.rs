@@ -889,8 +889,8 @@ fn a_prompt_goes_to_the_session_s_agent_or_that_of_the_profile_chosen_for_a_draf
 
 #[test]
 fn a_file_asked_to_be_edited_starts_a_neovim_on_it_in_its_folder() {
-    let run =
-        listed_with([session("a").cwd("/r")]).send(Msg::EditFile("/c/prompt/nvim/init.lua".into()));
+    let run = listed_with([session("a").cwd("/r")])
+        .send(Msg::EditFile(here(), "/c/prompt/nvim/init.lua".into()));
     assert_eq!(
         run.last_effects(),
         [Effect::StartTerminal(TerminalAsk {
@@ -904,6 +904,16 @@ fn a_file_asked_to_be_edited_starts_a_neovim_on_it_in_its_folder() {
 }
 
 #[test]
+fn a_file_asked_to_be_edited_in_another_environment_starts_its_neovim_there() {
+    let run = shows_there(listed_with([session("a").cwd("/r")]), [session("b")])
+        .send(Msg::EditFile(there(), "/c/prompt/nvim/init.lua".into()));
+    assert!(run.last_effects().iter().any(|e| matches!(
+        e,
+        Effect::StartTerminal(TerminalAsk { place, .. }) if place.environment == there()
+    )));
+}
+
+#[test]
 fn a_file_asked_to_be_edited_shows_the_neovim_already_on_it_with_the_keys() {
     let nvim = adroit_model::TerminalSession {
         program: TerminalProgram::Neovim,
@@ -912,7 +922,7 @@ fn a_file_asked_to_be_edited_shows_the_neovim_already_on_it_with_the_keys() {
     };
     let run = Scenario::new()
         .event(snapshot().listed(listed().session(session("a").cwd("/r")).terminal(nvim)))
-        .send(Msg::EditFile("/c/prompt/nvim/init.lua".into()));
+        .send(Msg::EditFile(here(), "/c/prompt/nvim/init.lua".into()));
     assert_eq!(active(&run), Some(Tab::Terminal(here(), 4)));
     assert_eq!(run.state().content.focus, Area::Console);
     assert!(
@@ -992,6 +1002,100 @@ fn a_terminal_opened_in_another_environment_is_told_to_that_environment_s_host()
         [Effect::Host {
             environment: there(),
             request: Request::TerminalOpened { terminal },
+        }]
+    );
+}
+
+/// A content kept with a tab of the window's own environment and, after it,
+/// one of `there()`, the latter's tab current.
+fn kept_across_environments() -> Content<Tab> {
+    let mut was = Content::default();
+    was.open(Tab::Session(here(), "a".into()));
+    was.open_tab(Tab::Session(there(), "b".into()));
+    was
+}
+
+#[test]
+fn the_tabs_kept_of_an_environment_shown_beside_the_own_come_back_once_it_is_listed() {
+    let was = kept_across_environments();
+    let own_listed = listed_with_kept(&was);
+    assert_eq!(shown(&own_listed), [Tab::Session(here(), "a".into())]);
+    let run = shows_there(own_listed, [session("b")]);
+    assert_eq!(
+        run.state().content.windows.kept(kept_name),
+        was.kept(kept_name)
+    );
+    assert_eq!(active(&run), Some(Tab::Session(there(), "b".into())));
+}
+
+#[test]
+fn a_kept_tab_of_another_environment_does_not_come_back_once_the_content_was_changed() {
+    let changed = listed_with_kept(&kept_across_environments()).send(Msg::Window(Action::TabClose));
+    let run = shows_there(changed, [session("b")]);
+    assert_eq!(shown(&run), Vec::<Tab>::new());
+}
+
+#[test]
+fn a_kept_tab_of_another_environment_its_listing_leaves_out_is_given_up() {
+    let run = shows_there(
+        listed_with_kept(&kept_across_environments()),
+        [session("c")],
+    );
+    assert_eq!(shown(&run), [Tab::Session(here(), "a".into())]);
+}
+
+/// The window opened having kept `was`, once its own environment listed
+/// the session `a`.
+fn listed_with_kept(was: &Content<Tab>) -> Scenario {
+    Scenario::new()
+        .send(opened_with(was))
+        .event(listing([session("a")]))
+}
+
+#[test]
+fn a_session_of_another_environment_that_ends_gives_its_windows_up_unless_live_here() {
+    // (live here, stays shown)
+    for (held, stays) in [(false, false), (true, true)] {
+        let run = shows_there(listed_with([session("a")]), [session("b")])
+            .send(Msg::ShowSession(there(), "b".into()))
+            .send(Msg::PanesLive(if held {
+                BTreeSet::from([(there(), "b".to_string())])
+            } else {
+                BTreeSet::new()
+            }))
+            .event_from(there(), patch(2).listed(listed()));
+        assert_eq!(
+            shown(&run).contains(&Tab::Session(there(), "b".into())),
+            stays,
+            "{held}"
+        );
+    }
+}
+
+#[test]
+fn a_live_session_of_one_environment_does_not_hold_a_like_named_one_of_another() {
+    let run = shows_there(listed_with([session("a")]), [session("a")])
+        .send(Msg::ShowSession(there(), "a".into()))
+        .send(live(&["a"]))
+        .event_from(there(), patch(2).listed(listed()));
+    assert_eq!(shown(&run), Vec::<Tab>::new());
+}
+
+#[test]
+fn the_panes_kept_of_each_environment_are_those_its_own_listing_lists() {
+    let run = shows_there(listed_with([session("a")]), [session("b")]);
+    let kept: Vec<Effect> = run
+        .last_effects()
+        .iter()
+        .filter(|e| matches!(e, Effect::KeepPanes { .. }))
+        .cloned()
+        .collect();
+    assert_eq!(
+        kept,
+        [Effect::KeepPanes {
+            environment: there(),
+            sessions: BTreeSet::from(["b".to_string()]),
+            terminals: BTreeSet::new(),
         }]
     );
 }

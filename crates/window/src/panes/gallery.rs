@@ -2,6 +2,7 @@
 //! details panel for the session shown, and handed whole to the image viewer.
 
 use adroit_core::msg::Msg;
+use adroit_model::EnvironmentId;
 use adroit_model::time::now_ms;
 use dioxus::prelude::*;
 
@@ -10,10 +11,11 @@ use crate::nav;
 use crate::pictures::{self, Gallery};
 use crate::shell::Ui;
 
-/// Keep the images `drawn` in `session`'s console, encoded away from the
-/// window's thread.
+/// Keep the images `drawn` in `environment`'s `session`'s console, encoded
+/// away from the window's thread.
 pub(crate) fn keep_drawn(
     mut gallery: Signal<Gallery>,
+    environment: EnvironmentId,
     session: String,
     drawn: Vec<adroit_term::Drawn>,
 ) {
@@ -23,7 +25,11 @@ pub(crate) fn keep_drawn(
         let g = gallery.peek();
         drawn
             .into_iter()
-            .filter(|d| g.store.find(&session, pictures::id_of(d)).is_none())
+            .filter(|d| {
+                g.store
+                    .find(&environment, &session, pictures::id_of(d))
+                    .is_none()
+            })
             .collect()
     };
     if drawn.is_empty() {
@@ -44,7 +50,7 @@ pub(crate) fn keep_drawn(
         }
         let mut g = gallery.write();
         for k in kept {
-            g.store.keep(&session, k);
+            g.store.keep(&environment, &session, k);
         }
     });
 }
@@ -52,18 +58,20 @@ pub(crate) fn keep_drawn(
 /// The details panel lists the images the shown session's console drew.
 pub(crate) fn use_shown_images(ui: &Ui) {
     let (app, gallery) = (ui.app, ui.local.gallery);
-    let tree = use_memo(move || {
+    let shown = use_memo(move || {
         let environment = app.shown_environment();
         let hosts = app.hosts.read();
-        adroit_core::tree::listed(hosts.work(&environment)).clone()
+        let tree = adroit_core::tree::listed(hosts.work(&environment)).clone();
+        (environment, tree)
     });
     // The panel's session rather than the focused window's, which may show
     // one of its images.
     let session = use_memo(move || app.details.read().shown.session.clone());
     use_effect(move || {
+        let (environment, tree) = &*shown.read();
         let drawn = match &*session.read() {
-            Some(id) if nav::find(&tree.read(), id).is_some() => {
-                pictures::drawn(&gallery.read().store, id)
+            Some(id) if nav::find(tree, id).is_some() => {
+                pictures::drawn(&gallery.read().store, environment, id)
             }
             _ => Vec::new(),
         };

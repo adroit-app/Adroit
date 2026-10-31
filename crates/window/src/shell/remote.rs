@@ -1,28 +1,64 @@
 //! Connection state stays visible while the work shown may be stale.
 
 use crate::bridge::AppCtx;
-use crate::link::RemotePhase;
+use crate::link::{RemotePhase, RemoteStatus};
+use adroit_model::EnvironmentId;
 use dioxus::prelude::*;
-use std::time::Duration;
 
+/// How the window stands with each environment on a work machine, and the
+/// changes sent there whose outcome needs the user. A window showing one
+/// environment says how its link stands above everything; one showing
+/// several says it on each environment's heading, and only the link that
+/// stopped and the changes waiting are said here, named after their
+/// environment.
 #[component]
 pub(super) fn RemoteConnection() -> Element {
     let app = use_context::<AppCtx>();
-    let mut status = use_signal(move || app.remote_status());
-    let mut now = use_signal(adroit_model::time::now_ms);
-    use_future(move || async move {
-        loop {
-            tokio::time::sleep(Duration::from_millis(500)).await;
-            let next = app.remote_status();
-            if *status.peek() != next {
-                status.set(next);
+    let several = app.hosts.read().each().count() > 1;
+    let remotes = app.remotes.read().clone();
+    rsx! {
+        for (environment, status) in remotes {
+            RemoteEnvironment {
+                key: "{environment}",
+                name: several.then(|| app.environment_name(&environment)),
+                environment,
+                status,
             }
-            now.set(adroit_model::time::now_ms());
         }
-    });
-    let Some(status) = status() else {
-        return rsx! {};
+    }
+}
+
+/// What a heading of an environment on a work machine adds to its name, as
+/// `status` tells how its link stands at `now_ms`: nothing while it is
+/// connected and nothing waits on the user.
+pub(crate) fn heading_note(status: &RemoteStatus, now_ms: u64) -> Option<String> {
+    let phase = match status.phase {
+        RemotePhase::Connected if !status.pending.is_empty() => "Outcome needs attention",
+        RemotePhase::Connected if status.writable => return None,
+        RemotePhase::Connected => "Read only",
+        RemotePhase::Connecting => "Connecting",
+        RemotePhase::Reconnecting => "Reconnecting",
+        RemotePhase::Error => "Connection stopped",
     };
+    let age = status
+        .last_work_ms
+        .filter(|_| status.phase != RemotePhase::Connected)
+        .map(|at| now_ms.saturating_sub(at) / 1000);
+    Some(match age {
+        Some(age) => format!("{phase} · work {age}s old"),
+        None => phase.to_string(),
+    })
+}
+
+#[component]
+fn RemoteEnvironment(
+    environment: EnvironmentId,
+    status: RemoteStatus,
+    /// The environment's name, while the window shows several.
+    name: Option<String>,
+) -> Element {
+    let app = use_context::<AppCtx>();
+    let now = app.clock.read();
     let phase = match status.phase {
         RemotePhase::Connecting => "Connecting",
         RemotePhase::Connected if !status.pending.is_empty() => {
@@ -33,27 +69,33 @@ pub(super) fn RemoteConnection() -> Element {
         RemotePhase::Reconnecting => "Reconnecting",
         RemotePhase::Error => "Connection stopped",
     };
-    let age = status
-        .last_work_ms
-        .map(|at| now().saturating_sub(at) / 1000);
+    let age = status.last_work_ms.map(|at| now.saturating_sub(at) / 1000);
+    let said = name.is_none() || status.phase == RemotePhase::Error;
+    let named = name.as_ref().map(|n| format!("{n} · ")).unwrap_or_default();
+    let retry = environment.clone();
     rsx! {
-        div { class: "remote-connection", role: "status",
-            span { "{status.host} · {phase}" }
-            if status.phase != RemotePhase::Connected {
-                if let Some(age) = age { span { " · Work last received {age}s ago" } }
-            }
-            if let Some(problem) = status.problem { span { " · {problem}" } }
-            if status.retryable && status.phase == RemotePhase::Error {
-                button { onclick: move |_| app.retry_remote(), "Retry" }
+        if said {
+            div { class: "remote-connection", role: "status",
+                span { "{named}{status.host} · {phase}" }
+                if status.phase != RemotePhase::Connected {
+                    if let Some(age) = age { span { " · Work last received {age}s ago" } }
+                }
+                if let Some(problem) = &status.problem { span { " · {problem}" } }
+                if status.retryable && status.phase == RemotePhase::Error {
+                    button { onclick: move |_| app.retry_remote(&retry), "Retry" }
+                }
             }
         }
         if !status.pending.is_empty() || !status.drafts.is_empty() {
             div { class: "remote-pending",
+                if let Some(name) = &name {
+                    p { class: "remote-pending-environment", "{name}" }
+                }
                 for record in status.pending.iter() {
-                    PendingChange { record: record.clone() }
+                    PendingChange { environment: environment.clone(), record: record.clone() }
                 }
                 for record in status.drafts.iter() {
-                    PendingChange { record: record.clone(), saved: true }
+                    PendingChange { environment: environment.clone(), record: record.clone(), saved: true }
                 }
             }
         }
@@ -84,6 +126,7 @@ fn label(request: &adroit_protocol::Request) -> String {
 
 #[component]
 fn PendingChange(
+    environment: EnvironmentId,
     record: adroit_connect::journal::Record,
     #[props(default)] saved: bool,
 ) -> Element {
@@ -109,6 +152,13 @@ fn PendingChange(
     let kept_ui = ui.clone();
     let stamp = record.intent.stamp.clone();
     let query_stamp = stamp.clone();
+    let (draft_in, query_in, resolve_in, sent_in, kept_in) = (
+        environment.clone(),
+        environment.clone(),
+        environment.clone(),
+        environment.clone(),
+        environment,
+    );
     rsx! {
         div { class: "remote-pending-change",
             strong { "{title}" }
@@ -119,33 +169,55 @@ fn PendingChange(
             div { class: "dialog-actions",
                 if saved {
                     button { onclick: move |_| {
-                        let removing = app.remote_draft(saved_stamp.clone(), true, true);
+                        let removing = app.remote_draft(&draft_in, saved_stamp.clone(), true, true);
                         spawn(async move { if let Err(text) = removing.await { app.status(Some(text)); } });
                     }, "Delete saved copy" }
                 }
                 if !confirmed {
-                    button { onclick: move |_| app.query_remote(query_stamp.clone()), "Check outcome" }
+                    button { onclick: move |_| app.query_remote(&query_in, query_stamp.clone()), "Check outcome" }
                 }
                 if record.intent.prompt.is_none() {
                     button { onclick: move |_| {
-                        let resolving = app.resolve_remote(stamp.clone(), !confirmed);
+                        let resolving = app.resolve_remote(&resolve_in, stamp.clone(), !confirmed);
                         spawn(async move { if let Err(text) = resolving.await { app.status(Some(text)); } });
                     }, if confirmed { "Done" } else { "I checked the work" } }
                 } else {
                     if prompt_result != Some(false) {
                         button { onclick: move |_| {
-                            let (ui, record) = (ui.clone(), prompt_record.clone());
-                            spawn(async move { if let Err(text) = ui.handle_remote_prompt(record, true, !confirmed, false).await { app.status(Some(text)); } });
+                            let (ui, record, sent_in) = (ui.clone(), prompt_record.clone(), sent_in.clone());
+                            spawn(async move { if let Err(text) = ui.handle_remote_prompt(&sent_in, record, true, !confirmed, false).await { app.status(Some(text)); } });
                         }, if prompt_result == Some(true) { "Clear sent draft" } else { "I checked: it was sent" } }
                     }
                     if prompt_result != Some(true) {
                         button { onclick: move |_| {
-                            let (ui, record) = (kept_ui.clone(), kept_record.clone());
-                            spawn(async move { if let Err(text) = ui.handle_remote_prompt(record, false, !confirmed, true).await { app.status(Some(text)); } });
+                            let (ui, record, kept_in) = (kept_ui.clone(), kept_record.clone(), kept_in.clone());
+                            spawn(async move { if let Err(text) = ui.handle_remote_prompt(&kept_in, record, false, !confirmed, true).await { app.status(Some(text)); } });
                         }, if prompt_result == Some(false) { "Restore draft" } else { "I checked: restore unsent draft" } }
                     }
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::link::RemoteStatus;
+
+    #[test]
+    fn an_environment_s_heading_tells_how_its_link_stands_only_while_it_needs_saying() {
+        let connected = RemoteStatus::connected("box");
+        assert_eq!(heading_note(&connected, 10_000), None);
+        let mut reconnecting = RemoteStatus::connected("box");
+        reconnecting.phase = RemotePhase::Reconnecting;
+        reconnecting.last_work_ms = Some(4_000);
+        assert_eq!(
+            heading_note(&reconnecting, 16_000).as_deref(),
+            Some("Reconnecting · work 12s old")
+        );
+        let mut read_only = RemoteStatus::connected("box");
+        read_only.writable = false;
+        assert_eq!(heading_note(&read_only, 0).as_deref(), Some("Read only"));
     }
 }

@@ -359,10 +359,14 @@ pub fn Composer(
             if thumbs.peek().contains_key(&path) {
                 continue;
             }
-            let asked = app.ask(Ask::Picture {
-                path: path.clone(),
-                whole: false,
-            });
+            // Attached where the prompt shown goes, and drawn from there.
+            let asked = app.ask_in(
+                &app.active_environment(),
+                Ask::Picture {
+                    path: path.clone(),
+                    whole: false,
+                },
+            );
             spawn(async move {
                 let url = match asked.await {
                     Answer::Picture { url } => url.map(Arc::from),

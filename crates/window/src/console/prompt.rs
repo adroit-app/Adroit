@@ -139,7 +139,7 @@ impl PromptNeovim {
                         let _ = e.put_back(&text).await;
                         let _ = e.set_view(&view).await;
                     }
-                    if app.remote_status().is_some() {
+                    if app.remote_status_of(&app.active_environment()).is_some() {
                         let _ = e.freeze_prompt(true).await;
                     }
                     let embedded = Arc::new(e);

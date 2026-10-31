@@ -298,7 +298,7 @@ fn picker_offered(state: &mut ViewState, _: &mut Vec<Effect>) {
 /// A directory opened in the picker's tree before it was listed is moved
 /// into once it is.
 fn picker_listed(state: &mut ViewState, _: &mut Vec<Effect>) {
-    picker::take_listed(&mut state.picker, state.hosts.own().work.as_ref());
+    picker::take_listed(&mut state.picker, &state.hosts);
 }
 
 /// Each environment's host keeps read what the tree shows of it, what the
@@ -345,7 +345,7 @@ pub(crate) fn sight(state: &ViewState, environment: &EnvironmentId) -> Sight {
     Sight {
         tree: tree::sight(&state.tree, environment),
         past: state.picker.past_sight(environment),
-        pick: state.picker.sight_in(environment, &state.hosts.environment),
+        pick: state.picker.sight_in(environment),
         place: state
             .content
             .place

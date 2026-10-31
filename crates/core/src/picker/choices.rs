@@ -294,6 +294,9 @@ pub struct Picker {
     /// The directory opened before it was listed, which the cursor moves
     /// into once it is.
     pub(crate) entering: Option<Row>,
+    /// The environment the directory tree browses, and the scratch row
+    /// starts in.
+    pub environment: EnvironmentId,
 }
 
 impl Picker {

@@ -82,6 +82,7 @@ pub enum Action {
     TerminalStop,
     NeovimOpen,
     TabClose,
+    EnvironmentClose,
     WindowClose,
     WindowOpen,
     Refresh,
@@ -327,6 +328,9 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::TabClose, "tab.close", "close the content's tab shown and every window in it; agents and terminals keep running and remain reachable from the tree")
         .bar("Close Tab", Icon::X)
         .row("Close tab", End),
+    S::new(A::EnvironmentClose, "environment.close", "stop showing the environment selected in the tree in this window, one shown beside the window's own; its sessions keep running on its host ([details](environments.md))")
+        .icon(Icon::X)
+        .row("Close environment", End),
     S::new(A::WindowClose, "window.close", "close the window; the instance's other windows stay open, and its sessions run on").bar("Close Window", Icon::AppWindow),
     S::new(A::WindowOpen, "window.open", "open another window of the instance ([windows](sessions.md#windows))").bar("New Window", Icon::CopyPlus),
     S::new(A::Refresh, "refresh", "read the sessions, and what git says of where they run, again now").bar("Refresh", Icon::Refresh),
@@ -549,6 +553,7 @@ mod tests {
             TerminalStop,
             NeovimOpen,
             TabClose,
+            EnvironmentClose,
             WindowClose,
             WindowOpen,
             Refresh,

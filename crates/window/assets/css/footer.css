@@ -19,4 +19,5 @@ kbd { font-family: var(--mono); font-size: 10.5px; color: var(--kbd-text); backg
 .remote-pending { flex: none; max-height: 28vh; overflow: auto; margin: 0 14px 6px; padding: 8px 12px;
   border: 1px solid var(--wait); border-radius: 8px; background: var(--raised); color: var(--text-2); font-size: 12px; }
 .remote-pending-change p { margin: 4px 0; }
+.remote-pending-environment { margin: 0 0 4px; font-weight: 600; }
 .remote-pending-change textarea { width: 100%; max-height: 100px; resize: vertical; }

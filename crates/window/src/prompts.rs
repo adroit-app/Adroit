@@ -15,6 +15,7 @@ use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use tokio::sync::oneshot;
 
 use adroit_core::msg::Msg;
+use adroit_model::EnvironmentId;
 use adroit_protocol::{Answer, Ask, Drafts as KeptDrafts};
 
 use crate::bridge::AppCtx;
@@ -35,12 +36,17 @@ pub enum Op {
     /// The shown tab's text, with the tab it was written for, leaving the
     /// prompt empty.
     Take(oneshot::Sender<Taken>),
+    /// The prompt written for a tab of the environment, sent: its draft
+    /// is cleared, unless a newer one was written.
     Consume(
-        adroit_connect::journal::PromptContext,
+        EnvironmentId,
+        Box<adroit_connect::journal::PromptContext>,
         oneshot::Sender<bool>,
     ),
+    /// The prompt written for a tab of the environment, not sent: put back.
     Recover(
-        adroit_connect::journal::PromptContext,
+        EnvironmentId,
+        Box<adroit_connect::journal::PromptContext>,
         oneshot::Sender<bool>,
     ),
     Attach(PathBuf),
@@ -98,7 +104,7 @@ async fn kept_drafts(app: AppCtx) -> Option<KeptDrafts> {
     loop {
         match app.ask(Ask::Drafts).await {
             Answer::Drafts(drafts) => return Some(*drafts),
-            answer if retry_drafts(app.remote_status().is_some(), &answer) => {
+            answer if retry_drafts(app.remote_status_of(&app.environment()).is_some(), &answer) => {
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
             Answer::Failed { text } => {
@@ -288,8 +294,15 @@ pub(crate) fn keeper(nvim: Signal<Option<Arc<Embedded>>>, app: AppCtx) -> Prompt
                         put_draft(&mut drafts, &mut opened, text, put).await;
                     }
                     Op::Take(reply) => {
+                        // Taken only once seen through, when the tab is of
+                        // an environment on a work machine.
+                        let remote = app
+                            .remote_status_of(
+                                app.hosts.peek().environment_of(drafts.shown().as_ref()),
+                            )
+                            .is_some();
                         let text = match &nv {
-                            Some(nv) if app.remote_status().is_some() => nv.text().await.ok(),
+                            Some(nv) if remote => nv.text().await.ok(),
                             Some(nv) => nv.take_text().await.ok(),
                             None => None,
                         };
@@ -297,15 +310,15 @@ pub(crate) fn keeper(nvim: Signal<Option<Arc<Embedded>>>, app: AppCtx) -> Prompt
                             deferred.push_front(Op::Take(reply));
                             break;
                         };
-                        let attachments = if app.remote_status().is_some() {
+                        let attachments = if remote {
                             images.current().to_vec()
                         } else {
                             images.take()
                         };
                         let _ = reply.send((drafts.shown().clone(), text, attachments));
                     }
-                    Op::Consume(context, reply) => {
-                        let tab = remote::target(&context, &environment);
+                    Op::Consume(sent_in, context, reply) => {
+                        let tab = remote::target(&context, &sent_in);
                         let handled = if drafts.shown() == &tab {
                             match &nv {
                                 Some(nv) => nv.consume_text(&context.text).await.is_ok(),
@@ -321,9 +334,8 @@ pub(crate) fn keeper(nvim: Signal<Option<Arc<Embedded>>>, app: AppCtx) -> Prompt
                         // A newer draft is deliberately preserved.
                         let _ = reply.send(handled);
                     }
-                    Op::Recover(context, reply) => {
-                        let restored = if drafts.shown() == &remote::target(&context, &environment)
-                        {
+                    Op::Recover(sent_in, context, reply) => {
+                        let restored = if drafts.shown() == &remote::target(&context, &sent_in) {
                             match &nv {
                                 Some(nv) => match nv.text().await {
                                     Ok(text) if text == context.text => true,
@@ -387,7 +399,6 @@ pub(crate) fn keeper(nvim: Signal<Option<Arc<Embedded>>>, app: AppCtx) -> Prompt
 
 #[cfg(test)]
 mod tests {
-    use adroit_model::EnvironmentId;
     use std::collections::BTreeMap;
 
     use super::*;

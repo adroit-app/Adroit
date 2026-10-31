@@ -75,11 +75,15 @@ impl PickerView {
     }
 
     /// What the host of `environment` keeps listed for the picker going to
-    /// a session: the window's own lists its tree's directories too, every
-    /// other only what it offers.
-    pub fn sight_in(&self, environment: &EnvironmentId, own: &EnvironmentId) -> Option<PickSight> {
+    /// a session: that of the environment the directory tree browses lists
+    /// its directories too, every other only what it offers.
+    pub fn sight_in(&self, environment: &EnvironmentId) -> Option<PickSight> {
+        let browsed = match &self.open {
+            Some(Picking::Go(p)) => &p.environment,
+            _ => return None,
+        };
         self.sight().map(|sight| {
-            if environment == own {
+            if environment == browsed {
                 sight
             } else {
                 PickSight::default()
@@ -191,9 +195,11 @@ pub(crate) fn open(state: &mut ViewState) -> Vec<Effect> {
             (environment.clone(), running)
         })
         .collect();
-    let work = state.hosts.own().work.as_ref();
+    let environment = content::focused_environment(state);
+    let work = state.hosts.work(&environment);
     let mut picker = Picker {
         running,
+        environment,
         ..Picker::new(Filer::new([state.picker.home.clone()]))
     };
     enter(&mut picker, work);
@@ -237,7 +243,8 @@ pub(crate) fn every(view: &mut PickerView) -> Vec<Effect> {
 /// directory tree.
 pub(crate) fn press(state: &mut ViewState, key: &Key) -> Vec<Effect> {
     let ctrl = key.ctrl && !key.alt && !key.meta;
-    let work = state.hosts.own().work.as_ref();
+    let browsed = browsed(state);
+    let work = state.hosts.work(&browsed);
     let list = list_key(key);
     if list == Some(ListKey::Close) {
         return close(&mut state.picker);
@@ -256,7 +263,7 @@ pub(crate) fn press(state: &mut ViewState, key: &Key) -> Vec<Effect> {
                 Step::Wait | Step::Nothing => return Vec::new(),
             };
             return match tree_key(p, &action, work) {
-                Some(dir) => start_in(state, dir),
+                Some(dir) => start_in_environment(state, browsed, dir),
                 None => Vec::new(),
             };
         }
@@ -332,8 +339,9 @@ pub(crate) fn choose(state: &mut ViewState, at: usize) -> Vec<Effect> {
     };
     match chosen {
         Some(Choice::Scratch) => {
-            let scratch = state.content.scratch().to_path_buf();
-            start_in(state, scratch)
+            let environment = browsed(state);
+            let scratch = scratch_of(state, &environment);
+            start_in_environment(state, environment, scratch)
         }
         Some(Choice::Directory(c)) => start_in_environment(state, c.environment, c.path),
         Some(Choice::Session(s)) => {
@@ -344,11 +352,33 @@ pub(crate) fn choose(state: &mut ViewState, at: usize) -> Vec<Effect> {
     }
 }
 
-/// A directory of the window's own environment chosen, as the directory
-/// tree browses it: a new session's draft there, its first prompt to write.
+/// A directory chosen as the directory tree browses it, in the environment
+/// it browses: a new session's draft there, its first prompt to write.
 pub(crate) fn start_in(state: &mut ViewState, dir: PathBuf) -> Vec<Effect> {
-    let environment = state.hosts.environment.clone();
+    let environment = browsed(state);
     start_in_environment(state, environment, dir)
+}
+
+/// The environment the directory tree browses, the window's own while the
+/// picker is not open on it.
+fn browsed(state: &ViewState) -> EnvironmentId {
+    match &state.picker.open {
+        Some(Picking::Go(p)) => p.environment.clone(),
+        _ => state.hosts.environment.clone(),
+    }
+}
+
+/// Where a scratch session of `environment` runs, as its host says.
+fn scratch_of(state: &ViewState, environment: &EnvironmentId) -> PathBuf {
+    if *environment == state.hosts.environment {
+        return state.content.scratch().to_path_buf();
+    }
+    state
+        .hosts
+        .work(environment)
+        .and_then(|w| w.config.configured.as_ref())
+        .map(|c| c.scratch.clone())
+        .unwrap_or_else(|| state.content.scratch().to_path_buf())
 }
 
 /// A directory of `environment` chosen: a new session's draft there, its
@@ -362,8 +392,8 @@ fn start_in_environment(
     content::draft(&mut state.content, environment, dir, true)
 }
 
-/// What each host offered taken into the list, and what the window's own
-/// offered into the tree: the cursor stays on the row it was on, not on
+/// What each host offered taken into the list, and what the host of the
+/// environment the tree browses offered into the tree: the cursor stays on the row it was on, not on
 /// whatever comes to sit at its place, and the tree lists the roots offered
 /// after those it has, what is open in it staying open.
 pub(crate) fn take_offers(view: &mut PickerView, hosts: &Hosts) {
@@ -382,24 +412,25 @@ pub(crate) fn take_offers(view: &mut PickerView, hosts: &Hosts) {
         return;
     }
     let on = go_rows(picker, home, hosts).into_iter().nth(picker.cursor);
-    let own = offered.get(&hosts.environment).cloned();
-    let own_new = picker.offered.get(&hosts.environment) != own.as_ref();
+    let roots = offered.get(&picker.environment).cloned();
+    let roots_new = picker.offered.get(&picker.environment) != roots.as_ref();
     picker.offered = offered;
     let rows = go_rows(picker, home, hosts);
     picker.cursor = on
         .and_then(|on| rows.iter().position(|c| *c == on))
         .unwrap_or(0);
-    if let Some(own) = own.filter(|_| own_new) {
-        picker.filer.add_roots(own.roots.iter().cloned());
+    if let Some(roots) = roots.filter(|_| roots_new) {
+        picker.filer.add_roots(roots.roots.iter().cloned());
     }
 }
 
 /// A directory opened before the host listed it is moved into once it
 /// lists it, while the cursor is still on it.
-pub(crate) fn take_listed(view: &mut PickerView, work: Option<&WorkSnapshot>) {
+pub(crate) fn take_listed(view: &mut PickerView, hosts: &Hosts) {
     let Some(Picking::Go(picker)) = &mut view.open else {
         return;
     };
+    let work = hosts.work(&picker.environment);
     let Some(at) = picker.entering.clone() else {
         return;
     };

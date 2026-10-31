@@ -31,7 +31,7 @@ pub(super) fn Go(picker: Picker) -> Element {
     let app = use_context::<AppCtx>();
     let home = app.picker.read().home.clone();
     let hosts = app.hosts.read();
-    let work = hosts.own().work.as_ref();
+    let work = hosts.work(&picker.environment);
     let fixed = |keys: &[(&str, &str)]| -> Vec<(String, String)> {
         keys.iter()
             .map(|(k, w)| (k.to_string(), w.to_string()))

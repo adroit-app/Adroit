@@ -65,7 +65,7 @@ pub(crate) fn Header(ontoggle: EventHandler<Side>) -> Element {
             span {
                 class: "pane-toggle",
                 title: "Settings (⌘,)",
-                onclick: move |_| app.open_settings(),
+                onclick: move |_| app.open_settings(&app.active_environment()),
                 IconView { icon: Icon::Settings, size: 16 }
             }
         }

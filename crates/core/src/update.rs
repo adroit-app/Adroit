@@ -87,7 +87,7 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
             how,
             take_keys,
         } => content::open_row(state, item, how, take_keys),
-        Msg::EditFile(path) => content::edit_file(state, state.hosts.environment.clone(), path),
+        Msg::EditFile(environment, path) => content::edit_file(state, environment, path),
         Msg::RowClicked(item) => content::open_row(state, item, Some(Opening::Existing), true),
         Msg::Window(action) => content::act(state, action),
         Msg::WindowFocus(id) => content::focus_window(state, id),
@@ -139,15 +139,7 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         Msg::DraftOptions { tab, options } => {
             content::choose_options(&mut state.content, tab, options)
         }
-        Msg::PanesLive(live) => {
-            let own = &state.hosts.environment;
-            let live = live
-                .into_iter()
-                .filter(|(environment, _)| environment == own)
-                .map(|(_, id)| id)
-                .collect();
-            content::tell_live(&mut state.content, live)
-        }
+        Msg::PanesLive(live) => content::tell_live(&mut state.content, live),
 
         Msg::TreeSelect(row) => tree::select(&mut state.tree, row),
         Msg::TreeKey(key) => tree::press(&mut state.tree, key),

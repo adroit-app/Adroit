@@ -143,9 +143,9 @@ pub enum Msg {
         how: Option<Opening>,
         take_keys: bool,
     },
-    /// Edit the file at this path in a Neovim started in its folder, or in
-    /// the one already on it; the keys go to that Neovim.
-    EditFile(PathBuf),
+    /// Edit the file at this path in a Neovim started in its folder in the
+    /// environment, or in the one already on it; the keys go to that Neovim.
+    EditFile(EnvironmentId, PathBuf),
     /// A row was clicked: it opens as `cursor.go` opens it.
     RowClicked(Item),
     /// A key or a menu asked the content to do this.

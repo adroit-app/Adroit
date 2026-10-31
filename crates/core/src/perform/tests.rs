@@ -245,7 +245,7 @@ fn closing_a_shell_s_row_selects_the_row_above_and_ends_the_shell() {
 #[test]
 fn the_window_s_own_actions_are_handed_to_it() {
     let cases = [
-        (Action::SettingsOpen, Effect::OpenSettings),
+        (Action::SettingsOpen, Effect::OpenSettings(here())),
         (Action::WindowClose, Effect::CloseWindow),
         (Action::WindowOpen, Effect::OpenWindow),
     ];
@@ -475,4 +475,85 @@ fn a_drawn_image_s_window_takes_the_viewer_s_actions() {
         "{:?}",
         run.last_effects()
     );
+}
+
+#[test]
+fn closing_an_environment_shown_beside_the_own_drops_its_host_and_tabs_and_tells_the_window() {
+    use crate::testing::{shows_there, there};
+
+    let run = shows_there(showing(Area::Sidebar), [session("b")])
+        .send(Msg::ShowSession(there(), "b".into()))
+        .send(Msg::Focus(Area::Sidebar))
+        .send(Msg::TreeSelect(Some(Item::Environment(there()))))
+        .send(perform(Action::EnvironmentClose, None, Probe::default()));
+    assert!(run.state().hosts.get(&there()).is_none());
+    assert!(
+        run.state()
+            .content
+            .windows
+            .shown()
+            .iter()
+            .all(|t| t.environment() != &there())
+    );
+    assert!(
+        run.last_effects()
+            .contains(&Effect::EnvironmentClosed(there()))
+    );
+    assert!(
+        !run.last_effects().iter().any(|e| matches!(
+            e,
+            Effect::Host {
+                request: Request::Stop { .. } | Request::Kill { .. },
+                ..
+            }
+        )),
+        "its sessions keep running"
+    );
+}
+
+#[test]
+fn the_window_s_own_environment_is_never_closed() {
+    use crate::testing::{shows_there, there};
+
+    let run = shows_there(showing(Area::Sidebar), [session("b")])
+        .send(Msg::TreeSelect(Some(Item::Environment(here()))))
+        .send(perform(Action::EnvironmentClose, None, Probe::default()));
+    assert!(run.state().hosts.get(&here()).is_some());
+    assert!(run.state().hosts.get(&there()).is_some());
+    assert!(run.last_effects().is_empty());
+}
+
+#[test]
+fn the_settings_open_for_the_environment_of_the_selected_row_or_else_of_the_tab_shown() {
+    use crate::testing::{shows_there, there};
+
+    let opened = |run: Scenario| {
+        run.send(perform(Action::SettingsOpen, None, Probe::default()))
+            .last_effects()
+            .to_vec()
+    };
+    let showing_there = || {
+        shows_there(showing(Area::Sidebar), [session("b")])
+            .send(Msg::ShowSession(there(), "b".into()))
+    };
+    // (where the keys are, the row selected, the environment)
+    let cases = [
+        (Area::Console, None, there()),
+        (
+            Area::Sidebar,
+            Some(Item::Session(here(), "a".into())),
+            here(),
+        ),
+        (Area::Sidebar, Some(Item::Environment(there())), there()),
+    ];
+    for (area, row, environment) in cases {
+        let run = showing_there()
+            .send(Msg::TreeSelect(row.clone()))
+            .send(Msg::Focus(area));
+        assert_eq!(
+            opened(run),
+            [Effect::OpenSettings(environment.clone())],
+            "{area:?} {row:?}"
+        );
+    }
 }

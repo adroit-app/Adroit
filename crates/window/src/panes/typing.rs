@@ -191,17 +191,26 @@ impl Ui {
             },
             _ => return Err(()),
         };
+        let environment = draft.environment().clone();
         prompts.send(Op::Show(Some(draft))).map_err(drop)?;
         let (give, given) = oneshot::channel();
         prompts
-            .send(Op::Recover(written(draft_target), give))
+            .send(Op::Recover(
+                environment.clone(),
+                Box::new(written(draft_target)),
+                give,
+            ))
             .map_err(drop)?;
         if !given.await.unwrap_or(false) {
             return Err(());
         }
         let (give, given) = oneshot::channel();
         prompts
-            .send(Op::Consume(written(PromptTarget::Nothing), give))
+            .send(Op::Consume(
+                environment,
+                Box::new(written(PromptTarget::Nothing)),
+                give,
+            ))
             .map_err(drop)?;
         let _ = given.await;
         Ok(())
@@ -236,7 +245,7 @@ impl Ui {
                     .await;
                 let sent = matches!(answer, adroit_protocol::Answer::Done);
                 if (sent || matches!(answer, adroit_protocol::Answer::Failed { .. }))
-                    && let Err(text) = ui.finish_remote_prompt(&context, sent).await
+                    && let Err(text) = ui.finish_remote_prompt(&environment, &context, sent).await
                 {
                     app.status(Some(text));
                 }

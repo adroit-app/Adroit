@@ -175,6 +175,7 @@ fn ProfilePage(
     told: Signal<Option<(AgentPage, String)>>,
 ) -> Element {
     let remote = use_context::<Link>().remote_status().is_some();
+    let data_dir = use_context::<super::Edited>().data_dir;
     let refused = use_signal(|| None::<String>);
     let mut reset = use_signal(|| None::<String>);
     let deleting = use_signal(|| false);
@@ -199,19 +200,14 @@ fn ProfilePage(
         }
     };
     let duplicate = {
-        let id = id.clone();
+        let (id, data_dir) = (id.clone(), data_dir.clone());
         move |_| {
             if remote {
                 return;
             }
-            let id = id.clone();
+            let (id, data_dir) = (id.clone(), data_dir.clone());
             let op: Attempt<ProfileId> = Rc::new(move |s| {
-                profiles::duplicate_profile(
-                    s,
-                    &id,
-                    &crate::environments::work_data_dir()?,
-                    canonical,
-                )
+                profiles::duplicate_profile(s, &id, &data_dir.clone()?, canonical)
             });
             if let Some(copy) = attempt(change, refused, op) {
                 choose(AgentPage::Profile(copy));
@@ -219,7 +215,7 @@ fn ProfilePage(
         }
     };
     let set_login = {
-        let (id, home) = (id.clone(), profile.home.clone());
+        let (id, home, data_dir) = (id.clone(), profile.home.clone(), data_dir.clone());
         let mut left = left;
         move |login: Login| {
             if remote {
@@ -234,15 +230,9 @@ fn ProfilePage(
                 login => login,
             };
             let to_terminal = login == Login::Terminal;
-            let op_id = id.clone();
+            let (op_id, data_dir) = (id.clone(), data_dir.clone());
             let changed = act(Rc::new(move |s| {
-                profiles::set_login(
-                    s,
-                    &op_id,
-                    login.clone(),
-                    &crate::environments::work_data_dir()?,
-                    canonical,
-                )
+                profiles::set_login(s, &op_id, login.clone(), &data_dir.clone()?, canonical)
             }));
             if changed {
                 match (&home, to_terminal) {
@@ -263,7 +253,7 @@ fn ProfilePage(
             .clone()
             .map_or(LoginFolder::Terminal, LoginFolder::Kept)
     } else {
-        match crate::environments::work_data_dir() {
+        match data_dir {
             Ok(data) => profiles::login_folder(&profile, &data, canonical),
             Err(_) => profile
                 .home

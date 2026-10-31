@@ -79,6 +79,7 @@ changes them ([keys](../keys.md)).
 | `terminal.stop` | Stop Terminal | end the terminal selected in the tree, or else the one shown |  |
 | `neovim.open` | Open Neovim | open Neovim, with your own configuration, in the worktree as `shell.open` opens a shell ([shells](../content.md#terminals)) | `global`: `Mod+e`<br>`tree`: `e` |
 | `tab.close` | Close Tab | close the content's tab shown and every window in it; agents and terminals keep running and remain reachable from the tree | `global`: `Mod+w` |
+| `environment.close` |  | stop showing the environment selected in the tree in this window, one shown beside the window's own; its sessions keep running on its host ([details](../environments.md)) |  |
 | `window.close` | Close Window | close the window; the instance's other windows stay open, and its sessions run on | `global`: `Cmd+W` |
 | `window.open` | New Window | open another window of the instance ([windows](../sessions.md#windows)) | `global`: `Mod+n` |
 | `refresh` | Refresh | read the sessions, and what git says of where they run, again now | `global`: `Mod+r`<br>`tree`: `r` |

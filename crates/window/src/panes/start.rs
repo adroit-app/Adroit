@@ -271,7 +271,7 @@ impl Ui {
                     .await
                 {
                     Answer::Session { id } => {
-                        let cleanup = ui.finish_remote_prompt(&context, true).await;
+                        let cleanup = ui.finish_remote_prompt(&environment, &context, true).await;
                         app.dispatch(Msg::Relist);
                         match cleanup {
                             Ok(()) => {
@@ -303,7 +303,8 @@ impl Ui {
                     }
                     answer => {
                         if matches!(answer, Answer::Failed { .. })
-                            && let Err(text) = ui.finish_remote_prompt(&context, false).await
+                            && let Err(text) =
+                                ui.finish_remote_prompt(&environment, &context, false).await
                         {
                             app.status(Some(text));
                         }

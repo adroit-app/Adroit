@@ -183,7 +183,7 @@ fn DetailsSide(focused: bool, shown: bool) -> Element {
                 sheet_keys,
                 back_keys,
                 on_kill: move |(session, process): (Session, Process)| {
-                    if let Some(ask) = Ask::kill_process(&app.active_environment(), Some(&session), Some(&Entry::Process(process))) {
+                    if let Some(ask) = Ask::kill_process(&app.shown_environment(), Some(&session), Some(&Entry::Process(process))) {
                         app.dispatch(Msg::Confirm(Box::new(ask)));
                     }
                 },

@@ -36,6 +36,9 @@ pub struct Host {
     pub(crate) watched: Sight,
     /// What the environment is called, once the window is told.
     name: Option<String>,
+    /// The failure the host last told, said once until its work comes
+    /// again: a link that cannot reach its host tells it at every try.
+    failed: Option<String>,
 }
 
 /// The host of each environment the window shows, held apart: the same
@@ -146,6 +149,25 @@ impl Hosts {
     }
 }
 
+/// The window stops showing `environment`, one it shows beside its own: its
+/// host and the windows showing its work go, and the window is told to drop
+/// its link. Its sessions run on; the window's own environment stays.
+pub(crate) fn close(state: &mut ViewState, environment: &EnvironmentId) -> Vec<Effect> {
+    if *environment == state.hosts.environment || state.hosts.each.remove(environment).is_none() {
+        return Vec::new();
+    }
+    crate::content::forget_environment(&mut state.content, environment);
+    if state
+        .tree
+        .selected
+        .as_ref()
+        .is_some_and(|row| row.environment() == environment)
+    {
+        state.tree.selected = None;
+    }
+    vec![Effect::EnvironmentClosed(environment.clone())]
+}
+
 /// The first request a window sends, to the host of `environment`.
 pub(crate) fn hello(environment: EnvironmentId) -> Effect {
     Effect::Host {
@@ -161,6 +183,7 @@ fn receive(environment: &EnvironmentId, host: &mut Host, event: Event) -> Vec<Ef
     match event {
         Event::Welcome { version } if SPOKEN.contains(&version) => {
             host.link = Link::Ready { version };
+            host.failed = None;
         }
         Event::Welcome { version } => {
             host.link = Link::Refused {
@@ -171,8 +194,12 @@ fn receive(environment: &EnvironmentId, host: &mut Host, event: Event) -> Vec<Ef
         Event::Snapshot(snapshot) => {
             host.work = Some(*snapshot);
             host.resyncing = false;
+            host.failed = None;
         }
-        Event::Patch(patch) => return patched(environment, host, patch),
+        Event::Patch(patch) => {
+            host.failed = None;
+            return patched(environment, host, patch);
+        }
         // Told the window as a whole, not its link; an answer goes to
         // what asked.
         Event::Told(_) | Event::Type { .. } | Event::Answer { .. } => {}
@@ -181,14 +208,31 @@ fn receive(environment: &EnvironmentId, host: &mut Host, event: Event) -> Vec<Ef
 }
 
 /// The host of `environment` told the window `event`: how a request it
-/// carried out went, said in the status line, and what to type into one of
-/// its sessions, typed into its pane; anything else changes that host's work
-/// as [`receive`] says.
+/// carried out went, said in the status line, named after its environment
+/// while the window shows several, and what to type into one of its
+/// sessions, typed into its pane; anything else changes that host's work as
+/// [`receive`] says.
 pub(crate) fn told(state: &mut ViewState, environment: EnvironmentId, event: Event) -> Vec<Effect> {
+    let named = |hosts: &Hosts, text: String| {
+        if hosts.each.len() > 1 {
+            format!("{}: {text}", hosts.name(&environment))
+        } else {
+            text
+        }
+    };
     let status = &mut state.chrome.status;
     match event {
-        Event::Told(Told::Notice { text }) => status_line::notice(status, text),
-        Event::Told(Told::Failure { text }) => status_line::set(status, Some(text)),
+        Event::Told(Told::Notice { text }) => {
+            status_line::notice(status, named(&state.hosts, text))
+        }
+        Event::Told(Told::Failure { text }) => {
+            let host = state.hosts.each.entry(environment.clone()).or_default();
+            if host.failed.as_ref() == Some(&text) {
+                return Vec::new();
+            }
+            host.failed = Some(text.clone());
+            status_line::set(status, Some(named(&state.hosts, text)))
+        }
         Event::Type { session, typing } => vec![Effect::TypeInto {
             tab: Tab::Session(environment, session),
             typing,
@@ -507,5 +551,45 @@ mod tests {
                 "{environment}"
             );
         }
+    }
+
+    #[test]
+    fn a_failure_a_host_repeats_is_said_once_until_its_work_comes_again() {
+        use adroit_protocol::Told;
+
+        let failure = || {
+            Event::Told(Told::Failure {
+                text: "cannot reach the work host".into(),
+            })
+        };
+        let line = |run: &Scenario| run.state().chrome.status.line.clone();
+        let repeated = Scenario::new()
+            .event(failure())
+            .send(Msg::Status(None))
+            .event(failure());
+        assert_eq!(line(&repeated), None);
+        let again = repeated.event(listing([session("a")])).event(failure());
+        assert_eq!(line(&again).as_deref(), Some("cannot reach the work host"));
+    }
+
+    #[test]
+    fn a_host_s_failure_is_named_after_its_environment_while_several_are_shown() {
+        use adroit_protocol::Told;
+
+        let run = Scenario::new()
+            .send(Msg::EnvironmentOpened {
+                environment: there(),
+                name: "There".into(),
+            })
+            .event_from(
+                there(),
+                Event::Told(Told::Failure {
+                    text: "cannot reach the work host".into(),
+                }),
+            );
+        assert_eq!(
+            run.state().chrome.status.line.as_deref(),
+            Some("There: cannot reach the work host")
+        );
     }
 }

@@ -59,6 +59,20 @@ impl<L> Links<L> {
         Some(self.each.entry(environment).or_insert_with(open))
     }
 
+    /// The link to `environment` dropped, one shown beside the window's
+    /// own: the window's own link stays.
+    pub(crate) fn remove(&mut self, environment: &EnvironmentId) -> Option<L> {
+        if *environment == self.own {
+            return None;
+        }
+        self.each.remove(environment)
+    }
+
+    /// Every environment shown with its link, in the order of their ids.
+    pub(crate) fn each(&self) -> impl Iterator<Item = (&EnvironmentId, &L)> {
+        self.each.iter()
+    }
+
     /// The environments shown beside the window's own, in the order of
     /// their ids.
     pub(crate) fn others(&self) -> impl Iterator<Item = &EnvironmentId> {
@@ -69,6 +83,17 @@ impl<L> Links<L> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_link_beside_the_own_one_is_dropped_and_the_own_one_never_is() {
+        let (own, there) = (EnvironmentId::new("own"), EnvironmentId::new("there"));
+        let mut links = Links::new(own.clone(), "own link");
+        links.add(there.clone(), || "there link");
+        assert_eq!(links.remove(&own), None);
+        assert_eq!(links.remove(&there), Some("there link"));
+        assert!(!links.shows(&there));
+        assert!(links.shows(&own));
+    }
 
     #[test]
     fn an_environment_already_shown_is_never_linked_twice() {

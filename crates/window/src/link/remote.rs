@@ -37,6 +37,23 @@ pub(crate) struct Status {
     pub drafts: Arc<Vec<Record>>,
 }
 
+#[cfg(test)]
+impl Status {
+    /// How a link connected to `host` stands, with nothing pending.
+    pub(crate) fn connected(host: &str) -> Self {
+        Self {
+            host: host.into(),
+            phase: Phase::Connected,
+            last_work_ms: None,
+            problem: None,
+            retryable: true,
+            writable: true,
+            pending: Arc::default(),
+            drafts: Arc::default(),
+        }
+    }
+}
+
 struct Shared {
     ready: AtomicBool,
     /// Open only between a snapshot and the loss of its connection, so keys

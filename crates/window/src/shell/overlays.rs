@@ -65,7 +65,7 @@ pub(crate) fn ContextMenu() -> Element {
     };
     // Each entry with whether a separator goes above it.
     let entries: Vec<(Action, &str, Option<String>, bool)> =
-        context_menu::groups(&target, session.as_ref())
+        context_menu::groups(&target, session.as_ref(), &app.environment())
             .into_iter()
             .enumerate()
             .flat_map(|(g, group)| {
