@@ -188,7 +188,7 @@ pub fn pair_cli(address: &str, name: Option<&str>, show: impl Fn(&str)) -> Resul
         .map_err(|e| e.to_string())?;
     let target = runtime.block_on(pair_with(address, name, |step| {
         show(&match step {
-            PairingStep::NotAccepting => "The work machine is not accepting pairing requests; waiting until it does (run `adroit remote pair` there, or allow pairing in its Environments window)".to_string(),
+            PairingStep::NotAccepting => "The work machine is not accepting pairing requests; waiting until it does (run `adroit remote pair` there, or allow pairing under Accept connections in its Settings)".to_string(),
             PairingStep::Shown { code } => format!("Type this code on the work machine: {code}"),
             PairingStep::Mismatched => "That was not the code; asking again with a new one".to_string(),
         })

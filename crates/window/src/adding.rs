@@ -4,12 +4,13 @@
 use adroit_connect::environments::{Catalog, Environment};
 use adroit_connect::{Heard, PairingStep, Target};
 use adroit_core::msg::Msg;
+use adroit_model::EnvironmentId;
 use dioxus::core::{Runtime, ScopeId, Task, current_scope_id};
 use dioxus::prelude::*;
 
 use crate::bridge::AppCtx;
 use crate::components::Button;
-use crate::environments::{fresh_name, machine_name, of_machine};
+use crate::environments::{fresh_name, machine_name, of_machine, retarget};
 use crate::icons::{Icon, IconView};
 use crate::keys;
 
@@ -32,11 +33,13 @@ enum Step {
     },
 }
 
-/// Where a choice leads: to a step, or to an environment kept already.
+/// Where a choice leads: to a step, or to an environment kept already, as
+/// it is or moved to where its work machine was just paired.
 #[derive(Debug, Clone, PartialEq)]
 enum Next {
     Step(Step),
     Select(Environment),
+    Move(Environment),
 }
 
 /// Where the work machine `heard` on the network leads: its environment
@@ -67,7 +70,8 @@ fn typed(catalog: &Catalog, address: &str) -> Next {
 }
 
 /// Where pairing with the work machine `target` reaches, called `name`,
-/// leads: its environment when one is listed, or else naming one.
+/// leads: its environment when one is listed, moved to `target` when it was
+/// reached another way, or else naming one.
 fn paired(catalog: &Catalog, target: Target, name: &str) -> Next {
     let named = |name: String| {
         Next::Step(Step::Name {
@@ -78,7 +82,11 @@ fn paired(catalog: &Catalog, target: Target, name: &str) -> Next {
     };
     match &target {
         Target::Native { server, .. } => match of_machine(catalog, |_, kept| kept == server) {
-            Some(kept) if !kept.archived => Next::Select(kept.clone()),
+            Some(kept) if !kept.archived && kept.target == target => Next::Select(kept.clone()),
+            Some(kept) if !kept.archived => Next::Move(Environment {
+                target: target.clone(),
+                ..kept.clone()
+            }),
             Some(kept) => named(fresh_name(catalog, &kept.name)),
             None => named(fresh_name(catalog, name)),
         },
@@ -154,6 +162,13 @@ impl Adding {
                 self.close();
                 self.app.show_environment(&environment);
             }
+            Next::Move(environment) => {
+                let id = EnvironmentId::new(&environment.id);
+                match retarget(&Catalog::path(), &id, environment.target.clone()) {
+                    Ok(()) => self.go(Next::Select(environment)),
+                    Err(why) => self.error.set(Some(why)),
+                }
+            }
             Next::Step(Step::Pair { address, name }) => {
                 self.step.set(Step::Pair {
                     address: address.clone(),
@@ -184,7 +199,15 @@ impl Adding {
                         let catalog = Catalog::load(&Catalog::path());
                         self.catalog.set(catalog.clone());
                         match catalog {
-                            Ok(catalog) => self.go(paired(&catalog, target, &name)),
+                            Ok(catalog) => {
+                                let next = paired(&catalog, target, &name);
+                                // Its link, refused while this computer was
+                                // not paired, waits to be asked again.
+                                if let Next::Select(environment) = &next {
+                                    self.app.retry_remote(&EnvironmentId::new(&environment.id));
+                                }
+                                self.go(next)
+                            }
                             Err(why) => self.error.set(Some(why)),
                         }
                     }
@@ -235,6 +258,11 @@ fn Sheet() -> Element {
         mismatched: use_signal(|| false),
         task: use_signal(|| None),
     };
+    use_hook(move || {
+        if let Some((address, name)) = app.take_pair_again() {
+            adding.go(Next::Step(Step::Pair { address, name }));
+        }
+    });
     let step = adding.step.read().clone();
     let (title, at) = match &step {
         Step::Where => ("Add environment".to_string(), 0),
@@ -350,7 +378,7 @@ fn Where(adding: Adding) -> Element {
                     }
                     span { class: "adding-option-go",
                         match next {
-                            Next::Select(_) => "Already added",
+                            Next::Select(_) | Next::Move(_) => "Already added",
                             Next::Step(Step::Pair { .. }) => "Pair →",
                             Next::Step(_) => "Next →",
                         }
@@ -423,7 +451,7 @@ fn Pair(adding: Adding, name: String) -> Element {
                 p { class: "adding-note", aria_live: "polite",
                     "{name} does not allow pairing now. On it, run "
                     code { "adroit remote pair" }
-                    ", or turn on Accept connections and allow pairing."
+                    ", or allow pairing under Accept connections in its Settings."
                 }
             },
             Some(PairingStep::Mismatched) => rsx! {
@@ -564,11 +592,10 @@ mod tests {
     fn a_machine_paired_is_named_unless_an_environment_for_it_is_listed() {
         let listed = kept("aa", "Box", "box.local:47130", false);
         let catalog = catalog([listed.clone()]);
-        let again = Target::Native {
-            address: "10.0.0.2:47130".into(),
-            server: format!("{:0<64}", "aa"),
-        };
-        assert_eq!(paired(&catalog, again, "box"), Next::Select(listed));
+        assert_eq!(
+            paired(&catalog, listed.target.clone(), "box"),
+            Next::Select(listed)
+        );
         let new = Target::Native {
             address: "gpu.local:47130".into(),
             server: format!("{:0<64}", "bb"),
@@ -579,6 +606,22 @@ mod tests {
                 target: new,
                 name: "Box 2".into(),
                 paired: Some("gpu.local".into())
+            })
+        );
+    }
+
+    #[test]
+    fn a_machine_paired_at_another_address_moves_its_listed_environment_there() {
+        let listed = kept("aa", "Box", "box.local:47130", false);
+        let moved = Target::Native {
+            address: "10.0.0.2:47130".into(),
+            server: format!("{:0<64}", "aa"),
+        };
+        assert_eq!(
+            paired(&catalog([listed.clone()]), moved.clone(), "box"),
+            Next::Move(Environment {
+                target: moved,
+                ..listed
             })
         );
     }

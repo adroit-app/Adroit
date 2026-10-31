@@ -323,16 +323,15 @@ fn use_menu_bar(ui: &Ui) {
             // Closing acts on the window in front, as macOS's own Close does,
             // so it does not reach behind Settings to a tab.
             if matches!(action, Action::TabClose | Action::WindowClose)
-                && (settings_window::close_in_front()
-                    || crate::environment_manager::close_in_front())
+                && settings_window::close_in_front()
             {
                 return;
             }
             if overlay::holds_menu_bar(&app.held()) {
                 return;
             }
-            // Each opens a window of its own, which takes the focus.
-            if !matches!(action, Action::SettingsOpen | Action::EnvironmentsOpen) {
+            // Settings opens a window of its own, which takes the focus.
+            if action != Action::SettingsOpen {
                 desktop.window.set_focus();
             }
             app.dispatch(Msg::KeysHelpClose);

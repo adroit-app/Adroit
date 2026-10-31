@@ -5,6 +5,7 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::rc::Rc;
 
+use adroit_connect::Target;
 use adroit_connect::environments::{Catalog, Environment};
 use adroit_core::actions::Action;
 use adroit_core::chrome::Chrome;
@@ -139,6 +140,12 @@ pub(crate) struct AppCtx {
     /// The environments kept whose routes could not be opened, told once
     /// each while they stay kept.
     unopened: CopyValue<BTreeSet<EnvironmentId>>,
+    /// Where each link the window opened beside its own reaches, so an
+    /// environment moved to another address is linked again there.
+    targets: CopyValue<BTreeMap<EnvironmentId, Target>>,
+    /// The work machine, by its address and name, to pair with again when
+    /// the sheet adding an environment opens.
+    pair_again: CopyValue<Option<(String, String)>>,
     /// The effects whose state `App` still holds, and what runs them.
     handed: CopyValue<Handoff>,
     /// What runs an action where the keys are now, which `App` still does.
@@ -216,6 +223,8 @@ pub(crate) fn use_app() -> AppCtx {
             settings_environment: CopyValue::new(environment.clone()),
             settings_config: CopyValue::new(None),
             unopened: CopyValue::new(Default::default()),
+            targets: CopyValue::new(Default::default()),
+            pair_again: CopyValue::new(None),
             handed: CopyValue::new(Handoff::default()),
             performer: CopyValue::new(None),
             scope: current_scope_id(),
@@ -234,13 +243,14 @@ pub(crate) fn use_app() -> AppCtx {
             }
         });
         for (environment, events) in events {
-            app.listen(environment, events);
+            let link = app.links.peek().of(&environment).clone();
+            app.listen(environment, events, &link);
         }
         let mut asked = crate::environments::listen();
         spawn(async move {
             while let Some(environment) = asked.recv().await {
                 app.show_environment(&environment);
-                // Asked from the Environments window too, which stays in
+                // Asked from the Settings window too, which stays in
                 // front otherwise.
                 let window = dioxus::desktop::window();
                 window.set_visible(true);
@@ -256,14 +266,22 @@ pub(crate) fn use_app() -> AppCtx {
 
 impl AppCtx {
     /// Dispatch every event `events` tells as `environment`'s host's, for
-    /// as long as the window.
-    fn listen(&self, environment: EnvironmentId, mut events: Events) {
+    /// as long as `link` is the window's link to it.
+    fn listen(&self, environment: EnvironmentId, mut events: Events, link: &Rc<Link>) {
         let app = *self;
+        let link = Rc::downgrade(link);
         as_from(self.scope, || {
             spawn(async move {
                 while let Some(event) = events.recv().await {
-                    // A link dropped may still tell what it was telling.
-                    if !app.links.peek().shows(&environment) {
+                    // A link dropped, or replaced by one to where the
+                    // environment moved, may still tell what it was telling.
+                    let current = link.upgrade().is_some_and(|link| {
+                        app.links
+                            .peek()
+                            .get(&environment)
+                            .is_some_and(|linked| Rc::ptr_eq(linked, &link))
+                    });
+                    if !current {
                         break;
                     }
                     app.dispatch(Msg::Host {
@@ -288,15 +306,19 @@ impl AppCtx {
     }
 
     /// List every environment the catalog keeps, and only those: one added
-    /// is linked, one archived or deleted is closed, and one renamed is
-    /// called by its new name. A catalog that cannot be read changes nothing.
+    /// is linked, one archived or deleted is closed, one moved to another
+    /// address is closed and linked there, and one renamed is called by its
+    /// new name. A catalog that cannot be read changes nothing.
     fn follow_catalog(&self) {
         let Ok(catalog) = Catalog::load(&Catalog::path()) else {
             return;
         };
         let following = {
             let links = self.links.peek();
-            let linked = links.each().map(|(environment, _)| environment);
+            let targets = self.targets.peek();
+            let linked = links
+                .each()
+                .map(|(environment, _)| (environment.clone(), targets.get(environment).cloned()));
             crate::environments::follow(&catalog, linked, links.own_environment())
         };
         let mut unopened = self.unopened;
@@ -342,9 +364,14 @@ impl AppCtx {
         };
         let mut unopened = self.unopened;
         unopened.write().remove(&id);
+        let link = Rc::new(link);
         let mut links = self.links;
-        links.write().add(id.clone(), || Rc::new(link));
-        self.listen(id.clone(), events);
+        links.write().add(id.clone(), || link.clone());
+        let mut targets = self.targets;
+        targets
+            .write()
+            .insert(id.clone(), environment.target.clone());
+        self.listen(id.clone(), events, &link);
         self.keep(crate::hosts::look(*self, id.clone()));
         if let Err(e) = crate::editor::install_shown(
             &crate::panes::adroit_program(),
@@ -408,6 +435,18 @@ impl AppCtx {
 
     pub(crate) fn retry_remote(&self, environment: &EnvironmentId) {
         self.link_of(environment).retry_remote();
+    }
+    /// Open the sheet adding an environment on pairing again with the work
+    /// machine at `address`, called `name`.
+    pub(crate) fn pair_again(&self, address: String, name: String) {
+        let mut asked = self.pair_again;
+        *asked.write() = Some((address, name));
+        self.dispatch(Msg::AddingOpen);
+    }
+    /// The pairing asked for again, once.
+    pub(crate) fn take_pair_again(&self) -> Option<(String, String)> {
+        let mut asked = self.pair_again;
+        asked.write().take()
     }
     pub(crate) fn query_remote(
         &self,
@@ -690,7 +729,6 @@ impl AppCtx {
                     Err(e) => self.status(Some(format!("cannot remove the environment: {e}"))),
                 }
             }
-            Effect::OpenEnvironments => crate::environment_manager::open(),
             Effect::CloseWindow => dioxus::desktop::window().close(),
             Effect::OpenWindow => {
                 if let Err(e) = open_another_window() {

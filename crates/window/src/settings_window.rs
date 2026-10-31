@@ -32,6 +32,7 @@ use crate::zoom::LEVELS;
 
 mod about;
 mod agents;
+mod environment;
 mod neovim;
 mod profiles;
 
@@ -108,6 +109,7 @@ pub fn close_in_front() -> bool {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Pane {
+    Environment,
     Window,
     General,
     Appearance,
@@ -116,13 +118,16 @@ enum Pane {
     Agents,
     Programs,
     Keys,
+    Serving,
+    Removed,
     About,
 }
 
 impl Pane {
     /// The panes of settings, in the order the sidebar lists them; About is
     /// set apart below them.
-    const ALL: [Pane; 8] = [
+    const ALL: [Pane; 11] = [
+        Pane::Environment,
         Pane::General,
         Pane::Appearance,
         Pane::Agents,
@@ -131,17 +136,38 @@ impl Pane {
         Pane::Window,
         Pane::Console,
         Pane::Prompt,
+        Pane::Serving,
+        Pane::Removed,
     ];
 
     fn available_offline(self) -> bool {
         matches!(
             self,
-            Pane::Window | Pane::Console | Pane::Prompt | Pane::About
+            Pane::Environment
+                | Pane::Window
+                | Pane::Console
+                | Pane::Prompt
+                | Pane::Serving
+                | Pane::Removed
+                | Pane::About
         )
+    }
+
+    /// Where what a pane available offline changes is kept, and for what.
+    fn kept_here(self) -> &'static str {
+        match self {
+            Pane::Environment => "Kept on this computer, for this environment.",
+            Pane::Serving => "This computer, for other computers to work on.",
+            Pane::Removed => "Kept on this computer; one restored is listed in every window again.",
+            _ => "Saved on this computer for all environments.",
+        }
     }
 
     fn title(self) -> &'static str {
         match self {
+            Pane::Environment => "Environment",
+            Pane::Serving => "Accept connections",
+            Pane::Removed => "Removed environments",
             Pane::Window => "Window",
             Pane::General => "General",
             Pane::Appearance => "Appearance",
@@ -162,6 +188,9 @@ impl Pane {
 
     fn icon(self) -> Icon {
         match self {
+            Pane::Environment => Icon::Server,
+            Pane::Serving => Icon::UsersGroup,
+            Pane::Removed => Icon::SquareMinus,
             Pane::Window => Icon::AdjustmentsHorizontal,
             Pane::General => Icon::AdjustmentsHorizontal,
             Pane::Appearance => Icon::SunMoon,
@@ -326,7 +355,7 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
                     if pane() != Pane::About {
                         p { class: "settings-agent-note", role: "status",
                             if pane().available_offline() {
-                                "Saved on this computer for all environments."
+                                "{pane().kept_here()}"
                             } else if let Some(status) = remote() {
                                 "Work settings on {status.host}, for this environment."
                             } else {
@@ -357,6 +386,9 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
                         },
                         Pane::Programs => rsx! { ProgramsPane { now: now(), change } },
                         Pane::Keys => rsx! { KeysPane {} },
+                        Pane::Environment => rsx! { environment::EnvironmentPane {} },
+                        Pane::Serving => rsx! { crate::serving_pane::ServingPane {} },
+                        Pane::Removed => rsx! { environment::RemovedPane {} },
                         Pane::About => rsx! { about::AboutPane {} },
                     }
                     }
@@ -833,7 +865,15 @@ mod tests {
 
     #[test]
     fn disconnected_environments_keep_computer_preferences_editable() {
-        for pane in [Pane::Window, Pane::Console, Pane::Prompt, Pane::About] {
+        for pane in [
+            Pane::Environment,
+            Pane::Window,
+            Pane::Console,
+            Pane::Prompt,
+            Pane::Serving,
+            Pane::Removed,
+            Pane::About,
+        ] {
             assert!(pane.available_offline(), "{pane:?} should remain available");
         }
         for pane in [

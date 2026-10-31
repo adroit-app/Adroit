@@ -3,6 +3,8 @@
 //! the heading is selected. The work shown may be stale while a link is
 //! down, so how it stands stays in sight.
 
+use adroit_connect::Target;
+use adroit_connect::environments::Catalog;
 use adroit_core::host::Link;
 use adroit_model::EnvironmentId;
 use dioxus::prelude::*;
@@ -213,6 +215,7 @@ pub(crate) fn EnvironmentCard(environment: EnvironmentId) -> Element {
     let remote = app.remotes.read().get(&environment).cloned();
     let now = *app.clock.read();
     let retry = environment.clone();
+    let pair = environment.clone();
     let last_work = remote
         .as_ref()
         .and_then(|r| r.last_work_ms)
@@ -241,11 +244,24 @@ pub(crate) fn EnvironmentCard(environment: EnvironmentId) -> Element {
                 if let Some(problem) = problem {
                     div { class: "environment-card-problem", role: "status", "{problem}" }
                 }
-                if retryable {
+                if retryable || remote.is_some() {
                     div { class: "environment-card-actions",
-                        button { class: "button primary", onclick: move |_| app.retry_remote(&retry),
-                            IconView { icon: Icon::Refresh, size: 13 }
-                            "Retry now"
+                        if retryable {
+                            button { class: "button primary", onclick: move |_| app.retry_remote(&retry),
+                                IconView { icon: Icon::Refresh, size: 13 }
+                                "Retry now"
+                            }
+                        }
+                        if remote.is_some() {
+                            button {
+                                class: "button",
+                                title: "Pair with this work machine again, as when it no longer accepts this computer",
+                                onclick: move |_| match work_machine(&pair) {
+                                    Some(address) => app.pair_again(address, app.environment_name(&pair)),
+                                    None => app.notice("this environment's work machine is no longer listed".into()),
+                                },
+                                "Pair again"
+                            }
                         }
                     }
                 }
@@ -371,11 +387,52 @@ fn PendingChange(
     }
 }
 
+/// The address of the work machine `environment` works on, as the catalog
+/// keeps it now.
+fn work_machine(environment: &EnvironmentId) -> Option<String> {
+    address_in(&Catalog::load(&Catalog::path()).ok()?, environment)
+}
+
+/// The address of the work machine `environment` works on in `catalog`,
+/// none for one on this computer or one not kept.
+fn address_in(catalog: &Catalog, environment: &EnvironmentId) -> Option<String> {
+    let kept = catalog
+        .environments
+        .iter()
+        .find(|e| EnvironmentId::new(&e.id) == *environment)?;
+    match &kept.target {
+        Target::Native { address, .. } => Some(address.clone()),
+        Target::Local => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
+    use adroit_connect::environments::Environment;
+
     use super::*;
+
+    #[test]
+    fn only_an_environment_kept_on_a_work_machine_has_one_to_pair_with_again() {
+        let machine = Environment::new(
+            "Box",
+            Target::Native {
+                address: "box.local:47130".into(),
+                server: "ab".repeat(32),
+            },
+        );
+        let here = Environment::new("Here", Target::Local);
+        let catalog = Catalog {
+            environments: vec![machine.clone(), here.clone()],
+            ..Catalog::default()
+        };
+        let address = |e: &Environment| address_in(&catalog, &EnvironmentId::new(&e.id));
+        assert_eq!(address(&machine).as_deref(), Some("box.local:47130"));
+        assert_eq!(address(&here), None);
+        assert_eq!(address_in(&catalog, &EnvironmentId::new("gone")), None);
+    }
 
     fn remote(edit: impl FnOnce(&mut RemoteStatus)) -> RemoteStatus {
         let mut status = RemoteStatus::connected("box");

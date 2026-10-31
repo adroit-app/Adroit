@@ -31,7 +31,6 @@ mod keys;
 use adroit_core::keys_by_action;
 use adroit_core::keys_edit;
 use adroit_core::keys_help;
-mod environment_manager;
 mod keys_help_view;
 mod keys_pane;
 mod layout;

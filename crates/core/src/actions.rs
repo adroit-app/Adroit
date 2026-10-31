@@ -110,7 +110,6 @@ pub enum Action {
     HistoryPrev,
     HistoryNext,
     SettingsOpen,
-    EnvironmentsOpen,
     DaemonRestart,
     KeysHelp,
     ZoomIn,
@@ -362,7 +361,6 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::SettingsOpen, "settings.open", "open the Settings window, on the environment of the row selected in the tree or else of the tab shown")
         .bar("Settings…", Icon::Settings)
         .row("Environment settings…", Go),
-    S::new(A::EnvironmentsOpen, "environments.open", "open the Environments window, to add, check and restore environments ([details](environments.md))").bar("Environments…", Icon::Server),
     S::new(A::DaemonRestart, "daemon.restart", "restart the sessions' daemon after asking, ending every session it holds ([details](sessions.md#the-hosts))").bar("Restart Session Daemon…", Icon::ServerBolt),
     S::new(A::KeysHelp, "keys.help", "show every binding in force, area by area, the areas the keys are in first, each with what its action does and whether it repeats; `Escape`, `q` or the key that showed it closes it, and no other key acts behind it").bar("Keyboard Shortcuts", Icon::Keyboard),
     S::new(A::ZoomIn, "zoom.in", "draw the window a step larger").bar("Zoom In", Icon::ZoomIn),
@@ -587,7 +585,6 @@ mod tests {
             HistoryPrev,
             HistoryNext,
             SettingsOpen,
-            EnvironmentsOpen,
             DaemonRestart,
             KeysHelp,
             ZoomIn,

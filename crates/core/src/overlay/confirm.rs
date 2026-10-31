@@ -60,7 +60,7 @@ impl Ask {
             Self::RemoveEnvironment(_, name) => (
                 Icon::SquareMinus,
                 format!("Remove {name}?"),
-                "Every window stops listing it. Its sessions keep running on its host, and the Environments window can restore it.".into(),
+                "Every window stops listing it. Its sessions keep running on its host, and it can be restored from Settings.".into(),
                 "Remove",
             ),
         }

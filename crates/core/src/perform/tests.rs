@@ -568,14 +568,6 @@ fn adding_an_environment_opens_its_sheet_from_anywhere() {
 }
 
 #[test]
-fn the_environments_window_is_opened_from_anywhere() {
-    for area in [Area::Sidebar, Area::Console] {
-        let run = showing(area).send(perform(Action::EnvironmentsOpen, None, Probe::default()));
-        assert_eq!(run.last_effects(), [Effect::OpenEnvironments], "{area:?}");
-    }
-}
-
-#[test]
 fn the_settings_open_for_the_environment_of_the_selected_row_or_else_of_the_tab_shown() {
     use crate::testing::{shows_there, there};
 

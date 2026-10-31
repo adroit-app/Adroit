@@ -43,8 +43,8 @@ use local execution.
 
 [Environments](environments.md) group a connection with its agents and work
 settings. A window lists every environment and connects to each without
-redirecting the current instance or requiring the application to restart. The
-Environments window checks connections and explains work-machine setup.
+redirecting the current instance or requiring the application to restart.
+Settings checks an environment's connection and explains work-machine setup.
 Existing execution files remain readable for legacy clients; an environment
 binding takes precedence.
 
@@ -121,9 +121,9 @@ replaced work host.
 To pair, run `adroit connect pair <address>` on the client. On the work
 machine, run `adroit remote pair` and type the code the client shows once its
 request appears. The client then has an environment for the work machine.
-The Environments window does both sides: on the client, pairing a work machine lists
-the work machines announced on the local network and shows the code; on the
-work machine, Accept connections turns the services on and off, chooses
+On the client, adding an environment lists the work machines announced on the
+local network and shows the code; on the work machine, Accept connections in
+Settings turns the services on and off, chooses
 whether the gateway announces itself, allows pairing, takes the code for each
 request, and lists and revokes the paired clients. Turning it on is done once
 the gateway answers; when the gateway does not start, the window says what it

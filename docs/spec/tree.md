@@ -97,7 +97,8 @@ while it is connected, and in words while it is being reached, cannot be
 reached, with how old its work is, reads only, or holds a change sent there
 that needs you. A folded heading counts the sessions waiting on you inside it.
 Selecting a heading shows its connection in the details: what went wrong, a
-way to try again at once, and the drafts and changes waiting for it. The
+way to try again at once or to pair with its work machine again, and the
+drafts and changes waiting for it. The
 sessions waiting on you are gathered from every environment, and going to the
 next waiting session reaches each of them. A session, a shell or a Neovim
 started from a row, or beside a tab, starts in the environment of that row or

@@ -224,8 +224,6 @@ pub enum Effect {
     /// Archive `environment` in the environments kept, which every window
     /// then stops listing.
     ArchiveEnvironment(EnvironmentId),
-    /// Open the Environments window.
-    OpenEnvironments,
 
     // The overlays.
     /// Run `action` where the keys are now.

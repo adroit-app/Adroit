@@ -7,21 +7,18 @@ connects to all of them when it opens and to each one added while it is open.
 An environment that cannot be reached stays listed with the work last received
 from it, the window keeps trying it, and the window's other environments stay
 usable. Each one's tabs come back once its host lists its work. The header
-names the environment of the tab shown. Settings configures the environment of
-the selected tree row or the tab shown. Environments are added below the tree.
-Their connections are set up and removed ones restored in the separate
-Environments window, opened from the application menu; opening an environment
-there goes to its heading. An environment can also be opened in a separate, independent
-window instance of its own.
+names the environment of the tab shown.
 
 Removing an environment from its heading, after asking, archives it and takes
 it out of every window's tree; its sessions keep running on its host. A window
-cannot remove the environment it was started in.
+cannot remove the environment it was started in. Settings configures the
+environment of the selected tree row or the tab shown, including its name and
+connection.
 
 Each instance keeps the environment and connection it opened. Changing another
 instance's choice does not redirect its CLI, MCP, drafts or unresolved sends.
 Renaming an environment keeps its identity. Choosing a different connection in
-the environment editor creates another environment, leaving the original alone.
+Settings creates another environment, leaving the original alone.
 
 The agent profiles a session starts from ([settings](settings.md#profiles))
 live inside an environment; an environment is not one of them.
@@ -36,13 +33,15 @@ not paired yet is paired then: the window shows the code to type on the work
 machine. The environment is named after its work machine unless another name
 is typed, and the tree lists it at once. Adding a work machine that already
 has an environment selects that environment instead, and one whose environment
-was removed lists that environment again. Pairing from the command line adds an
-environment too, which every window lists.
-An environment can switch between its paired work machine and the other
-connections. Testing a connection does not select or create an environment. An
-environment can be saved before its work machine or agents are available.
+was removed lists that environment again. An environment's work machine is
+paired with again from the details of its heading, such as when it no longer
+accepts this computer; pairing with a work machine at another address than its
+environment keeps moves that environment there. Pairing from the command line
+adds an environment too, which every window lists. Testing a connection, in Settings,
+does not select or create an environment. An environment can be saved before
+its work machine or agents are available.
 
-Open an environment to configure its agents, working directories and programs.
+Settings configures an environment's agents, working directories and programs.
 Its agent profiles use the programs installed on that work machine, and
 installation and login checks run there. They never substitute the client's
 agents or credentials. Several agent profiles, including different agents,
@@ -59,7 +58,7 @@ a newer configuration.
 Fonts, zoom, prompt dimensions, notifications and local console input
 preferences are saved on this computer across environments. The embedded
 Neovim configuration also stays here. Work-machine paths and console themes
-remain part of the environment. When disconnected, the Environments window and
+remain part of the environment. When disconnected, adding environments and
 local preferences remain available; work settings cannot be saved locally in
 their place.
 
@@ -67,7 +66,7 @@ their place.
 
 Closing a window or removing an environment's registration does not stop its
 sessions or remove its credentials and files. Removed registrations remain
-restorable from the Environments window. Creating another environment with the
+restorable from Settings. Creating another environment with the
 same connection does not copy credentials, dedicated login directories or
 running work.
 

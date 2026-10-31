@@ -387,7 +387,6 @@ pub(crate) fn perform(
             _ => Vec::new(),
         },
         Action::EnvironmentAdd => step(state, Msg::AddingOpen),
-        Action::EnvironmentsOpen => vec![Effect::OpenEnvironments],
         Action::TreeToggle => step(state, Msg::PanelToggle(Side::Sidebar)),
         Action::DetailsToggle => step(state, Msg::PanelToggle(Side::Details)),
         Action::ZoomIn => step(state, Msg::Zoom(zoom::Step::In)),
