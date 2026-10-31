@@ -177,24 +177,26 @@ fn tree_failing(state: &mut ViewState, effects: &mut Vec<Effect>) {
 
 /// The tree's rows are built from what the host listed.
 fn tree_rows(state: &mut ViewState, _: &mut Vec<Effect>) {
-    tree::build(
-        &mut state.tree,
-        &state.hosts.environment,
-        state.hosts.own().work.as_ref(),
-    );
+    tree::build(&mut state.tree, &state.hosts);
     tree::go_into(&mut state.tree);
 }
 
 /// A selected row that leaves the rows gives way to another.
 fn tree_kept(state: &mut ViewState, _: &mut Vec<Effect>) {
     let showing = state.content.showing();
-    tree::keep_selection(&mut state.tree, &showing, state.hosts.own().work.as_ref());
+    let work = state
+        .hosts
+        .work(state.hosts.environment_of(showing.tab.as_ref()));
+    tree::keep_selection(&mut state.tree, &showing, work);
 }
 
 /// The selection follows the focused window to what it now shows.
 fn tree_switched(state: &mut ViewState, _: &mut Vec<Effect>) {
     let showing = state.content.showing();
-    tree::follow_switch(&mut state.tree, &showing, state.hosts.own().work.as_ref());
+    let work = state
+        .hosts
+        .work(state.hosts.environment_of(showing.tab.as_ref()));
+    tree::follow_switch(&mut state.tree, &showing, work);
 }
 
 /// A finished session the user sees is no longer marked finished.
@@ -290,15 +292,32 @@ fn picker_listed(state: &mut ViewState, _: &mut Vec<Effect>) {
     picker::take_listed(&mut state.picker, state.hosts.own().work.as_ref());
 }
 
-/// The host keeps read what the tree, the details panel and the picker
-/// show, and the worktree in the middle, asked once each time it changes.
+/// The window's own host keeps read what the tree, the details panel and
+/// the picker show, and the worktree in the middle; each other
+/// environment's host keeps read what the tree shows of it. Each is asked
+/// once each time what it keeps read changes.
 fn watched(state: &mut ViewState, effects: &mut Vec<Effect>) {
-    let sight = sight(state);
-    if state.hosts.own().watched == sight {
-        return;
+    let own = sight(state);
+    let own_environment = state.hosts.environment.clone();
+    let tree = &state.tree;
+    for (environment, host) in state.hosts.each_mut() {
+        let sight = if *environment == own_environment {
+            own.clone()
+        } else {
+            Sight {
+                tree: tree::sight(tree, environment),
+                ..Sight::default()
+            }
+        };
+        if host.watched == sight {
+            continue;
+        }
+        host.watched = sight.clone();
+        effects.push(Effect::Host {
+            environment: environment.clone(),
+            request: Request::Watch(Box::new(sight)),
+        });
     }
-    state.hosts.own_mut().watched = sight.clone();
-    effects.push(state.hosts.ask_own(Request::Watch(Box::new(sight))));
 }
 
 /// What the window shows that the host keeps read.

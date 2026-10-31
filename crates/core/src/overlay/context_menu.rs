@@ -77,6 +77,8 @@ pub fn entries(target: &Target, session: Option<&Session>) -> Vec<(Action, &'sta
             [fold, copy_path].into_iter().chain(here).collect()
         }
         Target::Row(Item::Heading(..)) => [fold].into_iter().chain(here).collect(),
+        // An environment is no place to start anything in.
+        Target::Row(Item::Environment(_)) => vec![fold],
         Target::Tab(Tab::Session(_, _)) => [close_tab]
             .into_iter()
             .chain(rename)

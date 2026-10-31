@@ -7,7 +7,7 @@ use std::path::Path;
 use adroit_core::overlay::context_menu::Target;
 use adroit_core::settings::Settings;
 use adroit_core::tree;
-use adroit_model::{InboxItem, TerminalSession, Tree};
+use adroit_model::{EnvironmentId, InboxItem, TerminalSession, Tree};
 use dioxus::prelude::*;
 
 use crate::bridge::AppCtx;
@@ -26,6 +26,7 @@ use crate::shell::overlays::menu_opener;
 /// What a sidebar row is, told when the pointer rests on it.
 pub(crate) fn row_tip(item: &Item) -> &'static str {
     match item {
+        Item::Environment(_) => "An environment and the work in it. Enter folds it",
         Item::Workspace(_, _) => {
             "A workspace: a git repository or a directory sessions run in. Enter folds it; n starts a session there"
         }
@@ -143,8 +144,7 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
         return rsx! {
             FileRow {
                 path: path.clone(),
-                // The rows are of the narrowed tree.
-                depth: nav::depth(&view.narrowed, &it),
+                depth: view.depth(&it),
                 look,
                 open,
                 selected: is_sel,
@@ -165,6 +165,10 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
         _ => None,
     };
     let (kind, text, meta, glyph_class) = match &it {
+        Item::Environment(environment) => {
+            let name = app.environment_name(environment);
+            ("head", name, String::new(), None)
+        }
         Item::Workspace(_, root) => {
             let name = t
                 .workspace_of(root)
@@ -187,7 +191,7 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
             )
         }
         Item::Heading(_, path, heading) => {
-            let shown = &view.narrowed;
+            let shown = view.narrowed(it.environment());
             let count = shown
                 .worktrees()
                 .find(|w| &w.worktree.path == path)
@@ -219,9 +223,7 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
         }
         Item::File { .. } | Item::Waiting(_, _) => ("", String::new(), String::new(), None),
     };
-    // The rows are of the narrowed tree, where a workspace can be flat that
-    // is not in full.
-    let indent = 14 * nav::depth(&view.narrowed, &it);
+    let indent = 14 * view.depth(&it);
     // The tabs of the content that show it.
     let chips = match &it {
         Item::Session(environment, id) => {
@@ -248,8 +250,8 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
         Item::Workspace(_, _) if !open => Some(Icon::Folder),
         Item::Workspace(_, _) => Some(Icon::FolderOpen),
         Item::Worktree(_, _) => Some(Icon::GitBranch),
-        Item::Heading(..) if open => Some(Icon::ChevronDown),
-        Item::Heading(..) => Some(Icon::ChevronRight),
+        Item::Environment(_) | Item::Heading(..) if open => Some(Icon::ChevronDown),
+        Item::Environment(_) | Item::Heading(..) => Some(Icon::ChevronRight),
         _ => None,
     };
     // What the console shows stands out wherever the selection is.
@@ -329,9 +331,8 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
 
 /// A session waiting on the user, listed again below the tree.
 #[component]
-pub(crate) fn WaitingRow(waiting: InboxItem, on: RowEvents) -> Element {
+pub(crate) fn WaitingRow(environment: EnvironmentId, waiting: InboxItem, on: RowEvents) -> Element {
     let app = use_context::<AppCtx>();
-    let environment = app.environment();
     let item = Item::Waiting(environment.clone(), waiting.session.id.clone());
     let is_sel = app.tree.read().selected.as_ref() == Some(&item);
     let shown =

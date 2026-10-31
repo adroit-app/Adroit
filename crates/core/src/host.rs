@@ -34,6 +34,8 @@ pub struct Host {
     resyncing: bool,
     /// What the host was last asked to keep read.
     pub(crate) watched: Sight,
+    /// What the environment is called, once the window is told.
+    name: Option<String>,
 }
 
 /// The host of each environment the window shows, held apart: the same
@@ -41,7 +43,7 @@ pub struct Host {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Hosts {
     /// The window's own environment, the one it was opened in: what it
-    /// starts goes there, and the tree shows its work.
+    /// starts goes there, and its work heads the tree.
     pub environment: EnvironmentId,
     /// Ordered by environment, so whatever lists them lists them alike each
     /// time. Always holds the host of `environment`.
@@ -87,6 +89,51 @@ impl Hosts {
     /// open.
     pub fn environment_of<'a>(&'a self, tab: Option<&'a Tab>) -> &'a EnvironmentId {
         tab.map_or(&self.environment, Tab::environment)
+    }
+
+    /// Every environment the window shows with its host, its own first and
+    /// the others in the order of their ids, so whatever lists them lists
+    /// them alike each time.
+    pub fn each(&self) -> impl Iterator<Item = (&EnvironmentId, &Host)> {
+        let own = (&self.environment, self.own());
+        std::iter::once(own).chain(self.each.iter().filter(|(e, _)| **e != self.environment))
+    }
+
+    pub(crate) fn each_mut(&mut self) -> impl Iterator<Item = (&EnvironmentId, &mut Host)> {
+        self.each.iter_mut()
+    }
+
+    /// What `environment` is called: the name the window was told, or else
+    /// its id.
+    pub fn name(&self, environment: &EnvironmentId) -> String {
+        let told = self.get(environment).and_then(|h| h.name.clone());
+        match told {
+            Some(name) => name,
+            None if environment.is_unbound() => "This environment".into(),
+            None => environment.to_string(),
+        }
+    }
+
+    /// The window shows `environment`, called `name`. A host it had not
+    /// heard from is greeted; the window's own was greeted when it opened.
+    pub(crate) fn add(&mut self, environment: EnvironmentId, name: String) -> Vec<Effect> {
+        let new = !self.each.contains_key(&environment);
+        self.each.entry(environment.clone()).or_default().name = Some(name);
+        if new {
+            vec![hello(environment)]
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// `request` sent to the host of every environment the window shows.
+    pub(crate) fn ask_each(&self, request: Request) -> Vec<Effect> {
+        self.each()
+            .map(|(environment, _)| Effect::Host {
+                environment: environment.clone(),
+                request: request.clone(),
+            })
+            .collect()
     }
 
     /// `request` sent to the host of the window's own environment.
@@ -154,8 +201,8 @@ pub(crate) fn told(state: &mut ViewState, environment: EnvironmentId, event: Eve
             typing,
         }],
         event => {
-            // A host is known from the first word it says; only the window's
-            // own is greeted when it opens.
+            // A host is known from the first word it says, whether or not the
+            // window was told it shows that environment.
             let host = state.hosts.each.entry(environment.clone()).or_default();
             receive(&environment, host, event)
         }
@@ -240,6 +287,44 @@ mod tests {
         }));
         assert_eq!(run.state().hosts.environment, there());
         assert_eq!(run.state().hosts.own().link, Link::Opening);
+    }
+
+    #[test]
+    fn opening_another_environment_greets_its_host_once_and_names_it() {
+        let run = Scenario::new().send(Msg::EnvironmentOpened {
+            environment: there(),
+            name: "Work machine".into(),
+        });
+        assert_eq!(
+            run.last_effects(),
+            [Effect::Host {
+                environment: there(),
+                request: Request::Hello {
+                    versions: adroit_protocol::SPOKEN.to_vec(),
+                },
+            }]
+        );
+        assert_eq!(
+            run.state().hosts.get(&there()).map(|h| &h.link),
+            Some(&Link::Opening)
+        );
+        assert_eq!(run.state().hosts.environment, here());
+        let renamed = run.send(Msg::EnvironmentOpened {
+            environment: there(),
+            name: "Renamed".into(),
+        });
+        assert!(renamed.last_effects().is_empty());
+        assert_eq!(renamed.state().hosts.name(&there()), "Renamed");
+    }
+
+    #[test]
+    fn naming_the_window_s_own_environment_does_not_greet_its_host_again() {
+        let run = Scenario::new().send(Msg::EnvironmentOpened {
+            environment: here(),
+            name: "This computer".into(),
+        });
+        assert!(run.last_effects().is_empty());
+        assert_eq!(run.state().hosts.name(&here()), "This computer");
     }
 
     #[test]

@@ -30,6 +30,12 @@ pub enum Msg {
         /// The environment the window's work host is.
         environment: EnvironmentId,
     },
+    /// The window shows `environment` too, called `name`, or the name of one
+    /// it shows changed.
+    EnvironmentOpened {
+        environment: EnvironmentId,
+        name: String,
+    },
     /// The window was brought to the front, or sent to the back.
     WindowFocused(bool),
     /// A key asked to zoom.

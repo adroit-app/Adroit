@@ -321,7 +321,7 @@ pub(crate) fn open_row(
         view.folds.set(&item, true);
         return Vec::new();
     }
-    let opens = nav::opens(&item, &view.narrowed, terminals);
+    let opens = nav::opens(&item, view.narrowed(item.environment()), terminals);
     let toggles = unfolds || matches!(opens, nav::Opens::Fold);
     let content = &mut state.content;
     let show = |content: &mut super::ContentView, thing: Tab| match how {

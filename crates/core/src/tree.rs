@@ -1,11 +1,12 @@
-//! The tree as the window holds it: the rows built from what the work host
-//! lists, which nodes are folded, the row selected, the filter narrowing
-//! the rows, and what of the tree the host is asked to keep read.
+//! The tree as the window holds it: the rows built from what each
+//! environment's work host lists, which nodes are folded, the row selected,
+//! the filter narrowing the rows, and what of the tree each host is asked to
+//! keep read.
 
 pub mod nav;
 
 use std::cell::RefCell;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use adroit_model::files::Entry;
@@ -16,6 +17,7 @@ use crate::chrome::status_line::{self, StatusLine};
 use crate::completion::Completions;
 use crate::content::{Showing, Tab};
 use crate::effect::Effect;
+use crate::host::Hosts;
 use nav::{Folds, Heading, Item, Place};
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -31,12 +33,15 @@ pub struct TreeView {
     pub every_worktree: bool,
     /// Whether the files whose names start with `.` are listed.
     pub show_hidden: bool,
-    /// The tree narrowed to what the filter holds.
-    pub narrowed: Tree,
-    /// The sessions waiting on the user, of the whole tree.
-    pub waiting: Vec<InboxItem>,
+    /// Each environment's tree narrowed to what the filter holds.
+    narrowed: BTreeMap<EnvironmentId, Tree>,
+    /// Whether each environment's rows sit under a heading of its own, as
+    /// they do while the window shows more than one.
+    headed: bool,
+    /// The sessions waiting on the user, of every environment's whole tree.
+    pub waiting: Vec<(EnvironmentId, InboxItem)>,
     /// The sessions waiting on the user that the filter keeps.
-    pub narrowed_waiting: Vec<InboxItem>,
+    pub narrowed_waiting: Vec<(EnvironmentId, InboxItem)>,
     /// The sessions finished that the user has seen since.
     pub completions: Completions,
     /// Every row, top to bottom, the sessions waiting on the user last.
@@ -46,7 +51,7 @@ pub struct TreeView {
     /// The directories whose entries the rows list, by their environment.
     listed: BTreeSet<(EnvironmentId, PathBuf)>,
     /// What the rows were last built from.
-    built_from: Option<(EnvironmentId, Seq, String, Folds, bool)>,
+    built_from: Option<BuiltFrom>,
     /// Counts the times the rows were built anew.
     built: u64,
     /// The rows the selection was last kept among.
@@ -60,6 +65,10 @@ pub struct TreeView {
     /// listed for.
     failing: Option<String>,
 }
+
+/// What the rows are built from: each environment by the patch its work is
+/// at, the filter, the folds and whether hidden files are listed.
+type BuiltFrom = (Vec<(EnvironmentId, Option<Seq>)>, String, Folds, bool);
 
 /// A key on the tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,6 +85,34 @@ pub enum Key {
     Into,
     /// Show or hide the files whose names start with `.`.
     Hidden,
+}
+
+impl TreeView {
+    /// The tree of `environment` narrowed to what the filter holds, empty for
+    /// an environment the rows hold nothing of.
+    pub fn narrowed(&self, environment: &EnvironmentId) -> &Tree {
+        static NONE: std::sync::LazyLock<Tree> = std::sync::LazyLock::new(Tree::default);
+        self.narrowed.get(environment).unwrap_or(&NONE)
+    }
+
+    /// How deep `item` sits among the rows: an environment's heading and the
+    /// sessions waiting on the user at the top, an environment's rows a level
+    /// below its heading while there is one. The rows are of the narrowed
+    /// trees, where a workspace can be flat that is not in full.
+    pub fn depth(&self, item: &Item) -> usize {
+        match item {
+            Item::Environment(_) | Item::Waiting(_, _) => 0,
+            _ => {
+                let within = nav::depth(self.narrowed(item.environment()), item);
+                within + usize::from(self.headed)
+            }
+        }
+    }
+
+    /// The row `item` sits under among the rows.
+    pub fn parent(&self, item: &Item) -> Option<Item> {
+        nav::parent(&self.rows, |i| self.depth(i), item)
+    }
 }
 
 /// Where the content's focused window is, as the header writes it: its
@@ -138,7 +175,9 @@ pub(crate) fn every_worktree(view: &mut TreeView, hosts: &crate::host::Hosts) ->
     } else {
         "Only the worktrees with sessions are listed"
     };
-    vec![hosts.ask_own(Request::Relist), Effect::Notice(told.into())]
+    let mut effects = hosts.ask_each(Request::Relist);
+    effects.push(Effect::Notice(told.into()));
+    effects
 }
 
 pub(crate) fn press(view: &mut TreeView, key: Key) -> Vec<Effect> {
@@ -157,7 +196,7 @@ pub(crate) fn press(view: &mut TreeView, key: Key) -> Vec<Effect> {
                 view.folds.set(&row, false);
                 return Vec::new();
             }
-            match nav::parent(rows, &view.narrowed, &row) {
+            match view.parent(&row) {
                 Some(up) => {
                     view.folds.set(&up, false);
                     Some(up)
@@ -182,44 +221,67 @@ pub(crate) fn press(view: &mut TreeView, key: Key) -> Vec<Effect> {
     Vec::new()
 }
 
-/// The rows built anew from the tree the host of `environment` listed, when
-/// it, the filter or the folds changed since they were last built. A
-/// directory's entries come from what the host listed of it.
-pub(crate) fn build(view: &mut TreeView, environment: &EnvironmentId, work: Option<&WorkSnapshot>) {
-    let from = work.map(|w| {
-        (
-            environment.clone(),
-            w.seq,
-            view.filter.clone(),
-            view.folds.clone(),
-            view.show_hidden,
-        )
-    });
-    if from.is_some() && view.built_from == from {
+/// The rows built anew from the trees the host of each environment listed,
+/// when one of them, the filter or the folds changed since they were last
+/// built: each environment's under its heading while there are several, then
+/// the sessions waiting on the user in all of them. A directory's entries
+/// come from what its environment's host listed of it.
+pub(crate) fn build(view: &mut TreeView, hosts: &Hosts) {
+    let from = (
+        hosts
+            .each()
+            .map(|(e, h)| (e.clone(), h.work.as_ref().map(|w| w.seq)))
+            .collect(),
+        view.filter.clone(),
+        view.folds.clone(),
+        view.show_hidden,
+    );
+    if view.built_from.as_ref() == Some(&from) {
         return;
     }
-    view.built_from = from;
-    let facts = facts(work);
-    view.narrowed = nav::narrowed(facts.tree(), &view.filter);
-    view.waiting = inbox(facts.tree());
-    view.narrowed_waiting = inbox(&view.narrowed);
+    view.built_from = Some(from);
+    view.headed = hosts.each().nth(1).is_some();
+    view.narrowed.clear();
+    view.waiting.clear();
+    view.narrowed_waiting.clear();
     let asked = RefCell::new(BTreeSet::new());
-    let read = |dir: &Path| {
-        asked
-            .borrow_mut()
-            .insert((environment.clone(), dir.to_path_buf()));
-        let mut entries = facts.entries.get(dir).cloned().unwrap_or_default();
-        if !view.show_hidden {
-            entries.retain(|e| !adroit_model::files::is_hidden(&e.path));
+    let mut rows = Vec::new();
+    for (environment, host) in hosts.each() {
+        let facts = facts(host.work.as_ref());
+        let narrowed = nav::narrowed(facts.tree(), &view.filter);
+        let of = |tree: &Tree| inbox(tree).into_iter().map(|i| (environment.clone(), i));
+        view.waiting.extend(of(facts.tree()));
+        view.narrowed_waiting.extend(of(&narrowed));
+        let heading = Item::Environment(environment.clone());
+        let open = !view.headed || view.folds.is_open(&heading);
+        if view.headed {
+            rows.push(heading);
         }
-        entries
-    };
-    let rows = nav::items(
-        environment,
-        &view.narrowed,
-        &view.narrowed_waiting,
-        &view.folds,
-        &read as &dyn Fn(&Path) -> Vec<Entry>,
+        if open {
+            let read = |dir: &Path| {
+                asked
+                    .borrow_mut()
+                    .insert((environment.clone(), dir.to_path_buf()));
+                let mut entries = facts.entries.get(dir).cloned().unwrap_or_default();
+                if !view.show_hidden {
+                    entries.retain(|e| !adroit_model::files::is_hidden(&e.path));
+                }
+                entries
+            };
+            rows.extend(nav::items(
+                environment,
+                &narrowed,
+                &[],
+                &view.folds,
+                &read as &dyn Fn(&Path) -> Vec<Entry>,
+            ));
+        }
+        view.narrowed.insert(environment.clone(), narrowed);
+    }
+    rows.extend(
+        view.narrowed_waiting
+            .iter()
+            .map(|(environment, i)| Item::Waiting(environment.clone(), i.session.id.clone())),
     );
     view.marked = rows
         .iter()
@@ -252,7 +314,7 @@ pub(crate) fn go_into(view: &mut TreeView) {
         .iter()
         .position(|r| *r == row)
         .and_then(|at| rows.get(at + 1))
-        .filter(|next| nav::parent(rows, &view.narrowed, next).as_ref() == Some(&row));
+        .filter(|next| view.parent(next).as_ref() == Some(&row));
     if let Some(first) = first {
         view.selected = Some(first.clone());
         view.into = None;
@@ -962,5 +1024,212 @@ mod tests {
             sight(&TreeView::default(), &EnvironmentId::unbound()),
             Sight::default().tree
         );
+    }
+
+    /// An environment other than the window's own.
+    fn there() -> EnvironmentId {
+        EnvironmentId::new("there")
+    }
+
+    /// A window showing its own environment and `there`, each with a
+    /// session in a directory of the same path.
+    fn two_environments() -> Scenario {
+        Scenario::new()
+            .send(Msg::EnvironmentOpened {
+                environment: there(),
+                name: "Work machine".into(),
+            })
+            .event_from(here(), listing([session("a").cwd("/r")]))
+            .event_from(there(), listing([session("b").cwd("/r")]))
+    }
+
+    fn at(rows: &[Item], item: &Item) -> usize {
+        rows.iter()
+            .position(|r| r == item)
+            .unwrap_or_else(|| panic!("{item:?} is not among {rows:?}"))
+    }
+
+    #[test]
+    fn a_window_showing_one_environment_heads_none() {
+        let run = Scenario::new().event(listing([session("a").cwd("/r")]));
+        let got = rows(&run);
+        assert!(!got.iter().any(|r| matches!(r, Item::Environment(_))));
+        assert_eq!(got.first(), Some(&Item::Workspace(here(), "/r".into())));
+        assert_eq!(run.state().tree.depth(&got[0]), 0);
+    }
+
+    #[test]
+    fn each_environment_s_work_sits_under_a_heading_of_its_own() {
+        let run = two_environments();
+        let got = rows(&run);
+        let own = Item::Environment(here());
+        let other = Item::Environment(there());
+        assert_eq!(got.first(), Some(&own));
+        assert!(at(&got, &Item::Session(here(), "a".into())) < at(&got, &other));
+        assert!(at(&got, &other) < at(&got, &Item::Workspace(there(), "/r".into())));
+        assert!(
+            at(&got, &Item::Workspace(there(), "/r".into()))
+                < at(&got, &Item::Session(there(), "b".into()))
+        );
+        let view = &run.state().tree;
+        assert_eq!(view.depth(&other), 0);
+        assert_eq!(view.depth(&Item::Workspace(there(), "/r".into())), 1);
+        assert_eq!(
+            view.parent(&Item::Workspace(there(), "/r".into())),
+            Some(other)
+        );
+    }
+
+    #[test]
+    fn the_same_directory_in_two_environments_is_two_rows() {
+        let got = rows(&two_environments());
+        let workspaces: Vec<_> = got
+            .iter()
+            .filter(|r| matches!(r, Item::Workspace(_, root) if root == Path::new("/r")))
+            .collect();
+        assert_eq!(
+            workspaces,
+            [
+                &Item::Workspace(here(), "/r".into()),
+                &Item::Workspace(there(), "/r".into())
+            ]
+        );
+    }
+
+    #[test]
+    fn an_environment_heading_is_named_by_the_name_it_was_opened_with_or_else_its_id() {
+        let run = two_environments().event_from(
+            EnvironmentId::new("elsewhere"),
+            listing(Vec::<Session>::new()),
+        );
+        let hosts = &run.state().hosts;
+        assert_eq!(hosts.name(&there()), "Work machine");
+        assert_eq!(hosts.name(&EnvironmentId::new("elsewhere")), "elsewhere");
+        assert!(!hosts.name(&here()).is_empty());
+    }
+
+    #[test]
+    fn folding_one_environment_leaves_the_other_open() {
+        let folded = two_environments().send(Msg::TreeFold {
+            row: Item::Environment(there()),
+            open: false,
+        });
+        let got = rows(&folded);
+        assert!(got.contains(&Item::Environment(there())));
+        assert!(!got.contains(&Item::Workspace(there(), "/r".into())));
+        assert!(got.contains(&Item::Session(here(), "a".into())));
+        let unfolded = folded.send(Msg::TreeFoldToggle(Item::Environment(there())));
+        assert!(rows(&unfolded).contains(&Item::Session(there(), "b".into())));
+    }
+
+    #[test]
+    fn the_fold_key_on_an_environment_s_top_row_folds_the_environment() {
+        let ws = Item::Workspace(there(), "/r".into());
+        let run = two_environments()
+            .send(Msg::TreeFold {
+                row: ws.clone(),
+                open: false,
+            })
+            .send(Msg::TreeSelect(Some(ws)))
+            .send(Msg::TreeKey(Key::Fold));
+        assert_eq!(selected(&run), Some(Item::Environment(there())));
+        assert!(!run.state().tree.folds.is_open(&Item::Environment(there())));
+        assert!(rows(&run).contains(&Item::Session(here(), "a".into())));
+    }
+
+    fn both_waiting() -> Scenario {
+        Scenario::new()
+            .event_from(
+                here(),
+                listing([session("a").cwd("/r").waiting(Wait::Permission)]),
+            )
+            .event_from(
+                there(),
+                listing([session("b").cwd("/r").waiting(Wait::Permission)]),
+            )
+    }
+
+    #[test]
+    fn what_waits_on_the_user_is_gathered_from_every_environment() {
+        let run = both_waiting();
+        let waiting: Vec<_> = run
+            .state()
+            .tree
+            .waiting
+            .iter()
+            .map(|(environment, it)| (environment.clone(), it.session.id.clone()))
+            .collect();
+        assert_eq!(
+            waiting,
+            [(here(), "a".to_string()), (there(), "b".to_string())]
+        );
+        let got = rows(&run);
+        assert_eq!(
+            got[got.len() - 2..],
+            [
+                Item::Waiting(here(), "a".into()),
+                Item::Waiting(there(), "b".into())
+            ]
+        );
+    }
+
+    #[test]
+    fn the_next_waiting_session_can_be_another_environment_s() {
+        use crate::console::Probe;
+        let next = |run: Scenario| {
+            run.send(Msg::Perform {
+                action: Action::WaitingNext,
+                key: None,
+                probe: Box::new(Probe::default()),
+            })
+        };
+        let run =
+            next(both_waiting().send(Msg::TreeSelect(Some(Item::Waiting(here(), "a".into())))));
+        assert_eq!(selected(&run), Some(Item::Waiting(there(), "b".into())));
+        assert_eq!(
+            run.state().content.active(),
+            Some(&Tab::Session(there(), "b".into()))
+        );
+        let back = next(run);
+        assert_eq!(selected(&back), Some(Item::Waiting(here(), "a".into())));
+    }
+
+    #[test]
+    fn relisting_is_asked_of_every_environment_s_host() {
+        for msg in [Msg::Relist, Msg::TreeEveryWorktree] {
+            let run = two_environments().send(msg.clone());
+            for environment in [here(), there()] {
+                assert!(
+                    run.last_effects().contains(&Effect::Host {
+                        environment: environment.clone(),
+                        request: Request::Relist,
+                    }),
+                    "{msg:?} {environment}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn each_environment_s_host_keeps_read_the_files_of_its_own_rows() {
+        let watched = |run: &Scenario, environment: EnvironmentId| {
+            run.effects()
+                .iter()
+                .filter_map(|e| match e {
+                    Effect::Host {
+                        environment: to,
+                        request: Request::Watch(sight),
+                    } if *to == environment => Some(sight.tree.clone()),
+                    _ => None,
+                })
+                .next_back()
+        };
+        let run = two_environments().send(Msg::TreeFold {
+            row: Item::Heading(there(), "/r".into(), Heading::Files),
+            open: true,
+        });
+        let there_sight = watched(&run, there()).unwrap();
+        assert_eq!(there_sight.marked, BTreeSet::from(["/r".into()]));
+        assert!(watched(&run, here()).is_none_or(|s| s.marked.is_empty()));
     }
 }

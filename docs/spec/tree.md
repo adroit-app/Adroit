@@ -89,6 +89,12 @@ conversation, which can be resumed in a new session
 The filter at the top of the tree narrows it as it is typed into. The sessions
 waiting on you are listed again at the bottom of the tree, apart from it.
 
+A window showing more than one [environment](environments.md) heads each
+environment's work with a row named after it, which folds like a heading; a
+window showing one has no such row. The same directory in two environments is
+two rows. The sessions waiting on you are gathered from every environment the
+window shows, and going to the next waiting session reaches each of them.
+
 ## Going to a session or starting one
 
 `Mod+p`, `w`, `+` beside the tree's filter, or the Session menu opens the

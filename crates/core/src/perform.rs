@@ -249,7 +249,7 @@ pub(crate) fn perform(
                 if matches!(
                     nav::opens(
                         &item,
-                        &state.tree.narrowed,
+                        state.tree.narrowed(item.environment()),
                         tree::terminals(state.hosts.work(item.environment()))
                     ),
                     nav::Opens::Fold
@@ -272,7 +272,7 @@ pub(crate) fn perform(
         Action::CursorCopy => {
             let copied = cur.as_ref().and_then(|item| {
                 let terminals = tree::terminals(state.hosts.work(item.environment()));
-                nav::copied(item, &state.tree.narrowed, terminals)
+                nav::copied(item, state.tree.narrowed(item.environment()), terminals)
             });
             let (text, what) = match copied {
                 Some(nav::Copied::Path(p)) => (p.display().to_string(), "path"),
@@ -286,14 +286,17 @@ pub(crate) fn perform(
         Action::CursorReveal => Vec::new(),
         Action::WaitingNext | Action::WaitingPrev => {
             let current = match &cur {
-                Some(Item::Waiting(_, id) | Item::Session(_, id)) => Some(id.as_str()),
+                Some(Item::Waiting(environment, id) | Item::Session(environment, id)) => {
+                    Some((environment, id.as_str()))
+                }
                 _ => None,
             };
             let forward = action == Action::WaitingNext;
-            let Some(id) = nav::next_waiting(&state.tree.waiting, current, forward) else {
+            let Some((environment, id)) = nav::next_waiting(&state.tree.waiting, current, forward)
+            else {
                 return Vec::new();
             };
-            let waiting = Item::Waiting(state.hosts.environment.clone(), id);
+            let waiting = Item::Waiting(environment, id);
             let mut effects = open(state, waiting, Some(Opening::Preview), false);
             // It waits on an answer, given in the console.
             effects.extend(step(state, Msg::Focus(Area::Console)));

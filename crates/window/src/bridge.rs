@@ -587,6 +587,11 @@ impl AppCtx {
         self.view.read().hosts.environment.clone()
     }
 
+    /// What `environment`, one the window shows, is called.
+    pub(crate) fn environment_name(&self, environment: &EnvironmentId) -> String {
+        self.view.read().hosts.name(environment)
+    }
+
     /// What the content's focused window shows now.
     pub(crate) fn active(&self) -> Option<Tab> {
         self.content.peek().active().cloned()

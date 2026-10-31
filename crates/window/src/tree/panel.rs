@@ -88,8 +88,8 @@ pub(crate) fn TreePanel(
                     }
                 }
                 div { class: "list-rows sidebar-inbox",
-                    for it in waiting {
-                        WaitingRow { key: "w-{it.session.id}", waiting: it, on }
+                    for (environment, it) in waiting {
+                        WaitingRow { key: "w-{environment}-{it.session.id}", environment, waiting: it, on }
                     }
                 }
             }

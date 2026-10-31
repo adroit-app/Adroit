@@ -15,6 +15,9 @@ use adroit_model::files::Entry;
 /// there.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Item {
+    /// An environment, heading its work while the window shows more than
+    /// one.
+    Environment(EnvironmentId),
     /// A session waiting on the user, listed in the inbox.
     Waiting(EnvironmentId, String),
     /// A workspace, by the repository or directory it is.
@@ -57,7 +60,8 @@ impl Heading {
 impl Item {
     pub fn environment(&self) -> &EnvironmentId {
         match self {
-            Item::Waiting(environment, _)
+            Item::Environment(environment)
+            | Item::Waiting(environment, _)
             | Item::Workspace(environment, _)
             | Item::Worktree(environment, _)
             | Item::Heading(environment, ..)
@@ -70,6 +74,7 @@ impl Item {
     /// The key used to remember whether a node is folded.
     pub fn fold_key(&self) -> Option<String> {
         let key = match self {
+            Item::Environment(_) => "environment".into(),
             Item::Workspace(_, root) => format!("ws:{}", root.display()),
             Item::Worktree(_, path) => format!("wt:{}", path.display()),
             Item::Heading(_, path, heading) => format!("{heading:?}:{}", path.display()),
@@ -251,7 +256,7 @@ pub fn depth(tree: &Tree, item: &Item) -> usize {
         if flat { 1 } else { 2 }
     };
     match item {
-        Item::Workspace(_, _) | Item::Waiting(_, _) => 0,
+        Item::Environment(_) | Item::Workspace(_, _) | Item::Waiting(_, _) => 0,
         Item::Worktree(_, _) => 1,
         Item::Heading(_, path, _) => heading_at(path),
         Item::Session(_, id) => tree
@@ -269,18 +274,19 @@ pub fn depth(tree: &Tree, item: &Item) -> usize {
     }
 }
 
-/// The row `item` sits under in `list`: the nearest above it one level up.
-/// The sessions waiting on the user sit under none.
-pub fn parent(list: &[Item], tree: &Tree, item: &Item) -> Option<Item> {
+/// The row `item` sits under in `list`: the nearest above it one level up,
+/// each row as deep as `depth` says. The sessions waiting on the user sit
+/// under none.
+pub fn parent(list: &[Item], depth: impl Fn(&Item) -> usize, item: &Item) -> Option<Item> {
     let at = list.iter().position(|i| i == item)?;
-    let level = depth(tree, item);
+    let level = depth(item);
     if level == 0 {
         return None;
     }
     list[..at]
         .iter()
         .rev()
-        .find(|i| !matches!(i, Item::Waiting(_, _)) && depth(tree, i) < level)
+        .find(|i| !matches!(i, Item::Waiting(_, _)) && depth(i) < level)
         .cloned()
 }
 
@@ -311,19 +317,29 @@ pub fn wrap(at: usize, delta: isize, len: usize) -> usize {
     (at as isize + delta).rem_euclid(len as isize) as usize
 }
 
-/// The next (or previous) waiting session after `current`, wrapping around.
-pub fn next_waiting(inbox: &[InboxItem], current: Option<&str>, forward: bool) -> Option<String> {
+/// The next (or previous) waiting session after `current`, wrapping around,
+/// each by its environment and its id there.
+pub fn next_waiting(
+    inbox: &[(EnvironmentId, InboxItem)],
+    current: Option<(&EnvironmentId, &str)>,
+    forward: bool,
+) -> Option<(EnvironmentId, String)> {
     if inbox.is_empty() {
         return None;
     }
     let n = inbox.len();
-    let at = current.and_then(|c| inbox.iter().position(|i| i.session.id == c));
+    let at = current.and_then(|(environment, id)| {
+        inbox
+            .iter()
+            .position(|(e, i)| e == environment && i.session.id == id)
+    });
     let i = match (at, forward) {
         (Some(i), _) => wrap(i, if forward { 1 } else { -1 }, n),
         (None, true) => 0,
         (None, false) => n - 1,
     };
-    Some(inbox[i].session.id.clone())
+    let (environment, it) = &inbox[i];
+    Some((environment.clone(), it.session.id.clone()))
 }
 
 /// The session after (or before) the one `shown`, over every session in the
@@ -624,6 +640,7 @@ pub fn place_of(tree: &Tree, item: &Item) -> Option<Place> {
         Item::Worktree(_, path) | Item::Heading(_, path, _) | Item::File { worktree: path, .. } => {
             Some(Place::at(path.clone()))
         }
+        Item::Environment(_) => None,
         // Not the root itself: a bare repository, a submodule or a separate
         // git directory is named by its git directory.
         Item::Workspace(_, root) => {
@@ -673,7 +690,10 @@ pub fn unfolds(item: &Item, folds: &Folds) -> bool {
 /// first session, or else a new one.
 pub fn opens(item: &Item, tree: &Tree, terminals: &[TerminalSession]) -> Opens {
     match item {
-        Item::Workspace(_, _) | Item::Heading(..) | Item::File { dir: true, .. } => Opens::Fold,
+        Item::Environment(_)
+        | Item::Workspace(_, _)
+        | Item::Heading(..)
+        | Item::File { dir: true, .. } => Opens::Fold,
         Item::File {
             environment,
             worktree,
@@ -770,7 +790,7 @@ pub fn copied(item: &Item, tree: &Tree, terminals: &[TerminalSession]) -> Option
             .iter()
             .find(|t| t.id == *id)
             .map(|t| Copied::Name(t.name.clone())),
-        Item::Heading(..) => None,
+        Item::Environment(_) | Item::Heading(..) => None,
     }
 }
 
@@ -935,13 +955,19 @@ mod tests {
         let list = items(&here(), &t, &[], &folds, &read_web);
         let main = file("/web", "/web/src/main.rs", false);
         assert_eq!(
-            parent(&list, &t, &main),
+            parent(&list, |i| depth(&t, i), &main),
             Some(file("/web", "/web/src", true))
         );
         let readme = file("/web", "/web/README.md", false);
-        assert_eq!(parent(&list, &t, &readme), Some(files_of("/web")));
-        assert_eq!(parent(&list, &t, &files_of("/web")), Some(ws("/web")));
-        assert_eq!(parent(&list, &t, &ws("/web")), None);
+        assert_eq!(
+            parent(&list, |i| depth(&t, i), &readme),
+            Some(files_of("/web"))
+        );
+        assert_eq!(
+            parent(&list, |i| depth(&t, i), &files_of("/web")),
+            Some(ws("/web"))
+        );
+        assert_eq!(parent(&list, |i| depth(&t, i), &ws("/web")), None);
     }
 
     fn closed(rows: &[Item]) -> Folds {
@@ -1232,11 +1258,32 @@ mod tests {
     #[test]
     fn the_next_waiting_session_wraps_around() {
         let t = tree();
-        let ib = inbox(&t);
-        assert_eq!(next_waiting(&ib, None, true).as_deref(), Some("b"));
-        assert_eq!(next_waiting(&ib, Some("b"), true).as_deref(), Some("z"));
-        assert_eq!(next_waiting(&ib, Some("z"), true).as_deref(), Some("b"));
-        assert_eq!(next_waiting(&ib, Some("b"), false).as_deref(), Some("z"));
+        let ib: Vec<_> = inbox(&t).into_iter().map(|i| (here(), i)).collect();
+        let next = |current: Option<&str>, forward| {
+            next_waiting(&ib, current.map(|id| (&ib[0].0, id)), forward).map(|(_, id)| id)
+        };
+        assert_eq!(next(None, true).as_deref(), Some("b"));
+        assert_eq!(next(Some("b"), true).as_deref(), Some("z"));
+        assert_eq!(next(Some("z"), true).as_deref(), Some("b"));
+        assert_eq!(next(Some("b"), false).as_deref(), Some("z"));
+    }
+
+    #[test]
+    fn the_same_session_id_waiting_in_two_environments_is_two_stops() {
+        let t = tree();
+        let there = EnvironmentId::new("there");
+        let ib: Vec<_> = [here(), there.clone()]
+            .into_iter()
+            .flat_map(|e| inbox(&t).into_iter().map(move |i| (e.clone(), i)))
+            .collect();
+        assert_eq!(
+            next_waiting(&ib, Some((&here(), "z")), true),
+            Some((there.clone(), "b".into()))
+        );
+        assert_eq!(
+            next_waiting(&ib, Some((&there, "b")), false),
+            Some((here(), "z".into()))
+        );
     }
 
     #[test]

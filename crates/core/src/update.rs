@@ -27,6 +27,7 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
             state.hosts.open(environment.clone());
             vec![host::hello(environment)]
         }
+        Msg::EnvironmentOpened { environment, name } => state.hosts.add(environment, name),
         Msg::WindowFocused(on) => chrome::window_focused(&mut state.chrome, on),
         Msg::Zoom(step) => chrome::step(&mut state.chrome, step),
 
@@ -51,7 +52,7 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
 
         Msg::Host { environment, event } => host::told(state, environment, event),
 
-        Msg::Relist => vec![state.hosts.ask_own(Request::Relist)],
+        Msg::Relist => state.hosts.ask_each(Request::Relist),
         Msg::Typed(inputs) => vec![state.hosts.ask_own(Request::Typed { inputs })],
         Msg::TerminalOpened(terminal) => {
             vec![state.hosts.ask_own(Request::TerminalOpened { terminal })]
