@@ -27,9 +27,9 @@ const LIVE_EVERY: Duration = Duration::from_secs(2);
 /// session running in another terminal.
 fn kept_id(tab: &Tab) -> Option<u128> {
     match tab {
-        Tab::Session(id) => sessions::id_of(id),
-        Tab::Terminal(id) => Some(*id),
-        Tab::Draft { .. } | Tab::Viewer(_) | Tab::Drawn { .. } => None,
+        Tab::Session(_, id) => sessions::id_of(id),
+        Tab::Terminal(_, id) => Some(*id),
+        Tab::Draft { .. } | Tab::Viewer(_, _) | Tab::Drawn { .. } => None,
     }
 }
 
@@ -103,7 +103,7 @@ fn live_sessions(hub: &Hub) -> BTreeSet<String> {
         .map(|(t, _)| t)
         .chain(attaching.iter())
         .filter_map(|t| match t {
-            Tab::Session(id) => Some(id.clone()),
+            Tab::Session(_, id) => Some(id.clone()),
             _ => None,
         })
         .collect()
@@ -127,7 +127,7 @@ pub(crate) async fn tell_live_on(app: AppCtx, hub: Hub) {
             .panes
             .borrow()
             .iter()
-            .filter(|(tab, _)| matches!(tab, Tab::Session(_)))
+            .filter(|(tab, _)| matches!(tab, Tab::Session(_, _)))
             .filter_map(|(_, pane)| pane.last_input_ms().map(|at| (pane.id(), at)))
             .collect();
         if inputs != typed {
@@ -156,9 +156,9 @@ impl Ui {
     /// terminals: one no longer listed has nothing to show.
     pub(crate) fn keep_panes(&self, sessions: &BTreeSet<String>, terminals: &BTreeSet<u128>) {
         self.hub.panes.borrow_mut().retain(|tab, _| match tab {
-            Tab::Session(id) => sessions.contains(id),
-            Tab::Terminal(id) => terminals.contains(id),
-            Tab::Draft { .. } | Tab::Viewer(_) | Tab::Drawn { .. } => true,
+            Tab::Session(_, id) => sessions.contains(id),
+            Tab::Terminal(_, id) => terminals.contains(id),
+            Tab::Draft { .. } | Tab::Viewer(_, _) | Tab::Drawn { .. } => true,
         });
         let mut gallery = self.local.gallery;
         let gone = gallery
@@ -175,20 +175,35 @@ impl Ui {
 /// Close a shell's windows, and show another thing of its worktree if no
 /// window is left.
 pub(crate) fn close_shell(app: AppCtx, panes: &Panes, id: u128) {
-    panes.borrow_mut().remove(&Tab::Terminal(id));
+    panes
+        .borrow_mut()
+        .remove(&Tab::Terminal(app.environment(), id));
     app.dispatch(Msg::ShellClosed(id));
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adroit_model::EnvironmentId;
 
     #[test]
     fn a_failed_first_attach_stays_retryable_without_a_cached_pane() {
         let panes = Panes::default();
-        assert!(needs_attach(&Tab::Terminal(1), &panes));
-        assert!(needs_attach(&Tab::Session(sessions::hex(1)), &panes));
-        assert!(!needs_attach(&Tab::Session("external".into()), &panes));
-        assert!(!needs_attach(&Tab::Viewer("/tmp/file".into()), &panes));
+        assert!(needs_attach(
+            &Tab::Terminal(EnvironmentId::unbound(), 1),
+            &panes
+        ));
+        assert!(needs_attach(
+            &Tab::Session(EnvironmentId::unbound(), sessions::hex(1)),
+            &panes
+        ));
+        assert!(!needs_attach(
+            &Tab::Session(EnvironmentId::unbound(), "external".into()),
+            &panes
+        ));
+        assert!(!needs_attach(
+            &Tab::Viewer(EnvironmentId::unbound(), "/tmp/file".into()),
+            &panes
+        ));
     }
 }

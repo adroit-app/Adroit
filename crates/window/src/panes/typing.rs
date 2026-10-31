@@ -62,7 +62,7 @@ enum RemoteSend {
 
 fn remote_send(shown: Option<&Tab>) -> RemoteSend {
     match shown {
-        Some(Tab::Session(_) | Tab::Draft { .. }) => RemoteSend::Here,
+        Some(Tab::Session(_, _) | Tab::Draft { .. }) => RemoteSend::Here,
         None => RemoteSend::Scratch,
         Some(_) => RemoteSend::Kept,
     }
@@ -113,7 +113,7 @@ impl Ui {
                 .filter(|(_, _, images)| images.is_empty())
                 .and_then(|(tab, text, _)| passes_enter(tab.as_ref(), text))
             {
-                let tab = Tab::Session(id);
+                let tab = Tab::Session(app.environment(), id);
                 let size = ui.local.console_size_for(&tab);
                 if let Some(p) = pane_for(app, &ui.hub, &tab, size).await {
                     p.key(&Key::new("Enter").ctrl());
@@ -138,7 +138,8 @@ impl Ui {
                         worktree: scratch.clone(),
                         write: false,
                     });
-                    app.active().unwrap_or_else(|| Tab::draft(scratch))
+                    app.active()
+                        .unwrap_or_else(|| Tab::draft(app.environment(), scratch))
                 }
                 Some(shown) => shown,
             };
@@ -175,14 +176,16 @@ impl Ui {
             worktree: scratch.clone(),
             write: false,
         });
-        let draft = app.active().unwrap_or_else(|| Tab::draft(scratch));
+        let draft = app
+            .active()
+            .unwrap_or_else(|| Tab::draft(app.environment(), scratch));
         let written = |target| PromptContext {
             target,
             text: text.clone(),
             images: images.clone(),
         };
         let draft_target = match &draft {
-            Tab::Draft { worktree, id } => PromptTarget::Draft {
+            Tab::Draft { worktree, id, .. } => PromptTarget::Draft {
                 worktree: worktree.clone(),
                 id: *id,
             },
@@ -214,7 +217,7 @@ impl Ui {
                     app.dispatch(Msg::PromptRetained);
                     return;
                 };
-                let Some(Tab::Session(session)) = taken.tab.clone() else {
+                let Some(Tab::Session(_, session)) = taken.tab.clone() else {
                     app.dispatch(Msg::PromptRetained);
                     return;
                 };
@@ -321,7 +324,7 @@ impl Ui {
             };
             // Tab may type into Claude Code's input: an accepted suggestion
             // lands there.
-            if let Some(tab @ Tab::Session(_)) = tab {
+            if let Some(tab @ Tab::Session(_, _)) = tab {
                 app.dispatch(Msg::InputMayHold(tab));
             }
             let before = p.screen();
@@ -360,15 +363,19 @@ impl Ui {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adroit_model::EnvironmentId;
 
     #[test]
     fn a_remote_prompt_goes_to_the_session_or_draft_it_was_written_for() {
         assert_eq!(
-            remote_send(Some(&Tab::Session("s".into()))),
+            remote_send(Some(&Tab::Session(EnvironmentId::unbound(), "s".into()))),
             RemoteSend::Here
         );
         assert_eq!(
-            remote_send(Some(&Tab::draft(std::path::PathBuf::from("/w")))),
+            remote_send(Some(&Tab::draft(
+                EnvironmentId::unbound(),
+                std::path::PathBuf::from("/w")
+            ))),
             RemoteSend::Here
         );
     }
@@ -380,6 +387,9 @@ mod tests {
 
     #[test]
     fn a_remote_prompt_is_kept_while_neither_a_session_nor_a_draft_is_shown() {
-        assert_eq!(remote_send(Some(&Tab::Terminal(1))), RemoteSend::Kept);
+        assert_eq!(
+            remote_send(Some(&Tab::Terminal(EnvironmentId::unbound(), 1))),
+            RemoteSend::Kept
+        );
     }
 }

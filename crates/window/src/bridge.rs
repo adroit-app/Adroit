@@ -20,7 +20,7 @@ use adroit_core::prompt::PromptView;
 use adroit_core::state::ViewState;
 use adroit_core::tree::TreeView;
 use adroit_core::update::step;
-use adroit_model::Key;
+use adroit_model::{EnvironmentId, Key};
 use adroit_protocol::{Answer, Ask, Request};
 use dioxus::core::{Runtime, current_scope_id};
 use dioxus::prelude::*;
@@ -127,10 +127,9 @@ pub(crate) struct AppCtx {
 /// with the work host linked and its events fed back as messages.
 pub(crate) fn use_app() -> AppCtx {
     use_hook(|| {
-        let (link, mut events, first) = Link::selected(
-            Route::selected(&instance_state().join("execution.toml")),
-            work_host,
-        );
+        let route = Route::selected(&instance_state().join("execution.toml"));
+        let environment = route.environment.clone();
+        let (link, mut events, first) = Link::selected(route, work_host);
         let link = Rc::new(link);
         // Drawn without the work, should the host not answer in time.
         let _ = first.recv_timeout(FIRST_WORK);
@@ -154,7 +153,10 @@ pub(crate) fn use_app() -> AppCtx {
             [
                 Msg::PanelsKept(Layout::load()),
                 Msg::WindowFocused(dioxus::desktop::window().is_focused()),
-                Msg::Opened { home: home() },
+                Msg::Opened {
+                    home: home(),
+                    environment,
+                },
             ],
         );
         // Where a session started with nothing open runs, as the host
@@ -574,6 +576,11 @@ fn shown_path() -> std::path::PathBuf {
 }
 
 impl AppCtx {
+    /// The environment the window's work belongs to.
+    pub(crate) fn environment(&self) -> EnvironmentId {
+        self.host.peek().environment.clone()
+    }
+
     /// What the content's focused window shows now.
     pub(crate) fn active(&self) -> Option<Tab> {
         self.content.peek().active().cloned()
@@ -723,6 +730,7 @@ mod tests {
             };
             window.dispatch(Msg::Opened {
                 home: Default::default(),
+                environment: Default::default(),
             });
             window
         }

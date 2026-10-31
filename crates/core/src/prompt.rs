@@ -95,7 +95,7 @@ struct Recall {
 /// runs in, or its draft's worktree.
 fn project(state: &ViewState, tab: Option<&Tab>) -> Option<PathBuf> {
     match tab {
-        Some(Tab::Session(id)) => nav::find(tree::listed(state.host.work.as_ref()), id)
+        Some(Tab::Session(_, id)) => nav::find(tree::listed(state.host.work.as_ref()), id)
             .map(|(_, s)| PathBuf::from(&s.cwd)),
         Some(Tab::Draft { worktree, .. }) => Some(worktree.clone()),
         _ => None,

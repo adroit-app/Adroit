@@ -54,6 +54,7 @@ pub fn carried(
 mod tests {
     use super::*;
     use crate::settings::Settings;
+    use crate::testing::here;
 
     #[test]
     fn switching_within_an_agent_keeps_the_model_and_permissions_and_across_resets_them() {
@@ -109,8 +110,11 @@ mod tests {
     fn the_profile_is_chosen_only_before_a_session_starts() {
         use crate::content::Tab;
         assert!(can_choose(None));
-        assert!(can_choose(Some(&Tab::draft("/project"))));
-        for tab in [Tab::Session("running".into()), Tab::Terminal(1)] {
+        assert!(can_choose(Some(&Tab::draft(here(), "/project"))));
+        for tab in [
+            Tab::Session(here(), "running".into()),
+            Tab::Terminal(here(), 1),
+        ] {
             assert!(!can_choose(Some(&tab)));
         }
     }

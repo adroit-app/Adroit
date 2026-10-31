@@ -68,7 +68,7 @@ impl Link {
         route: Route,
         local: impl FnOnce(PathBuf) -> To,
     ) -> (Link, Events, std::sync::mpsc::Receiver<()>) {
-        let Route { scope, toward } = route;
+        let Route { scope, toward, .. } = route;
         match toward {
             Ok(Toward::Local { host, terminal }) => Self::open(local(host), terminal, scope),
             Ok(Toward::Remote(target)) => remote::open(adroit_connect::Remote::new(&target), scope),

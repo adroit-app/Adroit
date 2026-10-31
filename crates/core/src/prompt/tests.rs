@@ -1,3 +1,4 @@
+use crate::testing::here;
 use adroit_model::Agent;
 use adroit_protocol::{HistoryRead, PromptChange, Request};
 
@@ -162,7 +163,7 @@ fn a_stopped_sessions_unsent_input_stays_saved_under_its_original_identity() {
         saved_images.get("session:root-a"),
         Some(&vec![PathBuf::from("/root-a.png")])
     );
-    let mut recovered = Drafts::restored(saved_text);
+    let mut recovered = Drafts::restored(saved_text, &here());
     assert_eq!(
         recovered.show(stopped, String::new()),
         Some("preserve-final draft".into())
@@ -199,7 +200,7 @@ fn hiding_a_session_keeps_both_sessions_prompts_and_attachments_separate() {
 #[test]
 fn closing_an_ephemeral_draft_keeps_its_text_and_images_accessible_to_the_next_composer() {
     for next in [None, for_session("existing")] {
-        let draft = Some(Tab::draft("/repo"));
+        let draft = Some(Tab::draft(here(), "/repo"));
         let mut drafts = Drafts::default();
         let mut images = Attachments::default();
         drafts.show(next.clone(), String::new());
@@ -378,14 +379,14 @@ mod sending {
         assert!(again.last_effects().is_empty());
         let empty = again.send(Msg::PromptEmpty).send(Msg::PromptSend);
         assert_eq!(empty.last_effects(), [Effect::TakePrompt]);
-        let shell = sending(State::Idle, Tab::Terminal(1));
+        let shell = sending(State::Idle, Tab::Terminal(here(), 1));
         assert!(shell.last_effects().is_empty());
     }
 
     #[test]
     fn a_prompt_that_cannot_go_is_put_back_with_a_word_why() {
         let session = session_tab("a");
-        let draft = Tab::draft("/r/a");
+        let draft = Tab::draft(here(), "/r/a");
         let image = |t: Taken| Taken {
             images: vec!["/a.png".into()],
             ..t
@@ -513,7 +514,7 @@ mod sending {
 
     #[test]
     fn a_draft_starts_a_session_named_by_its_prompt_or_the_name_above_it() {
-        let draft = Tab::draft("/r/a");
+        let draft = Tab::draft(here(), "/r/a");
         // (written, the name, the prompt it starts with)
         let cases = [
             ("name: fixer\nfix the tests", "fixer", "fix the tests"),

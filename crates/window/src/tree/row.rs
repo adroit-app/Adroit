@@ -26,14 +26,14 @@ use crate::shell::overlays::menu_opener;
 /// What a sidebar row is, told when the pointer rests on it.
 pub(crate) fn row_tip(item: &Item) -> &'static str {
     match item {
-        Item::Workspace(_) => {
+        Item::Workspace(_, _) => {
             "A workspace: a git repository or a directory sessions run in. Enter folds it; n starts a session there"
         }
-        Item::Worktree(_) => {
+        Item::Worktree(_, _) => {
             "A worktree: a checkout of the repository, on a branch of its own. Enter or l unfolds it while folded, else opens its session; n starts a session in it, s a shell"
         }
-        Item::Session(_) | Item::Waiting(_) => "A session. Enter opens it",
-        Item::Terminal(_) => {
+        Item::Session(_, _) | Item::Waiting(_, _) => "A session. Enter opens it",
+        Item::Terminal(_, _) => {
             "A terminal adroit runs. Enter shows it; closing its tab leaves it running"
         }
         Item::Heading(..) => "What runs in the worktree, of one kind. Enter folds it",
@@ -48,7 +48,7 @@ pub(crate) fn row_tip(item: &Item) -> &'static str {
 /// from as `settings` name it.
 pub(crate) fn row_badge(tree: &Tree, settings: &Settings, item: &Item) -> Option<String> {
     match item {
-        Item::Session(id) | Item::Waiting(id) => nav::find(tree, id).map(|(_, s)| {
+        Item::Session(_, id) | Item::Waiting(_, id) => nav::find(tree, id).map(|(_, s)| {
             settings.started_as(s.agent, &s.profile, s.home.as_deref(), &s.profile_name)
         }),
         _ => None,
@@ -59,8 +59,8 @@ pub(crate) fn row_badge(tree: &Tree, settings: &Settings, item: &Item) -> Option
 /// started on it.
 pub(crate) fn shows_file(shown: Option<&Tab>, terminals: &[TerminalSession], path: &Path) -> bool {
     match shown {
-        Some(Tab::Viewer(p)) => p == path,
-        Some(Tab::Terminal(id)) => terminals
+        Some(Tab::Viewer(_, p)) => p == path,
+        Some(Tab::Terminal(_, id)) => terminals
             .iter()
             .any(|t| t.id == *id && t.file.as_deref() == Some(path)),
         _ => false,
@@ -104,6 +104,7 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
     let is_sel = view.selected.as_ref() == Some(&it);
     let open = view.folds.is_open(&it);
     if let Item::File {
+        environment,
         worktree,
         path,
         dir,
@@ -127,9 +128,9 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
         let chips = if *dir {
             String::new()
         } else {
-            let mut at = content_now.tabs_showing(&Tab::Viewer(path.clone()));
+            let mut at = content_now.tabs_showing(&Tab::Viewer(environment.clone(), path.clone()));
             for t in terminals.iter().filter(|t| t.file.as_ref() == Some(path)) {
-                at.extend(content_now.tabs_showing(&Tab::Terminal(t.id)));
+                at.extend(content_now.tabs_showing(&Tab::Terminal(environment.clone(), t.id)));
             }
             at.sort_unstable();
             at.dedup();
@@ -160,18 +161,18 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
         };
     }
     let mark = match &it {
-        Item::Session(id) => nav::find(t, id).and_then(|(_, s)| session_mark(s.reads_only())),
+        Item::Session(_, id) => nav::find(t, id).and_then(|(_, s)| session_mark(s.reads_only())),
         _ => None,
     };
     let (kind, text, meta, glyph_class) = match &it {
-        Item::Workspace(root) => {
+        Item::Workspace(_, root) => {
             let name = t
                 .workspace_of(root)
                 .map(|w| w.name.clone())
                 .unwrap_or_else(|| short(root));
             ("head", name, String::new(), None)
         }
-        Item::Worktree(path) => {
+        Item::Worktree(_, path) => {
             let node = t.worktrees().find(|w| &w.worktree.path == path);
             let label = node
                 .and_then(|w| w.worktree.branch.clone())
@@ -185,12 +186,12 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
                 None,
             )
         }
-        Item::Heading(path, heading) => {
+        Item::Heading(_, path, heading) => {
             let shown = &view.narrowed;
             let count = shown
                 .worktrees()
                 .find(|w| &w.worktree.path == path)
-                .map_or(0, |w| nav::under(w, *heading).len());
+                .map_or(0, |w| nav::under(it.environment(), w, *heading).len());
             let count = if count > 0 {
                 count.to_string()
             } else {
@@ -198,7 +199,7 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
             };
             ("group", heading.name().to_string(), count, None)
         }
-        Item::Session(id) => {
+        Item::Session(_, id) => {
             let s = nav::find(t, id).map(|(_, s)| s.clone());
             (
                 "",
@@ -209,22 +210,26 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
                 s.map(|s| glyph(context.completions.read().state(&s))),
             )
         }
-        Item::Terminal(id) => {
+        Item::Terminal(_, id) => {
             let name = t
                 .terminal(*id)
                 .map(|(_, _, s)| s.name.clone())
                 .unwrap_or_default();
             ("", name, String::new(), None)
         }
-        Item::File { .. } | Item::Waiting(_) => ("", String::new(), String::new(), None),
+        Item::File { .. } | Item::Waiting(_, _) => ("", String::new(), String::new(), None),
     };
     // The rows are of the narrowed tree, where a workspace can be flat that
     // is not in full.
     let indent = 14 * nav::depth(&view.narrowed, &it);
     // The tabs of the content that show it.
     let chips = match &it {
-        Item::Session(id) => content_now.tabs_showing(&Tab::Session(id.clone())),
-        Item::Terminal(id) => content_now.tabs_showing(&Tab::Terminal(*id)),
+        Item::Session(environment, id) => {
+            content_now.tabs_showing(&Tab::Session(environment.clone(), id.clone()))
+        }
+        Item::Terminal(environment, id) => {
+            content_now.tabs_showing(&Tab::Terminal(environment.clone(), *id))
+        }
         _ => Vec::new(),
     }
     .iter()
@@ -233,33 +238,42 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
     .join(" ");
     let row_title = row_tip(&it).to_owned();
     let terminal = match &it {
-        Item::Terminal(id) => Some(runs_of(terminals, *id)),
+        Item::Terminal(_, id) => Some(runs_of(terminals, *id)),
         _ => None,
     };
     let place_icon = match &it {
-        Item::Workspace(root) if t.workspace_of(root).is_some_and(|w| w.scratch) => {
+        Item::Workspace(_, root) if t.workspace_of(root).is_some_and(|w| w.scratch) => {
             Some(Icon::Notes)
         }
-        Item::Workspace(_) if !open => Some(Icon::Folder),
-        Item::Workspace(_) => Some(Icon::FolderOpen),
-        Item::Worktree(_) => Some(Icon::GitBranch),
+        Item::Workspace(_, _) if !open => Some(Icon::Folder),
+        Item::Workspace(_, _) => Some(Icon::FolderOpen),
+        Item::Worktree(_, _) => Some(Icon::GitBranch),
         Item::Heading(..) if open => Some(Icon::ChevronDown),
         Item::Heading(..) => Some(Icon::ChevronRight),
         _ => None,
     };
     // What the console shows stands out wherever the selection is.
     let kind = match &it {
-        Item::Session(id) if shows == Some(Tab::Session(id.clone())) => format!("{kind} shown"),
-        Item::Terminal(id) if shows == Some(Tab::Terminal(*id)) => format!("{kind} shown"),
+        Item::Session(environment, id)
+            if shows == Some(Tab::Session(environment.clone(), id.clone())) =>
+        {
+            format!("{kind} shown")
+        }
+        Item::Terminal(environment, id)
+            if shows == Some(Tab::Terminal(environment.clone(), *id)) =>
+        {
+            format!("{kind} shown")
+        }
         _ => kind.to_string(),
     };
     let target = Target::Row(it.clone());
     // Where a session can start, a button starts one there.
-    let starts = matches!(it, Item::Workspace(_) | Item::Worktree(_));
+    let starts = matches!(it, Item::Workspace(_, _) | Item::Worktree(_, _));
     let has_draft = match &it {
-        Item::Session(id) | Item::Waiting(id) => {
-            context.drafted.read().contains(&Tab::Session(id.clone()))
-        }
+        Item::Session(environment, id) | Item::Waiting(environment, id) => context
+            .drafted
+            .read()
+            .contains(&Tab::Session(environment.clone(), id.clone())),
         _ => false,
     };
     let badge = row_badge(t, &app.config.read().settings, &it);
@@ -281,7 +295,7 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
             }
             if let Some(runs) = terminal { TerminalMark { runs } }
             span { class: "list-row-name",
-                if let Item::Session(id) = &it {
+                if let Item::Session(_, id) = &it {
                     SessionName {
                         id: id.clone(), name: text.clone(), place: RenamePlace::Sidebar,
                     }
@@ -317,9 +331,11 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
 #[component]
 pub(crate) fn WaitingRow(waiting: InboxItem, on: RowEvents) -> Element {
     let app = use_context::<AppCtx>();
-    let item = Item::Waiting(waiting.session.id.clone());
+    let environment = app.environment();
+    let item = Item::Waiting(environment.clone(), waiting.session.id.clone());
     let is_sel = app.tree.read().selected.as_ref() == Some(&item);
-    let shown = app.content.read().active() == Some(&Tab::Session(waiting.session.id.clone()));
+    let shown =
+        app.content.read().active() == Some(&Tab::Session(environment, waiting.session.id.clone()));
     let badge = {
         let host = app.host.read();
         row_badge(
@@ -355,6 +371,7 @@ pub(crate) fn WaitingRow(waiting: InboxItem, on: RowEvents) -> Element {
 
 #[cfg(test)]
 mod tests {
+    use adroit_model::EnvironmentId;
     use adroit_model::TerminalProgram;
     use adroit_model::testing::{session, tree};
 
@@ -371,10 +388,18 @@ mod tests {
         };
         let terminals = [nvim];
         let path = Path::new("/w/a.rs");
-        assert!(shows_file(Some(&Tab::Terminal(7)), &terminals, path));
-        assert!(!shows_file(Some(&Tab::Terminal(8)), &terminals, path));
         assert!(shows_file(
-            Some(&Tab::Viewer("/w/b.png".into())),
+            Some(&Tab::Terminal(EnvironmentId::unbound(), 7)),
+            &terminals,
+            path
+        ));
+        assert!(!shows_file(
+            Some(&Tab::Terminal(EnvironmentId::unbound(), 8)),
+            &terminals,
+            path
+        ));
+        assert!(shows_file(
+            Some(&Tab::Viewer(EnvironmentId::unbound(), "/w/b.png".into())),
             &terminals,
             Path::new("/w/b.png")
         ));
@@ -395,14 +420,20 @@ mod tests {
         let settings = Settings::default();
         for (id, label) in [("claude", "Claude Code"), ("codex", "Codex")] {
             let badge = |item| row_badge(&tree, &settings, &item);
-            assert_eq!(badge(Item::Session(id.into())).as_deref(), Some(label));
-            assert_eq!(badge(Item::Waiting(id.into())).as_deref(), Some(label));
+            assert_eq!(
+                badge(Item::Session(EnvironmentId::unbound(), id.into())).as_deref(),
+                Some(label)
+            );
+            assert_eq!(
+                badge(Item::Waiting(EnvironmentId::unbound(), id.into())).as_deref(),
+                Some(label)
+            );
         }
         for item in [
-            Item::Workspace("/project".into()),
-            Item::Worktree("/project".into()),
-            Item::Terminal(1),
-            Item::Session("missing".into()),
+            Item::Workspace(EnvironmentId::unbound(), "/project".into()),
+            Item::Worktree(EnvironmentId::unbound(), "/project".into()),
+            Item::Terminal(EnvironmentId::unbound(), 1),
+            Item::Session(EnvironmentId::unbound(), "missing".into()),
         ] {
             assert_eq!(row_badge(&tree, &settings, &item), None);
         }
@@ -412,8 +443,8 @@ mod tests {
     fn tips_that_hold_for_any_agent_name_the_session_rather_than_claude_code() {
         for tip in [
             mode_tip("DIRECT", false),
-            row_tip(&Item::Session("s1".into())),
-            row_tip(&Item::Waiting("s1".into())),
+            row_tip(&Item::Session(EnvironmentId::unbound(), "s1".into())),
+            row_tip(&Item::Waiting(EnvironmentId::unbound(), "s1".into())),
         ] {
             assert!(!tip.contains("Claude"), "{tip}");
         }

@@ -56,7 +56,7 @@ pub fn app_key(key: &Key) -> bool {
 /// it was written for; a draft or a shell gets nothing from an empty one.
 pub fn passes_enter(tab: Option<&Tab>, text: &str) -> Option<String> {
     match tab {
-        Some(Tab::Session(id)) if text.trim().is_empty() => Some(id.clone()),
+        Some(Tab::Session(_, id)) if text.trim().is_empty() => Some(id.clone()),
         _ => None,
     }
 }
@@ -93,7 +93,7 @@ pub fn filing(mut here: Vec<Context>, area: Area, on_file: bool) -> Vec<Context>
 /// The areas whose bindings the keys help shows for `area`, nearest first.
 pub fn help_contexts(area: Area, shown: Option<&Tab>) -> Vec<Context> {
     let here: &[Context] = match area {
-        Area::Console if matches!(shown, Some(Tab::Viewer(_))) => {
+        Area::Console if matches!(shown, Some(Tab::Viewer(_, _))) => {
             &[Context::Viewer, Context::Global]
         }
         _ => footer_contexts(area),
@@ -136,7 +136,7 @@ impl Footing<'_> {
             _ if self.picking => ("PICK", "normal"),
             _ if self.repeating => ("REPEAT", "pass"),
             Area::Console if self.direct => ("DIRECT", "pass"),
-            Area::Console if self.answering || matches!(self.shown, Some(Tab::Terminal(_))) => {
+            Area::Console if self.answering || matches!(self.shown, Some(Tab::Terminal(_, _))) => {
                 ("PASS", "pass")
             }
             Area::Console if let Some(mode) = self.reading => {
@@ -146,7 +146,7 @@ impl Footing<'_> {
                     ("READ", "normal")
                 }
             }
-            Area::Console if matches!(self.shown, Some(Tab::Viewer(_))) => ("VIEWER", "normal"),
+            Area::Console if matches!(self.shown, Some(Tab::Viewer(_, _))) => ("VIEWER", "normal"),
             Area::Console => ("CONSOLE", "normal"),
             Area::Prompt if self.answering => ("PASS", "pass"),
             Area::Prompt => (self.prompt.1, self.prompt.0),
@@ -168,13 +168,14 @@ fn drafting(shown: Option<&Tab>, here: &[Context]) -> Vec<Context> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::here;
 
     #[test]
     fn an_empty_prompt_passes_ctrl_enter_to_its_session_alone() {
-        let session = Tab::Session("s1".into());
+        let session = Tab::Session(here(), "s1".into());
         assert_eq!(passes_enter(Some(&session), "  \n"), Some("s1".to_string()));
         assert_eq!(passes_enter(Some(&session), "hi"), None);
-        let draft = Tab::draft("/w");
+        let draft = Tab::draft(here(), "/w");
         assert_eq!(passes_enter(Some(&draft), ""), None);
         assert_eq!(passes_enter(None, ""), None);
     }
@@ -248,9 +249,9 @@ mod tests {
     #[test]
     fn a_key_is_looked_up_where_the_keys_are_and_only_globally_while_they_pass_on() {
         use Context::*;
-        let session = Tab::Session("s".into());
-        let viewer = Tab::Viewer("/a.png".into());
-        let draft = Tab::draft("/w");
+        let session = Tab::Session(here(), "s".into());
+        let viewer = Tab::Viewer(here(), "/a.png".into());
+        let draft = Tab::draft(here(), "/w");
         // (area, shown, passing, windowing, inserting) -> contexts
         type Case<'a> = (Area, Option<&'a Tab>, bool, bool, bool, Vec<Context>);
         let table: [Case; 10] = [
@@ -347,9 +348,9 @@ mod tests {
 
     #[test]
     fn the_footer_names_what_the_keys_do_where_they_are() {
-        let session = Tab::Session("s".into());
-        let shell = Tab::Terminal(1);
-        let viewer = Tab::Viewer("/a.png".into());
+        let session = Tab::Session(here(), "s".into());
+        let shell = Tab::Terminal(here(), 1);
+        let viewer = Tab::Viewer(here(), "/a.png".into());
         let at = |area, shown| Footing {
             picking: false,
             area,

@@ -184,8 +184,10 @@ pub(crate) fn keeper(nvim: Signal<Option<Arc<Embedded>>>, app: AppCtx) -> Prompt
         // may be written.
         let mut kept = kept_drafts(app).await;
         let checkpoint = kept.clone().unwrap_or_default();
-        let mut drafts = Drafts::restored(checkpoint.text);
-        let mut images = adroit_core::prompt::images::Attachments::restored(checkpoint.images);
+        let environment = app.environment();
+        let mut drafts = Drafts::restored(checkpoint.text, &environment);
+        let mut images =
+            adroit_core::prompt::images::Attachments::restored(checkpoint.images, &environment);
         // A save the work host has not answered yet; another waits for it.
         let mut in_flight = false;
         let mut opened = false;
@@ -303,7 +305,7 @@ pub(crate) fn keeper(nvim: Signal<Option<Arc<Embedded>>>, app: AppCtx) -> Prompt
                         let _ = reply.send((drafts.shown().clone(), text, attachments));
                     }
                     Op::Consume(context, reply) => {
-                        let tab = remote::target(&context);
+                        let tab = remote::target(&context, &environment);
                         let handled = if drafts.shown() == &tab {
                             match &nv {
                                 Some(nv) => nv.consume_text(&context.text).await.is_ok(),
@@ -320,7 +322,8 @@ pub(crate) fn keeper(nvim: Signal<Option<Arc<Embedded>>>, app: AppCtx) -> Prompt
                         let _ = reply.send(handled);
                     }
                     Op::Recover(context, reply) => {
-                        let restored = if drafts.shown() == &remote::target(&context) {
+                        let restored = if drafts.shown() == &remote::target(&context, &environment)
+                        {
                             match &nv {
                                 Some(nv) => match nv.text().await {
                                     Ok(text) if text == context.text => true,
@@ -384,6 +387,7 @@ pub(crate) fn keeper(nvim: Signal<Option<Arc<Embedded>>>, app: AppCtx) -> Prompt
 
 #[cfg(test)]
 mod tests {
+    use adroit_model::EnvironmentId;
     use std::collections::BTreeMap;
 
     use super::*;
@@ -402,12 +406,12 @@ mod tests {
     #[tokio::test]
     async fn a_failed_tab_restore_keeps_both_drafts_until_the_prompt_can_take_it() {
         for closing in [false, true] {
-            let old = Some(Tab::Session("old".into()));
-            let next = Some(Tab::Session("next".into()));
-            let mut drafts = Drafts::restored(BTreeMap::from([(
-                "session:next".into(),
-                "next draft".into(),
-            )]));
+            let old = Some(Tab::Session(EnvironmentId::unbound(), "old".into()));
+            let next = Some(Tab::Session(EnvironmentId::unbound(), "next".into()));
+            let mut drafts = Drafts::restored(
+                BTreeMap::from([("session:next".into(), "next draft".into())]),
+                &EnvironmentId::unbound(),
+            );
             drafts.turn_to(old);
             let mut opened = true;
             let text = if closing {
@@ -447,10 +451,12 @@ mod tests {
 
     #[tokio::test]
     async fn failed_initial_restore_retains_the_identity_switch_and_take_reply_for_retry() {
-        let old = Some(Tab::Session("old".into()));
-        let next = Some(Tab::Session("next".into()));
-        let mut drafts =
-            Drafts::restored(BTreeMap::from([("session:old".into(), "old draft".into())]));
+        let old = Some(Tab::Session(EnvironmentId::unbound(), "old".into()));
+        let next = Some(Tab::Session(EnvironmentId::unbound(), "next".into()));
+        let mut drafts = Drafts::restored(
+            BTreeMap::from([("session:old".into(), "old draft".into())]),
+            &EnvironmentId::unbound(),
+        );
         drafts.turn_to(old.clone());
         let mut opened = false;
         let queued = restore_before_op(&mut drafts, &mut opened, Op::Show(next.clone()), |_| {

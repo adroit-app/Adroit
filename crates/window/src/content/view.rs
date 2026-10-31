@@ -64,7 +64,7 @@ pub(crate) fn ContentPanel(
                 let strip = window_strip(t, terms, &completions.read(), settings, &shows);
                 // A viewer is drawn the same focused or not, so it keeps its
                 // zoom, page and playback as the focus moves.
-                let body = if let Tab::Viewer(path) = &shows {
+                let body = if let Tab::Viewer(_, path) = &shows {
                     rsx! {
                         ViewerWindow {
                             key: "{id}",

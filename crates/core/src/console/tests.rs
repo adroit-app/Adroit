@@ -1,3 +1,4 @@
+use crate::testing::here;
 use adroit_model::{Key, Wait};
 use adroit_protocol::{ConsoleChange, Dialog, Event};
 
@@ -33,7 +34,7 @@ fn dialog(seq: u64, session: &str, open: bool) -> Event {
 }
 
 fn tab(id: &str) -> Tab {
-    Tab::Session(id.into())
+    Tab::Session(here(), id.into())
 }
 
 /// A window listing the sessions `a` and `b`, showing `a`, its console
@@ -277,7 +278,7 @@ fn another_tab_shown_is_shown_live() {
 
 #[test]
 fn a_shell_takes_every_key_and_the_prompt_takes_those_it_does_not_bind() {
-    let shell = window().send(show(Tab::Terminal(1)));
+    let shell = window().send(show(Tab::Terminal(here(), 1)));
     let run = shell.send(key("i"));
     assert_eq!(run.last_effects(), [Effect::PaneKey(Key::new("i"))]);
     let prompt = window().send_all([Msg::Focus(Area::Prompt), key("x")]);
@@ -465,7 +466,7 @@ fn text_for_a_session_is_written_in_the_prompt_and_an_image_kept_for_it() {
         })
     );
     let shell = window().send(Msg::Show {
-        thing: Tab::Terminal(1),
+        thing: Tab::Terminal(here(), 1),
         place: None,
         how: None,
     });
@@ -520,7 +521,7 @@ fn image_files_dropped_for_a_session_are_kept_for_its_prompt_as_a_pasted_image_i
             "a shell shown",
             window().send_all([
                 Msg::Show {
-                    thing: Tab::Terminal(1),
+                    thing: Tab::Terminal(here(), 1),
                     place: None,
                     how: None,
                 },

@@ -1,3 +1,4 @@
+use crate::testing::here;
 use adroit_model::{Key, Process, Wait};
 
 use super::*;
@@ -152,9 +153,9 @@ fn a_click_answers_as_the_keys_do() {
 fn ending_a_session_asks_of_the_selected_row_s_or_else_the_shown_one() {
     // (the row selected, from the tree, the session asked of)
     let cases = [
-        (Some(Item::Session("b".into())), true, Some("b")),
-        (Some(Item::Waiting("b".into())), true, Some("b")),
-        (Some(Item::Session("b".into())), false, Some("a")),
+        (Some(Item::Session(here(), "b".into())), true, Some("b")),
+        (Some(Item::Waiting(here(), "b".into())), true, Some("b")),
+        (Some(Item::Session(here(), "b".into())), false, Some("a")),
         (None, true, Some("a")),
     ];
     for (row, selection, want) in cases {
@@ -297,7 +298,10 @@ fn a_name_being_typed_goes_with_the_row_or_the_tab_it_is_typed_in() {
 fn a_menu_runs_its_entry_on_what_it_was_opened_on() {
     // (target, the area the keys go to)
     let cases = [
-        (Target::Row(Item::Session("b".into())), Area::Sidebar),
+        (
+            Target::Row(Item::Session(here(), "b".into())),
+            Area::Sidebar,
+        ),
         (Target::Tab(session_tab("a")), Area::Console),
         (Target::Link { at: 0, file: false }, Area::Details),
     ];
@@ -315,10 +319,13 @@ fn a_menu_runs_its_entry_on_what_it_was_opened_on() {
         );
     }
     let row = window().send(Msg::MenuRun {
-        target: Target::Row(Item::Session("b".into())),
+        target: Target::Row(Item::Session(here(), "b".into())),
         action: Action::SessionNew,
     });
-    assert_eq!(row.state().tree.selected, Some(Item::Session("b".into())));
+    assert_eq!(
+        row.state().tree.selected,
+        Some(Item::Session(here(), "b".into()))
+    );
 }
 
 #[test]

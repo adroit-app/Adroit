@@ -177,7 +177,11 @@ fn tree_failing(state: &mut ViewState, effects: &mut Vec<Effect>) {
 
 /// The tree's rows are built from what the host listed.
 fn tree_rows(state: &mut ViewState, _: &mut Vec<Effect>) {
-    tree::build(&mut state.tree, state.host.work.as_ref());
+    tree::build(
+        &mut state.tree,
+        &state.host.environment,
+        state.host.work.as_ref(),
+    );
     tree::go_into(&mut state.tree);
 }
 
@@ -295,7 +299,7 @@ fn watched(state: &mut ViewState, effects: &mut Vec<Effect>) {
 /// What the window shows that the host keeps read.
 pub(crate) fn sight(state: &ViewState) -> Sight {
     Sight {
-        tree: tree::sight(&state.tree),
+        tree: tree::sight(&state.tree, &state.host.environment),
         past: state.picker.past_sight(),
         pick: state.picker.sight(),
         place: state
@@ -310,7 +314,7 @@ pub(crate) fn sight(state: &ViewState) -> Sight {
             .shown()
             .into_iter()
             .filter_map(|tab| match tab {
-                Tab::Terminal(id) => Some(*id),
+                Tab::Terminal(_, id) => Some(*id),
                 _ => None,
             })
             .collect(),

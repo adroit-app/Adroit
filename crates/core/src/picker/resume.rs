@@ -88,7 +88,7 @@ pub(super) fn open(state: &ViewState) -> Resume {
     let showing = state.content.showing();
     let work = state.host.work.as_ref();
     let session_dir = match &showing.tab {
-        Some(Tab::Session(id)) => nav::find(tree::listed(work), id).map(|(_, s)| s.cwd.clone()),
+        Some(Tab::Session(_, id)) => nav::find(tree::listed(work), id).map(|(_, s)| s.cwd.clone()),
         _ => None,
     };
     let dir = session_dir.or_else(|| showing.place.map(|p| p.worktree));
@@ -132,7 +132,10 @@ mod tests {
     const HOME: &str = "/Users/me";
 
     fn window() -> Scenario {
-        Scenario::new().send(Msg::Opened { home: HOME.into() })
+        Scenario::new().send(Msg::Opened {
+            home: HOME.into(),
+            environment: crate::testing::here(),
+        })
     }
 
     /// The rows the list draws; none while they are read.

@@ -164,9 +164,9 @@ pub(crate) fn ask(state: &mut ViewState, ask: Ask) -> Vec<Effect> {
 /// one the console shows.
 pub(crate) fn ask_stop(state: &mut ViewState, selection: bool) -> Vec<Effect> {
     let chosen = match &state.tree.selected {
-        Some(Item::Session(id) | Item::Waiting(id)) if selection => Some(id.clone()),
+        Some(Item::Session(_, id) | Item::Waiting(_, id)) if selection => Some(id.clone()),
         _ => match state.content.active() {
-            Some(Tab::Session(id)) => Some(id.clone()),
+            Some(Tab::Session(_, id)) => Some(id.clone()),
             _ => None,
         },
     };
@@ -243,7 +243,10 @@ pub(crate) fn end_rename(
     match Rename::take(&mut state.overlays.rename, id, place) {
         Some(r) if commit => match r.name() {
             Some(name) => {
-                let agent = crate::content::agent_of(state, Some(&Tab::Session(r.id.clone())));
+                let agent = crate::content::agent_of(
+                    state,
+                    Some(&Tab::Session(state.host.environment.clone(), r.id.clone())),
+                );
                 vec![Effect::Host(Request::Rename {
                     id: r.id,
                     name,
@@ -263,18 +266,16 @@ pub(crate) fn keep_rename(state: &mut ViewState) {
         return;
     };
     let shown = match r.place {
-        RenamePlace::Sidebar => {
-            state.chrome.panels.layout.show_sidebar
-                && state.tree.rows.iter().any(
-                    |item| matches!(item, Item::Session(id) | Item::Waiting(id) if *id == r.id),
-                )
-        }
+        RenamePlace::Sidebar => state.chrome.panels.layout.show_sidebar
+            && state.tree.rows.iter().any(
+                |item| matches!(item, Item::Session(_, id) | Item::Waiting(_, id) if *id == r.id),
+            ),
         RenamePlace::Tab => state
             .content
             .windows
             .tabs()
             .iter()
-            .any(|t| matches!(&t.focused().shows, Tab::Session(id) if *id == r.id)),
+            .any(|t| matches!(&t.focused().shows, Tab::Session(_, id) if *id == r.id)),
     };
     if !shown {
         state.overlays.rename = None;

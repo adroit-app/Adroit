@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use adroit_model::links::{Kind as LinkKind, Link, Links};
 use adroit_model::repository::{Rev, Spot};
-use adroit_model::{ConversationStats, Note, Process, Session};
+use adroit_model::{ConversationStats, EnvironmentId, Note, Process, Session};
 use adroit_protocol::{
     Account, AgentFacts, DetailsWork, RepositorySight, Seq, SessionRead, Sight, WorkSnapshot,
 };
@@ -23,6 +23,9 @@ use crate::settings::DetailsSettings;
 /// What the window shows that the details panel reads by.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Shown {
+    /// The environment of what is shown, which the session and the files
+    /// the panel lists are of.
+    pub environment: EnvironmentId,
     /// The session shown in the middle, by its id.
     pub session: Option<String>,
     /// The worktree shown.
@@ -122,7 +125,7 @@ pub(crate) fn follow_usage(
     account: Account,
     facts: Option<&AgentFacts>,
 ) {
-    let shows = matches!(tab, Some(Tab::Session(_) | Tab::Draft { .. }))
+    let shows = matches!(tab, Some(Tab::Session(_, _) | Tab::Draft { .. }))
         && facts.is_some_and(|f| f.usage_limits);
     let usage = shows.then_some(account);
     if details.shown.usage != usage {
@@ -147,13 +150,20 @@ pub(crate) fn follow(details: &mut Details, showing: &Showing) {
     // A file or an image looked at from the panel leaves it on the session
     // it came from, so the next one can be picked.
     let session = match &showing.tab {
-        Some(Tab::Session(id) | Tab::Drawn { session: id, .. }) => Some(id.clone()),
-        Some(Tab::Viewer(_)) if worktree == details.shown.worktree => details.shown.session.clone(),
+        Some(Tab::Session(_, id) | Tab::Drawn { session: id, .. }) => Some(id.clone()),
+        Some(Tab::Viewer(_, _)) if worktree == details.shown.worktree => {
+            details.shown.session.clone()
+        }
         _ => None,
     };
     if worktree != details.shown.worktree {
         details.drill = Drill::new(details.drill.sheet());
         details.shown.worktree = worktree;
+    }
+    if let Some(tab) = &showing.tab
+        && tab.environment() != &details.shown.environment
+    {
+        details.shown.environment = tab.environment().clone();
     }
     if session != details.shown.session {
         details.shown.session = session;
@@ -355,7 +365,12 @@ fn fold(details: &mut Details, group: Group, shut: bool) {
 fn used(details: &Details, entry: &Entry, how: Use) -> Vec<Effect> {
     match entry {
         Entry::Link(link) => use_link(link, how),
-        Entry::Image(shot) => use_shot(shot, how, details.shown.session.as_deref()),
+        Entry::Image(shot) => use_shot(
+            shot,
+            how,
+            &details.shown.environment,
+            details.shown.session.as_deref(),
+        ),
         Entry::Session(r) => use_related(r, how),
         Entry::Process(p) => copied(how, &p.command, "Copied the process command".into()),
         Entry::Message(n) => copied(how, &n.body, "Copied the message".into()),
@@ -411,12 +426,18 @@ fn use_related(related: &Related, how: Use) -> Vec<Effect> {
 
 /// Show `shot` in the content where `how` says, a file in its viewer, or copy
 /// or reveal its file as one of the files of Resources is. A drawn image is
-/// the console's of `session`.
-fn use_shot(shot: &Shot, how: Use, session: Option<&str>) -> Vec<Effect> {
+/// the console's of `session`, both of `environment`.
+fn use_shot(
+    shot: &Shot,
+    how: Use,
+    environment: &EnvironmentId,
+    session: Option<&str>,
+) -> Vec<Effect> {
     match (&shot.source, how) {
         (Source::Console { id, width, height }, Use::Open(how)) => session
             .map(|session| Effect::Show {
                 thing: Tab::Drawn {
+                    environment: environment.clone(),
                     session: session.to_owned(),
                     id: *id,
                     width: *width,
@@ -427,7 +448,7 @@ fn use_shot(shot: &Shot, how: Use, session: Option<&str>) -> Vec<Effect> {
             .into_iter()
             .collect(),
         (Source::File { path, .. }, Use::Open(how)) => vec![Effect::Show {
-            thing: Tab::Viewer(path.into()),
+            thing: Tab::Viewer(environment.clone(), path.into()),
             how,
         }],
         (Source::Console { .. }, Use::Copy) => {
@@ -677,6 +698,7 @@ pub(crate) fn forget_gone(details: &mut Details, work: Option<&DetailsWork>) {
 
 #[cfg(test)]
 mod tests {
+    use crate::testing::here;
     use std::collections::BTreeMap;
     use std::sync::Arc;
 
@@ -713,7 +735,7 @@ mod tests {
     fn shown(id: Option<&str>, worktree: Option<&str>) -> Msg {
         match id {
             Some(id) => Msg::Show {
-                thing: Tab::Session(id.into()),
+                thing: Tab::Session(here(), id.into()),
                 place: worktree.map(|w| Place { worktree: w.into() }),
                 how: None,
             },
@@ -1340,19 +1362,20 @@ mod tests {
                 details.shown.usage
             };
             for tab in [
-                Tab::Session("session".into()),
+                Tab::Session(here(), "session".into()),
                 Tab::Draft {
+                    environment: here(),
                     worktree: "/project".into(),
                     id: Default::default(),
                 },
             ] {
                 assert_eq!(usage(Some(&tab)), Some(account.clone()));
             }
-            assert_eq!(usage(Some(&Tab::Terminal(1))), None);
+            assert_eq!(usage(Some(&Tab::Terminal(here(), 1))), None);
             assert_eq!(usage(None), None);
         }
         let mut details = Details::default();
-        let draft = Tab::draft("/project");
+        let draft = Tab::draft(here(), "/project");
         let codex = Account {
             agent: Agent::Codex,
             home: None,
@@ -1495,6 +1518,7 @@ mod tests {
 
     fn drawn_tab() -> Tab {
         Tab::Drawn {
+            environment: here(),
             session: "a".into(),
             id: 7,
             width: 64,
@@ -1504,7 +1528,7 @@ mod tests {
 
     #[test]
     fn opening_an_image_shows_it_in_the_content_where_the_key_says() {
-        let (drawn, file) = (drawn_tab(), Tab::Viewer("/w/plot.png".into()));
+        let (drawn, file) = (drawn_tab(), Tab::Viewer(here(), "/w/plot.png".into()));
         // (keys, what is shown, how)
         let cases = [
             (vec![Key::Down, Key::Open], &drawn, Opening::Existing),
@@ -1548,7 +1572,7 @@ mod tests {
         assert_eq!(
             local(&run),
             [Effect::Show {
-                thing: Tab::Viewer("/w/plot.png".into()),
+                thing: Tab::Viewer(here(), "/w/plot.png".into()),
                 how: Opening::Existing,
             }]
         );
@@ -1580,7 +1604,7 @@ mod tests {
 
     #[test]
     fn the_panel_stays_on_the_session_while_one_of_its_images_is_looked_at() {
-        for thing in [drawn_tab(), Tab::Viewer("/w/plot.png".into())] {
+        for thing in [drawn_tab(), Tab::Viewer(here(), "/w/plot.png".into())] {
             let run = with_images().send(Msg::Show {
                 thing: thing.clone(),
                 place: None,
@@ -1598,7 +1622,7 @@ mod tests {
     #[test]
     fn a_file_shown_in_another_worktree_describes_no_session() {
         let run = with_images().send(Msg::Show {
-            thing: Tab::Viewer("/elsewhere/a.png".into()),
+            thing: Tab::Viewer(here(), "/elsewhere/a.png".into()),
             place: Some(Place {
                 worktree: "/elsewhere".into(),
             }),

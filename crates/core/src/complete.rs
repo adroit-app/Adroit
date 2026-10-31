@@ -54,15 +54,16 @@ pub fn candidates(tree: &Tree, place: Option<&Place>, files: &[String]) -> Vec<O
 /// or a viewer takes no commands.
 pub fn commands_dir(tree: &Tree, tab: Option<&Tab>, place: Option<&Place>) -> Option<PathBuf> {
     match tab {
-        Some(Tab::Session(id)) => nav::find(tree, id).map(|(_, s)| s.cwd.clone()),
+        Some(Tab::Session(_, id)) => nav::find(tree, id).map(|(_, s)| s.cwd.clone()),
         Some(Tab::Draft { worktree, .. }) => Some(worktree.clone()),
-        Some(Tab::Terminal(_) | Tab::Viewer(_) | Tab::Drawn { .. }) => None,
+        Some(Tab::Terminal(_, _) | Tab::Viewer(_, _) | Tab::Drawn { .. }) => None,
         None => place.map(|p| p.worktree.clone()),
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::testing::here;
     use adroit_model::testing::{self, session};
 
     use super::*;
@@ -111,7 +112,7 @@ mod tests {
     #[test]
     fn a_session_s_commands_are_those_of_where_it_runs() {
         let tree = tree_with("fix", "/api/.claude/worktrees/x");
-        let tab = Tab::Session("fix".into());
+        let tab = Tab::Session(here(), "fix".into());
         assert_eq!(
             commands_dir(&tree, Some(&tab), None),
             Some(PathBuf::from("/api/.claude/worktrees/x"))
@@ -120,7 +121,7 @@ mod tests {
 
     #[test]
     fn a_draft_s_commands_are_those_of_its_worktree() {
-        let tab = Tab::draft("/api");
+        let tab = Tab::draft(here(), "/api");
         assert_eq!(
             commands_dir(&Tree::default(), Some(&tab), None),
             Some(PathBuf::from("/api"))
@@ -144,7 +145,11 @@ mod tests {
             worktree: "/api".into(),
         };
         assert_eq!(
-            commands_dir(&Tree::default(), Some(&Tab::Terminal(1)), Some(&place)),
+            commands_dir(
+                &Tree::default(),
+                Some(&Tab::Terminal(here(), 1)),
+                Some(&place)
+            ),
             None
         );
     }

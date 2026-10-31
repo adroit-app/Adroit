@@ -1,6 +1,7 @@
 //! What the window knows of the work host: whether they speak, and the work
 //! as the host last described it.
 
+use adroit_model::EnvironmentId;
 use adroit_protocol::{Event, Request, SPOKEN, Sight, Told, Version, WorkPatch, WorkSnapshot};
 
 use crate::chrome::status_line;
@@ -22,6 +23,9 @@ pub enum Link {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Host {
+    /// The environment the host's work belongs to, which every row and tab
+    /// made of it is known by.
+    pub environment: EnvironmentId,
     pub link: Link,
     /// The work as of the last snapshot and the patches after it, or none
     /// before the first snapshot.
@@ -72,7 +76,7 @@ pub(crate) fn told(state: &mut ViewState, event: Event) -> Vec<Effect> {
         Event::Told(Told::Notice { text }) => status_line::notice(status, text),
         Event::Told(Told::Failure { text }) => status_line::set(status, Some(text)),
         Event::Type { session, typing } => vec![Effect::TypeInto {
-            tab: Tab::Session(session),
+            tab: Tab::Session(state.host.environment.clone(), session),
             typing,
         }],
         event => receive(&mut state.host, event),
@@ -106,6 +110,7 @@ fn apply(work: &mut WorkSnapshot, patch: WorkPatch) {
 
 #[cfg(test)]
 mod tests {
+    use crate::testing::here;
     use adroit_protocol::{Event, Request, Version};
 
     use super::Link;
@@ -126,6 +131,7 @@ mod tests {
     #[test]
     fn opening_the_window_says_hello_in_every_version_it_speaks() {
         let run = Scenario::new().send(Msg::Opened {
+            environment: here(),
             home: Default::default(),
         });
         assert!(run.last_effects().contains(&Effect::Host(Request::Hello {
@@ -234,7 +240,7 @@ mod tests {
             typing: typing.clone(),
         });
         assert!(run.last_effects().contains(&Effect::TypeInto {
-            tab: Tab::Session("0a".into()),
+            tab: Tab::Session(here(), "0a".into()),
             typing,
         }));
     }

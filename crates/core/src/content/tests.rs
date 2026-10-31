@@ -1,3 +1,4 @@
+use crate::testing::here;
 use std::collections::BTreeSet;
 
 use adroit_model::{TerminalProgram, Wait};
@@ -66,7 +67,7 @@ fn a_window_follows_its_session_once_it_is_taken_over() {
     let run = listed_with([session("pid-1").cwd("/r")])
         .send(show(session_tab("pid-1")))
         .event(patch(2).listed(listed().session(own)));
-    assert_eq!(shown(&run), [Tab::Session("own".into())]);
+    assert_eq!(shown(&run), [Tab::Session(here(), "own".into())]);
 }
 
 #[test]
@@ -75,7 +76,7 @@ fn a_session_that_ends_gives_its_windows_up_and_is_said_to_have_ended() {
         .send(show(session_tab("a")))
         .event(patch(2).listed(listed().session(session("b").cwd("/r"))));
     // The worktree's first session shows once nothing else is open.
-    assert_eq!(shown(&run), [Tab::Session("b".into())]);
+    assert_eq!(shown(&run), [Tab::Session(here(), "b".into())]);
     assert_eq!(
         run.state().chrome.status.line.as_deref(),
         Some("a-name ended")
@@ -92,7 +93,7 @@ fn a_session_live_here_stays_though_it_is_not_listed() {
             .send_all(held.clone())
             .event(patch(2).listed(listed()));
         assert_eq!(
-            shown(&run).contains(&Tab::Session("a".into())),
+            shown(&run).contains(&Tab::Session(here(), "a".into())),
             stays,
             "{held:?}"
         );
@@ -105,7 +106,7 @@ fn a_session_no_longer_live_is_given_up_and_said_to_have_ended_once_told() {
         .send(show(session_tab("a")))
         .send(live(&["a"]))
         .event(patch(2).listed(listed()));
-    assert_eq!(shown(&run), [Tab::Session("a".into())]);
+    assert_eq!(shown(&run), [Tab::Session(here(), "a".into())]);
     let gone = run.send(live(&[]));
     assert_eq!(shown(&gone), Vec::<Tab>::new());
     assert_eq!(
@@ -142,13 +143,13 @@ fn the_panes_kept_are_those_of_what_a_new_listing_lists() {
 
 #[test]
 fn the_tab_kept_from_the_last_run_comes_back_once_listed() {
-    let a = Tab::Session("a".into());
+    let a = Tab::Session(here(), "a".into());
     // (opened before the listing, what shows after it)
     let cases = [
         (None, Some(a.clone())),
         (
-            Some(Tab::Session("b".into())),
-            Some(Tab::Session("b".into())),
+            Some(Tab::Session(here(), "b".into())),
+            Some(Tab::Session(here(), "b".into())),
         ),
     ];
     for (before, after) in cases {
@@ -159,14 +160,38 @@ fn the_tab_kept_from_the_last_run_comes_back_once_listed() {
         assert_eq!(active(&run), after, "{before:?}");
         if before.is_none() {
             assert_eq!(run.state().content.place, place("/r/a"));
-            assert_eq!(run.state().tree.selected, Some(Item::Session("a".into())));
+            assert_eq!(
+                run.state().tree.selected,
+                Some(Item::Session(here(), "a".into()))
+            );
         }
     }
 }
 
 #[test]
+fn a_content_kept_before_environments_comes_back_in_the_window_s_environment() {
+    let here = EnvironmentId::new("here");
+    let earlier = r#"{"tabs":[{"root":{"window":"session:a"},"focus":0}],"current":0}"#;
+    let run = Scenario::new()
+        .send(Msg::Opened {
+            home: "/home".into(),
+            environment: here.clone(),
+        })
+        .send(Msg::ContentOpened {
+            kept: read_kept(earlier),
+            scratch: "/scratch".into(),
+        })
+        .event(listing([session("a")]));
+    assert_eq!(active(&run), Some(Tab::Session(here.clone(), "a".into())));
+    assert_eq!(
+        run.state().tree.selected,
+        Some(Item::Session(here, "a".into()))
+    );
+}
+
+#[test]
 fn a_kept_tab_comes_back_when_the_sessions_were_listed_before_the_window_opened() {
-    let kept = [Tab::Session("a".into()), Tab::Terminal(7)];
+    let kept = [Tab::Session(here(), "a".into()), Tab::Terminal(here(), 7)];
     for tab in kept {
         let run = Scenario::new()
             .event(snapshot().listed(listed().session(session("a")).terminal(shell(7, "/r/a"))))
@@ -179,7 +204,7 @@ fn a_kept_tab_comes_back_when_the_sessions_were_listed_before_the_window_opened(
 fn the_prompt_of_a_kept_tab_that_comes_back_is_that_session_s() {
     let run = Scenario::new()
         .event(snapshot().listed(listed().session(session("a"))))
-        .send(opened(Some(Tab::Session("a".into()))));
+        .send(opened(Some(Tab::Session(here(), "a".into()))));
     let told: Vec<&Option<Tab>> = run
         .effects()
         .iter()
@@ -188,13 +213,13 @@ fn the_prompt_of_a_kept_tab_that_comes_back_is_that_session_s() {
             _ => None,
         })
         .collect();
-    assert_eq!(told, [&Some(Tab::Session("a".into()))]);
+    assert_eq!(told, [&Some(Tab::Session(here(), "a".into()))]);
 }
 
 #[test]
 fn a_kept_tab_not_listed_at_first_is_given_up() {
     let run = Scenario::new()
-        .send(opened(Some(Tab::Session("a".into()))))
+        .send(opened(Some(Tab::Session(here(), "a".into()))))
         .event(snapshot().listed(listed()))
         .event(patch(2).listed(listed().session(session("a").cwd("/r"))));
     assert_eq!(active(&run), None);
@@ -245,11 +270,11 @@ fn the_content_is_kept_for_the_next_run_as_it_changes_once_the_kept_content_had_
 #[test]
 fn the_content_kept_from_the_last_run_comes_back_once_listed_without_what_cannot() {
     let mut was = Content::default();
-    was.open(Tab::Session("a".into()));
-    was.split(Axis::Row, Tab::Session("gone".into()));
-    was.split(Axis::Column, Tab::Terminal(7));
-    was.open_tab(Tab::Session("b".into()));
-    was.open_tab(Tab::Session("gone".into()));
+    was.open(Tab::Session(here(), "a".into()));
+    was.split(Axis::Row, Tab::Session(here(), "gone".into()));
+    was.split(Axis::Column, Tab::Terminal(here(), 7));
+    was.open_tab(Tab::Session(here(), "b".into()));
+    was.open_tab(Tab::Session(here(), "gone".into()));
     was.go_to_tab(0);
     let run = Scenario::new().send(opened_with(&was)).event(
         snapshot().listed(
@@ -259,19 +284,19 @@ fn the_content_kept_from_the_last_run_comes_back_once_listed_without_what_cannot
         ),
     );
     let mut ended = was.clone();
-    ended.close_showing(|t| *t == Tab::Session("gone".into()));
+    ended.close_showing(|t| *t == Tab::Session(here(), "gone".into()));
     let windows = &run.state().content.windows;
     assert_eq!(windows.kept(kept_name), ended.kept(kept_name));
     assert_eq!(windows.tabs().len(), 2);
-    assert_eq!(active(&run), Some(Tab::Terminal(7)));
+    assert_eq!(active(&run), Some(Tab::Terminal(here(), 7)));
     assert_eq!(run.state().content.place, place("/r/a"));
 }
 
 #[test]
 fn a_kept_content_of_which_nothing_can_come_back_opens_empty() {
     let mut was = Content::default();
-    was.open(Tab::Session("gone".into()));
-    was.open_tab(Tab::Terminal(9));
+    was.open(Tab::Session(here(), "gone".into()));
+    was.open_tab(Tab::Terminal(here(), 9));
     let run = Scenario::new()
         .send(opened_with(&was))
         .event(listing([session("a")]));
@@ -320,7 +345,7 @@ fn the_middle_follows_what_the_focused_window_shows() {
     let b = run.send(show(session_tab("b")));
     assert_eq!(b.state().content.place, place("/r/b"));
     // A tab whose thing is placed nowhere leaves the middle where it is.
-    let nowhere = b.send(show(Tab::Viewer("/elsewhere/a.png".into())));
+    let nowhere = b.send(show(Tab::Viewer(here(), "/elsewhere/a.png".into())));
     assert_eq!(nowhere.state().content.place, place("/r/b"));
 }
 
@@ -328,7 +353,7 @@ fn the_middle_follows_what_the_focused_window_shows() {
 fn a_session_shown_before_it_is_listed_is_placed_once_it_is() {
     let run = listed_with([])
         .send(Msg::Show {
-            thing: Tab::Session("new".into()),
+            thing: Tab::Session(here(), "new".into()),
             place: place("/r"),
             how: None,
         })
@@ -394,10 +419,10 @@ fn closing_the_last_window_of_a_draft_hands_its_prompt_on() {
     let cases = [
         (None, None),
         (
-            Some(Tab::Session("a".into())),
-            Some(Tab::Session("a".into())),
+            Some(Tab::Session(here(), "a".into())),
+            Some(Tab::Session(here(), "a".into())),
         ),
-        (Some(Tab::Terminal(1)), None),
+        (Some(Tab::Terminal(here(), 1)), None),
     ];
     for (besides, to) in cases {
         let run = Scenario::new()
@@ -473,7 +498,7 @@ fn a_shell_shown_takes_the_keys_from_the_prompt() {
     let run = Scenario::new()
         .send(show(session_tab("a")))
         .send(Msg::Focus(Area::Prompt))
-        .send(show(Tab::Terminal(1)));
+        .send(show(Tab::Terminal(here(), 1)));
     assert_eq!(run.state().content.focus, Area::Console);
 }
 
@@ -511,7 +536,7 @@ fn the_window_keys_leave_a_hidden_panel_alone() {
 
 #[test]
 fn the_window_keys_split_close_and_go_through_tabs() {
-    let a = Tab::Session("a".into());
+    let a = Tab::Session(here(), "a".into());
     let split = || {
         Scenario::new()
             .send(show(a.clone()))
@@ -564,7 +589,7 @@ fn a_new_window_splits_off_a_draft_in_the_middle_s_worktree() {
         let run = Scenario::new()
             .send(opened(None))
             .send(Msg::Show {
-                thing: Tab::Terminal(1),
+                thing: Tab::Terminal(here(), 1),
                 place: middle.clone(),
                 how: None,
             })
@@ -584,7 +609,7 @@ fn a_new_session_or_shell_starts_in_the_selected_row_s_worktree_from_the_tree() 
     let base = || {
         listed_with([session("a"), session("b")])
             .send(show(session_tab("a")))
-            .send(Msg::TreeSelect(Some(Item::Session("b".into()))))
+            .send(Msg::TreeSelect(Some(Item::Session(here(), "b".into()))))
     };
     // (where the keys are, the worktree)
     let cases = [(Area::Sidebar, "/r/b"), (Area::Console, "/r/a")];
@@ -616,15 +641,18 @@ fn a_new_session_or_shell_starts_in_the_selected_row_s_worktree_from_the_tree() 
 #[test]
 fn opening_a_row_shows_what_it_stands_for_and_may_take_the_keys() {
     let run = listed_with([session("a").cwd("/r")]).send(Msg::OpenRow {
-        item: Item::Session("a".into()),
+        item: Item::Session(here(), "a".into()),
         how: Some(Opening::Existing),
         take_keys: false,
     });
-    assert_eq!(active(&run), Some(Tab::Session("a".into())));
+    assert_eq!(active(&run), Some(Tab::Session(here(), "a".into())));
     assert_eq!(run.state().content.focus, Area::Sidebar);
-    assert_eq!(run.state().tree.selected, Some(Item::Session("a".into())));
+    assert_eq!(
+        run.state().tree.selected,
+        Some(Item::Session(here(), "a".into()))
+    );
     let keys = listed_with([session("a").cwd("/r")]).send(Msg::OpenRow {
-        item: Item::Session("a".into()),
+        item: Item::Session(here(), "a".into()),
         how: Some(Opening::Existing),
         take_keys: true,
     });
@@ -633,7 +661,7 @@ fn opening_a_row_shows_what_it_stands_for_and_may_take_the_keys() {
 
 #[test]
 fn a_row_clicked_opens_as_cursor_go_opens_it() {
-    let item = Item::Session("a".into());
+    let item = Item::Session(here(), "a".into());
     let clicked = listed_with([session("a").cwd("/r")]).send(Msg::RowClicked(item.clone()));
     let gone = listed_with([session("a").cwd("/r")]).send(Msg::OpenRow {
         item,
@@ -648,6 +676,7 @@ fn a_row_clicked_opens_as_cursor_go_opens_it() {
 #[test]
 fn opening_a_file_s_row_starts_a_neovim_on_it() {
     let file = Item::File {
+        environment: here(),
         worktree: "/r".into(),
         path: "/r/a.rs".into(),
         dir: false,
@@ -678,11 +707,14 @@ fn a_session_is_shown_wherever_it_runs_and_its_row_selected() {
     let run = listed_with([session("a"), session("b")])
         .send(show(session_tab("a")))
         .send(Msg::ShowSession("b".into()));
-    assert_eq!(active(&run), Some(Tab::Session("b".into())));
+    assert_eq!(active(&run), Some(Tab::Session(here(), "b".into())));
     assert_eq!(run.state().content.place, place("/r/b"));
-    assert_eq!(run.state().tree.selected, Some(Item::Session("b".into())));
+    assert_eq!(
+        run.state().tree.selected,
+        Some(Item::Session(here(), "b".into()))
+    );
     let next = run.send(Msg::Window(Action::SessionNext));
-    assert_eq!(active(&next), Some(Tab::Session("a".into())));
+    assert_eq!(active(&next), Some(Tab::Session(here(), "a".into())));
 }
 
 #[test]
@@ -697,19 +729,19 @@ fn a_closed_shell_gives_its_windows_up_to_another_thing_of_its_worktree() {
             ),
         )
         .send(Msg::Show {
-            thing: Tab::Terminal(1),
+            thing: Tab::Terminal(here(), 1),
             place: place("/r"),
             how: None,
         })
         .send(Msg::ShellClosed(1));
-    assert_eq!(active(&run), Some(Tab::Session("a".into())));
+    assert_eq!(active(&run), Some(Tab::Session(here(), "a".into())));
     assert!(
         run.last_effects()
             .contains(&Effect::Host(Request::TerminalClosed { id: 1 }))
     );
     assert!(
         run.last_effects()
-            .contains(&Effect::PromptClose(Some(Tab::Session("a".into()))))
+            .contains(&Effect::PromptClose(Some(Tab::Session(here(), "a".into()))))
     );
 }
 
@@ -735,7 +767,7 @@ fn dragging_a_border_resizes_the_windows_beside_it() {
 #[test]
 fn the_details_describe_the_focused_window_s_worktree_and_nothing_while_nothing_is_open() {
     let run = Scenario::new().send(Msg::Show {
-        thing: Tab::Session("s".into()),
+        thing: Tab::Session(here(), "s".into()),
         place: place("/w"),
         how: None,
     });
@@ -778,7 +810,7 @@ fn the_host_is_told_the_terminals_any_window_shows_so_it_can_quit_those_none_sho
             .unwrap_or_default()
     };
     let terminal = |id| Msg::Show {
-        thing: Tab::Terminal(id),
+        thing: Tab::Terminal(here(), id),
         place: place("/r"),
         how: Some(Opening::Tab),
     };
@@ -815,6 +847,7 @@ fn a_prompt_goes_to_the_session_s_agent_or_that_of_the_profile_chosen_for_a_draf
     use adroit_model::Agent;
     let codex = session("c").cwd("/r").agent(Agent::Codex);
     let draft = |dir: &str| Tab::Draft {
+        environment: here(),
         worktree: dir.into(),
         id: Default::default(),
     };
@@ -826,7 +859,7 @@ fn a_prompt_goes_to_the_session_s_agent_or_that_of_the_profile_chosen_for_a_draf
         .event(listing([codex]));
     let state = run.state();
     assert_eq!(
-        agent_of(state, Some(&Tab::Session("c".into()))),
+        agent_of(state, Some(&Tab::Session(here(), "c".into()))),
         Agent::Codex
     );
     assert_eq!(agent_of(state, Some(&draft("/r"))), Agent::Codex);
@@ -840,7 +873,7 @@ fn a_prompt_goes_to_the_session_s_agent_or_that_of_the_profile_chosen_for_a_draf
     assert_eq!(agent_of(state, Some(&draft("/other"))), Agent::Claude);
     assert_eq!(agent_of(state, None), Agent::Claude);
     assert_eq!(
-        agent_of(state, Some(&Tab::Session("c".into()))),
+        agent_of(state, Some(&Tab::Session(here(), "c".into()))),
         Agent::Codex
     );
 }
@@ -871,7 +904,7 @@ fn a_file_asked_to_be_edited_shows_the_neovim_already_on_it_with_the_keys() {
     let run = Scenario::new()
         .event(snapshot().listed(listed().session(session("a").cwd("/r")).terminal(nvim)))
         .send(Msg::EditFile("/c/prompt/nvim/init.lua".into()));
-    assert_eq!(active(&run), Some(Tab::Terminal(4)));
+    assert_eq!(active(&run), Some(Tab::Terminal(here(), 4)));
     assert_eq!(run.state().content.focus, Area::Console);
     assert!(
         !run.last_effects()

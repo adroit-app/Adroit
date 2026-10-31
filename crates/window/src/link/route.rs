@@ -5,10 +5,13 @@ use std::path::{Path, PathBuf};
 
 use adroit_connect::Target;
 use adroit_connect::environments::Binding;
+use adroit_model::EnvironmentId;
 
 /// The environment a link asks for, and the way to its work host.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Route {
+    /// The environment the work along the route belongs to.
+    pub(crate) environment: EnvironmentId,
     pub(crate) scope: Option<String>,
     pub(crate) toward: Result<Toward, String>,
 }
@@ -39,6 +42,7 @@ impl Route {
             ),
             Ok(None) => Route::unbound(Target::load(execution), own),
             Err(text) => Route {
+                environment: EnvironmentId::unbound(),
                 scope: None,
                 toward: Err(text),
             },
@@ -64,6 +68,7 @@ impl Route {
             target => Toward::Remote(target.clone()),
         };
         Route {
+            environment: EnvironmentId::new(&binding.environment),
             scope: binding.scope.clone(),
             toward: Ok(toward),
         }
@@ -73,6 +78,7 @@ impl Route {
     /// own work host being `own`.
     pub(crate) fn unbound(target: Result<Target, String>, own: Toward) -> Route {
         Route {
+            environment: EnvironmentId::unbound(),
             scope: None,
             toward: target.map(|target| match target {
                 Target::Local => own,
@@ -122,6 +128,7 @@ mod tests {
         assert_eq!(
             route,
             Route {
+                environment: EnvironmentId::new("env"),
                 scope: Some("scope-a".into()),
                 toward: Ok(Toward::Local {
                     host: "/state/adroit/instances/work/host/host.sock".into(),
@@ -159,6 +166,7 @@ mod tests {
         assert_eq!(
             route,
             Route {
+                environment: EnvironmentId::new("env"),
                 scope: None,
                 toward: Ok(own()),
             }
@@ -193,6 +201,7 @@ mod tests {
         assert_eq!(
             route,
             Route {
+                environment: EnvironmentId::new("env"),
                 scope: Some("scope-a".into()),
                 toward: Ok(Toward::Remote(native())),
             }
@@ -200,10 +209,24 @@ mod tests {
     }
 
     #[test]
+    fn a_bound_route_s_work_is_known_by_its_environment_and_an_unbound_one_s_by_none() {
+        let bound = Route::bound(
+            &binding(native(), Some("scope-a"), None),
+            "client",
+            Path::new("/state"),
+            own(),
+        );
+        assert_eq!(bound.environment, EnvironmentId::new("env"));
+        let unbound = Route::unbound(Ok(Target::Local), own());
+        assert_eq!(unbound.environment, EnvironmentId::unbound());
+    }
+
+    #[test]
     fn without_an_environment_the_execution_target_is_followed_with_no_scope() {
         assert_eq!(
             Route::unbound(Ok(Target::Local), own()),
             Route {
+                environment: EnvironmentId::unbound(),
                 scope: None,
                 toward: Ok(own()),
             }

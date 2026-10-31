@@ -50,7 +50,7 @@ pub fn entries(target: &Target, session: Option<&Session>) -> Vec<(Action, &'sta
     let close_tab = offer(Action::TabClose);
     let stop_terminal = offer(Action::TerminalStop);
     match target {
-        Target::Row(Item::Session(_) | Item::Waiting(_)) => opens
+        Target::Row(Item::Session(_, _) | Item::Waiting(_, _)) => opens
             .into_iter()
             .chain(rename)
             .chain([copy_name])
@@ -58,7 +58,7 @@ pub fn entries(target: &Target, session: Option<&Session>) -> Vec<(Action, &'sta
             .chain([close])
             .chain(ending)
             .collect(),
-        Target::Row(Item::Terminal(_)) => opens
+        Target::Row(Item::Terminal(_, _)) => opens
             .into_iter()
             .chain([copy_name])
             .chain(here)
@@ -70,21 +70,21 @@ pub fn entries(target: &Target, session: Option<&Session>) -> Vec<(Action, &'sta
             .chain(here)
             .chain([close])
             .collect(),
-        Target::Row(Item::Worktree(_)) => {
+        Target::Row(Item::Worktree(_, _)) => {
             opens.into_iter().chain([copy_path]).chain(here).collect()
         }
-        Target::Row(Item::Workspace(_) | Item::File { dir: true, .. }) => {
+        Target::Row(Item::Workspace(_, _) | Item::File { dir: true, .. }) => {
             [fold, copy_path].into_iter().chain(here).collect()
         }
         Target::Row(Item::Heading(..)) => [fold].into_iter().chain(here).collect(),
-        Target::Tab(Tab::Session(_)) => [close_tab]
+        Target::Tab(Tab::Session(_, _)) => [close_tab]
             .into_iter()
             .chain(rename)
             .chain(ending)
             .collect(),
-        Target::Tab(Tab::Terminal(_)) => vec![close_tab, stop_terminal],
+        Target::Tab(Tab::Terminal(_, _)) => vec![close_tab, stop_terminal],
         Target::Tab(Tab::Draft { .. }) => Vec::new(),
-        Target::Tab(Tab::Viewer(_) | Tab::Drawn { .. }) => vec![close_tab],
+        Target::Tab(Tab::Viewer(_, _) | Tab::Drawn { .. }) => vec![close_tab],
         Target::Link { file, .. } => [Action::CursorGo, Action::CursorCopy]
             .map(offer)
             .into_iter()
@@ -110,6 +110,7 @@ pub fn groups(target: &Target, session: Option<&Session>) -> Vec<Vec<(Action, &'
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::here;
 
     fn grouped(target: Target, s: Option<&Session>) -> Vec<Vec<Action>> {
         groups(&target, s)
@@ -122,13 +123,13 @@ mod tests {
     fn every_entry_of_every_menu_shows_an_icon_and_has_a_row_in_the_table() {
         let own = session();
         let targets = [
-            Target::Row(Item::Workspace("/api".into())),
-            Target::Row(Item::Worktree("/api".into())),
-            Target::Row(Item::Session("a".into())),
-            Target::Row(Item::Waiting("a".into())),
-            Target::Row(Item::Terminal(1)),
-            Target::Tab(Tab::Session("a".into())),
-            Target::Tab(Tab::Terminal(1)),
+            Target::Row(Item::Workspace(here(), "/api".into())),
+            Target::Row(Item::Worktree(here(), "/api".into())),
+            Target::Row(Item::Session(here(), "a".into())),
+            Target::Row(Item::Waiting(here(), "a".into())),
+            Target::Row(Item::Terminal(here(), 1)),
+            Target::Tab(Tab::Session(here(), "a".into())),
+            Target::Tab(Tab::Terminal(here(), 1)),
             Target::Link { at: 0, file: true },
         ];
         for target in targets {
@@ -157,7 +158,7 @@ mod tests {
     fn a_menu_draws_going_starting_and_ending_apart() {
         let s = session();
         assert_eq!(
-            grouped(Target::Row(Item::Session("a".into())), Some(&s)),
+            grouped(Target::Row(Item::Session(here(), "a".into())), Some(&s)),
             [
                 [&OPENS[..], &[Action::SessionRename, Action::CursorCopy]].concat(),
                 vec![Action::SessionNew, Action::ShellOpen, Action::NeovimOpen],
@@ -165,10 +166,10 @@ mod tests {
             ]
         );
         assert_eq!(
-            grouped(Target::Tab(Tab::Terminal(1)), None),
+            grouped(Target::Tab(Tab::Terminal(here(), 1)), None),
             [vec![Action::TabClose, Action::TerminalStop]]
         );
-        let draft = Tab::draft("/a");
+        let draft = Tab::draft(here(), "/a");
         assert!(grouped(Target::Tab(draft), None).is_empty());
     }
 
@@ -193,7 +194,7 @@ mod tests {
     fn a_session_adroit_runs_can_be_opened_renamed_started_beside_and_ended() {
         let s = session();
         assert_eq!(
-            actions(Target::Row(Item::Session("a".into())), Some(&s)),
+            actions(Target::Row(Item::Session(here(), "a".into())), Some(&s)),
             [
                 &OPENS[..],
                 &[
@@ -212,21 +213,21 @@ mod tests {
 
     #[test]
     fn a_workspace_or_worktree_starts_sessions_and_shells_in_it() {
-        let here = [Action::SessionNew, Action::ShellOpen, Action::NeovimOpen];
+        let starts = [Action::SessionNew, Action::ShellOpen, Action::NeovimOpen];
         assert_eq!(
-            actions(Target::Row(Item::Workspace("/api".into())), None),
-            [&[Action::CursorGo, Action::CursorCopy][..], &here].concat()
+            actions(Target::Row(Item::Workspace(here(), "/api".into())), None),
+            [&[Action::CursorGo, Action::CursorCopy][..], &starts].concat()
         );
         assert_eq!(
-            actions(Target::Row(Item::Worktree("/api".into())), None),
-            [&OPENS[..], &[Action::CursorCopy], &here].concat()
+            actions(Target::Row(Item::Worktree(here(), "/api".into())), None),
+            [&OPENS[..], &[Action::CursorCopy], &starts].concat()
         );
     }
 
     #[test]
     fn a_terminal_row_opens_it_starts_beside_it_and_offers_an_explicit_stop() {
         assert_eq!(
-            actions(Target::Row(Item::Terminal(1)), None),
+            actions(Target::Row(Item::Terminal(here(), 1)), None),
             [
                 &OPENS[..],
                 &[
@@ -245,6 +246,7 @@ mod tests {
     #[test]
     fn a_file_opens_where_its_key_says_copies_its_path_and_closes_its_windows() {
         let file = Item::File {
+            environment: here(),
             worktree: "/api".into(),
             path: "/api/a.rs".into(),
             dir: false,
@@ -269,6 +271,7 @@ mod tests {
     fn a_heading_folds_and_has_nothing_to_copy() {
         let got = actions(
             Target::Row(Item::Heading(
+                here(),
                 "/api".into(),
                 crate::tree::nav::Heading::Files,
             )),
@@ -282,11 +285,11 @@ mod tests {
     fn closing_a_tab_and_stopping_its_agent_or_terminal_are_distinct_actions() {
         let s = session();
         assert_eq!(
-            actions(Target::Tab(Tab::Session("a".into())), Some(&s)),
+            actions(Target::Tab(Tab::Session(here(), "a".into())), Some(&s)),
             [Action::TabClose, Action::SessionRename, Action::SessionStop]
         );
         assert_eq!(
-            actions(Target::Tab(Tab::Terminal(1)), None),
+            actions(Target::Tab(Tab::Terminal(here(), 1)), None),
             [Action::TabClose, Action::TerminalStop]
         );
     }

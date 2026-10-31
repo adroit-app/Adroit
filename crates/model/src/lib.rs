@@ -5,6 +5,7 @@
 mod command;
 pub mod config;
 pub mod daemon;
+mod environment;
 pub mod files;
 mod inbox;
 mod key;
@@ -28,6 +29,7 @@ mod tree;
 pub mod usage;
 
 pub use command::*;
+pub use environment::*;
 pub use inbox::*;
 pub use key::*;
 pub use launch::*;

@@ -80,7 +80,7 @@ impl Ui {
         let Some(terminal) = sessions::id_of(&id) else {
             return Err(format!("the work host started no session it names: {id}"));
         };
-        let tab = Tab::Session(id.clone());
+        let tab = Tab::Session(self.app.environment(), id.clone());
         attach_held(self.app, &self.hub, terminal, tab, size)
             .await
             .map_err(failed)?;
@@ -135,13 +135,14 @@ impl Ui {
                 }
             };
             let id = terminal.id;
-            if let Err(e) = attach_held(app, &hub, id, Tab::Terminal(id), size).await {
+            let tab = Tab::Terminal(app.environment(), id);
+            if let Err(e) = attach_held(app, &hub, id, tab.clone(), size).await {
                 app.status(Some(format!("cannot start {base}: {e}")));
                 return;
             }
             app.dispatch(Msg::TerminalOpened(terminal));
             app.dispatch(Msg::Show {
-                thing: Tab::Terminal(id),
+                thing: tab,
                 place: Some(p),
                 how: Some(opening),
             });
@@ -176,13 +177,14 @@ impl Ui {
             };
             let id = terminal.id;
             crate::logins::ask(app, profile, Some(id));
-            if let Err(e) = attach_held(app, &hub, id, Tab::Terminal(id), size).await {
+            let tab = Tab::Terminal(app.environment(), id);
+            if let Err(e) = attach_held(app, &hub, id, tab.clone(), size).await {
                 app.status(Some(format!("cannot open the login terminal: {e}")));
                 return;
             }
             app.dispatch(Msg::TerminalOpened(terminal));
             app.dispatch(Msg::Show {
-                thing: Tab::Terminal(id),
+                thing: tab,
                 place: None,
                 how: None,
             });
@@ -205,10 +207,18 @@ impl Ui {
                 options,
                 taken,
             } = asked;
-            let Tab::Draft { worktree, .. } = &draft else {
+            let Tab::Draft {
+                environment,
+                worktree,
+                ..
+            } = &draft
+            else {
                 app.dispatch(Msg::PromptWent(false));
                 return;
             };
+            // The session started from a draft belongs to the draft's
+            // environment.
+            let environment = environment.clone();
             let start = SessionStart {
                 agent: taken.agent,
                 profile: Some(profile),
@@ -241,7 +251,7 @@ impl Ui {
                             Ok(()) => {
                                 app.dispatch(Msg::Replace {
                                     from: draft,
-                                    to: Tab::Session(id.clone()),
+                                    to: Tab::Session(environment.clone(), id.clone()),
                                 });
                                 app.dispatch(Msg::PromptWent(true));
                             }
@@ -251,8 +261,14 @@ impl Ui {
                             }
                         }
                         if let Some(terminal) = sessions::id_of(&id)
-                            && let Err(error) =
-                                attach_held(app, &ui.hub, terminal, Tab::Session(id), size).await
+                            && let Err(error) = attach_held(
+                                app,
+                                &ui.hub,
+                                terminal,
+                                Tab::Session(environment, id),
+                                size,
+                            )
+                            .await
                         {
                             app.status(Some(format!(
                                 "The session started, but its console could not attach: {error}"
@@ -274,10 +290,13 @@ impl Ui {
             match ui.start_session(start, failed).await {
                 Ok(id) => {
                     app.dispatch(Msg::Relist);
-                    app.dispatch(Msg::TreeSelect(Some(Item::Session(id.clone()))));
+                    app.dispatch(Msg::TreeSelect(Some(Item::Session(
+                        environment.clone(),
+                        id.clone(),
+                    ))));
                     app.dispatch(Msg::Replace {
                         from: draft,
-                        to: Tab::Session(id),
+                        to: Tab::Session(environment, id),
                     });
                     app.dispatch(Msg::PromptWent(true));
                 }
@@ -321,9 +340,13 @@ impl Ui {
                 Ok(id) => {
                     app.status(None);
                     app.dispatch(Msg::Relist);
-                    app.dispatch(Msg::TreeSelect(Some(Item::Session(id.clone()))));
+                    let environment = app.environment();
+                    app.dispatch(Msg::TreeSelect(Some(Item::Session(
+                        environment.clone(),
+                        id.clone(),
+                    ))));
                     app.dispatch(Msg::Show {
-                        thing: Tab::Session(id),
+                        thing: Tab::Session(environment, id),
                         place: None,
                         how: None,
                     });

@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::PathBuf;
 
-use adroit_model::{Agent, Key, TerminalSession};
+use adroit_model::{Agent, EnvironmentId, Key, TerminalSession};
 use adroit_protocol::Event;
 
 use crate::actions::Action;
@@ -27,6 +27,8 @@ pub enum Msg {
     /// shorten to `~`.
     Opened {
         home: PathBuf,
+        /// The environment the window's work host is.
+        environment: EnvironmentId,
     },
     /// The window was brought to the front, or sent to the back.
     WindowFocused(bool),

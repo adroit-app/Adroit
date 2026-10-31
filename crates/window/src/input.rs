@@ -357,10 +357,10 @@ pub(crate) struct Answering {
 /// component follows it.
 pub(crate) fn answering(app: AppCtx) -> Answering {
     let active = app.content.read().active().cloned();
-    let session_shown = matches!(active, Some(Tab::Session(_)));
+    let session_shown = matches!(active, Some(Tab::Session(_, _)));
     let in_dialog = session_shown && app.console.read().dialog;
     let answering = match &active {
-        Some(Tab::Session(id)) => {
+        Some(Tab::Session(_, id)) => {
             let host = app.host.read();
             let tree = adroit_core::tree::listed(host.work.as_ref());
             in_dialog || nav::find(tree, id).is_some_and(|(_, s)| s.state.takes_every_key())

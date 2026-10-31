@@ -72,7 +72,7 @@ pub(crate) fn nothing_taken(state: &mut ViewState) -> Vec<Effect> {
 /// keys go where the answer is given.
 pub(crate) fn taken(state: &mut ViewState, taken: Taken) -> Vec<Effect> {
     let waits = match &taken.tab {
-        Some(Tab::Session(id)) => nav::find(tree::listed(state.host.work.as_ref()), id)
+        Some(Tab::Session(_, id)) => nav::find(tree::listed(state.host.work.as_ref()), id)
             .is_some_and(|(_, s)| s.state.takes_every_key()),
         _ => false,
     };
@@ -169,7 +169,7 @@ fn go(state: &mut ViewState, taken: Taken) -> Vec<Effect> {
             "An attached image is unavailable; remove it or paste it again",
             taken,
         ),
-        Some(Tab::Session(_)) => {
+        Some(Tab::Session(_, _)) => {
             state.prompt.sending = Some(Sending::Handed(taken.clone()));
             vec![Effect::SendPrompt(Box::new(taken))]
         }
@@ -215,7 +215,7 @@ fn go(state: &mut ViewState, taken: Taken) -> Vec<Effect> {
                 taken,
             }))]
         }
-        Some(Tab::Terminal(_) | Tab::Viewer(_) | Tab::Drawn { .. }) | None => {
+        Some(Tab::Terminal(_, _) | Tab::Viewer(_, _) | Tab::Drawn { .. }) | None => {
             state.prompt.sending = None;
             vec![restore(taken)]
         }

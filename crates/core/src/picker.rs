@@ -304,7 +304,12 @@ pub(crate) fn choose(state: &mut ViewState, at: usize) -> Vec<Effect> {
 /// write.
 pub(crate) fn start_in(state: &mut ViewState, dir: PathBuf) -> Vec<Effect> {
     close(&mut state.picker);
-    content::draft(&mut state.content, dir, true)
+    content::draft(
+        &mut state.content,
+        state.host.environment.clone(),
+        dir,
+        true,
+    )
 }
 
 /// What the host offered taken into the list and the tree: the cursor stays

@@ -1,12 +1,13 @@
 use adroit_core::content::{DraftOptions, Tab};
 use adroit_core::prompt::drafts::Drafts;
 use adroit_model::AgentPermissions;
+use adroit_model::EnvironmentId;
 use std::collections::HashMap;
 
 #[test]
 fn changing_launch_options_keeps_the_prompt_on_the_same_draft() {
-    let first = Tab::draft("/repo");
-    let second = Tab::draft("/repo");
+    let first = Tab::draft(EnvironmentId::unbound(), "/repo");
+    let second = Tab::draft(EnvironmentId::unbound(), "/repo");
     let mut prompts = Drafts::default();
     prompts.show(Some(first.clone()), String::new());
     prompts.show(Some(second.clone()), "Keep this first prompt".into());

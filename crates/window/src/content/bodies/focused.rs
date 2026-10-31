@@ -75,7 +75,7 @@ pub(crate) fn FocusedBody() -> Element {
     };
     // The session shown waits on an answer, its own or a dialog's.
     let answering = match &active_tab {
-        Some(Tab::Session(id)) => {
+        Some(Tab::Session(_, id)) => {
             dialog || nav::find(tree, id).is_some_and(|(_, s)| s.state.takes_every_key())
         }
         _ => false,
@@ -103,16 +103,16 @@ pub(crate) fn FocusedBody() -> Element {
         Vec::new()
     };
     let target = match &active_tab {
-        Some(Tab::Session(id)) => nav::find(tree, id)
+        Some(Tab::Session(_, id)) => nav::find(tree, id)
             .map(|(_, s)| s.name.clone())
             .unwrap_or_else(|| id.clone()),
-        Some(Tab::Terminal(n)) => tree_view::terminals(work)
+        Some(Tab::Terminal(_, n)) => tree_view::terminals(work)
             .iter()
             .find(|s| s.id == *n)
             .map(|s| s.name.clone())
             .unwrap_or_default(),
         Some(Tab::Draft { .. }) => "new session".into(),
-        Some(Tab::Viewer(path)) => file_name(path),
+        Some(Tab::Viewer(_, path)) => file_name(path),
         Some(Tab::Drawn { width, height, .. }) => format!("Image {width} × {height}"),
         None => "new scratch session".into(),
     };

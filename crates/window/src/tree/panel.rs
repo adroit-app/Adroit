@@ -74,7 +74,7 @@ pub(crate) fn TreePanel(
                 if empty {
                     ListRow { kind: "dim", "No sessions yet" }
                 }
-                for item in rows.into_iter().filter(|i| !matches!(i, Item::Waiting(_))) {
+                for item in rows.into_iter().filter(|i| !matches!(i, Item::Waiting(_, _))) {
                     TreeRow { key: "{item:?}", item, context, on }
                 }
             }

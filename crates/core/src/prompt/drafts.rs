@@ -3,6 +3,8 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use adroit_model::EnvironmentId;
+
 use crate::content::{self, Tab};
 
 /// The name the text written with nothing open is kept by.
@@ -123,13 +125,13 @@ impl Drafts {
     }
 
     /// The text [`Drafts::saved`] gave, kept aside for each tab, with nothing
-    /// shown yet.
-    pub fn restored(saved: BTreeMap<String, String>) -> Self {
+    /// shown yet; a tab kept without its environment is `window`'s.
+    pub fn restored(saved: BTreeMap<String, String>, window: &EnvironmentId) -> Self {
         let kept = saved
             .into_iter()
             .filter_map(|(name, text)| match name.as_str() {
                 NOTHING_OPEN => Some((None, text)),
-                _ => content::from_kept(&name).map(|tab| (Some(tab), text)),
+                _ => content::from_kept(&name, window).map(|tab| (Some(tab), text)),
             })
             .collect();
         Self {
@@ -215,10 +217,11 @@ impl History {
 
 #[cfg(test)]
 mod tests {
+    use crate::testing::here;
     #[test]
     fn consuming_a_sent_hidden_draft_preserves_newer_text_and_the_shown_tab() {
         let mut drafts = super::Drafts::default();
-        let tab = Some(crate::content::Tab::Session("session".into()));
+        let tab = Some(crate::content::Tab::Session(here(), "session".into()));
         drafts.add(&tab, &["sent".into()]);
         assert!(!drafts.consume_hidden(&tab, "old"));
         assert!(drafts.consume_hidden(&tab, "sent"));
@@ -231,7 +234,7 @@ mod tests {
     use super::*;
 
     fn session(id: &str) -> Option<Tab> {
-        Some(Tab::Session(id.into()))
+        Some(Tab::Session(here(), id.into()))
     }
 
     fn kept(prompts: &[&str]) -> Vec<String> {
@@ -267,6 +270,7 @@ mod tests {
     fn what_was_written_with_nothing_open_takes_its_cursor_to_the_draft_opened_next() {
         let mut d = Drafts::default();
         let draft = Some(Tab::Draft {
+            environment: here(),
             worktree: "/r".into(),
             id: adroit_model::DraftId::new(),
         });
@@ -318,7 +322,7 @@ mod tests {
 
     #[test]
     fn what_is_written_with_nothing_open_goes_to_the_draft_opened_next() {
-        let draft = Some(Tab::draft("/src"));
+        let draft = Some(Tab::draft(here(), "/src"));
         let mut d = Drafts::default();
         assert_eq!(
             d.show(draft.clone(), "add a readme".into()),
@@ -334,23 +338,23 @@ mod tests {
     fn what_is_written_survives_the_window_and_comes_back_to_its_tab() {
         let mut d = Drafts::default();
         d.show(session("a"), String::new());
-        d.show(Some(Tab::Terminal(1)), "for a".into());
+        d.show(Some(Tab::Terminal(here(), 1)), "for a".into());
         let saved = d.saved("in the shell's prompt");
-        let mut back = Drafts::restored(saved);
+        let mut back = Drafts::restored(saved, &here());
         assert_eq!(back.show(session("a"), String::new()), Some("for a".into()));
         assert_eq!(
-            back.show(Some(Tab::Terminal(1)), String::new()),
+            back.show(Some(Tab::Terminal(here(), 1)), String::new()),
             Some("in the shell's prompt".into())
         );
     }
 
     #[test]
     fn a_draft_tab_s_text_is_not_kept_past_the_window_but_nothing_open_s_is() {
-        let draft = Some(Tab::draft("/src"));
+        let draft = Some(Tab::draft(here(), "/src"));
         let mut d = Drafts::default();
         d.show(draft, String::new());
         d.show(None, "for the draft".into());
-        let mut back = Drafts::restored(d.saved("with nothing open"));
+        let mut back = Drafts::restored(d.saved("with nothing open"), &here());
         assert!(back.holding().is_empty());
         // The window opens with nothing shown: its text comes back first.
         assert_eq!(back.first(), Some("with nothing open".into()));
@@ -362,7 +366,7 @@ mod tests {
         let mut d = Drafts::default();
         d.show(session("a"), String::new());
         d.show(None, "for a".into());
-        let mut back = Drafts::restored(d.saved(""));
+        let mut back = Drafts::restored(d.saved(""), &here());
 
         back.turn_to(session("a"));
 
@@ -377,7 +381,10 @@ mod tests {
         d.show(session("a"), String::new());
         d.show(session("b"), "for a".into());
         d.show(None, String::new());
-        assert_eq!(d.holding(), HashSet::from([Tab::Session("a".into())]));
+        assert_eq!(
+            d.holding(),
+            HashSet::from([Tab::Session(here(), "a".into())])
+        );
         d.show(session("a"), String::new());
         assert!(d.holding().is_empty());
     }

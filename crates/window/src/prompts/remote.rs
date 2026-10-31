@@ -6,14 +6,15 @@ use adroit_connect::journal::{PromptContext, PromptTarget, Record};
 use adroit_core::content::{Tab, kept_name};
 use adroit_core::msg::Msg;
 use adroit_core::prompt::send::Taken;
+use adroit_model::EnvironmentId;
 use adroit_protocol::{Answer, Ask, MutationState};
 use dioxus::prelude::*;
 use tokio::sync::oneshot;
 
 pub(crate) fn context(taken: &Taken) -> Option<PromptContext> {
     let target = match taken.tab.as_ref()? {
-        Tab::Session(id) => PromptTarget::Session { id: id.clone() },
-        Tab::Draft { worktree, id } => PromptTarget::Draft {
+        Tab::Session(_, id) => PromptTarget::Session { id: id.clone() },
+        Tab::Draft { worktree, id, .. } => PromptTarget::Draft {
             worktree: worktree.clone(),
             id: *id,
         },
@@ -26,11 +27,14 @@ pub(crate) fn context(taken: &Taken) -> Option<PromptContext> {
     })
 }
 
-pub(crate) fn target(context: &PromptContext) -> Option<Tab> {
+/// The tab `context` was written in, of `environment`, the one the journal
+/// that kept it is of.
+pub(crate) fn target(context: &PromptContext, environment: &EnvironmentId) -> Option<Tab> {
     match &context.target {
         PromptTarget::Nothing => None,
-        PromptTarget::Session { id } => Some(Tab::Session(id.clone())),
+        PromptTarget::Session { id } => Some(Tab::Session(environment.clone(), id.clone())),
         PromptTarget::Draft { worktree, id } => Some(Tab::Draft {
+            environment: environment.clone(),
             worktree: worktree.clone(),
             id: *id,
         }),
@@ -80,7 +84,7 @@ impl Ui {
             .prompt
             .as_ref()
             .ok_or("the pending change has no draft")?;
-        let tab = target(context);
+        let tab = target(context, &self.app.environment());
         if sent {
             if let Some(key) = tab.as_ref().and_then(kept_name) {
                 match self
@@ -151,7 +155,7 @@ mod tests {
 
     #[test]
     fn the_context_preserves_the_named_draft_and_its_full_original_text() {
-        let tab = Tab::draft("/remote/work");
+        let tab = Tab::draft(EnvironmentId::unbound(), "/remote/work");
         let taken = Taken {
             tab: Some(tab.clone()),
             text: "# Name\n日本語の本文".into(),
@@ -159,7 +163,7 @@ mod tests {
         };
         let saved = context(&taken).unwrap();
         assert_eq!(saved.text, taken.text);
-        assert_eq!(target(&saved), Some(tab));
+        assert_eq!(target(&saved, &EnvironmentId::unbound()), Some(tab));
         assert!(matches!(saved.target, PromptTarget::Draft { .. }));
     }
 

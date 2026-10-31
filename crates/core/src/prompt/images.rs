@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
-use adroit_model::Key;
+use adroit_model::{EnvironmentId, Key};
 
 use crate::content::{Tab, from_kept, kept_name};
 
@@ -92,7 +92,9 @@ impl Attachments {
             .collect()
     }
 
-    pub fn restored(saved: BTreeMap<String, Vec<PathBuf>>) -> Self {
+    /// The images [`Attachments::saved`] gave; a tab kept without its
+    /// environment is `window`'s.
+    pub fn restored(saved: BTreeMap<String, Vec<PathBuf>>, window: &EnvironmentId) -> Self {
         Self {
             shown: None,
             kept: saved
@@ -101,7 +103,7 @@ impl Attachments {
                     let tab = if name == "nothing" {
                         None
                     } else {
-                        Some(from_kept(&name)?)
+                        Some(from_kept(&name, window)?)
                     };
                     Some((tab, images))
                 })
@@ -155,6 +157,7 @@ pub fn image_key(images: &[PathBuf], selected: Option<&PathBuf>, key: &Key) -> O
 
 #[cfg(test)]
 mod tests {
+    use crate::testing::here;
     #[test]
     fn consuming_attachments_only_removes_the_exact_sent_set() {
         let mut images = super::Attachments::default();
@@ -200,8 +203,8 @@ mod tests {
 
     #[test]
     fn a_failed_send_restores_images_to_its_tab_before_any_new_attachments() {
-        let a = Some(Tab::Session("a".into()));
-        let b = Some(Tab::Session("b".into()));
+        let a = Some(Tab::Session(here(), "a".into()));
+        let b = Some(Tab::Session(here(), "b".into()));
         let mut images = Attachments::default();
         images.show(a.clone());
         images.add(vec!["/one.png".into()]);
@@ -221,17 +224,17 @@ mod tests {
     fn attachments_written_with_nothing_open_follow_the_next_draft() {
         let mut images = Attachments::default();
         images.add(vec!["/one.png".into()]);
-        images.show(Some(Tab::draft("/src")));
+        images.show(Some(Tab::draft(here(), "/src")));
         assert_eq!(images.current(), &[PathBuf::from("/one.png")]);
         assert!(images.saved().is_empty());
-        images.close(Some(Tab::Session("old".into())));
-        images.show(Some(Tab::Session("old".into())));
+        images.close(Some(Tab::Session(here(), "old".into())));
+        images.show(Some(Tab::Session(here(), "old".into())));
         assert_eq!(images.current(), &[PathBuf::from("/one.png")]);
     }
 
     #[test]
     fn removing_all_images_leaves_a_draft_free_to_receive_the_empty_window_s_attachments() {
-        let draft = Some(Tab::draft("/src"));
+        let draft = Some(Tab::draft(here(), "/src"));
         let mut images = Attachments::default();
         images.show(draft.clone());
         images.add(vec!["/old.png".into()]);
@@ -244,14 +247,14 @@ mod tests {
 
     #[test]
     fn attachments_follow_tabs_close_with_the_prompt_and_survive_reopening() {
-        let a = Some(Tab::Session("a".into()));
-        let b = Some(Tab::Session("b".into()));
+        let a = Some(Tab::Session(here(), "a".into()));
+        let b = Some(Tab::Session(here(), "b".into()));
         let mut images = Attachments::default();
         images.show(a.clone());
         images.add(vec!["/a.png".into()]);
         images.show(b.clone());
         images.add(vec!["/b.png".into()]);
-        let mut restored = Attachments::restored(images.saved());
+        let mut restored = Attachments::restored(images.saved(), &here());
         restored.show(a.clone());
         assert_eq!(restored.current(), &[PathBuf::from("/a.png")]);
         images.close(a);

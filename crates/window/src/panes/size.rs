@@ -274,6 +274,7 @@ pub(crate) fn use_console_sizes(ui: &Ui) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adroit_model::EnvironmentId;
 
     #[test]
     fn the_console_s_terminal_takes_the_prompt_card_s_room_when_no_card_is_shown() {
@@ -291,8 +292,12 @@ mod tests {
             card: 120.0,
             cell: (8.0, 20.0),
         };
-        let session = measured.fitted(Some(&Tab::Session("a".into()))).unwrap();
-        let terminal = measured.fitted(Some(&Tab::Terminal(1))).unwrap();
+        let session = measured
+            .fitted(Some(&Tab::Session(EnvironmentId::unbound(), "a".into())))
+            .unwrap();
+        let terminal = measured
+            .fitted(Some(&Tab::Terminal(EnvironmentId::unbound(), 1)))
+            .unwrap();
         assert_eq!(session.rows, ((600.0 - 120.0 - CONSOLE_GAP) / 20.0) as u16);
         assert_eq!(terminal.rows, ((600.0 - SCREEN_TOP) / 20.0) as u16);
         assert_eq!(session.cols, terminal.cols);
@@ -305,7 +310,10 @@ mod tests {
             card: 120.0,
             cell: (8.0, 20.0),
         };
-        assert_eq!(measured.fitted(Some(&Tab::Session("a".into()))), None);
+        assert_eq!(
+            measured.fitted(Some(&Tab::Session(EnvironmentId::unbound(), "a".into()))),
+            None
+        );
     }
 
     #[tokio::test]

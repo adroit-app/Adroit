@@ -97,6 +97,7 @@ impl Scenario {
 
 #[cfg(test)]
 mod tests {
+    use crate::testing::here;
     use adroit_protocol::{Event, Request, Seq, Version};
 
     use super::*;
@@ -115,6 +116,7 @@ mod tests {
             _ => vec![],
         })
         .send(Msg::Opened {
+            environment: here(),
             home: Default::default(),
         });
         assert_eq!(

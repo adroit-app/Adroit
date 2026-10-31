@@ -22,8 +22,9 @@ pub fn step(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
 /// `msg` applied to the slices it concerns.
 pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
     match msg {
-        Msg::Opened { home } => {
+        Msg::Opened { home, environment } => {
             state.picker.home = home;
+            state.host.environment = environment;
             vec![host::hello()]
         }
         Msg::WindowFocused(on) => chrome::window_focused(&mut state.chrome, on),
@@ -59,7 +60,12 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         Msg::Focus(area) => content::focus(&mut state.content, area),
         Msg::Show { thing, place, how } => content::show(&mut state.content, thing, place, how),
         Msg::ShowSession(id) => content::show_session(state, id),
-        Msg::Draft { worktree, write } => content::draft(&mut state.content, worktree, write),
+        Msg::Draft { worktree, write } => content::draft(
+            &mut state.content,
+            state.host.environment.clone(),
+            worktree,
+            write,
+        ),
         Msg::OpenRow {
             item,
             how,
@@ -76,6 +82,7 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
             let mut effects = vec![Effect::Host(Request::TerminalClosed { id })];
             effects.extend(content::shell_closed(
                 &mut state.content,
+                &state.host.environment,
                 state.host.work.as_ref(),
                 id,
             ));

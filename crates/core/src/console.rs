@@ -105,7 +105,7 @@ pub struct ReaderAt {
 /// answers.
 pub fn waits(state: &ViewState) -> bool {
     match state.content.active() {
-        Some(Tab::Session(id)) => {
+        Some(Tab::Session(_, id)) => {
             state.console.dialog
                 || nav::find(tree::listed(state.host.work.as_ref()), id)
                     .is_some_and(|(_, s)| s.state.takes_every_key())
@@ -124,7 +124,7 @@ pub fn text_goes(state: &ViewState) -> Typed {
     )) {
         return Typed::Nowhere;
     }
-    let session = matches!(state.content.active(), Some(Tab::Session(_)));
+    let session = matches!(state.content.active(), Some(Tab::Session(_, _)));
     route::typed_into(
         state.content.focus,
         session,
@@ -136,7 +136,7 @@ pub fn text_goes(state: &ViewState) -> Typed {
 /// A key or text goes to the session shown as it is: it may type into its
 /// input.
 fn typed(state: &mut ViewState) {
-    if let Some(tab @ Tab::Session(_)) = state.content.active() {
+    if let Some(tab @ Tab::Session(_, _)) = state.content.active() {
         state.console.stale.insert(tab.clone());
     }
 }
@@ -207,7 +207,7 @@ pub(crate) fn press(state: &mut ViewState, key: Key, probe: Probe) -> Vec<Effect
             }
         }
     }
-    let session = matches!(state.content.active(), Some(Tab::Session(_)));
+    let session = matches!(state.content.active(), Some(Tab::Session(_, _)));
     // A session waiting on a choice takes every key but the window's own as
     // its answer; a shell takes every key but those.
     let pane = pane || (probe.pane && area == Area::Prompt);
@@ -386,7 +386,7 @@ pub(crate) fn prompt_entered(state: &mut ViewState) -> Vec<Effect> {
 /// never calls it, so the request would lapse. One at work is left to it:
 /// its input is asked for once it stops.
 pub(crate) fn ask_input(state: &ViewState) -> Vec<Effect> {
-    let Some(tab @ Tab::Session(id)) = state.content.active() else {
+    let Some(tab @ Tab::Session(_, id)) = state.content.active() else {
         return Vec::new();
     };
     let console = &state.console;
@@ -443,7 +443,7 @@ pub(crate) fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
 fn set(console: &mut ConsoleView, msg: Msg) -> Vec<Effect> {
     match msg {
         Msg::InputMayHold(tab) => {
-            if matches!(tab, Tab::Session(_)) {
+            if matches!(tab, Tab::Session(_, _)) {
                 console.stale.insert(tab);
             }
         }
@@ -508,7 +508,7 @@ pub(crate) fn keep_listed(state: &mut ViewState) {
 /// last saw one on its screen.
 pub(crate) fn follow_dialog(state: &mut ViewState) {
     let open = match (state.content.active(), state.host.work.as_ref()) {
-        (Some(Tab::Session(id)), Some(work)) => work.console.dialog_open(id),
+        (Some(Tab::Session(_, id)), Some(work)) => work.console.dialog_open(id),
         _ => false,
     };
     if state.console.dialog != open {
@@ -546,7 +546,7 @@ pub(crate) fn ask_when_freed(state: &mut ViewState) -> Vec<Effect> {
 /// passes every key on, or it works.
 fn held_from_input(state: &ViewState) -> bool {
     let waiting = match state.content.active() {
-        Some(Tab::Session(id)) => nav::find(tree::listed(state.host.work.as_ref()), id)
+        Some(Tab::Session(_, id)) => nav::find(tree::listed(state.host.work.as_ref()), id)
             .is_some_and(|(_, s)| s.state.takes_every_key()),
         _ => false,
     };
@@ -556,7 +556,7 @@ fn held_from_input(state: &ViewState) -> bool {
 /// Whether the session shown is at work.
 fn works(state: &ViewState) -> bool {
     match state.content.active() {
-        Some(Tab::Session(id)) => nav::find(tree::listed(state.host.work.as_ref()), id)
+        Some(Tab::Session(_, id)) => nav::find(tree::listed(state.host.work.as_ref()), id)
             .is_some_and(|(_, s)| s.state == State::Working),
         _ => false,
     }

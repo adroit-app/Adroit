@@ -3,24 +3,30 @@
 use std::path::{Path, PathBuf};
 
 use adroit_model::profile::ProfileId;
-use adroit_model::{AgentPermissions, DraftId};
+use adroit_model::{AgentPermissions, DraftId, EnvironmentId};
 
 use super::{Kept, KeptNode, KeptTab};
 
-/// What a window shows.
+/// What a window shows, by the environment it belongs to and its own
+/// identity there.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Tab {
     /// A Claude Code session, by id.
-    Session(String),
+    Session(EnvironmentId, String),
     /// A shell adroit started in a worktree, by the daemon's id.
-    Terminal(u128),
+    Terminal(EnvironmentId, u128),
     /// A session not started yet: the next prompt sent from here starts it.
-    Draft { worktree: PathBuf, id: DraftId },
+    Draft {
+        environment: EnvironmentId,
+        worktree: PathBuf,
+        id: DraftId,
+    },
     /// A file shown in the viewer of its kind.
-    Viewer(PathBuf),
+    Viewer(EnvironmentId, PathBuf),
     /// An image `session`'s console drew, `width` by `height` pixels, shown
     /// in the image viewer from the copy the window keeps by `id`.
     Drawn {
+        environment: EnvironmentId,
         session: String,
         id: u64,
         width: u32,
@@ -34,7 +40,7 @@ pub enum Tab {
 pub fn shows_prompt(tab: Option<&Tab>) -> bool {
     !matches!(
         tab,
-        Some(Tab::Terminal(_) | Tab::Viewer(_) | Tab::Drawn { .. })
+        Some(Tab::Terminal(..) | Tab::Viewer(..) | Tab::Drawn { .. })
     )
 }
 
@@ -56,10 +62,21 @@ impl DraftOptions {
 }
 
 impl Tab {
-    pub fn draft(worktree: impl Into<PathBuf>) -> Self {
+    pub fn draft(environment: EnvironmentId, worktree: impl Into<PathBuf>) -> Self {
         Self::Draft {
+            environment,
             worktree: worktree.into(),
             id: DraftId::new(),
+        }
+    }
+
+    pub fn environment(&self) -> &EnvironmentId {
+        match self {
+            Tab::Session(environment, _)
+            | Tab::Terminal(environment, _)
+            | Tab::Viewer(environment, _)
+            | Tab::Draft { environment, .. }
+            | Tab::Drawn { environment, .. } => environment,
         }
     }
 }
@@ -173,25 +190,44 @@ pub fn fresh_name(label: &str, taken: &[&str]) -> String {
     name
 }
 
-/// How a tab is kept for the next run of the window. A draft holds nothing
-/// to come back to, a viewer opens again from the tree in a moment, and an
-/// image drawn is gone with the window that kept it, so none is kept.
+/// How a tab is kept for the next run of the window: `<environment>@` and
+/// what it is in that environment, or what it is alone in a window without
+/// an environment, as every tab was kept before environments. A draft holds
+/// nothing to come back to, a viewer opens again from the tree in a moment,
+/// and an image drawn is gone with the window that kept it, so none is kept.
 pub fn kept_name(tab: &Tab) -> Option<String> {
-    match tab {
-        Tab::Session(id) => Some(format!("session:{id}")),
-        Tab::Terminal(id) => Some(format!("terminal:{id:x}")),
-        Tab::Draft { .. } | Tab::Viewer(_) | Tab::Drawn { .. } => None,
-    }
+    let name = match tab {
+        Tab::Session(_, id) => format!("session:{id}"),
+        Tab::Terminal(_, id) => format!("terminal:{id:x}"),
+        Tab::Draft { .. } | Tab::Viewer(..) | Tab::Drawn { .. } => return None,
+    };
+    let environment = tab.environment();
+    Some(if environment.is_unbound() {
+        name
+    } else {
+        format!("{environment}@{name}")
+    })
 }
 
-/// The tab a name [`kept_name`] gave stands for.
-pub fn from_kept(name: &str) -> Option<Tab> {
+/// The tab a name [`kept_name`] gave stands for, in `window`'s environment
+/// when the name was kept without one.
+pub fn from_kept(name: &str, window: &EnvironmentId) -> Option<Tab> {
     let name = name.trim();
+    // An environment's id holds no `:`, so a name that starts with what it
+    // is was kept without one, whatever `@` its session id holds.
+    let (environment, name) = match name.split_once('@') {
+        Some((environment, rest)) if !environment.contains(':') => {
+            (EnvironmentId::new(environment), rest)
+        }
+        _ => (window.clone(), name),
+    };
     if let Some(id) = name.strip_prefix("session:") {
-        return Some(Tab::Session(id.to_string()));
+        return Some(Tab::Session(environment, id.to_string()));
     }
     let id = name.strip_prefix("terminal:")?;
-    u128::from_str_radix(id, 16).ok().map(Tab::Terminal)
+    u128::from_str_radix(id, 16)
+        .ok()
+        .map(|id| Tab::Terminal(environment, id))
 }
 
 /// The content kept for the next run, as it is written down: each window by
@@ -207,7 +243,7 @@ pub fn read_kept(text: &str) -> Kept<String> {
     if let Ok(kept) = serde_json::from_str(text) {
         return kept;
     }
-    match from_kept(text) {
+    match from_kept(text, &EnvironmentId::unbound()) {
         Some(_) => Kept {
             tabs: vec![KeptTab {
                 root: KeptNode::Window(text.trim().to_string()),
@@ -224,6 +260,7 @@ pub fn read_kept(text: &str) -> Kept<String> {
 mod tests {
     use super::*;
     use crate::content::{Axis, Content};
+    use crate::testing::here;
 
     #[test]
     fn options_chosen_with_nothing_open_go_to_the_next_draft_only() {
@@ -244,50 +281,96 @@ mod tests {
     #[test]
     fn a_shell_or_a_viewer_shows_no_prompt_and_a_session_a_draft_or_nothing_open_does() {
         let draft = Tab::Draft {
+            environment: here(),
             worktree: PathBuf::from("/w"),
             id: Default::default(),
         };
-        assert!(!shows_prompt(Some(&Tab::Terminal(1))));
-        assert!(!shows_prompt(Some(&Tab::Viewer("/a.png".into()))));
+        assert!(!shows_prompt(Some(&Tab::Terminal(here(), 1))));
+        assert!(!shows_prompt(Some(&Tab::Viewer(here(), "/a.png".into()))));
         assert!(!shows_prompt(Some(&Tab::Drawn {
+            environment: here(),
             session: "a".into(),
             id: 1,
             width: 2,
             height: 2,
         })));
-        assert!(shows_prompt(Some(&Tab::Session("a".into()))));
+        assert!(shows_prompt(Some(&Tab::Session(here(), "a".into()))));
         assert!(shows_prompt(Some(&draft)));
         assert!(shows_prompt(None));
     }
 
     #[test]
     fn a_session_s_or_a_shell_s_tab_is_kept_by_name_and_a_draft_s_or_a_drawn_image_s_is_not() {
-        for tab in [Tab::Session("ab12".into()), Tab::Terminal(0xff)] {
+        for tab in [
+            Tab::Session(here(), "ab12".into()),
+            Tab::Terminal(here(), 0xff),
+        ] {
             let name = kept_name(&tab).unwrap();
-            assert_eq!(from_kept(&name), Some(tab), "{name}");
+            assert_eq!(from_kept(&name, &here()), Some(tab), "{name}");
         }
         let draft = Tab::Draft {
+            environment: here(),
             worktree: "/src".into(),
             id: Default::default(),
         };
         assert_eq!(kept_name(&draft), None);
         let drawn = Tab::Drawn {
+            environment: here(),
             session: "a".into(),
             id: 1,
             width: 2,
             height: 2,
         };
         assert_eq!(kept_name(&drawn), None);
-        assert_eq!(from_kept("shell:not hex"), None);
-        assert_eq!(from_kept("something else"), None);
+        assert_eq!(from_kept("shell:not hex", &here()), None);
+        assert_eq!(from_kept("something else", &here()), None);
+    }
+
+    #[test]
+    fn a_tab_is_kept_with_its_environment_and_reads_back_in_it_in_any_window() {
+        let here = EnvironmentId::new("here");
+        let away = EnvironmentId::new("away");
+        for tab in [
+            Tab::Session(away.clone(), "ab12".into()),
+            Tab::Terminal(away.clone(), 0xff),
+        ] {
+            let name = kept_name(&tab).unwrap();
+            assert_eq!(from_kept(&name, &here), Some(tab), "{name}");
+        }
+    }
+
+    #[test]
+    fn a_tab_kept_before_environments_reads_back_in_the_window_s_environment() {
+        let here = EnvironmentId::new("here");
+        assert_eq!(
+            from_kept("session:ab12", &here),
+            Some(Tab::Session(here.clone(), "ab12".into()))
+        );
+        assert_eq!(
+            from_kept("terminal:ff", &here),
+            Some(Tab::Terminal(here, 0xff))
+        );
+    }
+
+    #[test]
+    fn a_tab_of_a_window_without_an_environment_is_kept_as_before() {
+        let unbound = EnvironmentId::unbound();
+        assert_eq!(
+            kept_name(&Tab::Session(unbound.clone(), "ab12".into())).as_deref(),
+            Some("session:ab12")
+        );
+        assert_eq!(
+            kept_name(&Tab::Terminal(unbound, 0xff)).as_deref(),
+            Some("terminal:ff")
+        );
     }
 
     #[test]
     fn the_content_kept_reads_back_as_it_was_written() {
         let mut windows = Content::default();
-        windows.open(Tab::Session("a".into()));
-        windows.split(Axis::Row, Tab::Terminal(7));
-        windows.open_tab(Tab::Session("b".into()));
+        windows.open(Tab::Session(here(), "a".into()));
+        windows.split(Axis::Row, Tab::Terminal(here(), 7));
+        windows.open_tab(Tab::Session(here(), "b".into()));
         let kept = windows.kept(kept_name);
         assert_eq!(read_kept(&kept_text(&kept)), kept);
     }

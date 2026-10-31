@@ -42,7 +42,7 @@ pub(crate) fn perform(
     let thing = state.content.active().cloned();
     // The focused window's viewer takes the viewer's actions.
     if area == Area::Console
-        && let Some(Tab::Viewer(_) | Tab::Drawn { .. }) = &thing
+        && let Some(Tab::Viewer(_, _) | Tab::Drawn { .. }) = &thing
         && let Some(action) = ViewerAction::of(&action)
         && let Some(window) = state.content.windows.focused_window()
     {
@@ -149,7 +149,7 @@ pub(crate) fn perform(
         Action::PromptSend => step(state, Msg::PromptSend),
         Action::PromptTakeSuggestion if prompt_runs => {
             let hands_back = state.console.answers
-                && matches!(&thing, Some(Tab::Session(id))
+                && matches!(&thing, Some(Tab::Session(_, id))
                     if nav::find(tree::listed(state.host.work.as_ref()), id)
                         .is_some_and(|(_, s)| s.adroit_editor));
             vec![Effect::TakeSuggestion {
@@ -176,9 +176,9 @@ pub(crate) fn perform(
         Action::SessionStop => step(state, Msg::ConfirmStop { selection: on_list }),
         Action::SessionRename => {
             let chosen = match &cur {
-                Some(Item::Session(id) | Item::Waiting(id)) if on_list => Some(id.clone()),
+                Some(Item::Session(_, id) | Item::Waiting(_, id)) if on_list => Some(id.clone()),
                 _ => match &thing {
-                    Some(Tab::Session(id)) => Some(id.clone()),
+                    Some(Tab::Session(_, id)) => Some(id.clone()),
                     _ => None,
                 },
             };
@@ -286,14 +286,15 @@ pub(crate) fn perform(
         Action::CursorReveal => Vec::new(),
         Action::WaitingNext | Action::WaitingPrev => {
             let current = match &cur {
-                Some(Item::Waiting(id)) | Some(Item::Session(id)) => Some(id.as_str()),
+                Some(Item::Waiting(_, id) | Item::Session(_, id)) => Some(id.as_str()),
                 _ => None,
             };
             let forward = action == Action::WaitingNext;
             let Some(id) = nav::next_waiting(&state.tree.waiting, current, forward) else {
                 return Vec::new();
             };
-            let mut effects = open(state, Item::Waiting(id), Some(Opening::Preview), false);
+            let waiting = Item::Waiting(state.host.environment.clone(), id);
+            let mut effects = open(state, waiting, Some(Opening::Preview), false);
             // It waits on an answer, given in the console.
             effects.extend(step(state, Msg::Focus(Area::Console)));
             effects
@@ -312,15 +313,17 @@ pub(crate) fn perform(
         | Action::ShellOpen
         | Action::NeovimOpen => step(state, Msg::Window(action)),
         // On a shell's row, that shell closes, whichever tab is shown.
-        Action::TerminalStop if let Some(Item::Terminal(id)) = cur.as_ref().filter(|_| on_list) => {
+        Action::TerminalStop
+            if let Some(row @ Item::Terminal(_, id)) = cur.as_ref().filter(|_| on_list) =>
+        {
             let id = *id;
-            let above = nav::row_above(&state.tree.rows, &Item::Terminal(id));
+            let above = nav::row_above(&state.tree.rows, row);
             let mut effects = step(state, Msg::TreeSelect(above));
             effects.push(Effect::EndShell(id));
             effects
         }
         Action::TerminalStop => match thing {
-            Some(Tab::Terminal(id)) => vec![Effect::EndShell(id)],
+            Some(Tab::Terminal(_, id)) => vec![Effect::EndShell(id)],
             _ => Vec::new(),
         },
         Action::Refresh => step(state, Msg::Relist),

@@ -58,7 +58,7 @@ pub(crate) fn listed(state: &mut ViewState) -> Vec<Effect> {
     // A session started a moment ago, and shown, is placed among its
     // worktree's tabs once listed: below the worktree's top, it is shown
     // there.
-    if let Some(Tab::Session(id)) = view.active()
+    if let Some(Tab::Session(_, id)) = view.active()
         && view.place.is_some()
         && let Some((p, _)) = nav::find(next, id)
         && view.place.as_ref() != Some(&p)
@@ -70,7 +70,7 @@ pub(crate) fn listed(state: &mut ViewState) -> Vec<Effect> {
     // next, though it may stay live here a while yet.
     let shown = view.windows.shown();
     for t in &shown {
-        if let Tab::Session(id) = t
+        if let Tab::Session(_, id) = t
             && nav::is_gone(sessions, id)
             && let Some((_, s)) = nav::find(&was, id)
         {
@@ -81,7 +81,7 @@ pub(crate) fn listed(state: &mut ViewState) -> Vec<Effect> {
         nav::is_gone(sessions, id)
             && shown
                 .iter()
-                .any(|t| matches!(t, Tab::Session(s) if s == id))
+                .any(|t| matches!(t, Tab::Session(_, s) if s == id))
     });
     // A session gone from the list gives its windows up as a closed shell
     // does.
@@ -90,7 +90,11 @@ pub(crate) fn listed(state: &mut ViewState) -> Vec<Effect> {
         .shown()
         .into_iter()
         .filter_map(|t| match t {
-            Tab::Session(id) if nav::is_gone(sessions, id) && !view.live.contains(id) => {
+            Tab::Session(environment, id)
+                if *environment == state.host.environment
+                    && nav::is_gone(sessions, id)
+                    && !view.live.contains(id) =>
+            {
                 Some(id.clone())
             }
             _ => None,
@@ -103,7 +107,7 @@ pub(crate) fn listed(state: &mut ViewState) -> Vec<Effect> {
                 .filter(|s| s.cwd == p.worktree)
                 .map(|s| s.id)
                 .collect();
-            nav::tab_after_closing(next, p, &left)
+            nav::tab_after_closing(&state.host.environment, next, p, &left)
         });
         // Said, or the window would vanish unexplained.
         if let Some(name) = view.unlisted.remove(id) {
@@ -112,7 +116,7 @@ pub(crate) fn listed(state: &mut ViewState) -> Vec<Effect> {
                 format!("{name} ended"),
             ));
         }
-        let gone = Tab::Session(id.clone());
+        let gone = Tab::Session(state.host.environment.clone(), id.clone());
         close_showing(view, |t| *t == gone, after);
     }
     // A session no longer listed has nothing to show; its pane is closed,
@@ -130,18 +134,19 @@ pub(crate) fn listed(state: &mut ViewState) -> Vec<Effect> {
         && view.windows.is_empty()
     {
         let at = |tab: &Tab| match tab {
-            Tab::Session(id) => nav::find(next, id).map(|(p, _)| p),
-            Tab::Terminal(id) => kept_shells.iter().find(|s| s.id == *id).map(|s| Place {
+            Tab::Session(_, id) => nav::find(next, id).map(|(p, _)| p),
+            Tab::Terminal(_, id) => kept_shells.iter().find(|s| s.id == *id).map(|s| Place {
                 worktree: s.cwd.clone(),
             }),
-            Tab::Draft { .. } | Tab::Viewer(_) | Tab::Drawn { .. } => None,
+            Tab::Draft { .. } | Tab::Viewer(_, _) | Tab::Drawn { .. } => None,
         };
         view.windows = Content::from_kept(kept, |name| {
-            from_kept(&name).filter(|tab| at(tab).is_some())
+            from_kept(&name, &state.host.environment)
+                .filter(|tab| tab.environment() == &state.host.environment && at(tab).is_some())
         });
         if let Some(tab) = view.active().cloned() {
-            if let Tab::Session(id) = &tab {
-                state.tree.selected = Some(Item::Session(id.clone()));
+            if let Tab::Session(environment, id) = &tab {
+                state.tree.selected = Some(Item::Session(environment.clone(), id.clone()));
             }
             view.place = at(&tab);
         }

@@ -1,3 +1,4 @@
+use crate::testing::here;
 use adroit_model::{Agent, Key};
 use adroit_protocol::Request;
 
@@ -150,7 +151,7 @@ fn the_prompt_s_actions_do_nothing_where_no_prompt_is_shown() {
     ] {
         let run = Scenario::new()
             .event(listing())
-            .send(show(Tab::Terminal(7)))
+            .send(show(Tab::Terminal(here(), 7)))
             .send(Msg::Focus(Area::Console))
             .send(perform(action.clone(), Some("i"), with_pane()));
         assert!(run.last_effects().is_empty(), "{action:?}");
@@ -225,8 +226,8 @@ fn tab_in_the_prompt_is_handed_to_the_window_with_what_decides_where_it_goes() {
 
 #[test]
 fn closing_a_shell_s_row_selects_the_row_above_and_ends_the_shell() {
-    let run = showing(Area::Sidebar).send(Msg::TreeSelect(Some(Item::Terminal(7))));
-    let above = nav::row_above(&run.state().tree.rows, &Item::Terminal(7));
+    let run = showing(Area::Sidebar).send(Msg::TreeSelect(Some(Item::Terminal(here(), 7))));
+    let above = nav::row_above(&run.state().tree.rows, &Item::Terminal(here(), 7));
     let run = run.send(perform(Action::TerminalStop, None, Probe::default()));
     assert_eq!(run.state().tree.selected, above);
     assert_eq!(run.last_effects().last(), Some(&Effect::EndShell(7)));
@@ -248,7 +249,7 @@ fn the_window_s_own_actions_are_handed_to_it() {
 #[test]
 fn copying_a_row_puts_its_path_on_the_clipboard() {
     let run = showing(Area::Sidebar)
-        .send(Msg::TreeSelect(Some(Item::Terminal(7))))
+        .send(Msg::TreeSelect(Some(Item::Terminal(here(), 7))))
         .send(perform(Action::CursorCopy, None, Probe::default()));
     assert!(matches!(
         run.last_effects(),
@@ -259,7 +260,7 @@ fn copying_a_row_puts_its_path_on_the_clipboard() {
 #[test]
 fn a_viewer_shown_takes_the_viewer_s_actions() {
     let run = Scenario::new()
-        .send(show(Tab::Viewer("/r/a/shot.png".into())))
+        .send(show(Tab::Viewer(here(), "/r/a/shot.png".into())))
         .send(Msg::Focus(Area::Console))
         .send(perform(Action::ViewerZoomIn, None, Probe::default()));
     assert!(matches!(
@@ -279,7 +280,7 @@ fn on_the_row_of_b() -> Scenario {
         .send(Msg::ShowSession("a".into()))
         .send(Msg::Focus(Area::Sidebar))
         .send(Msg::OpenRow {
-            item: Item::Session("b".into()),
+            item: Item::Session(here(), "b".into()),
             how: Some(Opening::Preview),
             take_keys: false,
         })
@@ -340,18 +341,21 @@ fn going_to_the_next_session_looks_at_it_in_the_preview() {
 #[test]
 fn looking_at_a_row_that_folds_goes_into_it_rather_than_folding_it() {
     use crate::tree::nav::Heading;
-    let heading = Item::Heading("/r/a".into(), Heading::Sessions);
+    let heading = Item::Heading(here(), "/r/a".into(), Heading::Sessions);
     let run = showing(Area::Sidebar)
         .send(Msg::TreeSelect(Some(heading.clone())))
         .send(perform(Action::CursorShow, None, Probe::default()));
     assert!(run.state().tree.folds.is_open(&heading));
-    assert_eq!(run.state().tree.selected, Some(Item::Session("a".into())));
+    assert_eq!(
+        run.state().tree.selected,
+        Some(Item::Session(here(), "a".into()))
+    );
 }
 
 #[test]
 fn a_draft_switches_its_profile_keeping_options_within_an_agent_and_resetting_them_across() {
     const PROFILES: &str = "profile = \"claude\"\n[[profiles]]\nid = \"claude\"\nagent = \"claude\"\n[[profiles]]\nid = \"work\"\nname = \"Work\"\nagent = \"claude\"\nhome = \"/w\"\n[[profiles]]\nid = \"old\"\nagent = \"claude\"\narchived = true\n[[profiles]]\nid = \"review\"\nname = \"Review\"\nagent = \"codex\"\n";
-    let draft = Tab::draft("/r/a");
+    let draft = Tab::draft(here(), "/r/a");
     let chosen = content::DraftOptions {
         model: Some("opus".into()),
         permissions: adroit_model::AgentPermissions::ReadOnly,
@@ -398,7 +402,7 @@ fn a_draft_switches_its_profile_keeping_options_within_an_agent_and_resetting_th
     let run = run.send(perform(Action::SessionProfilePrev, None, Probe::default()));
     assert_eq!(at(&run).0, "work");
     // A new draft starts from the profile last chosen.
-    let other = Tab::draft("/r/b");
+    let other = Tab::draft(here(), "/r/b");
     let run = run.send(show(other.clone()));
     assert_eq!(
         content::profile_of(run.state(), Some(&other)).as_str(),
@@ -440,6 +444,7 @@ fn in_the_details_panel_the_tree_s_ways_of_opening_open_the_row_the_same_ways() 
 #[test]
 fn a_drawn_image_s_window_takes_the_viewer_s_actions() {
     let drawn = Tab::Drawn {
+        environment: here(),
         session: "a".into(),
         id: 7,
         width: 64,

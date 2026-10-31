@@ -4,25 +4,30 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use adroit_model::{InboxItem, Session, TerminalProgram, TerminalSession, Tree, WorktreeNode};
+use adroit_model::{
+    EnvironmentId, InboxItem, Session, TerminalProgram, TerminalSession, Tree, WorktreeNode,
+};
 
 use crate::content::Tab;
 use adroit_model::files::Entry;
 
+/// A row of the tree, by the environment it belongs to and its own identity
+/// there.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Item {
     /// A session waiting on the user, listed in the inbox.
-    Waiting(String),
+    Waiting(EnvironmentId, String),
     /// A workspace, by the repository or directory it is.
-    Workspace(PathBuf),
-    Worktree(PathBuf),
+    Workspace(EnvironmentId, PathBuf),
+    Worktree(EnvironmentId, PathBuf),
     /// A heading of a worktree, holding the rows of one kind.
-    Heading(PathBuf, Heading),
-    Session(String),
+    Heading(EnvironmentId, PathBuf, Heading),
+    Session(EnvironmentId, String),
     /// A shell or a Neovim adroit runs, by the daemon's id.
-    Terminal(u128),
+    Terminal(EnvironmentId, u128),
     /// A file or a directory of a worktree, under its Files heading.
     File {
+        environment: EnvironmentId,
         worktree: PathBuf,
         path: PathBuf,
         dir: bool,
@@ -50,25 +55,42 @@ impl Heading {
 }
 
 impl Item {
+    pub fn environment(&self) -> &EnvironmentId {
+        match self {
+            Item::Waiting(environment, _)
+            | Item::Workspace(environment, _)
+            | Item::Worktree(environment, _)
+            | Item::Heading(environment, ..)
+            | Item::Session(environment, _)
+            | Item::Terminal(environment, _)
+            | Item::File { environment, .. } => environment,
+        }
+    }
+
     /// The key used to remember whether a node is folded.
     pub fn fold_key(&self) -> Option<String> {
-        match self {
-            Item::Workspace(root) => Some(format!("ws:{}", root.display())),
-            Item::Worktree(path) => Some(format!("wt:{}", path.display())),
-            Item::Heading(path, heading) => Some(format!("{heading:?}:{}", path.display())),
+        let key = match self {
+            Item::Workspace(_, root) => format!("ws:{}", root.display()),
+            Item::Worktree(_, path) => format!("wt:{}", path.display()),
+            Item::Heading(_, path, heading) => format!("{heading:?}:{}", path.display()),
             Item::File {
                 worktree,
                 path,
                 dir: true,
-            } => Some(format!("dir:{}:{}", worktree.display(), path.display())),
-            _ => None,
-        }
+                ..
+            } => format!("dir:{}:{}", worktree.display(), path.display()),
+            _ => return None,
+        };
+        Some(format!("{}@{key}", self.environment()))
     }
 
     /// Whether the node shows the rows under it before it is unfolded: a
     /// worktree's files are read only once asked for.
     fn starts_open(&self) -> bool {
-        !matches!(self, Item::Heading(_, Heading::Files) | Item::File { .. })
+        !matches!(
+            self,
+            Item::Heading(_, _, Heading::Files) | Item::File { .. }
+        )
     }
 }
 
@@ -102,10 +124,11 @@ impl Folds {
     }
 }
 
-/// Every item the tree shows, top to bottom, the sessions waiting on the
-/// user last. Children of a folded node are left out, and `read` lists a
-/// directory's entries once it is open.
+/// Every item the tree of `environment` shows, top to bottom, the sessions
+/// waiting on the user last. Children of a folded node are left out, and
+/// `read` lists a directory's entries once it is open.
 pub fn items(
+    environment: &EnvironmentId,
     tree: &Tree,
     inbox: &[InboxItem],
     folds: &Folds,
@@ -113,7 +136,7 @@ pub fn items(
 ) -> Vec<Item> {
     let mut out = Vec::new();
     for ws in &tree.workspaces {
-        let wi = Item::Workspace(ws.root.clone());
+        let wi = Item::Workspace(environment.clone(), ws.root.clone());
         let ws_open = folds.is_open(&wi);
         out.push(wi);
         if !ws_open {
@@ -121,28 +144,37 @@ pub fn items(
         }
         if ws.flat() {
             for w in &ws.worktrees {
-                out.extend(headed(w, folds, read));
+                out.extend(headed(environment, w, folds, read));
             }
             continue;
         }
         for w in &ws.worktrees {
-            let ti = Item::Worktree(w.worktree.path.clone());
+            let ti = Item::Worktree(environment.clone(), w.worktree.path.clone());
             let t_open = folds.is_open(&ti);
             out.push(ti);
             if t_open {
-                out.extend(headed(w, folds, read));
+                out.extend(headed(environment, w, folds, read));
             }
         }
     }
-    out.extend(inbox.iter().map(|i| Item::Waiting(i.session.id.clone())));
+    out.extend(
+        inbox
+            .iter()
+            .map(|i| Item::Waiting(environment.clone(), i.session.id.clone())),
+    );
     out
 }
 
 /// A worktree's headings, each followed by its rows while it is open.
-fn headed(w: &WorktreeNode, folds: &Folds, read: &dyn Fn(&Path) -> Vec<Entry>) -> Vec<Item> {
+fn headed(
+    environment: &EnvironmentId,
+    w: &WorktreeNode,
+    folds: &Folds,
+    read: &dyn Fn(&Path) -> Vec<Entry>,
+) -> Vec<Item> {
     let mut out = Vec::new();
     for heading in Heading::ALL {
-        let hi = Item::Heading(w.worktree.path.clone(), heading);
+        let hi = Item::Heading(environment.clone(), w.worktree.path.clone(), heading);
         let open = folds.is_open(&hi);
         out.push(hi);
         if !open {
@@ -151,9 +183,9 @@ fn headed(w: &WorktreeNode, folds: &Folds, read: &dyn Fn(&Path) -> Vec<Entry>) -
         match heading {
             Heading::Files => {
                 let root = &w.worktree.path;
-                files_in(root, root, folds, read, &mut out);
+                files_in(environment, root, root, folds, read, &mut out);
             }
-            _ => out.extend(under(w, heading)),
+            _ => out.extend(under(environment, w, heading)),
         }
     }
     out
@@ -162,6 +194,7 @@ fn headed(w: &WorktreeNode, folds: &Folds, read: &dyn Fn(&Path) -> Vec<Entry>) -
 /// The entries of `dir` in `worktree`, each open directory followed by its
 /// own.
 fn files_in(
+    environment: &EnvironmentId,
     worktree: &Path,
     dir: &Path,
     folds: &Folds,
@@ -170,6 +203,7 @@ fn files_in(
 ) {
     for entry in read(dir) {
         let item = Item::File {
+            environment: environment.clone(),
             worktree: worktree.to_path_buf(),
             path: entry.path.clone(),
             dir: entry.dir,
@@ -177,7 +211,7 @@ fn files_in(
         let open = folds.is_open(&item);
         out.push(item);
         if open {
-            files_in(worktree, &entry.path, folds, read, out);
+            files_in(environment, worktree, &entry.path, folds, read, out);
         }
     }
 }
@@ -190,20 +224,20 @@ fn listed_under(terminal: &TerminalSession) -> Option<Heading> {
         .then_some(Heading::Terminals)
 }
 
-/// What runs in a worktree, under one of its headings; Files holds no such
-/// rows.
-pub fn under(w: &WorktreeNode, heading: Heading) -> Vec<Item> {
+/// What runs in a worktree of `environment`, under one of its headings;
+/// Files holds no such rows.
+pub fn under(environment: &EnvironmentId, w: &WorktreeNode, heading: Heading) -> Vec<Item> {
     match heading {
         Heading::Sessions => w
             .sessions
             .iter()
-            .map(|s| Item::Session(s.id.clone()))
+            .map(|s| Item::Session(environment.clone(), s.id.clone()))
             .collect(),
         Heading::Terminals => w
             .terminals
             .iter()
             .filter(|t| listed_under(t) == Some(heading))
-            .map(|t| Item::Terminal(t.id))
+            .map(|t| Item::Terminal(environment.clone(), t.id))
             .collect(),
         Heading::Files => Vec::new(),
     }
@@ -217,13 +251,13 @@ pub fn depth(tree: &Tree, item: &Item) -> usize {
         if flat { 1 } else { 2 }
     };
     match item {
-        Item::Workspace(_) | Item::Waiting(_) => 0,
-        Item::Worktree(_) => 1,
-        Item::Heading(path, _) => heading_at(path),
-        Item::Session(id) => tree
+        Item::Workspace(_, _) | Item::Waiting(_, _) => 0,
+        Item::Worktree(_, _) => 1,
+        Item::Heading(_, path, _) => heading_at(path),
+        Item::Session(_, id) => tree
             .find(id)
             .map_or(0, |(_, w, _)| heading_at(&w.worktree.path) + 1),
-        Item::Terminal(id) => tree
+        Item::Terminal(_, id) => tree
             .terminal(*id)
             .map_or(0, |(_, w, _)| heading_at(&w.worktree.path) + 1),
         Item::File { worktree, path, .. } => {
@@ -246,7 +280,7 @@ pub fn parent(list: &[Item], tree: &Tree, item: &Item) -> Option<Item> {
     list[..at]
         .iter()
         .rev()
-        .find(|i| !matches!(i, Item::Waiting(_)) && depth(tree, i) < level)
+        .find(|i| !matches!(i, Item::Waiting(_, _)) && depth(tree, i) < level)
         .cloned()
 }
 
@@ -312,7 +346,7 @@ pub fn next_session(
     }
     let n = all.len();
     let at = match shown {
-        Some(Tab::Session(id)) => all.iter().position(|(_, s)| &s.id == id),
+        Some(Tab::Session(_, id)) => all.iter().position(|(_, s)| &s.id == id),
         _ => None,
     };
     let i = match at {
@@ -344,7 +378,7 @@ pub fn next_workspace(
     let all = &tree.workspaces;
     let n = all.len();
     let session = match shown {
-        Some(Tab::Session(id)) => tree.find(id).map(|(ws, _, _)| ws.root.clone()),
+        Some(Tab::Session(_, id)) => tree.find(id).map(|(ws, _, _)| ws.root.clone()),
         _ => None,
     };
     let at = session
@@ -402,7 +436,7 @@ pub fn is_gone(sessions: &[Session], id: &str) -> bool {
 pub fn followed(sessions: &[Session], tabs: &HashSet<Tab>) -> HashSet<Tab> {
     tabs.iter()
         .filter(|tab| match tab {
-            Tab::Session(id) => !is_gone(sessions, id),
+            Tab::Session(_, id) => !is_gone(sessions, id),
             _ => true,
         })
         .cloned()
@@ -424,14 +458,14 @@ pub fn row_kept(
         return None;
     }
     let same = match selected {
-        Item::Waiting(id) => Some(Item::Session(id.clone())),
-        Item::Session(id) => Some(Item::Waiting(id.clone())),
+        Item::Waiting(environment, id) => Some(Item::Session(environment.clone(), id.clone())),
+        Item::Session(environment, id) => Some(Item::Waiting(environment.clone(), id.clone())),
         _ => None,
     };
     if let Some(row) = same.filter(|row| list.contains(row)) {
         return Some(row);
     }
-    row_of(list, tree, shown, place)
+    row_of(list, tree, selected.environment(), shown, place)
 }
 
 /// `tree` with only the sessions and terminals whose names hold `text`, any
@@ -467,42 +501,64 @@ pub fn narrowed(tree: &Tree, text: &str) -> Tree {
     out
 }
 
-/// What the console shows once a tab of `place` has closed: its first
-/// session, or else the first of `terminals`, the terminals left in the worktree.
-pub fn tab_after_closing(tree: &Tree, place: &Place, terminals: &[u128]) -> Option<Tab> {
+/// What the console shows once a tab of `place` in `environment` has
+/// closed: its first session, or else the first of `terminals`, the
+/// terminals left in the worktree.
+pub fn tab_after_closing(
+    environment: &EnvironmentId,
+    tree: &Tree,
+    place: &Place,
+    terminals: &[u128],
+) -> Option<Tab> {
     sessions_in(tree, place)
         .first()
-        .map(|s| Tab::Session(s.id.clone()))
-        .or_else(|| terminals.first().map(|&id| Tab::Terminal(id)))
+        .map(|s| Tab::Session(environment.clone(), s.id.clone()))
+        .or_else(|| {
+            terminals
+                .first()
+                .map(|&id| Tab::Terminal(environment.clone(), id))
+        })
 }
 
 /// The row in `list` for what a tab shows: the session's or the shell's own
 /// row, the file's a viewer or a Neovim started on it shows, or else the
 /// nearest row above it still shown, its heading, worktree or workspace.
-/// `None` when none is listed.
-pub fn row_of(list: &[Item], tree: &Tree, shown: Option<&Tab>, place: &Place) -> Option<Item> {
+/// `None` when none is listed. The rows are those of `environment`, the tab's
+/// and the place's.
+pub fn row_of(
+    list: &[Item],
+    tree: &Tree,
+    environment: &EnvironmentId,
+    shown: Option<&Tab>,
+    place: &Place,
+) -> Option<Item> {
     let file = match shown {
-        Some(Tab::Viewer(path)) => Some(path.clone()),
-        Some(Tab::Terminal(id)) => tree.terminal(*id).and_then(|(_, _, t)| t.file.clone()),
+        Some(Tab::Viewer(_, path)) => Some(path.clone()),
+        Some(Tab::Terminal(_, id)) => tree.terminal(*id).and_then(|(_, _, t)| t.file.clone()),
         _ => None,
     };
     let mut rows: Vec<Item> = match (shown, file) {
         (_, Some(path)) => vec![
             Item::File {
+                environment: environment.clone(),
                 worktree: place.worktree.clone(),
                 path,
                 dir: false,
             },
-            Item::Heading(place.worktree.clone(), Heading::Files),
+            Item::Heading(environment.clone(), place.worktree.clone(), Heading::Files),
         ],
-        (Some(Tab::Session(id)), None) => vec![Item::Session(id.clone())],
-        (Some(Tab::Terminal(id)), None) => vec![Item::Terminal(*id)],
+        (Some(Tab::Session(environment, id)), None) => {
+            vec![Item::Session(environment.clone(), id.clone())]
+        }
+        (Some(Tab::Terminal(environment, id)), None) => {
+            vec![Item::Terminal(environment.clone(), *id)]
+        }
         _ => Vec::new(),
     };
     rows.extend(heading_of(tree, shown));
-    rows.push(Item::Worktree(place.worktree.clone()));
+    rows.push(Item::Worktree(environment.clone(), place.worktree.clone()));
     if let Some(ws) = tree.workspace_of(&place.worktree) {
-        rows.push(Item::Workspace(ws.root.clone()));
+        rows.push(Item::Workspace(environment.clone(), ws.root.clone()));
     }
     rows.into_iter().find(|item| list.contains(item))
 }
@@ -510,13 +566,21 @@ pub fn row_of(list: &[Item], tree: &Tree, shown: Option<&Tab>, place: &Place) ->
 /// The heading the row of what `shown` shows sits under.
 fn heading_of(tree: &Tree, shown: Option<&Tab>) -> Option<Item> {
     match shown? {
-        Tab::Session(id) => {
+        Tab::Session(environment, id) => {
             let (_, w, _) = tree.find(id)?;
-            Some(Item::Heading(w.worktree.path.clone(), Heading::Sessions))
+            Some(Item::Heading(
+                environment.clone(),
+                w.worktree.path.clone(),
+                Heading::Sessions,
+            ))
         }
-        Tab::Terminal(id) => {
+        Tab::Terminal(environment, id) => {
             let (_, w, t) = tree.terminal(*id)?;
-            Some(Item::Heading(w.worktree.path.clone(), listed_under(t)?))
+            Some(Item::Heading(
+                environment.clone(),
+                w.worktree.path.clone(),
+                listed_under(t)?,
+            ))
         }
         _ => None,
     }
@@ -538,12 +602,15 @@ pub fn row_after_switch(
         (Some(_), None) => false,
         (Some(item), Some(tab)) => {
             !list.contains(item)
-                || matches!((item, tab), (Item::Waiting(w), Tab::Session(o)) if w == o)
-                || Some(item) == row_of(list, tree, Some(tab), place).as_ref()
+                || matches!(
+                    (item, tab),
+                    (Item::Waiting(e, w), Tab::Session(f, o)) if (e, w) == (f, o)
+                )
+                || Some(item) == row_of(list, tree, tab.environment(), Some(tab), place).as_ref()
         }
     };
     on_old
-        .then(|| row_of(list, tree, Some(now), place))
+        .then(|| row_of(list, tree, now.environment(), Some(now), place))
         .flatten()
 }
 
@@ -552,14 +619,14 @@ pub fn row_after_switch(
 /// directory.
 pub fn place_of(tree: &Tree, item: &Item) -> Option<Place> {
     match item {
-        Item::Waiting(id) | Item::Session(id) => find(tree, id).map(|(p, _)| p),
-        Item::Terminal(id) => tree.terminal(*id).map(|(_, _, s)| Place::at(s.cwd.clone())),
-        Item::Worktree(path) | Item::Heading(path, _) | Item::File { worktree: path, .. } => {
+        Item::Waiting(_, id) | Item::Session(_, id) => find(tree, id).map(|(p, _)| p),
+        Item::Terminal(_, id) => tree.terminal(*id).map(|(_, _, s)| Place::at(s.cwd.clone())),
+        Item::Worktree(_, path) | Item::Heading(_, path, _) | Item::File { worktree: path, .. } => {
             Some(Place::at(path.clone()))
         }
         // Not the root itself: a bare repository, a submodule or a separate
         // git directory is named by its git directory.
-        Item::Workspace(root) => {
+        Item::Workspace(_, root) => {
             let ws = tree.workspaces.iter().find(|ws| &ws.root == root)?;
             let main = ws.worktrees.iter().find(|w| w.worktree.is_main());
             main.or(ws.worktrees.first())
@@ -606,8 +673,9 @@ pub fn unfolds(item: &Item, folds: &Folds) -> bool {
 /// first session, or else a new one.
 pub fn opens(item: &Item, tree: &Tree, terminals: &[TerminalSession]) -> Opens {
     match item {
-        Item::Workspace(_) | Item::Heading(..) | Item::File { dir: true, .. } => Opens::Fold,
+        Item::Workspace(_, _) | Item::Heading(..) | Item::File { dir: true, .. } => Opens::Fold,
         Item::File {
+            environment,
             worktree,
             path,
             dir: false,
@@ -615,21 +683,25 @@ pub fn opens(item: &Item, tree: &Tree, terminals: &[TerminalSession]) -> Opens {
             let at = Some(Place::at(worktree.clone()));
             let editing = editing(terminals, path).next().map(|t| t.id);
             if crate::viewers::FileKind::of(path).has_viewer() {
-                Opens::Shows(Tab::Viewer(path.clone()), at)
+                Opens::Shows(Tab::Viewer(environment.clone(), path.clone()), at)
             } else if let Some(id) = editing {
-                Opens::Shows(Tab::Terminal(id), at)
+                Opens::Shows(Tab::Terminal(environment.clone(), id), at)
             } else {
                 Opens::Edit(worktree.clone(), path.clone())
             }
         }
-        Item::Waiting(id) | Item::Session(id) => {
-            Opens::Shows(Tab::Session(id.clone()), place_of(tree, item))
-        }
-        Item::Terminal(id) => Opens::Shows(Tab::Terminal(*id), place_of(tree, item)),
-        Item::Worktree(path) => {
+        Item::Waiting(environment, id) | Item::Session(environment, id) => Opens::Shows(
+            Tab::Session(environment.clone(), id.clone()),
+            place_of(tree, item),
+        ),
+        Item::Terminal(environment, id) => Opens::Shows(
+            Tab::Terminal(environment.clone(), *id),
+            place_of(tree, item),
+        ),
+        Item::Worktree(environment, path) => {
             let p = Place::at(path.clone());
             match sessions_in(tree, &p).first() {
-                Some(s) => Opens::Shows(Tab::Session(s.id.clone()), Some(p)),
+                Some(s) => Opens::Shows(Tab::Session(environment.clone(), s.id.clone()), Some(p)),
                 None => Opens::Draft(path.clone()),
             }
         }
@@ -650,12 +722,17 @@ fn editing<'a>(
 /// started on it.
 pub fn stands_for(item: &Item, terminals: &[TerminalSession]) -> Vec<Tab> {
     match item {
-        Item::Waiting(id) | Item::Session(id) => vec![Tab::Session(id.clone())],
-        Item::Terminal(id) => vec![Tab::Terminal(*id)],
+        Item::Waiting(environment, id) | Item::Session(environment, id) => {
+            vec![Tab::Session(environment.clone(), id.clone())]
+        }
+        Item::Terminal(environment, id) => vec![Tab::Terminal(environment.clone(), *id)],
         Item::File {
-            path, dir: false, ..
-        } => std::iter::once(Tab::Viewer(path.clone()))
-            .chain(editing(terminals, path).map(|t| Tab::Terminal(t.id)))
+            environment,
+            path,
+            dir: false,
+            ..
+        } => std::iter::once(Tab::Viewer(environment.clone(), path.clone()))
+            .chain(editing(terminals, path).map(|t| Tab::Terminal(environment.clone(), t.id)))
             .collect(),
         _ => Vec::new(),
     }
@@ -683,13 +760,13 @@ pub enum Copied {
 /// workspace, the name of what runs.
 pub fn copied(item: &Item, tree: &Tree, terminals: &[TerminalSession]) -> Option<Copied> {
     match item {
-        Item::File { path, .. } | Item::Worktree(path) | Item::Workspace(path) => {
+        Item::File { path, .. } | Item::Worktree(_, path) | Item::Workspace(_, path) => {
             Some(Copied::Path(path.clone()))
         }
-        Item::Waiting(id) | Item::Session(id) => {
+        Item::Waiting(_, id) | Item::Session(_, id) => {
             find(tree, id).map(|(_, s)| Copied::Name(s.name.clone()))
         }
-        Item::Terminal(id) => terminals
+        Item::Terminal(_, id) => terminals
             .iter()
             .find(|t| t.id == *id)
             .map(|t| Copied::Name(t.name.clone())),
@@ -700,8 +777,31 @@ pub fn copied(item: &Item, tree: &Tree, terminals: &[TerminalSession]) -> Option
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::here;
     use adroit_model::testing::{self, TreeBuilder};
     use adroit_model::{TerminalSession, Wait, inbox};
+
+    #[test]
+    fn the_same_path_in_two_environments_is_two_rows_folded_apart() {
+        let here = Item::Worktree(EnvironmentId::new("here"), "/w".into());
+        let away = Item::Worktree(EnvironmentId::new("away"), "/w".into());
+        assert_ne!(here, away);
+        let mut folds = Folds::default();
+        folds.set(&here, false);
+        assert!(!folds.is_open(&here));
+        assert!(folds.is_open(&away));
+    }
+
+    #[test]
+    fn the_same_session_in_two_environments_is_two_rows() {
+        let here = EnvironmentId::new("here");
+        let away = EnvironmentId::new("away");
+        assert_ne!(
+            Item::Session(here.clone(), "s".into()),
+            Item::Session(away.clone(), "s".into())
+        );
+        assert_ne!(Item::Terminal(here, 1), Item::Terminal(away, 1));
+    }
 
     const OAUTH: &str = "/api/.claude/worktrees/oauth";
 
@@ -728,27 +828,27 @@ mod tests {
     }
 
     fn ws(root: &str) -> Item {
-        Item::Workspace(root.into())
+        Item::Workspace(here(), root.into())
     }
 
     fn worktree(path: &str) -> Item {
-        Item::Worktree(path.into())
+        Item::Worktree(here(), path.into())
     }
 
     fn session(id: &str) -> Item {
-        Item::Session(id.into())
+        Item::Session(here(), id.into())
     }
 
     fn sessions_of(path: &str) -> Item {
-        Item::Heading(path.into(), Heading::Sessions)
+        Item::Heading(here(), path.into(), Heading::Sessions)
     }
 
     fn shells_of(path: &str) -> Item {
-        Item::Heading(path.into(), Heading::Terminals)
+        Item::Heading(here(), path.into(), Heading::Terminals)
     }
 
     fn files_of(path: &str) -> Item {
-        Item::Heading(path.into(), Heading::Files)
+        Item::Heading(here(), path.into(), Heading::Files)
     }
 
     /// A worktree's headings with the rows under each, its files folded.
@@ -764,11 +864,12 @@ mod tests {
 
     /// The rows of `tree` with no file anywhere.
     fn rows(tree: &Tree, inbox: &[InboxItem], folds: &Folds) -> Vec<Item> {
-        items(tree, inbox, folds, &|_| Vec::new())
+        items(&here(), tree, inbox, folds, &|_| Vec::new())
     }
 
     fn file(worktree: &str, path: &str, dir: bool) -> Item {
         Item::File {
+            environment: here(),
             worktree: worktree.into(),
             path: path.into(),
             dir,
@@ -792,11 +893,11 @@ mod tests {
     #[test]
     fn a_worktree_s_files_are_listed_once_its_files_heading_is_unfolded() {
         let t = tree();
-        let folded = items(&t, &[], &Folds::default(), &read_web);
+        let folded = items(&here(), &t, &[], &Folds::default(), &read_web);
         assert!(!folded.iter().any(|i| matches!(i, Item::File { .. })));
         let mut folds = Folds::default();
         folds.toggle(&files_of("/web"));
-        let open = items(&t, &[], &folds, &read_web);
+        let open = items(&here(), &t, &[], &folds, &read_web);
         let at = open.iter().position(|i| *i == files_of("/web")).unwrap();
         assert_eq!(
             open[at + 1..at + 3],
@@ -814,7 +915,7 @@ mod tests {
         let mut folds = Folds::default();
         folds.toggle(&files_of("/web"));
         folds.toggle(&file("/web", "/web/src", true));
-        let open = items(&t, &[], &folds, &read_web);
+        let open = items(&here(), &t, &[], &folds, &read_web);
         let at = open
             .iter()
             .position(|i| *i == file("/web", "/web/src", true))
@@ -831,7 +932,7 @@ mod tests {
         let mut folds = Folds::default();
         folds.toggle(&files_of("/web"));
         folds.toggle(&file("/web", "/web/src", true));
-        let list = items(&t, &[], &folds, &read_web);
+        let list = items(&here(), &t, &[], &folds, &read_web);
         let main = file("/web", "/web/src/main.rs", false);
         assert_eq!(
             parent(&list, &t, &main),
@@ -868,7 +969,10 @@ mod tests {
             group("/tmp", &[session("z")], &[]),
             vec![ws("/web")],
             group("/web", &[session("c")], &[]),
-            vec![Item::Waiting("b".into()), Item::Waiting("z".into())],
+            vec![
+                Item::Waiting(here(), "b".into()),
+                Item::Waiting(here(), "z".into()),
+            ],
         ]
         .concat();
         assert_eq!(got, expected);
@@ -922,26 +1026,29 @@ mod tests {
     #[test]
     fn after_a_tab_closes_the_worktree_s_first_session_is_shown() {
         assert_eq!(
-            tab_after_closing(&tree(), &at("/api"), &[7]),
-            Some(Tab::Session("a".into()))
+            tab_after_closing(&here(), &tree(), &at("/api"), &[7]),
+            Some(Tab::Session(here(), "a".into()))
         );
     }
 
     #[test]
     fn a_worktree_without_sessions_shows_another_shell_or_nothing() {
         assert_eq!(
-            tab_after_closing(&tree(), &at("/nowhere"), &[7]),
-            Some(Tab::Terminal(7))
+            tab_after_closing(&here(), &tree(), &at("/nowhere"), &[7]),
+            Some(Tab::Terminal(here(), 7))
         );
-        assert_eq!(tab_after_closing(&tree(), &at("/nowhere"), &[]), None);
+        assert_eq!(
+            tab_after_closing(&here(), &tree(), &at("/nowhere"), &[]),
+            None
+        );
     }
 
     #[test]
     fn the_selection_moves_to_the_new_tab_s_row_only_from_the_old_one_s() {
         let t = tree();
         let list = rows(&t, &inbox(&t), &Folds::default());
-        let shell = Tab::Terminal(1);
-        let a = Tab::Session("a".into());
+        let shell = Tab::Terminal(here(), 1);
+        let a = Tab::Session(here(), "a".into());
         let row_a = Some(session("a"));
         let switch = |selected: Option<Item>, before: Option<&Tab>| {
             row_after_switch(&list, &t, selected.as_ref(), before, &a, &at("/api"))
@@ -950,12 +1057,15 @@ mod tests {
         assert_eq!(switch(Some(worktree("/api")), Some(&shell)), row_a);
         // So it does from nothing, or from the old session's inbox row.
         assert_eq!(switch(None, None), row_a);
-        let b = Tab::Session("b".into());
-        assert_eq!(switch(Some(Item::Waiting("b".into())), Some(&b)), row_a);
+        let b = Tab::Session(here(), "b".into());
+        assert_eq!(
+            switch(Some(Item::Waiting(here(), "b".into())), Some(&b)),
+            row_a
+        );
         // Moved elsewhere by hand, it stays.
         assert_eq!(switch(Some(ws("/web")), Some(&shell)), None);
         // On a row no longer listed, it moves too.
-        let gone = Tab::Session("gone".into());
+        let gone = Tab::Session(here(), "gone".into());
         assert_eq!(switch(Some(session("gone")), Some(&gone)), row_a);
     }
 
@@ -963,10 +1073,10 @@ mod tests {
     fn a_selected_row_that_leaves_gives_way_to_the_same_session_s_or_the_shown_tab_s() {
         let t = tree();
         let list = rows(&t, &inbox(&t), &Folds::default());
-        let shown = Tab::Session("a".into());
+        let shown = Tab::Session(here(), "a".into());
         let kept = |row: Item| row_kept(&list, &t, Some(&row), Some(&shown), &at("/api"));
         // "a" no longer waits: its inbox row leaves for its own.
-        assert_eq!(kept(Item::Waiting("a".into())), Some(session("a")));
+        assert_eq!(kept(Item::Waiting(here(), "a".into())), Some(session("a")));
         // A row still listed stays.
         assert_eq!(kept(ws("/web")), None);
         // A session gone gives way to the shown tab's row.
@@ -1018,7 +1128,13 @@ mod tests {
         let t = tree();
         let list = rows(&t, &inbox(&t), &Folds::default());
         assert_eq!(
-            row_of(&list, &t, Some(&Tab::Session("b".into())), &at("/api")),
+            row_of(
+                &list,
+                &t,
+                &here(),
+                Some(&Tab::Session(here(), "b".into())),
+                &at("/api")
+            ),
             Some(session("b"))
         );
     }
@@ -1026,17 +1142,17 @@ mod tests {
     #[test]
     fn a_viewer_selects_its_file_s_row_or_while_folded_away_the_files_heading() {
         let t = tree();
-        let viewer = Tab::Viewer("/web/README.md".into());
-        let folded = items(&t, &[], &Folds::default(), &read_web);
+        let viewer = Tab::Viewer(here(), "/web/README.md".into());
+        let folded = items(&here(), &t, &[], &Folds::default(), &read_web);
         assert_eq!(
-            row_of(&folded, &t, Some(&viewer), &at("/web")),
+            row_of(&folded, &t, &here(), Some(&viewer), &at("/web")),
             Some(files_of("/web"))
         );
         let mut folds = Folds::default();
         folds.toggle(&files_of("/web"));
-        let open = items(&t, &[], &folds, &read_web);
+        let open = items(&here(), &t, &[], &folds, &read_web);
         assert_eq!(
-            row_of(&open, &t, Some(&viewer), &at("/web")),
+            row_of(&open, &t, &here(), Some(&viewer), &at("/web")),
             Some(file("/web", "/web/README.md", false))
         );
     }
@@ -1045,7 +1161,10 @@ mod tests {
     fn a_tab_without_a_session_selects_its_worktree() {
         let t = tree();
         let list = rows(&t, &[], &Folds::default());
-        assert_eq!(row_of(&list, &t, None, &at("/api")), Some(worktree("/api")));
+        assert_eq!(
+            row_of(&list, &t, &here(), None, &at("/api")),
+            Some(worktree("/api"))
+        );
     }
 
     #[test]
@@ -1054,7 +1173,13 @@ mod tests {
         for row in [sessions_of("/api"), worktree("/api"), ws("/api")] {
             let list = rows(&t, &[], &closed(std::slice::from_ref(&row)));
             assert_eq!(
-                row_of(&list, &t, Some(&Tab::Session("a".into())), &at("/api")),
+                row_of(
+                    &list,
+                    &t,
+                    &here(),
+                    Some(&Tab::Session(here(), "a".into())),
+                    &at("/api")
+                ),
                 Some(row)
             );
         }
@@ -1066,7 +1191,13 @@ mod tests {
         let collapsed = closed(&[ws("/tmp")]);
         let list = rows(&t, &[], &collapsed);
         assert_eq!(
-            row_of(&list, &t, Some(&Tab::Session("z".into())), &at("/tmp")),
+            row_of(
+                &list,
+                &t,
+                &here(),
+                Some(&Tab::Session(here(), "z".into())),
+                &at("/tmp")
+            ),
             Some(ws("/tmp"))
         );
     }
@@ -1111,7 +1242,7 @@ mod tests {
     #[test]
     fn the_next_session_goes_down_the_tree_and_wraps_around() {
         let t = tree();
-        let shown = |id: &str| Some(Tab::Session(id.into()));
+        let shown = |id: &str| Some(Tab::Session(here(), id.into()));
         let next = |id: &str, forward| next_session(&t, shown(id).as_ref(), None, forward);
         for (from, forward, to) in [
             ("a", true, "b"),
@@ -1129,14 +1260,14 @@ mod tests {
     #[test]
     fn a_tab_without_a_session_stands_after_the_sessions_of_its_worktree() {
         let t = tree();
-        let shell = Some(Tab::Terminal(1));
+        let shell = Some(Tab::Terminal(here(), 1));
         let next = |path: &str, forward| next_session(&t, shell.as_ref(), Some(&at(path)), forward);
         assert_eq!(next("/api", true).as_deref(), Some("o"));
         assert_eq!(next("/api", false).as_deref(), Some("b"));
         assert_eq!(next(OAUTH, true).as_deref(), Some("z"));
         assert_eq!(next("/web", true).as_deref(), Some("a"));
         // A session gone stands where its tab is, as a shell's does.
-        let gone = Some(Tab::Session("gone".into()));
+        let gone = Some(Tab::Session(here(), "gone".into()));
         let after = next_session(&t, gone.as_ref(), Some(&at("/api")), true);
         assert_eq!(after.as_deref(), Some("o"));
     }
@@ -1156,7 +1287,7 @@ mod tests {
     #[test]
     fn the_next_workspace_opens_its_first_session_and_wraps_around() {
         let t = tree();
-        let shown = |id: &str| Some(Tab::Session(id.into()));
+        let shown = |id: &str| Some(Tab::Session(here(), id.into()));
         let none = HashMap::new();
         let next = |id: &str, forward| next_workspace(&t, shown(id).as_ref(), None, &none, forward);
         for (from, forward, to) in [
@@ -1175,7 +1306,7 @@ mod tests {
     #[test]
     fn the_next_workspace_opens_the_session_last_shown_there() {
         let t = tree();
-        let shown = Some(Tab::Session("c".into()));
+        let shown = Some(Tab::Session(here(), "c".into()));
         let last: HashMap<PathBuf, String> = [(PathBuf::from("/api"), "o".to_string())].into();
         let next = next_workspace(&t, shown.as_ref(), None, &last, true);
         assert_eq!(next.as_deref(), Some("o"));
@@ -1188,7 +1319,7 @@ mod tests {
     #[test]
     fn a_tab_without_a_session_goes_from_the_workspace_of_its_worktree() {
         let t = tree();
-        let shell = Some(Tab::Terminal(1));
+        let shell = Some(Tab::Terminal(here(), 1));
         let none = HashMap::new();
         let next = |path: &str, forward| {
             next_workspace(&t, shell.as_ref(), Some(&at(path)), &none, forward)
@@ -1219,12 +1350,12 @@ mod tests {
         // `notes` holds only a shell.
         let t = shelled();
         let none = HashMap::new();
-        let shell = Some(Tab::Terminal(5));
+        let shell = Some(Tab::Terminal(here(), 5));
         let next =
             |forward| next_workspace(&t, shell.as_ref(), Some(&at("/notes")), &none, forward);
         assert_eq!(next(true).as_deref(), Some("z"));
         assert_eq!(next(false).as_deref(), Some("a"));
-        let shown = Some(Tab::Session("a".into()));
+        let shown = Some(Tab::Session(here(), "a".into()));
         let after = next_workspace(&t, shown.as_ref(), None, &none, true);
         assert_eq!(after.as_deref(), Some("z"));
     }
@@ -1235,7 +1366,7 @@ mod tests {
         let only = Tree {
             workspaces: vec![t.workspaces[0].clone()],
         };
-        let shown = Some(Tab::Session("b".into()));
+        let shown = Some(Tab::Session(here(), "b".into()));
         let last: HashMap<PathBuf, String> = [(PathBuf::from("/api"), "b".to_string())].into();
         let next = next_workspace(&only, shown.as_ref(), None, &last, true);
         assert_eq!(next.as_deref(), Some("b"));
@@ -1304,7 +1435,7 @@ mod tests {
     }
 
     fn shell(id: u128) -> Item {
-        Item::Terminal(id)
+        Item::Terminal(here(), id)
     }
 
     #[test]
@@ -1374,13 +1505,16 @@ mod tests {
     #[test]
     fn a_shell_tab_selects_the_shell_s_row_or_the_nearest_one_shown() {
         let t = shelled();
-        let tab = Tab::Terminal(2);
+        let tab = Tab::Terminal(here(), 2);
         let list = rows(&t, &[], &Folds::default());
-        assert_eq!(row_of(&list, &t, Some(&tab), &at(DEV)), Some(shell(2)));
+        assert_eq!(
+            row_of(&list, &t, &here(), Some(&tab), &at(DEV)),
+            Some(shell(2))
+        );
         let collapsed = closed(&[worktree(DEV)]);
         let folded = rows(&t, &[], &collapsed);
         assert_eq!(
-            row_of(&folded, &t, Some(&tab), &at(DEV)),
+            row_of(&folded, &t, &here(), Some(&tab), &at(DEV)),
             Some(worktree(DEV))
         );
     }
@@ -1389,15 +1523,18 @@ mod tests {
     fn the_selection_moves_between_a_session_s_row_and_a_shell_s_with_the_tab() {
         let t = shelled();
         let list = rows(&t, &[], &Folds::default());
-        let a = Tab::Session("a".into());
-        let one = Tab::Terminal(1);
+        let a = Tab::Session(here(), "a".into());
+        let one = Tab::Terminal(here(), 1);
         let switch = |selected: Item, before: &Tab, now: &Tab| {
             row_after_switch(&list, &t, Some(&selected), Some(before), now, &at("/api"))
         };
         assert_eq!(switch(session("a"), &a, &one), Some(shell(1)));
         assert_eq!(switch(shell(1), &one, &a), Some(session("a")));
         // A shell gone, its row with it, gives way to the tab shown next.
-        assert_eq!(switch(shell(9), &Tab::Terminal(9), &a), Some(session("a")));
+        assert_eq!(
+            switch(shell(9), &Tab::Terminal(here(), 9), &a),
+            Some(session("a"))
+        );
         assert_eq!(switch(ws("/web"), &one, &a), None);
     }
 
@@ -1405,7 +1542,7 @@ mod tests {
     fn a_selected_shell_that_ends_gives_way_to_the_shown_tab_s_row() {
         let t = shelled();
         let list = rows(&t, &[], &Folds::default());
-        let shown = Tab::Session("a".into());
+        let shown = Tab::Session(here(), "a".into());
         let kept = row_kept(&list, &t, Some(&shell(9)), Some(&shown), &at("/api"));
         assert_eq!(kept, Some(session("a")));
     }
@@ -1429,7 +1566,7 @@ mod tests {
         let t = shelled().with_terminals(&[sh(2, "shell", DEV), nvim, on_file]);
         let w = t.worktrees().find(|w| w.worktree.path == Path::new(DEV));
         let w = w.unwrap();
-        assert_eq!(under(w, Heading::Terminals), [shell(2), shell(6)]);
+        assert_eq!(under(&here(), w, Heading::Terminals), [shell(2), shell(6)]);
         let list = rows(&t, &[], &Folds::default());
         assert_eq!(row_above(&list, &shell(6)), Some(shell(2)));
         assert!(!list.contains(&shell(7)));
@@ -1441,17 +1578,17 @@ mod tests {
             cwd: "/web".into(),
             ..editing(9, "/web/README.md")
         }]);
-        let nvim = Tab::Terminal(9);
-        let folded = items(&t, &[], &Folds::default(), &read_web);
+        let nvim = Tab::Terminal(here(), 9);
+        let folded = items(&here(), &t, &[], &Folds::default(), &read_web);
         assert_eq!(
-            row_of(&folded, &t, Some(&nvim), &at("/web")),
+            row_of(&folded, &t, &here(), Some(&nvim), &at("/web")),
             Some(files_of("/web"))
         );
         let mut folds = Folds::default();
         folds.toggle(&files_of("/web"));
-        let open = items(&t, &[], &folds, &read_web);
+        let open = items(&here(), &t, &[], &folds, &read_web);
         assert_eq!(
-            row_of(&open, &t, Some(&nvim), &at("/web")),
+            row_of(&open, &t, &here(), Some(&nvim), &at("/web")),
             Some(file("/web", "/web/README.md", false))
         );
     }
@@ -1463,7 +1600,7 @@ mod tests {
         let t = shelled().with_terminals(&[sh(2, "shell", DEV), claude]);
         let w = t.worktrees().find(|w| w.worktree.path == Path::new(DEV));
         let w = w.unwrap();
-        assert_eq!(under(w, Heading::Terminals), [shell(2), shell(7)]);
+        assert_eq!(under(&here(), w, Heading::Terminals), [shell(2), shell(7)]);
         let list = rows(&t, &[], &Folds::default());
         assert_eq!(row_above(&list, &shell(7)), Some(shell(2)));
     }
@@ -1483,8 +1620,8 @@ mod tests {
         assert!(!folds.is_open(&sessions_of("/api")));
         folds.toggle(&sessions_of("/api"));
         assert!(folds.is_open(&sessions_of("/api")));
-        folds.set(&Item::Terminal(3), true);
-        assert!(!folds.is_open(&Item::Terminal(3)));
+        folds.set(&Item::Terminal(here(), 3), true);
+        assert!(!folds.is_open(&Item::Terminal(here(), 3)));
     }
 
     #[test]
@@ -1519,7 +1656,7 @@ mod tests {
     #[test]
     fn shells_are_passed_over_going_from_session_to_session() {
         let t = shelled();
-        let shown = Some(Tab::Session("b".into()));
+        let shown = Some(Tab::Session(here(), "b".into()));
         let next = next_session(&t, shown.as_ref(), None, true);
         assert_eq!(next.as_deref(), Some("o"));
     }
@@ -1532,16 +1669,16 @@ mod tests {
     fn tabs_kept_for_sessions_go_with_them() {
         let sessions = [listed("a08bbcf2", "a08bbcf2-2cbf"), listed("b", "b")];
         let kept: HashSet<Tab> = [
-            Tab::Session("a08bbcf2".into()),
-            Tab::Session("b".into()),
-            Tab::Session("gone".into()),
-            Tab::Terminal(1),
+            Tab::Session(here(), "a08bbcf2".into()),
+            Tab::Session(here(), "b".into()),
+            Tab::Session(here(), "gone".into()),
+            Tab::Terminal(here(), 1),
         ]
         .into();
         let expected: HashSet<Tab> = [
-            Tab::Session("a08bbcf2".into()),
-            Tab::Session("b".into()),
-            Tab::Terminal(1),
+            Tab::Session(here(), "a08bbcf2".into()),
+            Tab::Session(here(), "b".into()),
+            Tab::Terminal(here(), 1),
         ]
         .into();
         assert_eq!(followed(&sessions, &kept), expected);
@@ -1559,11 +1696,11 @@ mod tests {
         let t = tree();
         assert_eq!(
             opens(&session("o"), &t, &[]),
-            Opens::Shows(Tab::Session("o".into()), Some(at(OAUTH)))
+            Opens::Shows(Tab::Session(here(), "o".into()), Some(at(OAUTH)))
         );
         assert_eq!(
-            opens(&Item::Waiting("b".into()), &t, &[]),
-            Opens::Shows(Tab::Session("b".into()), Some(at("/api")))
+            opens(&Item::Waiting(here(), "b".into()), &t, &[]),
+            Opens::Shows(Tab::Session(here(), "b".into()), Some(at("/api")))
         );
     }
 
@@ -1572,7 +1709,7 @@ mod tests {
         let t = tree();
         assert_eq!(
             opens(&worktree(OAUTH), &t, &[]),
-            Opens::Shows(Tab::Session("o".into()), Some(at(OAUTH)))
+            Opens::Shows(Tab::Session(here(), "o".into()), Some(at(OAUTH)))
         );
         assert_eq!(
             opens(&worktree("/none"), &t, &[]),
@@ -1586,11 +1723,14 @@ mod tests {
         let nvim = [editing(9, "/api/a.rs")];
         assert_eq!(
             opens(&file("/api", "/api/logo.png", false), &t, &nvim),
-            Opens::Shows(Tab::Viewer("/api/logo.png".into()), Some(at("/api")))
+            Opens::Shows(
+                Tab::Viewer(here(), "/api/logo.png".into()),
+                Some(at("/api"))
+            )
         );
         assert_eq!(
             opens(&file("/api", "/api/a.rs", false), &t, &nvim),
-            Opens::Shows(Tab::Terminal(9), Some(at("/api")))
+            Opens::Shows(Tab::Terminal(here(), 9), Some(at("/api")))
         );
         assert_eq!(
             opens(&file("/api", "/api/b.rs", false), &t, &nvim),
@@ -1602,6 +1742,7 @@ mod tests {
     fn a_workspace_a_heading_and_a_directory_fold_rather_than_open() {
         let t = tree();
         let dir = Item::File {
+            environment: here(),
             worktree: "/api".into(),
             path: "/api/src".into(),
             dir: true,
@@ -1641,8 +1782,8 @@ mod tests {
             files_of("/api"),
             session("a"),
             session("o"),
-            Item::Waiting("a".into()),
-            Item::Terminal(3),
+            Item::Waiting(here(), "a".into()),
+            Item::Terminal(here(), 3),
             file("/api", "/api/a.rs", false),
         ] {
             assert!(!unfolds(&item, &folds), "{item:?}");
@@ -1652,7 +1793,7 @@ mod tests {
     #[test]
     fn a_session_has_no_rows_to_fold() {
         assert!(!holds(&session("a")));
-        assert!(!holds(&Item::Waiting("a".into())));
+        assert!(!holds(&Item::Waiting(here(), "a".into())));
         assert!(holds(&worktree(OAUTH)));
     }
 
@@ -1661,13 +1802,19 @@ mod tests {
         let nvim = [editing(9, "/api/a.rs"), editing(10, "/api/b.rs")];
         assert_eq!(
             stands_for(&file("/api", "/api/a.rs", false), &nvim),
-            [Tab::Viewer("/api/a.rs".into()), Tab::Terminal(9)]
+            [
+                Tab::Viewer(here(), "/api/a.rs".into()),
+                Tab::Terminal(here(), 9)
+            ]
         );
         assert_eq!(
-            stands_for(&Item::Waiting("b".into()), &nvim),
-            [Tab::Session("b".into())]
+            stands_for(&Item::Waiting(here(), "b".into()), &nvim),
+            [Tab::Session(here(), "b".into())]
         );
-        assert_eq!(stands_for(&Item::Terminal(3), &nvim), [Tab::Terminal(3)]);
+        assert_eq!(
+            stands_for(&Item::Terminal(here(), 3), &nvim),
+            [Tab::Terminal(here(), 3)]
+        );
         assert!(stands_for(&worktree("/api"), &nvim).is_empty());
     }
 
@@ -1679,7 +1826,7 @@ mod tests {
         assert!(edited(&file("/api", "/api/a.rs", false), &running));
         assert!(!edited(&file("/api", "/api/b.rs", false), &running));
         assert!(!edited(&file("/api", "/api", true), &running));
-        assert!(!edited(&Item::Terminal(9), &running));
+        assert!(!edited(&Item::Terminal(here(), 9), &running));
     }
 
     #[test]
@@ -1699,7 +1846,7 @@ mod tests {
             Some(Copied::Name("o".into()))
         );
         assert_eq!(
-            copied(&Item::Terminal(3), &t, &shells),
+            copied(&Item::Terminal(here(), 3), &t, &shells),
             Some(Copied::Name("build".into()))
         );
         assert_eq!(copied(&sessions_of("/api"), &t, &shells), None);

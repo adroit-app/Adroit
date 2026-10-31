@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use adroit_model::files::Entry;
-use adroit_model::{InboxItem, State, TerminalSession, Tree, inbox};
+use adroit_model::{EnvironmentId, InboxItem, State, TerminalSession, Tree, inbox};
 use adroit_protocol::{Request, Seq, TreeSight, TreeWork, WorkSnapshot};
 
 use crate::chrome::status_line::{self, StatusLine};
@@ -41,12 +41,12 @@ pub struct TreeView {
     pub completions: Completions,
     /// Every row, top to bottom, the sessions waiting on the user last.
     pub rows: Vec<Item>,
-    /// The worktrees whose files the rows list.
-    marked: BTreeSet<PathBuf>,
-    /// The directories whose entries the rows list.
-    listed: BTreeSet<PathBuf>,
+    /// The worktrees whose files the rows list, by their environment.
+    marked: BTreeSet<(EnvironmentId, PathBuf)>,
+    /// The directories whose entries the rows list, by their environment.
+    listed: BTreeSet<(EnvironmentId, PathBuf)>,
     /// What the rows were last built from.
-    built_from: Option<(Seq, String, Folds, bool)>,
+    built_from: Option<(EnvironmentId, Seq, String, Folds, bool)>,
     /// Counts the times the rows were built anew.
     built: u64,
     /// The rows the selection was last kept among.
@@ -182,12 +182,13 @@ pub(crate) fn press(view: &mut TreeView, key: Key) -> Vec<Effect> {
     Vec::new()
 }
 
-/// The rows built anew from the tree the host listed, when it, the filter
-/// or the folds changed since they were last built. A directory's entries
-/// come from what the host listed of it.
-pub(crate) fn build(view: &mut TreeView, work: Option<&WorkSnapshot>) {
+/// The rows built anew from the tree the host of `environment` listed, when
+/// it, the filter or the folds changed since they were last built. A
+/// directory's entries come from what the host listed of it.
+pub(crate) fn build(view: &mut TreeView, environment: &EnvironmentId, work: Option<&WorkSnapshot>) {
     let from = work.map(|w| {
         (
+            environment.clone(),
             w.seq,
             view.filter.clone(),
             view.folds.clone(),
@@ -204,7 +205,9 @@ pub(crate) fn build(view: &mut TreeView, work: Option<&WorkSnapshot>) {
     view.narrowed_waiting = inbox(&view.narrowed);
     let asked = RefCell::new(BTreeSet::new());
     let read = |dir: &Path| {
-        asked.borrow_mut().insert(dir.to_path_buf());
+        asked
+            .borrow_mut()
+            .insert((environment.clone(), dir.to_path_buf()));
         let mut entries = facts.entries.get(dir).cloned().unwrap_or_default();
         if !view.show_hidden {
             entries.retain(|e| !adroit_model::files::is_hidden(&e.path));
@@ -212,6 +215,7 @@ pub(crate) fn build(view: &mut TreeView, work: Option<&WorkSnapshot>) {
         entries
     };
     let rows = nav::items(
+        environment,
         &view.narrowed,
         &view.narrowed_waiting,
         &view.folds,
@@ -220,7 +224,9 @@ pub(crate) fn build(view: &mut TreeView, work: Option<&WorkSnapshot>) {
     view.marked = rows
         .iter()
         .filter_map(|row| match row {
-            Item::Heading(path, Heading::Files) if view.folds.is_open(row) => Some(path.clone()),
+            Item::Heading(environment, path, Heading::Files) if view.folds.is_open(row) => {
+                Some((environment.clone(), path.clone()))
+            }
             _ => None,
         })
         .collect();
@@ -342,7 +348,7 @@ pub(crate) fn see_completions(
     work: Option<&WorkSnapshot>,
 ) {
     let shown = match (shown, focused) {
-        (Some(Tab::Session(id)), true) => Some(id.as_str()),
+        (Some(Tab::Session(_, id)), true) => Some(id.as_str()),
         _ => None,
     };
     let next = view.completions.updated(listed(work), shown);
@@ -351,25 +357,32 @@ pub(crate) fn see_completions(
     }
 }
 
-/// What the host keeps read for the tree.
-pub(crate) fn sight(view: &TreeView) -> TreeSight {
+/// What the host of `environment` keeps read for the tree.
+pub(crate) fn sight(view: &TreeView, environment: &EnvironmentId) -> TreeSight {
+    let of = |paths: &BTreeSet<(EnvironmentId, PathBuf)>| {
+        paths
+            .iter()
+            .filter(|(e, _)| e == environment)
+            .map(|(_, path)| path.clone())
+            .collect()
+    };
     TreeSight {
         every_worktree: view.every_worktree,
-        marked: view.marked.clone(),
-        listed: view.listed.clone(),
+        marked: of(&view.marked),
+        listed: of(&view.listed),
     }
 }
 
 /// The worktree `tab`'s thing is in, as the tree lists it.
 pub fn place_of_tab(tree: &Tree, terminals: &[TerminalSession], tab: &Tab) -> Option<Place> {
     match tab {
-        Tab::Session(id) => nav::find(tree, id).map(|(p, _)| p),
-        Tab::Terminal(id) => terminals
+        Tab::Session(_, id) => nav::find(tree, id).map(|(p, _)| p),
+        Tab::Terminal(_, id) => terminals
             .iter()
             .find(|s| s.id == *id)
             .map(|s| Place::at(s.cwd.clone())),
         Tab::Draft { worktree, .. } => Some(Place::at(worktree.clone())),
-        Tab::Viewer(path) => {
+        Tab::Viewer(_, path) => {
             adroit_model::innermost(tree.worktrees().map(|w| &w.worktree.path), path)
                 .map(|w| Place::at(w.clone()))
         }
@@ -386,16 +399,16 @@ pub fn crumbs(showing: &Showing, work: Option<&WorkSnapshot>) -> Option<Crumbs> 
         .workspace_of(&place.worktree)
         .map(|w| (w.name.clone(), w.scratch));
     let target = match tab {
-        Tab::Session(id) => nav::find(tree, id)
+        Tab::Session(_, id) => nav::find(tree, id)
             .map(|(_, s)| s.name.clone())
             .unwrap_or_else(|| id.clone()),
-        Tab::Terminal(n) => terminals(work)
+        Tab::Terminal(_, n) => terminals(work)
             .iter()
             .find(|s| s.id == *n)
             .map(|s| s.name.clone())
             .unwrap_or_default(),
         Tab::Draft { .. } => "new session".into(),
-        Tab::Viewer(path) => path
+        Tab::Viewer(_, path) => path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default(),
@@ -418,6 +431,7 @@ pub fn working(work: Option<&WorkSnapshot>) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use crate::testing::here;
     use adroit_model::{Session, Wait};
     use adroit_protocol::{Sight, TreeChange};
 
@@ -464,7 +478,7 @@ mod tests {
             Msg::MenuOpen {
                 x: 0.0,
                 y: 0.0,
-                target: Target::Row(Item::Session("a".into())),
+                target: Target::Row(Item::Session(here(), "a".into())),
             },
         ];
         for msg in left {
@@ -511,9 +525,9 @@ mod tests {
             session("b").cwd("/r/w").waiting(Wait::Permission),
         ]));
         let got = rows(&run);
-        assert!(got.contains(&Item::Workspace("/r".into())));
-        assert!(got.contains(&Item::Session("a".into())));
-        assert_eq!(got.last(), Some(&Item::Waiting("b".into())));
+        assert!(got.contains(&Item::Workspace(here(), "/r".into())));
+        assert!(got.contains(&Item::Session(here(), "a".into())));
+        assert_eq!(got.last(), Some(&Item::Waiting(here(), "b".into())));
         assert_eq!(run.state().tree.waiting.len(), 1);
     }
 
@@ -533,15 +547,15 @@ mod tests {
             ]))
             .send(Msg::TreeFilter("app".into()));
         let got = rows(&run);
-        assert!(got.contains(&Item::Session("apple".into())));
-        assert!(!got.contains(&Item::Session("berry".into())));
+        assert!(got.contains(&Item::Session(here(), "apple".into())));
+        assert!(!got.contains(&Item::Session(here(), "berry".into())));
         assert!(run.state().tree.narrowed_waiting.is_empty());
         assert_eq!(run.state().tree.waiting.len(), 1);
     }
 
     #[test]
     fn a_folded_workspace_hides_its_rows_until_unfolded() {
-        let ws = Item::Workspace("/r".into());
+        let ws = Item::Workspace(here(), "/r".into());
         let run = Scenario::new()
             .event(listing([session("a").cwd("/r")]))
             .send(Msg::TreeFold {
@@ -550,7 +564,7 @@ mod tests {
             });
         assert_eq!(rows(&run), std::slice::from_ref(&ws));
         let unfolded = run.send(Msg::TreeFoldToggle(ws));
-        assert!(rows(&unfolded).contains(&Item::Session("a".into())));
+        assert!(rows(&unfolded).contains(&Item::Session(here(), "a".into())));
     }
 
     #[test]
@@ -558,14 +572,14 @@ mod tests {
         let base = || {
             Scenario::new()
                 .event(listing([session("a").cwd("/r")]))
-                .send(Msg::TreeSelect(Some(Item::Session("a".into()))))
+                .send(Msg::TreeSelect(Some(Item::Session(here(), "a".into()))))
         };
         let all = rows(&base());
         let first = all.first().cloned();
         let last = all.last().cloned();
         let at = all
             .iter()
-            .position(|r| *r == Item::Session("a".into()))
+            .position(|r| *r == Item::Session(here(), "a".into()))
             .unwrap();
         // (key, row selected after)
         let cases = [
@@ -582,10 +596,10 @@ mod tests {
 
     #[test]
     fn the_fold_key_folds_an_open_node_or_else_the_one_it_sits_under() {
-        let heading = Item::Heading("/r".into(), Heading::Sessions);
+        let heading = Item::Heading(here(), "/r".into(), Heading::Sessions);
         let run = Scenario::new()
             .event(listing([session("a").cwd("/r")]))
-            .send(Msg::TreeSelect(Some(Item::Session("a".into()))))
+            .send(Msg::TreeSelect(Some(Item::Session(here(), "a".into()))))
             .send(Msg::TreeKey(Key::Fold));
         assert_eq!(selected(&run), Some(heading.clone()));
         assert!(!run.state().tree.folds.is_open(&heading));
@@ -594,7 +608,7 @@ mod tests {
     /// The worktree `/r` with its Files heading open, listing `/r/src`, a
     /// directory, as the host read it.
     fn with_src() -> (Scenario, Item) {
-        let files = Item::Heading("/r".into(), Heading::Files);
+        let files = Item::Heading(here(), "/r".into(), Heading::Files);
         let run = Scenario::new()
             .event(listing([session("a").cwd("/r")]))
             .send(Msg::TreeFold {
@@ -609,6 +623,7 @@ mod tests {
                 }],
             }));
         let src = Item::File {
+            environment: here(),
             worktree: "/r".into(),
             path: "/r/src".into(),
             dir: true,
@@ -638,6 +653,7 @@ mod tests {
             ],
         }));
         let lib = Item::File {
+            environment: here(),
             worktree: "/r".into(),
             path: "/r/src/lib.rs".into(),
             dir: false,
@@ -677,7 +693,7 @@ mod tests {
         assert_eq!(on(None, "l"), Some(Action::FilerInto));
         assert_eq!(on(None, "!"), Some(Action::FilerHidden));
         // Off the files, the tree's own `!` lists every worktree.
-        let session = Some(Item::Session("a".into()));
+        let session = Some(Item::Session(here(), "a".into()));
         assert_eq!(on(session, "!"), Some(Action::WorktreesToggle));
     }
 
@@ -698,6 +714,7 @@ mod tests {
             ],
         }));
         let env = Item::File {
+            environment: here(),
             worktree: "/r".into(),
             path: "/r/.env".into(),
             dir: false,
@@ -709,13 +726,13 @@ mod tests {
 
     #[test]
     fn going_into_an_open_node_selects_its_first_row_and_keeps_it_open() {
-        let heading = Item::Heading("/r".into(), Heading::Sessions);
+        let heading = Item::Heading(here(), "/r".into(), Heading::Sessions);
         let run = Scenario::new()
             .event(listing([session("a").cwd("/r")]))
             .send(Msg::TreeSelect(Some(heading.clone())))
             .send(Msg::TreeKey(Key::Into));
         assert!(run.state().tree.folds.is_open(&heading));
-        assert_eq!(selected(&run), Some(Item::Session("a".into())));
+        assert_eq!(selected(&run), Some(Item::Session(here(), "a".into())));
     }
 
     #[test]
@@ -741,9 +758,9 @@ mod tests {
         let run = Scenario::new()
             .event(listing([session("a").cwd("/r").waiting(Wait::Permission)]))
             .send(show_in(session_tab("a"), "/r"))
-            .send(Msg::TreeSelect(Some(Item::Waiting("a".into()))))
+            .send(Msg::TreeSelect(Some(Item::Waiting(here(), "a".into()))))
             .event(patch(2).listed(testing::listed().sessions([session("a").cwd("/r")])));
-        assert_eq!(selected(&run), Some(Item::Session("a".into())));
+        assert_eq!(selected(&run), Some(Item::Session(here(), "a".into())));
     }
 
     #[test]
@@ -751,12 +768,12 @@ mod tests {
         let run = Scenario::new()
             .event(listing([session("a").cwd("/r")]))
             .send(show_in(session_tab("a"), "/r"))
-            .send(Msg::TreeSelect(Some(Item::Session("new".into()))));
-        assert_eq!(selected(&run), Some(Item::Session("new".into())));
+            .send(Msg::TreeSelect(Some(Item::Session(here(), "new".into()))));
+        assert_eq!(selected(&run), Some(Item::Session(here(), "new".into())));
         let listed = run.event(patch(2).listed(
             testing::listed().sessions([session("a").cwd("/r"), session("new").cwd("/r")]),
         ));
-        assert_eq!(selected(&listed), Some(Item::Session("new".into())));
+        assert_eq!(selected(&listed), Some(Item::Session(here(), "new".into())));
     }
 
     #[test]
@@ -764,14 +781,14 @@ mod tests {
         let sessions = vec![session("a").cwd("/r"), session("b").cwd("/r")];
         // (selection before the switch, selection after it)
         let cases = [
-            (None, Some(Item::Session("b".into()))),
+            (None, Some(Item::Session(here(), "b".into()))),
             (
-                Some(Item::Session("a".into())),
-                Some(Item::Session("b".into())),
+                Some(Item::Session(here(), "a".into())),
+                Some(Item::Session(here(), "b".into())),
             ),
             (
-                Some(Item::Workspace("/r".into())),
-                Some(Item::Workspace("/r".into())),
+                Some(Item::Workspace(here(), "/r".into())),
+                Some(Item::Workspace(here(), "/r".into())),
             ),
         ];
         for (before, after) in cases {
@@ -785,8 +802,21 @@ mod tests {
     }
 
     #[test]
+    fn the_rows_are_the_work_of_the_window_s_environment() {
+        let here = EnvironmentId::new("here");
+        let run = Scenario::new()
+            .send(Msg::Opened {
+                home: Default::default(),
+                environment: here.clone(),
+            })
+            .event(listing([session("a").cwd("/r")]));
+        assert!(!rows(&run).is_empty());
+        assert!(rows(&run).iter().all(|row| row.environment() == &here));
+    }
+
+    #[test]
     fn the_host_keeps_read_the_files_the_rows_list() {
-        let files = Item::Heading("/r".into(), Heading::Files);
+        let files = Item::Heading(here(), "/r".into(), Heading::Files);
         let run = Scenario::new()
             .event(listing([session("a").cwd("/r")]))
             .send(Msg::TreeFold {
@@ -805,6 +835,7 @@ mod tests {
             entries: vec![src],
         }));
         let dir = Item::File {
+            environment: here(),
             worktree: "/r".into(),
             path: "/r/src".into(),
             dir: true,
@@ -890,14 +921,15 @@ mod tests {
         let place = |w: &str| Some(Place::at(w));
         // (tab, its place)
         let cases = [
-            (Tab::Session("a".into()), place("/r/w")),
-            (Tab::Session("gone".into()), None),
-            (Tab::Terminal(7), place("/r/w/src")),
-            (Tab::draft(PathBuf::from("/x")), place("/x")),
-            (Tab::Viewer("/r/w/src/a.rs".into()), place("/r/w")),
-            (Tab::Viewer("/elsewhere/a.rs".into()), None),
+            (Tab::Session(here(), "a".into()), place("/r/w")),
+            (Tab::Session(here(), "gone".into()), None),
+            (Tab::Terminal(here(), 7), place("/r/w/src")),
+            (Tab::draft(here(), PathBuf::from("/x")), place("/x")),
+            (Tab::Viewer(here(), "/r/w/src/a.rs".into()), place("/r/w")),
+            (Tab::Viewer(here(), "/elsewhere/a.rs".into()), None),
             (
                 Tab::Drawn {
+                    environment: here(),
                     session: "a".into(),
                     id: 1,
                     width: 2,
@@ -917,6 +949,9 @@ mod tests {
 
     #[test]
     fn the_sight_starts_empty() {
-        assert_eq!(sight(&TreeView::default()), Sight::default().tree);
+        assert_eq!(
+            sight(&TreeView::default(), &EnvironmentId::unbound()),
+            Sight::default().tree
+        );
     }
 }

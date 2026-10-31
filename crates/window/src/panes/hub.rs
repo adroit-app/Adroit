@@ -75,7 +75,7 @@ async fn redraw_woken(
             woke.push(t);
         }
         for tab in &woke {
-            if let Tab::Session(id) = tab {
+            if let Tab::Session(_, id) = tab {
                 let drawn = panes
                     .borrow()
                     .get(tab)
@@ -93,7 +93,7 @@ async fn redraw_woken(
                     p.exited()
                 }
             });
-            if let (Tab::Terminal(id), true) = (tab, gone) {
+            if let (Tab::Terminal(_, id), true) = (tab, gone) {
                 close_shell(app, &panes, *id);
             }
         }
@@ -129,7 +129,7 @@ pub(crate) fn use_redraws_told(app: AppCtx, local: Local) {
     let active = use_memo(move || app.content.read().active().cloned());
     use_effect(move || {
         let _ = (local.frame)();
-        if let Some(tab @ Tab::Session(id)) = &*active.read() {
+        if let Some(tab @ Tab::Session(_, id)) = &*active.read() {
             let agent = app.agent_of(Some(tab));
             app.tell_host(adroit_protocol::Request::Redrawn {
                 session: id.clone(),

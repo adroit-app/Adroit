@@ -14,7 +14,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
 
 use adroit_model::profile::{AgentProfile, ProfileId};
-use adroit_model::{Agent, TerminalProgram, Tree};
+use adroit_model::{Agent, EnvironmentId, TerminalProgram, Tree};
 use adroit_protocol::{Seq, WorkSnapshot};
 
 use crate::effect::Effect;
@@ -119,7 +119,7 @@ impl Drafts {
         tab: Option<&Tab>,
         settings: &crate::settings::Settings,
     ) -> Agent {
-        if let Some(Tab::Session(id)) = tab
+        if let Some(Tab::Session(_, id)) = tab
             && let Some((_, session)) = crate::tree::nav::find(tree, id)
         {
             return session.agent;
@@ -140,7 +140,7 @@ impl Drafts {
         tab: Option<&Tab>,
         settings: &crate::settings::Settings,
     ) -> ProfileId {
-        if let Some(Tab::Session(id)) = tab
+        if let Some(Tab::Session(_, id)) = tab
             && let Some((_, session)) = crate::tree::nav::find(tree, id)
         {
             return session.profile.clone();
@@ -179,7 +179,7 @@ pub fn profile_of(state: &crate::state::ViewState, tab: Option<&Tab>) -> Profile
 /// from runs in.
 pub fn home_of(state: &crate::state::ViewState, tab: Option<&Tab>) -> Option<std::path::PathBuf> {
     let tree = crate::tree::listed(state.host.work.as_ref());
-    if let Some(Tab::Session(id)) = tab
+    if let Some(Tab::Session(_, id)) = tab
         && let Some((_, session)) = crate::tree::nav::find(tree, id)
     {
         return session.home.clone();
@@ -305,10 +305,14 @@ pub(crate) fn show(
     Vec::new()
 }
 
-/// A new session's draft in `worktree`, with the options chosen for the next
-/// one.
-pub(crate) fn draft_at(view: &mut ContentView, worktree: PathBuf) -> Tab {
-    let draft = Tab::draft(worktree);
+/// A new session's draft in `worktree` of `environment`, with the options
+/// chosen for the next one.
+pub(crate) fn draft_at(
+    view: &mut ContentView,
+    environment: EnvironmentId,
+    worktree: PathBuf,
+) -> Tab {
+    let draft = Tab::draft(environment, worktree);
     view.drafts.options.insert(
         draft.clone(),
         DraftOptions::for_new_draft(&mut view.drafts.next),
@@ -318,8 +322,13 @@ pub(crate) fn draft_at(view: &mut ContentView, worktree: PathBuf) -> Tab {
 
 /// A new session's draft shown in `worktree`, which the middle is then of;
 /// `write` gives the keys to the prompt to write its first prompt.
-pub(crate) fn draft(view: &mut ContentView, worktree: PathBuf, write: bool) -> Vec<Effect> {
-    let draft = draft_at(view, worktree.clone());
+pub(crate) fn draft(
+    view: &mut ContentView,
+    environment: EnvironmentId,
+    worktree: PathBuf,
+    write: bool,
+) -> Vec<Effect> {
+    let draft = draft_at(view, environment, worktree.clone());
     view.place = Some(Place { worktree });
     view.windows.open(draft);
     if write {
@@ -369,15 +378,16 @@ pub(crate) fn close_showing(
     view.active() != was.as_ref()
 }
 
-/// The shell `id` closed: its windows close, and another thing of its
-/// worktree shows if no window is left. The prompt's text goes with the
-/// focus, as when a draft's tab closes.
+/// The shell `id` of `environment` closed: its windows close, and another
+/// thing of its worktree shows if no window is left. The prompt's text goes
+/// with the focus, as when a draft's tab closes.
 pub(crate) fn shell_closed(
     view: &mut ContentView,
+    environment: &EnvironmentId,
     work: Option<&WorkSnapshot>,
     id: u128,
 ) -> Vec<Effect> {
-    let shell = Tab::Terminal(id);
+    let shell = Tab::Terminal(environment.clone(), id);
     if !view.windows.shows_anywhere(&shell) {
         return Vec::new();
     }
@@ -388,7 +398,7 @@ pub(crate) fn shell_closed(
             .filter(|s| s.id != id && s.cwd == p.worktree)
             .map(|s| s.id)
             .collect();
-        crate::tree::nav::tab_after_closing(crate::tree::listed(work), p, &left)
+        crate::tree::nav::tab_after_closing(environment, crate::tree::listed(work), p, &left)
     });
     if close_showing(view, |t| *t == shell, next) {
         return vec![Effect::PromptClose(view.active().cloned())];
@@ -501,7 +511,7 @@ pub(crate) fn follow_place(view: &mut ContentView, work: Option<&WorkSnapshot>) 
 
 /// The session shown is remembered as its workspace's last.
 pub(crate) fn remember_shown(view: &mut ContentView, work: Option<&WorkSnapshot>) {
-    let Some(Tab::Session(id)) = view.active() else {
+    let Some(Tab::Session(_, id)) = view.active() else {
         return;
     };
     let Some(root) = crate::tree::listed(work)

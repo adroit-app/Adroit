@@ -158,6 +158,7 @@ pub(crate) mod testing {
 
 #[cfg(test)]
 mod tests {
+    use crate::testing::here;
     use adroit_protocol::{Colours, ConfigChange, ConfigFile, Configured, FileText, ThemeRead};
 
     use super::testing::{configured, keys_file, settings_file};
@@ -168,6 +169,7 @@ mod tests {
 
     fn home() -> Msg {
         Msg::Opened {
+            environment: here(),
             home: "/home/u".into(),
         }
     }

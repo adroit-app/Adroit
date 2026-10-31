@@ -89,6 +89,7 @@ pub(crate) fn close_keys_help(chrome: &mut Chrome) -> Vec<Effect> {
 
 #[cfg(test)]
 mod tests {
+    use crate::testing::here;
     use adroit_protocol::ConfigChange;
 
     use super::title;
@@ -104,6 +105,7 @@ mod tests {
         let opened = |zoom: &str| {
             Scenario::new()
                 .send(Msg::Opened {
+                    environment: here(),
                     home: Default::default(),
                 })
                 .event(configured(&format!("zoom = {zoom}\n")))

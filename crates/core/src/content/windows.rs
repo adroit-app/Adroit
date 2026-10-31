@@ -116,7 +116,7 @@ pub(crate) fn act(state: &mut ViewState, action: Action) -> Vec<Effect> {
                 .place
                 .as_ref()
                 .map_or_else(|| view.scratch.clone(), |p| p.worktree.clone());
-            let draft = draft_at(view, dir);
+            let draft = draft_at(view, state.host.environment.clone(), dir);
             view.windows.split(Axis::Column, draft);
             view.focus = Area::Prompt;
             vec![Effect::StartWriting]
@@ -162,12 +162,22 @@ pub(crate) fn act(state: &mut ViewState, action: Action) -> Vec<Effect> {
             })
         }
         Action::SessionNew => match place_here(state, on_list) {
-            Some(p) => draft(&mut state.content, p.worktree, true),
+            Some(p) => draft(
+                &mut state.content,
+                state.host.environment.clone(),
+                p.worktree,
+                true,
+            ),
             None => Vec::new(),
         },
         Action::SessionScratch => {
             let scratch = state.content.scratch.clone();
-            draft(&mut state.content, scratch, true)
+            draft(
+                &mut state.content,
+                state.host.environment.clone(),
+                scratch,
+                true,
+            )
         }
         Action::ShellOpen | Action::NeovimOpen => {
             let runs = if action == Action::NeovimOpen {
@@ -243,8 +253,14 @@ fn show_session_in(state: &mut ViewState, id: String, how: Opening) -> Vec<Effec
     let Some((p, _)) = nav::find(tree::listed(work), &id) else {
         return Vec::new();
     };
-    let tab = Tab::Session(id);
-    if let Some(row) = nav::row_of(&state.tree.rows, tree::listed(work), Some(&tab), &p) {
+    let tab = Tab::Session(state.host.environment.clone(), id);
+    if let Some(row) = nav::row_of(
+        &state.tree.rows,
+        tree::listed(work),
+        tab.environment(),
+        Some(&tab),
+        &p,
+    ) {
         state.tree.selected = Some(row);
     }
     state.content.place = Some(p);
@@ -258,13 +274,14 @@ pub(crate) fn edit_file(state: &mut ViewState, path: std::path::PathBuf) -> Vec<
     let terminals = tree::terminals(state.host.work.as_ref());
     let folder = path.parent().map(|d| d.to_path_buf()).unwrap_or_default();
     let item = Item::File {
+        environment: state.host.environment.clone(),
         worktree: folder.clone(),
         path: path.clone(),
         dir: false,
     };
     let open = nav::stands_for(&item, terminals)
         .into_iter()
-        .find(|t| matches!(t, Tab::Terminal(_)));
+        .find(|t| matches!(t, Tab::Terminal(_, _)));
     let content = &mut state.content;
     match open {
         Some(tab) => {
@@ -329,7 +346,7 @@ pub(crate) fn open_row(
             focus: take_keys,
         })),
         nav::Opens::Draft(worktree) => {
-            let draft = draft_at(content, worktree.clone());
+            let draft = draft_at(content, item.environment().clone(), worktree.clone());
             show(content, draft);
             content.place = Some(Place { worktree });
         }

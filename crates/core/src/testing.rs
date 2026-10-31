@@ -5,8 +5,8 @@
 //! `adroit_protocol::testing`; this adds only what the window's tests share
 //! on top.
 
-use adroit_model::Session;
 pub use adroit_model::testing::{SessionBuilder, shell, worktree};
+use adroit_model::{EnvironmentId, Session};
 pub use adroit_protocol::testing::{
     ListedBuilder, PatchBuilder, REPO, SnapshotBuilder, listed, patch, snapshot,
 };
@@ -48,6 +48,12 @@ pub fn show_in(thing: Tab, worktree: &str) -> Msg {
     }
 }
 
+/// The environment a test's window is in: that of a window opened without
+/// one.
+pub fn here() -> EnvironmentId {
+    EnvironmentId::unbound()
+}
+
 pub fn session_tab(id: &str) -> Tab {
-    Tab::Session(id.into())
+    Tab::Session(here(), id.into())
 }

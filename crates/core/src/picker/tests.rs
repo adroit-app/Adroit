@@ -1,3 +1,4 @@
+use crate::testing::here;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
@@ -54,7 +55,10 @@ fn ctrl(name: &str) -> Msg {
 /// A window with a session `a` running in `/r/a`, the picker open on it.
 fn picking() -> Scenario {
     Scenario::new()
-        .send(Msg::Opened { home: HOME.into() })
+        .send(Msg::Opened {
+            environment: here(),
+            home: HOME.into(),
+        })
         .event(listing([session("a")]))
         .send(Msg::PickerOpen)
 }

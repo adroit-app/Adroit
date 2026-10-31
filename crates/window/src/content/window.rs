@@ -44,21 +44,21 @@ pub(super) fn window_strip(
     shows: &Tab,
 ) -> Strip {
     let session = match shows {
-        Tab::Session(id) => nav::find(tree, id).map(|(_, s)| s),
+        Tab::Session(_, id) => nav::find(tree, id).map(|(_, s)| s),
         _ => None,
     };
     let mark = match shows {
-        Tab::Session(_) => StripMark::State(
+        Tab::Session(_, _) => StripMark::State(
             session
                 .map(|s| completions.state(s).clone())
                 .unwrap_or_default(),
         ),
-        Tab::Terminal(id) => StripMark::Terminal(runs_of(terminals, *id)),
+        Tab::Terminal(_, id) => StripMark::Terminal(runs_of(terminals, *id)),
         Tab::Draft { .. } => StripMark::Draft,
-        Tab::Viewer(_) | Tab::Drawn { .. } => {
+        Tab::Viewer(_, _) | Tab::Drawn { .. } => {
             // A drawn image is marked as a picture file is, being kept as one.
             let path = match shows {
-                Tab::Viewer(path) => path.as_path(),
+                Tab::Viewer(_, path) => path.as_path(),
                 _ => std::path::Path::new("drawn.png"),
             };
             let icon = file_icons::find(path, file_icons::Kind::File);

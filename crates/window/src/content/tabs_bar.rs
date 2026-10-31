@@ -43,7 +43,7 @@ pub(super) fn TabsBar(
             .map(|tab| {
                 let shows = tab.focused().shows.clone();
                 let (state, mark) = match &shows {
-                    Tab::Session(id) => nav::find(t, id).map_or((None, None), |(_, s)| {
+                    Tab::Session(_, id) => nav::find(t, id).map_or((None, None), |(_, s)| {
                         (
                             Some(completions.read().state(s).clone()),
                             session_mark(s.reads_only()),
@@ -57,7 +57,7 @@ pub(super) fn TabsBar(
                             .is_some_and(|o| o.permissions == AgentPermissions::ReadOnly);
                         (None, session_mark(reader))
                     }
-                    Tab::Terminal(_) | Tab::Viewer(_) | Tab::Drawn { .. } => (None, None),
+                    Tab::Terminal(_, _) | Tab::Viewer(_, _) | Tab::Drawn { .. } => (None, None),
                 };
                 let name = thing_name(t, terms, &shows);
                 (
@@ -88,7 +88,7 @@ pub(super) fn TabsBar(
                 {
                     let is_active = at == shown_at;
                     let shell = match &tab {
-                        Tab::Terminal(id) => Some(runs_of(terminals, *id)),
+                        Tab::Terminal(_, id) => Some(runs_of(terminals, *id)),
                         _ => None,
                     };
                     let class = [
@@ -149,7 +149,7 @@ pub(super) fn TabsBar(
                             }
                             if let Some(runs) = shell { TerminalMark { runs } }
                             if matches!(tab, Tab::Draft { .. }) { PlaceMark { icon: Icon::MessagePlus, size: 13 } }
-                            if let (Tab::Session(id), true) = (&tab, is_active) {
+                            if let (Tab::Session(_, id), true) = (&tab, is_active) {
                                 SessionName {
                                     id: id.clone(), name: name.clone(), place: RenamePlace::Tab,
                                 }

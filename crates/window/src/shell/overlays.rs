@@ -50,7 +50,8 @@ pub(crate) fn ContextMenu() -> Element {
     };
     let (x, y, target) = (menu.x, menu.y, menu.target);
     let session = match &target {
-        Target::Row(Item::Session(id) | Item::Waiting(id)) | Target::Tab(Tab::Session(id)) => {
+        Target::Row(Item::Session(_, id) | Item::Waiting(_, id))
+        | Target::Tab(Tab::Session(_, id)) => {
             let host = app.host.read();
             nav::find(listed(host.work.as_ref()), id).map(|(_, s)| s.clone())
         }
