@@ -91,14 +91,17 @@ fn a_key_closes_a_menu_left_open_and_does_nothing_else() {
 }
 
 fn stop_a() -> Effect {
-    Effect::Host(Request::Stop {
-        session: Box::new(session("a").build()),
-    })
+    Effect::Host {
+        environment: here(),
+        request: Request::Stop {
+            session: Box::new(session("a").build()),
+        },
+    }
 }
 
 #[test]
 fn a_question_is_answered_by_its_keys_and_holds_every_other() {
-    let stop = Ask::Stop(session("a").build());
+    let stop = Ask::Stop(here(), session("a").build());
     let process = Process {
         pid: 7,
         name: "node".into(),
@@ -112,10 +115,13 @@ fn a_question_is_answered_by_its_keys_and_holds_every_other() {
         (
             kill,
             "y",
-            Some(Effect::Host(Request::Kill {
-                session: Box::new(session("a").build()),
-                process,
-            })),
+            Some(Effect::Host {
+                environment: here(),
+                request: Request::Kill {
+                    session: Box::new(session("a").build()),
+                    process,
+                },
+            }),
             false,
         ),
         (Ask::RestartDaemon, "y", Some(Effect::RestartDaemon), false),
@@ -163,13 +169,36 @@ fn ending_a_session_asks_of_the_selected_row_s_or_else_the_shown_one() {
             .send(Msg::TreeSelect(row.clone()))
             .send(Msg::ConfirmStop { selection });
         let asked = match &run.state().overlays.confirm {
-            Some(Ask::Stop(s)) => Some(s.id.as_str()),
+            Some(Ask::Stop(_, s)) => Some(s.id.as_str()),
             _ => None,
         };
         assert_eq!(asked, want, "{row:?} {selection}");
     }
     let nothing = Scenario::new().send(Msg::ConfirmStop { selection: false });
     assert_eq!(nothing.state().overlays.confirm, None);
+}
+
+#[test]
+fn ending_a_session_shown_from_another_environment_asks_that_environments_host() {
+    let there = adroit_model::EnvironmentId::new("there");
+    let run = Scenario::new()
+        .event(listing([session("a").name("here-a")]))
+        .event_from(there.clone(), listing([session("a").name("there-a")]))
+        .send(crate::testing::show(crate::content::Tab::Session(
+            there.clone(),
+            "a".into(),
+        )))
+        .send(Msg::ConfirmStop { selection: false })
+        .send(Msg::ConfirmAnswer(true));
+    assert_eq!(
+        run.last_effects(),
+        [Effect::Host {
+            environment: there,
+            request: Request::Stop {
+                session: Box::new(session("a").name("there-a").build()),
+            },
+        }]
+    );
 }
 
 fn renaming(id: &str, place: RenamePlace) -> Msg {
@@ -202,7 +231,10 @@ fn a_name_typed_and_kept_renames_the_session() {
         .send(typed("a", RenamePlace::Tab, "new"))
         .send(ended("a", RenamePlace::Tab, true));
     assert_eq!(run.state().overlays.rename, None);
-    let Some(Effect::Host(Request::Rename { id, name, was, .. })) = run.last_effects().first()
+    let Some(Effect::Host {
+        request: Request::Rename { id, name, was, .. },
+        ..
+    }) = run.last_effects().first()
     else {
         panic!("{:?}", run.last_effects());
     };
@@ -243,9 +275,13 @@ fn a_name_given_up_unchanged_or_for_another_field_renames_nothing() {
             .send(text.clone())
             .send(end.clone());
         assert!(
-            !run.last_effects()
-                .iter()
-                .any(|e| matches!(e, Effect::Host(Request::Rename { .. }))),
+            !run.last_effects().iter().any(|e| matches!(
+                e,
+                Effect::Host {
+                    request: Request::Rename { .. },
+                    ..
+                }
+            )),
             "{text:?} {end:?}"
         );
         assert_eq!(

@@ -1,6 +1,7 @@
 //! A window run without a window: messages and scripted host events in,
 //! state and effects out, for tests to read.
 
+use adroit_model::EnvironmentId;
 use adroit_protocol::{Change, Event, Request, Seq, WorkPatch};
 
 use crate::effect::Effect;
@@ -45,8 +46,15 @@ impl Scenario {
         let mut last = Vec::new();
         while let Some(msg) = queue.pop_front() {
             for effect in step(&mut self.state, msg) {
-                if let Effect::Host(request) = &effect {
-                    queue.extend((self.host)(request).into_iter().map(Msg::Host));
+                if let Effect::Host {
+                    environment,
+                    request,
+                } = &effect
+                {
+                    queue.extend((self.host)(request).into_iter().map(|event| Msg::Host {
+                        environment: environment.clone(),
+                        event,
+                    }));
                 }
                 last.push(effect);
             }
@@ -60,19 +68,45 @@ impl Scenario {
         msgs.into_iter().fold(self, Self::send)
     }
 
-    /// The host told the window `event` of its own accord.
+    /// The host of the window's own environment told the window `event` of
+    /// its own accord.
     pub fn event(self, event: impl Into<Event>) -> Self {
-        self.send(Msg::Host(event.into()))
+        let environment = self.state.hosts.environment.clone();
+        self.event_from(environment, event)
     }
 
     pub fn events<E: Into<Event>>(self, events: impl IntoIterator<Item = E>) -> Self {
         events.into_iter().fold(self, Self::event)
     }
 
+    /// The host of `environment` told the window `event` of its own accord.
+    pub fn event_from(self, environment: EnvironmentId, event: impl Into<Event>) -> Self {
+        self.send(Msg::Host {
+            environment,
+            event: event.into(),
+        })
+    }
+
+    pub fn events_from<E: Into<Event>>(
+        self,
+        environment: EnvironmentId,
+        events: impl IntoIterator<Item = E>,
+    ) -> Self {
+        events.into_iter().fold(self, |run, event| {
+            run.event_from(environment.clone(), event)
+        })
+    }
+
     /// The host told the window `change` as the patch after the last word
     /// it heard.
     pub fn tell(self, change: impl Into<Change>) -> Self {
-        let seq = self.state.host.work.as_ref().map_or(Seq(0), |w| w.seq);
+        let seq = self
+            .state
+            .hosts
+            .own()
+            .work
+            .as_ref()
+            .map_or(Seq(0), |w| w.seq);
         self.event(Event::Patch(WorkPatch {
             seq: seq.next(),
             changes: vec![change.into()],
@@ -120,12 +154,15 @@ mod tests {
             home: Default::default(),
         });
         assert_eq!(
-            run.state().host.link,
+            run.state().hosts.own().link,
             Link::Ready {
                 version: Version(1)
             }
         );
-        assert_eq!(run.state().host.work.as_ref().map(|w| w.seq), Some(Seq(2)));
+        assert_eq!(
+            run.state().hosts.own().work.as_ref().map(|w| w.seq),
+            Some(Seq(2))
+        );
         assert_eq!(run.state().chrome.zoom, 1.0);
     }
 }

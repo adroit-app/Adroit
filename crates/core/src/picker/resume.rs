@@ -86,7 +86,7 @@ pub fn rows(list: &Resume, home: &Path, work: Option<&WorkSnapshot>) -> Option<V
 /// nothing open.
 pub(super) fn open(state: &ViewState) -> Resume {
     let showing = state.content.showing();
-    let work = state.host.work.as_ref();
+    let work = state.hosts.own().work.as_ref();
     let session_dir = match &showing.tab {
         Some(Tab::Session(_, id)) => nav::find(tree::listed(work), id).map(|(_, s)| s.cwd.clone()),
         _ => None,
@@ -105,8 +105,10 @@ pub(super) fn open(state: &ViewState) -> Resume {
 pub(super) fn choose(state: &mut ViewState, at: usize) -> Vec<Effect> {
     let view = &state.picker;
     let chosen = match &view.open {
-        Some(super::Picking::Resume(list)) => rows(list, &view.home, state.host.work.as_ref())
-            .and_then(|mut r| (at < r.len()).then(|| r.swap_remove(at))),
+        Some(super::Picking::Resume(list)) => {
+            rows(list, &view.home, state.hosts.own().work.as_ref())
+                .and_then(|mut r| (at < r.len()).then(|| r.swap_remove(at)))
+        }
         _ => None,
     };
     let Some(row) = chosen else {
@@ -143,7 +145,7 @@ mod tests {
         let view = &run.state().picker;
         match &view.open {
             Some(super::super::Picking::Resume(list)) => {
-                rows(list, &view.home, run.state().host.work.as_ref())
+                rows(list, &view.home, run.state().hosts.own().work.as_ref())
             }
             _ => None,
         }
@@ -174,7 +176,10 @@ mod tests {
         run.effects()
             .iter()
             .filter_map(|e| match e {
-                Effect::Host(Request::Watch(sight)) => Some(sight.past.clone()),
+                Effect::Host {
+                    request: Request::Watch(sight),
+                    ..
+                } => Some(sight.past.clone()),
                 _ => None,
             })
             .next_back()

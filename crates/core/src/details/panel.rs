@@ -791,7 +791,10 @@ mod tests {
         run.effects()
             .iter()
             .filter_map(|e| match e {
-                Effect::Host(Request::Watch(sight)) => Some((**sight).clone()),
+                Effect::Host {
+                    request: Request::Watch(sight),
+                    ..
+                } => Some((**sight).clone()),
                 _ => None,
             })
             .collect()
@@ -800,13 +803,13 @@ mod tests {
     fn local(run: &Scenario) -> Vec<Effect> {
         run.last_effects()
             .iter()
-            .filter(|e| !matches!(e, Effect::Host(_)))
+            .filter(|e| !matches!(e, Effect::Host { .. }))
             .cloned()
             .collect()
     }
 
     fn entries_of(run: &Scenario) -> Option<Listing> {
-        entry_listing(&run.state().details, run.state().host.work.as_ref())
+        entry_listing(&run.state().details, run.state().hosts.own().work.as_ref())
     }
 
     #[test]
@@ -1233,7 +1236,13 @@ mod tests {
             .send(shown(Some("a"), None))
             .send_all([Msg::DetailsKey(Key::Down), Msg::DetailsKey(Key::Open)]);
         assert_eq!(opened.state().details.drill.agent(), Some("toolu_1"));
-        assert!(opened_agent(&opened.state().details, opened.state().host.work.as_ref()).is_some());
+        assert!(
+            opened_agent(
+                &opened.state().details,
+                opened.state().hosts.own().work.as_ref()
+            )
+            .is_some()
+        );
         let scrolled = opened.send(Msg::DetailsKey(Key::Down));
         assert_eq!(local(&scrolled), [Effect::ScrollDetails(Scroll::Down)]);
         let gone = scrolled.event(patch(2).change(DetailsChange::Links {
@@ -1341,7 +1350,11 @@ mod tests {
                         .with(|w| w.agents = with_usage(Agent::Claude, usage_of.is_some())),
                 )
                 .send(shown(Some("a"), None));
-            let got = usage(&run.state().details, run.state().host.work.as_ref(), 0);
+            let got = usage(
+                &run.state().details,
+                run.state().hosts.own().work.as_ref(),
+                0,
+            );
             assert_eq!(
                 (got.len(), got[0].context),
                 (count, context),
@@ -1463,7 +1476,7 @@ mod tests {
                 worktree: "/w".into(),
                 read: files,
             }));
-        let change = overview_change(&run.state().details, run.state().host.work.as_ref());
+        let change = overview_change(&run.state().details, run.state().hosts.own().work.as_ref());
         assert_eq!(
             change.and_then(|v| v.revision).map(|r| r.short),
             Some("x".into())

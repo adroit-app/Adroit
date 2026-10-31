@@ -7,7 +7,7 @@ use adroit_protocol::{Request, Typing};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use adroit_model::Key;
+use adroit_model::{EnvironmentId, Key};
 
 use crate::actions::Action;
 use crate::content::{Opening, Tab, TerminalAsk, WindowId};
@@ -18,8 +18,11 @@ use crate::viewers::ViewerAction;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Effect {
-    /// Send `Request` to the work host.
-    Host(Request),
+    /// Send `request` to the work host of `environment`.
+    Host {
+        environment: EnvironmentId,
+        request: Request,
+    },
     /// Draw the window at this zoom.
     Zoom(f64),
 

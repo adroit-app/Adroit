@@ -36,7 +36,7 @@ pub(crate) fn tell_live(view: &mut ContentView, live: BTreeSet<String>) -> Vec<E
 /// The listing looked at anew, when it or the sessions live here changed
 /// since it last was.
 pub(crate) fn listed(state: &mut ViewState) -> Vec<Effect> {
-    let Some(work) = state.host.work.as_ref() else {
+    let Some(work) = state.hosts.own().work.as_ref() else {
         return Vec::new();
     };
     let Some(now) = work.tree.listed.as_deref() else {
@@ -91,7 +91,7 @@ pub(crate) fn listed(state: &mut ViewState) -> Vec<Effect> {
         .into_iter()
         .filter_map(|t| match t {
             Tab::Session(environment, id)
-                if *environment == state.host.environment
+                if *environment == state.hosts.environment
                     && nav::is_gone(sessions, id)
                     && !view.live.contains(id) =>
             {
@@ -107,7 +107,7 @@ pub(crate) fn listed(state: &mut ViewState) -> Vec<Effect> {
                 .filter(|s| s.cwd == p.worktree)
                 .map(|s| s.id)
                 .collect();
-            nav::tab_after_closing(&state.host.environment, next, p, &left)
+            nav::tab_after_closing(&state.hosts.environment, next, p, &left)
         });
         // Said, or the window would vanish unexplained.
         if let Some(name) = view.unlisted.remove(id) {
@@ -116,7 +116,7 @@ pub(crate) fn listed(state: &mut ViewState) -> Vec<Effect> {
                 format!("{name} ended"),
             ));
         }
-        let gone = Tab::Session(state.host.environment.clone(), id.clone());
+        let gone = Tab::Session(state.hosts.environment.clone(), id.clone());
         close_showing(view, |t| *t == gone, after);
     }
     // A session no longer listed has nothing to show; its pane is closed,
@@ -141,8 +141,8 @@ pub(crate) fn listed(state: &mut ViewState) -> Vec<Effect> {
             Tab::Draft { .. } | Tab::Viewer(_, _) | Tab::Drawn { .. } => None,
         };
         view.windows = Content::from_kept(kept, |name| {
-            from_kept(&name, &state.host.environment)
-                .filter(|tab| tab.environment() == &state.host.environment && at(tab).is_some())
+            from_kept(&name, &state.hosts.environment)
+                .filter(|tab| tab.environment() == &state.hosts.environment && at(tab).is_some())
         });
         if let Some(tab) = view.active().cloned() {
             if let Tab::Session(environment, id) = &tab {

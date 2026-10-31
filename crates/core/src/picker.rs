@@ -145,7 +145,7 @@ pub fn tree_rows(picker: &Picker, work: Option<&WorkSnapshot>) -> Vec<Row> {
 /// home directory starts open: nearly every pick in the tree begins inside
 /// it.
 pub(crate) fn open(state: &mut ViewState) -> Vec<Effect> {
-    let work = state.host.work.as_ref();
+    let work = state.hosts.own().work.as_ref();
     let running = tree::listed(work)
         .worktrees()
         .filter(|w| !w.sessions.is_empty())
@@ -196,7 +196,7 @@ pub(crate) fn every(view: &mut PickerView) -> Vec<Effect> {
 /// directory tree.
 pub(crate) fn press(state: &mut ViewState, key: &Key) -> Vec<Effect> {
     let ctrl = key.ctrl && !key.alt && !key.meta;
-    let work = state.host.work.as_ref();
+    let work = state.hosts.own().work.as_ref();
     let list = list_key(key);
     if list == Some(ListKey::Close) {
         return close(&mut state.picker);
@@ -280,7 +280,7 @@ fn enter(picker: &mut Picker, work: Option<&WorkSnapshot>) {
 
 /// The row `at` chosen, by its place among those drawn.
 pub(crate) fn choose(state: &mut ViewState, at: usize) -> Vec<Effect> {
-    let work = state.host.work.as_ref();
+    let work = state.hosts.own().work.as_ref();
     let chosen = match &state.picker.open {
         Some(Picking::Go(p)) => go_rows(p, &state.picker.home, work).into_iter().nth(at),
         Some(Picking::Resume(_)) => return resume::choose(state, at),
@@ -306,7 +306,7 @@ pub(crate) fn start_in(state: &mut ViewState, dir: PathBuf) -> Vec<Effect> {
     close(&mut state.picker);
     content::draft(
         &mut state.content,
-        state.host.environment.clone(),
+        state.hosts.environment.clone(),
         dir,
         true,
     )

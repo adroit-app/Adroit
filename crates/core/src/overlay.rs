@@ -164,15 +164,18 @@ pub(crate) fn ask(state: &mut ViewState, ask: Ask) -> Vec<Effect> {
 /// one the console shows.
 pub(crate) fn ask_stop(state: &mut ViewState, selection: bool) -> Vec<Effect> {
     let chosen = match &state.tree.selected {
-        Some(Item::Session(_, id) | Item::Waiting(_, id)) if selection => Some(id.clone()),
+        Some(Item::Session(environment, id) | Item::Waiting(environment, id)) if selection => {
+            Some((environment, id))
+        }
         _ => match state.content.active() {
-            Some(Tab::Session(_, id)) => Some(id.clone()),
+            Some(Tab::Session(environment, id)) => Some((environment, id)),
             _ => None,
         },
     };
-    let listed = tree::listed(state.host.work.as_ref());
-    if let Some((_, s)) = chosen.as_deref().and_then(|id| nav::find(listed, id)) {
-        state.overlays.confirm = Some(Ask::Stop(s.clone()));
+    if let Some((environment, id)) = chosen
+        && let Some((_, s)) = state.hosts.session(environment, id)
+    {
+        state.overlays.confirm = Some(Ask::Stop(environment.clone(), s.clone()));
     }
     Vec::new()
 }
@@ -186,10 +189,13 @@ pub(crate) fn answer(state: &mut ViewState, yes: bool) -> Vec<Effect> {
         return Vec::new();
     }
     vec![match ask {
-        Ask::Stop(session) => Effect::Host(Request::Stop {
-            session: Box::new(session),
-        }),
-        Ask::KillProcess(session, process) => Effect::Host(Request::Kill {
+        Ask::Stop(environment, session) => Effect::Host {
+            environment,
+            request: Request::Stop {
+                session: Box::new(session),
+            },
+        },
+        Ask::KillProcess(session, process) => state.hosts.ask_own(Request::Kill {
             session: Box::new(session),
             process,
         }),
@@ -200,7 +206,7 @@ pub(crate) fn answer(state: &mut ViewState, yes: bool) -> Vec<Effect> {
 /// Start typing a new name for the session `id` where `place` shows it; a
 /// session waiting on an answer is answered first.
 pub(crate) fn start_rename(state: &mut ViewState, id: &str, place: RenamePlace) -> Vec<Effect> {
-    let listed = tree::listed(state.host.work.as_ref());
+    let listed = tree::listed(state.hosts.own().work.as_ref());
     match nav::find(listed, id).map(|(_, s)| s) {
         Some(s) if s.state.takes_every_key() => {
             let text = format!("Answer {} first, then rename it", s.name);
@@ -245,9 +251,9 @@ pub(crate) fn end_rename(
             Some(name) => {
                 let agent = crate::content::agent_of(
                     state,
-                    Some(&Tab::Session(state.host.environment.clone(), r.id.clone())),
+                    Some(&Tab::Session(state.hosts.environment.clone(), r.id.clone())),
                 );
-                vec![Effect::Host(Request::Rename {
+                vec![state.hosts.ask_own(Request::Rename {
                     id: r.id,
                     name,
                     was: r.was,

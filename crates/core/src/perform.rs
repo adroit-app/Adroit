@@ -149,8 +149,8 @@ pub(crate) fn perform(
         Action::PromptSend => step(state, Msg::PromptSend),
         Action::PromptTakeSuggestion if prompt_runs => {
             let hands_back = state.console.answers
-                && matches!(&thing, Some(Tab::Session(_, id))
-                    if nav::find(tree::listed(state.host.work.as_ref()), id)
+                && matches!(&thing, Some(Tab::Session(environment, id))
+                    if state.hosts.session(environment, id)
                         .is_some_and(|(_, s)| s.adroit_editor));
             vec![Effect::TakeSuggestion {
                 key: key.unwrap_or_else(|| Key::new("Tab")),
@@ -250,7 +250,7 @@ pub(crate) fn perform(
                     nav::opens(
                         &item,
                         &state.tree.narrowed,
-                        tree::terminals(state.host.work.as_ref())
+                        tree::terminals(state.hosts.work(item.environment()))
                     ),
                     nav::Opens::Fold
                 ) || nav::unfolds(&item, &state.tree.folds) =>
@@ -270,10 +270,10 @@ pub(crate) fn perform(
         Action::FilerHidden => step(state, Msg::TreeKey(TreeKey::Hidden)),
         Action::CursorClose => step(state, Msg::Window(action)),
         Action::CursorCopy => {
-            let terminals = tree::terminals(state.host.work.as_ref());
-            let copied = cur
-                .as_ref()
-                .and_then(|item| nav::copied(item, &state.tree.narrowed, terminals));
+            let copied = cur.as_ref().and_then(|item| {
+                let terminals = tree::terminals(state.hosts.work(item.environment()));
+                nav::copied(item, &state.tree.narrowed, terminals)
+            });
             let (text, what) = match copied {
                 Some(nav::Copied::Path(p)) => (p.display().to_string(), "path"),
                 Some(nav::Copied::Name(n)) => (n, "name"),
@@ -293,7 +293,7 @@ pub(crate) fn perform(
             let Some(id) = nav::next_waiting(&state.tree.waiting, current, forward) else {
                 return Vec::new();
             };
-            let waiting = Item::Waiting(state.host.environment.clone(), id);
+            let waiting = Item::Waiting(state.hosts.environment.clone(), id);
             let mut effects = open(state, waiting, Some(Opening::Preview), false);
             // It waits on an answer, given in the console.
             effects.extend(step(state, Msg::Focus(Area::Console)));

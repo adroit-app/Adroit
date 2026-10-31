@@ -24,8 +24,8 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
     match msg {
         Msg::Opened { home, environment } => {
             state.picker.home = home;
-            state.host.environment = environment;
-            vec![host::hello()]
+            state.hosts.open(environment.clone());
+            vec![host::hello(environment)]
         }
         Msg::WindowFocused(on) => chrome::window_focused(&mut state.chrome, on),
         Msg::Zoom(step) => chrome::step(&mut state.chrome, step),
@@ -49,12 +49,14 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         Msg::KeysHelpOpen(here) => chrome::open_keys_help(&mut state.chrome, here),
         Msg::KeysHelpClose => chrome::close_keys_help(&mut state.chrome),
 
-        Msg::Host(event) => host::told(state, event),
+        Msg::Host { environment, event } => host::told(state, environment, event),
 
-        Msg::Relist => vec![Effect::Host(Request::Relist)],
-        Msg::Typed(inputs) => vec![Effect::Host(Request::Typed { inputs })],
-        Msg::TerminalOpened(terminal) => vec![Effect::Host(Request::TerminalOpened { terminal })],
-        Msg::TerminalClosed(id) => vec![Effect::Host(Request::TerminalClosed { id })],
+        Msg::Relist => vec![state.hosts.ask_own(Request::Relist)],
+        Msg::Typed(inputs) => vec![state.hosts.ask_own(Request::Typed { inputs })],
+        Msg::TerminalOpened(terminal) => {
+            vec![state.hosts.ask_own(Request::TerminalOpened { terminal })]
+        }
+        Msg::TerminalClosed(id) => vec![state.hosts.ask_own(Request::TerminalClosed { id })],
 
         Msg::ContentOpened { kept, scratch } => content::opened(&mut state.content, kept, scratch),
         Msg::Focus(area) => content::focus(&mut state.content, area),
@@ -62,7 +64,7 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         Msg::ShowSession(id) => content::show_session(state, id),
         Msg::Draft { worktree, write } => content::draft(
             &mut state.content,
-            state.host.environment.clone(),
+            state.hosts.environment.clone(),
             worktree,
             write,
         ),
@@ -79,11 +81,11 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         Msg::TabReveal(tab) => content::reveal(state, &tab),
         Msg::Replace { from, to } => content::replace(&mut state.content, &from, to),
         Msg::ShellClosed(id) => {
-            let mut effects = vec![Effect::Host(Request::TerminalClosed { id })];
+            let mut effects = vec![state.hosts.ask_own(Request::TerminalClosed { id })];
             effects.extend(content::shell_closed(
                 &mut state.content,
-                &state.host.environment,
-                state.host.work.as_ref(),
+                &state.hosts.environment,
+                state.hosts.own().work.as_ref(),
                 id,
             ));
             effects
@@ -125,20 +127,26 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         Msg::TreeFoldToggle(row) => tree::toggle(&mut state.tree, &row),
         Msg::TreeFilter(text) => tree::filter(&mut state.tree, text),
         Msg::TreeFiltering(on) => tree::filtering(&mut state.tree, on),
-        Msg::TreeEveryWorktree => tree::every_worktree(&mut state.tree),
+        Msg::TreeEveryWorktree => tree::every_worktree(&mut state.tree, &state.hosts),
 
         Msg::DetailsShown(told) => details::tell(&mut state.details, *told),
         Msg::DetailsSheet(sheet) => details::sheet(&mut state.details, sheet),
         Msg::DetailsSheetStep(delta) => details::step_sheet(&mut state.details, delta),
-        Msg::DetailsKey(key) => details::press(&mut state.details, state.host.work.as_ref(), key),
-        Msg::DetailsClick(at) => details::click(&mut state.details, state.host.work.as_ref(), at),
-        Msg::DetailsOpenRow(at) => {
-            details::open_row(&mut state.details, state.host.work.as_ref(), at)
+        Msg::DetailsKey(key) => {
+            details::press(&mut state.details, state.hosts.own().work.as_ref(), key)
         }
-        Msg::DetailsSelect(at) => details::select(&mut state.details, state.host.work.as_ref(), at),
+        Msg::DetailsClick(at) => {
+            details::click(&mut state.details, state.hosts.own().work.as_ref(), at)
+        }
+        Msg::DetailsOpenRow(at) => {
+            details::open_row(&mut state.details, state.hosts.own().work.as_ref(), at)
+        }
+        Msg::DetailsSelect(at) => {
+            details::select(&mut state.details, state.hosts.own().work.as_ref(), at)
+        }
         Msg::DetailsBack => details::back(&mut state.details),
-        Msg::DetailsReadAgain => vec![Effect::Host(Request::ReadAgain)],
-        Msg::CommandsWanted => vec![Effect::Host(Request::CommandsWanted)],
+        Msg::DetailsReadAgain => vec![state.hosts.ask_own(Request::ReadAgain)],
+        Msg::CommandsWanted => vec![state.hosts.ask_own(Request::CommandsWanted)],
 
         Msg::PickerOpen => picker::open(state),
         Msg::ResumeOpen => picker::open_resume(state),

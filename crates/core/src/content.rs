@@ -158,7 +158,7 @@ impl Drafts {
 
 /// The agent the prompt of `tab` goes to; see [`Drafts::agent_of`].
 pub fn agent_of(state: &crate::state::ViewState, tab: Option<&Tab>) -> Agent {
-    let tree = crate::tree::listed(state.host.work.as_ref());
+    let tree = crate::tree::listed(state.hosts.work(state.hosts.environment_of(tab)));
     state
         .content
         .drafts
@@ -167,7 +167,7 @@ pub fn agent_of(state: &crate::state::ViewState, tab: Option<&Tab>) -> Agent {
 
 /// The profile the prompt of `tab` goes to; see [`Drafts::profile_of`].
 pub fn profile_of(state: &crate::state::ViewState, tab: Option<&Tab>) -> ProfileId {
-    let tree = crate::tree::listed(state.host.work.as_ref());
+    let tree = crate::tree::listed(state.hosts.work(state.hosts.environment_of(tab)));
     state
         .content
         .drafts
@@ -178,7 +178,7 @@ pub fn profile_of(state: &crate::state::ViewState, tab: Option<&Tab>) -> Profile
 /// own environment: a session's own, else the one the profile it would start
 /// from runs in.
 pub fn home_of(state: &crate::state::ViewState, tab: Option<&Tab>) -> Option<std::path::PathBuf> {
-    let tree = crate::tree::listed(state.host.work.as_ref());
+    let tree = crate::tree::listed(state.hosts.work(state.hosts.environment_of(tab)));
     if let Some(Tab::Session(_, id)) = tab
         && let Some((_, session)) = crate::tree::nav::find(tree, id)
     {

@@ -13,7 +13,7 @@ use crate::content::{Area, DraftOptions, Tab, fresh_name, label_from, named, sho
 use crate::effect::Effect;
 use crate::msg::Msg;
 use crate::state::ViewState;
-use crate::tree::{self, nav};
+use crate::tree;
 use crate::update::step;
 
 /// How long the host is given to compose a prompt before it is put back.
@@ -72,7 +72,9 @@ pub(crate) fn nothing_taken(state: &mut ViewState) -> Vec<Effect> {
 /// keys go where the answer is given.
 pub(crate) fn taken(state: &mut ViewState, taken: Taken) -> Vec<Effect> {
     let waits = match &taken.tab {
-        Some(Tab::Session(_, id)) => nav::find(tree::listed(state.host.work.as_ref()), id)
+        Some(Tab::Session(environment, id)) => state
+            .hosts
+            .session(environment, id)
             .is_some_and(|(_, s)| s.state.takes_every_key()),
         _ => false,
     };
@@ -93,9 +95,13 @@ pub(crate) fn taken(state: &mut ViewState, taken: Taken) -> Vec<Effect> {
         text: taken.text.clone(),
         images: taken.images.clone(),
     };
+    let environment = state.hosts.environment_of(taken.tab.as_ref()).clone();
     state.prompt.sending = Some(Sending::Composing { asked, taken });
     vec![
-        Effect::Host(request),
+        Effect::Host {
+            environment,
+            request,
+        },
         Effect::LapseCompose {
             asked,
             after: COMPOSE_WAIT,
@@ -107,13 +113,12 @@ pub(crate) fn taken(state: &mut ViewState, taken: Taken) -> Vec<Effect> {
 /// for, a session's input or a new session from its draft. What cannot go
 /// is put back, with a word to the user why.
 pub(crate) fn composed(state: &mut ViewState) -> Vec<Effect> {
-    let Some(Sending::Composing { asked, .. }) = &state.prompt.sending else {
+    let Some(Sending::Composing { asked, taken }) = &state.prompt.sending else {
         return Vec::new();
     };
     let Some(composed) = state
-        .host
-        .work
-        .as_ref()
+        .hosts
+        .work(state.hosts.environment_of(taken.tab.as_ref()))
         .and_then(|w| w.prompt.composed.as_ref())
         .filter(|c| c.asked == *asked)
         .cloned()
@@ -194,7 +199,7 @@ fn go(state: &mut ViewState, taken: Taken) -> Vec<Effect> {
         Some(draft @ Tab::Draft { .. }) => {
             let (given, text) = named(&taken.text);
             let label = given.unwrap_or_else(|| label_from(&text));
-            let listed = tree::listed(state.host.work.as_ref());
+            let listed = tree::listed(state.hosts.work(draft.environment()));
             let names: Vec<&str> = listed.sessions().map(|(_, s)| s.name.as_str()).collect();
             let name = fresh_name(&label, &names);
             let options = state

@@ -79,8 +79,11 @@ pub enum Msg {
     KeysHelpOpen(Vec<Context>),
     KeysHelpClose,
 
-    /// The work host said `Event`.
-    Host(Event),
+    /// The work host of `environment` said `event`.
+    Host {
+        environment: EnvironmentId,
+        event: Event,
+    },
 
     // The work.
     /// List the sessions again now, looking afresh at where they run.

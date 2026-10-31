@@ -69,12 +69,12 @@ fn content_listed(state: &mut ViewState, effects: &mut Vec<Effect>) {
 
 /// The worktree in the middle follows what the focused window shows.
 fn content_place(state: &mut ViewState, _: &mut Vec<Effect>) {
-    content::follow_place(&mut state.content, state.host.work.as_ref());
+    content::follow_place(&mut state.content, state.hosts.own().work.as_ref());
 }
 
 /// The session shown is its workspace's last shown.
 fn content_last_shown(state: &mut ViewState, _: &mut Vec<Effect>) {
-    content::remember_shown(&mut state.content, state.host.work.as_ref());
+    content::remember_shown(&mut state.content, state.hosts.own().work.as_ref());
 }
 
 /// A draft no window shows is given up.
@@ -167,7 +167,7 @@ fn prompt_commands(state: &mut ViewState, effects: &mut Vec<Effect>) {
 /// The status line says why the sessions cannot be listed, while they
 /// cannot.
 fn tree_failing(state: &mut ViewState, effects: &mut Vec<Effect>) {
-    let work = state.host.work.as_ref();
+    let work = state.hosts.own().work.as_ref();
     effects.extend(tree::tell_failing(
         &mut state.tree,
         &mut state.chrome.status,
@@ -179,8 +179,8 @@ fn tree_failing(state: &mut ViewState, effects: &mut Vec<Effect>) {
 fn tree_rows(state: &mut ViewState, _: &mut Vec<Effect>) {
     tree::build(
         &mut state.tree,
-        &state.host.environment,
-        state.host.work.as_ref(),
+        &state.hosts.environment,
+        state.hosts.own().work.as_ref(),
     );
     tree::go_into(&mut state.tree);
 }
@@ -188,19 +188,19 @@ fn tree_rows(state: &mut ViewState, _: &mut Vec<Effect>) {
 /// A selected row that leaves the rows gives way to another.
 fn tree_kept(state: &mut ViewState, _: &mut Vec<Effect>) {
     let showing = state.content.showing();
-    tree::keep_selection(&mut state.tree, &showing, state.host.work.as_ref());
+    tree::keep_selection(&mut state.tree, &showing, state.hosts.own().work.as_ref());
 }
 
 /// The selection follows the focused window to what it now shows.
 fn tree_switched(state: &mut ViewState, _: &mut Vec<Effect>) {
     let showing = state.content.showing();
-    tree::follow_switch(&mut state.tree, &showing, state.host.work.as_ref());
+    tree::follow_switch(&mut state.tree, &showing, state.hosts.own().work.as_ref());
 }
 
 /// A finished session the user sees is no longer marked finished.
 fn tree_completions(state: &mut ViewState, _: &mut Vec<Effect>) {
     let shown = state.content.active().cloned();
-    let work = state.host.work.as_ref();
+    let work = state.hosts.own().work.as_ref();
     tree::see_completions(&mut state.tree, shown.as_ref(), state.chrome.focused, work);
 }
 
@@ -237,14 +237,19 @@ fn details_usage(state: &mut ViewState, _: &mut Vec<Effect>) {
         agent,
         home: content::home_of(state, tab.as_ref()),
     };
-    let facts = state.host.work.as_ref().and_then(|w| w.agents.of(agent));
+    let facts = state
+        .hosts
+        .own()
+        .work
+        .as_ref()
+        .and_then(|w| w.agents.of(agent));
     details::follow_usage(&mut state.details, tab.as_ref(), account, facts);
 }
 
 /// The overview's About tells of the session shown as the settings name its
 /// profile, and of the workspace and worktree it works in.
 fn details_about(state: &mut ViewState, _: &mut Vec<Effect>) {
-    let work = state.host.work.as_ref();
+    let work = state.hosts.own().work.as_ref();
     let d = &state.details;
     let about = details::shown_session(d, work)
         .map(|s| {
@@ -264,42 +269,42 @@ fn details_about(state: &mut ViewState, _: &mut Vec<Effect>) {
 /// What the host read again for the spot the details panel shows moves its
 /// selection along, or steps back from a row opened that is gone.
 fn details_refreshed(state: &mut ViewState, _: &mut Vec<Effect>) {
-    details::refresh(&mut state.details, state.host.work.as_ref());
+    details::refresh(&mut state.details, state.hosts.own().work.as_ref());
 }
 
 /// A subagent or process opened that the overview no longer lists is gone
 /// back from.
 fn details_gone(state: &mut ViewState, _: &mut Vec<Effect>) {
-    let work = state.host.work.as_ref().map(|w| &w.details);
+    let work = state.hosts.own().work.as_ref().map(|w| &w.details);
     details::forget_gone(&mut state.details, work);
 }
 
 /// What the host offered the picker is taken into its list and its tree.
 fn picker_offered(state: &mut ViewState, _: &mut Vec<Effect>) {
-    picker::take_offers(&mut state.picker, state.host.work.as_ref());
+    picker::take_offers(&mut state.picker, state.hosts.own().work.as_ref());
 }
 
 /// A directory opened in the picker's tree before it was listed is moved
 /// into once it is.
 fn picker_listed(state: &mut ViewState, _: &mut Vec<Effect>) {
-    picker::take_listed(&mut state.picker, state.host.work.as_ref());
+    picker::take_listed(&mut state.picker, state.hosts.own().work.as_ref());
 }
 
 /// The host keeps read what the tree, the details panel and the picker
 /// show, and the worktree in the middle, asked once each time it changes.
 fn watched(state: &mut ViewState, effects: &mut Vec<Effect>) {
     let sight = sight(state);
-    if state.host.watched == sight {
+    if state.hosts.own().watched == sight {
         return;
     }
-    state.host.watched = sight.clone();
-    effects.push(Effect::Host(Request::Watch(Box::new(sight))));
+    state.hosts.own_mut().watched = sight.clone();
+    effects.push(state.hosts.ask_own(Request::Watch(Box::new(sight))));
 }
 
 /// What the window shows that the host keeps read.
 pub(crate) fn sight(state: &ViewState) -> Sight {
     Sight {
-        tree: tree::sight(&state.tree, &state.host.environment),
+        tree: tree::sight(&state.tree, &state.hosts.environment),
         past: state.picker.past_sight(),
         pick: state.picker.sight(),
         place: state

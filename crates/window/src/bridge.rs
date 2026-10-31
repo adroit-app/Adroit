@@ -149,13 +149,14 @@ pub(crate) fn use_app() -> AppCtx {
         let mut effects = pump(
             &mut view,
             &*link,
+            &environment,
             &mut events,
             [
                 Msg::PanelsKept(Layout::load()),
                 Msg::WindowFocused(dioxus::desktop::window().is_focused()),
                 Msg::Opened {
                     home: home(),
-                    environment,
+                    environment: environment.clone(),
                 },
             ],
         );
@@ -165,6 +166,7 @@ pub(crate) fn use_app() -> AppCtx {
         effects.extend(pump(
             &mut view,
             &*link,
+            &environment,
             &mut events,
             [Msg::ContentOpened { kept, scratch }],
         ));
@@ -173,7 +175,7 @@ pub(crate) fn use_app() -> AppCtx {
         let app = AppCtx {
             chrome: Signal::new(view.chrome.clone()),
             config: Signal::new(view.config.clone()),
-            host: Signal::new(view.host.clone()),
+            host: Signal::new(view.hosts.own().clone()),
             content: Signal::new(view.content.clone()),
             tree: Signal::new(view.tree.clone()),
             details: Signal::new(view.details.clone()),
@@ -199,7 +201,10 @@ pub(crate) fn use_app() -> AppCtx {
         });
         spawn(async move {
             while let Some(event) = events.recv().await {
-                app.dispatch(Msg::Host(event));
+                app.dispatch(Msg::Host {
+                    environment: environment.clone(),
+                    event,
+                });
             }
         });
         app
@@ -239,7 +244,7 @@ impl AppCtx {
     /// rendering.
     pub(crate) fn dispatch(&self, msg: Msg) {
         let mut view = self.view;
-        let from_host = matches!(msg, Msg::Host(_));
+        let from_host = matches!(msg, Msg::Host { .. });
         let mut effects = step(&mut view.write(), msg);
         if from_host {
             crate::client_settings::apply(&mut view.write().config.settings);
@@ -273,7 +278,7 @@ impl AppCtx {
         set_changed(self.chrome, &view.chrome);
         set_changed(self.config, &view.config);
         crate::feed::publish(&view.config);
-        set_changed(self.host, &view.host);
+        set_changed(self.host, view.hosts.own());
         set_changed(self.content, &view.content);
         set_changed(self.tree, &view.tree);
         set_changed(self.details, &view.details);
@@ -354,7 +359,8 @@ impl AppCtx {
 
     fn run(&self, effects: Vec<Effect>) {
         let link = self.link.read().clone();
-        run(effects, &*link, |effect| match effect {
+        let environment = self.environment();
+        run(effects, &*link, &environment, |effect| match effect {
             Effect::Zoom(level) => {
                 let _ = dioxus::desktop::window().webview.zoom(level);
             }
@@ -489,7 +495,7 @@ impl AppCtx {
                 text,
                 after,
             } => self.later(after, Msg::NoticeLapsed { notice, text }),
-            Effect::Host(_) => unreachable!("requests go to the host link"),
+            Effect::Host { .. } => unreachable!("requests go to the host link"),
         });
     }
 
@@ -578,7 +584,7 @@ fn shown_path() -> std::path::PathBuf {
 impl AppCtx {
     /// The environment the window's work belongs to.
     pub(crate) fn environment(&self) -> EnvironmentId {
-        self.host.peek().environment.clone()
+        self.view.read().hosts.environment.clone()
     }
 
     /// What the content's focused window shows now.
@@ -642,15 +648,19 @@ fn as_from<O>(scope: ScopeId, run: impl FnOnce() -> O) -> O {
 fn pump(
     view: &mut ViewState,
     link: &dyn HostLink,
+    environment: &EnvironmentId,
     events: &mut Events,
     msgs: impl IntoIterator<Item = Msg>,
 ) -> Vec<Effect> {
     let mut queue: std::collections::VecDeque<Msg> = msgs.into_iter().collect();
     let mut local = Vec::new();
     while let Some(msg) = queue.pop_front() {
-        run(step(view, msg), link, |e| local.push(e));
+        run(step(view, msg), link, environment, |e| local.push(e));
         while let Ok(event) = events.try_recv() {
-            queue.push_back(Msg::Host(event));
+            queue.push_back(Msg::Host {
+                environment: environment.clone(),
+                event,
+            });
         }
     }
     local
@@ -658,10 +668,24 @@ fn pump(
 
 /// `effects` carried out in order: requests sent to the host through
 /// `link`, the rest done by the window through `local`.
-fn run(effects: Vec<Effect>, link: &dyn HostLink, mut local: impl FnMut(Effect)) {
+fn run(
+    effects: Vec<Effect>,
+    link: &dyn HostLink,
+    environment: &EnvironmentId,
+    mut local: impl FnMut(Effect),
+) {
     for effect in effects {
         match effect {
-            Effect::Host(request) => link.send(request),
+            Effect::Host {
+                environment: to,
+                request,
+            } if to == *environment => link.send(request),
+            // The one link reaches only the window's own environment; no
+            // other has a host to ask yet.
+            Effect::Host {
+                environment: to,
+                request,
+            } => eprintln!("adroit: no link to environment {to:?} for {request:?}; dropped"),
             effect => local(effect),
         }
     }
@@ -736,7 +760,14 @@ mod tests {
         }
 
         fn dispatch(&mut self, msg: Msg) {
-            let drawn = pump(&mut self.view, &self.link, &mut self.events, [msg]);
+            let environment = self.view.hosts.environment.clone();
+            let drawn = pump(
+                &mut self.view,
+                &self.link,
+                &environment,
+                &mut self.events,
+                [msg],
+            );
             self.drawn.extend(drawn);
         }
     }
@@ -799,14 +830,43 @@ mod tests {
     fn an_opened_window_greets_the_host_and_holds_the_work() {
         let window = Window::open("zoom = 1.25\n");
         assert_eq!(
-            window.view.host.link,
+            window.view.hosts.own().link,
             Link::Ready {
                 version: *SPOKEN.iter().max().unwrap()
             }
         );
-        assert!(window.view.host.work.is_some());
+        assert!(window.view.hosts.own().work.is_some());
         assert_eq!(window.view.config.settings.zoom, 1.25);
         assert_eq!(window.drawn, vec![Effect::Zoom(1.25)]);
+    }
+
+    #[test]
+    fn the_link_carries_only_the_requests_for_its_own_environment() {
+        struct Recording(std::cell::RefCell<Vec<Request>>);
+        impl HostLink for Recording {
+            fn send(&self, request: Request) {
+                self.0.borrow_mut().push(request);
+            }
+        }
+        let link = Recording(Default::default());
+        let mut local = Vec::new();
+        run(
+            vec![
+                Effect::Host {
+                    environment: EnvironmentId::new("there"),
+                    request: Request::Relist,
+                },
+                Effect::Host {
+                    environment: EnvironmentId::new("here"),
+                    request: Request::Snapshot,
+                },
+            ],
+            &link,
+            &EnvironmentId::new("here"),
+            |effect| local.push(effect),
+        );
+        assert_eq!(*link.0.borrow(), vec![Request::Snapshot]);
+        assert!(local.is_empty());
     }
 
     #[test]

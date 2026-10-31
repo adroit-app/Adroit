@@ -38,7 +38,7 @@ impl Config {
 /// file that cannot be had leaves what is in force and says why, the key
 /// bindings' in the status line until they read again.
 pub(crate) fn take_in(state: &mut ViewState) -> Vec<Effect> {
-    let Some(work) = state.host.work.as_ref() else {
+    let Some(work) = state.hosts.own().work.as_ref() else {
         return Vec::new();
     };
     let config = &mut state.config;

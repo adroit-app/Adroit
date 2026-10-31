@@ -21,7 +21,7 @@ use crate::content::{Area, Tab};
 use crate::effect::Effect;
 use crate::msg::Msg;
 use crate::state::ViewState;
-use crate::tree::{self, nav};
+use crate::tree;
 use crate::update::step;
 use images::ImageKey;
 
@@ -95,7 +95,9 @@ struct Recall {
 /// runs in, or its draft's worktree.
 fn project(state: &ViewState, tab: Option<&Tab>) -> Option<PathBuf> {
     match tab {
-        Some(Tab::Session(_, id)) => nav::find(tree::listed(state.host.work.as_ref()), id)
+        Some(Tab::Session(environment, id)) => state
+            .hosts
+            .session(environment, id)
             .map(|(_, s)| PathBuf::from(&s.cwd)),
         Some(Tab::Draft { worktree, .. }) => Some(worktree.clone()),
         _ => None,
@@ -114,6 +116,7 @@ pub(crate) fn recall(state: &mut ViewState, back: bool, agent: Agent) -> Vec<Eff
         }];
     };
     let home = crate::content::home_of(state, tab.as_ref());
+    let environment = state.hosts.environment_of(tab.as_ref()).clone();
     let view = &mut state.prompt;
     view.asked += 1;
     view.recall = Some(Recall {
@@ -121,21 +124,26 @@ pub(crate) fn recall(state: &mut ViewState, back: bool, agent: Agent) -> Vec<Eff
         tab,
         back,
     });
-    vec![Effect::Host(Request::History {
-        asked: view.asked,
-        agent,
-        home,
-        project,
-    })]
+    vec![Effect::Host {
+        environment,
+        request: Request::History {
+            asked: view.asked,
+            agent,
+            home,
+            project,
+        },
+    }]
 }
 
 /// The history read for the step waiting on it puts the prompt it steps to
 /// in the prompt.
 pub(crate) fn recalled(state: &mut ViewState) -> Vec<Effect> {
+    let Some(recall) = &state.prompt.recall else {
+        return Vec::new();
+    };
     let Some(read) = state
-        .host
-        .work
-        .as_ref()
+        .hosts
+        .work(state.hosts.environment_of(recall.tab.as_ref()))
         .and_then(|w| w.prompt.history.as_ref())
     else {
         return Vec::new();
@@ -242,7 +250,7 @@ pub(crate) fn offer(state: &mut ViewState) -> Vec<Effect> {
         state.prompt.offered = None;
         return Vec::new();
     }
-    let work = state.host.work.as_ref();
+    let work = state.hosts.own().work.as_ref();
     let place = state.content.place.as_ref();
     let files = match (work, place) {
         (Some(work), Some(p)) => work
@@ -274,7 +282,7 @@ pub(crate) fn offer(state: &mut ViewState) -> Vec<Effect> {
 /// None for a shell or a viewer.
 pub(crate) fn commands_sight(state: &ViewState) -> Option<CommandsSight> {
     let tab = state.content.active();
-    let tree = tree::listed(state.host.work.as_ref());
+    let tree = tree::listed(state.hosts.work(state.hosts.environment_of(tab)));
     let dir = commands_dir(tree, tab, state.content.place.as_ref())?;
     let agent = crate::content::agent_of(state, tab);
     let home = crate::content::home_of(state, tab);
@@ -292,7 +300,8 @@ pub(crate) fn offer_commands(state: &mut ViewState) -> Vec<Effect> {
     let now = match commands_sight(state) {
         None => Some(Vec::new()),
         Some(sight) => state
-            .host
+            .hosts
+            .own()
             .work
             .as_ref()
             .and_then(|w| w.prompt.commands.as_ref())

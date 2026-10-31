@@ -74,7 +74,11 @@ fn picker(run: &Scenario) -> &Picker {
 fn names(run: &Scenario) -> Vec<String> {
     let view = &run.state().picker;
     lines(
-        &go_rows(picker(run), &view.home, run.state().host.work.as_ref()),
+        &go_rows(
+            picker(run),
+            &view.home,
+            run.state().hosts.own().work.as_ref(),
+        ),
         &view.home,
     )
     .into_iter()
@@ -86,7 +90,10 @@ fn asked(run: &Scenario) -> Option<Option<PickSight>> {
     run.effects()
         .iter()
         .filter_map(|e| match e {
-            Effect::Host(Request::Watch(sight)) => Some(sight.pick.clone()),
+            Effect::Host {
+                request: Request::Watch(sight),
+                ..
+            } => Some(sight.pick.clone()),
             _ => None,
         })
         .next_back()
@@ -236,7 +243,7 @@ fn the_tree_starts_inside_the_home_directory_once_it_is_listed() {
     assert_eq!(cursor(&run), Some(HOME.into()));
     let run = run.tell(dirs(HOME, &["src", "docs"]));
     assert_eq!(cursor(&run), Some("/Users/me/docs".into()));
-    let rows: Vec<_> = tree_rows(picker(&run), run.state().host.work.as_ref())
+    let rows: Vec<_> = tree_rows(picker(&run), run.state().hosts.own().work.as_ref())
         .into_iter()
         .map(|r| r.path)
         .collect();
@@ -277,7 +284,7 @@ fn the_tree_s_keys_move_close_and_show_the_hidden() {
         assert_eq!(cursor(&run), Some(want.into()), "{keys:?}");
     }
     let shown = in_tree().send(key("!"));
-    let rows = tree_rows(picker(&shown), shown.state().host.work.as_ref());
+    let rows = tree_rows(picker(&shown), shown.state().hosts.own().work.as_ref());
     assert!(rows.iter().any(|r| r.path.ends_with(".config")));
 }
 

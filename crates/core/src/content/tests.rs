@@ -735,10 +735,10 @@ fn a_closed_shell_gives_its_windows_up_to_another_thing_of_its_worktree() {
         })
         .send(Msg::ShellClosed(1));
     assert_eq!(active(&run), Some(Tab::Session(here(), "a".into())));
-    assert!(
-        run.last_effects()
-            .contains(&Effect::Host(Request::TerminalClosed { id: 1 }))
-    );
+    assert!(run.last_effects().contains(&Effect::Host {
+        environment: here(),
+        request: Request::TerminalClosed { id: 1 },
+    }));
     assert!(
         run.last_effects()
             .contains(&Effect::PromptClose(Some(Tab::Session(here(), "a".into()))))
@@ -783,7 +783,10 @@ fn the_host_reads_the_worktree_in_the_middle_while_it_is_there() {
             .iter()
             .rev()
             .find_map(|e| match e {
-                Effect::Host(Request::Watch(sight)) => Some(sight.place.clone()),
+                Effect::Host {
+                    request: Request::Watch(sight),
+                    ..
+                } => Some(sight.place.clone()),
                 _ => None,
             })
             .flatten()
@@ -804,7 +807,10 @@ fn the_host_is_told_the_terminals_any_window_shows_so_it_can_quit_those_none_sho
             .iter()
             .rev()
             .find_map(|e| match e {
-                Effect::Host(Request::Watch(sight)) => Some(sight.terminals.clone()),
+                Effect::Host {
+                    request: Request::Watch(sight),
+                    ..
+                } => Some(sight.terminals.clone()),
                 _ => None,
             })
             .unwrap_or_default()

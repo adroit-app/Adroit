@@ -192,10 +192,13 @@ fn stepping_through_the_prompts_sent_asks_the_host_and_starts_writing() {
     let effects = run.last_effects();
     assert!(effects.iter().any(|e| matches!(
         e,
-        Effect::Host(Request::History {
-            agent: Agent::Claude,
+        Effect::Host {
+            request: Request::History {
+                agent: Agent::Claude,
+                ..
+            },
             ..
-        })
+        }
     )));
     assert_eq!(effects.last(), Some(&Effect::StartWriting));
     // Asked from the prompt's Neovim, with no key of the window's.

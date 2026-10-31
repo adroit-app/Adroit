@@ -1,13 +1,14 @@
 //! A question the window holds the keys for until it is answered.
 
-use adroit_model::{Process, Session};
+use adroit_model::{EnvironmentId, Process, Session};
 
 use crate::details::Entry;
 use crate::icons::Icon;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Ask {
-    Stop(Session),
+    /// End the session, in the environment it runs in.
+    Stop(EnvironmentId, Session),
     KillProcess(Session, Process),
     RestartDaemon,
 }
@@ -28,7 +29,7 @@ impl Ask {
     /// answering yes is called.
     pub fn dialog(&self) -> (Icon, String, String, &'static str) {
         match self {
-            Self::Stop(s) => (
+            Self::Stop(_, s) => (
                 Icon::PlayerStop,
                 format!("End {}?", s.name),
                 "The agent exits where it runs. Its conversation remains in the provider's history.".into(),
@@ -62,7 +63,7 @@ mod tests {
     #[test]
     fn restarting_the_daemon_is_asked_as_a_loss_as_killing_a_process_is() {
         assert!(Ask::RestartDaemon.destroys());
-        assert!(!Ask::Stop(Session::default()).destroys());
+        assert!(!Ask::Stop(EnvironmentId::default(), Session::default()).destroys());
     }
 
     #[test]

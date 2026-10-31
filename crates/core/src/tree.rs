@@ -131,14 +131,14 @@ pub(crate) fn filtering(view: &mut TreeView, on: bool) -> Vec<Effect> {
 
 /// Every worktree listed, or only those where something runs, looked at
 /// afresh.
-pub(crate) fn every_worktree(view: &mut TreeView) -> Vec<Effect> {
+pub(crate) fn every_worktree(view: &mut TreeView, hosts: &crate::host::Hosts) -> Vec<Effect> {
     view.every_worktree = !view.every_worktree;
     let told = if view.every_worktree {
         "Every worktree is listed, those without sessions too"
     } else {
         "Only the worktrees with sessions are listed"
     };
-    vec![Effect::Host(Request::Relist), Effect::Notice(told.into())]
+    vec![hosts.ask_own(Request::Relist), Effect::Notice(told.into())]
 }
 
 pub(crate) fn press(view: &mut TreeView, key: Key) -> Vec<Effect> {
@@ -453,7 +453,10 @@ mod tests {
         run.effects()
             .iter()
             .filter_map(|e| match e {
-                Effect::Host(Request::Watch(sight)) => Some(sight.tree.clone()),
+                Effect::Host {
+                    request: Request::Watch(sight),
+                    ..
+                } => Some(sight.tree.clone()),
                 _ => None,
             })
             .collect()
@@ -496,7 +499,7 @@ mod tests {
     fn a_finished_session_is_seen_once_shown_while_the_user_is_in_the_window() {
         let done = |id: &str| session(id).cwd("/r").state(State::Done);
         let finished = |run: &Scenario, id: &str| -> State {
-            let tree = listed(run.state().host.work.as_ref()).clone();
+            let tree = listed(run.state().hosts.own().work.as_ref()).clone();
             let (_, s) = nav::find(&tree, id).unwrap();
             run.state().tree.completions.state(s).clone()
         };
@@ -535,7 +538,10 @@ mod tests {
     fn nothing_is_listed_before_the_host_lists_it() {
         let run = Scenario::new().send(Msg::TreeFilter(String::new()));
         assert!(rows(&run).is_empty());
-        assert_eq!(listed(run.state().host.work.as_ref()), &Tree::default());
+        assert_eq!(
+            listed(run.state().hosts.own().work.as_ref()),
+            &Tree::default()
+        );
     }
 
     #[test]
@@ -860,7 +866,10 @@ mod tests {
     #[test]
     fn listing_every_worktree_is_asked_of_the_host_and_said() {
         let run = Scenario::new().send(Msg::TreeEveryWorktree);
-        assert!(run.last_effects().contains(&Effect::Host(Request::Relist)));
+        assert!(run.last_effects().contains(&Effect::Host {
+            environment: crate::testing::here(),
+            request: Request::Relist,
+        }));
         assert!(run.last_effects().contains(&Effect::Notice(
             "Every worktree is listed, those without sessions too".into()
         )));
@@ -891,7 +900,7 @@ mod tests {
             .send(show_in(session_tab("a"), "/r"));
         let got = crumbs(
             &run.state().content.showing(),
-            run.state().host.work.as_ref(),
+            run.state().hosts.own().work.as_ref(),
         );
         assert_eq!(
             got,
@@ -905,7 +914,7 @@ mod tests {
         assert_eq!(
             crumbs(
                 &nothing.state().content.showing(),
-                nothing.state().host.work.as_ref()
+                nothing.state().hosts.own().work.as_ref()
             ),
             None
         );

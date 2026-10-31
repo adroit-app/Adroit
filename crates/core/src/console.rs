@@ -22,7 +22,7 @@ use crate::keymap::{Context, Step};
 use crate::msg::Msg;
 use crate::overlay;
 use crate::state::ViewState;
-use crate::tree::{self, nav};
+use crate::tree::nav;
 use crate::update::step;
 use reader::{Edge, Exit};
 use route::Typed;
@@ -105,9 +105,11 @@ pub struct ReaderAt {
 /// answers.
 pub fn waits(state: &ViewState) -> bool {
     match state.content.active() {
-        Some(Tab::Session(_, id)) => {
+        Some(Tab::Session(environment, id)) => {
             state.console.dialog
-                || nav::find(tree::listed(state.host.work.as_ref()), id)
+                || state
+                    .hosts
+                    .session(environment, id)
                     .is_some_and(|(_, s)| s.state.takes_every_key())
         }
         _ => false,
@@ -386,12 +388,14 @@ pub(crate) fn prompt_entered(state: &mut ViewState) -> Vec<Effect> {
 /// never calls it, so the request would lapse. One at work is left to it:
 /// its input is asked for once it stops.
 pub(crate) fn ask_input(state: &ViewState) -> Vec<Effect> {
-    let Some(tab @ Tab::Session(_, id)) = state.content.active() else {
+    let Some(tab @ Tab::Session(environment, id)) = state.content.active() else {
         return Vec::new();
     };
     let console = &state.console;
-    let hands_back =
-        nav::find(tree::listed(state.host.work.as_ref()), id).is_some_and(|(_, s)| s.adroit_editor);
+    let hands_back = state
+        .hosts
+        .session(environment, id)
+        .is_some_and(|(_, s)| s.adroit_editor);
     if waits(state)
         || works(state)
         || console.direct
@@ -489,7 +493,8 @@ pub(crate) fn keep_to_area(state: &mut ViewState) {
 /// A list of the sessions drops the inputs kept for those no longer listed.
 pub(crate) fn keep_listed(state: &mut ViewState) {
     let Some(now) = state
-        .host
+        .hosts
+        .own()
         .work
         .as_ref()
         .and_then(|w| w.tree.listed.as_deref())
@@ -507,8 +512,11 @@ pub(crate) fn keep_listed(state: &mut ViewState) {
 /// The session shown has a dialog of its agent's own open while the host
 /// last saw one on its screen.
 pub(crate) fn follow_dialog(state: &mut ViewState) {
-    let open = match (state.content.active(), state.host.work.as_ref()) {
-        (Some(Tab::Session(_, id)), Some(work)) => work.console.dialog_open(id),
+    let open = match state.content.active() {
+        Some(Tab::Session(environment, id)) => state
+            .hosts
+            .work(environment)
+            .is_some_and(|work| work.console.dialog_open(id)),
         _ => false,
     };
     if state.console.dialog != open {
@@ -546,7 +554,9 @@ pub(crate) fn ask_when_freed(state: &mut ViewState) -> Vec<Effect> {
 /// passes every key on, or it works.
 fn held_from_input(state: &ViewState) -> bool {
     let waiting = match state.content.active() {
-        Some(Tab::Session(_, id)) => nav::find(tree::listed(state.host.work.as_ref()), id)
+        Some(Tab::Session(environment, id)) => state
+            .hosts
+            .session(environment, id)
             .is_some_and(|(_, s)| s.state.takes_every_key()),
         _ => false,
     };
@@ -556,7 +566,9 @@ fn held_from_input(state: &ViewState) -> bool {
 /// Whether the session shown is at work.
 fn works(state: &ViewState) -> bool {
     match state.content.active() {
-        Some(Tab::Session(_, id)) => nav::find(tree::listed(state.host.work.as_ref()), id)
+        Some(Tab::Session(environment, id)) => state
+            .hosts
+            .session(environment, id)
             .is_some_and(|(_, s)| s.state == State::Working),
         _ => false,
     }

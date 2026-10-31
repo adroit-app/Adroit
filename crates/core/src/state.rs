@@ -6,7 +6,7 @@ use crate::config::Config;
 use crate::console::ConsoleView;
 use crate::content::ContentView;
 use crate::details::Details;
-use crate::host::Host;
+use crate::host::Hosts;
 use crate::overlay::Overlays;
 use crate::picker::PickerView;
 use crate::prompt::PromptView;
@@ -16,7 +16,7 @@ use crate::tree::TreeView;
 pub struct ViewState {
     pub chrome: Chrome,
     pub config: Config,
-    pub host: Host,
+    pub hosts: Hosts,
     pub content: ContentView,
     pub tree: TreeView,
     pub details: Details,
@@ -31,7 +31,7 @@ impl Default for ViewState {
         let mut state = Self {
             chrome: Chrome::default(),
             config: Config::default(),
-            host: Host::default(),
+            hosts: Hosts::default(),
             content: ContentView::default(),
             tree: TreeView::default(),
             details: Details::default(),
@@ -47,7 +47,7 @@ impl Default for ViewState {
         );
         // A window that shows nothing asks nothing of the host, which starts
         // out reading nothing.
-        state.host.watched = crate::settle::sight(&state);
+        state.hosts.own_mut().watched = crate::settle::sight(&state);
         state
     }
 }

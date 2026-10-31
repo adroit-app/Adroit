@@ -52,12 +52,15 @@ fn stepping_through_the_prompts_sent_asks_the_host_for_the_project_s_and_puts_it
         .send(recall(true));
     assert_eq!(
         run.last_effects(),
-        [Effect::Host(Request::History {
-            asked: 1,
-            agent: Agent::Claude,
-            home: None,
-            project: "/r/a".into(),
-        })]
+        [Effect::Host {
+            environment: here(),
+            request: Request::History {
+                asked: 1,
+                agent: Agent::Claude,
+                home: None,
+                project: "/r/a".into(),
+            },
+        }]
     );
     // An answer for another request puts nothing in.
     let run = run.tell(history(7, &["old"]));
@@ -356,8 +359,10 @@ mod sending {
             .filter(|e| {
                 matches!(
                     e,
-                    Effect::Host(Request::Compose { .. })
-                        | Effect::SendPrompt(_)
+                    Effect::Host {
+                        request: Request::Compose { .. },
+                        ..
+                    } | Effect::SendPrompt(_)
                         | Effect::StartDraft(_)
                 )
             })
@@ -455,12 +460,15 @@ mod sending {
         assert_eq!(
             sends(&run),
             [
-                Effect::Host(Request::Compose {
-                    asked: 1,
-                    agent: Agent::Claude,
-                    text: "fix it".into(),
-                    images: Vec::new(),
-                }),
+                Effect::Host {
+                    environment: here(),
+                    request: Request::Compose {
+                        asked: 1,
+                        agent: Agent::Claude,
+                        text: "fix it".into(),
+                        images: Vec::new(),
+                    },
+                },
                 Effect::SendPrompt(Box::new(composed)),
             ]
         );
@@ -525,7 +533,10 @@ mod sending {
                 .send(Msg::PromptTaken(Box::new(written(draft.clone(), text))));
             let sends = sends(&run);
             let [
-                Effect::Host(Request::Compose { .. }),
+                Effect::Host {
+                    request: Request::Compose { .. },
+                    ..
+                },
                 Effect::StartDraft(start),
             ] = sends.as_slice()
             else {
@@ -640,7 +651,7 @@ fn the_host_is_asked_for_the_commands_of_the_agent_and_directory_shown() {
         .event(listing())
         .send(Msg::ShowSession("a".into()));
     assert_eq!(
-        run.state().host.watched.commands,
+        run.state().hosts.own().watched.commands,
         Some(CommandsSight {
             agent: Agent::Claude,
             home: None,
@@ -648,7 +659,13 @@ fn the_host_is_asked_for_the_commands_of_the_agent_and_directory_shown() {
         })
     );
     let run = run.send(Msg::CommandsWanted);
-    assert_eq!(run.last_effects(), [Effect::Host(Request::CommandsWanted)]);
+    assert_eq!(
+        run.last_effects(),
+        [Effect::Host {
+            environment: here(),
+            request: Request::CommandsWanted,
+        }]
+    );
 }
 
 #[test]
@@ -685,9 +702,12 @@ fn a_session_s_history_and_commands_are_asked_in_the_login_it_runs_in() {
         .send(Msg::ShowSession("a".into()))
         .send(recall(true));
     assert!(matches!(
-        run.last_effects(),
-        [Effect::Host(Request::History { home, .. })] if home.as_deref() == Some(std::path::Path::new("/w"))
-    ));
-    let sight = run.state().host.watched.commands.clone().unwrap();
+           run.last_effects(),
+           [Effect::Host {
+    request: Request::History { home, .. },
+    ..
+    }] if home.as_deref() == Some(std::path::Path::new("/w"))
+       ));
+    let sight = run.state().hosts.own().watched.commands.clone().unwrap();
     assert_eq!(sight.home.as_deref(), Some(std::path::Path::new("/w")));
 }

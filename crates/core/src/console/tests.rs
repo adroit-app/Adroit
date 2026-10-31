@@ -321,7 +321,13 @@ fn a_session_is_asked_for_its_input_only_when_it_can_hand_it_back() {
     let cases: Vec<(&str, Vec<Msg>)> = vec![
         ("no Neovim", vec![Msg::PromptRuns(false)]),
         ("passing keys", vec![Msg::ConsolePassEveryKey]),
-        ("a dialog", vec![Msg::Host(dialog(2, "a", true))]),
+        (
+            "a dialog",
+            vec![Msg::Host {
+                environment: here(),
+                event: dialog(2, "a", true),
+            }],
+        ),
     ];
     for (why, msgs) in cases {
         let run = asking().send_all(msgs).send(Msg::AskInput);

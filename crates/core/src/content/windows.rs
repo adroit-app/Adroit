@@ -116,7 +116,7 @@ pub(crate) fn act(state: &mut ViewState, action: Action) -> Vec<Effect> {
                 .place
                 .as_ref()
                 .map_or_else(|| view.scratch.clone(), |p| p.worktree.clone());
-            let draft = draft_at(view, state.host.environment.clone(), dir);
+            let draft = draft_at(view, state.hosts.environment.clone(), dir);
             view.windows.split(Axis::Column, draft);
             view.focus = Area::Prompt;
             vec![Effect::StartWriting]
@@ -153,7 +153,8 @@ pub(crate) fn act(state: &mut ViewState, action: Action) -> Vec<Effect> {
             let Some(item) = state.tree.selected.clone() else {
                 return Vec::new();
             };
-            let things = nav::stands_for(&item, tree::terminals(state.host.work.as_ref()));
+            let things =
+                nav::stands_for(&item, tree::terminals(state.hosts.work(item.environment())));
             if things.is_empty() {
                 return Vec::new();
             }
@@ -164,7 +165,7 @@ pub(crate) fn act(state: &mut ViewState, action: Action) -> Vec<Effect> {
         Action::SessionNew => match place_here(state, on_list) {
             Some(p) => draft(
                 &mut state.content,
-                state.host.environment.clone(),
+                state.hosts.environment.clone(),
                 p.worktree,
                 true,
             ),
@@ -174,7 +175,7 @@ pub(crate) fn act(state: &mut ViewState, action: Action) -> Vec<Effect> {
             let scratch = state.content.scratch.clone();
             draft(
                 &mut state.content,
-                state.host.environment.clone(),
+                state.hosts.environment.clone(),
                 scratch,
                 true,
             )
@@ -198,7 +199,7 @@ pub(crate) fn act(state: &mut ViewState, action: Action) -> Vec<Effect> {
         }
         Action::SessionNext | Action::SessionPrev => {
             let next = nav::next_session(
-                tree::listed(state.host.work.as_ref()),
+                tree::listed(state.hosts.own().work.as_ref()),
                 state.content.active(),
                 state.content.place.as_ref(),
                 action == Action::SessionNext,
@@ -210,7 +211,7 @@ pub(crate) fn act(state: &mut ViewState, action: Action) -> Vec<Effect> {
         }
         Action::WorkspaceNext | Action::WorkspacePrev => {
             let next = nav::next_workspace(
-                tree::listed(state.host.work.as_ref()),
+                tree::listed(state.hosts.own().work.as_ref()),
                 state.content.active(),
                 state.content.place.as_ref(),
                 &state.content.last_shown,
@@ -233,7 +234,7 @@ fn place_here(state: &ViewState, on_list: bool) -> Option<Place> {
         .selected
         .as_ref()
         .filter(|_| on_list)
-        .and_then(|c| nav::place_of(tree::listed(state.host.work.as_ref()), c))
+        .and_then(|c| nav::place_of(tree::listed(state.hosts.work(c.environment())), c))
         .or_else(|| state.content.place.clone())
 }
 
@@ -249,11 +250,11 @@ fn look_at_session(state: &mut ViewState, id: String) -> Vec<Effect> {
 }
 
 fn show_session_in(state: &mut ViewState, id: String, how: Opening) -> Vec<Effect> {
-    let work = state.host.work.as_ref();
+    let work = state.hosts.own().work.as_ref();
     let Some((p, _)) = nav::find(tree::listed(work), &id) else {
         return Vec::new();
     };
-    let tab = Tab::Session(state.host.environment.clone(), id);
+    let tab = Tab::Session(state.hosts.environment.clone(), id);
     if let Some(row) = nav::row_of(
         &state.tree.rows,
         tree::listed(work),
@@ -271,10 +272,10 @@ fn show_session_in(state: &mut ViewState, id: String, how: Opening) -> Vec<Effec
 /// Edit the file at `path`, one that need not be under any worktree, in the
 /// Neovim already on it or in one started in its folder, with the keys.
 pub(crate) fn edit_file(state: &mut ViewState, path: std::path::PathBuf) -> Vec<Effect> {
-    let terminals = tree::terminals(state.host.work.as_ref());
+    let terminals = tree::terminals(state.hosts.own().work.as_ref());
     let folder = path.parent().map(|d| d.to_path_buf()).unwrap_or_default();
     let item = Item::File {
-        environment: state.host.environment.clone(),
+        environment: state.hosts.environment.clone(),
         worktree: folder.clone(),
         path: path.clone(),
         dir: false,
@@ -310,7 +311,7 @@ pub(crate) fn open_row(
     how: Option<Opening>,
     take_keys: bool,
 ) -> Vec<Effect> {
-    let work = state.host.work.as_ref();
+    let work = state.hosts.work(item.environment());
     let terminals = tree::terminals(work);
     let view = &mut state.tree;
     view.selected = Some(item.clone());
