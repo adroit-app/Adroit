@@ -363,11 +363,11 @@ exec sleep 30"#,
 
     #[test]
     fn the_extension_and_the_skill_are_left_alone_when_they_would_be_written_the_same() {
-        use adroit_sys::fs::MetadataExt;
         let dir = tempfile::tempdir().unwrap();
         let (script, skill) = install(Path::new("/adroit"), dir.path()).unwrap();
         let skill = skill.join("SKILL.md");
-        let inode = |path: &Path| std::fs::metadata(path).unwrap().ino();
+        let inode =
+            |path: &Path| adroit_sys::fs::file_id(&std::fs::File::open(path).unwrap()).unwrap();
         let before = (inode(&script), inode(&skill));
         install(Path::new("/adroit"), dir.path()).unwrap();
         assert_eq!((inode(&script), inode(&skill)), before);

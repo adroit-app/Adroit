@@ -62,9 +62,6 @@ pub trait MetadataExt {
     fn uid(&self) -> u32;
     /// Open to the user alone: `0o700` for a folder, `0o600` for a file.
     fn mode(&self) -> u32;
-    /// When the file was made, which tells a file put in another's place
-    /// from the one it replaced as an inode does.
-    fn ino(&self) -> u64;
     /// One name: Windows hard links are not told apart here.
     fn nlink(&self) -> u64;
 }
@@ -76,9 +73,6 @@ impl MetadataExt for std::fs::Metadata {
     }
     fn mode(&self) -> u32 {
         if self.is_dir() { 0o040_700 } else { 0o100_600 }
-    }
-    fn ino(&self) -> u64 {
-        std::os::windows::fs::MetadataExt::creation_time(self)
     }
     fn nlink(&self) -> u64 {
         1
@@ -96,6 +90,31 @@ impl PermissionsExt for std::fs::Permissions {
     fn mode(&self) -> u32 {
         0o700
     }
+}
+
+/// What tells the open `file` from one put in its place: its inode.
+#[cfg(unix)]
+pub fn file_id(file: &std::fs::File) -> std::io::Result<u64> {
+    Ok(file.metadata()?.ino())
+}
+
+/// What tells the open `file` from one put in its place: its index on its
+/// volume. Not its creation time, which a file renamed to a name just freed
+/// takes over from the file that had it.
+#[cfg(windows)]
+pub fn file_id(file: &std::fs::File) -> std::io::Result<u64> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem;
+    // SAFETY: the handle is the open file's own, and the structure is the
+    // one the call fills.
+    let info = unsafe {
+        let mut info = std::mem::zeroed::<FileSystem::BY_HANDLE_FILE_INFORMATION>();
+        if FileSystem::GetFileInformationByHandle(file.as_raw_handle(), &mut info) == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        info
+    };
+    Ok(u64::from(info.nFileIndexHigh) << 32 | u64::from(info.nFileIndexLow))
 }
 
 /// A file standing for the folder `dir`, to lock: the folder itself.
@@ -187,6 +206,27 @@ mod tests {
             taken
         });
         assert!(taken);
+    }
+
+    #[test]
+    fn a_file_put_in_another_s_place_at_once_has_another_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("f");
+        std::fs::write(&path, "first").unwrap();
+        let first = file_id(&std::fs::File::open(&path).unwrap()).unwrap();
+        std::fs::write(&path, "rewritten").unwrap();
+        assert_eq!(
+            file_id(&std::fs::File::open(&path).unwrap()).unwrap(),
+            first
+        );
+        let other = dir.path().join("other");
+        std::fs::write(&other, "second").unwrap();
+        std::fs::remove_file(&path).unwrap();
+        std::fs::rename(&other, &path).unwrap();
+        assert_ne!(
+            file_id(&std::fs::File::open(&path).unwrap()).unwrap(),
+            first
+        );
     }
 
     #[test]

@@ -1,7 +1,6 @@
 //! A file of JSON lines read as it grows, as the agents write their
 //! transcripts: each read takes in only what was written since the last.
 
-use adroit_sys::fs::MetadataExt;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
@@ -46,15 +45,14 @@ impl Tail {
             *self = Tail::default();
             return Tailed::Missing;
         };
-        let Ok(meta) = file.metadata() else {
+        let (Ok(meta), Ok(id)) = (file.metadata(), adroit_sys::fs::file_id(&file)) else {
             return Tailed::Unreadable;
         };
-        let restarted =
-            meta.len() < self.read_to || self.inode.is_some_and(|ino| ino != meta.ino());
+        let restarted = meta.len() < self.read_to || self.inode.is_some_and(|ino| ino != id);
         if restarted {
             *self = Tail::default();
         }
-        self.inode = Some(meta.ino());
+        self.inode = Some(id);
         let unended = Tailed::Lines {
             restarted,
             ended: false,
