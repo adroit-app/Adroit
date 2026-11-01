@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use adroit_term::{Daemon, Error, Palette, Pane, Size};
-use tokio::net::{UnixListener, UnixStream};
 use tokio::task::{JoinHandle, JoinSet};
 
 mod support;
@@ -87,16 +86,16 @@ struct Forward(JoinHandle<()>);
 
 impl Forward {
     fn open(socket: &Path, target: PathBuf) -> Self {
-        let listener = UnixListener::bind(socket).unwrap();
+        let listener = adroit_sys::local::Listener::bind(socket).unwrap();
         Self(tokio::spawn(async move {
             let mut streams = JoinSet::new();
             loop {
                 tokio::select! {
                     accepted = listener.accept() => {
-                        let Ok((mut from, _)) = accepted else { return };
+                        let Ok(mut from) = accepted else { return };
                         let target = target.clone();
                         streams.spawn(async move {
-                            if let Ok(mut to) = UnixStream::connect(target).await {
+                            if let Ok(mut to) = adroit_sys::local::connect(target).await {
                                 let _ = tokio::io::copy_bidirectional(&mut from, &mut to).await;
                             }
                         });
@@ -146,7 +145,7 @@ async fn forwarded_endpoints_refuse_local_lifecycle_before_connecting_or_startin
 async fn the_local_process_serving_a_forward_is_never_reported_as_the_daemon() {
     let dir = socket_dir();
     let socket = dir.path().join("forward.sock");
-    let _listener = UnixListener::bind(&socket).unwrap();
+    let _listener = adroit_sys::local::Listener::bind(&socket).unwrap();
     assert!(Daemon::new(&socket).pid().is_some());
     assert_eq!(Daemon::forwarded(&socket).pid(), None);
     assert_ne!(Daemon::new(&socket), Daemon::forwarded(&socket));

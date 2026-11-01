@@ -145,7 +145,17 @@ mod tests {
         let (e, _rx) = start().await;
         for kind in ["config", "data", "state"] {
             let path = e.stdpath(kind).await;
-            assert!(path.ends_with("adroit/console/nvim"), "{kind}: {path}");
+            // Neovim keeps data and state in `<name>-data` on Windows.
+            let name = if cfg!(windows) && kind != "config" {
+                "nvim-data"
+            } else {
+                "nvim"
+            };
+            let folder = std::path::Path::new("adroit/console").join(name);
+            assert!(
+                std::path::Path::new(&path).ends_with(folder),
+                "{kind}: {path}"
+            );
         }
     }
 

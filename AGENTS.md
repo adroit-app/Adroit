@@ -28,7 +28,8 @@ An Agent Workspace for people who live in Vim: drive any coding agent in its own
 
 ## Quality gate
 
-Run `just ci` before reporting a change as done. CI runs the same recipe.
+Run `just ci` before reporting a change as done. CI runs the same recipe, and
+`just ci-windows` on Windows.
 
 ## Layout
 

@@ -225,16 +225,16 @@ mod tests {
     async fn a_request_made_while_the_work_host_is_replaced_waits_for_the_new_one() {
         let dir = tempfile::Builder::new()
             .prefix("adroit-")
-            .tempdir_in("/tmp")
+            .tempdir_in(adroit_sys::local::temp_dir())
             .unwrap();
         let root = dir.path().to_path_buf();
         let replacing = {
             let root = root.clone();
             crate::environment::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-                let listener = tokio::net::UnixListener::bind(socket(&root)).unwrap();
-                let (stream, _) = listener.accept().await.unwrap();
-                let (read, mut write) = stream.into_split();
+                let listener = adroit_sys::local::Listener::bind(socket(&root)).unwrap();
+                let stream = listener.accept().await.unwrap();
+                let (read, mut write) = tokio::io::split(stream);
                 read_frame(&mut BufReader::new(read)).await.unwrap();
                 let answer = Response {
                     version: VERSION,
@@ -249,7 +249,7 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod environment_socket_tests {
     use super::*;
     #[test]

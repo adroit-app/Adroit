@@ -1,4 +1,6 @@
 //! The executable installed on a work machine, built without the window.
+//! A work machine runs Unix: its hosts run as the user's services there.
+#![cfg(unix)]
 
 use std::path::Path;
 use std::process::Command;
@@ -88,7 +90,7 @@ impl Hosts {
     fn new() -> Self {
         let dir = tempfile::Builder::new()
             .prefix("adroit-h-")
-            .tempdir_in("/tmp")
+            .tempdir_in(adroit_sys::local::temp_dir())
             .unwrap();
         adroit_sys::fs::set_mode(dir.path(), 0o700).unwrap();
         Self(dir)
@@ -228,7 +230,6 @@ fn a_paired_target_or_invalid_execution_file_never_runs_native_client_commands_l
         );
     }
 }
-
 #[test]
 fn a_terminal_owned_startup_lease_expires_without_a_work_host_and_a_late_release_does_not_type_enter()
  {
@@ -298,7 +299,6 @@ fn a_terminal_owned_startup_lease_expires_without_a_work_host_and_a_late_release
         daemon.end(id).await.unwrap();
     });
 }
-
 #[test]
 fn an_explicit_startup_release_runs_the_program_once_before_the_lease_expires() {
     let hosts = Hosts::new();
@@ -471,7 +471,6 @@ fn remote_mutations_survive_lost_replies_and_retire_old_ids() {
         );
     });
 }
-
 #[test]
 fn remote_work_host_replacement_preserves_terminal_generation_and_invalidates_the_old_work_socket()
 {
@@ -809,7 +808,6 @@ fn environments_share_services_but_keep_terminals_settings_and_recovery_apart() 
         b["resource_id"]
     );
 }
-
 #[test]
 fn profile_agents_and_work_settings_are_scoped_and_stale_saves_are_refused() {
     use adroit_protocol::{Answer, Ask, Event, FileText, Request, SPOKEN, decode, encode};

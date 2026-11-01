@@ -47,12 +47,15 @@ describe("after an at sign", function()
     eq({ "src/main.rs " }, words(offer.at("@src/m", { root = worktree(), path_entries = { c("src/main.rs", "file") } })))
   end)
 
-  it("walks from the root of the disk after an at sign and a slash", function()
-    local dir = worktree()
-    local offered = offer.at("@" .. dir .. "/sr", { path_entries = { c(dir .. "/src/", "dir") } })
-    eq({ dir .. "/src/" }, words(offered))
-    eq(dir .. "/sr", offered.paths)
-  end)
+  -- Only a Unix path starts at the root of the disk with a slash.
+  if vim.fn.has("win32") == 0 then
+    it("walks from the root of the disk after an at sign and a slash", function()
+      local dir = worktree()
+      local offered = offer.at("@" .. dir .. "/sr", { path_entries = { c(dir .. "/src/", "dir") } })
+      eq({ dir .. "/src/" }, words(offered))
+      eq(dir .. "/sr", offered.paths)
+    end)
+  end
 
   it("walks nothing without a root", function()
     eq({}, words(offer.at("@sr", {})))

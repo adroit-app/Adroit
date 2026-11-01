@@ -13,7 +13,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 api=https://api.github.com/repos/neovim/neovim/releases
 tag=${1:-$(curl -fsSL "$api/latest" | perl -ne 'print $1 if /"tag_name":\s*"([^"]+)"/')}
 curl -fsSL "$api/tags/$tag" | perl -0ne '
-    while (/"name":\s*"(nvim-(?:macos|linux)-[^"]+\.tar\.gz)".*?"digest":\s*"sha256:([0-9a-f]{64})"/gs) {
+    while (/"name":\s*"(nvim-(?:(?:macos|linux)-[^"]+\.tar\.gz|win[^"]*\.zip))".*?"digest":\s*"sha256:([0-9a-f]{64})"/gs) {
         print "$2  $1\n";
     }' >"$here/SHA256SUMS.new"
 if [ ! -s "$here/SHA256SUMS.new" ]; then

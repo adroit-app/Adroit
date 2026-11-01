@@ -355,6 +355,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "starts a Unix shell as a login shell")]
     fn a_shell_tab_runs_the_login_shell_as_a_login_shell_unless_one_is_named() {
         let own = ShellLaunch::default();
         assert_eq!(
@@ -394,6 +395,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "starts a Unix shell as a login shell")]
     fn a_program_started_through_the_shell_is_handed_over_as_the_shell_s_arguments() {
         let claude = Launch {
             via_shell: true,
@@ -424,6 +426,28 @@ mod tests {
                 "/opt/homebrew/bin/fish".to_string(),
                 words(&["-l", "-i", "-c", "exec $argv", "claude", "-c"])
             )
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn on_windows_a_shell_tab_runs_the_shell_as_it_is() {
+        assert_eq!(
+            ShellLaunch::default().command_line("pwsh"),
+            ("pwsh".to_string(), Vec::new())
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn on_windows_a_program_set_to_start_through_the_shell_is_started_directly() {
+        let claude = Launch {
+            via_shell: true,
+            ..Launch::default()
+        };
+        assert_eq!(
+            claude.command_line("claude", &words(&["--name", "it's"]), "pwsh"),
+            ("claude".to_string(), words(&["--name", "it's"]))
         );
     }
 

@@ -433,10 +433,10 @@ mod tests {
     async fn a_gateway_that_takes_the_question_but_never_answers_is_still_told() {
         let dir = tempfile::tempdir().unwrap();
         let here = ThisComputer::in_dir(dir.path());
-        let listener = tokio::net::UnixListener::bind(&here.files.admin).unwrap();
+        let listener = adroit_sys::local::Listener::bind(&here.files.admin).unwrap();
         let _held = tokio::spawn(async move {
             let mut taken = Vec::new();
-            while let Ok((stream, _)) = listener.accept().await {
+            while let Ok(stream) = listener.accept().await {
                 taken.push(stream);
             }
         });

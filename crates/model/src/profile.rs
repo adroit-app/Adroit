@@ -491,12 +491,23 @@ pub(crate) fn plain_absolute(home: &Path) -> bool {
     let Some(text) = home.to_str() else {
         return false;
     };
+    // A Windows path starts at its drive, and either slash parts it.
+    let (text, separator): (&str, fn(char) -> bool) = if cfg!(windows) {
+        let past_drive = match text.as_bytes() {
+            [drive, b':', ..] if drive.is_ascii_alphabetic() => &text[2..],
+            _ => text,
+        };
+        (past_drive, |c| c == '/' || c == '\\')
+    } else {
+        (text, |c| c == '/')
+    };
     text.len() > 1
-        && text.starts_with('/')
-        && !text.ends_with('/')
-        && !text.contains("//")
+        && text.starts_with(separator)
+        && !text.ends_with(separator)
         && !text.contains('~')
-        && text[1..].split('/').all(|part| part != "." && part != "..")
+        && text[1..]
+            .split(separator)
+            .all(|part| !part.is_empty() && part != "." && part != "..")
 }
 
 #[cfg(test)]
@@ -749,5 +760,27 @@ mod tests {
             vec![claude().build()],
             "profile `other` is not defined",
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn on_windows_a_home_may_start_at_its_drive_with_either_slash() {
+        for home in [r"C:\Users\me\work", "C:/Users/me/work", r"d:\work"] {
+            assert!(plain_absolute(Path::new(home)), "{home}");
+        }
+        for home in [
+            r"C:\",
+            "C:",
+            "C:work",
+            r"C:\Users\me\",
+            r"C:\Users\me\\work",
+            r"C:\Users/\me",
+            r"C:\Users\.\me",
+            r"C:\Users\..\me",
+            r"C:\Users\me\~work",
+            r"\\server\share\me",
+        ] {
+            assert!(!plain_absolute(Path::new(home)), "{home}");
+        }
     }
 }

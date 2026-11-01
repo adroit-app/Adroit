@@ -318,6 +318,7 @@ mod tests {
         );
     }
     #[tokio::test]
+    #[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
     async fn a_start_that_is_refused_records_nothing_and_runs_no_agent() {
         let root = tempfile::tempdir().unwrap();
         let ran = root.path().join("ran");

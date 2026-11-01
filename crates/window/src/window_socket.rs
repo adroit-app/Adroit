@@ -124,7 +124,7 @@ pub struct Claimed {
 /// instead, and nothing is claimed. A socket left by a window that has gone
 /// is taken over; one another window still answers on is left alone.
 /// Windows opening together take turns, so no two claim one number.
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub fn claim(windows: &Path, new: bool) -> std::io::Result<Option<Claimed>> {
     claim_with(windows, new, || Ok(()))
 }
@@ -270,7 +270,9 @@ pub fn serve(_: Listener) -> std::io::Result<mpsc::UnboundedReceiver<Asked>> {
     Ok(rx)
 }
 
-#[cfg(test)]
+// What these tests pin down is the Unix socket the window answers on; on
+// Windows the window has none.
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use std::os::unix::net::UnixListener;
@@ -516,11 +518,12 @@ mod tests {
         assert!(first_open(&windows, 2));
     }
 }
+#[cfg(unix)]
 #[test]
 fn a_next_connection_waits_until_every_old_window_has_closed() {
     let dir = tempfile::Builder::new()
         .prefix("adroit-target-")
-        .tempdir_in("/tmp")
+        .tempdir_in(adroit_sys::local::temp_dir())
         .unwrap();
     let active = adroit_connect::execution_path(dir.path(), "default").unwrap();
     let windows = active.parent().unwrap().join("windows");

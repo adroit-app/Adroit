@@ -4,6 +4,7 @@ use adroit_host::{execution::deliver, settings::Settings};
 use adroit_model::Agent;
 
 #[tokio::test]
+#[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
 async fn codex_delivery_targets_a_uuid_and_passes_the_envelope_as_one_argument() {
     let dir = tempfile::tempdir().unwrap();
     let script = dir.path().join("queue.sh");

@@ -1325,6 +1325,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "written with Unix paths")]
     fn the_window_s_own_work_host_is_started_with_its_routing_named_as_an_added_one_s_is() {
         let route = Route::bound(
             &adroit_connect::environments::Binding {

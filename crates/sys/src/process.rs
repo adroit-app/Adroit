@@ -60,3 +60,41 @@ pub fn kill(pid: u32) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn waiting() -> std::process::Child {
+        #[cfg(unix)]
+        let mut command = std::process::Command::new("sleep");
+        #[cfg(unix)]
+        command.arg("30");
+        #[cfg(windows)]
+        let mut command = std::process::Command::new("ping");
+        #[cfg(windows)]
+        command.args(["-n", "30", "127.0.0.1"]);
+        command.stdout(std::process::Stdio::null()).spawn().unwrap()
+    }
+
+    #[test]
+    fn this_process_runs() {
+        assert!(alive(std::process::id()));
+    }
+
+    #[test]
+    fn a_process_killed_runs_no_more() {
+        let mut child = waiting();
+        assert!(alive(child.id()));
+        kill(child.id());
+        child.wait().unwrap();
+        assert!(!alive(child.id()));
+    }
+
+    #[test]
+    fn a_process_asked_to_end_ends() {
+        let mut child = waiting();
+        terminate(child.id());
+        assert!(!child.wait().unwrap().success());
+    }
+}

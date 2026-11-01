@@ -313,6 +313,7 @@ pub fn cli(operation: RemoteCommand) -> i32 {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
     #[test]
     fn discovery_refuses_symlinks_shared_files_and_oversized_input() {
         let dir = tempfile::tempdir().unwrap();
@@ -331,6 +332,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "serves as a work machine, which runs Unix")]
     fn simultaneous_services_publish_one_complete_persistent_instance_identity() {
         let dir = tempfile::tempdir().unwrap();
         let values = std::thread::scope(|scope| {

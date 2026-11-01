@@ -375,7 +375,9 @@ mod tests {
             .await
             .unwrap();
 
-        let trees = dir.path().canonicalize().unwrap().join("trees");
+        let trees = adroit_sys::fs::canonicalize(dir.path())
+            .unwrap()
+            .join("trees");
         assert_eq!(made.path, trees.join("fix-the-flaky-login-test"));
         assert_eq!(made.base, head.trim());
         assert!(made.path.join("a.txt").is_file());
@@ -411,6 +413,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(windows, ignore = "runs jj")]
     async fn a_jj_repository_gets_a_workspace_holding_the_current_change() {
         let dir = tempfile::tempdir().unwrap();
         let source = dir.path().join("api");

@@ -448,7 +448,6 @@ impl Served {
 mod tests {
     use super::*;
     use adroit_net::Enroll;
-    use tokio::net::UnixStream;
 
     struct NoHosts;
 
@@ -465,7 +464,7 @@ mod tests {
     async fn started() -> (tempfile::TempDir, GatewayFiles, Running) {
         let dir = tempfile::Builder::new()
             .prefix("ag-")
-            .tempdir_in("/tmp")
+            .tempdir_in(adroit_sys::local::temp_dir())
             .unwrap();
         let files = GatewayFiles::in_dir(dir.path());
         let running = start(&files, &["127.0.0.1:0".parse().unwrap()], Arc::new(NoHosts))
@@ -503,6 +502,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(windows, ignore = "serves as a work machine, which runs Unix")]
     async fn the_gateway_keeps_its_key_across_starts() {
         let (_dir, files, running) = started().await;
         let first = running.server;
@@ -626,7 +626,7 @@ mod tests {
     #[tokio::test]
     async fn a_malformed_admin_request_is_answered_with_a_failure() {
         let (_dir, files, _running) = started().await;
-        let mut stream = UnixStream::connect(&files.admin).await.unwrap();
+        let mut stream = adroit_sys::local::connect(&files.admin).await.unwrap();
         stream.write_all(b"{\"op\":\"nonsense\"}\n").await.unwrap();
         let mut answer = String::new();
         BufReader::new(stream).read_line(&mut answer).await.unwrap();

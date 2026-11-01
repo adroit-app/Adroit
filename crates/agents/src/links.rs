@@ -511,6 +511,7 @@ pub(crate) mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "written with Unix paths")]
     fn a_file_written_or_edited_is_listed_as_edited() {
         let got = read(
             &[
@@ -535,6 +536,7 @@ pub(crate) mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "written with Unix paths")]
     fn a_file_read_and_later_edited_is_listed_once_as_edited() {
         let got = read(
             &[
@@ -554,6 +556,7 @@ pub(crate) mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "written with Unix paths")]
     fn a_path_named_in_a_reply_is_listed_only_when_it_is_there() {
         let got = read(
             &[said(
@@ -572,6 +575,7 @@ pub(crate) mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "written with Unix paths")]
     fn a_relative_path_is_taken_from_the_session_s_directory_dots_resolved() {
         let got = read(&[said("Look at ./src/../lib.rs.")], &["/w/lib.rs"]);
         assert_eq!(targets(&got.files), ["/w/lib.rs"]);
@@ -851,6 +855,7 @@ pub(crate) mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "written with Unix paths")]
     fn an_image_file_read_or_written_is_listed_apart_from_the_files_with_when() {
         let got = read(
             &[
@@ -879,6 +884,7 @@ pub(crate) mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "written with Unix paths")]
     fn an_image_named_in_a_reply_is_listed_when_it_is_there_and_last_brought_up_counts() {
         let got = read(
             &[
@@ -927,6 +933,7 @@ pub(crate) mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "written with Unix paths")]
     fn an_agent_s_file_tools_are_called_as_claude_code_s_with_the_path_resolved() {
         let mut c = Collector::new("/w", "/home/me");
         let calls: Vec<Value> = [

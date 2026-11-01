@@ -573,6 +573,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
     async fn a_command_run_to_its_end_gives_its_status_and_what_it_printed() {
         let (dir, p) = program("cli", "pwd\necho oops >&2\nexit 3");
         let out = output(started(&p, &[]), dir.path(), Duration::from_secs(5))
@@ -588,6 +589,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
     async fn a_command_that_does_not_end_in_time_gives_nothing() {
         let (dir, p) = program("cli", "exec sleep 30");
         let out = output(started(&p, &[]), dir.path(), Duration::from_millis(200)).await;

@@ -121,6 +121,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "written with Unix paths")]
     fn the_neovim_named_comes_first_then_the_one_the_app_carries_then_the_one_on_path() {
         let dir = tempfile::tempdir().unwrap();
         let carrying = app(&dir.path().join("a"), true);

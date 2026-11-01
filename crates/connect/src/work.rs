@@ -247,7 +247,6 @@ mod tests {
     use adroit_protocol::{Hello, RemoteEndpoint, SPOKEN, encode};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::io::{AsyncWriteExt, BufReader};
-    use tokio::net::UnixListener;
 
     fn info() -> RemoteInfo {
         let endpoint = |generation: &str| RemoteEndpoint {
@@ -274,14 +273,14 @@ mod tests {
     async fn work_asks_for_the_environment_it_was_made_for_whatever_the_process_says() {
         let dir = tempfile::Builder::new()
             .prefix("adroit-w-")
-            .tempdir_in("/tmp")
+            .tempdir_in(adroit_sys::local::temp_dir())
             .unwrap();
         let socket = dir.path().join("work.sock");
-        let listener = UnixListener::bind(&socket).unwrap();
+        let listener = adroit_sys::local::Listener::bind(&socket).unwrap();
         let info = info();
         let server_info = info.clone();
         let server = tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut stream = listener.accept().await.unwrap();
             stream
                 .write_all(
                     encode(&Hello {
@@ -295,7 +294,7 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            let (read, mut write) = stream.into_split();
+            let (read, mut write) = tokio::io::split(stream);
             let mut read = BufReader::new(read);
             let first = adroit_protocol::client::read_line(&mut read)
                 .await
@@ -331,10 +330,10 @@ mod tests {
     async fn two_lost_replies_and_two_client_restarts_never_apply_the_intent_again() {
         let dir = tempfile::Builder::new()
             .prefix("adroit-w-")
-            .tempdir_in("/tmp")
+            .tempdir_in(adroit_sys::local::temp_dir())
             .unwrap();
         let socket = dir.path().join("work.sock");
-        let listener = UnixListener::bind(&socket).unwrap();
+        let listener = adroit_sys::local::Listener::bind(&socket).unwrap();
         let info = info();
         let server_info = info.clone();
         let effects = Arc::new(AtomicUsize::new(0));
@@ -342,7 +341,7 @@ mod tests {
         let (effect_count, query_count) = (effects.clone(), queries.clone());
         let server = tokio::spawn(async move {
             loop {
-                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut stream = listener.accept().await.unwrap();
                 stream
                     .write_all(
                         encode(&Hello {
@@ -356,7 +355,7 @@ mod tests {
                     )
                     .await
                     .unwrap();
-                let (read, mut write) = stream.into_split();
+                let (read, mut write) = tokio::io::split(stream);
                 let mut read = BufReader::new(read);
                 assert!(matches!(
                     adroit_protocol::decode::<Request>(
@@ -461,15 +460,15 @@ mod tests {
         ] {
             let dir = tempfile::Builder::new()
                 .prefix("adroit-w-")
-                .tempdir_in("/tmp")
+                .tempdir_in(adroit_sys::local::temp_dir())
                 .unwrap();
             let socket = dir.path().join("work.sock");
-            let listener = UnixListener::bind(&socket).unwrap();
+            let listener = adroit_sys::local::Listener::bind(&socket).unwrap();
             let info = info();
             let server_info = info.clone();
             let answer = refused.clone();
             let server = tokio::spawn(async move {
-                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut stream = listener.accept().await.unwrap();
                 stream
                     .write_all(
                         encode(&Hello {
@@ -483,7 +482,7 @@ mod tests {
                     )
                     .await
                     .unwrap();
-                let (read, mut write) = stream.into_split();
+                let (read, mut write) = tokio::io::split(stream);
                 let mut read = BufReader::new(read);
                 adroit_protocol::client::read_line(&mut read).await.unwrap();
                 write

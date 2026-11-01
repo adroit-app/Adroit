@@ -127,6 +127,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
     async fn the_probe_asks_rpc_mode_for_the_available_models_and_ignores_events() {
         let (dir, pi) = program(
             "pi",

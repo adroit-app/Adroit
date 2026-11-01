@@ -15,7 +15,7 @@ pub const REPLY: &str = "Hello from the fake model.";
 pub async fn daemon(prefix: &str) -> (Daemon, tempfile::TempDir) {
     let dir = tempfile::Builder::new()
         .prefix(prefix)
-        .tempdir_in("/tmp")
+        .tempdir_in(adroit_sys::local::temp_dir())
         .unwrap();
     adroit_sys::fs::set_mode(dir.path(), 0o700).unwrap();
     let socket = dir.path().join("daemon.sock");

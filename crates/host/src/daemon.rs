@@ -207,6 +207,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg_attr(windows, ignore = "Windows programs read no terminfo")]
     fn the_terminal_entry_is_compiled_where_sessions_look_for_it() {
         let dir = tempfile::tempdir().unwrap();
         install_terminfo(dir.path()).unwrap();

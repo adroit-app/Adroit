@@ -691,6 +691,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "starts a Unix shell as a login shell")]
     fn a_command_runs_through_the_shell_with_what_a_shell_terminal_gets() {
         use crate::execution::{TerminalStartRequest, resolve_terminal};
         let mut settings = crate::settings::Settings::default();

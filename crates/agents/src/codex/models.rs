@@ -83,6 +83,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
     async fn the_probe_asks_for_the_model_list() {
         let (dir, codex) = program(
             "codex",

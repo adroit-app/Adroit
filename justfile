@@ -42,6 +42,13 @@ ci: fmt-check lint
     just test-neovim "$(assets/neovim/fetch.sh)/bin/nvim"
     just test-headless
 
+# What CI runs on Windows, from Git Bash: the format check, lint and the
+# tests in the Neovim of the release the app carries. The executable for a
+# work machine is left out, as a work machine runs Unix.
+[windows]
+ci-windows: fmt-check lint
+    just test-neovim "$(assets/neovim/fetch.sh)/bin/nvim"
+
 # The executable for a work machine, with no desktop runtime linked.
 test-headless:
     cargo clippy -p adroit --all-targets --no-default-features -- -D warnings

@@ -259,6 +259,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
     async fn the_probe_writes_the_usage_request_and_reads_the_answer() {
         let answer = answer();
         let (_dir, p) = program(

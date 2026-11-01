@@ -1211,17 +1211,21 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(
+        windows,
+        ignore = "holds the program back through the adroit executable, which the test binary is not"
+    )]
     async fn a_gated_program_runs_only_once_released_and_draws_from_the_top() {
         let dir = tempfile::Builder::new()
             .prefix("adroit-")
-            .tempdir_in("/tmp")
+            .tempdir_in(adroit_sys::local::temp_dir())
             .unwrap();
         let d = daemon(dir.path()).await;
         let id = d
             .spawn(gated(Spawn {
                 program: "/bin/sh".into(),
                 args: vec!["-c".into(), "printf started; sleep 5".into()],
-                cwd: "/tmp".into(),
+                cwd: std::env::temp_dir(),
                 cols: 40,
                 rows: 6,
                 ..Spawn::default()
@@ -1250,13 +1254,13 @@ mod tests {
     async fn a_forwarded_pane_refuses_input_beyond_its_queue_and_stays_attached() {
         let dir = tempfile::Builder::new()
             .prefix("adroit-")
-            .tempdir_in("/tmp")
+            .tempdir_in(adroit_sys::local::temp_dir())
             .unwrap();
         let d = daemon(dir.path()).await;
         let id = d
             .spawn(Spawn {
-                program: "/bin/cat".into(),
-                cwd: "/tmp".into(),
+                program: if cfg!(windows) { "cat" } else { "/bin/cat" }.into(),
+                cwd: std::env::temp_dir(),
                 cols: 40,
                 rows: 6,
                 ..Spawn::default()

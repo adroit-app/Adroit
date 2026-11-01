@@ -113,6 +113,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
     async fn the_probe_asks_rpc_mode_for_its_commands() {
         let (dir, pi) = program(
             "pi",

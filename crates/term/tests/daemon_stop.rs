@@ -41,14 +41,9 @@ async fn run(fixture: &str, socket: &Path) -> Served {
     panic!("{fixture} never listened");
 }
 
-fn alive(pid: u32) -> bool {
-    // SAFETY: signal 0 only asks whether the process exists.
-    unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
-}
-
 async fn until_gone(pid: u32) -> bool {
     for _ in 0..250 {
-        if !alive(pid) {
+        if !adroit_sys::process::alive(pid) {
             return true;
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
@@ -71,6 +66,7 @@ fn no_process_is_found_where_nothing_listens() {
 }
 
 #[tokio::test]
+#[cfg_attr(windows, ignore = "sh tells a process id of its own, not Windows'")]
 async fn stopping_ends_the_daemon_and_the_programs_of_its_sessions() {
     let dir = socket_dir();
     let socket = dir.path().join("d.sock");
@@ -118,7 +114,7 @@ async fn a_daemon_that_does_not_answer_is_still_stopped() {
         .await
         .expect("the deaf daemon still runs")
         .unwrap();
-    assert!(!alive(served.pid));
+    assert!(!adroit_sys::process::alive(served.pid));
 }
 
 #[tokio::test]
@@ -137,13 +133,13 @@ async fn serving_fixture() {
         .unwrap();
 }
 
-#[test]
+#[tokio::test]
 #[ignore = "invoked in a subprocess as a daemon too old to answer"]
-fn deaf_fixture() {
+async fn deaf_fixture() {
     let socket = std::env::var_os(SOCKET_ENV).unwrap();
-    let listener = std::os::unix::net::UnixListener::bind(socket).unwrap();
+    let listener = adroit_sys::local::Listener::bind(socket).unwrap();
     let mut held = Vec::new();
-    for stream in listener.incoming() {
-        held.push(stream.unwrap());
+    while let Ok(stream) = listener.accept().await {
+        held.push(stream);
     }
 }

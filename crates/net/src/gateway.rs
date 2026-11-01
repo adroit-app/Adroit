@@ -336,7 +336,6 @@ mod tests {
     use super::*;
     use crate::{Enroll, PairingCode, PeerFile, pair};
     use tokio::io::AsyncBufReadExt;
-    use tokio::net::{UnixListener, UnixStream};
 
     /// Two fake hosts: the work host records each line and answers it, the
     /// terminal host echoes bytes.
@@ -350,20 +349,20 @@ mod tests {
         fn start() -> Arc<Self> {
             let dir = tempfile::Builder::new()
                 .prefix("an-")
-                .tempdir_in("/tmp")
+                .tempdir_in(adroit_sys::local::temp_dir())
                 .unwrap();
             let lines = Arc::new(Mutex::new(Vec::new()));
             let accepted = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-            let work = UnixListener::bind(dir.path().join("w")).unwrap();
-            let terminal = UnixListener::bind(dir.path().join("t")).unwrap();
+            let work = adroit_sys::local::Listener::bind(dir.path().join("w")).unwrap();
+            let terminal = adroit_sys::local::Listener::bind(dir.path().join("t")).unwrap();
             {
                 let (lines, accepted) = (lines.clone(), accepted.clone());
                 tokio::spawn(async move {
-                    while let Ok((stream, _)) = work.accept().await {
+                    while let Ok(stream) = work.accept().await {
                         accepted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                         let lines = lines.clone();
                         tokio::spawn(async move {
-                            let (read, mut write) = stream.into_split();
+                            let (read, mut write) = tokio::io::split(stream);
                             let mut read = BufReader::new(read).lines();
                             write.write_all(b"{\"hello\":1}\n").await.unwrap();
                             while let Ok(Some(line)) = read.next_line().await {
@@ -380,10 +379,10 @@ mod tests {
             {
                 let accepted = accepted.clone();
                 tokio::spawn(async move {
-                    while let Ok((stream, _)) = terminal.accept().await {
+                    while let Ok(stream) = terminal.accept().await {
                         accepted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                         tokio::spawn(async move {
-                            let (mut read, mut write) = stream.into_split();
+                            let (mut read, mut write) = tokio::io::split(stream);
                             let _ = tokio::io::copy(&mut read, &mut write).await;
                         });
                     }
@@ -451,7 +450,7 @@ mod tests {
     fn sockets() -> (tempfile::TempDir, PathBuf, PathBuf) {
         let dir = tempfile::Builder::new()
             .prefix("an-")
-            .tempdir_in("/tmp")
+            .tempdir_in(adroit_sys::local::temp_dir())
             .unwrap();
         let (work, terminal) = (dir.path().join("w"), dir.path().join("t"));
         (dir, work, terminal)
@@ -479,8 +478,8 @@ mod tests {
         let (_, remote) = paired(&setup);
         let (_dir, work, terminal) = sockets();
         let _forwarding = remote.forward(&work, &terminal).unwrap();
-        let stream = UnixStream::connect(&work).await.unwrap();
-        let (read, mut write) = stream.into_split();
+        let stream = adroit_sys::local::connect(&work).await.unwrap();
+        let (read, mut write) = tokio::io::split(stream);
         let mut read = BufReader::new(read);
         assert_eq!(next_line(&mut read).await.unwrap(), "{\"hello\":1}\n");
         write
@@ -509,9 +508,9 @@ mod tests {
         let (_, remote) = paired(&setup);
         let (_dir, work, terminal) = sockets();
         let _forwarding = remote.forward(&work, &terminal).unwrap();
-        let mut stream = UnixStream::connect(&terminal).await.unwrap();
+        let stream = adroit_sys::local::connect(&terminal).await.unwrap();
         let bytes: Vec<u8> = (0..=255).cycle().take(200_000).collect();
-        let (mut read, mut write) = stream.split();
+        let (mut read, mut write) = tokio::io::split(stream);
         let (sent, echoed) = tokio::join!(
             async {
                 write.write_all(&bytes).await.unwrap();
@@ -534,7 +533,7 @@ mod tests {
         assert!(remote.info().await.is_err());
         let (_dir, work, terminal) = sockets();
         let _forwarding = remote.forward(&work, &terminal).unwrap();
-        let stream = UnixStream::connect(&work).await.unwrap();
+        let stream = adroit_sys::local::connect(&work).await.unwrap();
         let mut read = BufReader::new(stream);
         assert_eq!(next_line(&mut read).await, None);
         assert_eq!(
@@ -575,7 +574,7 @@ mod tests {
         let (client, remote) = paired(&setup);
         let (_dir, work, terminal) = sockets();
         let _forwarding = remote.forward(&work, &terminal).unwrap();
-        let stream = UnixStream::connect(&work).await.unwrap();
+        let stream = adroit_sys::local::connect(&work).await.unwrap();
         let mut read = BufReader::new(stream);
         assert!(next_line(&mut read).await.is_some());
         assert!(setup.peers.revoke(&client.fingerprint()).unwrap());

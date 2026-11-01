@@ -101,6 +101,7 @@ mod tests {
     };
 
     #[tokio::test]
+    #[cfg_attr(windows, ignore = "runs jj")]
     async fn changes_and_opened_log_entries_show_their_full_descriptions_even_without_files() {
         let dir = tempfile::tempdir().unwrap();
         let jj = |args: &[&str]| {

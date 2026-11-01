@@ -110,6 +110,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "starts a Unix shell as a login shell")]
     fn the_account_s_login_shell_is_its_own_whatever_shell_started_adroit() {
         let shell = login_shell().unwrap();
         assert!(shell.starts_with('/'), "{shell}");
@@ -117,6 +118,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "starts a Unix shell as a login shell")]
     fn a_login_shell_tells_the_path_it_sets_up() {
         let path = login_path("/bin/sh").unwrap();
         assert!(path.split(':').any(|d| d == "/usr/bin"), "{path}");

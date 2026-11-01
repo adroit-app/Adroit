@@ -53,6 +53,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg_attr(windows, ignore = "sets the locale pbpaste reads the clipboard in")]
     fn the_clipboard_reads_the_text_as_utf_8_whatever_the_app_s_locale() {
         let cmd = clipboard_command();
         let lc_all = cmd

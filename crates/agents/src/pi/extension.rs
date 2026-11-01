@@ -237,6 +237,7 @@ process.exit(0);
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "fakes adroit with a shell script")]
     fn messages_heard_through_adroit_s_channel_are_handed_to_the_conversation_open() {
         let dir = tempfile::tempdir().unwrap();
         // adroit's server, answering the extension as it answers Claude Code:
@@ -298,6 +299,7 @@ exec sleep 30"#,
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "fakes adroit with a shell script")]
     fn a_pi_without_a_session_s_credential_gets_no_server_and_hears_nothing() {
         let dir = tempfile::tempdir().unwrap();
         let (_bin, adroit) = crate::testing::program(
@@ -319,7 +321,7 @@ exec sleep 30"#,
             .chain(args)
             .collect::<Vec<_>>();
         let script = dir.path().join("adroit.ts");
-        let skill = dir.path().join("skills/start-session");
+        let skill = dir.path().join("skills").join("start-session");
         assert_eq!(
             args[..4],
             [
@@ -331,8 +333,7 @@ exec sleep 30"#,
         );
         let written = std::fs::read_to_string(&script).unwrap();
         assert!(written.contains("/new/adroit") && !written.contains("/old/adroit"));
-        let running = dir.path().join("running").display().to_string();
-        assert!(written.contains(&running));
+        assert!(written.contains(&quoted(&dir.path().join("running"))));
         let skill = std::fs::read_to_string(skill.join("SKILL.md")).unwrap();
         assert!(skill.starts_with("---\nname: start-session\n"));
         assert!(skill.contains("/new/adroit session start"));
@@ -383,6 +384,7 @@ exec sleep 30"#,
         assert!(script.contains("setEditorText(\"/login\")"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn the_login_s_extension_is_the_user_s_alone_and_replaces_whatever_stood_at_its_path() {
         use adroit_sys::fs::PermissionsExt;
@@ -429,6 +431,7 @@ exec sleep 30"#,
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "runs the Unix program true")]
     fn a_record_left_by_a_process_gone_or_by_one_whose_pid_is_now_another_s_is_removed() {
         let dir = tempfile::tempdir().unwrap();
         let me = std::process::id();

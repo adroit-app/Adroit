@@ -49,6 +49,7 @@ fn request(cwd: &Path, prompt: &str, resume: Option<String>) -> StartRequest {
 }
 
 #[tokio::test]
+#[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
 async fn an_opencode_of_the_first_line_is_refused_before_anything_is_recorded() {
     let dir = tempfile::tempdir().unwrap();
     let opencode = dir.path().join("opencode");

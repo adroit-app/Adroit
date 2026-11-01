@@ -283,6 +283,7 @@ mod tests {
         assert_eq!(past(dir.path(), None).len(), 3);
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_directory_reached_through_a_link_is_the_one_pi_writes_through_it() {
         let dir = tempfile::tempdir().unwrap();

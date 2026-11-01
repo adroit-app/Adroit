@@ -104,7 +104,8 @@ cargo run --release -p adroit
 Shells there run PowerShell. One `adroit` opens one window, and Claude Code's
 external editor is not handed to it.
 
-To check that the source still builds on Windows from another machine,
+CI lints and tests it on Windows with `just ci-windows`, run from Git Bash. To
+check that the source still builds on Windows from another machine,
 [vitro](https://github.com/lambdalisue/vitro) lints it in a throwaway Windows
 VM as `vitro.toml` says:
 

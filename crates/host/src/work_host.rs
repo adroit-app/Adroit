@@ -460,12 +460,13 @@ mod tests {
     fn short_dir() -> tempfile::TempDir {
         let dir = tempfile::Builder::new()
             .prefix("adroit-")
-            .tempdir_in("/tmp")
+            .tempdir_in(adroit_sys::local::temp_dir())
             .unwrap();
         adroit_sys::fs::set_mode(dir.path(), 0o700).unwrap();
         dir
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_private_socket_replaces_what_an_earlier_run_left_and_is_open_to_no_one_else() {
         use adroit_sys::fs::PermissionsExt;
@@ -543,7 +544,7 @@ mod tests {
     async fn a_listener_that_says_nothing_is_a_work_host_to_replace() {
         let dir = short_dir();
         let socket = dir.path().join("h.sock");
-        let _mute = tokio::net::UnixListener::bind(&socket).unwrap();
+        let _mute = adroit_sys::local::Listener::bind(&socket).unwrap();
         assert_eq!(standing(&socket).await, WorkHost::Replace);
     }
 
@@ -555,7 +556,7 @@ mod tests {
         let serving = crate::environment::spawn(async move {
             server.serve(hello_of_ours(), served()).await;
         });
-        let mut stream = tokio::net::UnixStream::connect(&socket).await.unwrap();
+        let mut stream = adroit_sys::local::connect(&socket).await.unwrap();
         stream.write_all(b"{\"op\":\"stop\"}\n").await.unwrap();
         tokio::time::timeout(Duration::from_secs(5), serving)
             .await
@@ -573,7 +574,7 @@ mod tests {
             server.serve(hello_of_ours(), served()).await;
         });
         {
-            let mut stream = tokio::net::UnixStream::connect(&socket).await.unwrap();
+            let mut stream = adroit_sys::local::connect(&socket).await.unwrap();
             stream.write_all(b"{\"op\":\"stop\"}\n").await.unwrap();
         }
         tokio::time::timeout(Duration::from_secs(5), serving)
@@ -639,12 +640,13 @@ mod tests {
             }
         }
         assert_eq!(owners.len(), 1);
-        assert!(tokio::net::UnixStream::connect(&socket).await.is_ok());
+        assert!(adroit_sys::local::connect(&socket).await.is_ok());
         drop(owners);
         assert!(!socket.exists());
         assert!(WorkHostServer::bind(&socket).await.is_ok());
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_socket_left_by_a_work_host_gone_before_is_taken_over() {
         let dir = short_dir();
@@ -656,15 +658,15 @@ mod tests {
 
     /// One connected to a work host, as a window or a command is.
     struct Peer {
-        lines: tokio::io::Lines<BufReader<tokio::net::unix::OwnedReadHalf>>,
-        write: tokio::net::unix::OwnedWriteHalf,
+        lines: tokio::io::Lines<BufReader<tokio::io::ReadHalf<adroit_sys::local::Stream>>>,
+        write: tokio::io::WriteHalf<adroit_sys::local::Stream>,
     }
 
     impl Peer {
         /// Connected to the host at `socket`, its hello read.
         async fn to(socket: &Path) -> Self {
-            let stream = tokio::net::UnixStream::connect(socket).await.unwrap();
-            let (read, write) = stream.into_split();
+            let stream = adroit_sys::local::connect(socket).await.unwrap();
+            let (read, write) = tokio::io::split(stream);
             let mut peer = Self {
                 lines: BufReader::new(read).lines(),
                 write,

@@ -126,15 +126,18 @@ mod tests {
         assert_eq!(seen(None).len(), 3);
         assert!(listed(&context, "not json", None).is_empty());
         // Asked through a link, the directory is the one it leads to.
-        let real = tempfile::tempdir().unwrap();
-        let linked = tempfile::tempdir().unwrap();
-        let link = linked.path().join("link");
-        std::os::unix::fs::symlink(real.path(), &link).unwrap();
-        let there = format!(
-            r#"{{"data":[{{"id":"ses_r","time":{{"updated":1}},"location":{{"directory":{}}}}}]}}"#,
-            serde_json::to_string(&real.path().canonicalize().unwrap()).unwrap()
-        );
-        assert_eq!(listed(&context, &there, Some(&link)).len(), 1);
+        #[cfg(unix)]
+        {
+            let real = tempfile::tempdir().unwrap();
+            let linked = tempfile::tempdir().unwrap();
+            let link = linked.path().join("link");
+            std::os::unix::fs::symlink(real.path(), &link).unwrap();
+            let there = format!(
+                r#"{{"data":[{{"id":"ses_r","time":{{"updated":1}},"location":{{"directory":{}}}}}]}}"#,
+                serde_json::to_string(&real.path().canonicalize().unwrap()).unwrap()
+            );
+            assert_eq!(listed(&context, &there, Some(&link)).len(), 1);
+        }
         let past = listed(&context, out, Some(Path::new("/x")));
         assert_eq!(
             (past[0].agent, past[0].profile.as_str()),
@@ -143,6 +146,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
     fn the_conversations_are_asked_of_opencode_s_own_server_in_the_login() {
         let (_dir, opencode) = crate::testing::program(
             "opencode",

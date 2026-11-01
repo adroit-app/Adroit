@@ -126,6 +126,7 @@ fn has(lines: &[String], line: &str) -> bool {
 }
 
 #[test]
+#[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
 fn two_claude_code_profiles_start_side_by_side_each_with_its_own_login() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("claude-work");
@@ -146,6 +147,7 @@ fn two_claude_code_profiles_start_side_by_side_each_with_its_own_login() {
 }
 
 #[test]
+#[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
 fn two_codex_profiles_start_side_by_side_each_with_its_own_login_and_mcp_tokens() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("codex-work");
@@ -173,6 +175,7 @@ fn two_codex_profiles_start_side_by_side_each_with_its_own_login_and_mcp_tokens(
 }
 
 #[test]
+#[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
 fn what_a_shell_s_startup_files_set_again_does_not_reach_a_login_of_its_own() {
     let dir = tempfile::tempdir().unwrap();
     let shell = meddling_shell(dir.path());
@@ -200,6 +203,7 @@ fn what_a_shell_s_startup_files_set_again_does_not_reach_a_login_of_its_own() {
 }
 
 #[test]
+#[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
 fn a_profile_whose_launch_sets_its_own_login_s_state_directory_is_refused_naming_it() {
     let dir = tempfile::tempdir().unwrap();
     let mut s = settings(
@@ -226,6 +230,7 @@ fn a_profile_whose_launch_sets_its_own_login_s_state_directory_is_refused_naming
 }
 
 #[test]
+#[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
 fn a_variable_of_a_family_a_login_of_its_own_removes_reaches_it_from_neither_the_shell_nor_the_host()
  {
     let dir = tempfile::tempdir().unwrap();
@@ -254,6 +259,7 @@ fn a_variable_of_a_family_a_login_of_its_own_removes_reaches_it_from_neither_the
 }
 
 #[test]
+#[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
 fn a_conversation_resumes_only_in_the_login_that_keeps_it() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("w");
@@ -354,6 +360,7 @@ printf '{"id":"adroit-query","result":{"data":[{"id":"%s-model"}],"nextCursor":n
 }
 
 #[tokio::test]
+#[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
 async fn two_codex_profiles_list_the_models_of_their_own_logins_and_a_late_answer_is_dropped() {
     use adroit_model::{Asked, ModelCatalog};
     let dir = tempfile::tempdir().unwrap();
@@ -436,6 +443,7 @@ async fn two_codex_profiles_list_the_models_of_their_own_logins_and_a_late_answe
 }
 
 #[test]
+#[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
 fn two_pi_profiles_start_side_by_side_each_with_its_own_logins_sessions_and_skills() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("pi-work");
@@ -486,6 +494,7 @@ printf '{"type":"response","id":"adroit","command":"get_available_models","succe
 }
 
 #[tokio::test]
+#[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
 async fn two_pi_profiles_list_the_models_their_own_logins_can_run() {
     let dir = tempfile::tempdir().unwrap();
     let s = settings(
@@ -522,6 +531,7 @@ async fn two_pi_profiles_list_the_models_their_own_logins_can_run() {
 }
 
 #[test]
+#[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
 fn two_opencode_profiles_start_side_by_side_each_with_only_its_account_s_folders_and_none_of_its_keys()
  {
     let dir = tempfile::tempdir().unwrap();
@@ -564,6 +574,7 @@ fn two_opencode_profiles_start_side_by_side_each_with_only_its_account_s_folders
 }
 
 #[test]
+#[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
 fn what_a_shell_s_startup_files_set_reaches_no_opencode_account_of_its_own() {
     let dir = tempfile::tempdir().unwrap();
     let shell = meddling_shell(dir.path());
@@ -606,6 +617,7 @@ printf 'opencode/big-pickle\nfake/%s-model\n' "$login"
 }
 
 #[tokio::test]
+#[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
 async fn two_opencode_profiles_list_the_models_of_their_own_accounts() {
     let dir = tempfile::tempdir().unwrap();
     let mut s = settings(

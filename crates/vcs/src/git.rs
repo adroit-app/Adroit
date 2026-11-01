@@ -466,6 +466,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(windows, ignore = "names a file as Windows cannot")]
     async fn a_file_name_git_would_quote_is_listed_as_it_is() {
         let dir = std::env::temp_dir().join(format!("adroit-git-quote-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);

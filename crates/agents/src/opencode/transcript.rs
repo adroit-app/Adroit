@@ -306,6 +306,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "written with Unix paths")]
     fn prompts_replies_and_file_tools_supply_links_and_the_conversation_is_counted() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("src.rs"), "fn main() {}").unwrap();
@@ -355,6 +356,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "written with Unix paths")]
     fn the_conversation_is_exported_apart_from_the_reader_and_again_only_once_the_database_changes()
     {
         let dir = tempfile::tempdir().unwrap();

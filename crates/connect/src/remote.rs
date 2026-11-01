@@ -268,26 +268,15 @@ const FIND_WAIT: Duration = Duration::from_secs(3);
 /// How long the client waits for the operator to type its code.
 const PAIRING_WAIT: Duration = Duration::from_secs(5 * 60);
 
-/// A private folder for forwarded sockets, in /tmp so their paths stay
-/// within the platform's small limit.
-#[cfg(unix)]
+/// A private folder for forwarded sockets, where their paths stay within
+/// the platform's small limit.
 fn private_sockets() -> Result<tempfile::TempDir, String> {
     let sockets = tempfile::Builder::new()
         .prefix("adroit-c-")
-        .tempdir_in("/tmp")
+        .tempdir_in(adroit_sys::local::temp_dir())
         .map_err(|e| e.to_string())?;
     adroit_sys::fs::set_mode(sockets.path(), 0o700).map_err(|e| e.to_string())?;
     Ok(sockets)
-}
-
-/// A folder that names the forwarded pipes apart from every other client's,
-/// as each is named after it.
-#[cfg(windows)]
-fn private_sockets() -> Result<tempfile::TempDir, String> {
-    tempfile::Builder::new()
-        .prefix("adroit-c-")
-        .tempdir()
-        .map_err(|e| e.to_string())
 }
 
 /// The selected work machine, paired through its gateway.

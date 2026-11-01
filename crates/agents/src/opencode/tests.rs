@@ -127,6 +127,7 @@ fn every_fragment_of_configuration_is_merged_into_one_and_the_launch_s_own_kept_
 }
 
 #[tokio::test]
+#[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
 async fn every_command_adroit_runs_opencode_with_runs_a_server_of_its_own() {
     let context = AgentContext::builtin(Agent::OpenCode);
     for args in [
@@ -209,6 +210,7 @@ fn opencode_is_logged_in_once_it_lists_any_connection() {
 }
 
 #[test]
+#[cfg_attr(windows, ignore = "written with Unix paths")]
 fn a_login_of_its_own_keeps_every_root_of_opencode_s_in_its_home() {
     let set = OpenCode.own_login_variables(Path::new("/w/oc"));
     assert_eq!(
@@ -303,6 +305,7 @@ fn a_release_older_than_the_second_line_is_refused_saying_how_to_change_it() {
 }
 
 #[tokio::test]
+#[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
 async fn the_version_is_asked_as_the_session_would_start_opencode() {
     let (dir, opencode) =
         crate::testing::program("opencode", "printf '%s' \"$*\" > \"$0.args\"\necho 1.19.4");
@@ -319,6 +322,7 @@ async fn the_version_is_asked_as_the_session_would_start_opencode() {
 }
 
 #[tokio::test]
+#[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
 async fn the_models_are_those_opencode_lists_as_provider_and_model() {
     let (dir, opencode) = crate::testing::program(
         "opencode",
@@ -345,11 +349,11 @@ fn adroit_s_instructions_and_plugin_are_configuration_for_the_run() {
     let dir = tempfile::tempdir().unwrap();
     let args = OpenCode.integration_args(Path::new("/opt/adroit"), dir.path());
     let (_, config) = fragments(args);
-    let plugin = dir.path().join("opencode/plugin");
+    let plugin = dir.path().join("opencode").join("plugin");
     assert_eq!(config["plugins"], json!([plugin]));
     assert_eq!(
         config["skills"],
-        json!([dir.path().join("opencode/skills")])
+        json!([dir.path().join("opencode").join("skills")])
     );
     assert!(plugin.join("index.js").is_file());
     let path = plugin::instructions(dir.path(), "be brief").unwrap();

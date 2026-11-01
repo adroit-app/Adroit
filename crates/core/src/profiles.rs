@@ -520,6 +520,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "written with Unix paths")]
     fn a_duplicate_keeps_its_profile_s_options_and_gets_a_login_of_its_own_when_the_profile_has_one()
      {
         let mut s = settings();
@@ -584,6 +585,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "written with Unix paths")]
     fn deleting_offers_to_delete_only_a_folder_adroit_made() {
         let data = Path::new("/d");
         let with = |home: Option<&str>| {
@@ -635,6 +637,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "written with Unix paths")]
     fn only_a_folder_adroit_made_under_its_data_folder_is_deleted_with_its_profile() {
         let data = Path::new("/Users/me/.local/share");
         let made = |home: &str| made_by_adroit(Path::new(home), data, none);
@@ -700,6 +703,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "written with Unix paths")]
     fn a_login_of_its_own_keeps_its_state_under_adroit_s_data_folder_by_the_profile_s_id() {
         let mut s = settings();
         let data = Path::new("/Users/me/.local/share");
@@ -722,6 +726,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "written with Unix paths")]
     fn a_login_of_its_own_is_written_once_through_the_links_of_the_folders_that_exist() {
         let mut s = settings();
         // `/tmp` is where `/private/tmp` is linked from.
@@ -752,6 +757,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "written with Unix paths")]
     fn a_new_login_is_numbered_past_a_folder_that_exists_or_another_profile_has() {
         let mut s = settings();
         s.profiles[1].home = Some("/d/adroit/profiles/codex".into());
@@ -775,6 +781,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "written with Unix paths")]
     fn back_in_its_terminal_s_login_a_profile_forgets_its_folder_and_takes_it_again_only_when_given_it()
      {
         let mut s = settings();

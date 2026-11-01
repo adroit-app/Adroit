@@ -186,6 +186,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn configuration_reads_reject_special_files_and_are_bounded_before_parsing() {
         let dir = tempfile::tempdir().unwrap();

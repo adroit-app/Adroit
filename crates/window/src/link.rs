@@ -449,7 +449,6 @@ mod tests {
     use adroit_protocol::testing::snapshot;
     use adroit_protocol::{Hello, Sight, decode, encode};
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-    use tokio::net::UnixListener;
 
     use super::*;
 
@@ -481,7 +480,7 @@ mod tests {
     fn short_dir() -> tempfile::TempDir {
         let dir = tempfile::Builder::new()
             .prefix("adroit-")
-            .tempdir_in("/tmp")
+            .tempdir_in(adroit_sys::local::temp_dir())
             .unwrap();
         adroit_sys::fs::set_mode(dir.path(), 0o700).unwrap();
         dir
@@ -502,16 +501,16 @@ mod tests {
     /// it is sent read as they come.
     struct Accepted {
         first: Option<String>,
-        lines: tokio::io::Lines<BufReader<tokio::net::unix::OwnedReadHalf>>,
-        write: tokio::net::unix::OwnedWriteHalf,
+        lines: tokio::io::Lines<BufReader<tokio::io::ReadHalf<adroit_sys::local::Stream>>>,
+        write: tokio::io::WriteHalf<adroit_sys::local::Stream>,
     }
 
     impl Accepted {
         /// The next connection that is not a look at the hello alone.
-        async fn from(listener: &UnixListener) -> Self {
+        async fn from(listener: &adroit_sys::local::Listener) -> Self {
             loop {
-                let (stream, _) = listener.accept().await.unwrap();
-                let (read, mut write) = stream.into_split();
+                let stream = listener.accept().await.unwrap();
+                let (read, mut write) = tokio::io::split(stream);
                 let hello = Hello {
                     speaks: SPOKEN.to_vec(),
                     build: BUILD.into(),
@@ -589,7 +588,7 @@ mod tests {
     async fn the_window_greets_the_host_and_is_told_it_was_sent_the_work() {
         let dir = short_dir();
         let socket = dir.path().join("h.sock");
-        let listener = UnixListener::bind(&socket).unwrap();
+        let listener = adroit_sys::local::Listener::bind(&socket).unwrap();
         let (link, mut events, first) =
             Link::open(to(&socket), dir.path().join("felis.sock"), None);
         let mut host = Accepted::from(&listener).await;
@@ -612,8 +611,8 @@ mod tests {
         let dir = short_dir();
         let (a, b) = (dir.path().join("a.sock"), dir.path().join("b.sock"));
         let (listener_a, listener_b) = (
-            UnixListener::bind(&a).unwrap(),
-            UnixListener::bind(&b).unwrap(),
+            adroit_sys::local::Listener::bind(&a).unwrap(),
+            adroit_sys::local::Listener::bind(&b).unwrap(),
         );
         let (link_a, _events_a, _) = Link::open(
             to(&a),
@@ -640,8 +639,8 @@ mod tests {
         let dir = short_dir();
         let (a, b) = (dir.path().join("a.sock"), dir.path().join("b.sock"));
         let (listener_a, listener_b) = (
-            UnixListener::bind(&a).unwrap(),
-            UnixListener::bind(&b).unwrap(),
+            adroit_sys::local::Listener::bind(&a).unwrap(),
+            adroit_sys::local::Listener::bind(&b).unwrap(),
         );
         let (link_a, _events_a, _) = Link::open(to(&a), dir.path().join("a-felis.sock"), None);
         let (link_b, _events_b, _) = Link::open(to(&b), dir.path().join("b-felis.sock"), None);
@@ -671,7 +670,7 @@ mod tests {
     async fn a_host_replaced_is_greeted_and_told_again_what_the_window_shows() {
         let dir = short_dir();
         let socket = dir.path().join("h.sock");
-        let listener = UnixListener::bind(&socket).unwrap();
+        let listener = adroit_sys::local::Listener::bind(&socket).unwrap();
         let (link, mut events, _) = Link::open(to(&socket), dir.path().join("felis.sock"), None);
         let mut host = Accepted::from(&listener).await;
         host.asked().await;
@@ -694,7 +693,7 @@ mod tests {
     async fn an_ask_is_answered_by_its_number_and_one_in_flight_fails_when_the_host_goes() {
         let dir = short_dir();
         let socket = dir.path().join("h.sock");
-        let listener = UnixListener::bind(&socket).unwrap();
+        let listener = adroit_sys::local::Listener::bind(&socket).unwrap();
         let (link, _events, _) = Link::open(to(&socket), dir.path().join("felis.sock"), None);
         let mut host = Accepted::from(&listener).await;
         host.asked().await;

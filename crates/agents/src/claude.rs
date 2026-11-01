@@ -427,7 +427,7 @@ mod tests {
             ReadOnly::for_dir(&dir).protected(),
             [
                 dir.clone(),
-                root.path().join("main/.git").canonicalize().unwrap()
+                adroit_sys::fs::canonicalize(root.path().join("main/.git")).unwrap()
             ]
         );
     }
@@ -496,6 +496,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
     async fn the_listing_is_read_past_what_a_shell_starting_claude_code_prints() {
         let listing = r#"[{"pid":1,"cwd":"/r","kind":"interactive","sessionId":"abc"}]"#;
         let start = |_| {

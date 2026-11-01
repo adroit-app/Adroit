@@ -609,6 +609,7 @@ fn save_settings_checked(text: String, expected: FileText) -> Result<Answer, Str
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
     #[test]
     fn deleting_a_login_preserves_running_logins_nested_under_it_or_reached_by_an_alias() {
         use adroit_model::testing::session;
@@ -626,6 +627,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn deleting_a_login_preserves_other_configured_logins_even_when_none_run() {
         use adroit_model::testing::profile;

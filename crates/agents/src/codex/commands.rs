@@ -158,6 +158,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
     async fn the_skill_probe_asks_for_the_directory_without_starting_a_thread() {
         let dir = tempfile::tempdir().unwrap();
         let reply = json!({"id":"adroit-query","result":{"data":[{"cwd":dir.path(),"skills":[{"name":"deploy","enabled":true,"description":"Deploy"}]}]}});

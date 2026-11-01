@@ -732,7 +732,7 @@ mod tests {
     #[tokio::test]
     async fn an_editor_s_save_of_several_writes_asks_for_one_restart() {
         let (_e, mut rx, config) = start_configured("").await;
-        save_until_told(&mut rx, || config.write("")).await;
+        save_until_told(&mut rx, || config.write("-- saved")).await;
         // The last save's own events, told once.
         saves_told(&mut rx, Duration::from_millis(300)).await;
         for n in 0..3 {
@@ -764,7 +764,7 @@ mod tests {
     #[tokio::test]
     async fn a_lua_module_in_a_folder_made_after_starting_asks_for_a_restart_too() {
         let (_e, mut rx, config) = start_configured("").await;
-        save_until_told(&mut rx, || config.write("")).await;
+        save_until_told(&mut rx, || config.write("-- saved")).await;
         let deep = config.init().with_file_name("lua").join("deep");
         std::fs::create_dir_all(&deep).unwrap();
         wait(&mut rx, |ev| *ev == Event::ConfigurationSaved).await;
@@ -839,7 +839,17 @@ mod tests {
         let (e, _rx) = start().await;
         for kind in ["config", "data", "state"] {
             let path = e.stdpath(kind).await;
-            assert!(path.ends_with("adroit/prompt/nvim"), "{kind}: {path}");
+            // Neovim keeps data and state in `<name>-data` on Windows.
+            let name = if cfg!(windows) && kind != "config" {
+                "nvim-data"
+            } else {
+                "nvim"
+            };
+            let folder = std::path::Path::new("adroit/prompt").join(name);
+            assert!(
+                std::path::Path::new(&path).ends_with(folder),
+                "{kind}: {path}"
+            );
         }
     }
 
@@ -1513,6 +1523,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(windows, ignore = "written with Unix paths")]
     async fn path_offers_use_host_answers_without_reading_even_an_absolute_local_directory() {
         let (e, mut rx) = start().await;
         let dir = worktree("host-only");
@@ -1622,6 +1633,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(windows, ignore = "written with Unix paths")]
     async fn an_at_sign_and_a_slash_walk_from_the_root_of_the_disk() {
         let (e, mut rx) = start().await;
         let dir = worktree("absolute");

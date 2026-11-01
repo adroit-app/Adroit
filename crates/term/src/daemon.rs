@@ -631,6 +631,7 @@ async fn rehydrated(conn: &mut Connection<ReadHalf, WriteHalf>) -> Result<()> {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
     #[test]
     fn a_program_started_apart_is_the_system_s_child_in_a_session_of_its_own() {
         let dir = tempfile::tempdir().unwrap();
@@ -658,6 +659,7 @@ mod tests {
         panic!("the program never ran");
     }
 
+    #[cfg(unix)]
     #[test]
     #[ignore = "subprocess fixture reads only its own process identity"]
     fn detached_identity_fixture() {
@@ -690,6 +692,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "checks Unix folder modes")]
     fn a_folder_of_the_user_s_own_is_taken_as_it_is_or_refused_but_never_changed() {
         let tmp = tempfile::tempdir().unwrap();
         with_mode(tmp.path(), 0o700);
@@ -701,6 +704,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "checks Unix folder modes")]
     fn a_shared_folder_such_as_tmp_is_refused_and_left_alone() {
         let before = mode(Path::new("/tmp/"));
         let refused = own_dir(Path::new("/tmp/adroit-daemon.sock")).unwrap_err();

@@ -368,6 +368,7 @@ agent = "codex"
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
     fn a_start_whose_program_cannot_be_found_or_state_made_says_what_to_do() {
         let dir = tempfile::tempdir().unwrap();
         let bin = dir.path().join("bin");
@@ -425,6 +426,7 @@ agent = "codex"
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
     fn a_program_is_looked_up_on_the_path_its_profile_sets_before_the_one_it_is_started_with() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("codex"), "").unwrap();

@@ -137,6 +137,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
     async fn the_probe_starts_claude_code_as_it_is_set_up_to_start() {
         let answer = answer();
         let (_dir, p) = program(
@@ -163,6 +164,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
     async fn the_probe_reads_past_other_messages_to_the_answer() {
         let answer = answer();
         let (_dir, p) = program(
@@ -174,6 +176,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
     async fn the_probe_writes_nothing_but_the_initialize_request() {
         let answer = answer();
         let (_dir, p) = program(

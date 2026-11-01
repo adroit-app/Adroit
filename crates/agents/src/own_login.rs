@@ -371,6 +371,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
     fn started_through_the_shell_the_variables_are_cleared_after_its_startup_files() {
         let dir = tempfile::tempdir().unwrap();
         let mut context = in_own_login(Agent::Claude, dir.path());
@@ -464,6 +465,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "written with Unix paths")]
     fn opencode_s_account_removes_all_it_does_not_allow_and_keeps_its_roots_and_theirs_outside() {
         let args: Vec<String> = ["opencode", "/w/oc", KEEP, "OLLAMA_API_KEY", "program", "a"]
             .map(String::from)

@@ -153,3 +153,50 @@ pub fn canonicalize(path: impl AsRef<std::path::Path>) -> std::io::Result<std::p
         path
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_canonical_path_is_absolute_resolved_and_not_verbatim() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("a")).unwrap();
+        let path = canonicalize(dir.path().join("a").join("..").join("a")).unwrap();
+        assert!(path.is_absolute(), "{path:?}");
+        assert!(!path.to_string_lossy().starts_with(r"\\?\"), "{path:?}");
+        assert_eq!(path, canonicalize(dir.path()).unwrap().join("a"));
+        assert!(path.is_dir());
+    }
+
+    #[test]
+    fn a_folder_can_be_locked_by_one_holder_at_a_time() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = lockable(dir.path()).unwrap();
+        first.try_lock().unwrap();
+        assert!(lockable(dir.path()).unwrap().try_lock().is_err());
+        drop(first);
+        // A process another test forks holds the lock with it until it runs
+        // its program, so the lock may outlive its holder for a moment.
+        let next = lockable(dir.path()).unwrap();
+        let taken = (0..100).any(|_| {
+            let taken = next.try_lock().is_ok();
+            if !taken {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            taken
+        });
+        assert!(taken);
+    }
+
+    #[test]
+    fn a_file_made_private_reads_as_closed_to_others() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("f");
+        std::fs::write(&file, "").unwrap();
+        set_mode(&file, 0o600).unwrap();
+        let mode = std::fs::metadata(&file).unwrap().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        sync_dir(dir.path()).unwrap();
+    }
+}

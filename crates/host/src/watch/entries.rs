@@ -56,11 +56,10 @@ fn read(dir: &Path) -> Vec<Entry> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use super::*;
 
-    fn dirs(dir: &Path) -> Vec<PathBuf> {
+    #[cfg(unix)]
+    fn dirs(dir: &Path) -> Vec<std::path::PathBuf> {
         let mut found: Vec<PathBuf> = read(dir)
             .into_iter()
             .filter(|e| e.dir)
@@ -70,6 +69,7 @@ mod tests {
         found
     }
 
+    #[cfg(unix)]
     #[test]
     fn reading_a_directory_answers_its_subdirectories_and_links_to_them_as_directories() {
         let tmp = tempfile::tempdir().unwrap();

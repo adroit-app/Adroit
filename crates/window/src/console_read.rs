@@ -68,7 +68,7 @@ mod tests {
 
         let dir = tempfile::Builder::new()
             .prefix("adroit-read-")
-            .tempdir_in("/tmp")
+            .tempdir_in(adroit_sys::local::temp_dir())
             .unwrap();
         adroit_sys::fs::set_mode(dir.path(), 0o700).unwrap();
         let socket = dir.path().join("d.sock");
@@ -83,7 +83,7 @@ mod tests {
         .unwrap();
         let id = daemon
             .spawn(Spawn {
-                program: "/bin/sh".into(),
+                program: if cfg!(windows) { "sh" } else { "/bin/sh" }.into(),
                 args: vec![
                     "-c".into(),
                     "i=1; while [ $i -le 40 ]; do echo line$i; i=$((i + 1)); done; printf ready; sleep 30".into(),

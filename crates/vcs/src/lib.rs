@@ -235,6 +235,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(windows, ignore = "runs Unix programs")]
     async fn output_past_its_line_cap_is_not_waited_for() {
         let got = tokio::time::timeout(
             Duration::from_secs(5),
@@ -247,6 +248,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(windows, ignore = "runs Unix programs")]
     async fn more_errors_than_a_pipe_holds_do_not_stall_the_output() {
         let got = tokio::time::timeout(
             Duration::from_secs(5),
@@ -265,6 +267,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(windows, ignore = "runs Unix programs")]
     async fn output_past_its_byte_cap_is_not_waited_for() {
         let got = tokio::time::timeout(
             Duration::from_secs(5),
@@ -277,6 +280,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(windows, ignore = "runs Unix programs")]
     async fn output_within_its_caps_comes_whole() {
         assert_eq!(
             run_head("printf", &["a\\nb"], None, 3, 100).await.unwrap(),
@@ -285,6 +289,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(windows, ignore = "runs Unix programs")]
     async fn a_failure_within_the_caps_is_reported() {
         assert!(matches!(
             run_head("false", &[], None, 3, 100).await,

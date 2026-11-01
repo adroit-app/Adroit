@@ -98,6 +98,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
     async fn claude_code_is_logged_in_only_when_its_status_says_so() {
         let dir = tempfile::tempdir().unwrap();
         let asked = |out: &str, code| {
@@ -131,6 +132,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
     async fn codex_is_logged_in_when_its_status_ends_well() {
         let dir = tempfile::tempdir().unwrap();
         for (code, standing_is) in [
@@ -182,6 +184,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
     fn pi_is_asked_about_the_provider_of_its_profile_s_model_and_logs_in_in_its_own_interface() {
         let mut context = AgentContext::builtin(Agent::Pi);
         context.options = AgentOptions::Pi(PiOptions {
@@ -202,6 +205,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
     async fn pi_is_logged_in_when_its_provider_is_ready() {
         let dir = tempfile::tempdir().unwrap();
         let with_model = |out: &str, code| {

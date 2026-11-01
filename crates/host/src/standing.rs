@@ -258,15 +258,28 @@ mod tests {
     fn short_dir() -> tempfile::TempDir {
         tempfile::Builder::new()
             .prefix("adroit-")
-            .tempdir_in("/tmp")
+            .tempdir_in(adroit_sys::local::temp_dir())
             .unwrap()
     }
 
-    #[tokio::test]
+    /// A listener at `socket` that takes every connection and holds it, as a
+    /// terminal host does. On Windows each one taken makes way for the next,
+    /// so a test asking more than once runs it on threads of its own.
+    fn listening(socket: &Path) -> tokio::task::JoinHandle<()> {
+        let listener = adroit_sys::local::Listener::bind(socket).unwrap();
+        crate::environment::spawn(async move {
+            let mut held = Vec::new();
+            while let Ok(stream) = listener.accept().await {
+                held.push(stream);
+            }
+        })
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn a_terminal_host_says_its_versions_once_it_listens_itself() {
         let dir = short_dir();
         let socket = dir.path().join("d.sock");
-        let _listening = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let _listening = listening(&socket);
         say_when_listening(&Daemon::new(&socket), "0.3.0", &[1]).await;
         assert_eq!(
             super::said(&socket),
@@ -275,11 +288,11 @@ mod tests {
         assert_eq!(standing(&Daemon::new(&socket)), Standing::Compatible);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn what_a_cleaner_removed_from_beside_the_socket_is_said_again() {
         let dir = short_dir();
         let socket = dir.path().join("d.sock");
-        let _listening = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let _listening = listening(&socket);
         let daemon = Daemon::new(&socket);
         say_when_listening(&daemon, "0.3.0", &[1]).await;
         std::fs::remove_file(says_path(&socket)).unwrap();
@@ -302,11 +315,11 @@ mod tests {
         assert_eq!(standing(&daemon), Standing::Compatible);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn a_terminal_host_just_started_is_given_a_moment_to_say_its_versions() {
         let dir = short_dir();
         let socket = dir.path().join("d.sock");
-        let _listening = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let _listening = listening(&socket);
         let saying = {
             let socket = socket.clone();
             crate::environment::spawn(async move {
@@ -349,14 +362,10 @@ mod tests {
         assert_eq!(super::said(&socket), None);
     }
 
-    #[test]
+    #[tokio::test]
     #[ignore = "invoked in a subprocess as another terminal host listening"]
-    fn listening_fixture() {
+    async fn listening_fixture() {
         let socket = std::env::var_os("ADROIT_TEST_LISTEN_SOCKET").unwrap();
-        let listener = std::os::unix::net::UnixListener::bind(socket).unwrap();
-        let mut held = Vec::new();
-        for stream in listener.incoming() {
-            held.push(stream.unwrap());
-        }
+        listening(Path::new(&socket)).await.unwrap();
     }
 }

@@ -129,6 +129,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
     async fn the_probe_initializes_then_reads_limits_without_starting_a_turn() {
         let (dir, start) = fake(
             r#"

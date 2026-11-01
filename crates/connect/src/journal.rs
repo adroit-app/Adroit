@@ -63,17 +63,13 @@ impl Intent {
         request: Request,
     ) -> Result<Self, String> {
         info.validate()?;
-        let mut random = [0; 16];
-        File::open("/dev/urandom")
-            .and_then(|mut f| f.read_exact(&mut random))
-            .map_err(|e| e.to_string())?;
         Ok(Self {
             stamp: MutationStamp {
                 instance: info.instance.clone(),
                 work: info.work.generation.clone(),
                 terminal: info.terminal.generation.clone(),
                 epoch,
-                id: random.iter().map(|b| format!("{b:02x}")).collect(),
+                id: uuid::Uuid::new_v4().simple().to_string(),
             },
             request,
             prompt: None,
@@ -419,14 +415,13 @@ impl Journal {
     }
 
     fn sync(&self) -> Result<(), String> {
-        File::open(&self.root)
-            .and_then(|f| f.sync_all())
-            .map_err(|e| e.to_string())
+        adroit_sys::fs::sync_dir(&self.root).map_err(|e| e.to_string())
     }
 }
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     /// Run in a process of its own by the test below, since the umask it
     /// narrows is the whole process's.
     #[test]
@@ -440,6 +435,7 @@ mod tests {
         super::Journal::open(std::path::Path::new(&root), &"a".repeat(32)).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_journal_opens_while_a_socket_bind_has_narrowed_the_umask() {
         let dir = tempfile::tempdir().unwrap();
@@ -558,6 +554,7 @@ mod tests {
         assert_eq!(journal.pending().unwrap().len(), 2);
     }
 
+    #[cfg(unix)]
     #[test]
     fn corrupt_or_redirected_records_fail_closed_without_overwriting_an_intent() {
         use std::os::unix::fs::symlink;

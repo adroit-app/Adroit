@@ -172,6 +172,7 @@ version = "0.0.0"
 dependencies = [
  "felis-transport",
  "libc",
+ "tempfile",
  "tokio",
  "windows-sys 0.61.2",
 ]

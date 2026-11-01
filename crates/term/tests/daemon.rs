@@ -88,6 +88,10 @@ async fn a_session_s_screen_shows_what_its_program_wrote() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[cfg_attr(
+    windows,
+    ignore = "holds the program back through the adroit executable, which the test binary is not"
+)]
 async fn a_headless_start_is_released_before_its_command_runtime_exits() {
     let (daemon, dir) = daemon().await;
     for round in 0..20 {
@@ -254,6 +258,10 @@ async fn input_without_a_window_reaches_the_program_in_order() {
 }
 
 #[tokio::test]
+#[cfg_attr(
+    windows,
+    ignore = "ConPTY does not pass the keyboard modes a program asks for"
+)]
 async fn a_key_sent_without_a_window_is_encoded_as_the_program_s_keyboard_mode_asks() {
     let (d, _dir) = daemon().await;
     // Kitty's keyboard protocol, asked to tell Escape apart.
@@ -343,6 +351,7 @@ async fn everything_a_session_keeps_is_read_with_its_colours() {
 }
 
 #[tokio::test]
+#[cfg_attr(windows, ignore = "ConPTY does not pass a palette the program sets")]
 async fn everything_a_pane_reads_is_in_the_colours_its_program_set() {
     let (d, _dir) = daemon().await;
     let blue = adroit_term::Rgb::new(0, 0, 255);
@@ -366,6 +375,10 @@ async fn everything_a_pane_reads_is_in_the_colours_its_program_set() {
 }
 
 #[tokio::test]
+#[cfg_attr(
+    windows,
+    ignore = "the window is not told the program exited under ConPTY"
+)]
 async fn a_session_whose_program_exits_says_so() {
     let (d, _dir) = daemon().await;
     let id = d.spawn(sh("sleep 0.3")).await.unwrap();
@@ -477,6 +490,7 @@ async fn a_click_goes_to_a_program_that_asked_for_the_mouse() {
 }
 
 #[tokio::test]
+#[cfg_attr(windows, ignore = "ConPTY does not pass the graphics protocol through")]
 async fn an_image_the_program_shows_is_drawn_over_the_cells_it_covers() {
     let (d, _dir) = daemon().await;
     // One red pixel, put two cells wide and one high.
@@ -501,6 +515,7 @@ async fn an_image_the_program_shows_is_drawn_over_the_cells_it_covers() {
 }
 
 #[tokio::test]
+#[cfg_attr(windows, ignore = "ConPTY does not pass the graphics protocol through")]
 async fn an_image_given_only_its_width_keeps_its_shape_in_cells_taller_than_wide() {
     let (d, _dir) = daemon().await;
     // Two by two pixels, put four cells wide and as tall as its shape asks.
@@ -529,6 +544,7 @@ async fn an_image_given_only_its_width_keeps_its_shape_in_cells_taller_than_wide
 }
 
 #[tokio::test]
+#[cfg_attr(windows, ignore = "ConPTY does not pass the graphics protocol through")]
 async fn an_image_stays_within_the_rows_the_program_was_moved_past() {
     let (d, _dir) = daemon().await;
     let id = d
@@ -555,6 +571,7 @@ async fn an_image_stays_within_the_rows_the_program_was_moved_past() {
 }
 
 #[tokio::test]
+#[cfg_attr(windows, ignore = "ConPTY does not pass the graphics protocol through")]
 async fn each_image_the_program_sends_is_handed_over_once_whole() {
     let (d, _dir) = daemon().await;
     // A red pixel, then a two by one image of a red and a green pixel.
@@ -613,6 +630,10 @@ async fn start(d: &Daemon, spawn: Spawn, palette: &Palette) -> Pane {
 const ASK_BACKGROUND: &str = r"stty raw -echo; printf '\033]11;?\033\\'; head -c 23 | tr '\033' E";
 
 #[tokio::test]
+#[cfg_attr(
+    windows,
+    ignore = "holds the program back through the adroit executable, which the test binary is not"
+)]
 async fn a_program_asking_for_the_background_as_it_starts_is_told_the_theme_s() {
     let (d, _dir) = daemon().await;
     let palette = themed(adroit_term::Rgb::new(0x12, 0x34, 0x56));
@@ -646,6 +667,10 @@ async fn start_unshown(d: &Daemon, spawn: Spawn, palette: &Palette) -> adroit_te
 }
 
 #[tokio::test]
+#[cfg_attr(
+    windows,
+    ignore = "holds the program back through the adroit executable, which the test binary is not"
+)]
 async fn a_program_started_with_no_window_is_told_the_theme_s_background_however_late_it_asks() {
     let (d, _dir) = daemon().await;
     let palette = themed(adroit_term::Rgb::new(0x12, 0x34, 0x56));
@@ -664,6 +689,10 @@ async fn a_program_started_with_no_window_is_told_the_theme_s_background_however
 }
 
 #[tokio::test]
+#[cfg_attr(
+    windows,
+    ignore = "holds the program back through the adroit executable, which the test binary is not"
+)]
 async fn a_program_started_with_no_window_is_told_a_new_theme_once_it_changes() {
     let (d, _dir) = daemon().await;
     let presence = start_unshown(
@@ -704,6 +733,10 @@ async fn a_presence_ends_with_its_session() {
 }
 
 #[tokio::test]
+#[cfg_attr(
+    windows,
+    ignore = "holds the program back through the adroit executable, which the test binary is not"
+)]
 async fn a_window_attached_after_a_start_with_none_sizes_the_program() {
     let (d, _dir) = daemon().await;
     let presence = start_unshown(
@@ -719,6 +752,10 @@ async fn a_window_attached_after_a_start_with_none_sizes_the_program() {
 }
 
 #[tokio::test]
+#[cfg_attr(
+    windows,
+    ignore = "holds the program back through the adroit executable, which the test binary is not"
+)]
 async fn a_program_started_in_a_pane_draws_from_the_top_of_its_screen() {
     let (d, _dir) = daemon().await;
     let pane = start(&d, sh("printf hello; sleep 5"), &Palette::default()).await;
@@ -726,6 +763,10 @@ async fn a_program_started_in_a_pane_draws_from_the_top_of_its_screen() {
 }
 
 #[tokio::test]
+#[cfg_attr(
+    windows,
+    ignore = "holds the program back through the adroit executable, which the test binary is not"
+)]
 async fn a_program_started_in_a_pane_is_told_a_new_theme_once_it_changes() {
     let (d, _dir) = daemon().await;
     let first = themed(adroit_term::Rgb::new(0x12, 0x34, 0x56));
@@ -780,6 +821,10 @@ async fn only_input_sent_to_the_program_updates_the_last_input_time() {
 }
 
 #[tokio::test]
+#[cfg_attr(
+    windows,
+    ignore = "holds the program back through the adroit executable, which the test binary is not"
+)]
 async fn session_ownership_is_prepared_before_its_program_can_edit() {
     let (daemon, dir) = daemon().await;
     let marker = dir.path().join("released-after-ownership");
@@ -833,6 +878,10 @@ async fn refused_startup_preparation_never_releases_the_program_or_keeps_its_ses
 }
 
 #[tokio::test]
+#[cfg_attr(
+    windows,
+    ignore = "holds the program back through the adroit executable, which the test binary is not"
+)]
 async fn a_held_program_runs_once_released_and_is_told_the_theme_of_the_pane_attached_first() {
     let (d, _dir) = daemon().await;
     let id = d

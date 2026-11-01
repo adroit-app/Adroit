@@ -8,7 +8,7 @@ use std::time::Duration;
 async fn daemon() -> (Daemon, tempfile::TempDir) {
     let dir = tempfile::Builder::new()
         .prefix("adroit-tools-")
-        .tempdir_in("/tmp")
+        .tempdir_in(adroit_sys::local::temp_dir())
         .unwrap();
     adroit_sys::fs::set_mode(dir.path(), 0o700).unwrap();
     let socket = dir.path().join("daemon.sock");
@@ -29,6 +29,10 @@ async fn daemon() -> (Daemon, tempfile::TempDir) {
 }
 
 #[tokio::test]
+#[cfg_attr(
+    windows,
+    ignore = "holds the program back through the adroit executable, which the test binary is not"
+)]
 async fn terminal_resources_can_be_started_read_and_stopped_without_a_window() {
     let (daemon, dir) = daemon().await;
     let mut settings = Settings::default();
@@ -79,6 +83,10 @@ async fn terminal_resources_can_be_started_read_and_stopped_without_a_window() {
 }
 
 #[tokio::test]
+#[cfg_attr(
+    windows,
+    ignore = "holds the program back through the adroit executable, which the test binary is not"
+)]
 async fn a_terminal_started_without_a_window_is_told_the_theme_s_background_however_late_it_asks() {
     let (daemon, dir) = daemon().await;
     let mut settings = Settings::default();
@@ -173,6 +181,10 @@ async fn listed(daemon: &Daemon, terminal: &adroit_model::TerminalSession) -> bo
 }
 
 #[tokio::test]
+#[cfg_attr(
+    windows,
+    ignore = "holds the program back through the adroit executable, which the test binary is not"
+)]
 async fn a_neovim_asked_to_quit_with_nothing_unsaved_ends() {
     let (daemon, dir) = daemon().await;
     let terminal = neovim_on_a_file(&daemon, dir.path()).await;
@@ -194,6 +206,10 @@ async fn a_neovim_asked_to_quit_with_nothing_unsaved_ends() {
 }
 
 #[tokio::test]
+#[cfg_attr(
+    windows,
+    ignore = "holds the program back through the adroit executable, which the test binary is not"
+)]
 async fn a_neovim_asked_to_quit_with_an_unsaved_edit_keeps_running_and_the_edit() {
     let (daemon, dir) = daemon().await;
     let terminal = neovim_on_a_file(&daemon, dir.path()).await;

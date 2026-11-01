@@ -57,6 +57,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg_attr(windows, ignore = "checks Unix file modes")]
     fn the_plugin_and_skill_are_written_naming_the_adroit_that_wrote_them() {
         let dir = tempfile::tempdir().unwrap();
         let (plugin, skills) = install(Path::new("/opt/my adroit"), dir.path()).unwrap();
@@ -203,6 +204,7 @@ process.exit(0);
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "fakes adroit with a shell script")]
     fn messages_heard_through_adroit_s_channel_are_queued_for_the_conversation_shown() {
         let dir = tempfile::tempdir().unwrap();
         let (_bin, adroit) = crate::testing::program(
@@ -250,6 +252,7 @@ exec sleep 30"#,
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "fakes adroit with a shell script")]
     fn commands_the_session_runs_get_back_the_folders_from_outside_its_login() {
         let dir = tempfile::tempdir().unwrap();
         let (_bin, adroit) = crate::testing::program(

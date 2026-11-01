@@ -95,6 +95,20 @@ pub fn address(path: impl AsRef<Path>) -> std::path::PathBuf {
     std::path::PathBuf::from(format!("{PIPES}adroit-{hash:016x}-{name}"))
 }
 
+/// The folder a temporary socket's own folder is made in: `/tmp`, as a
+/// socket's path has to be short and the user's temporary folder may be deep.
+#[cfg(unix)]
+pub fn temp_dir() -> std::path::PathBuf {
+    "/tmp".into()
+}
+
+/// The folder a temporary socket's own folder is made in: the user's
+/// temporary folder, as a pipe's name is short whatever path names it.
+#[cfg(windows)]
+pub fn temp_dir() -> std::path::PathBuf {
+    std::env::temp_dir()
+}
+
 /// The process listening at the socket at `path`, if one does.
 #[cfg(unix)]
 pub fn server_pid(path: impl AsRef<Path>) -> Option<u32> {
@@ -157,15 +171,29 @@ pub fn server_pid(path: impl AsRef<Path>) -> Option<u32> {
     // SAFETY: `name` ends in a nul; the handle is checked before use and
     // closed after.
     unsafe {
-        let pipe = FileSystem::CreateFileW(
-            name.as_ptr(),
-            Foundation::GENERIC_READ,
-            0,
-            std::ptr::null(),
-            FileSystem::OPEN_EXISTING,
-            0,
-            std::ptr::null_mut(),
-        );
+        let open = || {
+            FileSystem::CreateFileW(
+                name.as_ptr(),
+                Foundation::GENERIC_READ,
+                0,
+                std::ptr::null(),
+                FileSystem::OPEN_EXISTING,
+                0,
+                std::ptr::null_mut(),
+            )
+        };
+        let mut pipe = open();
+        // Each connection takes a pipe instance until the listener makes
+        // the next, as a socket's backlog would not make it wait.
+        for _ in 0..20 {
+            if pipe != Foundation::INVALID_HANDLE_VALUE
+                || Foundation::GetLastError() != Foundation::ERROR_PIPE_BUSY
+            {
+                break;
+            }
+            Pipes::WaitNamedPipeW(name.as_ptr(), 100);
+            pipe = open();
+        }
         if pipe == Foundation::INVALID_HANDLE_VALUE {
             return None;
         }
@@ -173,5 +201,95 @@ pub fn server_pid(path: impl AsRef<Path>) -> Option<u32> {
         let read = Pipes::GetNamedPipeServerProcessId(pipe, &mut pid);
         Foundation::CloseHandle(pipe);
         (read != 0 && pid > 0).then_some(pid)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    fn socket_dir() -> tempfile::TempDir {
+        tempfile::Builder::new()
+            .prefix("adroit-sys-")
+            .tempdir_in(temp_dir())
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn bytes_cross_a_socket_both_ways() {
+        let dir = socket_dir();
+        let socket = dir.path().join("s.sock");
+        let listener = Listener::bind(&socket).unwrap();
+        let serving = tokio::spawn(async move {
+            let mut stream = listener.accept().await.unwrap();
+            let mut asked = [0; 4];
+            stream.read_exact(&mut asked).await.unwrap();
+            stream.write_all(b"pong").await.unwrap();
+            asked
+        });
+        let mut stream = connect(&socket).await.unwrap();
+        stream.write_all(b"ping").await.unwrap();
+        let mut answer = [0; 4];
+        stream.read_exact(&mut answer).await.unwrap();
+        assert_eq!(&answer, b"pong");
+        assert_eq!(&serving.await.unwrap(), b"ping");
+    }
+
+    #[tokio::test]
+    async fn where_nothing_listens_nothing_is_reached() {
+        let dir = socket_dir();
+        let socket = dir.path().join("s.sock");
+        assert!(connect(&socket).await.is_err());
+        assert_eq!(server_pid(&socket), None);
+    }
+
+    #[tokio::test]
+    async fn the_process_listening_at_a_socket_is_found() {
+        let dir = socket_dir();
+        let socket = dir.path().join("s.sock");
+        let _listener = Listener::bind(&socket).unwrap();
+        assert_eq!(server_pid(&socket), Some(std::process::id()));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_process_is_found_however_often_it_is_asked_in_a_row() {
+        let dir = socket_dir();
+        let socket = dir.path().join("s.sock");
+        let listener = Listener::bind(&socket).unwrap();
+        tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Ok(stream) = listener.accept().await {
+                held.push(stream);
+            }
+        });
+        for _ in 0..20 {
+            assert_eq!(server_pid(&socket), Some(std::process::id()));
+        }
+    }
+
+    #[test]
+    fn the_folder_for_sockets_exists() {
+        assert!(temp_dir().is_dir());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_path_names_one_pipe_whatever_its_case_and_another_folder_names_another() {
+        let pipe = address(r"C:\Users\me\state\work.sock");
+        let text = pipe.to_string_lossy().into_owned();
+        assert!(text.starts_with(r"\\.\pipe\adroit-"), "{text}");
+        assert!(text.ends_with("-work.sock"), "{text}");
+        assert_eq!(address(r"c:\users\ME\state\work.sock"), pipe);
+        assert_ne!(address(r"C:\Users\me\other\work.sock"), pipe);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_pipe_s_own_name_is_kept() {
+        assert_eq!(
+            address(r"\\.\pipe\felis-1"),
+            std::path::PathBuf::from(r"\\.\pipe\felis-1")
+        );
     }
 }

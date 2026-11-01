@@ -51,5 +51,5 @@ Unix, each process the same, and the code paths stay one where they can.
   lease of its own, so one whose work host is gone before it is let go waits.
 - On Windows each `adroit` opens a window of its own, and Claude Code's
   external editor is not handed to the window.
-- The tests start programs and sockets only Unix has, and run on Unix alone;
-  Windows is checked by building and linting there.
+- The tests run on Windows too, but those that check what only Unix has,
+  such as modes, links and signals, are left out there.

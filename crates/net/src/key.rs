@@ -242,6 +242,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "checks Unix file modes")]
     fn a_key_is_written_once_private_and_read_back_as_the_same_identity() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("state/key");
@@ -257,6 +258,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "checks Unix file modes")]
     fn a_key_others_can_read_is_refused() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("key");
@@ -268,6 +270,7 @@ mod tests {
         ));
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_key_behind_a_symbolic_link_is_refused() {
         let dir = tempfile::tempdir().unwrap();

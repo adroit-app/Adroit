@@ -552,7 +552,7 @@ mod tests {
             &key.path().join("client.key"),
         )
         .unwrap();
-        let listener = tokio::net::UnixListener::bind(remote.work_socket()).unwrap();
+        let listener = adroit_sys::local::Listener::bind(remote.work_socket()).unwrap();
         let (queue, requests) = mpsc::channel(8);
         let (told, _events) = mpsc::channel(8);
         let shared = Shared::new("work".into(), told, true);
@@ -575,7 +575,7 @@ mod tests {
             tunnel: None,
         };
         let server = tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut stream = listener.accept().await.unwrap();
             stream
                 .write_all(
                     encode(&Hello {
@@ -589,7 +589,7 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            let (read, mut write) = stream.into_split();
+            let (read, mut write) = tokio::io::split(stream);
             let mut read = BufReader::new(read);
             let request = adroit_protocol::client::read_line(&mut read)
                 .await

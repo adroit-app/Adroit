@@ -36,7 +36,8 @@ impl RemoteEndpoint {
             || self.pid == 0
             || self.protocols.is_empty()
             || self.build.is_empty()
-            || !self.socket.is_absolute()
+            // A path on the work machine, which is absolute there whatever
+            // this machine's paths are.
             || !self.socket.to_str().is_some_and(|p| {
                 p.len() <= 100
                     && p.starts_with("/tmp/adroit-r-")

@@ -452,6 +452,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
     async fn shortened_titles_resolve_only_one_native_thread_through_the_saved_route() {
         let dir = tempfile::tempdir().unwrap();
         let program = dir.path().join("provider.sh");

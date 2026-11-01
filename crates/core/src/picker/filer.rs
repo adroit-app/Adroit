@@ -304,6 +304,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "written with Unix paths")]
     fn opening_lists_the_subdirectories_by_name_without_the_hidden_and_steps_into_the_first() {
         let read = sample();
         let mut filer = Filer::new(["/h", "/g"]);
@@ -316,6 +317,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "written with Unix paths")]
     fn roots_added_later_go_after_the_others_and_leave_the_tree_as_it_was() {
         let read = sample();
         let mut filer = Filer::new(["/h"]);
@@ -333,6 +335,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "written with Unix paths")]
     fn opening_a_directory_with_nothing_inside_leaves_the_cursor_on_it() {
         let read = sample();
         let mut filer = Filer::new(["/h"]);
@@ -343,6 +346,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "written with Unix paths")]
     fn open_directories_are_listed_depth_first_under_their_root() {
         let read = sample();
         let mut filer = Filer::new(["/h", "/g"]);
@@ -388,6 +392,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "written with Unix paths")]
     fn closing_shuts_the_open_directory_under_the_cursor_or_else_the_one_it_is_in() {
         let read = sample();
         let mut filer = Filer::new(["/h"]);
@@ -419,6 +424,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "written with Unix paths")]
     fn a_directory_listed_under_two_roots_is_opened_under_one_only() {
         let read = disk(&[("/a", &["x"]), ("/b", &["x"]), ("/a/x", &["y"])]);
         let mut filer = Filer::new(["/a", "/b"]);
@@ -430,6 +436,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "written with Unix paths")]
     fn hidden_directories_are_shown_on_request() {
         let read = sample();
         let mut filer = Filer::new(["/h"]);
@@ -443,6 +450,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "written with Unix paths")]
     fn hiding_the_row_under_the_cursor_moves_it_to_the_nearest_listed_ancestor() {
         let read = sample();
         let mut filer = Filer::new(["/h"]);
@@ -457,6 +465,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "written with Unix paths")]
     fn the_cursor_keeps_its_row_when_rows_appear_above_it() {
         let read = sample();
         let mut filer = Filer::new(["/h"]);

@@ -98,6 +98,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
     async fn the_probe_reads_the_models_from_claude_code() {
         let answer = answer();
         let (dir, claude) = program(

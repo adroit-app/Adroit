@@ -169,7 +169,7 @@ mod tests {
 
     /// A repository `app` holding `lib` as a submodule; the submodule's path.
     fn submodule(name: &str) -> PathBuf {
-        let dir = scratch(name).canonicalize().unwrap();
+        let dir = adroit_sys::fs::canonicalize(scratch(name)).unwrap();
         for repo in ["lib", "app"] {
             git(&dir, &["init", "-q", "-b", "trunk", repo]);
             git(
@@ -189,8 +189,8 @@ mod tests {
     async fn a_submodule_is_inspected_as_its_own_main_checkout() {
         let sub = submodule("submodule");
         let w = inspect(&sub).await.unwrap();
-        assert_eq!(w.path.canonicalize().unwrap(), sub);
-        assert_eq!(w.repo.canonicalize().unwrap(), sub);
+        assert_eq!(adroit_sys::fs::canonicalize(&w.path).unwrap(), sub);
+        assert_eq!(adroit_sys::fs::canonicalize(&w.repo).unwrap(), sub);
     }
 
     #[tokio::test]
@@ -214,9 +214,9 @@ mod tests {
             .success();
         assert!(ok);
         let w = inspect(&dir).await.unwrap();
-        let real = dir.canonicalize().unwrap();
-        assert_eq!(w.path.canonicalize().unwrap(), real);
-        assert_eq!(w.repo.canonicalize().unwrap(), real);
+        let real = adroit_sys::fs::canonicalize(&dir).unwrap();
+        assert_eq!(adroit_sys::fs::canonicalize(&w.path).unwrap(), real);
+        assert_eq!(adroit_sys::fs::canonicalize(&w.repo).unwrap(), real);
         assert_eq!(w.branch.as_deref(), Some("trunk"));
     }
 
