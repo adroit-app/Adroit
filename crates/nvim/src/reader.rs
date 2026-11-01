@@ -414,6 +414,56 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn plain_text_takes_the_colour_scheme_s_colour_again_as_the_theme_changes() {
+        let (e, _rx) = start().await;
+        e.set_light(false).await.unwrap();
+        e.show(&lines(&["one"]), &[], (0, 0), true, "#ffffff")
+            .await
+            .unwrap();
+        e.set_light(true).await.unwrap();
+        assert!(e.settles("&background", Value::from("light")).await);
+        let fg = |group: &str| format!("synIDattr(hlID('{group}'), 'fg#')");
+        let normal = e.eval(&fg("Normal")).await;
+        assert!(e.settles(&fg("AdroitConsole"), normal).await);
+    }
+
+    #[tokio::test]
+    async fn marks_keep_their_colours_after_the_colour_scheme_is_loaded_again() {
+        let (e, _rx) = start().await;
+        let mark = Mark {
+            line: 0,
+            start: 0,
+            end: 3,
+            fg: "#ff0000".into(),
+            bg: None,
+            bold: false,
+            italic: false,
+            underline: false,
+        };
+        e.show(
+            &lines(&["one"]),
+            std::slice::from_ref(&mark),
+            (0, 0),
+            true,
+            "#101010",
+        )
+        .await
+        .unwrap();
+        e.exec("vim.cmd('highlight clear')", vec![]).await.unwrap();
+        e.show(
+            &lines(&["one"]),
+            std::slice::from_ref(&mark),
+            (0, 0),
+            true,
+            "#101010",
+        )
+        .await
+        .unwrap();
+        let fg = format!("synIDattr(hlID('{}'), 'fg#')", mark.group());
+        assert!(e.settles(&fg, Value::from("#ff0000")).await);
+    }
+
+    #[tokio::test]
     async fn the_console_s_background_is_the_reader_window_s_and_leaves_the_colour_scheme_s() {
         let (e, _config) =
             start_configured("vim.api.nvim_set_hl(0, 'Normal', { bg = '#123456' })").await;

@@ -15,15 +15,33 @@ vim.api.nvim_buf_set_lines(b, 0, -1, false, lines)
 vim.bo[b].modifiable = false
 vim.api.nvim_buf_clear_namespace(b, ns, 0, -1)
 -- The console's background is the reader window's alone; the colour scheme's
--- `Normal` stays as the configuration set it.
-vim.api.nvim_set_hl(0, "AdroitConsole", {
-  bg = background,
-  fg = vim.api.nvim_get_hl(0, { name = "Normal", link = false }).fg,
+-- `Normal` stays as the configuration set it. Its text colour is taken again
+-- whenever the colour scheme or the theme's background changes it, or text
+-- shown before the window told the theme would keep the other theme's colour.
+-- `Normal` is read by its own id: in this window `nvim_get_hl` and
+-- `synIDtrans` answer with `AdroitConsole` itself, which would keep the
+-- colour first taken for good.
+local function console()
+  local fg = vim.fn.synIDattr(vim.fn.hlID("Normal"), "fg#")
+  vim.api.nvim_set_hl(0, "AdroitConsole", {
+    bg = background,
+    fg = fg ~= "" and fg or nil,
+  })
+end
+console()
+vim.api.nvim_create_autocmd({ "ColorScheme", "OptionSet" }, {
+  group = vim.api.nvim_create_augroup("adroit_console_colours", { clear = true }),
+  callback = function(ev)
+    if ev.event == "ColorScheme" or ev.match == "background" then
+      console()
+    end
+  end,
 })
 vim.wo.winhighlight = "Normal:AdroitConsole"
 for _, m in ipairs(marks) do
   local group = m[4]
-  if vim.fn.hlexists(group) == 0 then
+  -- A cleared group still exists, as `:colorscheme` leaves each it clears.
+  if vim.tbl_isempty(vim.api.nvim_get_hl(0, { name = group })) then
     vim.api.nvim_set_hl(0, group, {
       fg = m[5],
       bg = m[6] ~= "" and m[6] or nil,
