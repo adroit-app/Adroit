@@ -950,10 +950,18 @@ fn gatewayed(hosts: &Hosts, advertise: bool) -> Gatewayed {
         .unwrap()
         .port();
     let address = format!("127.0.0.1:{port}");
+    // An announcement names the machine's addresses on the interfaces that
+    // multicast, which loopback does not everywhere, so an announced
+    // gateway listens on them all.
+    let listen = if advertise {
+        format!("0.0.0.0:{port}")
+    } else {
+        address.clone()
+    };
     let log = hosts.0.path().join("gateway.log");
     let _gateway = Service(
         isolated(hosts.0.path())
-            .args(["remote", "gateway", "--listen", &address])
+            .args(["remote", "gateway", "--listen", &listen])
             .args((!advertise).then_some("--no-advertise"))
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
@@ -1174,7 +1182,10 @@ fn a_paired_work_machine_is_found_on_the_local_network_when_its_address_changed(
             tunnel.info().instance,
             gateway.info["instance"].as_str().unwrap()
         );
-        assert_eq!(tunnel.reached(), gateway.address);
+        // Reached at whichever of the machine's addresses was announced.
+        let reached: std::net::SocketAddr = tunnel.reached().parse().unwrap();
+        let listening: std::net::SocketAddr = gateway.address.parse().unwrap();
+        assert_eq!(reached.port(), listening.port(), "{reached}");
     });
     let heard = isolated(hosts.0.path())
         .args(["connect", "discover"])
