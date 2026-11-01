@@ -1186,15 +1186,24 @@ fn a_paired_work_machine_is_found_on_the_local_network_when_its_address_changed(
             .unwrap();
         String::from_utf8_lossy(&heard.stdout).into_owned()
     };
-    runtime.block_on(async {
+    let reached = runtime.block_on(async {
         let remote = adroit_connect::Remote::with_key(&target, &key).unwrap();
-        let tunnel = remote.connect(None).await.unwrap_or_else(|error| {
-            panic!(
-                "{error}\nthe local network heard: {}\nthe gateway said: {}",
-                discover(),
-                std::fs::read_to_string(&gateway.log).unwrap_or_default()
-            )
-        });
+        let tunnel = match remote.connect(None).await {
+            Ok(tunnel) => tunnel,
+            Err(error) => {
+                let said = std::fs::read_to_string(&gateway.log).unwrap_or_default();
+                // As on a macOS CI runner, which keeps a program from the
+                // local network with no one to allow it.
+                if said.contains("cannot announce itself on the local network") {
+                    eprintln!("not tested where the gateway may not announce: {said}");
+                    return false;
+                }
+                panic!(
+                    "{error}\nthe local network heard: {}\nthe gateway said: {said}",
+                    discover()
+                )
+            }
+        };
         assert_eq!(
             tunnel.info().instance,
             gateway.info["instance"].as_str().unwrap()
@@ -1203,7 +1212,11 @@ fn a_paired_work_machine_is_found_on_the_local_network_when_its_address_changed(
         let reached: std::net::SocketAddr = tunnel.reached().parse().unwrap();
         let listening: std::net::SocketAddr = gateway.address.parse().unwrap();
         assert_eq!(reached.port(), listening.port(), "{reached}");
+        true
     });
+    if !reached {
+        return;
+    }
     let heard = discover();
     assert!(heard.contains(&gateway.server[..16]), "{heard}");
 }
