@@ -110,6 +110,7 @@ The catalog revision is checked before changes are saved. Unknown versions,
 invalid entries and duplicate IDs are refused. Each instance pins the
 environment it opened, so editing the catalog never replaces the connection or
 the environment of an instance already open. `window.toml` beside the catalog
-holds only the local display and input preferences. Missing local preferences
-inherit those fields from the existing client settings, without taking agent
-settings from the work machine.
+holds only the local display and input preferences, the appearance and its
+themes, and the machine meters shown. Missing local preferences inherit those
+fields from the existing client settings, without taking agent settings from
+the work machine.

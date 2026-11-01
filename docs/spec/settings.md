@@ -5,12 +5,35 @@ comma or the gear in the header. It configures the
 [environment](environments.md) of the selected tree row or the tab shown,
 which its title names: its name and connection, a test of that connection,
 and its agents, programs and working paths. Removed environments are restored
-there. Environments are added below the main window's tree. Window, Console
-and Prompt hold the client's display, input and embedded Neovim preferences;
-Accept connections, which lets other computers work on this one, is with them; console themes remain work settings under
-Appearance. Changes apply to windows using the same settings owner and remain
+there. Environments are added below the main window's tree.
+
+Its sidebar lists that environment's work settings under the environment's
+name, and below them, under All environments, what belongs to this computer
+for every environment: the window, which of the machine's meters the details
+show, the console, the prompt and their embedded Neovims, the appearance and
+its themes, the key bindings, accepting connections from other computers, and
+the removed environments. These stay editable while the environment cannot be
+reached. Changes apply to windows using the same settings owner and remain
 for the next run. A stale save is refused rather than overwriting newer work
 settings.
+
+The appearance, the light theme and the dark theme are chosen once, on this
+computer, and the window writes them into the work settings of each
+environment it reaches and can write to, once as it reaches it where they
+differ and again whenever you change them, leaving the environment's other
+settings as they are. One changed there otherwise, by hand or by another
+computer, is kept until the window starts again or you change them. Each
+work host goes on choosing the theme from its own settings, so it keeps
+doing so with no window
+open; one that cannot be written to keeps the appearance it last had. Only
+the theme's name is written: a theme of your own is read on the work machine,
+from `themes/` beside its own `settings.toml`, so one kept only on this
+computer is not found there.
+
+Which meters the details show is this computer's choice for every
+environment, and a work host samples only what a window shows; the `[usage]`
+table of a work machine's `settings.toml` is what it samples for a window that
+does not say.
 
 ## settings.toml
 

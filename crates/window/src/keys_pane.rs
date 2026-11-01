@@ -1,16 +1,15 @@
 //! The Settings window's key bindings, listed action by action, each with the
 //! keys that run it wherever it works, or area by area as the file writes
 //! them; either way changed, taken away or put back in place, and written
-//! into the user's file as it is changed.
+//! into this computer's file as it is changed, for every environment.
 
-use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
 
 use dioxus::prelude::*;
 
 use adroit_core::config::Config;
-use adroit_protocol::{Ask, FileText};
+use adroit_protocol::FileText;
 
 use crate::actions::Action;
 use crate::components::{Keys, SettingsError};
@@ -19,29 +18,16 @@ use crate::icons::{Icon, IconView};
 use crate::keymap::{Chord, Context, Keymap};
 use crate::keys_by_action::{self, ActionKeys, Bound};
 use crate::keys_edit;
-use crate::link::{Link, failure};
 
 /// How long recording keys waits for another before it ends.
 const RECORD_WAIT: Duration = Duration::from_secs(2);
 
-const STARTER: &str = "# Key bindings over the defaults, area by area.\n";
-
-/// What the keys file held when the work host last read it.
+/// What the keys file held when the window last read it.
 fn read_file(config: &Config) -> String {
-    match config.files().keys.as_ref().map(|f| &f.text) {
+    match config.keys.as_ref().map(|f| &f.text) {
         Some(FileText::Read { text }) => text.clone(),
         _ => String::new(),
     }
-}
-
-/// Where the keys file is, as the work host last read it.
-pub(crate) fn keys_path(config: &Config) -> PathBuf {
-    config
-        .files()
-        .keys
-        .as_ref()
-        .map(|f| f.path.clone())
-        .unwrap_or_default()
 }
 
 /// How the bindings are listed.
@@ -79,9 +65,6 @@ impl View {
 #[component]
 pub fn KeysPane() -> Element {
     let config = use_config();
-    let link = use_context::<Link>();
-    let remote = link.remote_status().is_some();
-    let link = use_hook(move || CopyValue::new(link));
     let mut text = use_signal(|| read_file(&config.peek()));
     let mut filter = use_signal(String::new);
     let mut view = use_signal(|| View::ByAction);
@@ -97,15 +80,12 @@ pub fn KeysPane() -> Element {
     });
     let mut apply = move |next: Result<String, String>| match next {
         Ok(t) => {
-            text.set(t.clone());
-            let saved = link.read().ask(Ask::SaveKeys { text: t });
-            spawn(async move {
-                failed.set(failure(saved.await));
-            });
+            failed.set(crate::client_keys::save(&t).err());
+            text.set(t);
         }
         Err(e) => failed.set(Some(e)),
     };
-    let path = keys_path(&config.read());
+    let path = crate::client_keys::path();
     rsx! {
         div { class: "keys-bar",
             div { class: "segmented", role: "tablist",
@@ -131,7 +111,7 @@ pub fn KeysPane() -> Element {
                 value: "{filter}",
                 oninput: move |e| filter.set(e.value()),
             }
-            button { disabled: remote, title: if remote { "Edit this file on the work machine, or use the bindings editor below" } else { "Open the keys file" }, onclick: move |_| if !remote { crate::settings_window::open_with("-t", &path, STARTER); }, "Open keys.toml" }
+            button { title: "Open the keys file", onclick: move |_| crate::settings_window::open_with("-t", &path, crate::client_keys::STARTER), "Open keys.toml" }
             if confirm_reset() {
                 button {
                     class: "danger",

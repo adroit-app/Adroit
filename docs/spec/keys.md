@@ -60,6 +60,10 @@ where each key goes.
 
 ## Where the file is
 
+The file is on the computer the window runs on, and its bindings are in force
+for every environment the window shows, whichever machine the work runs on.
+A `keys.toml` on another work machine is not read by the window.
+
 - `$ADROIT_KEYS`, when set;
 - otherwise `keys.toml` in `$XDG_CONFIG_HOME/adroit/`, or in
   `~/.config/adroit/` when `$XDG_CONFIG_HOME` is unset.

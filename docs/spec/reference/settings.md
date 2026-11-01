@@ -10,7 +10,7 @@ when the file does not name it, and what it does
 
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
-| `appearance` | one of `system`, `light`, `dark` | `"system"` | Which of the two themes colours the console and the window: `system` follows macOS as it switches between light and dark, `light` and `dark` keep to one. |
+| `appearance` | one of `system`, `light`, `dark` | `"system"` | Which of the two themes colours the console and the window: `system` follows macOS as it switches between light and dark, `light` and `dark` keep to one. The Settings window chooses it, and the two themes, once for every environment and writes them here. |
 | `dark_theme` | string | `"Nightfox"` | The theme drawn while the appearance is dark, named as the light one is. |
 | `font_family` | string | `""` | The font the console and the prompt are drawn in, as the system names its family; empty for Adroit's own, JetBrainsMono Nerd Font Mono. Adroit's own stands behind any other, so Nerd Font glyphs draw whatever font is chosen, and a Japanese font behind that. A line is as tall as the font asks, as in a terminal. |
 | `font_size` | number | `13.0` | The font's size, in points, from 8 to 32. |
@@ -226,7 +226,7 @@ How a shell tab's shell starts.
 
 ## `[usage]`
 
-Machine resources shown in Usage across all tabs.
+Machine resources sampled for a window that does not say which it shows; the Settings window chooses them once for every environment.
 
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |

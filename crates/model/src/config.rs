@@ -258,6 +258,57 @@ pub fn format_list(list: &[String]) -> String {
     list.join(", ")
 }
 
+/// The machine's resources the details show. The Settings window chooses them
+/// for every environment; a work host samples these for a window that does
+/// not say which it shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct UsageSettings {
+    /// Show the whole machine's CPU use.
+    pub cpu: bool,
+    /// Show the GPU's use, when the system reports it.
+    pub gpu: bool,
+    /// Show the physical memory used, as a share of all of it.
+    pub memory: bool,
+    /// Show the capacity used on the startup volume.
+    pub storage: bool,
+}
+
+impl Default for UsageSettings {
+    fn default() -> Self {
+        Self {
+            cpu: true,
+            gpu: true,
+            memory: true,
+            storage: true,
+        }
+    }
+}
+
+impl UsageSettings {
+    /// None of them.
+    pub const NONE: Self = Self {
+        cpu: false,
+        gpu: false,
+        memory: false,
+        storage: false,
+    };
+
+    pub fn any(self) -> bool {
+        self.cpu || self.gpu || self.memory || self.storage
+    }
+
+    /// Every resource either shows.
+    pub fn or(self, other: Self) -> Self {
+        Self {
+            cpu: self.cpu || other.cpu,
+            gpu: self.gpu || other.gpu,
+            memory: self.memory || other.memory,
+            storage: self.storage || other.storage,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

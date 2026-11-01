@@ -456,9 +456,7 @@ fn the_keys_help_takes_its_keys_by_the_bindings_the_chrome_holds() {
     let user = crate::keymap::Keymap::with_user(text).unwrap();
     let help = || {
         window()
-            .tell(adroit_protocol::ConfigChange::Keys {
-                file: crate::config::testing::keys_file(text),
-            })
+            .send(Msg::KeysRead(crate::config::testing::keys_file(text)))
             .send(Msg::KeysHelpOpen(vec![Context::Console, Context::Global]))
     };
     assert_eq!(help().state().chrome.keymap, user);

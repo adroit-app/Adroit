@@ -10,7 +10,7 @@ pub use adroit_protocol::ThemeKind;
 
 pub use adroit_model::Agent;
 pub use adroit_model::config::CodexOptions;
-pub use adroit_model::config::{Launch, SessionOptions, ShellLaunch};
+pub use adroit_model::config::{Launch, SessionOptions, ShellLaunch, UsageSettings};
 use adroit_model::profile::earlier;
 pub use adroit_model::profile::{AgentOptions, AgentProfile, ProfileId};
 
@@ -93,37 +93,6 @@ impl Default for DetailsSettings {
     }
 }
 
-/// Machine resources shown in Usage, independently of the active program.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(default, deny_unknown_fields)]
-pub struct UsageSettings {
-    /// Show the whole machine's CPU use.
-    pub cpu: bool,
-    /// Show the GPU's use, when the system reports it.
-    pub gpu: bool,
-    /// Show the physical memory used, as a share of all of it.
-    pub memory: bool,
-    /// Show the capacity used on the startup volume.
-    pub storage: bool,
-}
-
-impl Default for UsageSettings {
-    fn default() -> Self {
-        Self {
-            cpu: true,
-            gpu: true,
-            memory: true,
-            storage: true,
-        }
-    }
-}
-
-impl UsageSettings {
-    pub fn any(self) -> bool {
-        self.cpu || self.gpu || self.memory || self.storage
-    }
-}
-
 /// How the console takes keys and draws its cursor.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(default, deny_unknown_fields)]
@@ -179,7 +148,8 @@ pub struct Settings {
     pub font_weight: u16,
     /// Which of the two themes colours the console and the window: `system`
     /// follows macOS as it switches between light and dark, `light` and `dark`
-    /// keep to one.
+    /// keep to one. The Settings window chooses it, and the two themes, once
+    /// for every environment and writes them here.
     pub appearance: Appearance,
     /// The theme drawn while the appearance is light, by name: one adroit comes
     /// with, or one in `themes/` beside `settings.toml`.
@@ -212,7 +182,8 @@ pub struct Settings {
     pub console: ConsoleSettings,
     /// How much the details panel reads and shows.
     pub details: DetailsSettings,
-    /// Machine resources shown in Usage across all tabs.
+    /// Machine resources sampled for a window that does not say which it
+    /// shows; the Settings window chooses them once for every environment.
     pub usage: UsageSettings,
 }
 

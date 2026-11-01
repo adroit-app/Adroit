@@ -1,5 +1,6 @@
-//! The user's configuration as the window works by it: the settings and the
-//! key bindings, taken in from the files as the host last read them.
+//! The user's configuration as the window works by it: the work settings,
+//! taken in from the file as the host last read it, and this computer's key
+//! bindings and choices over them.
 
 use adroit_model::paths::tilde;
 use adroit_protocol::{Colours, ConfigFile, ConfigWork, Configured, FileText};
@@ -7,7 +8,7 @@ use adroit_protocol::{Colours, ConfigFile, ConfigWork, Configured, FileText};
 use crate::chrome::status_line::{self, StatusLine};
 use crate::effect::Effect;
 use crate::keymap::Keymap;
-use crate::settings::Settings;
+use crate::settings::{Settings, UsageSettings};
 use crate::state::ViewState;
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -19,8 +20,12 @@ pub struct Config {
     pub settings_error: Option<String>,
     /// Where scratch sessions run, as the host says.
     pub scratch: std::path::PathBuf,
+    /// This computer's key bindings file, as the window last read it.
+    pub keys: Option<ConfigFile>,
     /// Why the key bindings file cannot be had, while it cannot.
     keys_error: Option<String>,
+    /// The machine's resources this computer shows, once it said.
+    usage: Option<UsageSettings>,
     /// The files as they were last taken in.
     taken: ConfigWork,
 }
@@ -51,12 +56,18 @@ impl Config {
     pub fn files(&self) -> &ConfigWork {
         &self.taken
     }
+
+    /// The machine's resources this computer shows, once it said.
+    pub fn usage(&self) -> Option<UsageSettings> {
+        self.usage
+    }
 }
 
 /// The files the host read, taken in once each time one changes: the
-/// settings replace those in force, and the key bindings the chrome's. A
-/// file that cannot be had leaves what is in force and says why, the key
-/// bindings' in the status line until they read again.
+/// settings replace those in force, but for what this computer chose over
+/// them. Settings that cannot be had leave what is in force and say why. The
+/// host's key bindings file is not taken in: the window binds this
+/// computer's.
 pub(crate) fn take_in(state: &mut ViewState) -> Vec<Effect> {
     let Some(work) = state.hosts.own().work.as_ref() else {
         return Vec::new();
@@ -75,27 +86,12 @@ pub(crate) fn take_in(state: &mut ViewState) -> Vec<Effect> {
                 Ok(settings) => {
                     config.settings = settings;
                     config.settings_error = None;
+                    if let Some(usage) = config.usage {
+                        config.settings.usage = usage;
+                    }
                 }
                 Err(error) => config.settings_error = Some(error),
             }
-        }
-    }
-    if work.config.keys != config.taken.keys {
-        config.taken.keys = work.config.keys.clone();
-        if let Some(file) = &config.taken.keys {
-            let now = match keymap(file, &state.picker.home) {
-                Ok(keymap) => {
-                    state.chrome.keymap = keymap;
-                    None
-                }
-                Err(error) => Some(error),
-            };
-            let last = std::mem::replace(&mut config.keys_error, now.clone());
-            effects.extend(status_line::failing(
-                &mut state.chrome.status,
-                last.as_deref(),
-                now.as_deref(),
-            ));
         }
     }
     if work.config.configured != config.taken.configured {
@@ -112,6 +108,34 @@ pub(crate) fn take_in(state: &mut ViewState) -> Vec<Effect> {
         }
     }
     effects
+}
+
+/// This computer's key bindings `file`, taken in when it changed: its
+/// bindings go over the defaults in the chrome; one that cannot be had leaves
+/// those in force and says why in the status line until it reads again.
+pub(crate) fn keys_read(state: &mut ViewState, file: ConfigFile) -> Vec<Effect> {
+    let config = &mut state.config;
+    if config.keys.as_ref() == Some(&file) {
+        return Vec::new();
+    }
+    let now = match keymap(&file, &state.picker.home) {
+        Ok(keymap) => {
+            state.chrome.keymap = keymap;
+            None
+        }
+        Err(error) => Some(error),
+    };
+    config.keys = Some(file);
+    let last = std::mem::replace(&mut config.keys_error, now.clone());
+    status_line::failing(&mut state.chrome.status, last.as_deref(), now.as_deref())
+}
+
+/// This computer shows `usage` of the machine, over what any host's settings
+/// say.
+pub(crate) fn usage_chosen(config: &mut Config, usage: UsageSettings) -> Vec<Effect> {
+    config.usage = Some(usage);
+    config.settings.usage = usage;
+    Vec::new()
 }
 
 /// The settings `file` holds, the one theme an earlier version named
@@ -264,16 +288,14 @@ mod tests {
 
     #[test]
     fn the_key_bindings_read_go_over_the_defaults_and_a_broken_file_is_told_until_it_reads() {
-        let keys = |text: &str| ConfigChange::Keys {
-            file: keys_file(text),
-        };
+        let keys = |text: &str| Msg::KeysRead(keys_file(text));
         let user = "[global]\n\"Ctrl+h\" = \"keys.help\"\n";
         let run = Scenario::new()
             .send(home())
             .event(configured(""))
-            .tell(keys(user));
+            .send(keys(user));
         assert_eq!(run.state().chrome.keymap, Keymap::with_user(user).unwrap());
-        let run = run.tell(keys("[global]\n\"Ctrl+h\" = \"no.such\"\n"));
+        let run = run.send(keys("[global]\n\"Ctrl+h\" = \"no.such\"\n"));
         assert_eq!(
             run.state().chrome.keymap,
             Keymap::with_user(user).unwrap(),
@@ -281,7 +303,7 @@ mod tests {
         );
         let told = run.state().chrome.status.line.clone().unwrap();
         assert!(told.starts_with("~/.config/adroit/keys.toml: "), "{told}");
-        let run = run.tell(keys(""));
+        let run = run.send(keys(""));
         assert_eq!(run.state().chrome.keymap, Keymap::defaults());
         assert_eq!(run.state().chrome.status.line, None);
     }
@@ -296,18 +318,61 @@ mod tests {
         ] {
             let run = Scenario::new()
                 .event(configured(""))
-                .tell(ConfigChange::Keys {
-                    file: keys_file("[global]\n\"Ctrl+h\" = \"keys.help\"\n"),
-                })
-                .tell(ConfigChange::Keys {
-                    file: ConfigFile {
-                        text: text.clone(),
-                        ..keys_file("")
-                    },
-                });
+                .send(Msg::KeysRead(keys_file(
+                    "[global]\n\"Ctrl+h\" = \"keys.help\"\n",
+                )))
+                .send(Msg::KeysRead(ConfigFile {
+                    text: text.clone(),
+                    ..keys_file("")
+                }));
             assert_eq!(run.state().chrome.keymap, Keymap::defaults(), "{text:?}");
             assert_eq!(run.state().chrome.status.line, None, "{text:?}");
         }
+    }
+
+    #[test]
+    fn the_key_bindings_a_work_host_read_are_not_the_window_s() {
+        let client = "[global]\n\"Ctrl+h\" = \"keys.help\"\n";
+        let run = Scenario::new()
+            .send(home())
+            .event(configured(""))
+            .send(Msg::KeysRead(keys_file(client)))
+            .tell(ConfigChange::Keys {
+                file: keys_file("[global]\n\"Ctrl+j\" = \"keys.help\"\n"),
+            });
+        assert_eq!(
+            run.state().chrome.keymap,
+            Keymap::with_user(client).unwrap()
+        );
+    }
+
+    #[test]
+    fn the_machine_s_resources_this_computer_shows_stay_over_the_host_s_settings_and_are_what_it_is_asked_to_sample()
+     {
+        use crate::settings::UsageSettings;
+        let memory = UsageSettings {
+            memory: true,
+            ..UsageSettings::NONE
+        };
+        let run = Scenario::new()
+            .send(home())
+            .event(configured("[usage]\ncpu = false\n"));
+        assert_eq!(run.state().config.usage(), None);
+        let run = run
+            .send(Msg::UsageChosen(memory))
+            .tell(ConfigChange::Settings {
+                file: settings_file("zoom = 1.25\n[usage]\ncpu = true\n"),
+            });
+        assert_eq!(run.state().config.settings.zoom, 1.25);
+        assert_eq!(run.state().config.settings.usage, memory);
+        let asked = run.effects().iter().rev().find_map(|e| match e {
+            Effect::Host {
+                request: adroit_protocol::Request::Watch(sight),
+                ..
+            } => Some(sight.system),
+            _ => None,
+        });
+        assert_eq!(asked, Some(Some(memory)));
     }
 
     #[test]

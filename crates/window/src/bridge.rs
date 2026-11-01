@@ -150,6 +150,9 @@ pub(crate) struct AppCtx {
     handed: CopyValue<Handoff>,
     /// What runs an action where the keys are now, which `App` still does.
     performer: CopyValue<Option<Performer>>,
+    /// The appearance last asked to be written into each environment's
+    /// work settings.
+    appearance_written: CopyValue<crate::client_settings::Written>,
     /// The component that opened the view state, whose tasks live as long
     /// as the window.
     scope: ScopeId,
@@ -202,6 +205,14 @@ pub(crate) fn use_app() -> AppCtx {
             &mut events,
             [Msg::ContentOpened { kept, scratch }],
         ));
+        // This computer's bindings and meters, over whatever the hosts read.
+        let chosen = crate::client_settings::chosen().map(|p| Msg::UsageChosen(p.usage));
+        effects.extend(pump(
+            &mut view,
+            &links,
+            &mut events,
+            std::iter::once(Msg::KeysRead(crate::client_keys::read())).chain(chosen),
+        ));
         crate::client_settings::apply(&mut view.config.settings);
         view.chrome.zoom = view.config.settings.zoom;
         let app = AppCtx {
@@ -227,6 +238,7 @@ pub(crate) fn use_app() -> AppCtx {
             pair_again: CopyValue::new(None),
             handed: CopyValue::new(Handoff::default()),
             performer: CopyValue::new(None),
+            appearance_written: CopyValue::new(Default::default()),
             scope: current_scope_id(),
             view: CopyValue::new(view),
             links: CopyValue::new(links),
@@ -514,16 +526,69 @@ impl AppCtx {
         as_from(self.scope, || self.run(effects));
     }
 
+    /// This computer's preferences and key bindings taken in again as their
+    /// files changed, and the appearance written into the work settings of
+    /// each environment that names another.
     fn refresh_client_settings(&self) {
+        let keys = crate::client_keys::read();
+        if self.view.read().config.keys.as_ref() != Some(&keys) {
+            self.dispatch(Msg::KeysRead(keys));
+        }
+        let chosen = crate::client_settings::chosen();
+        if let Some(preferences) = &chosen {
+            if self.view.read().config.usage() != Some(preferences.usage) {
+                self.dispatch(Msg::UsageChosen(preferences.usage));
+            }
+            self.write_appearance(preferences);
+        }
         let mut view = self.view;
         let mut next = view.read().config.settings.clone();
-        crate::client_settings::apply(&mut next);
+        if let Some(preferences) = &chosen {
+            preferences.apply(&mut next);
+        }
         if next != view.read().config.settings {
             let zoom = next.zoom;
             view.write().config.settings = next;
             view.write().chrome.zoom = zoom;
             self.publish();
             let _ = dioxus::desktop::window().webview.zoom(zoom);
+        }
+    }
+
+    /// `preferences`' appearance written into the work settings of each
+    /// environment whose host names another and can be written to, asked
+    /// once for each text the host last read.
+    fn write_appearance(&self, preferences: &crate::client_settings::Preferences) {
+        let asks: Vec<_> = {
+            let view = self.view.read();
+            view.hosts
+                .each()
+                .filter_map(|(environment, host)| {
+                    let work = host.work.as_ref()?;
+                    let written =
+                        crate::client_settings::appearance_written(&work.config, preferences)
+                            .ok()
+                            .flatten()?;
+                    Some((environment.clone(), written))
+                })
+                .collect()
+        };
+        let mut asked = self.appearance_written;
+        for (environment, (text, expected)) in asks {
+            let link = self.link_of(&environment);
+            if link.remote_status().is_some_and(|status| !status.writable)
+                || !asked.write().due(&environment, preferences)
+            {
+                continue;
+            }
+            let saved = link.ask(Ask::SaveSettingsChecked { text, expected });
+            self.keep(async move {
+                if let Some(error) = crate::link::failure(saved.await) {
+                    eprintln!(
+                        "adroit: the appearance was not written into {environment:?}: {error}"
+                    );
+                }
+            });
         }
     }
 
@@ -588,10 +653,13 @@ impl AppCtx {
         if let Some((was, config)) = &*kept.peek()
             && *was == files
         {
-            return config.clone();
+            let mut config = config.clone();
+            config.keys = view.config.keys.clone();
+            return config;
         }
         let mut config = Config::of_work(&files);
         crate::client_settings::apply(&mut config.settings);
+        config.keys = view.config.keys.clone();
         kept.set(Some((files, config.clone())));
         config
     }

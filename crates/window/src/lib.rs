@@ -6,6 +6,7 @@ mod alerts;
 mod bridge;
 mod build;
 mod bundled_font;
+mod client_keys;
 mod client_settings;
 mod clipboard;
 use adroit_core::completion;

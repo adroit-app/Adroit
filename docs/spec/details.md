@@ -127,7 +127,9 @@ for the whole machine and capacity used on the startup volume, including in
 Shell and Neovim windows and below an environment's connection. The machine is
 that of the environment of the row selected in the tree, or else of what is
 shown.
-Each of these meters can be hidden independently in Settings. A meter that
+Each of these meters can be hidden independently in Settings, once for every
+environment, and a work machine samples only the meters some window shows of
+it. A meter that
 cannot be read is marked unavailable. The meters have distinct colors; high
 usage overrides those colors with a warning. Memory and storage include used
 and total capacity; CPU and GPU include hardware information when available.

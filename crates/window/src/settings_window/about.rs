@@ -10,7 +10,6 @@ use crate::build::build;
 use crate::components::{SettingGroup, SettingRow};
 use crate::feed::use_config;
 use crate::icons::{Icon, IconView};
-use crate::keys_pane::keys_path;
 use crate::link::Link;
 use crate::paths::home;
 
@@ -25,13 +24,21 @@ pub(super) fn AboutPane() -> Element {
     let files = {
         let config = config.read();
         let settings = config.files().settings.as_ref();
+        // The work settings are on the environment's work machine, the key
+        // bindings on this computer.
         [
             (
                 "Settings",
                 settings.map(|f| f.path.clone()).unwrap_or_default(),
                 "",
+                remote,
             ),
-            ("Key bindings", keys_path(&config), KEYS_STARTER),
+            (
+                "Key bindings",
+                crate::client_keys::path(),
+                KEYS_STARTER,
+                false,
+            ),
         ]
     };
     let version = build();
@@ -54,7 +61,7 @@ pub(super) fn AboutPane() -> Element {
             }
         }
         SettingGroup { title: "Files",
-            for (name, path, starter) in files {
+            for (name, path, starter, remote) in files {
                 SettingRow { key: "{name}", label: name, hint: if remote { path.display().to_string() } else { tilde(&path, &home()) },
                     button {
                         disabled: remote,

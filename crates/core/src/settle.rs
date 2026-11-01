@@ -357,6 +357,7 @@ pub(crate) fn sight(state: &ViewState, environment: &EnvironmentId) -> Sight {
     );
     Sight {
         agents: heading && state.details.shown.open,
+        system: state.config.usage(),
         tree: tree::sight(&state.tree, environment),
         past: state.picker.past_sight(environment),
         pick: state.picker.sight_in(environment),

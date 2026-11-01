@@ -598,9 +598,7 @@ fn ctrl_q() -> Msg {
 
 /// The window with the user's own bindings in force.
 fn bound(text: &str) -> Scenario {
-    window().tell(adroit_protocol::ConfigChange::Keys {
-        file: crate::config::testing::keys_file(text),
-    })
+    window().send(Msg::KeysRead(crate::config::testing::keys_file(text)))
 }
 
 fn performed(run: &Scenario) -> Vec<Action> {

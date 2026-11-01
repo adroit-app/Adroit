@@ -37,6 +37,11 @@ pub struct Sight {
     /// sight reads the same to a host that knows nothing of it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub agents: bool,
+    /// The machine's resources the window shows while the details are
+    /// open, which the host samples; the host's own settings name them for
+    /// a window that does not say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system: Option<adroit_model::config::UsageSettings>,
     /// What the tree lists.
     pub tree: TreeSight,
     /// The conversations the agents kept that are listed, while they are.

@@ -124,33 +124,32 @@ enum Pane {
 }
 
 impl Pane {
-    /// The panes of settings, in the order the sidebar lists them; About is
-    /// set apart below them.
-    const ALL: [Pane; 11] = [
+    /// The panes of the environment edited, in the order the sidebar lists
+    /// them under its name.
+    const ENVIRONMENT: [Pane; 4] = [
         Pane::Environment,
         Pane::General,
-        Pane::Appearance,
         Pane::Agents,
         Pane::Programs,
-        Pane::Keys,
+    ];
+
+    /// The panes of this computer, for every environment, in the order the
+    /// sidebar lists them below the environment's; About is set apart below
+    /// them.
+    const EVERY_ENVIRONMENT: [Pane; 7] = [
         Pane::Window,
         Pane::Console,
         Pane::Prompt,
+        Pane::Appearance,
+        Pane::Keys,
         Pane::Serving,
         Pane::Removed,
     ];
 
+    /// Whether it changes nothing of the environment's work settings, so
+    /// stays editable while the environment cannot be reached.
     fn available_offline(self) -> bool {
-        matches!(
-            self,
-            Pane::Environment
-                | Pane::Window
-                | Pane::Console
-                | Pane::Prompt
-                | Pane::Serving
-                | Pane::Removed
-                | Pane::About
-        )
+        !matches!(self, Pane::General | Pane::Agents | Pane::Programs)
     }
 
     /// Where what a pane available offline changes is kept, and for what.
@@ -159,6 +158,9 @@ impl Pane {
             Pane::Environment => "Kept on this computer, for this environment.",
             Pane::Serving => "This computer, for other computers to work on.",
             Pane::Removed => "Kept on this computer; one restored is listed in every window again.",
+            Pane::Appearance => {
+                "Saved on this computer for all environments, and written into each one's work settings."
+            }
             _ => "Saved on this computer for all environments.",
         }
     }
@@ -314,10 +316,10 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
         style { "{root_style}" }
         div { class: "settings",
             nav { class: "settings-nav",
-                p { class: "settings-nav-heading", "{edited.name}" }
-                for p in Pane::ALL {
+                p { class: "settings-nav-heading", "Environment: {edited.name}" }
+                for p in Pane::ENVIRONMENT.into_iter().chain(Pane::EVERY_ENVIRONMENT) {
                     div { key: "{p.title()}",
-                        if p == Pane::Window { p { class: "settings-nav-heading", "This computer · all environments" } }
+                        if p == Pane::EVERY_ENVIRONMENT[0] { p { class: "settings-nav-heading", "All environments" } }
                         NavItem { pane: p, shown: pane }
                         if p == Pane::Agents && pane() == Pane::Agents {
                             for entry in agent_pages::entries(&now()) {
@@ -496,32 +498,6 @@ fn General(now: Settings, change: Callback<Change>) -> Element {
                 }
             }
         }
-        SettingGroup { title: "System usage",
-            SettingRow { label: "CPU", hint: "Whole-machine CPU utilization.",
-                Toggle {
-                    checked: now.usage.cpu,
-                    onchange: move |on| change(Box::new(move |s: &mut Settings| s.usage.cpu = on)),
-                }
-            }
-            SettingRow { label: "GPU", hint: "GPU utilization, when the system reports it.",
-                Toggle {
-                    checked: now.usage.gpu,
-                    onchange: move |on| change(Box::new(move |s: &mut Settings| s.usage.gpu = on)),
-                }
-            }
-            SettingRow { label: "Memory", hint: "Used physical memory as a percentage of total memory.",
-                Toggle {
-                    checked: now.usage.memory,
-                    onchange: move |on| change(Box::new(move |s: &mut Settings| s.usage.memory = on)),
-                }
-            }
-            SettingRow { label: "Storage", hint: "Used capacity on the startup volume.",
-                Toggle {
-                    checked: now.usage.storage,
-                    onchange: move |on| change(Box::new(move |s: &mut Settings| s.usage.storage = on)),
-                }
-            }
-        }
         SettingGroup { title: "Details panel",
             SettingRow { label: "Changes in Log", hint: "How many changes the Log sheet lists.",
                 NumberField {
@@ -595,7 +571,7 @@ fn AppearancePane(now: Settings, change: Callback<Change>) -> Element {
     let themes_dir = made.themes_dir;
     rsx! {
         SettingGroup {
-            SettingRow { label: "Appearance", hint: "System follows the work machine's appearance, now {system}; Light and Dark keep to one theme.",
+            SettingRow { label: "Appearance", hint: "For every environment. System follows each work machine's appearance, this one's now {system}; Light and Dark keep to one theme.",
                 select {
                     onchange: move |e| {
                         let chosen = APPEARANCES
@@ -856,7 +832,34 @@ fn WindowPane(now: Settings, change: Callback<Change>) -> Element {
                     onchange: move |on| change(Box::new(move |s: &mut Settings| s.notify_waiting = on)),
                 }
             }
-    } }
+    }
+        SettingGroup { title: "System usage",
+            SettingRow { label: "CPU", hint: "Whole-machine CPU utilization.",
+                Toggle {
+                    checked: now.usage.cpu,
+                    onchange: move |on| change(Box::new(move |s: &mut Settings| s.usage.cpu = on)),
+                }
+            }
+            SettingRow { label: "GPU", hint: "GPU utilization, when the system reports it.",
+                Toggle {
+                    checked: now.usage.gpu,
+                    onchange: move |on| change(Box::new(move |s: &mut Settings| s.usage.gpu = on)),
+                }
+            }
+            SettingRow { label: "Memory", hint: "Used physical memory as a percentage of total memory.",
+                Toggle {
+                    checked: now.usage.memory,
+                    onchange: move |on| change(Box::new(move |s: &mut Settings| s.usage.memory = on)),
+                }
+            }
+            SettingRow { label: "Storage", hint: "Used capacity on the startup volume.",
+                Toggle {
+                    checked: now.usage.storage,
+                    onchange: move |on| change(Box::new(move |s: &mut Settings| s.usage.storage = on)),
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -864,29 +867,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn disconnected_environments_keep_computer_preferences_editable() {
-        for pane in [
-            Pane::Environment,
-            Pane::Window,
-            Pane::Console,
-            Pane::Prompt,
-            Pane::Serving,
-            Pane::Removed,
-            Pane::About,
-        ] {
+    fn the_panes_for_every_environment_stay_editable_while_the_environment_cannot_be_reached() {
+        for pane in Pane::EVERY_ENVIRONMENT
+            .into_iter()
+            .chain([Pane::Environment, Pane::About])
+        {
             assert!(pane.available_offline(), "{pane:?} should remain available");
         }
-        for pane in [
-            Pane::General,
-            Pane::Appearance,
-            Pane::Agents,
-            Pane::Programs,
-            Pane::Keys,
-        ] {
+        for pane in Pane::ENVIRONMENT
+            .into_iter()
+            .filter(|p| *p != Pane::Environment)
+        {
             assert!(
                 !pane.available_offline(),
                 "{pane:?} edits work-machine settings"
             );
         }
+    }
+
+    #[test]
+    fn every_pane_but_about_is_listed_once_under_one_heading() {
+        let listed: Vec<Pane> = Pane::ENVIRONMENT
+            .into_iter()
+            .chain(Pane::EVERY_ENVIRONMENT)
+            .collect();
+        for pane in &listed {
+            assert_eq!(listed.iter().filter(|p| *p == pane).count(), 1, "{pane:?}");
+        }
+        assert!(!listed.contains(&Pane::About));
+        assert!(Pane::EVERY_ENVIRONMENT.contains(&Pane::Keys));
+        assert!(Pane::EVERY_ENVIRONMENT.contains(&Pane::Appearance));
     }
 }

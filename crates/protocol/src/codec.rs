@@ -76,6 +76,10 @@ mod tests {
                 home: Some("/w".into()),
             }),
             agents: true,
+            system: Some(adroit_model::config::UsageSettings {
+                gpu: false,
+                ..Default::default()
+            }),
             tree: TreeSight {
                 every_worktree: true,
                 marked: BTreeSet::from(["/w".into()]),

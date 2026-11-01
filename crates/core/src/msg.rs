@@ -43,6 +43,10 @@ pub enum Msg {
     WindowFocused(bool),
     /// A key asked to zoom.
     Zoom(zoom::Step),
+    /// This computer's key bindings file, as the window read it now.
+    KeysRead(adroit_protocol::ConfigFile),
+    /// The machine's resources this computer shows, for every environment.
+    UsageChosen(crate::settings::UsageSettings),
 
     // The side panels.
     /// The layout kept from the last run was read.
