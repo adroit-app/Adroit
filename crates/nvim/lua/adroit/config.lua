@@ -48,8 +48,11 @@ function M.watch()
       return
     end
     local watcher = vim.uv.new_fs_event()
+    -- Watched by its whole name: libuv names a file in a folder watched by
+    -- its short Windows name, such as `RUNNER~1`, after the rest of the
+    -- long one.
     local ok = watcher
-      and watcher:start(path, {}, function(err, file)
+      and watcher:start(vim.uv.fs_realpath(path) or path, {}, function(err, file)
         if err or not file then
           return
         end
