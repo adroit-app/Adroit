@@ -15,17 +15,10 @@ const MAX_FOUND: usize = 64;
 /// This machine's host name, as people are shown it beside a pairing
 /// request or an announcement.
 pub fn host_name() -> String {
-    let mut buffer = [0u8; 256];
-    // SAFETY: the buffer and its length match, as gethostname requires.
-    let read = unsafe { libc::gethostname(buffer.as_mut_ptr().cast(), buffer.len()) };
-    let end = buffer.iter().position(|b| *b == 0).unwrap_or(buffer.len());
-    let name = String::from_utf8_lossy(&buffer[..end]);
-    let name = name.trim_end_matches(".local");
-    if read == 0 && !name.is_empty() {
-        name.to_string()
-    } else {
-        "this computer".into()
-    }
+    adroit_sys::host_name()
+        .map(|name| name.trim_end_matches(".local").to_string())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "this computer".into())
 }
 
 /// A gateway's announcement, withdrawn when dropped.

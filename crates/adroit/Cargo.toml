@@ -17,6 +17,7 @@ adroit-connect.workspace = true
 adroit-window = { workspace = true, optional = true }
 
 [dev-dependencies]
+adroit-sys.workspace = true
 adroit-model.workspace = true
 adroit-net.workspace = true
 adroit-protocol = { workspace = true, features = ["client"] }

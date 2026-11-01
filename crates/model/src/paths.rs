@@ -3,8 +3,14 @@
 
 use std::path::{Path, PathBuf};
 
+/// `$HOME`, or on Windows, which sets none, the user's profile folder.
 pub fn home() -> PathBuf {
     std::env::var_os("HOME")
+        .or_else(|| {
+            cfg!(windows)
+                .then(|| std::env::var_os("USERPROFILE"))
+                .flatten()
+        })
         .map(PathBuf::from)
         .unwrap_or_else(|| "/".into())
 }

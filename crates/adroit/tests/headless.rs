@@ -1,6 +1,5 @@
 //! The executable installed on a work machine, built without the window.
 
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
@@ -91,7 +90,7 @@ impl Hosts {
             .prefix("adroit-h-")
             .tempdir_in("/tmp")
             .unwrap();
-        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        adroit_sys::fs::set_mode(dir.path(), 0o700).unwrap();
         Self(dir)
     }
 

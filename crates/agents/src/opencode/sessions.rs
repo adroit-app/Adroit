@@ -57,7 +57,7 @@ fn listed(context: &AgentContext, out: &str, dir: Option<&Path>) -> Vec<Past> {
     let Ok(listed) = serde_json::from_str::<Value>(out) else {
         return Vec::new();
     };
-    let dir = dir.map(|dir| dir.canonicalize().unwrap_or_else(|_| dir.into()));
+    let dir = dir.map(|dir| adroit_sys::fs::canonicalize(dir).unwrap_or_else(|_| dir.into()));
     listed["data"]
         .as_array()
         .into_iter()

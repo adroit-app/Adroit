@@ -8,8 +8,7 @@ pub fn socket_dir() -> tempfile::TempDir {
         .prefix("adroit-")
         .tempdir_in("/tmp")
         .unwrap();
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    adroit_sys::fs::set_mode(dir.path(), 0o700).unwrap();
     dir
 }
 

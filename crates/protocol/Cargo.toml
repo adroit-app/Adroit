@@ -12,6 +12,8 @@ adroit-model.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+adroit-sys = { workspace = true, optional = true }
+felis-transport = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 
 [dev-dependencies]
@@ -19,6 +21,6 @@ adroit-model = { workspace = true, features = ["testing"] }
 
 [features]
 # The asking side of the work host's socket.
-client = ["dep:tokio"]
+client = ["dep:adroit-sys", "dep:felis-transport", "dep:tokio"]
 # Builders for the host's words tests feed a window, for other crates' tests.
 testing = ["adroit-model/testing"]

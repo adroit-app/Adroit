@@ -1,0 +1,8 @@
+# What `vitro test` runs on a guest of another system: every library and the
+# binary linted with each warning an error. The tests are left out, as they
+# start programs and sockets only Unix has.
+#
+# The Windows image needs the MSVC build tools, the Windows SDK and LLVM
+# beside Rust, as vitro's examples/provision/windows-devtools.ps1 installs.
+images = ["windows"]
+command = ["cargo", "clippy", "--workspace", "--lib", "--bins", "--", "-D", "warnings"]

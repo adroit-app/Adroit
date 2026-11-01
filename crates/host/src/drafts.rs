@@ -72,8 +72,8 @@ pub fn consume(
 
 /// Write `drafts` in `directory` whole, or not at all.
 fn keep(directory: &Path, drafts: &Drafts) -> Result<(), String> {
+    use adroit_sys::fs::OpenOptionsExt;
     use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
 
     let temporary = directory.join(format!(
         ".draft-checkpoint-{}.tmp",

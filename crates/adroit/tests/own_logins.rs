@@ -1,7 +1,6 @@
 //! Profiles started in logins of their own, through programs standing
 //! in for the agents' that tell what they were started with.
 
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -54,7 +53,7 @@ fn meddling_shell(dir: &Path) -> PathBuf {
         "#!/bin/sh\nexport ANTHROPIC_API_KEY=from-rc OPENAI_API_KEY=from-rc CODEX_ACCESS_TOKEN=from-rc\nexport CLAUDE_CODE_USE_NEWCLOUD=from-rc OPENAI_EXTRA=from-rc\nexport CLAUDE_CONFIG_DIR=/from-rc CODEX_HOME=/from-rc PI_CODING_AGENT_DIR=/from-rc\nshift 5\nexec \"$@\"\n",
     )
     .unwrap();
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    adroit_sys::fs::set_mode(&path, 0o755).unwrap();
     path
 }
 

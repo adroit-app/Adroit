@@ -1,10 +1,10 @@
 //! Exact intents saved before a remote change can be written to a socket.
 
 use adroit_protocol::{MutationStamp, MutationState, Request, is_generation};
+use adroit_sys::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use serde::{Deserialize, Serialize};
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 const INPUT_LIMIT: u64 = 2 * 1024 * 1024;
@@ -101,7 +101,7 @@ pub struct Journal {
 }
 
 fn private(metadata: &std::fs::Metadata) -> Result<(), String> {
-    if metadata.uid() != unsafe { libc::geteuid() } || metadata.mode() & 0o077 != 0 {
+    if metadata.uid() != adroit_sys::euid() || metadata.mode() & 0o077 != 0 {
         return Err("mutation journal must be private and owned by this user".into());
     }
     Ok(())
@@ -112,12 +112,9 @@ fn directory(path: &Path) -> Result<(), String> {
         Ok(()) => {
             // The mode given to mkdir is narrowed by the umask, which another
             // thread binding a socket may have narrowed for a moment.
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
-                .map_err(|e| e.to_string())?;
+            adroit_sys::fs::set_mode(path, 0o700).map_err(|e| e.to_string())?;
             if let Some(parent) = path.parent() {
-                File::open(parent)
-                    .and_then(|parent| parent.sync_all())
-                    .map_err(|e| e.to_string())?;
+                adroit_sys::fs::sync_dir(parent).map_err(|e| e.to_string())?;
             }
         }
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
@@ -147,7 +144,7 @@ impl Journal {
             .create(true)
             .truncate(false)
             .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW)
+            .custom_flags(adroit_sys::fs::O_NOFOLLOW)
             .open(root.join("owner.lock"))
             .map_err(|e| e.to_string())?;
         let metadata = owner.metadata().map_err(|e| e.to_string())?;
@@ -194,7 +191,7 @@ impl Journal {
     fn read(&self, path: &Path) -> Result<Record, String> {
         let file = OpenOptions::new()
             .read(true)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .custom_flags(adroit_sys::fs::O_NOFOLLOW | adroit_sys::fs::O_NONBLOCK)
             .open(path)
             .map_err(|e| e.to_string())?;
         let metadata = file.metadata().map_err(|e| e.to_string())?;

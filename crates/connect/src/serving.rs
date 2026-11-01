@@ -268,6 +268,7 @@ fn reachable_at(listening: &[String], host: &str, locals: &[std::net::IpAddr]) -
 
 /// This computer's addresses another computer can reach: neither loopback
 /// nor link-local, IPv4 first.
+#[cfg(unix)]
 fn local_addresses() -> Vec<std::net::IpAddr> {
     let mut addresses = Vec::new();
     let mut list: *mut libc::ifaddrs = std::ptr::null_mut();
@@ -306,6 +307,12 @@ fn local_addresses() -> Vec<std::net::IpAddr> {
     }
     addresses.sort_by_key(|ip| ip.is_ipv6());
     addresses
+}
+
+/// No address: this computer is served to others only from Unix.
+#[cfg(not(unix))]
+fn local_addresses() -> Vec<std::net::IpAddr> {
+    Vec::new()
 }
 
 /// Registers the served instance's hosts and gateway as the user's services

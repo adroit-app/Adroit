@@ -369,13 +369,12 @@ agent = "codex"
 
     #[test]
     fn a_start_whose_program_cannot_be_found_or_state_made_says_what_to_do() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         let bin = dir.path().join("bin");
         std::fs::create_dir(&bin).unwrap();
         let program = |path: &Path, mode| {
             std::fs::write(path, "").unwrap();
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+            adroit_sys::fs::set_mode(path, mode).unwrap();
         };
         program(&bin.join("claude"), 0o755);
         let cwd = dir.path();
@@ -427,14 +426,9 @@ agent = "codex"
 
     #[test]
     fn a_program_is_looked_up_on_the_path_its_profile_sets_before_the_one_it_is_started_with() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("codex"), "").unwrap();
-        std::fs::set_permissions(
-            dir.path().join("codex"),
-            std::fs::Permissions::from_mode(0o755),
-        )
-        .unwrap();
+        adroit_sys::fs::set_mode(dir.path().join("codex"), 0o755).unwrap();
         let mut codex = AgentContext::builtin(Agent::Codex);
         codex
             .launch

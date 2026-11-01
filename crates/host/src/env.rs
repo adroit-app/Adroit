@@ -20,6 +20,7 @@ const CLAUDE_SESSION: &[&str] = &[
 /// The shell the account logs in with, from the user database. `$SHELL` is
 /// left aside: it is whatever the program that started adroit had set, such
 /// as a development shell's own.
+#[cfg(unix)]
 pub fn login_shell() -> Option<String> {
     // SAFETY: getpwuid returns a pointer into static storage, or null; the
     // name is copied out at once, before anything else can call it.
@@ -33,6 +34,18 @@ pub fn login_shell() -> Option<String> {
             .into_owned();
         (!shell.is_empty()).then_some(shell)
     }
+}
+
+/// PowerShell, as Windows keeps no login shell in its user database: the
+/// one installed apart, else the one Windows comes with.
+#[cfg(not(unix))]
+pub fn login_shell() -> Option<String> {
+    let here = std::path::Path::new(".");
+    Some(if adroit_term::runnable("pwsh", here, &[]) {
+        "pwsh".into()
+    } else {
+        "powershell".into()
+    })
 }
 
 /// The `PATH` the user's login `shell` sets up, which a window opened from

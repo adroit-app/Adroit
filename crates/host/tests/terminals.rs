@@ -3,7 +3,6 @@ use adroit_host::settings::Settings;
 use adroit_host::terminals;
 use adroit_model::TerminalResourceId;
 use adroit_term::{Daemon, Input};
-use std::os::unix::fs::PermissionsExt;
 use std::time::Duration;
 
 async fn daemon() -> (Daemon, tempfile::TempDir) {
@@ -11,7 +10,7 @@ async fn daemon() -> (Daemon, tempfile::TempDir) {
         .prefix("adroit-tools-")
         .tempdir_in("/tmp")
         .unwrap();
-    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    adroit_sys::fs::set_mode(dir.path(), 0o700).unwrap();
     let socket = dir.path().join("daemon.sock");
     let serving = socket.clone();
     tokio::spawn(async move {

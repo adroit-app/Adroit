@@ -11,6 +11,7 @@ use super::{Code, Error, Result};
 pub const VERSION: u32 = 1;
 pub const MAX_FRAME: usize = 1024 * 1024;
 
+#[cfg(unix)]
 pub fn socket(root: &Path) -> PathBuf {
     use std::os::unix::ffi::OsStrExt;
     let path = root.join("delegation.sock");
@@ -22,8 +23,14 @@ pub fn socket(root: &Path) -> PathBuf {
     for byte in root.as_os_str().as_bytes() {
         hash = (hash ^ u128::from(*byte)).wrapping_mul(0x1000000000000000000013b);
     }
-    let uid = unsafe { libc::geteuid() };
+    let uid = adroit_sys::euid();
     PathBuf::from(format!("/tmp/adroit-{uid}/d{hash:032x}.sock"))
+}
+
+/// The socket in `root`, whose path no length limit holds to here.
+#[cfg(windows)]
+pub fn socket(root: &Path) -> PathBuf {
+    root.join("delegation.sock")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -159,7 +166,7 @@ pub async fn ask(
             format!("cannot reach the work host: {error}"),
         )
     })?;
-    let (read, mut write) = stream.into_split();
+    let (read, mut write) = tokio::io::split(stream);
     write_frame(
         &mut write,
         &Request {
@@ -180,10 +187,10 @@ pub async fn ask(
 const REPLACING: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Connect to `socket`, waiting while no work host listens there.
-async fn connect(socket: &Path) -> std::io::Result<tokio::net::UnixStream> {
+async fn connect(socket: &Path) -> std::io::Result<adroit_sys::local::Stream> {
     let until = tokio::time::Instant::now() + REPLACING;
     loop {
-        match tokio::net::UnixStream::connect(socket).await {
+        match adroit_sys::local::connect(socket).await {
             Err(error)
                 if matches!(
                     error.kind(),

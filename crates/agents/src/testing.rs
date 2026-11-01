@@ -9,11 +9,10 @@ use crate::Started;
 /// directory of its own: the directory, gone once dropped, and the
 /// program's path.
 pub fn program(name: &str, body: &str) -> (tempfile::TempDir, PathBuf) {
-    use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
     let program = dir.path().join(name);
     std::fs::write(&program, format!("#!/bin/sh\n{body}\n")).unwrap();
-    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+    adroit_sys::fs::set_mode(&program, 0o755).unwrap();
     (dir, program)
 }
 

@@ -295,7 +295,7 @@ fn exists(path: &Path) -> Result<bool> {
 }
 
 fn canonical(path: &Path) -> Result<PathBuf> {
-    path.canonicalize()
+    adroit_sys::fs::canonicalize(path)
         .map_err(|error| format!("cannot resolve {}: {error}", path.display()))
 }
 

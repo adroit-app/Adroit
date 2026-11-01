@@ -4,7 +4,6 @@
 use crate::Target;
 use adroit_protocol::client::Connection;
 use adroit_protocol::{RemoteInfo, SPOKEN, agree};
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -271,14 +270,24 @@ const PAIRING_WAIT: Duration = Duration::from_secs(5 * 60);
 
 /// A private folder for forwarded sockets, in /tmp so their paths stay
 /// within the platform's small limit.
+#[cfg(unix)]
 fn private_sockets() -> Result<tempfile::TempDir, String> {
     let sockets = tempfile::Builder::new()
         .prefix("adroit-c-")
         .tempdir_in("/tmp")
         .map_err(|e| e.to_string())?;
-    std::fs::set_permissions(sockets.path(), std::fs::Permissions::from_mode(0o700))
-        .map_err(|e| e.to_string())?;
+    adroit_sys::fs::set_mode(sockets.path(), 0o700).map_err(|e| e.to_string())?;
     Ok(sockets)
+}
+
+/// A folder that names the forwarded pipes apart from every other client's,
+/// as each is named after it.
+#[cfg(windows)]
+fn private_sockets() -> Result<tempfile::TempDir, String> {
+    tempfile::Builder::new()
+        .prefix("adroit-c-")
+        .tempdir()
+        .map_err(|e| e.to_string())
 }
 
 /// The selected work machine, paired through its gateway.

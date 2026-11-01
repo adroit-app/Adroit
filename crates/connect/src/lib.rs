@@ -11,11 +11,11 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 pub fn read_config(path: &Path, limit: u64) -> std::io::Result<Option<String>> {
+    use adroit_sys::fs::OpenOptionsExt;
     use std::io::Read;
-    use std::os::unix::fs::OpenOptionsExt;
     let file = match std::fs::OpenOptions::new()
         .read(true)
-        .custom_flags(libc::O_NONBLOCK)
+        .custom_flags(adroit_sys::fs::O_NONBLOCK)
         .open(path)
     {
         Ok(file) => file,

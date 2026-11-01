@@ -23,6 +23,8 @@ impl ShellLaunch {
     pub fn command_line(&self, login: &str) -> (String, Vec<String>) {
         match self.command.split_first() {
             Some((program, args)) => (program.clone(), args.to_vec()),
+            // Windows shells have no login mode.
+            None if cfg!(windows) => (login.to_string(), Vec::new()),
             None => (login.to_string(), vec!["-l".into()]),
         }
     }
@@ -63,7 +65,9 @@ impl Launch {
             self.command.clone()
         };
         line.extend(args.iter().cloned());
-        if !self.via_shell {
+        // Windows shells read no startup files that set a program's
+        // environment; a program there gets the account's from the system.
+        if !self.via_shell || cfg!(windows) {
             let program = line.remove(0);
             return (program, line);
         }

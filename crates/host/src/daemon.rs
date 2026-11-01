@@ -18,7 +18,14 @@ pub fn socket() -> PathBuf {
 
 /// The daemon the window talks to.
 pub fn daemon() -> Daemon {
-    Daemon::new(socket()).with_startup_lease(crate::work_host::adroit_program())
+    let daemon = Daemon::new(socket());
+    // A lease replaces itself with the program it holds, which only `exec`
+    // does; Windows holds programs behind the gate alone.
+    if cfg!(unix) {
+        daemon.with_startup_lease(crate::work_host::adroit_program())
+    } else {
+        daemon
+    }
 }
 
 /// The arguments that have adroit serve the daemon at its socket.
@@ -39,6 +46,10 @@ pub fn terminfo_dir() -> PathBuf {
 /// Compile the entry into `dir`, so programs in a session can read the
 /// terminal they run in.
 pub fn install_terminfo(dir: &Path) -> std::io::Result<()> {
+    // Windows programs read no terminfo, and Windows has no `tic` to compile it.
+    if cfg!(windows) {
+        return Ok(());
+    }
     std::fs::create_dir_all(dir)?;
     let source = dir.join("felis.terminfo");
     std::fs::write(&source, TERMINFO)?;

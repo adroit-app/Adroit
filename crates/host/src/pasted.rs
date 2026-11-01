@@ -86,7 +86,7 @@ pub fn copy(dir: &Path, from: &Path, now: SystemTime) -> Result<PathBuf, Error> 
 /// after `now`. A pasted image is often a screenshot, so the file and a `dir`
 /// made for it are the user's alone.
 fn write(dir: &Path, ext: &str, bytes: &[u8], now: SystemTime) -> Result<PathBuf, Error> {
-    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+    use adroit_sys::fs::{DirBuilderExt, OpenOptionsExt};
     std::fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)
@@ -158,7 +158,7 @@ mod tests {
 
     #[test]
     fn a_pasted_image_and_the_folder_it_is_kept_in_are_open_to_no_one_else() {
-        use std::os::unix::fs::PermissionsExt;
+        use adroit_sys::fs::PermissionsExt;
         let root = tempfile::tempdir().unwrap();
         let dir = root.path().join("pasted");
 

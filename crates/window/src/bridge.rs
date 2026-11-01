@@ -952,7 +952,32 @@ fn refused(effect: &Effect, remote: impl Fn(&EnvironmentId) -> bool) -> Option<&
 
 /// `/usr/bin/open` run with `args`, without waiting for it.
 pub(crate) fn open<const N: usize>(args: [String; N]) {
+    open_args(args);
+}
+
+/// `/usr/bin/open` run with `args`, without waiting for it: `-R` and a path
+/// shows it in the Finder, `-t` and a path opens it in the text editor, and a
+/// path or an address alone opens it as the Finder would.
+#[cfg(not(windows))]
+pub(crate) fn open_args(args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>) {
     run_detached("/usr/bin/open", args);
+}
+
+/// What `/usr/bin/open` does with `args` on a Mac, done by Windows' own:
+/// Explorer shows a path or opens it as its type says, and Notepad edits text.
+#[cfg(windows)]
+pub(crate) fn open_args(args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>) {
+    let args: Vec<std::ffi::OsString> = args.into_iter().map(|a| a.as_ref().into()).collect();
+    match args.as_slice() {
+        [how, path] if how == "-R" => {
+            let mut select = std::ffi::OsString::from("/select,");
+            select.push(path);
+            run_detached("explorer", [select]);
+        }
+        [how, path] if how == "-t" => run_detached("notepad", [path]),
+        [target] => run_detached("explorer", [target]),
+        _ => {}
+    }
 }
 
 /// `program` run with `args`, without waiting for it.
@@ -973,23 +998,18 @@ pub(crate) fn run_detached(
 /// named rather than inherited: the window process carries none, as it
 /// shows several environments.
 fn work_host(socket: std::path::PathBuf, terminal: &std::path::Path, work: &str) -> To {
-    let mut args: Vec<String> = ["ADROIT_ENVIRONMENT", "ADROIT_REMOTE"]
-        .into_iter()
-        .flat_map(|name| ["-u".to_string(), name.to_string()])
-        .collect();
-    args.extend([
-        format!("ADROIT_WORK_INSTANCE={work}"),
-        format!("ADROIT_HOST={}", socket.display()),
-        format!("ADROIT_DAEMON={}", terminal.display()),
-        crate::panes::adroit_program()
-            .to_string_lossy()
-            .into_owned(),
-        "host".into(),
-    ]);
+    let env = vec![
+        ("ADROIT_ENVIRONMENT".into(), None),
+        ("ADROIT_REMOTE".into(), None),
+        ("ADROIT_WORK_INSTANCE".into(), Some(work.into())),
+        ("ADROIT_HOST".into(), Some(socket.display().to_string())),
+        ("ADROIT_DAEMON".into(), Some(terminal.display().to_string())),
+    ];
     To {
         socket,
-        program: "/usr/bin/env".into(),
-        args,
+        program: crate::panes::adroit_program(),
+        args: vec!["host".into()],
+        env,
         build: crate::build::build(),
     }
 }
@@ -1283,18 +1303,25 @@ mod tests {
             std::path::Path::new("/w/felis/daemon.sock"),
             "work",
         );
-        assert_eq!(to.program, std::path::Path::new("/usr/bin/env"));
-        let (named, run) = to.args.split_at(to.args.len() - 2);
-        assert!(named.contains(&"ADROIT_WORK_INSTANCE=work".to_string()));
-        assert!(named.contains(&"ADROIT_HOST=/w/host/host.sock".to_string()));
-        assert!(named.contains(&"ADROIT_DAEMON=/w/felis/daemon.sock".to_string()));
-        assert!(
-            named
-                .windows(2)
-                .any(|pair| pair == ["-u", "ADROIT_ENVIRONMENT"]),
-            "the window's own environment is not handed down: {named:?}"
+        assert_eq!(to.program, crate::panes::adroit_program());
+        assert_eq!(to.args, ["host"]);
+        let named = |name: &str| {
+            to.env
+                .iter()
+                .find(|(n, _)| n == name)
+                .map(|(_, value)| value.clone())
+        };
+        assert_eq!(named("ADROIT_WORK_INSTANCE"), Some(Some("work".into())));
+        assert_eq!(named("ADROIT_HOST"), Some(Some("/w/host/host.sock".into())));
+        assert_eq!(
+            named("ADROIT_DAEMON"),
+            Some(Some("/w/felis/daemon.sock".into()))
         );
-        assert_eq!(run[1], "host");
+        assert_eq!(
+            named("ADROIT_ENVIRONMENT"),
+            Some(None),
+            "the window's own environment is not handed down"
+        );
     }
 
     #[test]
@@ -1320,14 +1347,17 @@ mod tests {
         else {
             panic!("a local route");
         };
-        let args = work_host(host, &terminal, &work).args;
+        let env = work_host(host, &terminal, &work).env;
         assert!(
-            args.contains(&"ADROIT_WORK_INSTANCE=work".to_string()),
-            "{args:?}"
+            env.contains(&("ADROIT_WORK_INSTANCE".into(), Some("work".into()))),
+            "{env:?}"
         );
         assert!(
-            args.contains(&"ADROIT_HOST=/state/adroit/instances/work/host/host.sock".to_string()),
-            "{args:?}"
+            env.contains(&(
+                "ADROIT_HOST".into(),
+                Some("/state/adroit/instances/work/host/host.sock".into())
+            )),
+            "{env:?}"
         );
     }
 

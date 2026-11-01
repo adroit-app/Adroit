@@ -94,6 +94,24 @@ just macos-make-identity ~/adroit-identity
 just macos-import-identity ~/adroit-identity
 ```
 
+On Windows, build with Rust, the MSVC build tools and LLVM installed, and
+Neovim on `PATH`:
+
+```sh
+cargo run --release -p adroit
+```
+
+Shells there run PowerShell. One `adroit` opens one window, and Claude Code's
+external editor is not handed to it.
+
+To check that the source still builds on Windows from another machine,
+[vitro](https://github.com/lambdalisue/vitro) lints it in a throwaway Windows
+VM as `vitro.toml` says:
+
+```sh
+vitro test windows
+```
+
 ## Start a session
 
 1. Press `Mod+p` (`w` in the tree) to choose a directory. The picker offers

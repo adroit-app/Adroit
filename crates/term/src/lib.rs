@@ -2,6 +2,10 @@
 //! drawing, and keys as the daemon takes them.
 
 mod daemon;
+#[cfg(unix)]
+pub mod gate;
+#[cfg(not(unix))]
+#[path = "gate_unsupported.rs"]
 pub mod gate;
 mod input;
 mod palette;
@@ -13,11 +17,14 @@ mod screen;
 pub mod tags;
 
 pub use daemon::{
-    Daemon, Error, Result, Session, Spawn, Status, detached, listening, own_dir, stop_listening,
+    Daemon, Error, Result, Session, Spawn, Status, detached, detached_with, listening, own_dir,
+    stop_listening,
 };
 pub use input::{Input, Key};
 pub use palette::{Palette, Rgb};
-pub use pane::{Drawn, Pane, Picture, Size, runnable};
+pub use pane::{Drawn, Pane, Picture, Size, resolved, runnable};
+#[cfg(windows)]
+pub use pane::{HOLD, hold};
 pub use permission::InputPermission;
 pub use presence::Presence;
 pub use screen::{Cursor, CursorShape, Line, Part, Run, Screen, Style, block, set_apart};

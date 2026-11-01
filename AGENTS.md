@@ -55,6 +55,7 @@ Run `just ci` before reporting a change as done. CI runs the same recipe.
 | `crates/nvim/` | the Neovims the window embeds for the prompt and the console's reader |
 | `crates/nvim/lua/` | the Lua the prompt's and the reader's Neovims run, taken in with `include_str!` |
 | `crates/vcs/` | what Adroit reads of and makes in git and jj repositories, and the repositories ghq keeps |
+| `crates/sys/` | the Unix calls on files, processes and sockets Adroit makes, and what stands in for them on Windows |
 | `assets/logo/` | the logo as flattened SVG, and `build.py` that regenerates it |
 | `assets/macos/` | the macOS app's Info.plist and the script that assembles the app |
 | `assets/file-icons/` | vim-nerdfont's and vim-glyph-palette's icon tables at a pinned revision, their licences, and `update.sh` that copies them again |
@@ -100,13 +101,14 @@ Scoped Commits:
 | `net` | `crates/net/` |
 | `term` | `crates/term/` |
 | `vcs` | `crates/vcs/` |
+| `sys` | `crates/sys/` |
 | `assets` | `assets/` |
 | `docs` | `docs/concept.md`, `README.md`, `AGENTS.md` |
 | `adr` | `docs/adr/` |
 | `spec` | `docs/spec/` |
 | `ci` | `.github/` |
 | `nix` | `flake.nix`, `flake.lock` |
-| `tooling` | `justfile`, `rust-toolchain.toml`, `Cargo.toml`, `clippy.toml`, `.envrc.sample`, `.gitattributes` |
+| `tooling` | `justfile`, `rust-toolchain.toml`, `Cargo.toml`, `clippy.toml`, `.envrc.sample`, `.gitattributes`, `vitro.toml` |
 | `deps` | dependency updates |
 
 Add a row when a new area appears.

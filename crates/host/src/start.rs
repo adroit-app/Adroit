@@ -316,7 +316,7 @@ fn prepared(
         .dir
         .as_ref()
         .map_or_else(|| cwd.to_path_buf(), |d| cwd.join(d));
-    let dir = std::fs::canonicalize(dir)
+    let dir = adroit_sys::fs::canonicalize(dir)
         .and_then(|d| scratch::start_dir(&d, &crate::paths::scratch_dir(), Moment::now()))?;
     Ok(Prepared { asked, dir, prompt })
 }

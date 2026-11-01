@@ -1,8 +1,8 @@
 //! A file of JSON lines read as it grows, as the agents write their
 //! transcripts: each read takes in only what was written since the last.
 
+use adroit_sys::fs::MetadataExt;
 use std::io::{Read, Seek, SeekFrom};
-use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
 use serde_json::Value;

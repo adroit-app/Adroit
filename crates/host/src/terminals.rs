@@ -234,8 +234,10 @@ async fn execute(
             name,
             command,
         } => {
-            let cwd = std::fs::canonicalize(dir.map_or_else(|| cwd.to_path_buf(), |d| cwd.join(d)))
-                .map_err(|e| e.to_string())?;
+            let cwd = adroit_sys::fs::canonicalize(
+                dir.map_or_else(|| cwd.to_path_buf(), |d| cwd.join(d)),
+            )
+            .map_err(|e| e.to_string())?;
             if !cwd.is_dir() {
                 return Err("the terminal directory is not a folder".into());
             }

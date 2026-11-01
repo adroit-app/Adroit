@@ -2,7 +2,6 @@
 //! that answers every prompt alike, with a login of its own: no
 //! provider's credentials are needed or reached.
 
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::time::Duration;
 
@@ -220,7 +219,7 @@ async fn a_read_only_pi_session_that_reaches_other_sessions_keeps_adroit_s_tools
         ADROIT.replace("@ADROIT@", env!("CARGO_BIN_EXE_adroit")),
     )
     .unwrap();
-    std::fs::set_permissions(&adroit, std::fs::Permissions::from_mode(0o755)).unwrap();
+    adroit_sys::fs::set_mode(&adroit, 0o755).unwrap();
     let out = dir.path().join("tools.json");
     let lister = dir.path().join("lister.ts");
     std::fs::write(&lister, LISTER.replace("@OUT@", &out.display().to_string())).unwrap();

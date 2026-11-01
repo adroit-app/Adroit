@@ -1,10 +1,10 @@
 //! The work host's side of delegation: it answers sessions on a socket,
 //! starts the sessions they ask for, hands Codex its messages and watches
 //! every session it keeps a record of.
+use adroit_sys::fs::{DirBuilderExt, MetadataExt};
 use std::{
     collections::{HashMap, HashSet},
     fs::File,
-    os::unix::fs::{DirBuilderExt, MetadataExt},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::Duration,
@@ -94,16 +94,15 @@ impl Service {
             .create(root)
             .map_err(Error::storage)?;
         let metadata = std::fs::symlink_metadata(root).map_err(Error::storage)?;
-        // SAFETY: geteuid only reads the current process identity.
         if !metadata.is_dir()
             || metadata.mode() & 0o077 != 0
-            || metadata.uid() != unsafe { libc::geteuid() }
+            || metadata.uid() != adroit_sys::euid()
         {
             return Err(Error::storage(
                 "the delegation directory must be private and owned by the current user",
             ));
         }
-        let claim = File::open(root).map_err(Error::storage)?;
+        let claim = adroit_sys::fs::lockable(root).map_err(Error::storage)?;
         claim.try_lock().map_err(Error::storage)?;
         let store = Store::open(&super::app::database(root))?;
         let context = Context {
@@ -131,10 +130,10 @@ impl Service {
     }
 }
 
-async fn serve(listener: tokio::net::UnixListener, context: Context) {
+async fn serve(listener: adroit_sys::local::Listener, context: Context) {
     let permits = Arc::new(tokio::sync::Semaphore::new(128));
     loop {
-        let Ok((stream, _)) = listener.accept().await else {
+        let Ok(stream) = listener.accept().await else {
             break;
         };
         let Ok(permit) = permits.clone().try_acquire_owned() else {
@@ -148,8 +147,8 @@ async fn serve(listener: tokio::net::UnixListener, context: Context) {
     }
 }
 
-async fn reply(stream: tokio::net::UnixStream, context: Context) -> Result<()> {
-    let (read, mut write) = stream.into_split();
+async fn reply(stream: adroit_sys::local::Stream, context: Context) -> Result<()> {
+    let (read, mut write) = tokio::io::split(stream);
     let frame = protocol::read_frame(&mut BufReader::new(read)).await?;
     let result = match serde_json::from_slice::<Request>(&frame) {
         Ok(request) if request.version == VERSION => dispatch(&context, request).await,
@@ -296,7 +295,7 @@ async fn start(context: &Context, caller: &Session, start: protocol::Start) -> R
         .check(&profile, start.model.as_deref())
         .map_err(|error| Error::new(Code::Invalid, error))?;
     let dir = start.dir.clone().unwrap_or_else(|| caller.cwd.clone());
-    let dir = std::fs::canonicalize(&dir)
+    let dir = adroit_sys::fs::canonicalize(&dir)
         .ok()
         .filter(|dir| dir.is_dir())
         .ok_or_else(|| Error::new(Code::Invalid, format!("{} is no directory", dir.display())))?;
@@ -385,7 +384,7 @@ async fn listed(all: Vec<Session>, filter: &protocol::Sessions) -> Result<Value>
     let wanted_dir = filter
         .dir
         .as_ref()
-        .map(|dir| std::fs::canonicalize(dir).unwrap_or(dir.clone()));
+        .map(|dir| adroit_sys::fs::canonicalize(dir).unwrap_or(dir.clone()));
     let mut out = Vec::new();
     for session in all.iter().filter(|session| !session.ended) {
         let repository = adroit_vcs::common_dir(&session.cwd).await;

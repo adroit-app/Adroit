@@ -152,7 +152,11 @@ fn kept(path: &Path, dir: Option<&[PathBuf]>, limit: u64) -> Option<Kept> {
 /// `dir` as it is written and as Pi writes it, through the links it passes.
 fn spellings(dir: &Path) -> Vec<PathBuf> {
     let mut spelt = vec![dir.to_path_buf()];
-    spelt.extend(std::fs::canonicalize(dir).ok().filter(|real| real != dir));
+    spelt.extend(
+        adroit_sys::fs::canonicalize(dir)
+            .ok()
+            .filter(|real| real != dir),
+    );
     spelt
 }
 

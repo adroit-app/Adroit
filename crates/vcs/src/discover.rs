@@ -73,7 +73,7 @@ async fn main_work_tree(common_dir: &Path) -> Option<PathBuf> {
     .await
     .ok()?;
     let joined = common_dir.join(out.trim_end_matches('\n'));
-    Some(joined.canonicalize().unwrap_or(joined))
+    Some(adroit_sys::fs::canonicalize(&joined).unwrap_or(joined))
 }
 
 /// The repository a directory belongs to, as Git names its shared directory,
@@ -113,7 +113,7 @@ pub fn linked_common_dir(dir: &Path) -> Option<PathBuf> {
         Ok(relative) => gitdir.join(relative.trim()),
         Err(_) => gitdir,
     };
-    common.canonicalize().ok()
+    adroit_sys::fs::canonicalize(common).ok()
 }
 
 #[cfg(test)]

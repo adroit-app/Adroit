@@ -161,12 +161,14 @@ pub(crate) fn theme(palette: &Palette) -> SessionToDaemonMsg {
 /// session its colours, so a program asking for them at once would race the
 /// window; held, it cannot ask before the line, which is sent after them.
 /// The line's echo moves the cursor down, and is taken back.
+#[cfg(unix)]
 const GATE: &str = r#"IFS= read -r _; printf '\033[H'; exec "$0" "$@""#;
 
 /// What lets a [`gated`] program go.
 const RELEASE: &[u8] = b"\r";
 
 /// `spawn`, its program held back until [`RELEASE`] comes in.
+#[cfg(unix)]
 fn gated(spawn: Spawn) -> Spawn {
     let args = ["-c".to_string(), GATE.to_string(), spawn.program]
         .into_iter()
@@ -176,6 +178,53 @@ fn gated(spawn: Spawn) -> Spawn {
         program: "/bin/sh".into(),
         args,
         ..spawn
+    }
+}
+
+/// `spawn`, its program held back until [`RELEASE`] comes in by this
+/// executable, as [`hold`] does: Windows has no shell to hold it.
+#[cfg(windows)]
+fn gated(spawn: Spawn) -> Spawn {
+    let program = std::env::current_exe()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| "adroit".into());
+    let args = [HOLD.to_string(), spawn.program]
+        .into_iter()
+        .chain(spawn.args)
+        .collect();
+    Spawn {
+        program,
+        args,
+        ..spawn
+    }
+}
+
+/// The argument that starts this executable as [`hold`].
+#[cfg(windows)]
+pub const HOLD: &str = "__hold";
+
+/// Run as a held program's gate, with `args` the program and its arguments:
+/// wait for a line, take its echo back as the shell gate does, then run the
+/// program on this console and end with its exit code.
+#[cfg(windows)]
+pub fn hold(args: &[String]) -> i32 {
+    use std::io::Write;
+    let Some((program, rest)) = args.split_first() else {
+        eprintln!("adroit: nothing to hold");
+        return 2;
+    };
+    let _ = std::io::stdin().read_line(&mut String::new());
+    let _ = std::io::stdout()
+        .write_all(b"\x1b[H")
+        .and_then(|()| std::io::stdout().flush());
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let resolved = resolved(program, &cwd, &[]).unwrap_or_else(|| program.into());
+    match std::process::Command::new(&resolved).args(rest).status() {
+        Ok(status) => status.code().unwrap_or(1),
+        Err(error) => {
+            eprintln!("adroit: cannot start {program}: {error}");
+            127
+        }
     }
 }
 
@@ -252,11 +301,17 @@ fn found(spawn: &Spawn) -> bool {
 /// one written with a `/` taken from `cwd`, any other looked up on the last
 /// `PATH` `env` sets, else on this process's own.
 pub fn runnable(program: &str, cwd: &std::path::Path, env: &[(String, String)]) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    let runs = |p: &std::path::Path| {
-        std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-    };
-    if program.contains('/') {
+    resolved(program, cwd, env).is_some()
+}
+
+/// The file `program` runs from when started in `cwd` with `env`, found as
+/// [`runnable`] says.
+pub fn resolved(
+    program: &str,
+    cwd: &std::path::Path,
+    env: &[(String, String)],
+) -> Option<std::path::PathBuf> {
+    if program.contains('/') || cfg!(windows) && program.contains('\\') {
         return runs(&cwd.join(program));
     }
     let path = env
@@ -266,7 +321,44 @@ pub fn runnable(program: &str, cwd: &std::path::Path, env: &[(String, String)]) 
         .map(|(_, v)| v.clone())
         .or_else(|| std::env::var("PATH").ok())
         .unwrap_or_default();
-    std::env::split_paths(&path).any(|dir| runs(&dir.join(program)))
+    std::env::split_paths(&path).find_map(|dir| runs(&dir.join(program)))
+}
+
+/// `path`, when it is a file that can run.
+#[cfg(unix)]
+fn runs(path: &std::path::Path) -> Option<std::path::PathBuf> {
+    use adroit_sys::fs::PermissionsExt;
+    std::fs::metadata(path)
+        .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+        .then(|| path.to_path_buf())
+}
+
+/// `path`, or `path` with an extension `PATHEXT` names, when it is a file:
+/// Windows has no executable bit, runs a program by its extension, and lets
+/// it be named without one.
+#[cfg(windows)]
+fn runs(path: &std::path::Path) -> Option<std::path::PathBuf> {
+    let extensions = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
+    let named = |p: &std::path::Path| {
+        p.extension().is_some_and(|e| {
+            extensions.split(';').any(|x| {
+                x.trim_start_matches('.')
+                    .eq_ignore_ascii_case(&e.to_string_lossy())
+            })
+        }) && std::fs::metadata(p).is_ok_and(|m| m.is_file())
+    };
+    if named(path) {
+        return Some(path.to_path_buf());
+    }
+    extensions
+        .split(';')
+        .filter(|x| !x.is_empty())
+        .map(|x| {
+            let mut with = path.as_os_str().to_owned();
+            with.push(x);
+            std::path::PathBuf::from(with)
+        })
+        .find(|with| named(with))
 }
 
 pub(crate) fn dark(palette: &Palette) -> bool {
@@ -1102,8 +1194,7 @@ mod tests {
     }
 
     async fn daemon(dir: &std::path::Path) -> Daemon {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        adroit_sys::fs::set_mode(dir, 0o700).unwrap();
         let socket = dir.join("d.sock");
         let serving = socket.clone();
         tokio::spawn(async move {

@@ -270,7 +270,7 @@ impl Catalog {
 }
 
 pub fn lock(path: &Path) -> Result<std::fs::File, String> {
-    use std::os::unix::fs::OpenOptionsExt;
+    use adroit_sys::fs::OpenOptionsExt;
     let file = std::fs::OpenOptions::new()
         .create(true)
         .truncate(false)

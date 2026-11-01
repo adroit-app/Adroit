@@ -2,10 +2,16 @@
 //! the number it holds: an `adroit` opened again asks one to come to the
 //! front, and `adroit editor` offers each the input a session handed its
 //! external editor.
+//!
+//! Windows has no such socket: each process there opens a window of its own,
+//! asks none to come to the front and is offered no editor input.
+#[cfg(unix)]
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::{UnixListener, UnixStream};
+#[cfg(unix)]
+use std::os::unix::net::{UnixListener as Listener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
+#[cfg(unix)]
 use std::time::Duration;
 
 use adroit_model::paths::{window_socket, windows_dir};
@@ -34,6 +40,7 @@ pub enum Response {
 }
 
 /// How long a window is given to answer before it is passed over.
+#[cfg(unix)]
 const ANSWER_WITHIN: Duration = Duration::from_secs(5);
 
 /// The folder the windows of this process's instance answer in.
@@ -42,6 +49,7 @@ pub fn windows() -> PathBuf {
 }
 
 /// Send one request to the window answering on `socket` and read its answer.
+#[cfg(unix)]
 pub fn ask(socket: &Path, request: &Request) -> std::io::Result<Response> {
     let mut stream = UnixStream::connect(socket)?;
     stream.set_read_timeout(Some(ANSWER_WITHIN))?;
@@ -56,6 +64,7 @@ pub fn ask(socket: &Path, request: &Request) -> std::io::Result<Response> {
 
 /// The numbers of the windows open in `windows`, lowest first: those whose
 /// socket takes a connection.
+#[cfg(unix)]
 pub fn open_numbers(windows: &Path) -> Vec<u32> {
     let mut numbers: Vec<u32> = std::fs::read_dir(windows)
         .into_iter()
@@ -66,6 +75,22 @@ pub fn open_numbers(windows: &Path) -> Vec<u32> {
         .collect();
     numbers.sort_unstable();
     numbers
+}
+
+/// What a window here stands in for a socket with.
+#[cfg(windows)]
+#[derive(Debug)]
+pub struct Listener;
+
+#[cfg(windows)]
+pub fn ask(_: &Path, _: &Request) -> std::io::Result<Response> {
+    Err(std::io::ErrorKind::Unsupported.into())
+}
+
+/// None: no window here answers on a socket.
+#[cfg(windows)]
+pub fn open_numbers(_: &Path) -> Vec<u32> {
+    Vec::new()
 }
 
 /// Ask each window open in `windows`, lowest number first, until one gives
@@ -91,7 +116,7 @@ pub fn first_open(windows: &Path, number: u32) -> bool {
 #[derive(Debug)]
 pub struct Claimed {
     pub number: u32,
-    pub listener: UnixListener,
+    pub listener: Listener,
 }
 
 /// Claim the lowest number no open window in `windows` holds, for a window
@@ -104,6 +129,7 @@ pub fn claim(windows: &Path, new: bool) -> std::io::Result<Option<Claimed>> {
     claim_with(windows, new, || Ok(()))
 }
 
+#[cfg(unix)]
 fn claim_with(
     windows: &Path,
     new: bool,
@@ -127,16 +153,30 @@ fn claim_with(
             continue;
         }
         let _ = std::fs::remove_file(&socket);
-        let listener = UnixListener::bind(&socket)?;
+        let listener = Listener::bind(&socket)?;
         return Ok(Some(Claimed { number, listener }));
     }
     unreachable!("a number is free")
 }
 
+#[cfg(windows)]
+fn claim_with(
+    windows: &Path,
+    _: bool,
+    before_first: impl FnOnce() -> std::io::Result<()>,
+) -> std::io::Result<Option<Claimed>> {
+    std::fs::create_dir_all(windows)?;
+    before_first()?;
+    Ok(Some(Claimed {
+        number: 1,
+        listener: Listener,
+    }))
+}
+
 /// The window this process opened, once it claimed a number.
 static CLAIMED: OnceLock<u32> = OnceLock::new();
 /// Its socket, until the window starts answering on it.
-static LISTENER: Mutex<Option<UnixListener>> = Mutex::new(None);
+static LISTENER: Mutex<Option<Listener>> = Mutex::new(None);
 
 /// Open a window of this process's instance: claim a number for it, or,
 /// unless `new`, bring an open window to the front instead. Whether this
@@ -172,7 +212,7 @@ pub(crate) fn kept_path(name: &str) -> PathBuf {
 }
 
 /// The socket this process's window answers on, taken once.
-pub(crate) fn take_listener() -> Option<UnixListener> {
+pub(crate) fn take_listener() -> Option<Listener> {
     LISTENER.lock().unwrap_or_else(|p| p.into_inner()).take()
 }
 
@@ -181,7 +221,8 @@ pub type Asked = (Request, oneshot::Sender<Response>);
 
 /// Read requests from every connection to `listener`, each on its own task,
 /// so a slow caller holds up no other. The window answers them in order.
-pub fn serve(listener: UnixListener) -> std::io::Result<mpsc::UnboundedReceiver<Asked>> {
+#[cfg(unix)]
+pub fn serve(listener: Listener) -> std::io::Result<mpsc::UnboundedReceiver<Asked>> {
     listener.set_nonblocking(true)?;
     let listener = tokio::net::UnixListener::from_std(listener)?;
     let (tx, rx) = mpsc::unbounded_channel();
@@ -193,6 +234,7 @@ pub fn serve(listener: UnixListener) -> std::io::Result<mpsc::UnboundedReceiver<
     Ok(rx)
 }
 
+#[cfg(unix)]
 async fn reply(
     stream: tokio::net::UnixStream,
     window: mpsc::UnboundedSender<Asked>,
@@ -217,9 +259,21 @@ async fn reply(
     write.write_all(out.as_bytes()).await
 }
 
+/// Requests that never come, as nothing here can ask.
+#[cfg(windows)]
+pub fn serve(_: Listener) -> std::io::Result<mpsc::UnboundedReceiver<Asked>> {
+    let (tx, rx) = mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        let _tx = tx;
+        std::future::pending::<()>().await
+    });
+    Ok(rx)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::net::UnixListener;
 
     #[test]
     fn requests_and_answers_keep_the_lines_they_are_written_as() {
@@ -247,9 +301,9 @@ mod tests {
             assert_eq!(serde_json::from_str::<Response>(line).unwrap(), response);
         }
     }
+    use adroit_sys::fs::MetadataExt;
     use std::io::Read;
     use std::os::fd::AsRawFd;
-    use std::os::unix::fs::MetadataExt;
     use std::os::unix::process::CommandExt;
 
     fn temp_windows(tag: &str) -> PathBuf {

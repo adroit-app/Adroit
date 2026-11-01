@@ -77,7 +77,7 @@ fn edit_profile(
 /// The folders that exist, written as the system writes them through their
 /// links, for a login's folder to be written once that way.
 fn canonical(path: &Path) -> Option<PathBuf> {
-    std::fs::canonicalize(path).ok()
+    adroit_sys::fs::canonicalize(path).ok()
 }
 
 /// What the login of a profile is known as, kept while the pages change so

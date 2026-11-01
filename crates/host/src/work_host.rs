@@ -50,7 +50,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// A work host's socket, bound and answering until asked to stop.
 pub struct WorkHostServer {
-    listener: tokio::net::UnixListener,
+    listener: adroit_sys::local::Listener,
     socket: PathBuf,
     _claim: std::fs::File,
 }
@@ -69,7 +69,7 @@ impl WorkHostServer {
         adroit_term::own_dir(socket)?;
         let mut claim_path = socket.as_os_str().to_os_string();
         claim_path.push(".lock");
-        use std::os::unix::fs::OpenOptionsExt;
+        use adroit_sys::fs::OpenOptionsExt;
         // Kept on disk: unlinking a lock file would let two owners lock
         // different inodes while both believe they own this socket.
         let claim = std::fs::OpenOptions::new()
@@ -83,7 +83,7 @@ impl WorkHostServer {
             std::fs::TryLockError::WouldBlock => Error::Taken(socket.to_path_buf()),
             std::fs::TryLockError::Error(error) => Error::Io(error),
         })?;
-        if tokio::net::UnixStream::connect(socket).await.is_ok() {
+        if adroit_sys::local::connect(socket).await.is_ok() {
             return Err(Error::Taken(socket.to_path_buf()));
         }
         // What is left is a socket of a host gone before.
@@ -103,7 +103,7 @@ impl WorkHostServer {
         loop {
             let stream = tokio::select! {
                 accepted = self.listener.accept() => match accepted {
-                    Ok((stream, _)) => stream,
+                    Ok(stream) => stream,
                     Err(_) => return,
                 },
                 _ = stopped.recv() => return,
@@ -122,17 +122,17 @@ impl WorkHostServer {
 
 /// Listen at `socket` in place of whatever an earlier run left there, open
 /// to no one but this user.
-pub(crate) fn bind_private(socket: &Path) -> std::io::Result<tokio::net::UnixListener> {
+pub(crate) fn bind_private(socket: &Path) -> std::io::Result<adroit_sys::local::Listener> {
+    // A named pipe leaves nothing behind, and felis closes it to others.
+    #[cfg(unix)]
     match std::fs::remove_file(socket) {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(e),
     }
-    let listener = tokio::net::UnixListener::bind(socket)?;
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(socket, std::fs::Permissions::from_mode(0o600))?;
-    }
+    let listener = adroit_sys::local::Listener::bind(socket)?;
+    #[cfg(unix)]
+    adroit_sys::fs::set_mode(socket, 0o600)?;
     Ok(listener)
 }
 
@@ -462,16 +462,13 @@ mod tests {
             .prefix("adroit-")
             .tempdir_in("/tmp")
             .unwrap();
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
-        }
+        adroit_sys::fs::set_mode(dir.path(), 0o700).unwrap();
         dir
     }
 
     #[tokio::test]
     async fn a_private_socket_replaces_what_an_earlier_run_left_and_is_open_to_no_one_else() {
-        use std::os::unix::fs::PermissionsExt;
+        use adroit_sys::fs::PermissionsExt;
         let dir = short_dir();
         let socket = dir.path().join("s");
         std::fs::write(&socket, "left").unwrap();

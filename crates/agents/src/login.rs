@@ -57,7 +57,6 @@ pub(crate) fn first_json(out: &str) -> Option<serde_json::Value> {
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::fs::PermissionsExt;
 
     use adroit_model::Agent;
     use adroit_model::config::PiOptions;
@@ -92,7 +91,7 @@ mod tests {
             format!("#!/bin/sh\nprintf '%s' '{out}'\nexit {code}\n"),
         )
         .unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        adroit_sys::fs::set_mode(&script, 0o755).unwrap();
         let mut context = AgentContext::builtin(agent);
         context.launch.command = vec![script.display().to_string()];
         context

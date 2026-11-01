@@ -728,6 +728,7 @@ mod tests {
                 socket,
                 program: "/usr/bin/touch".into(),
                 args: vec![marker.to_string_lossy().into_owned()],
+                env: Vec::new(),
                 build: "test".into(),
             },
             dir.path().join("journal"),

@@ -61,7 +61,6 @@ mod tests {
 
     #[tokio::test]
     async fn read_mode_can_move_above_the_live_screen_into_terminal_scrollback() {
-        use std::os::unix::fs::PermissionsExt;
         use std::time::Duration;
 
         use adroit_nvim::Embedded;
@@ -71,7 +70,7 @@ mod tests {
             .prefix("adroit-read-")
             .tempdir_in("/tmp")
             .unwrap();
-        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        adroit_sys::fs::set_mode(dir.path(), 0o700).unwrap();
         let socket = dir.path().join("d.sock");
         let task = crate::native_test_daemon::serve_process(socket.clone());
         let daemon = Daemon::new(socket);

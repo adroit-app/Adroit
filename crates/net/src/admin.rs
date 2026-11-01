@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::net::UnixStream;
 
 use crate::{Error, Fingerprint, PeerFile};
 
@@ -75,8 +74,7 @@ impl GatewayFiles {
 
 /// Asks the gateway whose admin socket is `socket`.
 pub async fn ask_gateway(socket: impl AsRef<Path>, admin: &Admin) -> std::io::Result<AdminAnswer> {
-    let stream = UnixStream::connect(socket).await?;
-    let (read, mut write) = stream.into_split();
+    let (read, mut write) = tokio::io::split(adroit_sys::local::connect(socket.as_ref()).await?);
     let mut line = serde_json::to_vec(admin).map_err(std::io::Error::other)?;
     line.push(b'\n');
     write.write_all(&line).await?;

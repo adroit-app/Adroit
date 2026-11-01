@@ -1,8 +1,8 @@
 //! Independently supervised hosts, discovered by instance and incarnation.
 
+use adroit_sys::fs::{MetadataExt, OpenOptionsExt};
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -33,16 +33,15 @@ fn invalid(error: impl std::fmt::Display) -> std::io::Error {
 
 pub(crate) fn private_dir(path: &Path, create: bool) -> std::io::Result<()> {
     if create {
-        use std::os::unix::fs::DirBuilderExt;
+        use adroit_sys::fs::DirBuilderExt;
         match std::fs::DirBuilder::new().mode(0o700).create(path) {
-            Ok(()) => std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))?,
+            Ok(()) => adroit_sys::fs::set_mode(path, 0o700)?,
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
             Err(e) => return Err(e),
         }
     }
     let m = std::fs::symlink_metadata(path)?;
-    // SAFETY: geteuid has no preconditions.
-    if !m.is_dir() || m.uid() != unsafe { libc::geteuid() } || m.mode() & 0o777 != 0o700 {
+    if !m.is_dir() || m.uid() != adroit_sys::euid() || m.mode() & 0o777 != 0o700 {
         return Err(invalid(format!(
             "{} is not a private directory of this user",
             path.display()
@@ -54,15 +53,11 @@ pub(crate) fn private_dir(path: &Path, create: bool) -> std::io::Result<()> {
 fn read_private(path: &Path) -> std::io::Result<Vec<u8>> {
     let mut file = OpenOptions::new()
         .read(true)
-        .custom_flags(libc::O_NOFOLLOW)
+        .custom_flags(adroit_sys::fs::O_NOFOLLOW)
         .open(path)?;
     let m = file.metadata()?;
     // SAFETY: geteuid has no preconditions.
-    if !m.is_file()
-        || m.uid() != unsafe { libc::geteuid() }
-        || m.mode() & 0o077 != 0
-        || m.len() > LIMIT
-    {
+    if !m.is_file() || m.uid() != adroit_sys::euid() || m.mode() & 0o077 != 0 || m.len() > LIMIT {
         return Err(invalid(format!(
             "{} is not a private bounded discovery file",
             path.display()
@@ -191,7 +186,7 @@ impl Publication {
             .create(true)
             .truncate(false)
             .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW)
+            .custom_flags(adroit_sys::fs::O_NOFOLLOW)
             .open(dir.join(format!("{role}.lock")))?;
         claim
             .try_lock()
@@ -211,8 +206,7 @@ impl Publication {
             }
         }
         // /tmp keeps Unix socket paths within the platform's small limit.
-        // SAFETY: geteuid has no preconditions.
-        let sockets = PathBuf::from(format!("/tmp/adroit-r-{}", unsafe { libc::geteuid() }));
+        let sockets = PathBuf::from(format!("/tmp/adroit-r-{}", adroit_sys::euid()));
         private_dir(&sockets, true)?;
         let sockets = sockets.join(&identity);
         private_dir(&sockets, true)?;
@@ -324,14 +318,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("record");
         std::fs::write(&file, "private").unwrap();
-        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+        adroit_sys::fs::set_mode(&file, 0o600).unwrap();
         assert_eq!(read_private(&file).unwrap(), b"private");
         let link = dir.path().join("link");
         std::os::unix::fs::symlink(&file, &link).unwrap();
         assert!(read_private(&link).is_err());
-        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+        adroit_sys::fs::set_mode(&file, 0o644).unwrap();
         assert!(read_private(&file).is_err());
-        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+        adroit_sys::fs::set_mode(&file, 0o600).unwrap();
         std::fs::write(&file, vec![b'x'; LIMIT as usize + 1]).unwrap();
         assert!(read_private(&file).is_err());
     }

@@ -8,7 +8,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-libc.workspace = true
+adroit-sys.workspace = true
 mdns-sd.workspace = true
 hkdf.workspace = true
 hmac.workspace = true

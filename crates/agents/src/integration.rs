@@ -34,7 +34,7 @@ pub(crate) fn instance_dir(agent: Agent) -> PathBuf {
 /// moment reads the old file or the new one whole, and whatever stood at
 /// `path`, a link included, is replaced rather than written through.
 pub(crate) fn write_whole(path: &Path, contents: &str) -> std::io::Result<()> {
-    use std::os::unix::fs::OpenOptionsExt;
+    use adroit_sys::fs::OpenOptionsExt;
     if std::fs::symlink_metadata(path).is_ok_and(|m| m.is_file())
         && std::fs::read(path).is_ok_and(|kept| kept == contents.as_bytes())
     {

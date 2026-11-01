@@ -1,7 +1,7 @@
 //! Which session opened which and what sessions told each other, kept by the session
 //! daemon so both outlive the window and the sessions.
+use adroit_sys::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::fs::{DirBuilder, OpenOptions};
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -478,8 +478,7 @@ fn private_database(path: &Path) -> Result<bool> {
         Ok(_) => Ok(true),
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
             let metadata = std::fs::symlink_metadata(path).map_err(Error::storage)?;
-            // SAFETY: geteuid only reads the current process identity.
-            if !metadata.is_file() || metadata.uid() != unsafe { libc::geteuid() } {
+            if !metadata.is_file() || metadata.uid() != adroit_sys::euid() {
                 return Err(Error::storage(
                     "the database must be a regular file of this user",
                 ));

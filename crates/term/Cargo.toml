@@ -8,6 +8,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+adroit-sys.workspace = true
 adroit-model.workspace = true
 felis-vt.workspace = true
 felis-grid.workspace = true

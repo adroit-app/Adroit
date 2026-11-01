@@ -47,6 +47,8 @@ pub(crate) struct To {
     pub(crate) socket: PathBuf,
     pub(crate) program: PathBuf,
     pub(crate) args: Vec<String>,
+    /// Variables set for it, or taken from what it inherits where `None`.
+    pub(crate) env: Vec<(String, Option<String>)>,
     /// This build, which a host kept has to be of.
     pub(crate) build: String,
 }
@@ -416,14 +418,19 @@ async fn ensure(to: &To) -> Result<(), String> {
         }
         WorkHost::Absent => {}
     }
-    start(&to.socket, &to.program, &to.args).await
+    start(&to.socket, &to.program, &to.args, &to.env).await
 }
 
-/// Start `program` with `args` apart from the window as the work host at
-/// `socket`, and wait until it says hello.
-async fn start(socket: &Path, program: &Path, args: &[String]) -> Result<(), String> {
+/// Start `program` with `args` and `env` apart from the window as the work
+/// host at `socket`, and wait until it says hello.
+async fn start(
+    socket: &Path,
+    program: &Path,
+    args: &[String],
+    env: &[(String, Option<String>)],
+) -> Result<(), String> {
     adroit_term::own_dir(socket).map_err(|e| e.to_string())?;
-    adroit_term::detached(program, args).map_err(|e| e.to_string())?;
+    adroit_term::detached_with(program, args, env).map_err(|e| e.to_string())?;
     let until = tokio::time::Instant::now() + STARTING;
     while tokio::time::Instant::now() < until {
         if let Some(Some(_)) = hello(socket).await {
@@ -476,10 +483,7 @@ mod tests {
             .prefix("adroit-")
             .tempdir_in("/tmp")
             .unwrap();
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
-        }
+        adroit_sys::fs::set_mode(dir.path(), 0o700).unwrap();
         dir
     }
 
@@ -489,6 +493,7 @@ mod tests {
             // Never started: a host of this build always answers.
             program: "/usr/bin/false".into(),
             args: Vec::new(),
+            env: Vec::new(),
             build: BUILD.into(),
         }
     }

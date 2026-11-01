@@ -164,8 +164,12 @@ impl Daemon {
                 running(handles.iter().filter(|h| !h.meta_snapshot().exited).count());
             }
         });
-        let served =
-            felis_daemon::serve_unix(Endpoint::unix(socket), DaemonCaps::default(), pool).await;
+        let served = felis_daemon::serve_unix(
+            Endpoint::from(adroit_sys::local::address(socket)),
+            DaemonCaps::default(),
+            pool,
+        )
+        .await;
         counting.abort();
         served.map_err(|e| Error::Protocol(e.to_string()))
     }
@@ -219,7 +223,11 @@ impl Daemon {
     }
 
     async fn connect(&self, offer: Offer) -> Result<Connection<ReadHalf, WriteHalf>> {
-        Ok(connect(Endpoint::unix(&self.socket), offer).await?)
+        Ok(connect(
+            Endpoint::from(adroit_sys::local::address(&self.socket)),
+            offer,
+        )
+        .await?)
     }
 
     async fn ops(&self) -> Result<Connection<ReadHalf, WriteHalf>> {
@@ -438,6 +446,16 @@ pub(crate) fn spawn_args(spawn: Spawn) -> SpawnArgs {
 /// adroit nor ending its process tree, as a tool stopping it does, ends the
 /// program.
 pub fn detached(program: &Path, args: &[String]) -> std::io::Result<()> {
+    detached_with(program, args, &[])
+}
+
+/// [`detached`], with the variables `env` sets, or takes away where `None`.
+#[cfg(unix)]
+pub fn detached_with(
+    program: &Path,
+    args: &[String],
+    env: &[(String, Option<String>)],
+) -> std::io::Result<()> {
     use std::os::unix::process::CommandExt;
     // The shell leads a new session, starts the program in the background
     // and exits, leaving the program to the system.
@@ -447,6 +465,7 @@ pub fn detached(program: &Path, args: &[String]) -> std::io::Result<()> {
         .arg(r#""$0" "$@" </dev/null >/dev/null 2>&1 &"#)
         .arg(program)
         .args(args);
+    with_env(&mut shell, env);
     // SAFETY: setsid(2) only changes the forked child's own session and is
     // safe to call between fork and exec.
     unsafe {
@@ -466,10 +485,18 @@ pub fn detached(program: &Path, args: &[String]) -> std::io::Result<()> {
     }
 }
 
+fn with_env(command: &mut std::process::Command, env: &[(String, Option<String>)]) {
+    for (name, value) in env {
+        match value {
+            Some(value) => command.env(name, value),
+            None => command.env_remove(name),
+        };
+    }
+}
+
 /// The process listening at `socket`, whatever it answers, if any does.
 pub fn listening(socket: &Path) -> Option<u32> {
-    let stream = std::os::unix::net::UnixStream::connect(socket).ok()?;
-    peer_pid(&stream)
+    adroit_sys::local::server_pid(socket)
 }
 
 /// Stop the process listening at `socket` and wait until it is gone, asking
@@ -486,9 +513,8 @@ where
     if matches!(asked, Ok(Ok(()))) && gone(pid, STOPPING).await {
         return Ok(true);
     }
-    for signal in [libc::SIGTERM, libc::SIGKILL] {
-        // SAFETY: kill(2) only sends a signal to the process named.
-        unsafe { libc::kill(pid as libc::pid_t, signal) };
+    for signal in [adroit_sys::process::terminate, adroit_sys::process::kill] {
+        signal(pid);
         if gone(pid, STOPPING).await {
             return Ok(true);
         }
@@ -502,14 +528,46 @@ const ASK_STOP: Duration = Duration::from_secs(2);
 /// How long a daemon asked or signalled to stop is given to end.
 const STOPPING: Duration = Duration::from_secs(3);
 
+/// Start `program` with `args` apart from this process, with no console of
+/// its own and in a process group of its own, so neither closing adroit nor
+/// a Ctrl-C sent to its console ends the program.
+#[cfg(windows)]
+pub fn detached_with(
+    program: &Path,
+    args: &[String],
+    env: &[(String, Option<String>)],
+) -> std::io::Result<()> {
+    use std::os::windows::process::CommandExt;
+    const DETACHED_PROCESS: u32 = 0x0000_0008;
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+    let mut command = std::process::Command::new(program);
+    with_env(&mut command, env);
+    command
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
+        .spawn()
+        .map(drop)
+}
+
+/// Make the folder `socket` is in, for the files kept beside it; the pipe
+/// itself is in no folder, and felis gives it an access list of this user
+/// alone.
+#[cfg(windows)]
+pub fn own_dir(socket: &Path) -> Result<()> {
+    if let Some(dir) = socket.parent().filter(|d| !d.as_os_str().is_empty()) {
+        std::fs::create_dir_all(dir)?;
+    }
+    Ok(())
+}
+
 /// Whether process `pid` ends within `within`.
 async fn gone(pid: u32, within: Duration) -> bool {
     let until = tokio::time::Instant::now() + within;
     loop {
-        // SAFETY: signal 0 only asks whether the process exists.
-        let alive = unsafe { libc::kill(pid as libc::pid_t, 0) } == 0
-            || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
-        if !alive {
+        if !adroit_sys::process::alive(pid) {
             return true;
         }
         if tokio::time::Instant::now() >= until {
@@ -519,54 +577,11 @@ async fn gone(pid: u32, within: Duration) -> bool {
     }
 }
 
-/// The process at the other end of `stream`.
-#[cfg(target_os = "macos")]
-fn peer_pid(stream: &std::os::unix::net::UnixStream) -> Option<u32> {
-    use std::os::fd::AsRawFd;
-    let mut pid: libc::pid_t = 0;
-    let mut len = std::mem::size_of::<libc::pid_t>() as libc::socklen_t;
-    // SAFETY: the buffer is a pid_t and `len` says its size, as
-    // LOCAL_PEERPID fills.
-    let read = unsafe {
-        libc::getsockopt(
-            stream.as_raw_fd(),
-            libc::SOL_LOCAL,
-            libc::LOCAL_PEERPID,
-            (&raw mut pid).cast(),
-            &mut len,
-        )
-    };
-    (read == 0 && pid > 0).then_some(pid as u32)
-}
-
-/// The process at the other end of `stream`.
-#[cfg(not(target_os = "macos"))]
-fn peer_pid(stream: &std::os::unix::net::UnixStream) -> Option<u32> {
-    use std::os::fd::AsRawFd;
-    let mut cred = libc::ucred {
-        pid: 0,
-        uid: 0,
-        gid: 0,
-    };
-    let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
-    // SAFETY: the buffer is a ucred and `len` says its size, as
-    // SO_PEERCRED fills.
-    let read = unsafe {
-        libc::getsockopt(
-            stream.as_raw_fd(),
-            libc::SOL_SOCKET,
-            libc::SO_PEERCRED,
-            (&raw mut cred).cast(),
-            &mut len,
-        )
-    };
-    (read == 0 && cred.pid > 0).then_some(cred.pid as u32)
-}
-
 /// Make the folder `socket` is in, open to no one else, as adroit's hosts
 /// listen only in such a folder; one already there has to be so.
+#[cfg(unix)]
 pub fn own_dir(socket: &Path) -> Result<()> {
-    use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+    use adroit_sys::fs::{DirBuilderExt, MetadataExt};
     let Some(dir) = socket.parent().filter(|d| !d.as_os_str().is_empty()) else {
         return Ok(());
     };
@@ -575,15 +590,14 @@ pub fn own_dir(socket: &Path) -> Result<()> {
     }
     match std::fs::DirBuilder::new().mode(0o700).create(dir) {
         // The umask may have taken more than the others' bits away.
-        Ok(()) => std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?,
+        Ok(()) => adroit_sys::fs::set_mode(dir, 0o700)?,
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
         Err(e) => return Err(e.into()),
     }
     // An existing folder is the user's to open or close: tightening it would
     // hide whatever set it loose, and a shared one such as /tmp cannot be.
     let meta = std::fs::metadata(dir)?;
-    // SAFETY: geteuid(2) has no preconditions and cannot fail.
-    let me = unsafe { libc::geteuid() };
+    let me = adroit_sys::euid();
     if !meta.is_dir() || meta.uid() != me || meta.mode() & 0o777 != 0o700 {
         return Err(Error::OpenFolder(dir.to_path_buf()));
     }
@@ -659,13 +673,12 @@ mod tests {
     }
 
     fn mode(dir: &Path) -> u32 {
-        use std::os::unix::fs::PermissionsExt;
+        use adroit_sys::fs::PermissionsExt;
         std::fs::metadata(dir).unwrap().permissions().mode() & 0o777
     }
 
     fn with_mode(dir: &Path, mode: u32) {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(mode)).unwrap();
+        adroit_sys::fs::set_mode(dir, mode).unwrap();
     }
 
     #[test]

@@ -50,6 +50,8 @@ pub mod work_host;
 use adroit_core::content;
 
 pub use adroit_term::gate::run as startup_lease;
+#[cfg(windows)]
+pub use adroit_term::{HOLD, hold};
 pub use daemon::cli as daemon_cli;
 pub use start::cli as session_cli;
 pub use terminals::cli as terminal_cli;

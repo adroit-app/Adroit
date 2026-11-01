@@ -237,8 +237,7 @@ fn remove(unit: &Unit) -> std::io::Result<()> {
 }
 
 fn uid() -> u32 {
-    // SAFETY: getuid has no preconditions.
-    unsafe { libc::getuid() }
+    adroit_sys::uid()
 }
 
 /// Writes the services and starts them; returns what the operator should
@@ -682,8 +681,7 @@ mod tests {
         let plan = plan(home.path());
         let run = Recorded::new("yes");
         assert!(enable(&plan, Platform::Launchd, &run).unwrap().is_empty());
-        // SAFETY: getuid has no preconditions.
-        let uid = unsafe { libc::getuid() };
+        let uid = adroit_sys::uid();
         let units = units(&plan, Platform::Launchd);
         for unit in &units {
             assert_eq!(std::fs::read_to_string(&unit.file).unwrap(), unit.text);

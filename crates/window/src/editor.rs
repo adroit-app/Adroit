@@ -45,12 +45,11 @@ pub fn script(program: &Path, windows: &Path) -> String {
 }
 
 fn write_script(path: &Path, program: &Path, windows: &Path) -> std::io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
     std::fs::write(path, script(program, windows))?;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
+    adroit_sys::fs::set_mode(path, 0o755)
 }
 
 /// The script the sessions of `binding`'s environment name as their editor:

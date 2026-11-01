@@ -18,6 +18,7 @@ dependencies = [
  "adroit-model",
  "adroit-net",
  "adroit-protocol",
+ "adroit-sys",
  "adroit-term",
  "adroit-window",
  "serde_json",
@@ -30,6 +31,7 @@ name = "adroit-agents"
 version = "0.0.0"
 dependencies = [
  "adroit-model",
+ "adroit-sys",
  "adroit-vcs",
  "libc",
  "serde_json",
@@ -47,6 +49,7 @@ dependencies = [
  "adroit-model",
  "adroit-net",
  "adroit-protocol",
+ "adroit-sys",
  "adroit-term",
  "libc",
  "serde",
@@ -85,6 +88,7 @@ dependencies = [
  "adroit-net",
  "adroit-nvim",
  "adroit-protocol",
+ "adroit-sys",
  "adroit-term",
  "adroit-vcs",
  "base64 0.23.1",
@@ -120,9 +124,9 @@ dependencies = [
 name = "adroit-net"
 version = "0.0.0"
 dependencies = [
+ "adroit-sys",
  "hkdf 0.13.0",
  "hmac 0.13.0",
- "libc",
  "mdns-sd",
  "ring",
  "rustls",
@@ -154,6 +158,8 @@ name = "adroit-protocol"
 version = "0.0.0"
 dependencies = [
  "adroit-model",
+ "adroit-sys",
+ "felis-transport",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -161,10 +167,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "adroit-sys"
+version = "0.0.0"
+dependencies = [
+ "felis-transport",
+ "libc",
+ "tokio",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "adroit-term"
 version = "0.0.0"
 dependencies = [
  "adroit-model",
+ "adroit-sys",
  "base64 0.23.1",
  "felis-client-core",
  "felis-daemon",
@@ -186,6 +203,7 @@ name = "adroit-vcs"
 version = "0.0.0"
 dependencies = [
  "adroit-model",
+ "adroit-sys",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
@@ -200,6 +218,7 @@ dependencies = [
  "adroit-model",
  "adroit-nvim",
  "adroit-protocol",
+ "adroit-sys",
  "adroit-term",
  "base64 0.23.1",
  "dioxus",

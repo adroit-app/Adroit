@@ -136,8 +136,8 @@ impl Identity {
 }
 
 pub(crate) fn read_private(path: &Path, limit: u64) -> Result<Option<Vec<u8>>, Error> {
+    use adroit_sys::fs::{MetadataExt, OpenOptionsExt};
     use std::io::Read;
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
     let refuse = |reason: &str| Error::File {
         path: path.display().to_string(),
         reason: reason.into(),
@@ -148,12 +148,12 @@ pub(crate) fn read_private(path: &Path, limit: u64) -> Result<Option<Vec<u8>>, E
     };
     let file = match std::fs::OpenOptions::new()
         .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .custom_flags(adroit_sys::fs::O_NOFOLLOW | adroit_sys::fs::O_NONBLOCK)
         .open(path)
     {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) if error.raw_os_error() == Some(libc::ELOOP) => {
+        Err(error) if error.raw_os_error() == Some(adroit_sys::fs::ELOOP) => {
             return Err(refuse("is a symbolic link"));
         }
         Err(error) => return Err(io(error)),
@@ -162,8 +162,7 @@ pub(crate) fn read_private(path: &Path, limit: u64) -> Result<Option<Vec<u8>>, E
     if !metadata.is_file() {
         return Err(refuse("is not a regular file"));
     }
-    // SAFETY: getuid has no preconditions.
-    if metadata.uid() != unsafe { libc::getuid() } {
+    if metadata.uid() != adroit_sys::uid() {
         return Err(refuse("is owned by another user"));
     }
     if metadata.mode() & 0o077 != 0 {
@@ -180,8 +179,8 @@ pub(crate) fn read_private(path: &Path, limit: u64) -> Result<Option<Vec<u8>>, E
 /// Writes beside `path` and moves the result into place, so a crash never
 /// leaves half a file. An existing file is replaced only when `replace` says so.
 pub(crate) fn write_private(path: &Path, bytes: &[u8], replace: bool) -> Result<(), Error> {
+    use adroit_sys::fs::{DirBuilderExt, OpenOptionsExt};
     use std::io::Write;
-    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
     let io = |source| Error::FileIo {
         path: path.display().to_string(),
         source,
@@ -192,14 +191,16 @@ pub(crate) fn write_private(path: &Path, bytes: &[u8], replace: bool) -> Result<
         .mode(0o700)
         .create(parent)
         .map_err(io)?;
-    let staged = tempfile::Builder::new()
-        .prefix(".key-")
-        .permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600))
-        .tempfile_in(parent)
-        .map_err(io)?;
+    let staged = {
+        let mut builder = tempfile::Builder::new();
+        builder.prefix(".key-");
+        #[cfg(unix)]
+        builder.permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600));
+        builder.tempfile_in(parent).map_err(io)?
+    };
     let mut file = std::fs::OpenOptions::new()
         .write(true)
-        .custom_flags(libc::O_NOFOLLOW)
+        .custom_flags(adroit_sys::fs::O_NOFOLLOW)
         .open(staged.path())
         .map_err(io)?;
     file.write_all(bytes).map_err(io)?;
@@ -209,15 +210,13 @@ pub(crate) fn write_private(path: &Path, bytes: &[u8], replace: bool) -> Result<
     } else {
         std::fs::hard_link(staged.path(), path).map_err(io)?;
     }
-    std::fs::File::open(parent)
-        .and_then(|dir| dir.sync_all())
-        .map_err(io)
+    adroit_sys::fs::sync_dir(parent).map_err(io)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
+    use adroit_sys::fs::PermissionsExt;
 
     #[test]
     fn a_fingerprint_reads_back_from_its_text() {
@@ -262,7 +261,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("key");
         Identity::load_or_create(&path).unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
+        adroit_sys::fs::set_mode(&path, 0o640).unwrap();
         assert!(matches!(
             Identity::load_or_create(&path),
             Err(Error::File { .. })
@@ -287,7 +286,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("key");
         std::fs::write(&path, b"not a key").unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        adroit_sys::fs::set_mode(&path, 0o600).unwrap();
         assert!(matches!(
             Identity::load_or_create(&path),
             Err(Error::File { .. })

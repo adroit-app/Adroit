@@ -77,6 +77,25 @@ pub const OUTSIDE: &str = "ADROIT_OUTSIDE_";
 /// Whether a login of its own in `home` decides on `name` alone: one of
 /// the variables it sets, or one known to carry a login or to move the
 /// agent's state.
+/// Runs `command` in place of this process, returning only the error that
+/// kept it from starting.
+#[cfg(unix)]
+fn replace(command: &mut std::process::Command) -> std::io::Error {
+    use std::os::unix::process::CommandExt;
+    command.exec()
+}
+
+/// Runs `command` and ends this process with its exit code, as Windows cannot
+/// put another program in a process's place; returns only the error that kept
+/// it from starting.
+#[cfg(windows)]
+fn replace(command: &mut std::process::Command) -> std::io::Error {
+    match command.status() {
+        Ok(status) => std::process::exit(status.code().unwrap_or(1)),
+        Err(error) => error,
+    }
+}
+
 fn decides<A: AgentAdapter + ?Sized>(adapter: &A, home: &Path, name: &str) -> bool {
     adapter.denies(name)
         || adapter
@@ -91,10 +110,9 @@ fn decides<A: AgentAdapter + ?Sized>(adapter: &A, home: &Path, name: &str) -> bo
 /// it sets naming `home` and the folders in it. Returns only when that fails,
 /// with the exit status to end with.
 pub fn run(args: &[String]) -> i32 {
-    use std::os::unix::process::CommandExt;
     match command(args, std::env::vars_os()) {
         Ok(mut command) => {
-            let error = command.exec();
+            let error = replace(&mut command);
             eprintln!(
                 "adroit: cannot start {}: {error}",
                 command.get_program().to_string_lossy()
@@ -176,7 +194,7 @@ pub fn outside(
 /// Makes `dir` and the directories above it that are missing, readable by
 /// the user alone.
 pub fn make_private(dir: &Path) -> std::io::Result<()> {
-    use std::os::unix::fs::DirBuilderExt;
+    use adroit_sys::fs::DirBuilderExt;
     std::fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)
@@ -256,7 +274,7 @@ mod tests {
         );
         assert!(env.iter().all(|(name, _)| !name.starts_with("ANTHROPIC_")));
         let mode = std::fs::metadata(&home).unwrap().permissions();
-        use std::os::unix::fs::PermissionsExt;
+        use adroit_sys::fs::PermissionsExt;
         assert_eq!(mode.mode() & 0o777, 0o700);
     }
 

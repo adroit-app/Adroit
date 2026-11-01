@@ -2,7 +2,6 @@
 //! of their own, a model that answers every prompt alike, and a wait on how
 //! a session stands.
 
-use std::os::unix::fs::PermissionsExt;
 use std::time::Duration;
 
 use adroit_model::{Agent, State};
@@ -18,7 +17,7 @@ pub async fn daemon(prefix: &str) -> (Daemon, tempfile::TempDir) {
         .prefix(prefix)
         .tempdir_in("/tmp")
         .unwrap();
-    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    adroit_sys::fs::set_mode(dir.path(), 0o700).unwrap();
     let socket = dir.path().join("daemon.sock");
     let serving = socket.clone();
     tokio::spawn(async move {

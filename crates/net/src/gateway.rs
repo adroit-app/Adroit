@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::net::{TcpListener, TcpStream, UnixListener, UnixStream};
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::watch;
 
 /// How long a caller has to finish its handshake and name its channel.
@@ -170,12 +170,12 @@ impl Gateway {
                 stream.shutdown().await?;
             }
             Channel::Terminal => {
-                let mut host = UnixStream::connect(&hosts.terminal).await?;
+                let mut host = adroit_sys::local::connect(&hosts.terminal).await?;
                 let _ = tokio::io::copy_bidirectional(&mut stream, &mut host).await;
             }
             Channel::Work => {
-                let host = UnixStream::connect(&hosts.work).await?;
-                let (host_read, host_write) = host.into_split();
+                let host = adroit_sys::local::connect(&hosts.work).await?;
+                let (host_read, host_write) = tokio::io::split(host);
                 let (client_read, mut client_write) = tokio::io::split(stream);
                 tokio::select! {
                     _ = without_stop(client_read, host_write) => {}
@@ -264,17 +264,18 @@ impl Remote {
             sockets: Vec::new(),
         };
         for (path, channel) in [(work, Channel::Work), (terminal, Channel::Terminal)] {
+            #[cfg(unix)]
             match std::fs::remove_file(path) {
                 Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
                     return Err(error.into());
                 }
                 _ => {}
             }
-            let listener = UnixListener::bind(path)?;
+            let listener = adroit_sys::local::Listener::bind(path)?;
             forwarding.sockets.push(path.to_path_buf());
             let remote = self.clone();
             forwarding.tasks.push(tokio::spawn(async move {
-                while let Ok((mut local, _)) = listener.accept().await {
+                while let Ok(mut local) = listener.accept().await {
                     let remote = remote.clone();
                     tokio::spawn(async move {
                         if let Ok(mut far) = remote.open(channel).await {
@@ -335,6 +336,7 @@ mod tests {
     use super::*;
     use crate::{Enroll, PairingCode, PeerFile, pair};
     use tokio::io::AsyncBufReadExt;
+    use tokio::net::{UnixListener, UnixStream};
 
     /// Two fake hosts: the work host records each line and answers it, the
     /// terminal host echoes bytes.

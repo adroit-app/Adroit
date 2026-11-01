@@ -362,7 +362,7 @@ exec sleep 30"#,
 
     #[test]
     fn the_extension_and_the_skill_are_left_alone_when_they_would_be_written_the_same() {
-        use std::os::unix::fs::MetadataExt;
+        use adroit_sys::fs::MetadataExt;
         let dir = tempfile::tempdir().unwrap();
         let (script, skill) = install(Path::new("/adroit"), dir.path()).unwrap();
         let skill = skill.join("SKILL.md");
@@ -385,7 +385,7 @@ exec sleep 30"#,
 
     #[test]
     fn the_login_s_extension_is_the_user_s_alone_and_replaces_whatever_stood_at_its_path() {
-        use std::os::unix::fs::PermissionsExt;
+        use adroit_sys::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         let planted = dir.path().join("planted.ts");
         std::fs::write(&planted, "planted").unwrap();

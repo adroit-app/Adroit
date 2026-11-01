@@ -14,7 +14,6 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use adroit_protocol::{Answer, Ask, Event, Hello, Request, decode, encode};
 use serde::Deserialize;
 use tokio::io::{AsyncWriteExt, BufReader};
-use tokio::net::UnixStream;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, watch};
 
 use crate::watch::Watched;
@@ -148,13 +147,13 @@ impl Served {
     /// which `stop` is then told.
     pub(crate) async fn connection(
         &self,
-        stream: UnixStream,
+        stream: adroit_sys::local::Stream,
         hello: &Hello,
         stop: mpsc::Sender<()>,
     ) {
         let mut active = self.clone();
         let window = WindowId(self.next.fetch_add(1, Ordering::Relaxed));
-        let (read, mut write) = stream.into_split();
+        let (read, mut write) = tokio::io::split(stream);
         let remote = hello.endpoint.is_some();
         let (out, mut outgoing, mut failure) = Out::new(remote);
         // One who asks without waiting for hello may have hung up already;

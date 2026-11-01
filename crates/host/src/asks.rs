@@ -337,7 +337,9 @@ async fn delete_login(profile: &ProfileId) -> Result<Answer, String> {
         ));
     };
     let data = crate::paths::data_dir();
-    if !adroit_core::profiles::made_by_adroit(&home, &data, |p| std::fs::canonicalize(p).ok()) {
+    if !adroit_core::profiles::made_by_adroit(&home, &data, |p| {
+        adroit_sys::fs::canonicalize(p).ok()
+    }) {
         return Err(format!(
             "{} is not a folder adroit made, so it is left as it is; delete it yourself if it is to go",
             home.display()
@@ -398,7 +400,7 @@ fn unused(
 }
 
 fn resolved_login(path: &std::path::Path) -> PathBuf {
-    if let Ok(path) = path.canonicalize() {
+    if let Ok(path) = adroit_sys::fs::canonicalize(path) {
         return path;
     }
     match (path.parent(), path.file_name()) {
@@ -587,7 +589,7 @@ fn save_settings_checked(text: String, expected: FileText) -> Result<Answer, Str
     let path = settings::path();
     std::fs::create_dir_all(path.parent().ok_or("Settings path has no parent")?)
         .map_err(|e| e.to_string())?;
-    use std::os::unix::fs::OpenOptionsExt;
+    use adroit_sys::fs::OpenOptionsExt;
     let lock = std::fs::OpenOptions::new()
         .create(true)
         .truncate(false)

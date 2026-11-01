@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{TcpListener, UnixListener, UnixStream};
+use tokio::net::TcpListener;
 
 /// The port a gateway listens on unless told otherwise.
 pub const DEFAULT_PORT: u16 = 47130;
@@ -60,15 +60,7 @@ pub async fn start(
             let _ = gateway.listen(listener).await;
         }));
     }
-    match std::fs::remove_file(&files.admin) {
-        Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error),
-        _ => {}
-    }
-    let admin = UnixListener::bind(&files.admin)?;
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&files.admin, std::fs::Permissions::from_mode(0o600))?;
-    }
+    let admin = crate::work_host::bind_private(&files.admin)?;
     let announcing = Arc::new(AtomicBool::new(false));
     let served = Arc::new(Served {
         server: identity.fingerprint(),
@@ -79,7 +71,7 @@ pub async fn start(
         announcing: announcing.clone(),
     });
     tasks.push(tokio::spawn(async move {
-        while let Ok((stream, _)) = admin.accept().await {
+        while let Ok(stream) = admin.accept().await {
             let served = served.clone();
             tokio::spawn(async move {
                 let _ = served.answer(stream).await;
@@ -370,8 +362,8 @@ struct Served {
 }
 
 impl Served {
-    async fn answer(&self, stream: UnixStream) -> std::io::Result<()> {
-        let (read, mut write) = stream.into_split();
+    async fn answer(&self, stream: adroit_sys::local::Stream) -> std::io::Result<()> {
+        let (read, mut write) = tokio::io::split(stream);
         let mut line = String::new();
         BufReader::new(read)
             .take(MAX_ADMIN_LINE)
@@ -456,6 +448,7 @@ impl Served {
 mod tests {
     use super::*;
     use adroit_net::Enroll;
+    use tokio::net::UnixStream;
 
     struct NoHosts;
 

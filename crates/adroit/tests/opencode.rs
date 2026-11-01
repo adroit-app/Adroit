@@ -3,7 +3,6 @@
 //! test's own that answers every prompt alike, in an account of its own: no
 //! provider's credentials are needed or reached.
 
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -58,7 +57,7 @@ async fn an_opencode_of_the_first_line_is_refused_before_anything_is_recorded() 
         "#!/bin/sh\n[ \"$1\" = --version ] && { echo 1.19.4; exit 0; }\nexit 1\n",
     )
     .unwrap();
-    std::fs::set_permissions(&opencode, std::fs::Permissions::from_mode(0o755)).unwrap();
+    adroit_sys::fs::set_mode(&opencode, 0o755).unwrap();
     let work = dir.path().join("work");
     std::fs::create_dir_all(&work).unwrap();
     let settings = settings(
@@ -285,7 +284,7 @@ async fn a_message_from_another_session_reaches_opencode_after_its_turn() {
             .replace("@MESSAGE@", MESSAGE),
     )
     .unwrap();
-    std::fs::set_permissions(&adroit, std::fs::Permissions::from_mode(0o755)).unwrap();
+    adroit_sys::fs::set_mode(&adroit, 0o755).unwrap();
     let settings = settings(&home, &user, &opencode());
     let mut request = request(&work, "say hello", None);
     request.delegation = Some(Delegation::new(

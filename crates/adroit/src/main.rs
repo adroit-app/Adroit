@@ -3,6 +3,10 @@ fn main() {
     if args.first().is_some_and(|arg| arg == "__startup_lease") {
         std::process::exit(adroit_host::startup_lease(&args[1..]));
     }
+    #[cfg(windows)]
+    if args.first().is_some_and(|arg| arg == adroit_host::HOLD) {
+        std::process::exit(adroit_host::hold(&args[1..]));
+    }
     use adroit_host::cli::{Command, ROUTING, RemoteCommand, USAGE, command, settle_instance};
     // Run from inside an agent's account, such as by its MCP server or a
     // command its session runs, adroit finds its instance where it is

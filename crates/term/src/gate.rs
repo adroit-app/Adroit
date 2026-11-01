@@ -1,8 +1,8 @@
 //! A startup lease whose owner survives the work host.
 
 use crate::{Error, Result, Spawn};
+use adroit_sys::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::io::{Read, Write};
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::os::unix::net::UnixListener;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 pub(crate) const TAG: &str = "adroit:startup-lease=";
 
 fn root() -> PathBuf {
-    PathBuf::from(format!("/tmp/adroit-g-{}", unsafe { libc::geteuid() }))
+    PathBuf::from(format!("/tmp/adroit-g-{}", adroit_sys::euid()))
 }
 
 fn address(path: &Path) -> std::io::Result<()> {
@@ -32,10 +32,7 @@ fn address(path: &Path) -> std::io::Result<()> {
         return Err(std::io::Error::other("invalid startup lease address"));
     }
     let metadata = std::fs::symlink_metadata(root())?;
-    if !metadata.is_dir()
-        || metadata.uid() != unsafe { libc::geteuid() }
-        || metadata.mode() & 0o077 != 0
-    {
+    if !metadata.is_dir() || metadata.uid() != adroit_sys::euid() || metadata.mode() & 0o077 != 0 {
         return Err(std::io::Error::other(
             "startup lease directory is not private",
         ));

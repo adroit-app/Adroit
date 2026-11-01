@@ -2,6 +2,7 @@
 
 /// The AppleScript that shows a notification, its words quoted so none can
 /// end the string they are in.
+#[cfg(any(test, not(windows)))]
 fn script(title: &str, subtitle: &str, body: &str) -> String {
     let q = |s: &str| format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""));
     format!(
@@ -14,6 +15,7 @@ fn script(title: &str, subtitle: &str, body: &str) -> String {
 
 /// Show a notification that the session `name` waits, for `why`, once the
 /// future it gives is run.
+#[cfg(not(windows))]
 pub fn notify_waiting(name: &str, why: &str) -> impl std::future::Future<Output = ()> + use<> {
     let mut cmd = tokio::process::Command::new("osascript");
     cmd.args(["-e", &script("Adroit", name, why)])
@@ -23,6 +25,13 @@ pub fn notify_waiting(name: &str, why: &str) -> impl std::future::Future<Output 
     async move {
         let _ = cmd.status().await;
     }
+}
+
+/// Nothing shown: Windows has no notification a program can show without
+/// registering as an app, and the window still marks the session waiting.
+#[cfg(windows)]
+pub fn notify_waiting(_: &str, _: &str) -> impl std::future::Future<Output = ()> + use<> {
+    std::future::ready(())
 }
 
 #[cfg(test)]

@@ -5,9 +5,8 @@
 use std::path::Path;
 use std::time::Duration;
 
+use felis_transport::local::{ReadHalf, WriteHalf, connect};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::UnixStream;
-use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
 
 use crate::{Event, Hello, Request, decode, encode};
 
@@ -76,9 +75,9 @@ async fn read_frame(
 /// What the work host at `socket` says: `None` where none listens, and
 /// `Some(None)` where one listens but says nothing it can be judged by.
 pub async fn hello(socket: &Path) -> Option<Option<Hello>> {
-    let stream = UnixStream::connect(socket).await.ok()?;
+    let (read, _write) = connect(adroit_sys::local::address(socket)).await.ok()?;
     let said = tokio::time::timeout(HELLO, async {
-        let line = read_line(&mut BufReader::new(stream)).await.ok()??;
+        let line = read_line(&mut BufReader::new(read)).await.ok()??;
         decode::<Hello>(&line).ok()
     })
     .await;
@@ -88,8 +87,7 @@ pub async fn hello(socket: &Path) -> Option<Option<Hello>> {
 /// Ask the work host at `socket` to stop, returning once it has taken the
 /// request.
 pub async fn ask_stop(socket: &Path) -> std::io::Result<()> {
-    let stream = UnixStream::connect(socket).await?;
-    let (read, mut write) = stream.into_split();
+    let (read, mut write) = connect(adroit_sys::local::address(socket)).await?;
     write.write_all(b"{\"op\":\"stop\"}\n").await?;
     let mut lines = BufReader::new(read);
     // Its hello, then its word that it stops, or its hanging up.
@@ -121,8 +119,7 @@ impl Connection {
     }
 
     pub async fn open_in(socket: &Path, environment: Option<&str>) -> std::io::Result<Self> {
-        let stream = UnixStream::connect(socket).await?;
-        let (read, mut write) = stream.into_split();
+        let (read, mut write) = connect(adroit_sys::local::address(socket)).await?;
         let mut lines = Frames::new(BufReader::new(read));
         let line = tokio::time::timeout(HELLO, lines.next())
             .await
@@ -161,7 +158,7 @@ impl Connection {
 
 /// What a work host tells on a [`Connection`].
 pub struct Events {
-    lines: Frames<BufReader<OwnedReadHalf>>,
+    lines: Frames<BufReader<ReadHalf>>,
 }
 
 impl Events {
@@ -178,7 +175,7 @@ impl Events {
 
 /// What is asked of a work host on a [`Connection`].
 pub struct Requests {
-    write: OwnedWriteHalf,
+    write: WriteHalf,
 }
 
 impl Requests {

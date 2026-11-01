@@ -75,7 +75,7 @@ mod tests {
         assert!(!script.contains("@ADROIT@") && !script.contains("@OUTSIDE@"));
         let skill = std::fs::read_to_string(skills.join("start-session/SKILL.md")).unwrap();
         assert!(skill.contains("'/opt/my adroit'"), "{skill}");
-        use std::os::unix::fs::PermissionsExt;
+        use adroit_sys::fs::PermissionsExt;
         let mode = std::fs::metadata(plugin.join("index.js"))
             .unwrap()
             .permissions();

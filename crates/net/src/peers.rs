@@ -96,8 +96,7 @@ struct Lock {
 
 impl Lock {
     fn take(path: &Path) -> Result<Self, Error> {
-        use std::os::fd::AsRawFd;
-        use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+        use adroit_sys::fs::{DirBuilderExt, OpenOptionsExt};
         let io = |source| Error::FileIo {
             path: path.display().to_string(),
             source,
@@ -116,13 +115,10 @@ impl Lock {
             .truncate(false)
             .write(true)
             .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW)
+            .custom_flags(adroit_sys::fs::O_NOFOLLOW)
             .open(&name)
             .map_err(io)?;
-        // SAFETY: the descriptor stays open for as long as the lock is held.
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
-            return Err(io(std::io::Error::last_os_error()));
-        }
+        file.lock().map_err(io)?;
         Ok(Self { _file: file })
     }
 }
@@ -194,14 +190,13 @@ mod tests {
 
     #[test]
     fn a_damaged_file_admits_no_one_rather_than_everyone() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("peers.json");
         let client = someone();
         let peers = PeerFile::open(&path).unwrap();
         peers.enroll(client, "laptop").unwrap();
         std::fs::write(&path, b"{not json").unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        adroit_sys::fs::set_mode(&path, 0o600).unwrap();
         assert!(!peers.admits(&client));
         assert!(PeerFile::open(&path).is_err());
     }
