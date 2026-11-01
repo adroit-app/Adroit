@@ -103,6 +103,7 @@ changes them ([keys](../keys.md)).
 | `scroll.bottom` |  | scroll to the bottom, what `scroll.down` scrolls | `viewer`: `G` |
 | `console.send_next` |  | send the next key as it is, whatever it is bound to | `console`: `Ctrl+g Ctrl+o` |
 | `console.pass_every_key` |  | send every key as it is until `Escape`; `Ctrl+c` sends `Escape` meanwhile | `console`: `Ctrl+g i`, `Ctrl+g Ctrl+i` |
+| `console.read` |  | read the console with Vim's keys, to move, search, select and yank in it, whatever it shows: a shell or a session showing a dialog too, whose keys are otherwise all its own; from a session's prompt, read the console above it | `global`: `Ctrl+q [` |
 | `prompt.focus` | Prompt | give the prompt the keys |  |
 | `prompt.write` |  | give the prompt the keys, and the key pressed with them | `tree`: `i`, `a`<br>`console`: `i`, `a`, `I`, `A`, `o`, `O` |
 | `prompt.send` | Send Prompt | send what the prompt holds |  |
@@ -166,6 +167,7 @@ changes them ([keys](../keys.md)).
 "Ctrl+q _" = "window.maximize_height"
 "Ctrl+q |" = "window.maximize_width"
 "Ctrl+q T" = "window.to_tab"
+"Ctrl+q [" = "console.read"
 "Ctrl+Tab" = "tab.next"
 "Ctrl+Shift+Tab" = "tab.prev"
 "Ctrl+PageDown" = "tab.next"

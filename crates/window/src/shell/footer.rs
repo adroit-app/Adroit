@@ -63,6 +63,7 @@ pub(crate) fn Footer() -> Element {
         &Action::ConsoleSend(Chord::parse("Escape").ok()),
     );
     let k_every = km.keys_for(Context::Console, &Action::ConsolePassEveryKey);
+    let k_read = km.keys_for(Context::Global, &Action::ConsoleRead);
     let k_ctrl_q = km.keys_for(
         Context::Global,
         &Action::ConsoleSend(Chord::parse("Ctrl+q").ok()),
@@ -79,29 +80,35 @@ pub(crate) fn Footer() -> Element {
                 KeyHint { keys: "Enter", does: "keep the filter" }
                 KeyHint { keys: "Esc", does: "clear it" }
             }
-            if area == Area::Prompt && in_dialog {
+            if area == Area::Console && reading {
+                KeyHint { keys: "v V", does: "select" }
+                KeyHint { keys: "y", does: "copy" }
+                KeyHint { keys: "/", does: "search" }
+                KeyHint { keys: "q", does: "live" }
+                if session_shown && !answering && let Some(k) = k_write.clone() {
+                    KeyHint { keys: k, does: "write" }
+                }
+            } else if area == Area::Prompt && in_dialog {
                 Hint { "every key goes to the session's dialog" }
                 Hint { "the prompt is back once it closes" }
             } else if area == Area::Console && in_dialog && !passing {
                 Hint { "every key goes to the session's dialog" }
                 Hint { "the window's moves leave" }
+                if let Some(k) = k_read.clone() {
+                    KeyHint { keys: k, does: "read" }
+                }
             } else if area == Area::Prompt && answering {
                 Hint { "every key answers the session" }
                 Hint { "the prompt is back once it is answered" }
             } else if area == Area::Console && answering && !passing {
                 Hint { "every key answers the session" }
                 Hint { "the window's moves leave" }
+                if let Some(k) = k_read.clone() {
+                    KeyHint { keys: k, does: "read" }
+                }
             } else if area == Area::Console && passing {
                 KeyHint { keys: "Esc", does: "stop passing keys" }
                 KeyHint { keys: "Ctrl-c", does: "send Esc" }
-            } else if area == Area::Console && session_shown && reading {
-                KeyHint { keys: "v V", does: "select" }
-                KeyHint { keys: "y", does: "copy" }
-                KeyHint { keys: "/", does: "search" }
-                KeyHint { keys: "q", does: "live" }
-                if let Some(k) = k_write.clone() {
-                    KeyHint { keys: k, does: "write" }
-                }
             } else if area == Area::Console && session_shown {
                 KeyHint { keys: "j k", does: "read" }
                 if let Some(k) = k_write.clone() {
@@ -114,6 +121,9 @@ pub(crate) fn Footer() -> Element {
                     KeyHint { keys: k, does: "pass every key" }
                 }
             } else if area == Area::Console {
+                if let Some(k) = k_read.clone() {
+                    KeyHint { keys: k, does: "read" }
+                }
                 if let Some(k) = k_ctrl_q {
                     KeyHint { keys: k, does: "send Ctrl-q" }
                 }

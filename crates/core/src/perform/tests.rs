@@ -855,3 +855,38 @@ fn removing_a_workspace_from_anywhere_but_its_row_asks_nothing() {
     assert_eq!(run.state().overlays.confirm, None);
     assert!(run.last_effects().is_empty());
 }
+
+#[test]
+fn reading_the_console_starts_from_its_window_or_the_prompt_below_whatever_it_shows() {
+    // (what the console shows, where the keys are, a pane shown) -> reading starts
+    let shell = show(Tab::Terminal(here(), 7));
+    let cases = [
+        (None, Area::Console, true, true),
+        (Some(shell.clone()), Area::Console, true, true),
+        (None, Area::Prompt, true, true),
+        (None, Area::Sidebar, true, false),
+        (Some(shell), Area::Console, false, false),
+    ];
+    for (shown, area, pane, want) in cases {
+        let run = showing(area);
+        let run = match shown {
+            Some(msg) => run.send(msg).send(Msg::Focus(area)),
+            None => run,
+        };
+        let probe = Probe {
+            pane,
+            ..with_pane()
+        };
+        let run = run.send(perform(Action::ConsoleRead, Some("["), probe));
+        assert_eq!(
+            run.last_effects()
+                .contains(&Effect::ReadConsole(Vec::new())),
+            want,
+            "{area:?} {pane}: {:?}",
+            run.last_effects()
+        );
+        if want {
+            assert_eq!(run.state().content.focus, Area::Console, "{area:?}");
+        }
+    }
+}

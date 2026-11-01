@@ -679,3 +679,17 @@ fn the_keys_repeat_while_the_last_key_is_pressed_again() {
     let run = window().send_all([ctrl_q(), key("}")]);
     assert_eq!(run.state().console.repeat, Some(vec![Key::new("q").ctrl()]));
 }
+
+#[test]
+fn a_shell_s_console_read_is_left_for_the_live_console_by_the_keys_that_write_a_prompt() {
+    let run = || {
+        window()
+            .send(show(Tab::Terminal(here(), 1)))
+            .send(Msg::ReadingStarted)
+    };
+    let read = run().send(press(Key::new("j"), reading(true, 5, false)));
+    assert_eq!(read.last_effects(), [Effect::ReaderKey(Key::new("j"))]);
+    let left = run().send(press(Key::new("i"), reading(true, 5, false)));
+    assert_eq!(left.last_effects(), [Effect::ConsoleLive]);
+    assert!(!left.state().console.reading);
+}

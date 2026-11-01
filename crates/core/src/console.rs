@@ -202,8 +202,13 @@ pub(crate) fn press(state: &mut ViewState, key: Key, probe: Probe) -> Vec<Effect
             || state.chrome.keymap.resolve(&[Context::Global], &[], &key) != Step::Nothing
             || repeated(state, &[Context::Global], repeat.as_deref(), &key).is_some();
         if !windowing {
+            // A console that takes every key has no prompt to write in: the
+            // keys that would write one go back to it live instead.
+            let session = matches!(state.content.active(), Some(Tab::Session(_, _)));
+            let passes = route::passes(area, session, waits(state));
             match reader::exit(&key, reader.normal) {
                 Some(Exit::Live) => return leave_reading(&mut state.console),
+                Some(Exit::Prompt) if passes => return leave_reading(&mut state.console),
                 Some(Exit::Prompt) => {}
                 None => return read(&mut state.console, key, reader, probe.scrolls_itself),
             }

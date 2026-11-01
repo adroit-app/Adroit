@@ -153,7 +153,11 @@ is read in Neovim, with your own Vim keys for moving, scrolling, searching and
 selecting, and a yank copies to the clipboard. It follows what the session
 writes meanwhile. `q`, `Esc` or `G` in normal mode goes back to the console live,
 and `i`, `a` and `o` to the prompt; `Ctrl-q` sequences stay `global`, and
-one that ends no binding does nothing. The reader is for reading only: `:`,
+one that ends no binding does nothing. `console.read` starts reading any
+console, from it or from a session's prompt below it: a shell's, or a
+session's that takes every key while it asks or shows a dialog, as one
+logging in does with the address to open. Read so, `i`, `a` and `o` go back
+to it live, as it has no prompt to write in. The reader is for reading only: `:`,
 Ex mode, quitting and Vim's window commands do nothing in it, and a window or
 a tab a mapping or a plugin opens in it closes at once.
 A program that scrolls what it shows itself, as Claude Code does on the

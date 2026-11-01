@@ -127,6 +127,15 @@ pub(crate) fn perform(
         Action::ConsoleSendNext => step(state, Msg::ConsoleSendNext),
         Action::ConsolePassEveryKey if pane => step(state, Msg::ConsolePassEveryKey),
         Action::ConsolePassEveryKey => Vec::new(),
+        Action::ConsoleRead if pane => {
+            let mut effects = match area {
+                Area::Prompt => step(state, Msg::Focus(Area::Console)),
+                _ => Vec::new(),
+            };
+            effects.push(Effect::ReadConsole(Vec::new()));
+            effects
+        }
+        Action::ConsoleRead => Vec::new(),
         Action::PromptFocus
         | Action::PromptWrite
         | Action::PromptSend

@@ -136,15 +136,15 @@ impl Footing<'_> {
             _ if self.picking => ("PICK", "normal"),
             _ if self.repeating => ("REPEAT", "pass"),
             Area::Console if self.direct => ("DIRECT", "pass"),
-            Area::Console if self.answering || matches!(self.shown, Some(Tab::Terminal(_, _))) => {
-                ("PASS", "pass")
-            }
             Area::Console if let Some(mode) = self.reading => {
                 if mode.starts_with("visual") || mode.starts_with("select") {
                     ("VISUAL", "normal")
                 } else {
                     ("READ", "normal")
                 }
+            }
+            Area::Console if self.answering || matches!(self.shown, Some(Tab::Terminal(_, _))) => {
+                ("PASS", "pass")
             }
             Area::Console if matches!(self.shown, Some(Tab::Viewer(_, _))) => ("VIEWER", "normal"),
             Area::Console => ("CONSOLE", "normal"),
@@ -404,6 +404,21 @@ mod tests {
                     ..at(Area::Console, Some(&session))
                 },
                 ("READ", "normal"),
+            ),
+            (
+                Footing {
+                    reading: Some("normal"),
+                    ..at(Area::Console, Some(&shell))
+                },
+                ("READ", "normal"),
+            ),
+            (
+                Footing {
+                    reading: Some("visual"),
+                    answering: true,
+                    ..at(Area::Console, Some(&session))
+                },
+                ("VISUAL", "normal"),
             ),
             (
                 Footing {

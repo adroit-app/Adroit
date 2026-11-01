@@ -1231,8 +1231,9 @@ mod tests {
             }
             // Keys left for the user's own: `w`, as `q` goes to the next
             // window with Ctrl held or not, and those Vim's Ctrl-w leaves
-            // alone.
-            for key in ["w", "W", "Tab", "Shift+Tab", "]", "[", "N", "P"] {
+            // alone but `[`, which reads the console as tmux's copy mode
+            // does.
+            for key in ["w", "W", "Tab", "Shift+Tab", "]", "N", "P"] {
                 assert_eq!(
                     step(&map, &areas, &["Ctrl+q"], key),
                     Step::Nothing,
