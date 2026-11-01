@@ -927,6 +927,8 @@ struct Gatewayed {
     info: serde_json::Value,
     address: String,
     server: String,
+    /// What the gateway wrote to its standard error.
+    log: std::path::PathBuf,
 }
 
 /// Both remote hosts and a gateway in front of them, on a free local port.
@@ -994,6 +996,7 @@ fn gatewayed(hosts: &Hosts, advertise: bool) -> Gatewayed {
         info,
         address,
         server,
+        log,
     }
 }
 
@@ -1005,6 +1008,7 @@ fn a_paired_client_reaches_the_hosts_through_the_gateway_and_leaving_keeps_their
         info,
         address,
         server,
+        ..
     } = gatewayed(&hosts, false);
     let paired_key = hosts.0.path().join("client/paired.key");
     let client = adroit_net::Identity::load_or_create(&paired_key).unwrap();
@@ -1175,9 +1179,22 @@ fn a_paired_work_machine_is_found_on_the_local_network_when_its_address_changed(
         .enable_all()
         .build()
         .unwrap();
+    let discover = || {
+        let heard = isolated(hosts.0.path())
+            .args(["connect", "discover"])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&heard.stdout).into_owned()
+    };
     runtime.block_on(async {
         let remote = adroit_connect::Remote::with_key(&target, &key).unwrap();
-        let tunnel = remote.connect(None).await.unwrap();
+        let tunnel = remote.connect(None).await.unwrap_or_else(|error| {
+            panic!(
+                "{error}\nthe local network heard: {}\nthe gateway said: {}",
+                discover(),
+                std::fs::read_to_string(&gateway.log).unwrap_or_default()
+            )
+        });
         assert_eq!(
             tunnel.info().instance,
             gateway.info["instance"].as_str().unwrap()
@@ -1187,11 +1204,7 @@ fn a_paired_work_machine_is_found_on_the_local_network_when_its_address_changed(
         let listening: std::net::SocketAddr = gateway.address.parse().unwrap();
         assert_eq!(reached.port(), listening.port(), "{reached}");
     });
-    let heard = isolated(hosts.0.path())
-        .args(["connect", "discover"])
-        .output()
-        .unwrap();
-    let heard = String::from_utf8_lossy(&heard.stdout);
+    let heard = discover();
     assert!(heard.contains(&gateway.server[..16]), "{heard}");
 }
 
