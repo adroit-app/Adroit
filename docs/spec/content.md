@@ -97,7 +97,8 @@ Closing a terminal's windows hides it and leaves its program running, save a
 Neovim started on a file ([closing](#closing)); its row in the tree opens it
 again, and closing the window leaves it running too. Stop
 Terminal (`terminal.stop`) ends the selected or shown terminal, as its program
-quitting does.
+quitting does; on a terminal's row in the tree, ending a session
+(`session.stop`) ends that terminal the same way.
 
 A terminal has an identity apart from its name and its directory. It is not an
 agent session: it neither starts sessions nor sends or receives messages

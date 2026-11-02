@@ -229,17 +229,22 @@ fn tab_in_the_prompt_is_handed_to_the_window_with_what_decides_where_it_goes() {
 
 #[test]
 fn closing_a_shell_s_row_selects_the_row_above_and_ends_the_shell() {
-    let run = showing(Area::Sidebar).send(Msg::TreeSelect(Some(Item::Terminal(here(), 7))));
-    let above = nav::row_above(&run.state().tree.rows, &Item::Terminal(here(), 7));
-    let run = run.send(perform(Action::TerminalStop, None, Probe::default()));
-    assert_eq!(run.state().tree.selected, above);
-    assert_eq!(
-        run.last_effects().last(),
-        Some(&Effect::EndShell {
-            environment: here(),
-            id: 7,
-        })
-    );
+    // Ending a session on a shell's row ends that shell, not the session shown.
+    for action in [Action::TerminalStop, Action::SessionStop] {
+        let run = showing(Area::Sidebar).send(Msg::TreeSelect(Some(Item::Terminal(here(), 7))));
+        let above = nav::row_above(&run.state().tree.rows, &Item::Terminal(here(), 7));
+        let run = run.send(perform(action.clone(), None, Probe::default()));
+        assert_eq!(run.state().tree.selected, above, "{action:?}");
+        assert_eq!(run.state().overlays.confirm, None, "{action:?}");
+        assert_eq!(
+            run.last_effects().last(),
+            Some(&Effect::EndShell {
+                environment: here(),
+                id: 7,
+            }),
+            "{action:?}"
+        );
+    }
 }
 
 #[test]

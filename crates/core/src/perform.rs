@@ -186,6 +186,22 @@ pub(crate) fn perform(
         Action::SessionResume => step(state, Msg::ResumeOpen),
         Action::SessionProfileNext => switch_profile(state, true),
         Action::SessionProfilePrev => switch_profile(state, false),
+        // On a shell's row, that shell closes, whichever tab is shown; ending
+        // a session there ends the shell rather than asking of the session
+        // shown.
+        Action::TerminalStop | Action::SessionStop
+            if let Some(row @ Item::Terminal(environment, id)) =
+                cur.as_ref().filter(|_| on_list) =>
+        {
+            let end = Effect::EndShell {
+                environment: environment.clone(),
+                id: *id,
+            };
+            let above = nav::row_above(&state.tree.rows, row);
+            let mut effects = step(state, Msg::TreeSelect(above));
+            effects.push(end);
+            effects
+        }
         Action::SessionStop => step(state, Msg::ConfirmStop { selection: on_list }),
         Action::SessionRename => {
             let chosen = match &cur {
@@ -344,20 +360,6 @@ pub(crate) fn perform(
         | Action::SessionNew
         | Action::ShellOpen
         | Action::NeovimOpen => step(state, Msg::Window(action)),
-        // On a shell's row, that shell closes, whichever tab is shown.
-        Action::TerminalStop
-            if let Some(row @ Item::Terminal(environment, id)) =
-                cur.as_ref().filter(|_| on_list) =>
-        {
-            let end = Effect::EndShell {
-                environment: environment.clone(),
-                id: *id,
-            };
-            let above = nav::row_above(&state.tree.rows, row);
-            let mut effects = step(state, Msg::TreeSelect(above));
-            effects.push(end);
-            effects
-        }
         Action::TerminalStop => match thing {
             Some(Tab::Terminal(environment, id)) => vec![Effect::EndShell { environment, id }],
             _ => Vec::new(),
