@@ -1094,15 +1094,47 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn taking_the_text_closes_the_menu_it_was_offering() {
+    async fn sending_while_completing_closes_the_menu_and_leaves_the_prompt_empty() {
         let (e, mut rx) = start().await;
         e.set_candidates(&[Candidate::new("auth/web", "session")])
             .await
             .unwrap();
         e.input("@au").await.unwrap();
         wait(&mut rx, |_| e.state().popup().is_some()).await;
+        e.input("<C-CR>").await.unwrap();
+        wait(&mut rx, |ev| asks(ev, "prompt.send")).await;
         assert_eq!(e.take_text().await.unwrap(), "@au");
         wait(&mut rx, |_| e.state().popup().is_none()).await;
+        e.input("x").await.unwrap();
+        assert_eq!(e.text().await.unwrap(), "x");
+    }
+
+    #[tokio::test]
+    async fn consuming_the_text_while_completing_closes_the_menu() {
+        let (e, mut rx) = start().await;
+        e.set_candidates(&[Candidate::new("auth/web", "session")])
+            .await
+            .unwrap();
+        e.input("@au").await.unwrap();
+        wait(&mut rx, |_| e.state().popup().is_some()).await;
+        assert!(e.consume_text("@au").await.unwrap());
+        wait(&mut rx, |_| e.state().popup().is_none()).await;
+        e.input("x").await.unwrap();
+        assert_eq!(e.text().await.unwrap(), "x");
+    }
+
+    #[tokio::test]
+    async fn completing_offers_again_after_the_prompt_is_sent() {
+        let (e, mut rx) = start().await;
+        e.set_candidates(&[Candidate::new("auth/web", "session")])
+            .await
+            .unwrap();
+        e.input("@au").await.unwrap();
+        wait(&mut rx, |_| e.state().popup().is_some()).await;
+        e.take_text().await.unwrap();
+        wait(&mut rx, |_| e.state().popup().is_none()).await;
+        e.input("@au").await.unwrap();
+        wait(&mut rx, |_| e.state().popup().is_some()).await;
     }
 
     #[tokio::test]

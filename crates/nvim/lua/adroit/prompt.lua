@@ -33,13 +33,23 @@ function M.edit(action, ...)
   return result
 end
 
+--- Empty the buffer `b`. Neovim's completion menu, if it shows, is offered
+--- nothing so that it closes now: finishing it would put back what it was
+--- completing once the text is gone.
+function M.empty(b)
+  vim.api.nvim_buf_set_lines(b, 0, -1, false, {})
+  if vim.fn.pumvisible() == 1 then
+    vim.fn.complete(1, {})
+  end
+end
+
 function M.consume(text)
   local b = buffer()
   if table.concat(vim.api.nvim_buf_get_lines(b, 0, -1, false), "\n") ~= text then
     return false
   end
   return M.edit(function()
-    vim.api.nvim_buf_set_lines(b, 0, -1, false, {})
+    M.empty(b)
     if vim.api.nvim_get_current_buf() == b then
       vim.api.nvim_win_set_cursor(0, { 1, 0 })
     end
