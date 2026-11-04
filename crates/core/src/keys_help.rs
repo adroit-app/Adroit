@@ -64,7 +64,7 @@ pub fn groups(keymap: &Keymap, here: &[Context]) -> Vec<Group> {
                     keys: share_leads(&seqs),
                     label,
                     icon: action.icon(),
-                    repeats: action.repeats(),
+                    repeats: action.steps().is_some(),
                 })
                 .collect();
             (!rows.is_empty()).then(|| Group {

@@ -642,6 +642,35 @@ fn the_user_s_own_sequence_repeats_by_its_last_key_as_well() {
 }
 
 #[test]
+fn a_key_that_steps_through_something_else_ends_the_repeating() {
+    // `Ctrl+q Ctrl+q` is `Ctrl+q q`, `window.next`, which repeats too: it
+    // steps through the windows, not the tabs, so `Ctrl+q` begins a sequence.
+    let run = bound("[global]\n\"Ctrl+q n\" = \"tab.next\"\n\"Ctrl+q p\" = \"tab.prev\"\n")
+        .send_all([ctrl_q(), key("n"), ctrl_q(), key("n"), key("p")]);
+    assert_eq!(
+        performed(&run),
+        [Action::TabNext, Action::TabNext, Action::TabPrev]
+    );
+}
+
+#[test]
+fn a_key_held_with_ctrl_repeats_only_as_it_is_bound() {
+    // `Ctrl+q Ctrl+q` begun anew is `Ctrl+q q`, but after `Ctrl+q q` the
+    // second `Ctrl+q` begins a sequence instead of stepping again.
+    let run = bound("[global]\n\"Ctrl+q n\" = \"tab.next\"\n").send_all([
+        ctrl_q(),
+        key("q"),
+        key("q"),
+        ctrl_q(),
+        key("n"),
+    ]);
+    assert_eq!(
+        performed(&run),
+        [Action::WindowNext, Action::WindowNext, Action::TabNext]
+    );
+}
+
+#[test]
 fn a_key_that_repeats_nothing_ends_the_repeating_and_does_what_it_does() {
     let run = window().send_all([ctrl_q(), key("}"), key("s")]);
     // `s` alone is no binding of the console: it starts reading it.
@@ -677,7 +706,10 @@ fn text_typed_ends_the_repeating() {
 #[test]
 fn the_keys_repeat_while_the_last_key_is_pressed_again() {
     let run = window().send_all([ctrl_q(), key("}")]);
-    assert_eq!(run.state().console.repeat, Some(vec![Key::new("q").ctrl()]));
+    assert_eq!(
+        run.state().console.repeat.as_ref().map(|r| &r.before[..]),
+        Some(&[Key::new("q").ctrl()][..])
+    );
 }
 
 #[test]

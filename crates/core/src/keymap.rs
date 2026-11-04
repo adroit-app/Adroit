@@ -213,6 +213,13 @@ impl Keymap {
         self.resolve_exactly(contexts, &loosened)
     }
 
+    /// What `key` does after `pending` as [`Keymap::resolve`] finds it, but
+    /// with a later key held with Ctrl only meaning what it is bound to.
+    pub fn resolve_as_bound(&self, contexts: &[Context], pending: &[Key], key: &Key) -> Step {
+        let pressed: Vec<Key> = pending.iter().chain(Some(key)).cloned().collect();
+        self.resolve_exactly(contexts, &pressed)
+    }
+
     /// Whether `key` is held with Ctrl and begins a `global` binding: the
     /// window commands' prefix, or a key that is no character bound alone,
     /// as `Ctrl+Tab` is. Ctrl with a character bound alone stays out of

@@ -57,7 +57,7 @@ pub fn keys() -> String {
             .collect::<Vec<_>>()
             .join("<br>");
         let bar = spec.bar.unwrap_or_default();
-        let does = match spec.repeats {
+        let does = match spec.steps.is_some() {
             true => format!("{}; repeats ([keys](keys.md#repeating))", spec.does),
             false => spec.does.to_string(),
         };

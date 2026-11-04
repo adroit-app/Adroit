@@ -15,7 +15,7 @@ use std::time::Duration;
 use adroit_model::{Key, State};
 use adroit_protocol::Listed;
 
-use crate::actions::Action;
+use crate::actions::{Action, Steps};
 use crate::content::{Area, Tab};
 use crate::effect::Effect;
 use crate::keymap::{Context, Step};
@@ -36,13 +36,20 @@ pub const PULL_WAIT: Duration = Duration::from_secs(10);
 /// going to it as they are, before it is asked for what was typed there.
 pub const PULL_AFTER_FREE: Duration = Duration::from_millis(300);
 
+/// A repeating binding just run: a key its keys before the last begin a
+/// binding with, to an action stepping through the same, runs it alone.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Repeat {
+    pub before: Vec<Key>,
+    pub steps: Steps,
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ConsoleView {
     /// The keys pressed so far of a binding not complete yet.
     pub pending: Vec<Key>,
-    /// The keys before the last of a repeating binding just run: a key they
-    /// begin a repeating binding with runs it alone, until another key.
-    pub repeat: Option<Vec<Key>>,
+    /// The repeating a repeating binding just run began, until another key.
+    pub repeat: Option<Repeat>,
     /// Whether the next key goes to the session as it is.
     pub send_next: bool,
     /// Whether the console passes every key on to the session it shows.
@@ -200,7 +207,7 @@ pub(crate) fn press(state: &mut ViewState, key: Key, probe: Probe) -> Vec<Effect
         windowing = !console.pending.is_empty()
             || route::app_key(&key)
             || state.chrome.keymap.resolve(&[Context::Global], &[], &key) != Step::Nothing
-            || repeated(state, &[Context::Global], repeat.as_deref(), &key).is_some();
+            || repeated(state, &[Context::Global], repeat.as_ref(), &key).is_some();
         if !windowing {
             // A console that takes every key has no prompt to write in: the
             // keys that would write one go back to it live instead.
@@ -232,7 +239,7 @@ pub(crate) fn press(state: &mut ViewState, key: Key, probe: Probe) -> Vec<Effect
     );
     let seq = std::mem::take(&mut state.console.pending);
     if seq.is_empty()
-        && let Some(action) = repeated(state, &contexts, repeat.as_deref(), &key)
+        && let Some(action) = repeated(state, &contexts, repeat.as_ref(), &key)
     {
         state.console.repeat = repeat;
         return vec![Effect::PerformKey(action, key)];
@@ -243,8 +250,10 @@ pub(crate) fn press(state: &mut ViewState, key: Key, probe: Probe) -> Vec<Effect
             return Vec::new();
         }
         Step::Run(action) => {
-            if action.repeats() && !seq.is_empty() {
-                state.console.repeat = Some(seq);
+            if let Some(steps) = action.steps()
+                && !seq.is_empty()
+            {
+                state.console.repeat = Some(Repeat { before: seq, steps });
             }
             action
         }
@@ -278,16 +287,23 @@ pub(crate) fn press(state: &mut ViewState, key: Key, probe: Probe) -> Vec<Effect
     vec![Effect::PerformKey(action, key)]
 }
 
-/// The repeating action `key` runs after the keys `before` it, looked up in
-/// `contexts`, while those keys repeat.
+/// The action `key` runs after the keys before it of `repeat`, looked up in
+/// `contexts`, when it steps through what they stepped through. A key held
+/// with Ctrl does not mean what it means without here: the prefix pressed
+/// again begins a sequence rather than completing one.
 fn repeated(
     state: &ViewState,
     contexts: &[Context],
-    before: Option<&[Key]>,
+    repeat: Option<&Repeat>,
     key: &Key,
 ) -> Option<Action> {
-    match state.chrome.keymap.resolve(contexts, before?, key) {
-        Step::Run(action) if action.repeats() => Some(action),
+    let repeat = repeat?;
+    match state
+        .chrome
+        .keymap
+        .resolve_as_bound(contexts, &repeat.before, key)
+    {
+        Step::Run(action) if action.steps() == Some(repeat.steps) => Some(action),
         _ => None,
     }
 }
