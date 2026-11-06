@@ -188,6 +188,18 @@ Files open in Neovim or a viewer for their kind. `x` closes what a row shows
 without ending its session or shell. `n`, `$` and `e` start a session, shell
 or Neovim in the selected directory.
 
+A Neovim run in Adroit, opened from the tree or started in a shell, keeps the
+colorscheme its own configuration chooses. To have it draw in the console's
+theme, and follow the theme as it changes, add this to the Neovim
+configuration on the work machine:
+
+```vim
+if exists('$ADROIT_THEME_FILE') | colorscheme adroit | endif
+```
+
+The `adroit` colorscheme comes with Adroit; nothing needs to be installed. See
+[Neovim in the theme's colours](docs/spec/settings.md#neovim-in-the-themes-colours).
+
 ### Console and prompt
 
 In a session's console, `i` starts writing in the prompt. Vim motions, search
