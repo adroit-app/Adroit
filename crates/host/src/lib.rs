@@ -23,6 +23,7 @@ pub mod gateway;
 mod held;
 mod jobs;
 mod mutation;
+mod neovim;
 pub mod pasted;
 pub mod paths;
 pub mod pictures;

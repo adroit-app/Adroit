@@ -75,14 +75,16 @@ pub fn terminfo_dirs(dir: &Path, given: Option<&str>) -> String {
     format!("{}:{given}", dir.display())
 }
 
-/// What every session's environment holds for its terminal. A shell or
-/// Neovim terminal gets only this, so the editor it opens stays the user's.
+/// What every session's environment holds for its terminal and the Neovims
+/// it runs. A shell or Neovim terminal gets only this, so the editor it opens
+/// stays the user's.
 pub fn terminal_env() -> Vec<(String, String)> {
     let given = std::env::var("TERMINFO_DIRS").ok();
     let mut env = vec![(
         "TERMINFO_DIRS".into(),
         terminfo_dirs(&terminfo_dir(), given.as_deref()),
     )];
+    env.extend(crate::neovim::environment());
     if let Some(context) = crate::environment::current() {
         env.push((crate::environment::ENV.into(), context.id.clone()));
     }

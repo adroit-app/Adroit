@@ -99,6 +99,21 @@ impl Palette {
         Ok(p)
     }
 
+    /// The palette in Ghostty's format, as [`Palette::from_ghostty`] reads
+    /// it, with every colour written out.
+    pub fn to_ghostty(&self) -> String {
+        let mut text: String = self
+            .ansi
+            .iter()
+            .enumerate()
+            .map(|(n, c)| format!("palette = {n}={}\n", c.hex()))
+            .collect();
+        text.push_str(&format!("background = {}\n", self.background.hex()));
+        text.push_str(&format!("foreground = {}\n", self.foreground.hex()));
+        text.push_str(&format!("cursor-color = {}\n", self.cursor.hex()));
+        text
+    }
+
     /// Whether the palette is a dark one: its background darker than its
     /// foreground, by their relative luminance.
     pub fn is_dark(&self) -> bool {
@@ -227,5 +242,30 @@ mod tests {
         let err = Palette::from_ghostty("background = #19233\n").unwrap_err();
         assert!(err.contains("line 1"), "{err}");
         assert!(Palette::from_ghostty("palette = 16=#000000\n").is_err());
+    }
+
+    #[test]
+    fn a_palette_written_in_ghostty_s_format_reads_back_as_itself() {
+        let p = Palette {
+            cursor: Rgb::new(0xff, 0, 0),
+            ..Palette::default()
+        };
+        assert_eq!(Palette::from_ghostty(&p.to_ghostty()).unwrap(), p);
+    }
+
+    #[test]
+    fn a_palette_is_written_one_colour_a_line_every_colour_named() {
+        let text = Palette::default().to_ghostty();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[0], "palette = 0=#393b44");
+        assert_eq!(lines[15], "palette = 15=#e4e4e5");
+        assert_eq!(
+            &lines[16..],
+            [
+                "background = #192330",
+                "foreground = #cdcecf",
+                "cursor-color = #cdcecf"
+            ]
+        );
     }
 }

@@ -17,6 +17,9 @@ pub(super) async fn watch(watched: Watched) {
     let mut saved = settings::CHANGED.subscribe();
     let config = watched.host().work().snapshot().config;
     let (mut last, mut configured) = (config.settings, config.configured);
+    // Apart from `configured`: the work host starts with the theme already
+    // in force there, which no file has been written for yet.
+    let mut written = None;
     loop {
         tokio::select! {
             _ = tokio::time::sleep(EVERY) => {},
@@ -51,6 +54,19 @@ pub(super) async fn watch(watched: Watched) {
         if rethemed && let Ok(palette) = crate::themes::palette_of(&made.theme.colours) {
             crate::presences::retheme(&palette).await;
         }
+        if written.as_ref() != Some(&made.theme)
+            && let Ok(palette) = crate::themes::palette_of(&made.theme.colours)
+        {
+            // A Neovim that cannot be told the new theme keeps drawing the one
+            // it has, as a console whose palette cannot be set does.
+            let wrote = crate::environment::spawn_blocking(move || {
+                crate::neovim::write_theme(&crate::neovim::theme_file(), &palette)
+            })
+            .await;
+            if matches!(wrote, Ok(Ok(()))) {
+                written = Some(made.theme.clone());
+            }
+        }
         configured = Some(made.clone());
         let files = config
             .settings
@@ -66,6 +82,7 @@ pub(super) async fn watch(watched: Watched) {
 mod tests {
     use super::*;
     use crate::environment::{Environment, run};
+    use std::path::Path;
     use std::sync::{Arc, Mutex};
 
     #[tokio::test]
@@ -99,5 +116,52 @@ mod tests {
         .await;
         task.abort();
         result.unwrap();
+    }
+
+    #[tokio::test]
+    async fn the_theme_file_holds_the_theme_in_force_and_follows_a_new_one() {
+        let root = tempfile::tempdir().unwrap();
+        let work = Environment::at("work", root.path()).unwrap();
+        let theme = |name: &str| {
+            let dark = settings::Settings {
+                appearance: settings::Appearance::Dark,
+                dark_theme: name.into(),
+                ..settings::Settings::default()
+            };
+            run(
+                Some(work.clone()),
+                async move { settings::set(dark).unwrap() },
+            )
+        };
+        let written = |name: &str| {
+            let palette = crate::themes::palette(name, Path::new("/none")).unwrap();
+            let work = work.clone();
+            async move {
+                run(Some(work), async {
+                    tokio::time::timeout(Duration::from_secs(3), async {
+                        let file = crate::neovim::theme_file();
+                        while std::fs::read_to_string(&file).ok() != Some(palette.to_ghostty()) {
+                            tokio::time::sleep(Duration::from_millis(10)).await;
+                        }
+                    })
+                    .await
+                })
+                .await
+            }
+        };
+        theme("Nightfox").await;
+        // Seeded as the work host seeds it, with the theme already in force.
+        let host = run(Some(work.clone()), async {
+            crate::work::Host::new(crate::work::Work::configured(crate::config::read()))
+        })
+        .await;
+        let watched = Watched::new(Arc::new(Mutex::new(host)), Arc::new(|_, _| {}));
+        let task = crate::environment::spawn(run(Some(work.clone()), watch(watched)));
+        let first = written("Nightfox").await;
+        theme("Nordfox").await;
+        let next = written("Nordfox").await;
+        task.abort();
+        first.unwrap();
+        next.unwrap();
     }
 }

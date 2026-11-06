@@ -24,8 +24,8 @@ impl From<Standing> for TerminalHostStanding {
 }
 
 /// Start the terminal host as adroit's own where none runs, with the
-/// description of the terminal its programs run in, and tell `judged` how it
-/// stands.
+/// description of the terminal its programs run in and the colorscheme their
+/// Neovims can choose, and tell `judged` how it stands.
 pub(crate) async fn start(judged: &watch::Sender<Judged>) {
     let compiled =
         crate::environment::spawn_blocking(|| daemon::install_terminfo(&daemon::terminfo_dir()))
@@ -34,6 +34,13 @@ pub(crate) async fn start(judged: &watch::Sender<Judged>) {
         Ok(Err(e)) => Some(format!("cannot install the terminal's description: {e}")),
         _ => None,
     };
+    let installed = crate::environment::spawn_blocking(|| {
+        crate::neovim::install_colorscheme(&crate::neovim::data_folder())
+    })
+    .await;
+    if let Ok(Err(e)) = installed {
+        failed = Some(format!("cannot install Neovim's colorscheme: {e}"));
+    }
     let terminal_host = daemon::daemon();
     let started = if crate::remote::active() {
         terminal_host.sessions().await.map(|_| ())

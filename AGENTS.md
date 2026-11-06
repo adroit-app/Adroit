@@ -51,6 +51,7 @@ Run `just ci` before reporting a change as done. CI runs the same recipe, and
 | `crates/host/` | the work host, `adroit host`: the work, the sessions and shells it starts in the terminal host, delegation, its socket, and the commands that ask it |
 | `crates/host/themes/` | the console themes Adroit comes with |
 | `crates/host/terminfo/` | the terminfo entry the console's programs are given |
+| `crates/host/nvim/` | the colorscheme the Neovims a session runs can choose to draw in the theme in force, taken in with `include_str!` |
 | `crates/host/tests/` | tests that start the terminal host, sessions and shells |
 | `crates/term/` | the terminal host's client and server: felis sessions, their tags, screens and keys, and the protocol's versions |
 | `crates/nvim/` | the Neovims the window embeds for the prompt and the console's reader |

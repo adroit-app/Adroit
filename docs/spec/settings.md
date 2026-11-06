@@ -143,6 +143,38 @@ open. A program started in a console is told the theme's colours from the
 first time it asks, so one that picks its look by the background as it
 starts, as Neovim does, picks the theme's.
 
+### Neovim in the theme's colours
+
+Every session and terminal is started with `$ADROIT_THEME_FILE` naming a
+file of its environment that holds the colours of the theme in force, and
+with `$XDG_DATA_DIRS` starting with a folder of Adroit's, followed by the
+folders the work host was given, or `/usr/local/share:/usr/share` when it was
+given none. The file is in Ghostty's theme format, one `key = value` a line:
+`palette = N=#rrggbb` for each of the sixteen colours, then `background`,
+`foreground` and `cursor-color`, every one of them written, Adroit's own
+colours being written out as any theme's. The work host writes it on the
+work machine within a second of starting and of the theme changing,
+by setting or by the system's appearance, and replaces it whole, so it is
+never read half written.
+
+Through that folder every Neovim a session runs finds a colorscheme named
+`adroit`, which Adroit never chooses for you. Choosing it, as
+
+```vim
+if exists('$ADROIT_THEME_FILE') | colorscheme adroit | endif
+```
+
+does in a Neovim configuration, sets `'background'` by the theme's kind and
+draws Neovim's default highlights in the theme's colours: the text and the
+ground are the theme's foreground and background, the colours of the
+default's accents are the theme's own of the same hue, and the greys between
+are shades of the theme's foreground on its background. A terminal Neovim
+opens takes the sixteen colours of the theme in force as it opens, and keeps
+them. While it stays chosen, the colorscheme follows
+the file, so a new theme reaches the Neovims already running; choosing
+another colorscheme stops it following. Where the file is missing or cannot
+be read, the colorscheme draws Neovim's default highlights until it can.
+
 An unknown setting makes the file unreadable, so a misspelt one is not
 silently ignored. `naming_model` and `projects_dir`, which earlier versions
 wrote, are read and dropped. `theme`, the one theme earlier versions named, is
