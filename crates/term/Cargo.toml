@@ -23,6 +23,10 @@ libc.workspace = true
 tokio.workspace = true
 thiserror.workspace = true
 
+[build-dependencies]
+ttf-parser = "0.25.1"
+wuff = "0.2.10"
+
 [dev-dependencies]
 tempfile.workspace = true
 serde_json.workspace = true

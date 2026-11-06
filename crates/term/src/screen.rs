@@ -22,11 +22,35 @@ pub struct Line {
     pub runs: Vec<Run>,
 }
 
-/// Whether a narrow character is drawn in a cell of its own: half-width
-/// katakana and hangul, which monospace fonts leave to a fallback of another
-/// width, and block elements, which are drawn as the cell's own boxes.
+/// Whether a narrow character is drawn in a cell of its own: one the
+/// console's own font has no glyph for, which a fallback font of another
+/// width draws, such as half-width katakana, `※` or `①`, and block
+/// elements, which are drawn as the cell's own boxes.
 pub fn set_apart(c: char) -> bool {
-    matches!(c, '\u{FF61}'..='\u{FFDC}') || block(c).is_some()
+    !drawn_in_font(c) || block(c).is_some()
+}
+
+// The code points every style of the console's own font draws, read from
+// its files by the build script. The font is always behind the one the user
+// picks, so what it lacks is what a fallback of another width may draw.
+// Setting apart every character but ASCII instead would split box drawing,
+// accented letters and Nerd Font icons, which the font draws a cell wide,
+// into a span per cell.
+include!(concat!(env!("OUT_DIR"), "/drawn.rs"));
+
+fn drawn_in_font(c: char) -> bool {
+    let c = u32::from(c);
+    DRAWN
+        .binary_search_by(|&(first, last)| {
+            if last < c {
+                std::cmp::Ordering::Less
+            } else if first > c {
+                std::cmp::Ordering::Greater
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        })
+        .is_ok()
 }
 
 /// A part of a cell, as fractions of its width and height: left, top, right,
@@ -505,6 +529,35 @@ pub(crate) mod tests {
         assert_eq!(block('▒').map(|(_, a)| a), Some(0.5));
         assert_eq!(block('a'), None);
         assert!(set_apart('█') && !set_apart('a'));
+    }
+
+    #[test]
+    fn a_narrow_character_the_font_lacks_is_drawn_a_cell_at_a_time() {
+        let s = screen(6, 1, "a※b".as_bytes());
+        let runs: Vec<(&str, usize, bool)> = s.lines[0]
+            .runs
+            .iter()
+            .map(|r| (r.text.as_str(), r.width, r.apart))
+            .collect();
+        assert_eq!(
+            runs,
+            [("a", 1, false), ("※", 1, true), ("b   ", 6 - 2, false)]
+        );
+    }
+
+    #[test]
+    fn characters_the_font_draws_share_a_run() {
+        for text in ["abc", "─┼─", "é→✓", "\u{e0b0}\u{f0001}x"] {
+            let s = screen(3, 1, text.as_bytes());
+            assert_eq!(s.lines[0].runs.len(), 1, "{text}");
+        }
+    }
+
+    #[test]
+    fn symbols_the_font_lacks_are_set_apart() {
+        for c in ['※', '①', '★', '―', '♪', '⏺', '✻', '⎿'] {
+            assert!(set_apart(c), "{c}");
+        }
     }
 
     #[test]
