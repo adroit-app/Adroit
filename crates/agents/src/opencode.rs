@@ -387,8 +387,8 @@ impl AgentAdapter for OpenCode {
         screen::dialog_open(screen)
     }
 
-    fn screen_state(&self, screen: &[String]) -> Option<adroit_model::State> {
-        screen::state(screen)
+    fn judge_state(&self, screen: &[String]) -> crate::Judgement<adroit_model::State> {
+        screen::judge_state(screen)
     }
 }
 

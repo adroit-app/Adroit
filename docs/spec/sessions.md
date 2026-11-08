@@ -286,11 +286,25 @@ sleeps when idle again.
 The state a session shows, working, waiting on you and for what, done or
 failed, is what its program reports with the
 [OSC 7501 program status protocol](https://www.superlogical.com/rex/docs/build/program-status),
-as the daemon keeps it. When Codex, Pi or OpenCode reports no status, its visible activity and
-requests for approval or input supply the state instead. A request for
-approval or input on its screen wins over a report that it is working. A session Adroit
-started shows as starting until its program reports a state or its visible
-activity supplies one.
+as the daemon keeps it. For every agent, when its program has reported no
+status, or what it reported was lost as its terminal was reset, its screen
+supplies the state instead: its visible
+activity and requests for approval or input. A request for approval or input
+on its screen wins over a report that it is working. A session Adroit started
+shows as starting until its program reports a state or its screen supplies one.
+
+A working session whose screen turns idle with no sign of its own that the
+turn ended, only the sign of work gone, goes on showing as working until the
+screen is read idle once more, so a sign missed for a moment never shows a
+turn as done.
+
+`adroit session explain <session>` tells where the state a session shows
+came from: what its program reported, or the rule its screen was read by and
+the rows that rule went by, or that no rule's sign was shown and a default was
+taken; how its start stands and how long until it counts as stalled; and the
+last rows of its screen. The session is named by its id or its name, and
+`--json` prints the same as JSON. `adroit session explain --file <path>
+--agent <agent>` reads a screen kept in a file as that agent's.
 
 A session whose turn has finished is marked done, with a check, in the tree
 and in the strip of a window showing it, until it is viewed in this window;

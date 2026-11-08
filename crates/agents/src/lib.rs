@@ -16,8 +16,10 @@ mod tail;
 mod testing;
 mod time;
 pub mod usage;
+mod verdict;
 pub use delivery::{DeliveryFailure, DeliveryFuture};
 pub use own_login::conflict;
+pub use verdict::*;
 
 use adroit_model::Agent;
 use adroit_model::config::{CodexOptions, Launch, OpenCodeOptions, PiOptions, SessionOptions};
@@ -486,12 +488,20 @@ pub trait AgentAdapter: Sync {
         false
     }
     /// Whether a session just started is ready for its first prompt, as its
-    /// screen shows; by default as [`readiness`] tells from its state.
-    fn startup_readiness(&self, screen: &[String]) -> Option<adroit_model::StartupReadiness> {
-        self.screen_state(screen).and_then(readiness)
+    /// screen shows, and by which rule; by default as [`readiness`] tells
+    /// from its state.
+    fn judge_startup(&self, screen: &[String]) -> Judgement<adroit_model::StartupReadiness> {
+        self.judge_state(screen).then(readiness)
     }
-    fn screen_state(&self, _screen: &[String]) -> Option<adroit_model::State> {
-        None
+    /// How a session stands by its screen, and by which rule.
+    fn judge_state(&self, screen: &[String]) -> Judgement<adroit_model::State> {
+        Judgement::new(None, Verdict::defaulted("unread", screen, []))
+    }
+    fn startup_readiness(&self, screen: &[String]) -> Option<adroit_model::StartupReadiness> {
+        self.judge_startup(screen).value
+    }
+    fn screen_state(&self, screen: &[String]) -> Option<adroit_model::State> {
+        self.judge_state(screen).value
     }
     fn rename_command(&self, _name: &str) -> Option<String> {
         None
@@ -787,6 +797,42 @@ mod tests {
             claude.startup_readiness(&recorded("model-while-working-named")),
             Some(AwaitingInput)
         );
+    }
+
+    #[test]
+    fn claude_s_start_is_read_by_the_rule_named() {
+        use adroit_model::StartupReadiness::*;
+        let claude = adapter(Agent::Claude);
+        for (shown, readiness, rule) in [
+            (
+                screen("Trust this project?\n1. Yes\n2. No"),
+                Some(AwaitingTrust),
+                "claude.trust_asked",
+            ),
+            (
+                screen("Do you want to allow this tool?\n1. Yes\n2. No"),
+                Some(AwaitingPermission),
+                "claude.permission_asked",
+            ),
+            (recorded("input"), Some(Ready), "claude.input_box_ready"),
+            (recorded("working"), Some(Ready), "claude.input_box_ready"),
+            (recorded("model"), Some(AwaitingInput), "claude.dialog_open"),
+            (
+                screen("Starting Claude Code..."),
+                None,
+                "claude.nothing_yet",
+            ),
+        ] {
+            let judged = claude.judge_startup(&shown);
+            assert_eq!(
+                (judged.value, judged.verdict.rule.as_str()),
+                (readiness, rule),
+                "{shown:?}"
+            );
+        }
+        assert!(claude.judge_startup(&[]).verdict.default);
+        let trust = claude.judge_startup(&screen("Trust this project?\n1. Yes\n2. No"));
+        assert_eq!(trust.verdict.evidence[0].text, "Trust this project?");
     }
 
     #[test]

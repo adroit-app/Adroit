@@ -1,53 +1,65 @@
 //! Telling from Claude Code's screen whether one of its own dialogs, such as
 //! the picker `/model` opens, has the keys in place of its input box.
 
+use adroit_model::State;
+
+use crate::{Judgement, Verdict};
+
 /// Whether the screen whose rows are `lines` shows a dialog of Claude Code's
 /// that takes keys: one drawn below a rule across the screen, with a hint of
 /// its keys such as "Esc to cancel". It takes the place of the input box, a
 /// prompt between two such rules, or sits right above it while Claude works.
 pub fn dialog_open<S: AsRef<str>>(lines: &[S]) -> bool {
+    dialog_hint(lines).is_some()
+}
+
+/// The row of the hint of the open dialog's keys, as [`dialog_open`] finds it.
+pub(crate) fn dialog_hint<S: AsRef<str>>(lines: &[S]) -> Option<usize> {
     let line = |i: usize| lines[i].as_ref();
     let rules: Vec<usize> = (0..lines.len()).filter(|&i| rule(line(i))).collect();
     let input = rules.windows(2).rposition(|w| prompt(line(w[0] + 1)));
     let (from, to) = match input {
-        Some(0) => return false,
+        Some(0) => return None,
         Some(at) => (rules[at - 1], rules[at]),
-        None => match rules.last() {
-            Some(&last) => (last, lines.len()),
-            None => return false,
-        },
+        None => (*rules.last()?, lines.len()),
     };
-    (from + 1..to).any(|i| key_hint(line(i)))
+    (from + 1..to).find(|&i| key_hint(line(i)))
 }
 
 /// How a session stands by its screen, for one whose status its program has
 /// not reported: working while its spinner sits right above the input box,
-/// idle with the input box alone. `None` before the input box is drawn, as
-/// while Claude Code asks whether to trust the folder, and while a dialog of
-/// its own has the keys.
-pub fn screen_state<S: AsRef<str>>(lines: &[S]) -> Option<adroit_model::State> {
-    use adroit_model::State;
+/// idle with the input box alone. Nothing is told before the input box is
+/// drawn, as while Claude Code asks whether to trust the folder, nor while a
+/// dialog of its own has the keys.
+pub fn judge_state<S: AsRef<str>>(lines: &[S]) -> Judgement<State> {
     let line = |i: usize| lines[i].as_ref();
+    if let Some(hint) = dialog_hint(lines) {
+        return Judgement::new(None, Verdict::matched("claude.dialog_open", lines, [hint]));
+    }
     let rules: Vec<usize> = (0..lines.len()).filter(|&i| rule(line(i))).collect();
-    let top = rules
+    let Some(top) = rules
         .windows(2)
         .rfind(|w| prompt(line(w[0] + 1)))
-        .map(|w| w[0])?;
-    if dialog_open(lines) {
-        return None;
-    }
+        .map(|w| w[0])
+    else {
+        return Judgement::new(None, Verdict::defaulted("claude.no_input_box", lines, []));
+    };
     // A tip can sit under the spinner; anything further up is the reply.
     let spinning = (0..top)
         .rev()
-        .map(line)
-        .filter(|l| !l.trim().is_empty())
+        .filter(|&i| !line(i).trim().is_empty())
         .take(3)
-        .any(spinner);
-    Some(if spinning {
-        State::Working
-    } else {
-        State::Idle
-    })
+        .find(|&i| spinner(line(i)));
+    match spinning {
+        Some(at) => Judgement::new(
+            Some(State::Working),
+            Verdict::matched("claude.spinner_above_input", lines, [at]),
+        ),
+        None => Judgement::new(
+            Some(State::Idle),
+            Verdict::defaulted("claude.input_box_idle", lines, [top + 1]),
+        ),
+    }
 }
 
 /// Claude Code's spinner while it works: a glyph, then a word with an
@@ -136,7 +148,6 @@ fn key_hint(line: &str) -> bool {
 mod tests {
     use super::*;
     use crate::testing::recorded;
-    use adroit_model::State;
 
     // The screens kept under `tests/screens`. Those named after a slash command
     // and `input`, `slash-menu` and `after-a-reply` were recorded from Claude
@@ -279,13 +290,80 @@ mod tests {
         }
     }
 
+    fn state_of<S: AsRef<str>>(lines: &[S]) -> Option<State> {
+        judge_state(lines).value
+    }
+
+    #[test]
+    fn each_recorded_screen_is_read_by_the_rule_named() {
+        for (name, state, rule) in [
+            (
+                "working",
+                Some(State::Working),
+                "claude.spinner_above_input",
+            ),
+            (
+                "working-named",
+                Some(State::Working),
+                "claude.spinner_above_input",
+            ),
+            ("input", Some(State::Idle), "claude.input_box_idle"),
+            ("after-a-reply", Some(State::Idle), "claude.input_box_idle"),
+            (
+                "dev-channels-confirmed",
+                Some(State::Idle),
+                "claude.input_box_idle",
+            ),
+            (
+                "quoting-a-dialog",
+                Some(State::Idle),
+                "claude.input_box_idle",
+            ),
+            ("slash-menu", Some(State::Idle), "claude.input_box_idle"),
+            ("model", None, "claude.dialog_open"),
+            ("model-while-working", None, "claude.dialog_open"),
+            ("model-while-working-named", None, "claude.dialog_open"),
+            ("config", None, "claude.dialog_open"),
+            ("permissions", None, "claude.dialog_open"),
+            ("mcp", None, "claude.dialog_open"),
+            ("theme", None, "claude.dialog_open"),
+            ("dev-channels", None, "claude.dialog_open"),
+        ] {
+            let judged = judge_state(&recorded(name));
+            assert_eq!(
+                (judged.value, judged.verdict.rule.as_str()),
+                (state, rule),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_rule_that_matched_names_the_rows_it_went_by() {
+        let working = judge_state(&recorded("working")).verdict;
+        assert!(!working.default);
+        let rows: Vec<&str> = working.evidence.iter().map(|e| e.text.as_str()).collect();
+        assert_eq!(rows, ["✻ Running… (3s · esc to interrupt)"]);
+        let model = judge_state(&recorded("model")).verdict;
+        assert!(model.evidence[0].text.to_lowercase().contains("esc to "));
+    }
+
+    #[test]
+    fn the_input_box_with_no_sign_of_work_is_idle_by_default() {
+        let idle = judge_state(&recorded("input")).verdict;
+        assert!(idle.default);
+        assert!(idle.evidence[0].text.starts_with('❯'));
+        let none = judge_state::<&str>(&[]).verdict;
+        assert_eq!(
+            (none.rule.as_str(), none.default),
+            ("claude.no_input_box", true)
+        );
+    }
+
     #[test]
     fn a_session_with_its_spinner_above_the_input_box_works() {
-        assert_eq!(screen_state(&recorded("working")), Some(State::Working));
-        assert_eq!(
-            screen_state(&recorded("working-named")),
-            Some(State::Working)
-        );
+        assert_eq!(state_of(&recorded("working")), Some(State::Working));
+        assert_eq!(state_of(&recorded("working-named")), Some(State::Working));
     }
 
     #[test]
@@ -299,19 +377,19 @@ mod tests {
                 std::iter::once(line).chain(tip)
             })
             .collect::<Vec<_>>();
-        assert_eq!(screen_state(&lines), Some(State::Working));
+        assert_eq!(state_of(&lines), Some(State::Working));
     }
 
     #[test]
     fn a_session_with_its_input_box_and_no_spinner_is_idle() {
         for name in ["input", "after-a-reply", "dev-channels-confirmed"] {
-            assert_eq!(screen_state(&recorded(name)), Some(State::Idle), "{name}");
+            assert_eq!(state_of(&recorded(name)), Some(State::Idle), "{name}");
         }
     }
 
     #[test]
     fn a_screen_without_the_input_box_tells_no_state() {
-        assert_eq!(screen_state::<&str>(&[]), None);
+        assert_eq!(state_of::<&str>(&[]), None);
         let trust = [
             "╭──────────────────────────────────────────╮",
             "│ Do you trust the files in this folder?   │",
@@ -319,13 +397,13 @@ mod tests {
             "│   2. No, exit                            │",
             "╰──────────────────────────────────────────╯",
         ];
-        assert_eq!(screen_state(&trust), None);
+        assert_eq!(state_of(&trust), None);
     }
 
     #[test]
     fn a_screen_with_a_dialog_of_claude_s_own_tells_no_state() {
         for name in ["model", "model-while-working", "dev-channels"] {
-            assert_eq!(screen_state(&recorded(name)), None, "{name}");
+            assert_eq!(state_of(&recorded(name)), None, "{name}");
         }
     }
 
@@ -337,6 +415,6 @@ mod tests {
             at.saturating_sub(10),
             "✻ Running… (3s · esc to interrupt)".into(),
         );
-        assert_eq!(screen_state(&lines), Some(State::Idle));
+        assert_eq!(state_of(&lines), Some(State::Idle));
     }
 }

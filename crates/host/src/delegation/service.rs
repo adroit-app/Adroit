@@ -27,7 +27,7 @@ type SettingsSource = Arc<dyn Fn() -> std::result::Result<Settings, String> + Se
 
 /// How long a session may start without becoming ready or showing a dialog
 /// before it shows as stalled.
-const STALL: Duration = Duration::from_secs(60);
+pub(crate) const STALL: Duration = Duration::from_secs(60);
 
 /// The tag a terminal carries once its warning about Adroit's channel was
 /// confirmed, so that one launch is never confirmed twice.

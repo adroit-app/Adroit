@@ -21,6 +21,7 @@ mod conversation;
 mod dialog;
 mod entries;
 mod history;
+pub(crate) mod hold;
 mod marks;
 mod offers;
 mod past;

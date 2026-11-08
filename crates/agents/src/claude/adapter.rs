@@ -15,7 +15,7 @@ const TRUST_ASKED: &[&str] = &[
 const PERMISSION_ASKED: &[&str] = &["do you want to allow", "allow this tool", "permission to"];
 
 impl AgentAdapter for Claude {
-    fn startup_readiness(&self, screen: &[String]) -> Option<adroit_model::StartupReadiness> {
+    fn judge_startup(&self, screen: &[String]) -> Judgement<adroit_model::StartupReadiness> {
         use adroit_model::StartupReadiness;
         let rules = screen
             .iter()
@@ -35,28 +35,45 @@ impl AgentAdapter for Claude {
                 .chain(PERMISSION_ASKED)
                 .any(|phrase| line.contains(phrase))
         });
-        if !super::dialog::dialog_open(screen)
-            && prompt
-                .is_some_and(|prompt| decision_question.is_none_or(|question| prompt > question))
+        let hint = super::dialog::dialog_hint(screen);
+        if let Some(prompt) = prompt
+            && hint.is_none()
+            && decision_question.is_none_or(|question| prompt > question)
         {
-            return Some(StartupReadiness::Ready);
+            return Judgement::new(
+                Some(StartupReadiness::Ready),
+                Verdict::matched("claude.input_box_ready", screen, [prompt]),
+            );
         }
-        let tail = screen
-            .iter()
-            .rev()
-            .take(24)
-            .rev()
-            .map(|line| line.to_lowercase())
-            .collect::<Vec<_>>()
-            .join("\n");
-        let decision = tail.contains("yes") && tail.contains("no");
-        if decision && TRUST_ASKED.iter().any(|phrase| tail.contains(phrase)) {
-            return Some(StartupReadiness::AwaitingTrust);
+        let tail: Vec<(usize, String)> = (screen.len().saturating_sub(24)..screen.len())
+            .map(|i| (i, screen[i].to_lowercase()))
+            .collect();
+        let shown = |word: &str| tail.iter().any(|(_, line)| line.contains(word));
+        let asked = |phrases: &[&str]| {
+            tail.iter()
+                .rfind(|(_, line)| phrases.iter().any(|phrase| line.contains(phrase)))
+                .map(|(i, _)| *i)
+                .filter(|_| shown("yes") && shown("no"))
+        };
+        if let Some(at) = asked(TRUST_ASKED) {
+            return Judgement::new(
+                Some(StartupReadiness::AwaitingTrust),
+                Verdict::matched("claude.trust_asked", screen, [at]),
+            );
         }
-        if decision && PERMISSION_ASKED.iter().any(|phrase| tail.contains(phrase)) {
-            return Some(StartupReadiness::AwaitingPermission);
+        if let Some(at) = asked(PERMISSION_ASKED) {
+            return Judgement::new(
+                Some(StartupReadiness::AwaitingPermission),
+                Verdict::matched("claude.permission_asked", screen, [at]),
+            );
         }
-        super::dialog::dialog_open(screen).then_some(StartupReadiness::AwaitingInput)
+        match hint {
+            Some(at) => Judgement::new(
+                Some(StartupReadiness::AwaitingInput),
+                Verdict::matched("claude.dialog_open", screen, [at]),
+            ),
+            None => Judgement::new(None, Verdict::defaulted("claude.nothing_yet", screen, [])),
+        }
     }
 
     fn instruction_args(&self, instructions: &str) -> Vec<String> {
@@ -237,8 +254,8 @@ impl AgentAdapter for Claude {
     fn dialog_open(&self, screen: &[String]) -> bool {
         super::dialog::dialog_open(screen)
     }
-    fn screen_state(&self, screen: &[String]) -> Option<adroit_model::State> {
-        super::dialog::screen_state(screen)
+    fn judge_state(&self, screen: &[String]) -> Judgement<adroit_model::State> {
+        super::dialog::judge_state(screen)
     }
     fn rename_command(&self, name: &str) -> Option<String> {
         Some(format!("/rename {name}"))

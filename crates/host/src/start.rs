@@ -178,14 +178,43 @@ async fn start_as(
     Ok(started["name"].as_str().unwrap_or_default().to_owned())
 }
 
+/// `adroit session explain <rest>`: a screen kept in a file read here, since
+/// the file is where this command runs, and a session asked of its work host.
+fn explain_cli(args: &[String], rest: &[String]) -> i32 {
+    if crate::explain::parse(rest).is_none() {
+        eprintln!("{}", crate::explain::USAGE);
+        return 2;
+    }
+    match crate::explain::of_file(rest) {
+        Some((Ok(text), code)) => {
+            println!("{text}");
+            code
+        }
+        Some((Err(text), code)) => {
+            eprintln!("adroit: {text}");
+            code
+        }
+        None => {
+            let mut ask = vec!["session".to_string()];
+            ask.extend(args.iter().cloned());
+            crate::work_host::run_command(ask, None)
+        }
+    }
+}
+
 /// `adroit session <args>`. Returns the process exit code.
 pub fn cli(args: &[String]) -> i32 {
     // Read before the environment is cleared of the session's marks below.
     let acting_as = std::env::var(crate::delegation::launch::TOKEN_ENV)
         .ok()
         .zip(std::env::var(crate::delegation::launch::ROOT_ENV).ok());
+    if let [op, rest @ ..] = args
+        && op == "explain"
+    {
+        return explain_cli(args, rest);
+    }
     let Some(asked) = asked(args) else {
-        eprintln!("{USAGE}");
+        eprintln!("{USAGE}\n{}", crate::explain::USAGE);
         return 2;
     };
     let input = match &asked.prompt {
@@ -331,6 +360,11 @@ pub(crate) async fn run(
     input: Option<String>,
 ) -> crate::command::Output {
     use crate::command::Output;
+    if let [op, rest @ ..] = args
+        && op == "explain"
+    {
+        return crate::explain::run(rest).await;
+    }
     let Some(asked) = asked(args) else {
         return Output {
             wrote: Err(USAGE.into()),

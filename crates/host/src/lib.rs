@@ -19,6 +19,7 @@ pub mod editor;
 pub mod env;
 pub mod environment;
 pub mod execution;
+mod explain;
 pub mod gateway;
 mod held;
 mod jobs;

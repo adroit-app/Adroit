@@ -204,8 +204,8 @@ impl AgentAdapter for Codex {
     fn dialog_open(&self, screen: &[String]) -> bool {
         screen::dialog_open(screen)
     }
-    fn screen_state(&self, screen: &[String]) -> Option<adroit_model::State> {
-        screen::state(screen)
+    fn judge_state(&self, screen: &[String]) -> crate::Judgement<adroit_model::State> {
+        screen::judge_state(screen)
     }
     fn past(
         &self,
@@ -388,6 +388,56 @@ mod tests {
             ("• Worked for 2s\n\n› \n\n100% context left", State::Idle),
         ] {
             assert_eq!(Codex.screen_state(&screen(text)), Some(expected), "{text}");
+        }
+    }
+
+    #[test]
+    fn codex_s_screen_is_read_by_the_rule_named() {
+        for (text, rule, default) in [
+            ("Starting Codex…", "codex.no_composer", true),
+            (
+                "GPT-5.4 is no longer available\nenter/esc continue · ⌃c quit",
+                "codex.dialog_without_composer",
+                false,
+            ),
+            (
+                "Question 1/1\n› \n\nenter to submit answer | esc to interrupt",
+                "codex.question_below_composer",
+                false,
+            ),
+            (
+                "Run it?\n\n› 1. Yes, proceed (y)\n  2. No (esc)\n\nPress enter to confirm or esc to cancel",
+                "codex.permission_below_composer",
+                false,
+            ),
+            (
+                "Select Model\n\n› 1. Current\n  2. Other\n\nenter to select, esc to dismiss",
+                "codex.dialog_below_composer",
+                false,
+            ),
+            (
+                "• Working (2s • esc to interrupt)\n\n› \n\n100% context left",
+                "codex.interrupt_hint",
+                false,
+            ),
+            (
+                "• Worked for 2s\n\n› \n\n100% context left",
+                "codex.worked_for",
+                false,
+            ),
+            ("› \n\n? for shortcuts", "codex.composer_idle", true),
+            (
+                "• Worked for 2s\n\n› old\n• Thinking\n\n› \n\n100% context left",
+                "codex.composer_idle",
+                true,
+            ),
+        ] {
+            let verdict = Codex.judge_state(&screen(text)).verdict;
+            assert_eq!(
+                (verdict.rule.as_str(), verdict.default),
+                (rule, default),
+                "{text}"
+            );
         }
     }
 

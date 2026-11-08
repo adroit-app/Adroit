@@ -171,15 +171,28 @@ pub async fn read_sessions(
                     learned.push(tag);
                 }
                 let reported = s.status.is_some();
-                if (!reported || c.state == State::Working)
+                let screen = match (!reported || c.state == State::Working)
                     && adapter.capabilities().screen_state
-                    && let Ok(Ok(screen)) =
-                        tokio::time::timeout(Duration::from_millis(300), daemon.visible(s.id)).await
-                    && let Some(state) = match reported {
-                        true => past_working(&c.state, adapter, &screen),
-                        false => adapter.screen_state(&screen),
-                    }
                 {
+                    true => tokio::time::timeout(Duration::from_millis(300), daemon.visible(s.id))
+                        .await
+                        .ok()
+                        .and_then(Result::ok),
+                    false => None,
+                };
+                let state = match reported {
+                    true => {
+                        super::hold::settled(s.id, None);
+                        screen
+                            .as_ref()
+                            .and_then(|screen| past_working(&c.state, adapter, screen))
+                    }
+                    false => super::hold::settled(
+                        s.id,
+                        screen.map(|screen| adapter.judge_state(&screen)).as_ref(),
+                    ),
+                };
+                if let Some(state) = state {
                     c.state = state;
                     // What the program said went with the report set aside.
                     c.status_message = None;
@@ -195,6 +208,7 @@ pub async fn read_sessions(
             None => {}
         }
     }
+    super::hold::keep_only(&kept.iter().map(|s| s.id).collect::<Vec<_>>());
     // Without Claude Code, or with a listing it cannot give, nothing is
     // learned; the sessions are listed all the same.
     // Each login lists the sessions running in it alone, so each is asked as
